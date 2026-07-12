@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: eticketsgo
+          POSTGRES_PASSWORD: eticketsgo
+          POSTGRES_DB: eticketsgo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U eticketsgo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://eticketsgo:eticketsgo@localhost:5432/eticketsgo?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      QR_SIGNING_SECRET: ci-qr-secret
+      PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared packages
+        run: npm run packages:build
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Apply migrations & seed
+        run: |
+          npm run db:deploy
+          npm run db:seed
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build all apps
+        run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/e2e
+
+      - name: Start services
+        run: |
+          node apps/api/dist/main.js & echo $! > /tmp/api.pid
+          npx --workspace @eticketsgo/customer-web next start -p 3000 & echo $! > /tmp/cust.pid
+          npx --workspace @eticketsgo/organizer-web next start -p 3001 & echo $! > /tmp/org.pid
+          npx --workspace @eticketsgo/admin-web next start -p 3002 & echo $! > /tmp/admin.pid
+          npx wait-on http://localhost:4000/api/health http://localhost:3000 http://localhost:3001 http://localhost:3002 --timeout 60000
+
+      - name: Playwright e2e
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/e2e/playwright-report
+          retention-days: 7

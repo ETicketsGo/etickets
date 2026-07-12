@@ -1,0 +1,38 @@
+{
+  "name": "eticketsgo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ETicketsGo — a global event operating system for customers, organizers, and administrators.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test --filter=!@eticketsgo/e2e",
+    "e2e": "npm run test -w @eticketsgo/e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "npm run -w @eticketsgo/api db:generate",
+    "db:migrate": "npm run -w @eticketsgo/api db:migrate",
+    "db:deploy": "npm run -w @eticketsgo/api db:deploy",
+    "db:seed": "npm run -w @eticketsgo/api db:seed",
+    "db:reset": "npm run -w @eticketsgo/api db:reset",
+    "packages:build": "npm run build -w @eticketsgo/shared-types -w @eticketsgo/design-tokens -w @eticketsgo/validation"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.15",
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.3",
+    "wait-on": "^8.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@11.11.0"
+}

@@ -1,0 +1,581 @@
+// ETicketsGo data model — modular monolith, multi-tenant by organizationId.
+// Money is stored as integer minor units (paise for INR) to avoid float error.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  CUSTOMER
+  ORGANIZER_OWNER
+  ORGANIZER_MANAGER
+  CHECKIN_STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrganizationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+}
+
+enum EventStatus {
+  DRAFT
+  UNDER_REVIEW
+  PUBLISHED
+  PAUSED
+  SOLD_OUT
+  CANCELLED
+  COMPLETED
+  ARCHIVED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum FeeMode {
+  CUSTOMER_PAYS
+  ORGANIZER_PAYS
+  SHARED
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CANCELLED
+  EXPIRED
+  DISPUTED
+}
+
+enum TicketStatus {
+  ACTIVE
+  TRANSFERRED
+  CHECKED_IN
+  CANCELLED
+  REFUNDED
+  VOID
+}
+
+enum PaymentStatus {
+  REQUIRES_PAYMENT
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentAttemptStatus {
+  CREATED
+  SUCCEEDED
+  FAILED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PayoutStatus {
+  PENDING
+  SCHEDULED
+  PAID
+  FAILED
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  PAYMENT_FAILED
+  EVENT_REMINDER
+  BOOKING_CANCELLED
+  REFUND_COMPLETED
+  TICKET_CHECKED_IN
+}
+
+enum CheckInResultType {
+  SUCCESS
+  DUPLICATE
+  INVALID
+  CANCELLED
+  WRONG_SESSION
+}
+
+// ─────────────────────────── Identity ───────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  fullName     String
+  roles        Role[]     @default([CUSTOMER])
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshTokens RefreshToken[]
+  memberships   OrganizationMember[]
+  bookings      Booking[]
+  notifications Notification[]
+  checkIns      CheckIn[]            @relation("CheckInActor")
+  auditLogs     AuditLog[]
+
+  @@index([status])
+}
+
+model RefreshToken {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────── Tenancy ───────────────────────────
+
+model Organization {
+  id           String             @id @default(cuid())
+  name         String
+  slug         String             @unique
+  status       OrganizationStatus @default(PENDING)
+  contactEmail String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  members OrganizationMember[]
+  venues  Venue[]
+  events  Event[]
+  payouts Payout[]
+  refunds Refund[]
+
+  @@index([status])
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role
+  status         MemberStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────── Catalog ───────────────────────────
+
+model Venue {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  city           String
+  country        String       @default("India")
+  address        String?
+  capacity       Int?
+  status         String       @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  areas  VenueArea[]
+  events Event[]
+
+  @@index([organizationId])
+  @@index([city])
+}
+
+model VenueArea {
+  id        String   @id @default(cuid())
+  venueId   String
+  venue     Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  name      String
+  capacity  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([venueId])
+}
+
+model Event {
+  id               String      @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venueId          String
+  venue            Venue       @relation(fields: [venueId], references: [id])
+  title            String
+  slug             String      @unique
+  category         String
+  description      String?
+  status           EventStatus @default(DRAFT)
+  feeMode          FeeMode     @default(CUSTOMER_PAYS)
+  refundPolicy     String?
+  publishedAt      DateTime?
+  reviewedByUserId String?
+  reviewNote       String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  sessions EventSession[]
+  bookings Booking[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([category])
+}
+
+model EventSession {
+  id        String        @id @default(cuid())
+  eventId   String
+  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  startsAt  DateTime
+  endsAt    DateTime
+  status    SessionStatus @default(SCHEDULED)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  ticketTypes TicketType[]
+  bookings    Booking[]
+  tickets     Ticket[]
+  checkIns    CheckIn[]
+
+  @@index([eventId])
+  @@index([startsAt])
+}
+
+model TicketType {
+  id             String        @id @default(cuid())
+  eventSessionId String
+  eventSession   EventSession  @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  name           String
+  priceMinor     Int
+  currency       String        @default("INR")
+  quantityTotal  Int
+  maxPerOrder    Int           @default(10)
+  salesStartAt   DateTime?
+  salesEndAt     DateTime?
+  status         String        @default("ACTIVE")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  inventory    TicketInventory?
+  bookingItems BookingItem[]
+  tickets      Ticket[]
+
+  @@index([eventSessionId])
+}
+
+// One row per ticket type; the concurrency-safe source of truth for stock.
+model TicketInventory {
+  id            String     @id @default(cuid())
+  ticketTypeId  String     @unique
+  ticketType    TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  quantityTotal Int
+  quantitySold  Int        @default(0)
+  quantityHeld  Int        @default(0)
+  version       Int        @default(0)
+  updatedAt     DateTime   @updatedAt
+}
+
+// ─────────────────────────── Commerce ───────────────────────────
+
+model Coupon {
+  id             String     @id @default(cuid())
+  organizationId String?
+  code           String     @unique
+  type           CouponType
+  value          Int
+  maxRedemptions Int?
+  redemptions    Int        @default(0)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  status         String     @default("ACTIVE")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  bookings Booking[]
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  organizationId String
+  eventId        String
+  event          Event         @relation(fields: [eventId], references: [id])
+  eventSessionId String
+  eventSession   EventSession  @relation(fields: [eventSessionId], references: [id])
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id])
+  couponId       String?
+  coupon         Coupon?       @relation(fields: [couponId], references: [id])
+
+  buyerName  String
+  buyerEmail String
+  status     BookingStatus @default(PENDING_PAYMENT)
+  currency   String        @default("INR")
+  feeMode    FeeMode       @default(CUSTOMER_PAYS)
+
+  // Immutable money snapshot (minor units) so historical bookings never drift.
+  subtotalMinor     Int
+  bookingFeeMinor   Int @default(0)
+  paymentFeeMinor   Int @default(0)
+  discountMinor     Int @default(0)
+  customerFeeMinor  Int @default(0)
+  organizerFeeMinor Int @default(0)
+  totalMinor        Int
+
+  holdExpiresAt DateTime
+  confirmedAt   DateTime?
+  cancelledAt   DateTime?
+  idempotencyKey String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items   BookingItem[]
+  tickets Ticket[]
+  payment Payment?
+  refunds Refund[]
+
+  @@index([organizationId])
+  @@index([eventId])
+  @@index([status])
+  @@index([holdExpiresAt])
+}
+
+model BookingItem {
+  id            String     @id @default(cuid())
+  bookingId     String
+  booking       Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  ticketTypeId  String
+  ticketType    TicketType @relation(fields: [ticketTypeId], references: [id])
+  quantity      Int
+  unitPriceMinor Int
+  lineTotalMinor Int
+  createdAt     DateTime   @default(now())
+
+  @@index([bookingId])
+}
+
+model Ticket {
+  id             String       @id @default(cuid())
+  bookingId      String
+  booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  ticketTypeId   String
+  ticketType     TicketType   @relation(fields: [ticketTypeId], references: [id])
+  eventSessionId String
+  eventSession   EventSession @relation(fields: [eventSessionId], references: [id])
+  organizationId String
+  serial         String       @unique
+  nonce          String
+  qrVersion      Int          @default(1)
+  status         TicketStatus @default(ACTIVE)
+  holderName     String?
+  holderEmail    String?
+  issuedAt       DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  checkIns CheckIn[]
+
+  @@index([bookingId])
+  @@index([eventSessionId])
+  @@index([status])
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  bookingId  String        @unique
+  booking    Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  provider   String        @default("mock")
+  status     PaymentStatus @default(REQUIRES_PAYMENT)
+  amountMinor Int
+  currency   String        @default("INR")
+  providerRef String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  attempts PaymentAttempt[]
+
+  @@index([status])
+}
+
+model PaymentAttempt {
+  id          String               @id @default(cuid())
+  paymentId   String
+  payment     Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  status      PaymentAttemptStatus @default(CREATED)
+  providerRef String?
+  rawEvent    Json?
+  createdAt   DateTime             @default(now())
+
+  @@index([paymentId])
+}
+
+model Refund {
+  id               String       @id @default(cuid())
+  bookingId        String
+  booking          Booking      @relation(fields: [bookingId], references: [id])
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  amountMinor      Int
+  status           RefundStatus @default(REQUESTED)
+  reason           String
+  ticketIds        String[]     @default([])
+  requestedByUserId String?
+  processedByUserId String?
+  providerRef      String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model Payout {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventId        String?
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  grossMinor     Int          @default(0)
+  bookingFeeMinor Int         @default(0)
+  paymentFeeMinor Int         @default(0)
+  refundMinor    Int          @default(0)
+  netMinor       Int          @default(0)
+  currency       String       @default("INR")
+  status         PayoutStatus @default(PENDING)
+  scheduledAt    DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+// ─────────────────────────── Operations ───────────────────────────
+
+model CheckIn {
+  id             String            @id @default(cuid())
+  ticketId       String
+  ticket         Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  eventSessionId String
+  eventSession   EventSession      @relation(fields: [eventSessionId], references: [id])
+  result         CheckInResultType
+  byUserId       String?
+  by             User?             @relation("CheckInActor", fields: [byUserId], references: [id])
+  deviceInfo     String?
+  reversed       Boolean           @default(false)
+  reversedByUserId String?
+  reversedAt     DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@index([ticketId])
+  @@index([eventSessionId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String?
+  user      User?            @relation(fields: [userId], references: [id])
+  type      NotificationType
+  channel   String           @default("email")
+  toEmail   String?
+  payload   Json
+  status    String           @default("PENDING")
+  sentAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([type])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  actorUserId    String?
+  actor          User?    @relation(fields: [actorUserId], references: [id])
+  organizationId String?
+  action         String
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  correlationId  String?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([action])
+}
+
+model IdempotencyRecord {
+  id           String    @id @default(cuid())
+  scope        String
+  key          String
+  requestHash  String?
+  responseJson Json?
+  status       String    @default("IN_PROGRESS")
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+
+  @@unique([scope, key])
+}
+
+// Configurable, tiered platform fee rules. Admin-managed (section 13).
+model FeeRule {
+  id        String   @id @default(cuid())
+  label     String
+  minMinor  Int
+  maxMinor  Int?
+  feeMinor  Int
+  currency  String   @default("INR")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}

@@ -1,0 +1,95 @@
+/**
+ * ETicketsGo semantic design tokens as CSS custom properties.
+ *
+ * Values are HSL channels ("H S% L%") so Tailwind can compose alpha,
+ * e.g. hsl(var(--action-primary) / 0.5). Neutral, premium, and restrained:
+ * blue is reserved for primary actions, selection, links and focus — everything
+ * else is neutral. WCAG AA verified for text-on-surface pairs.
+ */
+
+:root {
+  /* backgrounds */
+  --background-canvas: 240 20% 98.5%; /* #FAFAFB */
+  --background-surface: 0 0% 100%; /* white cards */
+  --background-subtle: 220 24% 96%; /* #F3F4F7 */
+  --background-elevated: 0 0% 100%;
+
+  /* text */
+  --text-primary: 222 47% 11%; /* #0F172A */
+  --text-secondary: 220 12% 38%; /* #545B6B */
+  --text-muted: 220 9% 55%; /* #838A97 */
+
+  /* border */
+  --border-default: 220 18% 91%; /* very subtle gray */
+  --border-strong: 220 16% 84%;
+
+  /* primary — blue, used sparingly */
+  --action-primary: 221 83% 53%; /* #2563EB */
+  --action-primary-hover: 221 83% 48%;
+  --action-primary-foreground: 0 0% 100%;
+
+  /* secondary — light neutral */
+  --action-secondary: 220 20% 96%;
+  --action-secondary-foreground: 222 40% 16%;
+
+  /* danger */
+  --action-danger: 0 72% 51%; /* #DC2626 */
+  --action-danger-foreground: 0 0% 100%;
+
+  /* status */
+  --status-success: 142 68% 36%; /* #16A34A */
+  --status-warning: 32 92% 44%; /* #D97706 */
+  --status-error: 0 72% 51%; /* #DC2626 */
+  --status-info: 221 83% 53%; /* blue */
+
+  /* focus ring */
+  --ring: 221 83% 53%;
+
+  /* radii */
+  --radius-sm: 0.5rem; /* 8px */
+  --radius-md: 0.875rem; /* 14px — buttons, inputs */
+  --radius-lg: 1.25rem; /* 20px — cards */
+  --radius-xl: 1.5rem; /* 24px — dialogs */
+
+  /* soft, floating elevation */
+  --shadow-xs: 0 1px 2px 0 rgb(16 24 40 / 0.04);
+  --shadow-sm: 0 1px 3px rgb(16 24 40 / 0.05), 0 1px 2px -1px rgb(16 24 40 / 0.04);
+  --shadow-md: 0 6px 16px -6px rgb(16 24 40 / 0.1), 0 2px 6px -2px rgb(16 24 40 / 0.05);
+  --shadow-lg: 0 16px 40px -12px rgb(16 24 40 / 0.16), 0 4px 12px -6px rgb(16 24 40 / 0.08);
+}
+
+.dark {
+  --background-canvas: 224 32% 7%; /* #0B0E15 */
+  --background-surface: 223 26% 11%; /* #12151D */
+  --background-subtle: 222 22% 16%; /* #1F2430 */
+  --background-elevated: 223 24% 13%;
+
+  --text-primary: 210 24% 98%;
+  --text-secondary: 217 15% 72%;
+  --text-muted: 218 12% 58%;
+
+  --border-default: 220 16% 20%;
+  --border-strong: 220 14% 28%;
+
+  --action-primary: 217 92% 62%; /* brighter blue on dark */
+  --action-primary-hover: 217 92% 68%;
+  --action-primary-foreground: 224 32% 7%;
+
+  --action-secondary: 220 16% 20%;
+  --action-secondary-foreground: 210 24% 98%;
+
+  --action-danger: 0 72% 58%;
+  --action-danger-foreground: 0 0% 100%;
+
+  --status-success: 142 60% 48%;
+  --status-warning: 34 90% 56%;
+  --status-error: 0 74% 62%;
+  --status-info: 217 92% 66%;
+
+  --ring: 217 92% 62%;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 6px 16px -6px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.6);
+}
