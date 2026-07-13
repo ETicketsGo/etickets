@@ -41,7 +41,13 @@ function makePrisma(
 describe('BookingsService.releaseExpiredHolds', () => {
   it('returns 0 and does nothing when there are no stale holds', async () => {
     const { prisma } = makePrisma([]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
+    const service = new BookingsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      realInventory(),
+    );
     const released = await service.releaseExpiredHolds();
     expect(released).toBe(0);
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -57,7 +63,13 @@ describe('BookingsService.releaseExpiredHolds', () => {
         ],
       },
     ]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
+    const service = new BookingsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      realInventory(),
+    );
 
     const released = await service.releaseExpiredHolds('session-1');
     expect(released).toBe(1);
@@ -79,7 +91,13 @@ describe('BookingsService.releaseExpiredHolds', () => {
 
   it('only queries PENDING_PAYMENT holds past their expiry', async () => {
     const { prisma } = makePrisma([]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
+    const service = new BookingsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      realInventory(),
+    );
     await service.releaseExpiredHolds();
     const where = prisma.booking.findMany.mock.calls[0][0].where;
     expect(where.status).toBe(BookingStatus.PENDING_PAYMENT);

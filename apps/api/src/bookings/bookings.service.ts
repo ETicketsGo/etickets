@@ -12,6 +12,8 @@ import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
+import { PricingStrategiesService } from '../pricing/pricing-strategies.service';
+import { computeCouponDiscountMinor } from '../pricing/coupon-pricing';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -26,6 +28,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    private readonly pricingStrategies: PricingStrategiesService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
   ) {}
@@ -73,7 +76,6 @@ export class BookingsService {
     const byId = new Map(ticketTypes.map((t) => [t.id, t]));
 
     const now = new Date();
-    let subtotal = 0;
     for (const item of input.items) {
       const tt = byId.get(item.ticketTypeId);
       if (!tt) {
@@ -97,7 +99,6 @@ export class BookingsService {
           HttpStatus.CONFLICT,
         );
       }
-      subtotal += tt.priceMinor * item.quantity;
     }
 
     // Seat-based experiences (movies): every line must carry seats that belong to
@@ -142,6 +143,25 @@ export class BookingsService {
       }
     }
 
+    // Line pricing via the experience's pricing strategy (TIER for events, SEAT for
+    // movies). Base prices equal the ticket-type face price, so the subtotal is
+    // identical to the platform's original pricing. See ADR-019.
+    const priceQuote = this.pricingStrategies.quote({
+      experienceType: session.event.experienceType,
+      sessionStartsAt: session.startsAt,
+      now,
+      lines: input.items.map((i) => {
+        const tt = byId.get(i.ticketTypeId)!;
+        return {
+          ticketTypeId: i.ticketTypeId,
+          quantity: i.quantity,
+          basePriceMinor: tt.priceMinor,
+          seatCategoryId: tt.seatCategoryId,
+        };
+      }),
+    });
+    const subtotal = priceQuote.subtotalMinor;
+
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
     const feeMode = session.event.feeMode as FeeMode;
     const fees = await this.pricing.quote(subtotal, feeMode, discountMinor);
@@ -184,15 +204,12 @@ export class BookingsService {
           holdExpiresAt,
           idempotencyKey: idempotencyKey ?? null,
           items: {
-            create: input.items.map((i) => {
-              const tt = byId.get(i.ticketTypeId)!;
-              return {
-                ticketTypeId: i.ticketTypeId,
-                quantity: i.quantity,
-                unitPriceMinor: tt.priceMinor,
-                lineTotalMinor: tt.priceMinor * i.quantity,
-              };
-            }),
+            create: priceQuote.lines.map((pl) => ({
+              ticketTypeId: pl.ticketTypeId,
+              quantity: pl.quantity,
+              unitPriceMinor: pl.unitPriceMinor,
+              lineTotalMinor: pl.lineTotalMinor,
+            })),
           },
           payment: {
             create: {
@@ -262,9 +279,8 @@ export class BookingsService {
       (coupon.maxRedemptions === null || coupon.redemptions < coupon.maxRedemptions);
     if (!valid) return { discountMinor: 0, couponId: null };
 
-    const raw =
-      coupon.type === 'PERCENT' ? Math.round((subtotal * coupon.value) / 100) : coupon.value;
-    return { discountMinor: Math.min(subtotal, raw), couponId: coupon.id };
+    const discountMinor = computeCouponDiscountMinor(coupon.type, coupon.value, subtotal);
+    return { discountMinor, couponId: coupon.id };
   }
 
   /** Expire stale holds for a session (lazy expiry path). */

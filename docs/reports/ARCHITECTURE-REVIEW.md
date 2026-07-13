@@ -12,17 +12,17 @@ The architecture is **sound and internally consistent**. The Experience/Inventor
 
 ## 2. Domain-by-domain
 
-| Domain | State | Notes |
-|---|---|---|
-| **Experience** | ✅ Correct | Discriminator on `Event` (`experienceType`), not a duplicate table. Registry maps type → inventory kind — the single extension point. |
-| **Inventory Strategy** | ✅ Correct | `reserve/confirm/release/refund/availability` interface; GA + Seat implementations. Atomic conditional `UPDATE … WHERE` at reservation is oversell-/double-book-proof. |
-| **Booking Engine** | ✅ Correct | Depends only on `InventoryService` + interface; booking created then reserved in one tx; seat/category price integrity validated. |
-| **Movie Domain** | ✅ Correct | Reuses Event/Session/Booking/Ticket; `Movie/Cinema/Screen` additive; movie = `Event(MOVIE)`, show = `EventSession(screenId)`. |
-| **Seat Reservation** | ✅ Correct | `ShowSeat` authoritative per-show state; atomic hold; confirm self-sufficient from persisted seats; **refund now frees seats** (verified live). |
-| **Discovery** | ✅ Correct | Composes existing services; routed through `RecommendationEngine` port (noop today). |
-| **Community** | ✅ Consolidated | Reuses existing follow/saved/reviews/profiles; `/account/following` added. |
-| **Organizer CRM** | ⚠️ Foundation | Flag-gated placeholder (ADR-015); no live services — no dead code. |
-| **Venue Platform** | ✅ Incremental | `Cinema→Screen` reuses `Venue`; deeper hierarchy deferred (ADR-012). |
+| Domain                 | State           | Notes                                                                                                                                                                  |
+| ---------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Experience**         | ✅ Correct      | Discriminator on `Event` (`experienceType`), not a duplicate table. Registry maps type → inventory kind — the single extension point.                                  |
+| **Inventory Strategy** | ✅ Correct      | `reserve/confirm/release/refund/availability` interface; GA + Seat implementations. Atomic conditional `UPDATE … WHERE` at reservation is oversell-/double-book-proof. |
+| **Booking Engine**     | ✅ Correct      | Depends only on `InventoryService` + interface; booking created then reserved in one tx; seat/category price integrity validated.                                      |
+| **Movie Domain**       | ✅ Correct      | Reuses Event/Session/Booking/Ticket; `Movie/Cinema/Screen` additive; movie = `Event(MOVIE)`, show = `EventSession(screenId)`.                                          |
+| **Seat Reservation**   | ✅ Correct      | `ShowSeat` authoritative per-show state; atomic hold; confirm self-sufficient from persisted seats; **refund now frees seats** (verified live).                        |
+| **Discovery**          | ✅ Correct      | Composes existing services; routed through `RecommendationEngine` port (noop today).                                                                                   |
+| **Community**          | ✅ Consolidated | Reuses existing follow/saved/reviews/profiles; `/account/following` added.                                                                                             |
+| **Organizer CRM**      | ⚠️ Foundation   | Flag-gated placeholder (ADR-015); no live services — no dead code.                                                                                                     |
+| **Venue Platform**     | ✅ Incremental  | `Cinema→Screen` reuses `Venue`; deeper hierarchy deferred (ADR-012).                                                                                                   |
 
 ## 3. Cross-cutting review
 

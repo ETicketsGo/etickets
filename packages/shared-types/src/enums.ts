@@ -44,6 +44,29 @@ export const InventoryStrategyKind = {
 export type InventoryStrategyKind =
   (typeof InventoryStrategyKind)[keyof typeof InventoryStrategyKind];
 
+/**
+ * How a booking's line prices are computed. Base strategies (FLAT/TIER/SEAT)
+ * resolve the unit price; rules (WEEKEND/HOLIDAY/MEMBER/EARLY_BIRD/COUPON/DYNAMIC)
+ * are composable adjustments applied on top. Events use TIER, movies use SEAT —
+ * both reproduce the platform's original pricing exactly. See ADR-019.
+ */
+export const PricingStrategyKind = {
+  FLAT: 'FLAT',
+  TIER: 'TIER',
+  SEAT: 'SEAT',
+} as const;
+export type PricingStrategyKind = (typeof PricingStrategyKind)[keyof typeof PricingStrategyKind];
+
+export const PricingRuleKind = {
+  WEEKEND: 'WEEKEND',
+  HOLIDAY: 'HOLIDAY',
+  MEMBER: 'MEMBER',
+  EARLY_BIRD: 'EARLY_BIRD',
+  COUPON: 'COUPON',
+  DYNAMIC: 'DYNAMIC',
+} as const;
+export type PricingRuleKind = (typeof PricingRuleKind)[keyof typeof PricingRuleKind];
+
 export const MovieStatus = {
   DRAFT: 'DRAFT',
   PUBLISHED: 'PUBLISHED',
