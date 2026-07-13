@@ -3,53 +3,16 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
+import { gradientFor } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
+import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 
-const WISHLIST_KEY = 'etg_wishlist';
-
-function useWishlist(id: string) {
-  const [saved, setSaved] = useState(false);
-  useEffect(() => {
-    try {
-      const list = JSON.parse(localStorage.getItem(WISHLIST_KEY) ?? '[]') as string[];
-      setSaved(list.includes(id));
-    } catch {
-      /* ignore */
-    }
-  }, [id]);
-  const toggle = () => {
-    try {
-      const list = JSON.parse(localStorage.getItem(WISHLIST_KEY) ?? '[]') as string[];
-      const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
-      localStorage.setItem(WISHLIST_KEY, JSON.stringify(next));
-      setSaved(next.includes(id));
-    } catch {
-      /* ignore */
-    }
-  };
-  return { saved, toggle };
-}
-
-// A deterministic, calm gradient stands in for event imagery (no image URLs yet).
-const GRADIENTS = [
-  'from-blue-500/25 to-indigo-500/10',
-  'from-emerald-500/25 to-teal-500/10',
-  'from-orange-500/25 to-amber-500/10',
-  'from-fuchsia-500/25 to-purple-500/10',
-  'from-rose-500/25 to-pink-500/10',
-  'from-cyan-500/25 to-sky-500/10',
-];
-
-function gradientFor(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return GRADIENTS[h % GRADIENTS.length];
-}
-
 export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
-  const { saved, toggle } = useWishlist(event.id);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setSaved(isSaved(event.id)), [event.id]);
+  const toggle = () => setSaved(toggleSaved(event));
 
   return (
     <Link

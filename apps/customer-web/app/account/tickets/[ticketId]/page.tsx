@@ -22,9 +22,8 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
+import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge, Skeleton, StatusBadge } from '@/components/ui';
-
-const WISHLIST_KEY = 'etg_wishlist';
 
 export default function TicketDetailPage() {
   const { ticketId } = useParams<{ ticketId: string }>();
@@ -54,27 +53,28 @@ export default function TicketDetailPage() {
   const countdown = useCountdown(ticket?.startsAt);
 
   useEffect(() => {
-    if (!event) return;
-    try {
-      const list = JSON.parse(localStorage.getItem(WISHLIST_KEY) ?? '[]') as string[];
-      setSaved(list.includes(event.id));
-    } catch {
-      /* ignore */
-    }
+    if (event) setSaved(isSaved(event.id));
   }, [event]);
 
   const toggleSave = () => {
     if (!event) return;
-    try {
-      const list = JSON.parse(localStorage.getItem(WISHLIST_KEY) ?? '[]') as string[];
-      const next = list.includes(event.id)
-        ? list.filter((x) => x !== event.id)
-        : [...list, event.id];
-      localStorage.setItem(WISHLIST_KEY, JSON.stringify(next));
-      setSaved(next.includes(event.id));
-    } catch {
-      /* ignore */
-    }
+    setSaved(
+      toggleSaved({
+        id: event.id,
+        title: event.title,
+        slug: event.slug,
+        category: event.category,
+        venue: {
+          name: event.venue.name,
+          city: event.venue.city,
+          country: event.venue.country,
+        },
+        organizer: event.organizer.name,
+        nextSessionAt: event.sessions[0]?.startsAt ?? null,
+        fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+        currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+      }),
+    );
   };
 
   const share = async () => {

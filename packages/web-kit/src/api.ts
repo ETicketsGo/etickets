@@ -154,6 +154,16 @@ export const api = {
     list: (params: Record<string, string | number | undefined>) =>
       request<Paged<PublicEventCard>>(`/public/events${qs(params)}`, { auth: false }),
     get: (slug: string) => request<PublicEvent>(`/public/events/${slug}`, { auth: false }),
+    organizer: (id: string) =>
+      request<OrganizerProfile>(`/public/organizers/${id}`, { auth: false }),
+  },
+
+  reviews: {
+    forEvent: (eventId: string) =>
+      request<ReviewSummary>(`/public/reviews/${eventId}`, { auth: false }),
+    mine: (eventId: string) => request<MyReview | null>(`/reviews/mine${qs({ eventId })}`),
+    create: (body: { eventId: string; rating: number; comment?: string }) =>
+      request<MyReview>('/reviews', { method: 'POST', body: JSON.stringify(body) }),
   },
 
   bookings: {
@@ -654,4 +664,32 @@ export interface FeeRule {
   feeMinor: number;
   currency: string;
   active: boolean;
+}
+
+export interface ReviewItem {
+  id: string;
+  rating: number;
+  comment: string | null;
+  author: string;
+  createdAt: string;
+}
+export interface ReviewSummary {
+  average: number;
+  count: number;
+  distribution: Record<string, number>;
+  items: ReviewItem[];
+}
+export interface MyReview {
+  id: string;
+  rating: number;
+  comment: string | null;
+}
+
+export interface OrganizerProfile {
+  id: string;
+  name: string;
+  verified: boolean;
+  memberSince: string;
+  eventCount: number;
+  events: PublicEventCard[];
 }

@@ -175,6 +175,19 @@ export class PublicEventsController {
   }
 }
 
+@ApiTags('public')
+@Controller('public/organizers')
+export class PublicOrganizersController {
+  constructor(private readonly publicEvents: PublicEventsService) {}
+
+  @Public()
+  @Get(':id')
+  @ApiOperation({ summary: 'Public organizer profile with published events.' })
+  organizer(@Param('id') id: string) {
+    return this.publicEvents.organizer(id);
+  }
+}
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)

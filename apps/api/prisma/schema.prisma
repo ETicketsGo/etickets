@@ -152,6 +152,7 @@ model User {
   notifications Notification[]
   checkIns      CheckIn[]            @relation("CheckInActor")
   auditLogs     AuditLog[]
+  reviews       Review[]
 
   @@index([status])
 }
@@ -261,10 +262,26 @@ model Event {
 
   sessions EventSession[]
   bookings Booking[]
+  reviews  Review[]
 
   @@index([organizationId])
   @@index([status])
   @@index([category])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventId, userId])
+  @@index([eventId])
 }
 
 model EventSession {

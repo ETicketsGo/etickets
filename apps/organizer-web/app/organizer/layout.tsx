@@ -1,7 +1,7 @@
 'use client';
 
 import { AppShell, RequireAuth, type NavItem } from '@eticketsgo/web-kit';
-import { CalendarDays, LayoutDashboard, Banknote, Users, Settings } from 'lucide-react';
+import { CalendarDays, LayoutDashboard, Banknote, Users, Settings, Sparkles } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 
 const nav: NavItem[] = [
@@ -9,6 +9,7 @@ const nav: NavItem[] = [
   { label: 'Events', href: '/organizer/events', icon: CalendarDays },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Team', href: '/organizer/team', icon: Users },
+  { label: 'Premium', href: '/organizer/premium', icon: Sparkles },
   { label: 'Settings', href: '/organizer/settings', icon: Settings },
 ];
 

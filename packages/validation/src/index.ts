@@ -3,3 +3,4 @@ export * from './auth';
 export * from './organization';
 export * from './event';
 export * from './booking';
+export * from './review';

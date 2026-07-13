@@ -1,13 +1,23 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarDays, MapPin, ShieldCheck, Ticket, Share2 } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Building2,
+  CalendarDays,
+  ChevronRight,
+  MapPin,
+  ShieldCheck,
+  Ticket,
+  Share2,
+} from 'lucide-react';
+import { RatingStars, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
-import { Badge, Button, Card } from '@/components/ui';
+import { Badge, Button, Card, Textarea } from '@/components/ui';
 
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -21,6 +31,41 @@ export default function EventDetailPage() {
   const [qty, setQty] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [shared, setShared] = useState(false);
+
+  // Reviews
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const authed = typeof window !== 'undefined' && !!tokenStore.access;
+
+  const reviews = useQuery({
+    queryKey: ['reviews', event?.id],
+    queryFn: () => api.reviewsForEvent(event!.id),
+    enabled: !!event,
+  });
+  const mine = useQuery({
+    queryKey: ['my-review', event?.id],
+    queryFn: () => api.myReview(event!.id),
+    enabled: !!event && authed,
+  });
+  useEffect(() => {
+    if (mine.data) {
+      setRating(mine.data.rating);
+      setComment(mine.data.comment ?? '');
+    }
+  }, [mine.data]);
+
+  const submitReview = useMutation({
+    mutationFn: () =>
+      api.createReview({ eventId: event!.id, rating, comment: comment || undefined }),
+    onSuccess: () => {
+      toast.push('Thanks for your review!', 'success');
+      qc.invalidateQueries({ queryKey: ['reviews', event?.id] });
+      qc.invalidateQueries({ queryKey: ['my-review', event?.id] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
 
   const session = useMemo(
     () => event?.sessions.find((s) => s.id === sessionId) ?? event?.sessions[0],
@@ -197,12 +242,21 @@ export default function EventDetailPage() {
               </p>
             </Card>
             <Card title="Organizer">
-              <div className="flex items-center gap-3">
+              <Link
+                href={`/organizers/${event.organizer.id}`}
+                className="group flex items-center gap-3"
+              >
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-action-primary/10 font-semibold text-action-primary">
                   {event.organizer.name.charAt(0)}
                 </div>
-                <p className="font-medium text-text-primary">{event.organizer.name}</p>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-text-primary group-hover:text-action-primary">
+                    {event.organizer.name}
+                  </p>
+                  <p className="text-caption text-text-muted">View profile</p>
+                </div>
+                <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
+              </Link>
             </Card>
           </div>
 
@@ -217,6 +271,126 @@ export default function EventDetailPage() {
               </div>
             </Card>
           )}
+
+          {/* Reviews */}
+          <Card title="Ratings & reviews">
+            {reviews.data && reviews.data.count > 0 ? (
+              <div className="space-y-5">
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <p className="text-h2 font-bold tracking-tight text-text-primary">
+                      {reviews.data.average.toFixed(1)}
+                    </p>
+                    <RatingStars value={Math.round(reviews.data.average)} size="sm" />
+                    <p className="mt-1 text-caption text-text-muted">
+                      {reviews.data.count} review{reviews.data.count > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    {[5, 4, 3, 2, 1].map((star) => {
+                      const c = reviews.data!.distribution[String(star)] ?? 0;
+                      const pct = reviews.data!.count
+                        ? Math.round((c / reviews.data!.count) * 100)
+                        : 0;
+                      return (
+                        <div key={star} className="flex items-center gap-2 text-caption">
+                          <span className="w-3 text-text-muted">{star}</span>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-background-subtle">
+                            <div
+                              className="h-full rounded-full bg-status-warning"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <ul className="divide-y divide-border">
+                  {reviews.data.items.map((r) => (
+                    <li key={r.id} className="py-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-text-primary">{r.author}</span>
+                        <RatingStars value={r.rating} size="sm" />
+                      </div>
+                      {r.comment && (
+                        <p className="mt-1 text-[0.9375rem] text-text-secondary">{r.comment}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-[0.9375rem] text-text-muted">
+                No reviews yet — be the first to share your experience.
+              </p>
+            )}
+
+            {/* Write a review */}
+            {authed && (
+              <div className="mt-5 rounded-lg border border-border bg-background-subtle/50 p-4">
+                <p className="font-medium text-text-primary">
+                  {mine.data ? 'Update your review' : 'Write a review'}
+                </p>
+                <div className="mt-2">
+                  <RatingStars value={rating} onChange={setRating} size="lg" />
+                </div>
+                <Textarea
+                  id="review-comment"
+                  className="mt-3"
+                  rows={3}
+                  placeholder="Share how the event went…"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+                <Button
+                  className="mt-3"
+                  loading={submitReview.isPending}
+                  disabled={rating < 1}
+                  onClick={() => submitReview.mutate()}
+                >
+                  {mine.data ? 'Update review' : 'Submit review'}
+                </Button>
+                <p className="mt-2 text-caption text-text-muted">
+                  Only attendees with a confirmed booking can review.
+                </p>
+              </div>
+            )}
+          </Card>
+
+          {/* FAQ */}
+          <Card title="Frequently asked questions">
+            <div className="divide-y divide-border">
+              {[
+                {
+                  q: 'How do I receive my ticket?',
+                  a: 'Instantly after payment. Your QR ticket appears in “My tickets” and can be added to your calendar.',
+                },
+                {
+                  q: 'Can I get a refund?',
+                  a:
+                    event.refundPolicy ??
+                    'Refunds follow the organizer’s policy. Request one from your booking within the eligible window.',
+                },
+                {
+                  q: 'Do I need to print my ticket?',
+                  a: 'No — just show the QR code on your phone at the gate for check-in.',
+                },
+                {
+                  q: 'Can I transfer my ticket?',
+                  a: 'Ticket transfers are handled by the organizer. Contact them for details.',
+                },
+              ].map((f) => (
+                <details key={f.q} className="group py-3">
+                  <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-text-primary">
+                    {f.q}
+                    <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-open:rotate-90" />
+                  </summary>
+                  <p className="mt-2 text-[0.9375rem] text-text-secondary">{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </Card>
         </div>
 
         {/* Sticky booking card */}

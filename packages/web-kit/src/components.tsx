@@ -8,6 +8,7 @@ import {
   Info,
   Loader2,
   Search,
+  Star,
   TriangleAlert,
   X,
   XCircle,
@@ -479,6 +480,52 @@ export function SearchInput({
         Search
       </Button>
     </form>
+  );
+}
+
+/** Star rating — read-only display or interactive input. */
+export function RatingStars({
+  value,
+  onChange,
+  size = 'md',
+  label,
+}: {
+  value: number;
+  onChange?: (value: number) => void;
+  size?: 'sm' | 'md' | 'lg';
+  label?: string;
+}) {
+  const dim = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-5 w-5';
+  const interactive = !!onChange;
+  return (
+    <div
+      className="flex items-center gap-0.5"
+      role={interactive ? 'group' : 'img'}
+      aria-label={label ?? `${value} out of 5`}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const filled = value >= n;
+        const star = (
+          <Star
+            className={`${dim} ${filled ? 'fill-status-warning text-status-warning' : 'text-border-strong'}`}
+          />
+        );
+        return interactive ? (
+          <button
+            key={n}
+            type="button"
+            aria-label={`${n} star${n > 1 ? 's' : ''}`}
+            aria-pressed={value >= n}
+            onClick={() => onChange!(n)}
+            className="transition-transform hover:scale-110"
+          >
+            {star}
+          </button>
+        ) : (
+          <span key={n}>{star}</span>
+        );
+      })}
+    </div>
   );
 }
 

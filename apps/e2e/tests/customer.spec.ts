@@ -17,6 +17,10 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await firstEvent.click();
   await expect(page).toHaveURL(/\/events\/.+/);
 
+  // Premium event page: reviews + FAQ sections render
+  await expect(page.getByText('Ratings & reviews')).toBeVisible();
+  await expect(page.getByText('Frequently asked questions')).toBeVisible();
+
   // Select a ticket quantity
   const qty = page.locator('select[aria-label^="Quantity"]').first();
   await expect(qty).toBeVisible();

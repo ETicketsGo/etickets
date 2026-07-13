@@ -579,6 +579,24 @@ async function main() {
     ],
   });
 
+  console.log('Seeding reviews...');
+  await prisma.review.createMany({
+    data: [
+      {
+        eventId: musicEvent.id,
+        userId: customer1.id,
+        rating: 5,
+        comment: 'Incredible night — entry was seamless with the QR ticket. Will book again!',
+      },
+      {
+        eventId: techEvent.id,
+        userId: customer2.id,
+        rating: 4,
+        comment: 'Great talks and well organised. Venue could use more seating.',
+      },
+    ],
+  });
+
   console.log('\nSeed complete. Login with password: ' + SEED_PASSWORD);
   console.table([
     { role: 'ADMIN / SUPER_ADMIN', email: admin.email },

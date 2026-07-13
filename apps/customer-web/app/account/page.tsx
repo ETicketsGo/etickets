@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Receipt, Ticket, UserRound, ChevronRight } from 'lucide-react';
+import { Heart, Receipt, Ticket, UserRound, ChevronRight } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 
 const LINKS = [
@@ -14,6 +14,7 @@ const LINKS = [
     icon: Receipt,
   },
   { href: '/account/tickets', label: 'My tickets', hint: 'Your QR passes', icon: Ticket },
+  { href: '/account/saved', label: 'Saved events', hint: 'Your wishlist', icon: Heart },
   { href: '/account/profile', label: 'Profile', hint: 'Name & account details', icon: UserRound },
 ];
 
@@ -31,7 +32,7 @@ export default function AccountPage() {
           Manage your bookings, tickets, and details.
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {LINKS.map((l) => {
           const Icon = l.icon;
           return (

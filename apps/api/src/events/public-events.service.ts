@@ -133,4 +133,46 @@ export class PublicEventsService {
       })),
     };
   }
+
+  /** Public organizer profile: verification badge + their published events. */
+  async organizer(id: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id },
+      select: { id: true, name: true, status: true, createdAt: true },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organizer not found.', HttpStatus.NOT_FOUND);
+    }
+    const events = await this.prisma.event.findMany({
+      where: { organizationId: id, status: EventStatus.PUBLISHED },
+      orderBy: { publishedAt: 'desc' },
+      take: 24,
+      include: {
+        venue: { select: { name: true, city: true, country: true } },
+        sessions: {
+          orderBy: { startsAt: 'asc' },
+          take: 1,
+          include: { ticketTypes: { orderBy: { priceMinor: 'asc' }, take: 1 } },
+        },
+      },
+    });
+    return {
+      id: org.id,
+      name: org.name,
+      verified: org.status === 'APPROVED',
+      memberSince: org.createdAt,
+      eventCount: events.length,
+      events: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        slug: e.slug,
+        category: e.category,
+        venue: e.venue,
+        organizer: org.name,
+        nextSessionAt: e.sessions[0]?.startsAt ?? null,
+        fromPriceMinor: e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+        currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+      })),
+    };
+  }
 }

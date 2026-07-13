@@ -23,6 +23,7 @@ import { RefundsModule } from './refunds/refunds.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { ReportsModule } from './reports/reports.module';
 import { AdminModule } from './admin/admin.module';
+import { ReviewsModule } from './reviews/reviews.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -57,6 +58,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     PayoutsModule,
     ReportsModule,
     AdminModule,
+    ReviewsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

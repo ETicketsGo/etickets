@@ -39,4 +39,8 @@ export const api = {
   requestRefund: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
     wk.refunds.request(body),
   refundsForBooking: wk.refunds.forBooking,
+  reviewsForEvent: wk.reviews.forEvent,
+  myReview: wk.reviews.mine,
+  createReview: wk.reviews.create,
+  organizerProfile: wk.publicEvents.organizer,
 };
