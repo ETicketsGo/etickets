@@ -54,6 +54,16 @@ export default function OrganizerDashboard() {
   const checkinRate = sum.sold > 0 ? Math.round((sum.checkins / sum.sold) * 100) : 0;
   const latestPayout = payoutsQ.data?.[0];
 
+  // Most popular ticket type across all events.
+  const typeTotals = new Map<string, number>();
+  for (const r of reports) {
+    for (const t of r.salesByTicketType) {
+      typeTotals.set(t.ticketType, (typeTotals.get(t.ticketType) ?? 0) + t.quantity);
+    }
+  }
+  const mostPopular = [...typeTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+  const publishedCount = events.filter((e) => e.status === 'PUBLISHED').length;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -83,6 +93,16 @@ export default function OrganizerDashboard() {
             label="Check-in rate"
             value={`${checkinRate}%`}
             hint={`${sum.checkins} of ${sum.sold} checked in`}
+          />
+          <MetricCard
+            label="Most popular ticket"
+            value={mostPopular?.[0] ?? '—'}
+            hint={mostPopular ? `${mostPopular[1]} sold` : 'No sales yet'}
+          />
+          <MetricCard
+            label="Published events"
+            value={publishedCount}
+            hint={`${events.length} total`}
           />
         </div>
       )}
@@ -120,36 +140,55 @@ export default function OrganizerDashboard() {
           )}
         </Card>
 
-        <Card title="Latest payout">
-          {payoutsQ.isLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : latestPayout ? (
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-text-muted">Status</span>
-                <StatusBadge status={latestPayout.status} />
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Net amount</span>
-                <span className="font-semibold text-text-primary">
-                  {money(latestPayout.netMinor)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-text-muted">Created</span>
-                <span className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</span>
-              </div>
-              <ButtonLink href="/organizer/payouts" variant="outline" className="mt-2 w-full">
+        <div className="space-y-6">
+          <Card title="Quick actions">
+            <div className="space-y-2">
+              <ButtonLink href="/organizer/events/new" className="w-full">
+                Create event
+              </ButtonLink>
+              <ButtonLink href="/organizer/events" variant="outline" className="w-full">
+                Manage events
+              </ButtonLink>
+              <ButtonLink href="/organizer/payouts" variant="outline" className="w-full">
                 View payouts
               </ButtonLink>
+              <p className="pt-1 text-center text-caption text-text-muted">
+                Export &amp; message attendees from an event’s Attendees tab.
+              </p>
             </div>
-          ) : (
-            <EmptyState
-              title="No payouts yet"
-              hint="Generate a settlement from the Payouts page."
-            />
-          )}
-        </Card>
+          </Card>
+
+          <Card title="Latest payout">
+            {payoutsQ.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : latestPayout ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-text-muted">Status</span>
+                  <StatusBadge status={latestPayout.status} />
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Net amount</span>
+                  <span className="font-semibold text-text-primary">
+                    {money(latestPayout.netMinor)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Created</span>
+                  <span className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</span>
+                </div>
+                <ButtonLink href="/organizer/payouts" variant="outline" className="mt-2 w-full">
+                  View payouts
+                </ButtonLink>
+              </div>
+            ) : (
+              <EmptyState
+                title="No payouts yet"
+                hint="Generate a settlement from the Payouts page."
+              />
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

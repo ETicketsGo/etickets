@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Building2, CalendarDays, MapPin, ShieldCheck, Ticket, Share2 } from 'lucide-react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
+import { pushRecent } from '@/lib/recent';
 import { Badge, Button, Card } from '@/components/ui';
 
 export default function EventDetailPage() {
@@ -32,6 +33,49 @@ export default function EventDetailPage() {
   }, [session, qty]);
 
   const totalQty = Object.values(qty).reduce((a, b) => a + b, 0);
+
+  // Track for "Recently viewed" and restore any saved ticket selection.
+  useEffect(() => {
+    if (!event) return;
+    pushRecent({
+      id: event.id,
+      title: event.title,
+      slug: event.slug,
+      category: event.category,
+      venue: {
+        name: event.venue.name,
+        city: event.venue.city,
+        country: event.venue.country,
+      },
+      organizer: event.organizer.name,
+      nextSessionAt: event.sessions[0]?.startsAt ?? null,
+      fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+      currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+    });
+    try {
+      const saved = JSON.parse(localStorage.getItem(`etg_sel_${slug}`) ?? 'null') as {
+        sessionId: string;
+        qty: Record<string, number>;
+      } | null;
+      if (saved && event.sessions.some((s) => s.id === saved.sessionId)) {
+        setSessionId(saved.sessionId);
+        setQty(saved.qty);
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event]);
+
+  // Auto-save the current selection so returning restores it.
+  useEffect(() => {
+    if (!session) return;
+    try {
+      localStorage.setItem(`etg_sel_${slug}`, JSON.stringify({ sessionId: session.id, qty }));
+    } catch {
+      /* ignore */
+    }
+  }, [session, qty, slug]);
 
   const book = useMutation({
     mutationFn: async () => {

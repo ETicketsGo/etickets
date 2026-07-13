@@ -34,6 +34,7 @@ export const api = {
   createPaymentIntent: wk.bookings.pay,
   mockPay: wk.payments.mockPay,
   wallet: wk.tickets.wallet,
+  getTicket: wk.tickets.get,
   listBookings: wk.bookings.list,
   requestRefund: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
     wk.refunds.request(body),

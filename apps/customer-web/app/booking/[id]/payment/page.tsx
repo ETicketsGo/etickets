@@ -3,10 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Clock, ShieldCheck } from 'lucide-react';
+import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
+import { Stepper } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { Button, ButtonLink, Card } from '@/components/ui';
+
+const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -67,14 +70,13 @@ export default function PaymentPage() {
     return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
 
   if (booking.status !== 'PENDING_PAYMENT') {
-    const refunded = booking.status.includes('REFUND');
     return (
       <Card className="mx-auto max-w-md text-center">
         <p className="text-text-primary">
           This booking is {booking.status.replaceAll('_', ' ').toLowerCase()}.
         </p>
         <Button className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
-          {refunded ? 'View booking' : 'View booking'}
+          View booking
         </Button>
       </Card>
     );
@@ -84,6 +86,7 @@ export default function PaymentPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
+      <Stepper steps={BOOKING_STEPS} current={1} />
       <h1 className="text-h2 font-bold tracking-tight text-text-primary">Review &amp; pay</h1>
 
       {/* Hold timer */}
@@ -161,6 +164,23 @@ export default function PaymentPage() {
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
             {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)} (mock)`}
           </Button>
+
+          {/* Booking confidence */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {[
+              { icon: QrCode, label: 'Instant QR ticket' },
+              { icon: RefreshCcw, label: 'Refundable per policy' },
+              { icon: ShieldCheck, label: 'No hidden fees' },
+            ].map((c) => (
+              <div
+                key={c.label}
+                className="rounded-md border border-border bg-background-surface p-3"
+              >
+                <c.icon className="mx-auto h-4 w-4 text-status-success" />
+                <p className="mt-1.5 text-caption text-text-muted">{c.label}</p>
+              </div>
+            ))}
+          </div>
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             Mock payment — confirmation happens via a signed webhook, not this button.

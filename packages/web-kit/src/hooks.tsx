@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api, tokenStore, type AuthUser } from './api';
 import { Spinner } from './components';
 
@@ -72,4 +72,41 @@ export function RequireAuth({
 
 export function hasAnyRole(user: AuthUser | null, roles: string[]): boolean {
   return !!user && user.roles.some((r) => roles.includes(r));
+}
+
+/** Live countdown to a target time; ticks every second on the client. */
+export function useCountdown(target: string | Date | undefined) {
+  const [now, setNow] = useState<number>(() => (target ? Date.now() : 0));
+  useEffect(() => {
+    if (!target) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [target]);
+  const total = target ? Math.max(0, new Date(target).getTime() - now) : 0;
+  const s = Math.floor(total / 1000);
+  return {
+    total,
+    isPast: !!target && total <= 0,
+    days: Math.floor(s / 86400),
+    hours: Math.floor((s % 86400) / 3600),
+    minutes: Math.floor((s % 3600) / 60),
+    seconds: s % 60,
+  };
+}
+
+/** Tracks browser online/offline state (for the live check-in screen). */
+export function useOnline(): boolean {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
 }

@@ -31,12 +31,17 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
 
   // Confirmation
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await expect(page.getByText('Booking confirmed!')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View my ticket' })).toBeVisible({ timeout: 20_000 });
 
   // QR ticket wallet
-  await page.getByRole('link', { name: 'View my tickets' }).click();
+  await page.getByRole('link', { name: 'View my ticket' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);
   await expect(page.locator('img[alt^="QR code for ticket"]').first()).toBeVisible({
     timeout: 20_000,
   });
+
+  // Open the premium ticket detail
+  await page.locator('a[href^="/account/tickets/"]').first().click();
+  await expect(page).toHaveURL(/\/account\/tickets\/.+/);
+  await expect(page.getByRole('button', { name: /All tickets/ })).toBeVisible({ timeout: 20_000 });
 });

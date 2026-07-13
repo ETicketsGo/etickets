@@ -3,7 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, Ticket } from 'lucide-react';
+import Link from 'next/link';
+import { CalendarDays, ChevronRight, Ticket } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { EmptyState, StatusBadge, ButtonLink } from '@/components/ui';
@@ -38,9 +39,10 @@ export default function TicketsPage() {
       ) : data && data.length > 0 ? (
         <div className="grid gap-6 sm:grid-cols-2">
           {data.map((t) => (
-            <div
+            <Link
               key={t.id}
-              className="flex overflow-hidden rounded-lg border border-border bg-background-surface shadow-sm transition-shadow hover:shadow-md"
+              href={`/account/tickets/${t.id}`}
+              className="group flex overflow-hidden rounded-lg border border-border bg-background-surface shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               {/* QR stub */}
               <div className="relative flex items-center justify-center border-r border-dashed border-border bg-background-subtle/50 p-4">
@@ -58,7 +60,7 @@ export default function TicketsPage() {
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <StatusBadge status={t.status} />
-                    <Ticket className="h-4 w-4 text-text-muted" />
+                    <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
                   </div>
                   <p className="line-clamp-1 font-semibold text-text-primary">{t.event.title}</p>
                   <p className="text-[0.9375rem] text-text-secondary">{t.ticketType}</p>
@@ -69,7 +71,7 @@ export default function TicketsPage() {
                 </div>
                 <p className="mt-3 font-mono text-caption text-text-muted">{t.serial}</p>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       ) : (

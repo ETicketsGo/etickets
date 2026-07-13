@@ -482,6 +482,46 @@ export function SearchInput({
   );
 }
 
+/** Horizontal step indicator for multi-step flows (e.g. booking). */
+export function Stepper({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <ol className="flex items-center" aria-label="Progress">
+      {steps.map((label, i) => {
+        const done = i < current;
+        const active = i === current;
+        return (
+          <li key={label} className="flex flex-1 items-center last:flex-none">
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-caption font-semibold transition-colors ${
+                  done
+                    ? 'bg-action-primary text-action-primary-foreground'
+                    : active
+                      ? 'bg-action-primary/15 text-action-primary ring-2 ring-action-primary/30'
+                      : 'bg-background-subtle text-text-muted'
+                }`}
+                aria-current={active ? 'step' : undefined}
+              >
+                {done ? '✓' : i + 1}
+              </span>
+              <span
+                className={`hidden whitespace-nowrap text-caption sm:inline ${
+                  active ? 'font-semibold text-text-primary' : 'text-text-muted'
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <span className={`mx-2 h-px flex-1 ${done ? 'bg-action-primary/40' : 'bg-border'}`} />
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export function MetricCard({
   label,
   value,

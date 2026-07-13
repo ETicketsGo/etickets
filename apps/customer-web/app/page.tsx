@@ -2,18 +2,20 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { Search, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
+import { getRecent, type RecentEvent } from '@/lib/recent';
 import { ButtonLink, EmptyState } from '@/components/ui';
 
 const CATEGORIES = ['Music', 'Tech', 'Comedy', 'Sports', 'Theatre'];
+const CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Hyderabad', 'Pune'];
 
-function Skeletons() {
+function Skeletons({ count = 6 }: { count?: number }) {
   return (
     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
           className="h-72 animate-pulse rounded-lg border border-border bg-background-subtle"
@@ -23,13 +25,73 @@ function Skeletons() {
   );
 }
 
+function Section({
+  title,
+  subtitle,
+  icon: Icon,
+  action,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: typeof Sparkles;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-5">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-h3 font-bold tracking-tight text-text-primary">
+            {Icon && <Icon className="h-5 w-5 text-action-primary" />}
+            {title}
+          </h2>
+          {subtitle && <p className="mt-1 text-[0.9375rem] text-text-muted">{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// This weekend = the upcoming Saturday 00:00 → Sunday 23:59 (local).
+function weekendRange(): { dateFrom: string; dateTo: string } {
+  const now = new Date();
+  const day = now.getDay(); // 0 Sun … 6 Sat
+  const daysToSat = (6 - day + 7) % 7;
+  const sat = new Date(now);
+  sat.setDate(now.getDate() + daysToSat);
+  sat.setHours(0, 0, 0, 0);
+  const sun = new Date(sat);
+  sun.setDate(sat.getDate() + 1);
+  sun.setHours(23, 59, 59, 0);
+  return { dateFrom: sat.toISOString(), dateTo: sun.toISOString() };
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [q, setQ] = useState('');
-  const { data, isLoading } = useQuery({
+  const [recent, setRecent] = useState<RecentEvent[]>([]);
+
+  useEffect(() => setRecent(getRecent()), []);
+
+  const featured = useQuery({
     queryKey: ['events', 'featured'],
-    queryFn: () => api.listEvents({ pageSize: '6' }),
+    queryFn: () => api.listEvents({ pageSize: '12' }),
   });
+
+  const weekend = weekendRange();
+  const weekendQ = useQuery({
+    queryKey: ['events', 'weekend'],
+    queryFn: () =>
+      api.listEvents({ pageSize: '6', dateFrom: weekend.dateFrom, dateTo: weekend.dateTo }),
+  });
+
+  const freeEvents = useMemo(
+    () => (featured.data?.data ?? []).filter((e) => e.fromPriceMinor === 0),
+    [featured.data],
+  );
 
   const search = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,11 +121,17 @@ export default function HomePage() {
               <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted" />
               <input
                 aria-label="Search events"
+                list="search-suggestions"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search events, artists, cities…"
                 className="w-full rounded-md border border-border bg-background-canvas py-3.5 pl-12 pr-4 text-[0.9375rem] text-text-primary shadow-sm placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
               />
+              <datalist id="search-suggestions">
+                {[...CATEGORIES, ...CITIES].map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
             </div>
             <button
               type="submit"
@@ -87,31 +155,94 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Featured */}
-      <section className="space-y-6">
-        <div className="flex items-end justify-between">
-          <div>
-            <h2 className="text-h3 font-bold tracking-tight text-text-primary">Featured events</h2>
-            <p className="mt-1 text-[0.9375rem] text-text-muted">
-              Handpicked happenings you shouldn’t miss.
-            </p>
+      {/* Recently viewed */}
+      {recent.length > 0 && (
+        <Section title="Continue exploring" subtitle="Events you recently viewed." icon={Clock3}>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {recent.slice(0, 3).map((e) => (
+              <EventCard key={e.id} event={e} />
+            ))}
           </div>
+        </Section>
+      )}
+
+      {/* This weekend */}
+      {weekendQ.data && weekendQ.data.data.length > 0 && (
+        <Section
+          title="This weekend"
+          subtitle="Plans sorted — happening in the next few days."
+          icon={Sparkles}
+          action={
+            <ButtonLink
+              href={`/events?dateFrom=${weekend.dateFrom}&dateTo=${weekend.dateTo}`}
+              variant="ghost"
+            >
+              View all →
+            </ButtonLink>
+          }
+        >
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {weekendQ.data.data.map((e) => (
+              <EventCard key={e.id} event={e} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Free events */}
+      {freeEvents.length > 0 && (
+        <Section title="Free events" subtitle="Great experiences, no ticket price.">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {freeEvents.map((e) => (
+              <EventCard key={e.id} event={e} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Trending / featured */}
+      <Section
+        title="Trending now"
+        subtitle="Popular events people are booking."
+        icon={TrendingUp}
+        action={
           <ButtonLink href="/events" variant="ghost">
             View all →
           </ButtonLink>
-        </div>
-        {isLoading ? (
+        }
+      >
+        {featured.isLoading ? (
           <Skeletons />
-        ) : data && data.data.length > 0 ? (
+        ) : featured.data && featured.data.data.length > 0 ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {data.data.map((e) => (
+            {featured.data.data.slice(0, 6).map((e) => (
               <EventCard key={e.id} event={e} />
             ))}
           </div>
         ) : (
-          <EmptyState title="No events yet" hint="Check back soon." />
+          <EmptyState
+            title="No events yet"
+            hint="Check back soon — new events land here first."
+            icon={Sparkles}
+          />
         )}
-      </section>
+      </Section>
+
+      {/* Collections by category */}
+      <Section title="Explore by category" subtitle="Jump straight to what you love.">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
+              className="group rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <p className="font-semibold text-text-primary group-hover:text-action-primary">{c}</p>
+              <p className="mt-0.5 text-caption text-text-muted">Browse {c.toLowerCase()} →</p>
+            </button>
+          ))}
+        </div>
+      </Section>
 
       {/* Organizer CTA */}
       <section className="overflow-hidden rounded-lg border border-border bg-background-surface p-8 shadow-sm sm:p-10">
