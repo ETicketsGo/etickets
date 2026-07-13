@@ -199,6 +199,8 @@ model Organization {
   events  Event[]
   payouts Payout[]
   refunds Refund[]
+  movies  Movie[]
+  cinemas Cinema[]
 
   @@index([status])
 }
@@ -233,8 +235,9 @@ model Venue {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  areas  VenueArea[]
-  events Event[]
+  areas   VenueArea[]
+  events  Event[]
+  cinemas Cinema[]
 
   @@index([organizationId])
   @@index([city])
@@ -252,6 +255,81 @@ model VenueArea {
   @@index([venueId])
 }
 
+// ─────────────────────────── Movies & Cinemas ───────────────────────────
+// Additive movie domain (ADR-011). A film is catalogued as a Movie; it becomes
+// bookable as an Event with experienceType = MOVIE whose sessions (shows) play
+// on a Screen. Seat maps and seat-level booking arrive in PR-3 (ADR-013).
+
+enum MovieStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Movie {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title          String
+  slug           String       @unique
+  synopsis       String?
+  runtimeMinutes Int
+  certificate    String? // U, UA, A, S
+  language       String
+  genres         String[]
+  releaseDate    DateTime?
+  posterUrl      String?
+  trailerUrl     String?
+  cast           String[]
+  director       String?
+  status         MovieStatus  @default(DRAFT)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  events Event[] // bookable movie listings screening this film
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model Cinema {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // A cinema is a specialised venue; reuse Venue for city/discovery when linked.
+  venueId        String?
+  venue          Venue?       @relation(fields: [venueId], references: [id])
+  name           String
+  brand          String?
+  city           String
+  address        String?
+  latitude       Float?
+  longitude      Float?
+  status         String       @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  screens Screen[]
+
+  @@index([organizationId])
+  @@index([city])
+}
+
+model Screen {
+  id         String   @id @default(cuid())
+  cinemaId   String
+  cinema     Cinema   @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
+  name       String
+  screenType String   @default("2D") // 2D, 3D, IMAX, 4DX
+  capacity   Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sessions EventSession[]
+
+  @@index([cinemaId])
+}
+
 model Event {
   id               String      @id @default(cuid())
   organizationId   String
@@ -259,6 +337,9 @@ model Event {
   venueId          String
   venue            Venue       @relation(fields: [venueId], references: [id])
   experienceType   ExperienceType @default(EVENT)
+  // Set only for MOVIE experiences: the film this bookable listing screens.
+  movieId          String?
+  movie            Movie?      @relation(fields: [movieId], references: [id])
   title            String
   slug             String      @unique
   category         String
@@ -279,6 +360,8 @@ model Event {
   @@index([organizationId])
   @@index([status])
   @@index([category])
+  @@index([experienceType])
+  @@index([movieId])
 }
 
 model Review {
@@ -300,6 +383,9 @@ model EventSession {
   id        String        @id @default(cuid())
   eventId   String
   event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  // Set only for movie shows: the screen this session plays on.
+  screenId  String?
+  screen    Screen?       @relation(fields: [screenId], references: [id])
   startsAt  DateTime
   endsAt    DateTime
   status    SessionStatus @default(SCHEDULED)
@@ -313,6 +399,7 @@ model EventSession {
 
   @@index([eventId])
   @@index([startsAt])
+  @@index([screenId])
 }
 
 model TicketType {

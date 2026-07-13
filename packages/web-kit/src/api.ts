@@ -220,6 +220,45 @@ export const api = {
     list: (organizationId: string) => request<Venue[]>(`/venues${qs({ organizationId })}`),
   },
 
+  movies: {
+    list: (organizationId: string) => request<Movie[]>(`/movies${qs({ organizationId })}`),
+    get: (id: string) => request<Movie>(`/movies/${id}`),
+    create: (body: MovieBody & { organizationId: string }) =>
+      request<Movie>('/movies', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<MovieBody>) =>
+      request<Movie>(`/movies/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    setStatus: (id: string, status: MovieStatusValue) =>
+      request<Movie>(`/movies/${id}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      }),
+  },
+
+  cinemas: {
+    list: (organizationId: string) => request<Cinema[]>(`/cinemas${qs({ organizationId })}`),
+    get: (id: string) => request<Cinema>(`/cinemas/${id}`),
+    create: (body: CinemaBody & { organizationId: string }) =>
+      request<Cinema>('/cinemas', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<CinemaBody>) =>
+      request<Cinema>(`/cinemas/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    screens: (cinemaId: string) => request<Screen[]>(`/cinemas/${cinemaId}/screens`),
+    addScreen: (cinemaId: string, body: ScreenBody) =>
+      request<Screen>(`/cinemas/${cinemaId}/screens`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    updateScreen: (screenId: string, body: Partial<ScreenBody>) =>
+      request<Screen>(`/screens/${screenId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    removeScreen: (screenId: string) =>
+      request<{ success: boolean }>(`/screens/${screenId}`, { method: 'DELETE' }),
+  },
+
+  publicMovies: {
+    list: (params?: { city?: string; genre?: string; q?: string }) =>
+      request<PublicMovieCard[]>(`/public/movies${qs(params ?? {})}`, { auth: false }),
+    get: (slug: string) => request<PublicMovie>(`/public/movies/${slug}`, { auth: false }),
+  },
+
   events: {
     list: (organizationId: string) => request<OrgEventRow[]>(`/events${qs({ organizationId })}`),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
@@ -281,6 +320,8 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+    movies: (params?: PageParams & { status?: string; q?: string }) =>
+      request<Paged<AdminMovieRow>>(`/admin/movies${qs(params ?? {})}`),
     audit: (params: PageParams & { action?: string }) =>
       request<Paged<AuditRow>>(`/admin/audit${qs(params)}`),
     organizers: (params: PageParams & { status?: string }) =>
@@ -464,6 +505,93 @@ export interface Venue {
   address: string | null;
   capacity: number | null;
   areas?: { id: string; name: string }[];
+}
+
+export type MovieStatusValue = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export interface MovieBody {
+  title: string;
+  synopsis?: string;
+  runtimeMinutes: number;
+  certificate?: string;
+  language: string;
+  genres: string[];
+  releaseDate?: string;
+  posterUrl?: string;
+  trailerUrl?: string;
+  cast: string[];
+  director?: string;
+}
+
+export interface Movie extends MovieBody {
+  id: string;
+  slug: string;
+  status: MovieStatusValue;
+  createdAt: string;
+}
+
+export interface ScreenBody {
+  name: string;
+  screenType: string;
+  capacity: number;
+}
+
+export interface Screen extends ScreenBody {
+  id: string;
+  cinemaId: string;
+}
+
+export interface CinemaBody {
+  name: string;
+  brand?: string;
+  city: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  venueId?: string;
+}
+
+export interface Cinema extends CinemaBody {
+  id: string;
+  status: string;
+  screens?: Screen[];
+}
+
+export interface AdminMovieRow {
+  id: string;
+  title: string;
+  slug: string;
+  language: string;
+  certificate: string | null;
+  status: MovieStatusValue;
+  organizationName: string;
+  createdAt: string;
+}
+
+export interface PublicMovieCard {
+  id: string;
+  title: string;
+  slug: string;
+  posterUrl: string | null;
+  certificate: string | null;
+  language: string;
+  genres: string[];
+  runtimeMinutes: number;
+}
+
+export interface PublicMovie extends PublicMovieCard {
+  synopsis: string | null;
+  trailerUrl: string | null;
+  cast: string[];
+  director: string | null;
+  releaseDate: string | null;
+  /** Bookable show listings for this film (movie experiences). */
+  shows: {
+    eventId: string;
+    slug: string;
+    cinemaName: string | null;
+    sessions: { id: string; startsAt: string; screenName: string | null }[];
+  }[];
 }
 
 export interface OrgEventRow {

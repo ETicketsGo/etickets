@@ -12,12 +12,14 @@ import {
   Users,
   ScrollText,
   Settings,
+  Film,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
   { label: 'Dashboard', href: '/admin', exact: true, icon: LayoutDashboard },
   { label: 'Organizers', href: '/admin/organizers', icon: Building2 },
   { label: 'Events', href: '/admin/events', icon: CalendarDays },
+  { label: 'Movies', href: '/admin/movies', icon: Film },
   { label: 'Bookings', href: '/admin/bookings', icon: Receipt },
   { label: 'Payments', href: '/admin/payments', icon: CreditCard },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },

@@ -44,6 +44,13 @@ export const InventoryStrategyKind = {
 export type InventoryStrategyKind =
   (typeof InventoryStrategyKind)[keyof typeof InventoryStrategyKind];
 
+export const MovieStatus = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+export type MovieStatus = (typeof MovieStatus)[keyof typeof MovieStatus];
+
 export const EventStatus = {
   DRAFT: 'DRAFT',
   UNDER_REVIEW: 'UNDER_REVIEW',

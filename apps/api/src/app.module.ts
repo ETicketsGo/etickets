@@ -15,6 +15,8 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { VenuesModule } from './venues/venues.module';
 import { EventsModule } from './events/events.module';
+import { MoviesModule } from './movies/movies.module';
+import { CinemasModule } from './cinemas/cinemas.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TicketsModule } from './tickets/tickets.module';
@@ -50,6 +52,8 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     OrganizationsModule,
     VenuesModule,
     EventsModule,
+    MoviesModule,
+    CinemasModule,
     BookingsModule,
     PaymentsModule,
     TicketsModule,

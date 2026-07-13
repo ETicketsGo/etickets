@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { EventStatus } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -22,6 +22,8 @@ export class PublicEventsService {
   async list(filters: PublicEventFilters) {
     const where: Prisma.EventWhereInput = {
       status: EventStatus.PUBLISHED,
+      // Keep the generic browse events-only; movie experiences surface via /public/movies.
+      experienceType: ExperienceType.EVENT,
       ...(filters.q ? { title: { contains: filters.q, mode: 'insensitive' } } : {}),
       ...(filters.category ? { category: { equals: filters.category, mode: 'insensitive' } } : {}),
       ...(filters.city ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } } : {}),

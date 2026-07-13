@@ -1,9 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { AdminService } from './admin.service';
+import { MoviesService } from '../movies/movies.service';
 import { Roles } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -12,7 +13,10 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly movies: MoviesService,
+  ) {}
 
   @Get('bookings')
   @ApiOperation({ summary: 'List/search all bookings (admin).' })
@@ -49,5 +53,21 @@ export class AdminController {
   @ApiOperation({ summary: 'List platform fee rules (admin).' })
   feeRules() {
     return this.admin.feeRules();
+  }
+
+  @Get('movies')
+  @ApiOperation({ summary: 'List movies across all organizations (admin).' })
+  moviesList(
+    @Query(
+      new ZodValidationPipe(
+        paginationSchema.extend({
+          status: z.nativeEnum(MovieStatus).optional(),
+          q: z.string().optional(),
+        }),
+      ),
+    )
+    q: { page: number; pageSize: number; status?: MovieStatus; q?: string },
+  ) {
+    return this.movies.adminList(q.status, q.q, q.page, q.pageSize);
   }
 }

@@ -7,6 +7,7 @@ import {
   EventStatus,
   FeeMode,
   MemberStatus,
+  MovieStatus,
   NotificationType,
   OrganizationStatus,
   PaymentAttemptStatus,
@@ -76,6 +77,9 @@ async function reset() {
   await prisma.ticketType.deleteMany();
   await prisma.eventSession.deleteMany();
   await prisma.event.deleteMany();
+  await prisma.screen.deleteMany();
+  await prisma.cinema.deleteMany();
+  await prisma.movie.deleteMany();
   await prisma.venueArea.deleteMany();
   await prisma.venue.deleteMany();
   await prisma.payout.deleteMany();
@@ -289,6 +293,92 @@ async function main() {
     }
     createdEvents.push({ id: event.id, sessionId: session.id, ticketTypes });
   }
+
+  // ── Movie catalogue (PR-2): movies are NOT customer-bookable yet (PR-3). ──
+  console.log('Seeding movies & cinemas (catalogue only)...');
+  const movieDefs = [
+    {
+      title: 'Skyfront Protocol',
+      synopsis:
+        'An off-grid pilot is pulled back for one last mission when a rogue drone swarm threatens the coast.',
+      runtimeMinutes: 138,
+      certificate: 'UA',
+      language: 'English',
+      genres: ['Action', 'Thriller'],
+      cast: ['Arjun Mehra', 'Lena Fischer', 'Dev Anand Rao'],
+      director: 'Priya Nair',
+      posterUrl: 'https://cdn.eticketsgo.test/posters/skyfront-protocol.jpg',
+      trailerUrl: 'https://videos.eticketsgo.test/trailers/skyfront-protocol.mp4',
+    },
+    {
+      title: 'The Weight of Water',
+      synopsis:
+        'A quiet drama about a fishing family navigating loss across three generations on the Konkan coast.',
+      runtimeMinutes: 124,
+      certificate: 'U',
+      language: 'Hindi',
+      genres: ['Drama'],
+      cast: ['Meera Joshi', 'Rahul Verma'],
+      director: 'Anil Kapoor Menon',
+      posterUrl: 'https://cdn.eticketsgo.test/posters/weight-of-water.jpg',
+    },
+    {
+      title: 'Pixel & the Paper Moon',
+      synopsis:
+        'A curious robot and a runaway kite set off across a hand-drawn world to find where the sky ends.',
+      runtimeMinutes: 96,
+      certificate: 'U',
+      language: 'English',
+      genres: ['Animation', 'Family', 'Adventure'],
+      cast: ['Tara Iyer', 'Sam Okoye'],
+      director: 'Yuki Tanaka',
+      posterUrl: 'https://cdn.eticketsgo.test/posters/pixel-paper-moon.jpg',
+      trailerUrl: 'https://videos.eticketsgo.test/trailers/pixel-paper-moon.mp4',
+    },
+  ];
+  for (const [i, def] of movieDefs.entries()) {
+    const slug = def.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    await prisma.movie.create({
+      data: {
+        organizationId: org.id,
+        title: def.title,
+        slug,
+        synopsis: def.synopsis,
+        runtimeMinutes: def.runtimeMinutes,
+        certificate: def.certificate,
+        language: def.language,
+        genres: def.genres,
+        cast: def.cast,
+        director: def.director,
+        posterUrl: def.posterUrl,
+        trailerUrl: def.trailerUrl,
+        releaseDate: days(-30 + i * 7),
+        status: MovieStatus.PUBLISHED,
+      },
+    });
+  }
+
+  await prisma.cinema.create({
+    data: {
+      organizationId: org.id,
+      venueId: arena.id,
+      name: 'PVR Phoenix Whitefield',
+      brand: 'PVR',
+      city: 'Bengaluru',
+      address: 'Phoenix Marketcity, Whitefield, Bengaluru, KA',
+      latitude: 12.9959,
+      longitude: 77.6969,
+      screens: {
+        create: [
+          { name: 'Screen 1', screenType: 'IMAX', capacity: 320 },
+          { name: 'Screen 2', screenType: '2D', capacity: 180 },
+        ],
+      },
+    },
+  });
 
   console.log('Seeding bookings, payments, tickets, check-ins...');
   const musicEvent = createdEvents[0];
