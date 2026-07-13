@@ -161,6 +161,7 @@ model User {
   memberships   OrganizationMember[]
   bookings      Booking[]
   notifications Notification[]
+  notificationPreferences NotificationPreference[]
   checkIns      CheckIn[]            @relation("CheckInActor")
   auditLogs     AuditLog[]
   reviews       Review[]
@@ -748,19 +749,41 @@ model CheckIn {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String?
-  user      User?            @relation(fields: [userId], references: [id])
-  type      NotificationType
-  channel   String           @default("email")
-  toEmail   String?
-  payload   Json
-  status    String           @default("PENDING")
-  sentAt    DateTime?
-  createdAt DateTime         @default(now())
+  id           String           @id @default(cuid())
+  userId       String?
+  user         User?            @relation(fields: [userId], references: [id])
+  type         NotificationType
+  channel      String           @default("email") // email | sms | whatsapp | push | in_app
+  locale       String           @default("en")
+  toEmail      String?
+  payload      Json
+  // PENDING | SCHEDULED | SENT | FAILED | CANCELLED
+  status       String           @default("PENDING")
+  scheduledFor DateTime? // set for scheduled (deferred) sends
+  attempts     Int              @default(0)
+  lastError    String?
+  sentAt       DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime         @default(now())
 
   @@index([userId])
   @@index([type])
+  @@index([status, scheduledFor])
+}
+
+// Per-user opt-out for a (type, channel). Absence of a row = enabled.
+model NotificationPreference {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  channel   String
+  enabled   Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([userId, type, channel])
+  @@index([userId])
 }
 
 model AuditLog {

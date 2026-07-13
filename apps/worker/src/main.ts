@@ -3,11 +3,21 @@ import { createServer } from 'node:http';
 import { NestFactory } from '@nestjs/core';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { AppModule, BookingsService, EventsService, PrismaService } from '@eticketsgo/api';
+import {
+  AppModule,
+  BookingsService,
+  EventsService,
+  NotificationService,
+  PrismaService,
+} from '@eticketsgo/api';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const WORKER_PORT = Number(process.env.WORKER_PORT ?? 4100);
 const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
+// Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
+const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 30_000);
+const NOTIFICATION_SWEEP_MS =
+  Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 30_000;
 const QUEUE_NAME = 'holds';
 
 function log(
@@ -25,6 +35,7 @@ async function main(): Promise<void> {
   const bookings = app.get(BookingsService);
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
+  const notifications = app.get(NotificationService);
 
   // A plain options object avoids a type clash between our ioredis and the one
   // bundled inside bullmq. The IORedis instance is used only for health pings.
@@ -51,9 +62,31 @@ async function main(): Promise<void> {
     },
   );
 
+  // Repeatable sweep that delivers due scheduled notifications. Idempotent:
+  // dispatchDue only acts on rows still SCHEDULED and past their scheduledFor.
+  await queue.add(
+    'dispatch-notifications',
+    {},
+    {
+      repeat: { every: NOTIFICATION_SWEEP_MS },
+      jobId: 'dispatch-notifications',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'dispatch-notifications') {
+        const summary = await notifications.dispatchDue();
+        if (summary.sent + summary.failed + summary.retried > 0) {
+          log('info', 'dispatched scheduled notifications', { ...summary });
+        }
+        return summary;
+      }
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();
       if (released > 0) log('info', 'released expired holds', { released });
@@ -107,7 +140,11 @@ async function main(): Promise<void> {
     res.end();
   });
   health.listen(WORKER_PORT, () =>
-    log('info', 'worker started', { port: WORKER_PORT, everyMs: EXPIRY_EVERY_MS }),
+    log('info', 'worker started', {
+      port: WORKER_PORT,
+      everyMs: EXPIRY_EVERY_MS,
+      notificationSweepMs: NOTIFICATION_SWEEP_MS,
+    }),
   );
 
   const shutdown = async (signal: string) => {

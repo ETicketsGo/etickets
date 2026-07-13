@@ -1,0 +1,89 @@
+import { Injectable } from '@nestjs/common';
+import { NotificationType } from '@eticketsgo/shared-types';
+
+/** The rendered pieces of a notification message. */
+export interface RenderedTemplate {
+  subject: string;
+  body: string;
+}
+
+type PayloadFn = (p: Record<string, unknown>) => RenderedTemplate;
+type LocaleTemplates = Partial<Record<NotificationType, PayloadFn>>;
+
+/** Default locale used when a requested locale has no template set. */
+const DEFAULT_LOCALE = 'en';
+
+/** Reads a payload field as a printable string, with a fallback. */
+function str(p: Record<string, unknown>, key: string, fallback = ''): string {
+  const v = p[key];
+  return v === undefined || v === null ? fallback : String(v);
+}
+
+/**
+ * English templates for every NotificationType. Kept pure and synchronous so
+ * they can be rendered anywhere (send path, scheduled dispatch, tests).
+ */
+const EN: LocaleTemplates = {
+  [NotificationType.BOOKING_CONFIRMED]: (p) => ({
+    subject: 'Your booking is confirmed',
+    body: `Your booking ${str(p, 'bookingId', '')} is confirmed for ${str(p, 'tickets', '0')} ticket(s).`,
+  }),
+  [NotificationType.PAYMENT_FAILED]: (p) => ({
+    subject: 'Payment failed',
+    body: `We could not process the payment for booking ${str(p, 'bookingId', '')}. Please try again.`,
+  }),
+  [NotificationType.EVENT_REMINDER]: (p) => ({
+    subject: 'Reminder: your event is coming up',
+    body: `This is a reminder for ${str(p, 'eventName', 'your event')}${
+      p['startsAt'] ? ` starting at ${str(p, 'startsAt')}` : ''
+    }.`,
+  }),
+  [NotificationType.BOOKING_CANCELLED]: (p) => ({
+    subject: 'Your booking was cancelled',
+    body: `Your booking ${str(p, 'bookingId', '')} has been cancelled.`,
+  }),
+  [NotificationType.REFUND_COMPLETED]: (p) => ({
+    subject: 'Your refund is complete',
+    body: `A refund of ${str(p, 'amountMinor', '0')} (minor units) for booking ${str(
+      p,
+      'bookingId',
+      '',
+    )} has been completed.`,
+  }),
+  [NotificationType.TICKET_CHECKED_IN]: (p) => ({
+    subject: 'Ticket checked in',
+    body: `Ticket ${str(p, 'serial', str(p, 'ticketId', ''))} has been checked in.`,
+  }),
+};
+
+/** Registry of templates keyed by locale. Add locales here as they land. */
+const TEMPLATES: Record<string, LocaleTemplates> = {
+  [DEFAULT_LOCALE]: EN,
+};
+
+/**
+ * Renders notification subject/body from a (type, locale, payload). Falls back
+ * to the `en` locale when the requested locale is missing, and to a generic
+ * template when a type has no entry.
+ */
+@Injectable()
+export class NotificationTemplateService {
+  render(
+    type: NotificationType,
+    locale: string,
+    payload: Record<string, unknown>,
+  ): RenderedTemplate {
+    const table = TEMPLATES[locale] ?? TEMPLATES[DEFAULT_LOCALE];
+    const fn = table?.[type] ?? TEMPLATES[DEFAULT_LOCALE]?.[type];
+    if (fn) return fn(payload);
+    return this.generic(type, payload);
+  }
+
+  /** Generic fallback for unknown/unmapped notification types. */
+  private generic(type: NotificationType, payload: Record<string, unknown>): RenderedTemplate {
+    return {
+      subject: `Notification: ${type}`,
+      body: `You have a new notification (${type}). ${JSON.stringify(payload)}`,
+    };
+  }
+}
