@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { loadConfig } from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
@@ -27,6 +27,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { LoggingInterceptor } from './common/logging.interceptor';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { RolesGuard } from './auth/roles.guard';
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

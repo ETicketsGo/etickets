@@ -367,4 +367,29 @@ export class EventsService {
     });
     return updated;
   }
+
+  /**
+   * Retires live events whose last session has ended. Invoked by the worker so
+   * the catalogue and reporting reflect reality without manual intervention.
+   */
+  async completePastEvents(): Promise<number> {
+    const now = new Date();
+    const live: EventStatus[] = [EventStatus.PUBLISHED, EventStatus.PAUSED, EventStatus.SOLD_OUT];
+    const candidates = await this.prisma.event.findMany({
+      where: { status: { in: live } },
+      select: {
+        id: true,
+        sessions: { select: { endsAt: true }, orderBy: { endsAt: 'desc' }, take: 1 },
+      },
+    });
+    const toComplete = candidates
+      .filter((e) => e.sessions[0] && e.sessions[0].endsAt < now)
+      .map((e) => e.id);
+    if (toComplete.length === 0) return 0;
+    await this.prisma.event.updateMany({
+      where: { id: { in: toComplete } },
+      data: { status: EventStatus.COMPLETED },
+    });
+    return toComplete.length;
+  }
 }

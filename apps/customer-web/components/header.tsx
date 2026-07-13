@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Ticket, Compass, LogOut } from 'lucide-react';
+import { Ticket, Compass, LogOut, Receipt } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 
 export function Header() {
@@ -45,11 +45,18 @@ export function Header() {
           {authed ? (
             <>
               <Link
+                href="/account/bookings"
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
+              >
+                <Receipt className="h-4 w-4" />
+                <span className="hidden sm:inline">Bookings</span>
+              </Link>
+              <Link
                 href="/account/tickets"
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
               >
                 <Ticket className="h-4 w-4" />
-                <span className="hidden sm:inline">My tickets</span>
+                <span className="hidden sm:inline">Tickets</span>
               </Link>
               <button
                 onClick={logout}

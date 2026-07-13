@@ -397,6 +397,7 @@ export interface BookingResult {
 export interface BookingDetail {
   id: string;
   status: string;
+  holdExpiresAt: string;
   totalMinor: number;
   subtotalMinor: number;
   bookingFeeMinor: number;

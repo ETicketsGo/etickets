@@ -18,6 +18,7 @@ export type {
   WalletTicket,
   BookingSummary,
   BookingRequest,
+  RefundRow,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -25,6 +26,7 @@ export const api = {
   register: wk.auth.register,
   login: wk.auth.login,
   me: wk.auth.me,
+  updateProfile: wk.users.updateProfile,
   listEvents: (params: Record<string, string | undefined>) => wk.publicEvents.list(params),
   getEvent: wk.publicEvents.get,
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
@@ -33,4 +35,7 @@ export const api = {
   mockPay: wk.payments.mockPay,
   wallet: wk.tickets.wallet,
   listBookings: wk.bookings.list,
+  requestRefund: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
+    wk.refunds.request(body),
+  refundsForBooking: wk.refunds.forBooking,
 };

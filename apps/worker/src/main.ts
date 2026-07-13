@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { NestFactory } from '@nestjs/core';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { AppModule, BookingsService, PrismaService } from '@eticketsgo/api';
+import { AppModule, BookingsService, EventsService, PrismaService } from '@eticketsgo/api';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const WORKER_PORT = Number(process.env.WORKER_PORT ?? 4100);
@@ -23,6 +23,7 @@ function log(
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const bookings = app.get(BookingsService);
+  const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
 
   // A plain options object avoids a type clash between our ioredis and the one
@@ -56,7 +57,9 @@ async function main(): Promise<void> {
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();
       if (released > 0) log('info', 'released expired holds', { released });
-      return { released };
+      const completed = await events.completePastEvents();
+      if (completed > 0) log('info', 'completed past events', { completed });
+      return { released, completed };
     },
     { connection: redisConnection },
   );
@@ -70,6 +73,9 @@ async function main(): Promise<void> {
   await bookings
     .releaseExpiredHolds()
     .then((n) => n > 0 && log('info', 'startup sweep released holds', { released: n }));
+  await events
+    .completePastEvents()
+    .then((n) => n > 0 && log('info', 'startup sweep completed past events', { completed: n }));
 
   // Minimal health/readiness endpoint.
   const health = createServer(async (req, res) => {
