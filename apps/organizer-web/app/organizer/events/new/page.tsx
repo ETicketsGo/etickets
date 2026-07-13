@@ -10,6 +10,7 @@ import {
   Input,
   Select,
   Textarea,
+  Stepper,
   PageHeader,
   useToast,
   errorMessage,
@@ -42,6 +43,7 @@ export default function NewEventWizard() {
   const toast = useToast();
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   const venuesQ = useQuery({
@@ -70,37 +72,43 @@ export default function NewEventWizard() {
     },
   ]);
 
-  const canNext = (): string | null => {
+  const validateStep = (): Record<string, string> => {
+    const e: Record<string, string> = {};
     if (step === 0) {
-      if (basics.title.trim().length < 3) return 'Title must be at least 3 characters.';
-      if (!basics.category.trim()) return 'Category is required.';
+      if (basics.title.trim().length < 3) e.title = 'Title must be at least 3 characters.';
+      if (!basics.category.trim()) e.category = 'Category is required.';
     }
     if (step === 1) {
-      if (venueMode === 'existing' && !venueId) return 'Select a venue.';
-      if (venueMode === 'new' && (!newVenue.name.trim() || !newVenue.city.trim()))
-        return 'Venue name and city are required.';
+      if (venueMode === 'existing' && !venueId) e.venueId = 'Select a venue.';
+      if (venueMode === 'new') {
+        if (!newVenue.name.trim()) e.venueName = 'Venue name is required.';
+        if (!newVenue.city.trim()) e.venueCity = 'City is required.';
+      }
     }
     if (step === 2) {
-      if (sessions.length === 0) return 'Add at least one session.';
-      for (const s of sessions) {
-        if (!s.startsAt || !s.endsAt) return 'Every session needs a start and end time.';
-        if (new Date(s.endsAt) <= new Date(s.startsAt)) return 'Session end must be after start.';
-      }
+      if (sessions.length === 0) e.form = 'Add at least one session.';
+      sessions.forEach((s, i) => {
+        if (!s.startsAt) e[`s${i}Start`] = 'Start time is required.';
+        if (!s.endsAt) e[`s${i}End`] = 'End time is required.';
+        if (s.startsAt && s.endsAt && new Date(s.endsAt) <= new Date(s.startsAt))
+          e[`s${i}End`] = 'End must be after start.';
+      });
     }
     if (step === 3) {
-      if (tickets.length === 0) return 'Add at least one ticket type.';
-      for (const t of tickets) {
-        if (!t.name.trim()) return 'Ticket type name is required.';
-        if (Number(t.quantityTotal) < 1) return 'Ticket quantity must be at least 1.';
-      }
+      if (tickets.length === 0) e.form = 'Add at least one ticket type.';
+      tickets.forEach((t, i) => {
+        if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
+        if (Number(t.quantityTotal) < 1) e[`t${i}Qty`] = 'Quantity must be at least 1.';
+      });
     }
-    return null;
+    return e;
   };
 
   const next = () => {
-    const err = canNext();
-    if (err) {
-      setError(err);
+    const errs = validateStep();
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setError(errs.form ?? null);
       return;
     }
     setError(null);
@@ -108,6 +116,7 @@ export default function NewEventWizard() {
   };
   const back = () => {
     setError(null);
+    setFieldErrors({});
     setStep((s) => Math.max(s - 1, 0));
   };
 
@@ -171,22 +180,7 @@ export default function NewEventWizard() {
         breadcrumbs={[{ label: 'Events', href: '/organizer/events' }, { label: 'New' }]}
       />
 
-      <ol className="flex flex-wrap gap-2 text-sm" aria-label="Progress">
-        {STEPS.map((label, i) => (
-          <li
-            key={label}
-            className={`rounded-md px-3 py-1 ${
-              i === step
-                ? 'bg-action-primary text-action-primary-foreground'
-                : i < step
-                  ? 'bg-status-success/15 text-status-success'
-                  : 'bg-background-subtle text-text-muted'
-            }`}
-          >
-            {i + 1}. {label}
-          </li>
-        ))}
-      </ol>
+      <Stepper steps={STEPS} current={step} />
 
       <Card>
         {step === 0 && (
@@ -194,8 +188,10 @@ export default function NewEventWizard() {
             <Input
               id="title"
               label="Event title"
+              autoFocus
               value={basics.title}
               onChange={(e) => setBasics({ ...basics, title: e.target.value })}
+              error={fieldErrors.title}
             />
             <Input
               id="category"
@@ -203,6 +199,7 @@ export default function NewEventWizard() {
               placeholder="Music, Tech, Comedy…"
               value={basics.category}
               onChange={(e) => setBasics({ ...basics, category: e.target.value })}
+              error={fieldErrors.category}
             />
             <Textarea
               id="desc"
@@ -243,6 +240,7 @@ export default function NewEventWizard() {
                 label="Venue"
                 value={venueId}
                 onChange={(e) => setVenueId(e.target.value)}
+                error={fieldErrors.venueId}
               >
                 <option value="">Select a venue…</option>
                 {(venuesQ.data ?? []).map((v) => (
@@ -258,12 +256,14 @@ export default function NewEventWizard() {
                   label="Venue name"
                   value={newVenue.name}
                   onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
+                  error={fieldErrors.venueName}
                 />
                 <Input
                   id="vcity"
                   label="City"
                   value={newVenue.city}
                   onChange={(e) => setNewVenue({ ...newVenue, city: e.target.value })}
+                  error={fieldErrors.venueCity}
                 />
                 <Input
                   id="vcountry"
@@ -300,6 +300,7 @@ export default function NewEventWizard() {
                       sessions.map((x, j) => (j === i ? { ...x, startsAt: e.target.value } : x)),
                     )
                   }
+                  error={fieldErrors[`s${i}Start`]}
                 />
                 <Input
                   id={`se${i}`}
@@ -311,14 +312,17 @@ export default function NewEventWizard() {
                       sessions.map((x, j) => (j === i ? { ...x, endsAt: e.target.value } : x)),
                     )
                   }
+                  error={fieldErrors[`s${i}End`]}
                 />
                 {sessions.length > 1 && (
-                  <button
-                    className="text-left text-sm text-status-error"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-self-start text-status-error"
                     onClick={() => setSessions(sessions.filter((_, j) => j !== i))}
                   >
                     Remove session
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}
@@ -347,6 +351,7 @@ export default function NewEventWizard() {
                       tickets.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
                     )
                   }
+                  error={fieldErrors[`t${i}Name`]}
                 />
                 <Select
                   id={`tsi${i}`}
@@ -389,6 +394,7 @@ export default function NewEventWizard() {
                       ),
                     )
                   }
+                  error={fieldErrors[`t${i}Qty`]}
                 />
                 <Input
                   id={`tm${i}`}
@@ -402,12 +408,14 @@ export default function NewEventWizard() {
                   }
                 />
                 {tickets.length > 1 && (
-                  <button
-                    className="self-end text-left text-sm text-status-error"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-self-start self-end text-status-error"
                     onClick={() => setTickets(tickets.filter((_, j) => j !== i))}
                   >
                     Remove
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}

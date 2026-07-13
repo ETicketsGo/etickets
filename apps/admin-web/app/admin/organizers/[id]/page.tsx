@@ -12,6 +12,7 @@ import {
   StatusBadge,
   Skeleton,
   PageHeader,
+  ErrorState,
   useToast,
   errorMessage,
   dateOnly,
@@ -49,6 +50,13 @@ export default function OrganizerDetail() {
     { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} /> },
   ];
 
+  if (orgQ.isError)
+    return (
+      <ErrorState
+        message="We couldn't load this. Please try again."
+        onRetry={() => orgQ.refetch()}
+      />
+    );
   if (orgQ.isLoading || !org) return <Skeleton className="h-64 w-full" />;
 
   return (
@@ -87,12 +95,17 @@ export default function OrganizerDetail() {
                 onChange={(e) => setNote(e.target.value)}
               />
               <div className="flex gap-2">
-                <Button loading={review.isPending} onClick={() => review.mutate('APPROVE')}>
+                <Button
+                  loading={review.isPending && review.variables === 'APPROVE'}
+                  disabled={review.isPending}
+                  onClick={() => review.mutate('APPROVE')}
+                >
                   Approve
                 </Button>
                 <Button
                   variant="danger"
-                  loading={review.isPending}
+                  loading={review.isPending && review.variables === 'REJECT'}
+                  disabled={review.isPending}
                   onClick={() => review.mutate('REJECT')}
                 >
                   Reject

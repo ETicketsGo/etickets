@@ -5,6 +5,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
   Info,
   Loader2,
   Search,
@@ -349,6 +351,10 @@ export interface Column<T> {
   header: ReactNode;
   render: (row: T) => ReactNode;
   className?: string;
+  /** Enable click-to-sort on this column's header. Sorts by `sortValue` (or the raw render). */
+  sortable?: boolean;
+  /** Value used for sorting when `sortable` — return a string or number. */
+  sortValue?: (row: T) => string | number;
 }
 
 export function DataTable<T>({
@@ -356,6 +362,8 @@ export function DataTable<T>({
   rows,
   loading,
   empty,
+  error,
+  onRetry,
   onRowClick,
   rowKey,
 }: {
@@ -363,12 +371,20 @@ export function DataTable<T>({
   rows: T[] | undefined;
   loading?: boolean;
   empty?: ReactNode;
+  /** When set, renders an ErrorState instead of the table (use for query.isError). */
+  error?: string;
+  onRetry?: () => void;
   onRowClick?: (row: T) => void;
   rowKey: (row: T) => string;
 }) {
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+
+  if (error) {
+    return <ErrorState message={error} onRetry={onRetry} />;
+  }
   if (loading) {
     return (
-      <div className="space-y-2.5">
+      <div className="space-y-2.5" aria-busy="true" aria-label="Loading">
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-14 w-full" />
         ))}
@@ -378,28 +394,81 @@ export function DataTable<T>({
   if (!rows || rows.length === 0) {
     return <>{empty ?? <EmptyState title="Nothing to show" />}</>;
   }
+
+  const sortCol = sort && columns.find((c) => c.key === sort.key);
+  const sorted =
+    sortCol && sortCol.sortable
+      ? [...rows].sort((a, b) => {
+          const va = sortCol.sortValue ? sortCol.sortValue(a) : '';
+          const vb = sortCol.sortValue ? sortCol.sortValue(b) : '';
+          const cmp =
+            typeof va === 'number' && typeof vb === 'number'
+              ? va - vb
+              : String(va).localeCompare(String(vb));
+          return sort!.dir === 'asc' ? cmp : -cmp;
+        })
+      : rows;
+
+  const toggleSort = (key: string) =>
+    setSort((s) =>
+      s?.key === key ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' },
+    );
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-sm">
       <table className="w-full min-w-[640px] text-left text-[0.9375rem]">
         <thead>
           <tr className="border-b border-border">
-            {columns.map((c) => (
-              <th
-                key={c.key}
-                className={`px-5 py-3.5 text-caption font-semibold uppercase tracking-wide text-text-muted ${c.className ?? ''}`}
-              >
-                {c.header}
-              </th>
-            ))}
+            {columns.map((c) => {
+              const active = sort?.key === c.key;
+              const SortIcon = active ? (sort!.dir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+              return (
+                <th
+                  key={c.key}
+                  aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                  className={`px-5 py-3.5 text-caption font-semibold uppercase tracking-wide text-text-muted ${c.className ?? ''}`}
+                >
+                  {c.sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c.key)}
+                      className={`-mx-1 inline-flex items-center gap-1 rounded px-1 transition-colors hover:text-text-secondary ${focus}`}
+                    >
+                      {c.header}
+                      <SortIcon
+                        className={`h-3.5 w-3.5 ${active ? 'text-text-secondary' : 'text-text-muted/60'}`}
+                        aria-hidden
+                      />
+                    </button>
+                  ) : (
+                    c.header
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {sorted.map((row) => (
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
+                    }
+                  : undefined
+              }
+              role={onRowClick ? 'button' : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
               className={`border-b border-border/70 last:border-0 transition-colors ${
-                onRowClick ? 'cursor-pointer hover:bg-background-subtle/60' : ''
+                onRowClick
+                  ? `cursor-pointer hover:bg-background-subtle/60 focus-visible:bg-background-subtle/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50`
+                  : ''
               }`}
             >
               {columns.map((c) => (

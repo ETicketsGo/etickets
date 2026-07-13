@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import {
   api,
   Card,
@@ -9,16 +10,20 @@ import {
   Skeleton,
   StatusBadge,
   PageHeader,
+  Dialog,
+  ErrorState,
   money,
   dateTime,
   useToast,
   errorMessage,
+  type RefundRow,
 } from '@eticketsgo/web-kit';
 
 export default function AdminBookingDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const [confirmApprove, setConfirmApprove] = useState<RefundRow | null>(null);
 
   const bookingQ = useQuery({ queryKey: ['booking', id], queryFn: () => api.bookings.get(id) });
   const refundsQ = useQuery({
@@ -31,12 +36,20 @@ export default function AdminBookingDetail() {
       api.refunds.process(refundId, decision),
     onSuccess: () => {
       toast.push('Refund processed.', 'success');
+      setConfirmApprove(null);
       qc.invalidateQueries({ queryKey: ['booking', id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
   const b = bookingQ.data;
+  if (bookingQ.isError)
+    return (
+      <ErrorState
+        message="We couldn't load this. Please try again."
+        onRetry={() => bookingQ.refetch()}
+      />
+    );
   if (bookingQ.isLoading || !b) return <Skeleton className="h-64 w-full" />;
 
   return (
@@ -78,14 +91,18 @@ export default function AdminBookingDetail() {
       </div>
 
       <Card title={`Tickets (${b.tickets.length})`}>
-        <ul className="divide-y divide-border text-sm">
-          {b.tickets.map((t) => (
-            <li key={t.id} className="flex items-center justify-between py-2">
-              <span className="font-mono text-xs text-text-muted">{t.id}</span>
-              <StatusBadge status={t.status} />
-            </li>
-          ))}
-        </ul>
+        {b.tickets.length > 0 ? (
+          <ul className="divide-y divide-border text-sm">
+            {b.tickets.map((t) => (
+              <li key={t.id} className="flex items-center justify-between py-2">
+                <span className="font-mono text-xs text-text-muted">{t.id}</span>
+                <StatusBadge status={t.status} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-text-muted">No tickets on this booking.</p>
+        )}
       </Card>
 
       <Card title="Refunds">
@@ -104,14 +121,24 @@ export default function AdminBookingDetail() {
                   {r.status === 'REQUESTED' && (
                     <>
                       <Button
-                        loading={process.isPending}
-                        onClick={() => process.mutate({ refundId: r.id, decision: 'APPROVE' })}
+                        loading={
+                          process.isPending &&
+                          process.variables?.refundId === r.id &&
+                          process.variables?.decision === 'APPROVE'
+                        }
+                        disabled={process.isPending}
+                        onClick={() => setConfirmApprove(r)}
                       >
                         Approve
                       </Button>
                       <Button
                         variant="danger"
-                        loading={process.isPending}
+                        loading={
+                          process.isPending &&
+                          process.variables?.refundId === r.id &&
+                          process.variables?.decision === 'REJECT'
+                        }
+                        disabled={process.isPending}
                         onClick={() => process.mutate({ refundId: r.id, decision: 'REJECT' })}
                       >
                         Reject
@@ -126,6 +153,35 @@ export default function AdminBookingDetail() {
           <p className="text-sm text-text-muted">No refunds for this booking.</p>
         )}
       </Card>
+
+      <Dialog
+        open={!!confirmApprove}
+        onClose={() => setConfirmApprove(null)}
+        title="Approve this refund?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirmApprove(null)}>
+              Cancel
+            </Button>
+            <Button
+              loading={process.isPending && process.variables?.decision === 'APPROVE'}
+              onClick={() =>
+                confirmApprove &&
+                process.mutate({ refundId: confirmApprove.id, decision: 'APPROVE' })
+              }
+            >
+              Approve &amp; refund
+            </Button>
+          </>
+        }
+      >
+        {confirmApprove && (
+          <p>
+            This will refund <strong>{money(confirmApprove.amountMinor)}</strong> to the buyer. This
+            action cannot be undone.
+          </p>
+        )}
+      </Dialog>
     </div>
   );
 }

@@ -5,8 +5,7 @@ import { useState } from 'react';
 import {
   api,
   DataTable,
-  Input,
-  Button,
+  Select,
   Pagination,
   PageHeader,
   titleCase,
@@ -15,14 +14,30 @@ import {
   type AuditRow,
 } from '@eticketsgo/web-kit';
 
+const ACTIONS = [
+  'BOOKING_CREATED',
+  'BOOKING_CONFIRMED',
+  'CHECKIN_REVERSED',
+  'EVENT_CREATED',
+  'EVENT_STATUS_CHANGED',
+  'EVENT_SUBMITTED_FOR_REVIEW',
+  'MEMBER_INVITED',
+  'ORGANIZATION_CREATED',
+  'PAYOUT_GENERATED',
+  'PAYOUT_PAID',
+  'REFUND_REQUESTED',
+  'REFUND_COMPLETED',
+  'REFUND_REJECTED',
+  'TICKET_CHECKED_IN',
+];
+
 export default function AuditPage() {
   const [page, setPage] = useState(1);
   const [action, setAction] = useState('');
-  const [applied, setApplied] = useState('');
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'audit', page, applied],
-    queryFn: () => api.admin.audit({ page, pageSize: 20, action: applied || undefined }),
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['admin', 'audit', page, action],
+    queryFn: () => api.admin.audit({ page, pageSize: 20, action: action || undefined }),
   });
 
   const columns: Column<AuditRow>[] = [
@@ -50,25 +65,30 @@ export default function AuditPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Audit log" description="Immutable record of privileged actions." />
-      <form
-        className="flex max-w-md gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setApplied(action);
+      <Select
+        aria-label="Action filter"
+        className="max-w-xs"
+        value={action}
+        onChange={(e) => {
+          setAction(e.target.value);
           setPage(1);
         }}
       >
-        <Input
-          id="action"
-          placeholder="Filter by action (e.g. REFUND_COMPLETED)"
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
-        />
-        <Button type="submit" variant="outline">
-          Filter
-        </Button>
-      </form>
-      <DataTable columns={columns} rows={data?.data} loading={isLoading} rowKey={(a) => a.id} />
+        <option value="">All actions</option>
+        {ACTIONS.map((a) => (
+          <option key={a} value={a}>
+            {titleCase(a)}
+          </option>
+        ))}
+      </Select>
+      <DataTable
+        columns={columns}
+        rows={data?.data}
+        loading={isLoading}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
+        rowKey={(a) => a.id}
+      />
       {data && (
         <Pagination page={data.meta.page} totalPages={data.meta.totalPages} onChange={setPage} />
       )}

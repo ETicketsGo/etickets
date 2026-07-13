@@ -32,12 +32,13 @@ function LoginForm() {
 
   return (
     <Card className="mx-auto max-w-sm space-y-4">
-      <h1 className="text-xl font-bold text-text-primary">Sign in</h1>
+      <h1 className="text-h2 font-bold text-text-primary">Sign in</h1>
       <form className="space-y-4" onSubmit={submit}>
         <Input
           id="email"
           label="Email"
           type="email"
+          autoFocus
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -51,15 +52,15 @@ function LoginForm() {
           required
         />
         {error && (
-          <p role="alert" className="text-sm text-status-error">
+          <p role="alert" className="text-caption text-status-error">
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
+        <Button type="submit" className="w-full" loading={loading}>
+          Sign in
         </Button>
       </form>
-      <p className="text-sm text-text-muted">
+      <p className="text-caption text-text-muted">
         No account?{' '}
         <Link href="/register" className="text-action-primary">
           Create one

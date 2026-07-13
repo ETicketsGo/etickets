@@ -1,6 +1,7 @@
 'use client';
 
 import { useQueries, useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import {
   api,
   money,
@@ -10,6 +11,7 @@ import {
   ButtonLink,
   Skeleton,
   EmptyState,
+  ErrorState,
   PageHeader,
   dateOnly,
   type EventReport,
@@ -39,6 +41,12 @@ export default function OrganizerDashboard() {
 
   const reports = reportQs.map((q) => q.data).filter(Boolean) as EventReport[];
   const loading = eventsQ.isLoading || reportQs.some((q) => q.isLoading);
+  const isError = eventsQ.isError || payoutsQ.isError || reportQs.some((q) => q.isError);
+  const refetchAll = () => {
+    eventsQ.refetch();
+    payoutsQ.refetch();
+    reportQs.forEach((q) => q.refetch());
+  };
 
   const sum = reports.reduce(
     (a, r) => ({
@@ -63,6 +71,21 @@ export default function OrganizerDashboard() {
   }
   const mostPopular = [...typeTotals.entries()].sort((a, b) => b[1] - a[1])[0];
   const publishedCount = events.filter((e) => e.status === 'PUBLISHED').length;
+
+  if (isError)
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={`Welcome, ${activeOrg.name}`}
+          description="Your sales, tickets, and payout status at a glance."
+          action={<ButtonLink href="/organizer/events/new">Create event</ButtonLink>}
+        />
+        <ErrorState
+          message="We couldn't load this. Please try again."
+          onRetry={() => refetchAll()}
+        />
+      </div>
+    );
 
   return (
     <div className="space-y-6">
@@ -122,12 +145,12 @@ export default function OrganizerDashboard() {
               {events.slice(0, 6).map((e) => (
                 <li key={e.id} className="flex items-center justify-between py-2">
                   <div>
-                    <a
+                    <Link
                       href={`/organizer/events/${e.id}`}
                       className="font-medium text-text-primary hover:text-action-primary"
                     >
                       {e.title}
-                    </a>
+                    </Link>
                     <p className="text-xs text-text-muted">
                       {e.venue.city} · {e._count.sessions} session(s) · {e._count.bookings}{' '}
                       booking(s)

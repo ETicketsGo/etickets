@@ -31,11 +31,12 @@ export default function RegisterPage() {
 
   return (
     <Card className="mx-auto max-w-sm space-y-4">
-      <h1 className="text-xl font-bold text-text-primary">Create your account</h1>
+      <h1 className="text-h2 font-bold text-text-primary">Create your account</h1>
       <form className="space-y-4" onSubmit={submit}>
         <Input
           id="name"
           label="Full name"
+          autoFocus
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           required
@@ -57,15 +58,15 @@ export default function RegisterPage() {
           required
         />
         {error && (
-          <p role="alert" className="text-sm text-status-error">
+          <p role="alert" className="text-caption text-status-error">
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? 'Creating…' : 'Create account'}
+        <Button type="submit" className="w-full" loading={loading}>
+          Create account
         </Button>
       </form>
-      <p className="text-sm text-text-muted">
+      <p className="text-caption text-text-muted">
         Already have an account?{' '}
         <Link href="/login" className="text-action-primary">
           Sign in

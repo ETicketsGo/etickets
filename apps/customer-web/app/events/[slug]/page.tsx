@@ -17,12 +17,18 @@ import { RatingStars, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
-import { Badge, Button, Card, Textarea } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
 
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    error: eventError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', slug],
     queryFn: () => api.getEvent(slug),
   });
@@ -158,7 +164,29 @@ export default function EventDetailPage() {
   };
 
   if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
-  if (!event) return <p>Event not found.</p>;
+  if (isError) {
+    const notFound = eventError instanceof ApiRequestError && eventError.code === 'NOT_FOUND';
+    return notFound ? (
+      <EmptyState
+        title="Event not found"
+        hint="This event may have ended or been removed."
+        icon={CalendarDays}
+      />
+    ) : (
+      <ErrorState
+        message="We couldn't load this event. Please try again."
+        onRetry={() => refetch()}
+      />
+    );
+  }
+  if (!event)
+    return (
+      <EmptyState
+        title="Event not found"
+        hint="This event may have ended or been removed."
+        icon={CalendarDays}
+      />
+    );
 
   return (
     <div className="space-y-8">
@@ -274,7 +302,13 @@ export default function EventDetailPage() {
 
           {/* Reviews */}
           <Card title="Ratings & reviews">
-            {reviews.data && reviews.data.count > 0 ? (
+            {reviews.isLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-16 w-40" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : reviews.data && reviews.data.count > 0 ? (
               <div className="space-y-5">
                 <div className="flex items-center gap-4">
                   <div className="text-center">

@@ -11,6 +11,7 @@ import {
   Select,
   Textarea,
   Skeleton,
+  ErrorState,
   useToast,
   errorMessage,
 } from '@eticketsgo/web-kit';
@@ -22,7 +23,12 @@ export default function EditEvent() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
@@ -62,6 +68,10 @@ export default function EditEvent() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  if (isError)
+    return (
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
+    );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
   const editable = EDITABLE.includes(event.status);
 

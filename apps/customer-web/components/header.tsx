@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Ticket, Compass, LogOut, Receipt } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
+import { ButtonLink } from '@/components/ui';
+
+const navLink =
+  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
 
 export function Header() {
   const router = useRouter();
@@ -25,7 +29,8 @@ export function Header() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <Link
           href="/"
-          className="flex items-center gap-2 font-bold tracking-tight text-text-primary"
+          aria-label="ETicketsGo home"
+          className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
             <Ticket className="h-4 w-4" />
@@ -35,33 +40,21 @@ export function Header() {
           </span>
         </Link>
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
-          <Link
-            href="/events"
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
-          >
+          <Link href="/events" aria-label="Browse events" className={navLink}>
             <Compass className="h-4 w-4" />
             <span className="hidden sm:inline">Browse</span>
           </Link>
           {authed ? (
             <>
-              <Link
-                href="/account/bookings"
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
-              >
+              <Link href="/account/bookings" aria-label="My bookings" className={navLink}>
                 <Receipt className="h-4 w-4" />
                 <span className="hidden sm:inline">Bookings</span>
               </Link>
-              <Link
-                href="/account/tickets"
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
-              >
+              <Link href="/account/tickets" aria-label="My tickets" className={navLink}>
                 <Ticket className="h-4 w-4" />
                 <span className="hidden sm:inline">Tickets</span>
               </Link>
-              <button
-                onClick={logout}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary"
-              >
+              <button onClick={logout} aria-label="Sign out" className={navLink}>
                 <LogOut className="h-4 w-4" />
                 <span className="hidden sm:inline">Sign out</span>
               </button>
@@ -70,16 +63,13 @@ export function Header() {
             <>
               <Link
                 href="/login"
-                className="rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:text-text-primary"
+                className="rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
                 Sign in
               </Link>
-              <Link
-                href="/register"
-                className="rounded-md bg-action-primary px-4 py-2 font-semibold text-action-primary-foreground shadow-sm transition-all duration-200 hover:bg-action-primary-hover hover:shadow-md active:scale-[0.98]"
-              >
+              <ButtonLink href="/register" size="sm">
                 Sign up
-              </Link>
+              </ButtonLink>
             </>
           )}
         </nav>

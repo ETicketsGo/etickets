@@ -27,7 +27,7 @@ export default function TeamPage() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('CHECKIN_STAFF');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['members', activeOrg.id],
     queryFn: () => api.organizations.members(activeOrg.id),
   });
@@ -53,7 +53,14 @@ export default function TeamPage() {
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2">
         <PageHeader title="Team" description="People who can manage this organization." />
-        <DataTable columns={columns} rows={data} loading={isLoading} rowKey={(m) => m.id} />
+        <DataTable
+          columns={columns}
+          rows={data}
+          loading={isLoading}
+          rowKey={(m) => m.id}
+          error={isError ? "We couldn't load this. Please try again." : undefined}
+          onRetry={() => refetch()}
+        />
       </div>
       <Card title="Invite member">
         <div className="space-y-3">

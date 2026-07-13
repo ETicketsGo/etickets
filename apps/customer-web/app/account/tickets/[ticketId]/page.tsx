@@ -19,15 +19,23 @@ import {
   googleDirectionsUrl,
   gradientFor,
   useCountdown,
+  useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
-import { Badge, Skeleton, StatusBadge } from '@/components/ui';
+import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
+
+const QR_FALLBACK =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#f1f5f9"/><text x="60" y="64" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">QR unavailable</text></svg>',
+  );
 
 export default function TicketDetailPage() {
   const { ticketId } = useParams<{ ticketId: string }>();
   const router = useRouter();
+  const toast = useToast();
   const [shared, setShared] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -58,23 +66,23 @@ export default function TicketDetailPage() {
 
   const toggleSave = () => {
     if (!event) return;
-    setSaved(
-      toggleSaved({
-        id: event.id,
-        title: event.title,
-        slug: event.slug,
-        category: event.category,
-        venue: {
-          name: event.venue.name,
-          city: event.venue.city,
-          country: event.venue.country,
-        },
-        organizer: event.organizer.name,
-        nextSessionAt: event.sessions[0]?.startsAt ?? null,
-        fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
-        currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
-      }),
-    );
+    const nowSaved = toggleSaved({
+      id: event.id,
+      title: event.title,
+      slug: event.slug,
+      category: event.category,
+      venue: {
+        name: event.venue.name,
+        city: event.venue.city,
+        country: event.venue.country,
+      },
+      organizer: event.organizer.name,
+      nextSessionAt: event.sessions[0]?.startsAt ?? null,
+      fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+      currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+    });
+    setSaved(nowSaved);
+    toast.push(nowSaved ? 'Saved to wishlist' : 'Removed from wishlist', 'success');
   };
 
   const share = async () => {
@@ -88,6 +96,13 @@ export default function TicketDetailPage() {
     }
   };
 
+  if (ticketQ.isError)
+    return (
+      <ErrorState
+        message="We couldn't load this ticket. Please try again."
+        onRetry={() => ticketQ.refetch()}
+      />
+    );
   if (ticketQ.isLoading || !ticket) return <Skeleton className="h-96 w-full" />;
 
   const venueName = event?.venue.name ?? '';
@@ -107,7 +122,7 @@ export default function TicketDetailPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <button
         onClick={() => router.push('/account/tickets')}
-        className="flex items-center gap-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary"
+        className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
       >
         <ArrowLeft className="h-4 w-4" /> All tickets
       </button>
@@ -129,16 +144,16 @@ export default function TicketDetailPage() {
           <div className="absolute right-4 top-4 flex gap-2">
             <button
               onClick={toggleSave}
-              aria-label={saved ? 'Remove favourite' : 'Favourite event'}
+              aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
               aria-pressed={saved}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-status-error"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <Heart className={`h-4 w-4 ${saved ? 'fill-status-error text-status-error' : ''}`} />
             </button>
             <button
               onClick={share}
               aria-label="Share"
-              className="flex h-9 items-center gap-1.5 rounded-full bg-background-surface/90 px-3 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
+              className="flex h-9 items-center gap-1.5 rounded-full bg-background-surface/90 px-3 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <Share2 className="h-3.5 w-3.5" /> {shared ? 'Copied!' : 'Share'}
             </button>
@@ -186,6 +201,10 @@ export default function TicketDetailPage() {
             <img
               src={ticket.qrDataUrl}
               alt={`QR code for ticket ${ticket.serial}`}
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+              }}
               className="relative h-52 w-52 rounded-2xl bg-white p-2"
             />
           </span>
@@ -205,7 +224,7 @@ export default function TicketDetailPage() {
         <a
           href={ics}
           download={`${ticket.event.slug}.ics`}
-          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle"
+          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
           <CalendarPlus className="h-4 w-4" /> Add to calendar
         </a>
@@ -213,7 +232,7 @@ export default function TicketDetailPage() {
           href={googleDirectionsUrl(mapsQuery)}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle"
+          className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
           <Navigation className="h-4 w-4" /> Directions
         </a>
@@ -221,7 +240,7 @@ export default function TicketDetailPage() {
           href={googleMapsUrl(mapsQuery)}
           target="_blank"
           rel="noreferrer"
-          className="col-span-2 flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle sm:col-span-1"
+          className="col-span-2 flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas sm:col-span-1"
         >
           <MapPin className="h-4 w-4" /> View venue
         </a>

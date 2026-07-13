@@ -7,6 +7,8 @@ import {
   Button,
   Card,
   Input,
+  Skeleton,
+  ErrorState,
   PageHeader,
   StatusBadge,
   useToast,
@@ -18,7 +20,12 @@ export default function SettingsPage() {
   const { activeOrg } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
-  const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api.users.profile() });
+  const {
+    data: profile,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({ queryKey: ['profile'], queryFn: () => api.users.profile() });
   const [fullName, setFullName] = useState('');
 
   useEffect(() => {
@@ -57,18 +64,31 @@ export default function SettingsPage() {
           </dl>
         </Card>
         <Card title="Your profile">
-          <div className="space-y-3">
-            <Input
-              id="name"
-              label="Full name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+          {isError ? (
+            <ErrorState
+              message="We couldn't load this. Please try again."
+              onRetry={() => refetch()}
             />
-            <Input id="email" label="Email" value={profile?.email ?? ''} disabled />
-            <Button loading={save.isPending} onClick={() => save.mutate()}>
-              Save profile
-            </Button>
-          </div>
+          ) : isLoading || !profile ? (
+            <div className="space-y-3">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-11 w-32" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Input
+                id="name"
+                label="Full name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+              <Input id="email" label="Email" value={profile.email ?? ''} disabled />
+              <Button loading={save.isPending} onClick={() => save.mutate()}>
+                Save profile
+              </Button>
+            </div>
+          )}
         </Card>
       </div>
     </div>

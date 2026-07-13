@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, EmptyState, Spinner, type Organization } from '@eticketsgo/web-kit';
+import { api, EmptyState, ErrorState, Select, Spinner, type Organization } from '@eticketsgo/web-kit';
 
 interface OrgCtx {
   orgs: Organization[];
@@ -13,7 +13,12 @@ const Ctx = createContext<OrgCtx | null>(null);
 const KEY = 'etg_active_org';
 
 export function OrgProvider({ children }: { children: ReactNode }) {
-  const { data: orgs, isLoading } = useQuery({
+  const {
+    data: orgs,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['organizations', 'mine'],
     queryFn: () => api.organizations.listMine(),
   });
@@ -36,6 +41,14 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       <div className="flex h-64 items-center justify-center text-text-muted">
         <Spinner />
       </div>
+    );
+  }
+  if (isError) {
+    return (
+      <ErrorState
+        message="We couldn't load this. Please try again."
+        onRetry={() => refetch()}
+      />
     );
   }
   if (!orgs || orgs.length === 0) {
@@ -65,17 +78,17 @@ export function OrgSwitcher() {
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="text-text-muted">Organization</span>
-      <select
+      <Select
+        aria-label="Organization"
         value={activeOrg.id}
         onChange={(e) => setActiveOrgId(e.target.value)}
-        className="rounded-md border border-border bg-background-surface px-2 py-1 text-text-primary"
       >
         {orgs.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

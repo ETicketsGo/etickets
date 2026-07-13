@@ -8,6 +8,7 @@ import {
   Card,
   ButtonLink,
   Skeleton,
+  ErrorState,
   StatusBadge,
   useToast,
   errorMessage,
@@ -19,7 +20,12 @@ export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
@@ -46,6 +52,10 @@ export default function EventOverview() {
     onError,
   });
 
+  if (isError)
+    return (
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
+    );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
   return (

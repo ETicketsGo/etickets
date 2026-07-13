@@ -11,6 +11,7 @@ import {
   SearchInput,
   Pagination,
   PageHeader,
+  EmptyState,
   money,
   dateTime,
   type Column,
@@ -34,7 +35,7 @@ export default function AdminBookings() {
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'bookings', page, status, applied],
     queryFn: () =>
       api.admin.bookings({
@@ -48,14 +49,26 @@ export default function AdminBookings() {
   const columns: Column<AdminBookingRow>[] = [
     { key: 'buyer', header: 'Buyer', render: (b) => b.buyerEmail },
     { key: 'event', header: 'Event', render: (b) => b.event.title },
-    { key: 'total', header: 'Total', render: (b) => money(b.totalMinor) },
+    {
+      key: 'total',
+      header: 'Total',
+      render: (b) => money(b.totalMinor),
+      sortable: true,
+      sortValue: (b) => b.totalMinor,
+    },
     { key: 'status', header: 'Status', render: (b) => <StatusBadge status={b.status} /> },
     {
       key: 'payment',
       header: 'Payment',
       render: (b) => (b.paymentStatus ? <StatusBadge status={b.paymentStatus} /> : '—'),
     },
-    { key: 'date', header: 'Date', render: (b) => dateTime(b.createdAt) },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (b) => dateTime(b.createdAt),
+      sortable: true,
+      sortValue: (b) => b.createdAt,
+    },
   ];
 
   return (
@@ -91,6 +104,9 @@ export default function AdminBookings() {
         columns={columns}
         rows={data?.data}
         loading={isLoading}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
+        empty={<EmptyState title="No bookings match these filters" />}
         rowKey={(b) => b.id}
         onRowClick={(b) => router.push(`/admin/bookings/${b.id}`)}
       />

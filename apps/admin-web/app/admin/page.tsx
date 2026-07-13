@@ -7,6 +7,8 @@ import {
   Card,
   Skeleton,
   ButtonLink,
+  ErrorState,
+  EmptyState,
   money,
   dateTime,
   titleCase,
@@ -21,6 +23,14 @@ export default function AdminDashboard() {
   });
 
   const d = dash.data;
+
+  if (dash.isError)
+    return (
+      <ErrorState
+        message="We couldn't load this. Please try again."
+        onRetry={() => dash.refetch()}
+      />
+    );
 
   return (
     <div className="space-y-6">
@@ -80,9 +90,14 @@ export default function AdminDashboard() {
         <Card title="Recent activity" className="lg:col-span-2">
           {audit.isLoading ? (
             <Skeleton className="h-40 w-full" />
-          ) : (
+          ) : audit.isError ? (
+            <ErrorState
+              message="We couldn't load recent activity."
+              onRetry={() => audit.refetch()}
+            />
+          ) : audit.data && audit.data.data.length > 0 ? (
             <ul className="divide-y divide-border text-sm">
-              {audit.data?.data.map((a) => (
+              {audit.data.data.map((a) => (
                 <li key={a.id} className="flex items-center justify-between py-2">
                   <span className="text-text-primary">{titleCase(a.action)}</span>
                   <span className="text-text-muted">
@@ -91,6 +106,8 @@ export default function AdminDashboard() {
                 </li>
               ))}
             </ul>
+          ) : (
+            <EmptyState title="No recent activity" hint="Privileged actions will appear here." />
           )}
         </Card>
       </div>

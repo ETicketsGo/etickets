@@ -3,7 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Input, Skeleton, errorMessage, useToast } from '@eticketsgo/web-kit';
+import {
+  Button,
+  Card,
+  ErrorState,
+  Input,
+  Skeleton,
+  errorMessage,
+  useToast,
+} from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 
 export default function ProfilePage() {
@@ -42,7 +50,12 @@ export default function ProfilePage() {
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">Profile</h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">Manage your account details.</p>
       </div>
-      {me.isLoading ? (
+      {me.isError ? (
+        <ErrorState
+          message="We couldn't load your profile. Please try again."
+          onRetry={() => me.refetch()}
+        />
+      ) : me.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
         <Card>

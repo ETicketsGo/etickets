@@ -10,6 +10,7 @@ import {
   ButtonLink,
   Select,
   SearchInput,
+  Pagination,
   PageHeader,
   dateOnly,
   type Column,
@@ -32,6 +33,8 @@ export default function OrganizerEvents() {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const { data, isLoading } = useQuery({
     queryKey: ['events', activeOrg.id],
@@ -45,10 +48,19 @@ export default function OrganizerEvents() {
     return list;
   }, [data, status, q]);
 
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = useMemo(
+    () => rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [rows, currentPage],
+  );
+
   const columns: Column<OrgEventRow>[] = [
     {
       key: 'title',
       header: 'Event',
+      sortable: true,
+      sortValue: (e) => e.title.toLowerCase(),
       render: (e) => (
         <div>
           <p className="font-medium text-text-primary">{e.title}</p>
@@ -58,10 +70,22 @@ export default function OrganizerEvents() {
         </div>
       ),
     },
-    { key: 'status', header: 'Status', render: (e) => <StatusBadge status={e.status} /> },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      sortValue: (e) => e.status,
+      render: (e) => <StatusBadge status={e.status} />,
+    },
     { key: 'sessions', header: 'Sessions', render: (e) => e._count.sessions },
     { key: 'bookings', header: 'Bookings', render: (e) => e._count.bookings },
-    { key: 'created', header: 'Created', render: (e) => dateOnly(e.createdAt) },
+    {
+      key: 'created',
+      header: 'Created',
+      sortable: true,
+      sortValue: (e) => e.createdAt,
+      render: (e) => dateOnly(e.createdAt),
+    },
   ];
 
   return (
@@ -71,11 +95,21 @@ export default function OrganizerEvents() {
         action={<ButtonLink href="/organizer/events/new">Create event</ButtonLink>}
       />
       <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
-        <SearchInput value={q} onChange={setQ} placeholder="Search events…" />
+        <SearchInput
+          value={q}
+          onChange={(v) => {
+            setQ(v);
+            setPage(1);
+          }}
+          placeholder="Search events…"
+        />
         <Select
           aria-label="Filter by status"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
         >
           <option value="">All statuses</option>
           {STATUSES.map((s) => (
@@ -87,12 +121,13 @@ export default function OrganizerEvents() {
       </div>
       <DataTable
         columns={columns}
-        rows={rows}
+        rows={pageRows}
         loading={isLoading}
         rowKey={(e) => e.id}
         onRowClick={(e) => router.push(`/organizer/events/${e.id}`)}
         empty={<div className="p-8 text-center text-text-muted">No events match your filters.</div>}
       />
+      <Pagination page={currentPage} totalPages={totalPages} onChange={setPage} />
     </div>
   );
 }

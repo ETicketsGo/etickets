@@ -8,9 +8,12 @@ import {
   DataTable,
   StatusBadge,
   Select,
+  SearchInput,
   Pagination,
   PageHeader,
+  EmptyState,
   dateOnly,
+  titleCase,
   type Column,
   type Organization,
 } from '@eticketsgo/web-kit';
@@ -21,11 +24,17 @@ export default function OrganizersPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
+  const [q, setQ] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'organizers', page, status],
     queryFn: () => api.admin.organizers({ page, pageSize: 15, status: status || undefined }),
   });
+
+  const query = q.trim().toLowerCase();
+  const rows = query
+    ? data?.data.filter((o) => o.name.toLowerCase().includes(query))
+    : data?.data;
 
   const columns: Column<Organization>[] = [
     {
@@ -42,26 +51,31 @@ export default function OrganizersPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Organizers" description="Review and manage organizer accounts." />
-      <Select
-        aria-label="Status filter"
-        className="max-w-xs"
-        value={status}
-        onChange={(e) => {
-          setStatus(e.target.value);
-          setPage(1);
-        }}
-      >
-        <option value="">All statuses</option>
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {titleize(s)}
-          </option>
-        ))}
-      </Select>
+      <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+        <SearchInput value={q} onChange={setQ} placeholder="Search organization…" />
+        <Select
+          aria-label="Status filter"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {titleCase(s)}
+            </option>
+          ))}
+        </Select>
+      </div>
       <DataTable
         columns={columns}
-        rows={data?.data}
+        rows={rows}
         loading={isLoading}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
+        empty={<EmptyState title="No organizers match these filters" />}
         rowKey={(o) => o.id}
         onRowClick={(o) => router.push(`/admin/organizers/${o.id}`)}
       />
@@ -70,8 +84,4 @@ export default function OrganizersPage() {
       )}
     </div>
   );
-}
-
-function titleize(s: string) {
-  return s.charAt(0) + s.slice(1).toLowerCase();
 }

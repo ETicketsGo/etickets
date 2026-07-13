@@ -3,12 +3,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { BellPlus, CalendarPlus, Check, Share2, Star } from 'lucide-react';
-import { Stepper, buildIcsDataUrl, useToast } from '@eticketsgo/web-kit';
+import { BellPlus, CalendarPlus, Check, Share2 } from 'lucide-react';
+import { RatingStars, Stepper, buildIcsDataUrl, useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { EventCard } from '@/components/event-card';
-import { ButtonLink, Card, StatusBadge } from '@/components/ui';
+import { ButtonLink, Card, ErrorState, StatusBadge } from '@/components/ui';
 
 const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
 
@@ -18,7 +18,12 @@ export default function ConfirmationPage() {
   const [rating, setRating] = useState(0);
   const [following, setFollowing] = useState(false);
 
-  const { data: booking, isLoading } = useQuery({
+  const {
+    data: booking,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['booking', id],
     queryFn: () => api.getBooking(id),
   });
@@ -27,6 +32,13 @@ export default function ConfirmationPage() {
     queryFn: () => api.listEvents({ pageSize: '3' }),
   });
 
+  if (isError)
+    return (
+      <ErrorState
+        message="We couldn't load your booking. Please try again."
+        onRetry={() => refetch()}
+      />
+    );
   if (isLoading || !booking)
     return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
 
@@ -95,13 +107,13 @@ export default function ConfirmationPage() {
             <a
               href={ics}
               download={`${booking.event.slug}.ics`}
-              className="flex flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle"
+              className="flex flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <CalendarPlus className="h-4 w-4" /> Add to calendar
             </a>
             <button
               onClick={share}
-              className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle"
+              className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <Share2 className="h-4 w-4" /> Share
             </button>
@@ -111,31 +123,16 @@ export default function ConfirmationPage() {
           <Card className="space-y-4">
             <div>
               <p className="font-medium text-text-primary">How was booking?</p>
-              <div
-                className="mt-2 flex gap-1"
-                role="group"
-                aria-label="Rate your booking experience"
-              >
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    aria-label={`${n} star${n > 1 ? 's' : ''}`}
-                    aria-pressed={rating >= n}
-                    onClick={() => {
-                      setRating(n);
-                      toast.push('Thanks for the feedback!', 'success');
-                    }}
-                    className="transition-transform hover:scale-110"
-                  >
-                    <Star
-                      className={`h-7 w-7 ${
-                        rating >= n
-                          ? 'fill-status-warning text-status-warning'
-                          : 'text-border-strong'
-                      }`}
-                    />
-                  </button>
-                ))}
+              <div className="mt-2">
+                <RatingStars
+                  value={rating}
+                  onChange={(n) => {
+                    setRating(n);
+                    toast.push('Thanks for the feedback!', 'success');
+                  }}
+                  size="lg"
+                  label="Rate your booking experience"
+                />
               </div>
             </div>
             <button
@@ -143,7 +140,7 @@ export default function ConfirmationPage() {
                 setFollowing(true);
                 toast.push('You’ll hear about new events from this organizer.', 'info');
               }}
-              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <BellPlus className="h-4 w-4" />
               {following ? 'Following organizer' : 'Follow organizer'}

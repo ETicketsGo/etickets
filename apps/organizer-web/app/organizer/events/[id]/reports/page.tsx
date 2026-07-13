@@ -8,6 +8,7 @@ import {
   Card,
   DataTable,
   Skeleton,
+  ErrorState,
   money,
   dateOnly,
   type Column,
@@ -15,11 +16,20 @@ import {
 
 export default function ReportsTab() {
   const { id } = useParams<{ id: string }>();
-  const { data: r, isLoading } = useQuery({
+  const {
+    data: r,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['report', id],
     queryFn: () => api.reports.event(id),
   });
 
+  if (isError)
+    return (
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
+    );
   if (isLoading || !r) return <Skeleton className="h-64 w-full" />;
 
   const byType: Column<(typeof r.salesByTicketType)[number]>[] = [

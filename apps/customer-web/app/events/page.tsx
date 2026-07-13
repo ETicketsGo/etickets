@@ -5,7 +5,7 @@ import { Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
-import { Button, EmptyState, Input } from '@/components/ui';
+import { Button, EmptyState, ErrorState, Input } from '@/components/ui';
 
 export default function EventsPage() {
   const [q, setQ] = useState('');
@@ -31,7 +31,7 @@ export default function EventsPage() {
     });
   }, []);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['events', applied],
     queryFn: () => api.listEvents({ pageSize: '24', ...applied }),
   });
@@ -85,7 +85,12 @@ export default function EventsPage() {
         </div>
       </form>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState
+          message="We couldn't load events. Please try again."
+          onRetry={() => refetch()}
+        />
+      ) : isLoading ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div

@@ -10,6 +10,7 @@ import {
   Card,
   Drawer,
   EmptyState,
+  ErrorState,
   Skeleton,
   StatusBadge,
   Textarea,
@@ -72,7 +73,12 @@ export default function BookingsPage() {
         </p>
       </div>
 
-      {list.isLoading ? (
+      {list.isError ? (
+        <ErrorState
+          message="We couldn't load your bookings. Please try again."
+          onRetry={() => list.refetch()}
+        />
+      ) : list.isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
@@ -107,7 +113,12 @@ export default function BookingsPage() {
       )}
 
       <Drawer open={!!selectedId} onClose={() => setSelectedId(null)} title="Booking details">
-        {detail.isLoading || !b ? (
+        {detail.isError ? (
+          <ErrorState
+            message="We couldn't load these booking details. Please try again."
+            onRetry={() => detail.refetch()}
+          />
+        ) : detail.isLoading || !b ? (
           <Skeleton className="h-64 w-full" />
         ) : (
           <div className="space-y-5">

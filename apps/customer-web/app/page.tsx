@@ -135,7 +135,7 @@ export default function HomePage() {
             </div>
             <button
               type="submit"
-              className="rounded-md bg-action-primary px-6 font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md active:scale-[0.98]"
+              className="rounded-md bg-action-primary px-6 font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               Search
             </button>
@@ -146,7 +146,7 @@ export default function HomePage() {
               <button
                 key={c}
                 onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
-                className="rounded-full border border-border bg-background-surface px-4 py-1.5 text-caption font-medium text-text-secondary transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary"
+                className="rounded-full border border-border bg-background-surface px-4 py-1.5 text-caption font-medium text-text-secondary transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
                 {c}
               </button>
@@ -235,7 +235,7 @@ export default function HomePage() {
             <button
               key={c}
               onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
-              className="group rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <p className="font-semibold text-text-primary group-hover:text-action-primary">{c}</p>
               <p className="mt-0.5 text-caption text-text-muted">Browse {c.toLowerCase()} →</p>

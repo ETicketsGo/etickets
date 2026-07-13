@@ -3,16 +3,21 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
-import { gradientFor } from '@eticketsgo/web-kit';
+import { gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 
 export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
+  const toast = useToast();
   const [saved, setSaved] = useState(false);
   useEffect(() => setSaved(isSaved(event.id)), [event.id]);
-  const toggle = () => setSaved(toggleSaved(event));
+  const toggle = () => {
+    const nowSaved = toggleSaved(event);
+    setSaved(nowSaved);
+    toast.push(nowSaved ? 'Saved to wishlist' : 'Removed from wishlist', 'success');
+  };
 
   return (
     <Link
@@ -30,13 +35,13 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
         </div>
         <button
           type="button"
-          aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'}
+          aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
           aria-pressed={saved}
           onClick={(e) => {
             e.preventDefault();
             toggle();
           }}
-          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-all hover:scale-105 hover:text-status-error"
+          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-all hover:scale-105 hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
           <Heart
             className={`h-4 w-4 transition-all ${saved ? 'fill-status-error text-status-error' : ''}`}

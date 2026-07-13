@@ -4,18 +4,25 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { BadgeCheck, CalendarDays } from 'lucide-react';
+import { useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { dateOnly } from '@/lib/format';
 import { EventCard } from '@/components/event-card';
-import { Button, EmptyState, Skeleton } from '@/components/ui';
+import { Button, EmptyState, ErrorState, Skeleton } from '@/components/ui';
 
 const FOLLOW_KEY = 'etg_following';
 
 export default function OrganizerProfilePage() {
   const { id } = useParams<{ id: string }>();
+  const toast = useToast();
   const [following, setFollowing] = useState(false);
 
-  const { data: org, isLoading } = useQuery({
+  const {
+    data: org,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['organizer', id],
     queryFn: () => api.organizerProfile(id),
   });
@@ -34,12 +41,21 @@ export default function OrganizerProfilePage() {
       const list = JSON.parse(localStorage.getItem(FOLLOW_KEY) ?? '[]') as string[];
       const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
       localStorage.setItem(FOLLOW_KEY, JSON.stringify(next));
-      setFollowing(next.includes(id));
+      const nowFollowing = next.includes(id);
+      setFollowing(nowFollowing);
+      toast.push(nowFollowing ? 'Following' : 'Unfollowed', 'success');
     } catch {
       /* ignore */
     }
   };
 
+  if (isError)
+    return (
+      <ErrorState
+        message="We couldn't load this organizer. Please try again."
+        onRetry={() => refetch()}
+      />
+    );
   if (isLoading || !org) return <Skeleton className="h-64 w-full" />;
 
   return (

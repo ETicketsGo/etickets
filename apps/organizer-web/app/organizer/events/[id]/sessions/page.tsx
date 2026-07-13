@@ -21,7 +21,12 @@ export default function SessionsTab() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
@@ -48,7 +53,9 @@ export default function SessionsTab() {
     { key: 'tickets', header: 'Ticket types', render: (s) => s.ticketTypes?.length ?? 0 },
   ];
 
-  const valid = form.startsAt && form.endsAt && new Date(form.endsAt) > new Date(form.startsAt);
+  const endBeforeStart =
+    !!form.startsAt && !!form.endsAt && new Date(form.endsAt) <= new Date(form.startsAt);
+  const valid = !!form.startsAt && !!form.endsAt && !endBeforeStart;
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -58,6 +65,8 @@ export default function SessionsTab() {
           rows={event?.sessions}
           loading={isLoading}
           rowKey={(s) => s.id}
+          error={isError ? "We couldn't load this. Please try again." : undefined}
+          onRetry={() => refetch()}
         />
       </div>
       <Card title="Add session">
@@ -75,6 +84,7 @@ export default function SessionsTab() {
             type="datetime-local"
             value={form.endsAt}
             onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+            error={endBeforeStart ? 'End must be after start.' : undefined}
           />
           <Button
             className="w-full"

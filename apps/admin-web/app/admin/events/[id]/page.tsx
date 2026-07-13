@@ -12,6 +12,7 @@ import {
   StatusBadge,
   PageHeader,
   Dialog,
+  ErrorState,
   useToast,
   errorMessage,
   titleCase,
@@ -26,7 +27,12 @@ export default function AdminEventDetail() {
   const [note, setNote] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
@@ -56,6 +62,10 @@ export default function AdminEventDetail() {
     onError: onErr,
   });
 
+  if (isError)
+    return (
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
+    );
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
   return (
@@ -116,12 +126,17 @@ export default function AdminEventDetail() {
                 onChange={(e) => setNote(e.target.value)}
               />
               <div className="flex gap-2">
-                <Button loading={review.isPending} onClick={() => review.mutate('APPROVE')}>
+                <Button
+                  loading={review.isPending && review.variables === 'APPROVE'}
+                  disabled={review.isPending}
+                  onClick={() => review.mutate('APPROVE')}
+                >
                   Approve
                 </Button>
                 <Button
                   variant="danger"
-                  loading={review.isPending}
+                  loading={review.isPending && review.variables === 'REJECT'}
+                  disabled={review.isPending}
                   onClick={() => review.mutate('REJECT')}
                 >
                   Reject
@@ -134,6 +149,8 @@ export default function AdminEventDetail() {
               <Button
                 variant="outline"
                 className="w-full"
+                loading={setStatus.isPending && setStatus.variables === 'PAUSED'}
+                disabled={setStatus.isPending}
                 onClick={() => setStatus.mutate('PAUSED')}
               >
                 Pause event
@@ -143,6 +160,8 @@ export default function AdminEventDetail() {
               <Button
                 variant="outline"
                 className="w-full"
+                loading={setStatus.isPending && setStatus.variables === 'PUBLISHED'}
+                disabled={setStatus.isPending}
                 onClick={() => setStatus.mutate('PUBLISHED')}
               >
                 Republish event

@@ -8,8 +8,10 @@ import {
   DataTable,
   StatusBadge,
   Select,
+  SearchInput,
   Pagination,
   PageHeader,
+  EmptyState,
   dateOnly,
   type Column,
   type AdminEventRow,
@@ -30,11 +32,21 @@ export default function AdminEventsPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('UNDER_REVIEW');
+  const [q, setQ] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'events', page, status],
     queryFn: () => api.admin.events({ page, pageSize: 15, status: status || undefined }),
   });
+
+  const query = q.trim().toLowerCase();
+  const rows = query
+    ? data?.data.filter(
+        (e) =>
+          e.title.toLowerCase().includes(query) ||
+          e.organization.name.toLowerCase().includes(query),
+      )
+    : data?.data;
 
   const columns: Column<AdminEventRow>[] = [
     {
@@ -51,32 +63,43 @@ export default function AdminEventsPage() {
     },
     { key: 'category', header: 'Category', render: (e) => e.category },
     { key: 'status', header: 'Status', render: (e) => <StatusBadge status={e.status} /> },
-    { key: 'updated', header: 'Updated', render: (e) => dateOnly(e.updatedAt) },
+    {
+      key: 'updated',
+      header: 'Updated',
+      render: (e) => dateOnly(e.updatedAt),
+      sortable: true,
+      sortValue: (e) => e.updatedAt,
+    },
   ];
 
   return (
     <div className="space-y-4">
       <PageHeader title="Events" description="Moderate events across the platform." />
-      <Select
-        aria-label="Status filter"
-        className="max-w-xs"
-        value={status}
-        onChange={(e) => {
-          setStatus(e.target.value);
-          setPage(1);
-        }}
-      >
-        <option value="">All statuses</option>
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s.replaceAll('_', ' ')}
-          </option>
-        ))}
-      </Select>
+      <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+        <SearchInput value={q} onChange={setQ} placeholder="Search title or organizer…" />
+        <Select
+          aria-label="Status filter"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s.replaceAll('_', ' ')}
+            </option>
+          ))}
+        </Select>
+      </div>
       <DataTable
         columns={columns}
-        rows={data?.data}
+        rows={rows}
         loading={isLoading}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
+        empty={<EmptyState title="No events match these filters" />}
         rowKey={(e) => e.id}
         onRowClick={(e) => router.push(`/admin/events/${e.id}`)}
       />

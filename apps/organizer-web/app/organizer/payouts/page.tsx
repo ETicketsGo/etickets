@@ -1,10 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   api,
   Button,
   DataTable,
+  Dialog,
   StatusBadge,
   PageHeader,
   money,
@@ -20,8 +22,9 @@ export default function PayoutsPage() {
   const { activeOrg } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['payouts', activeOrg.id],
     queryFn: () => api.payouts.forOrg(activeOrg.id),
   });
@@ -31,6 +34,7 @@ export default function PayoutsPage() {
     onSuccess: () => {
       toast.push('Settlement generated.', 'success');
       qc.invalidateQueries({ queryKey: ['payouts', activeOrg.id] });
+      setConfirmOpen(false);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -55,7 +59,7 @@ export default function PayoutsPage() {
         title="Payouts"
         description="Settlement records for your organization."
         action={
-          <Button loading={generate.isPending} onClick={() => generate.mutate()}>
+          <Button loading={generate.isPending} onClick={() => setConfirmOpen(true)}>
             Generate settlement
           </Button>
         }
@@ -65,12 +69,37 @@ export default function PayoutsPage() {
         rows={data}
         loading={isLoading}
         rowKey={(p) => p.id}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
         empty={
           <div className="p-8 text-center text-text-muted">
             No payouts yet. Generate a settlement to preview your net revenue.
           </div>
         }
       />
+
+      <Dialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Generate settlement?"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={generate.isPending}
+            >
+              Cancel
+            </Button>
+            <Button loading={generate.isPending} onClick={() => generate.mutate()}>
+              Generate
+            </Button>
+          </>
+        }
+      >
+        This creates a new settlement record for {activeOrg.name} covering all unsettled revenue.
+        Continue?
+      </Dialog>
     </div>
   );
 }

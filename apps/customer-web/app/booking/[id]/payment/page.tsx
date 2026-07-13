@@ -7,7 +7,7 @@ import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { Stepper } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
-import { Button, ButtonLink, Card } from '@/components/ui';
+import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
 
 const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
 
@@ -46,7 +46,12 @@ export default function PaymentPage() {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
-  const { data: booking, isLoading } = useQuery({
+  const {
+    data: booking,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['booking', id],
     queryFn: () => api.getBooking(id),
   });
@@ -66,6 +71,13 @@ export default function PaymentPage() {
     onError: () => setError('Payment could not be completed. Please try again.'),
   });
 
+  if (isError)
+    return (
+      <ErrorState
+        message="We couldn't load this booking. Please try again."
+        onRetry={() => refetch()}
+      />
+    );
   if (isLoading || !booking)
     return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
 

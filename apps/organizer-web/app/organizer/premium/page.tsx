@@ -2,7 +2,7 @@
 
 import { Lock, Sparkles } from 'lucide-react';
 import { ENTERPRISE_FEATURES, isFeatureEnabled } from '@eticketsgo/shared-types';
-import { Badge, Card, PageHeader } from '@eticketsgo/web-kit';
+import { Badge, Button, Card, PageHeader } from '@eticketsgo/web-kit';
 
 export default function PremiumPage() {
   return (
@@ -26,13 +26,10 @@ export default function PremiumPage() {
               </div>
               <p className="mt-4 font-semibold text-text-primary">{f.title}</p>
               <p className="mt-1 text-[0.9375rem] text-text-muted">{f.description}</p>
-              <button
-                disabled
-                className="mt-4 flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-caption font-medium text-text-muted"
-              >
+              <Button variant="outline" size="sm" disabled className="mt-4">
                 <Lock className="h-3.5 w-3.5" />
                 {enabled ? 'Available' : 'Request access'}
-              </button>
+              </Button>
             </Card>
           );
         })}

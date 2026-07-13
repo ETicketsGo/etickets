@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
-import { api, StatusBadge, Skeleton } from '@eticketsgo/web-kit';
+import { api, StatusBadge, Skeleton, ErrorState } from '@eticketsgo/web-kit';
 
 const TABS = [
   { label: 'Overview', seg: '' },
@@ -20,10 +20,20 @@ export default function EventLayout({ children }: { children: React.ReactNode })
   const { id } = useParams<{ id: string }>();
   const pathname = usePathname();
   const base = `/organizer/events/${id}`;
-  const { data: event, isLoading } = useQuery({
+  const {
+    data: event,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
+
+  if (isError)
+    return (
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
+    );
 
   return (
     <div className="space-y-4">

@@ -34,7 +34,7 @@ export default function OrdersTab() {
   const [applied, setApplied] = useState('');
   const [selected, setSelected] = useState<OrderRow | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['orders', id, page, status, applied],
     queryFn: () =>
       api.events.orders(id, {
@@ -57,14 +57,32 @@ export default function OrdersTab() {
       ),
     },
     { key: 'tickets', header: 'Tickets', render: (o) => o.ticketCount },
-    { key: 'total', header: 'Total', render: (o) => money(o.totalMinor) },
-    { key: 'status', header: 'Status', render: (o) => <StatusBadge status={o.status} /> },
+    {
+      key: 'total',
+      header: 'Total',
+      sortable: true,
+      sortValue: (o) => o.totalMinor,
+      render: (o) => money(o.totalMinor),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      sortValue: (o) => o.status,
+      render: (o) => <StatusBadge status={o.status} />,
+    },
     {
       key: 'payment',
       header: 'Payment',
       render: (o) => (o.paymentStatus ? <StatusBadge status={o.paymentStatus} /> : '—'),
     },
-    { key: 'date', header: 'Date', render: (o) => dateTime(o.createdAt) },
+    {
+      key: 'date',
+      header: 'Date',
+      sortable: true,
+      sortValue: (o) => o.createdAt,
+      render: (o) => dateTime(o.createdAt),
+    },
   ];
 
   return (
@@ -102,6 +120,8 @@ export default function OrdersTab() {
         loading={isLoading}
         rowKey={(o) => o.id}
         onRowClick={setSelected}
+        error={isError ? "We couldn't load this. Please try again." : undefined}
+        onRetry={() => refetch()}
       />
       {data && (
         <Pagination page={data.meta.page} totalPages={data.meta.totalPages} onChange={setPage} />

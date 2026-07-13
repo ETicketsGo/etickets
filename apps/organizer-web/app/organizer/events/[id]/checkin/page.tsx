@@ -13,6 +13,7 @@ import {
   Badge,
   Input,
   StatusBadge,
+  ErrorState,
   useToast,
   useOnline,
   errorMessage,
@@ -154,31 +155,40 @@ export default function CheckinTab() {
       )}
 
       {/* Live attendance */}
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-caption uppercase tracking-wide text-text-muted">Live attendance</p>
-            <p className="mt-1 text-h3 font-bold tracking-tight text-text-primary">
-              {checkedIn}
-              <span className="text-title font-medium text-text-muted"> / {expected}</span>
-            </p>
+      {report.isError ? (
+        <ErrorState
+          message="We couldn't load live attendance. Please try again."
+          onRetry={() => report.refetch()}
+        />
+      ) : (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-caption uppercase tracking-wide text-text-muted">
+                Live attendance
+              </p>
+              <p className="mt-1 text-h3 font-bold tracking-tight text-text-primary">
+                {checkedIn}
+                <span className="text-title font-medium text-text-muted"> / {expected}</span>
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-title font-bold text-action-primary">{pct}%</p>
+              <p className="text-caption text-text-muted">checked in</p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-title font-bold text-action-primary">{pct}%</p>
-            <p className="text-caption text-text-muted">checked in</p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-background-subtle">
+            <div
+              className="h-full rounded-full bg-action-primary transition-all duration-500"
+              style={{ width: `${pct}%` }}
+              role="progressbar"
+              aria-valuenow={pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
           </div>
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-background-subtle">
-          <div
-            className="h-full rounded-full bg-action-primary transition-all duration-500"
-            style={{ width: `${pct}%` }}
-            role="progressbar"
-            aria-valuenow={pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          />
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
@@ -309,6 +319,7 @@ export default function CheckinTab() {
 }
 
 function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: () => void }) {
+  const toast = useToast();
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
   const { data } = useQuery({
@@ -320,6 +331,7 @@ function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: 
   const reverse = useMutation({
     mutationFn: (ticketId: string) => api.checkins.reverse(ticketId),
     onSuccess: onReversed,
+    onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
   return (
@@ -353,7 +365,12 @@ function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: 
               <div className="flex items-center gap-2">
                 <StatusBadge status={a.status} />
                 {a.status === 'CHECKED_IN' && (
-                  <Button variant="ghost" onClick={() => reverse.mutate(a.id)}>
+                  <Button
+                    variant="ghost"
+                    loading={reverse.isPending && reverse.variables === a.id}
+                    disabled={reverse.isPending}
+                    onClick={() => reverse.mutate(a.id)}
+                  >
                     Reverse
                   </Button>
                 )}

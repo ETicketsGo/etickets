@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
+import { useState } from 'react';
 import {
   api,
   Card,
@@ -10,6 +11,8 @@ import {
   StatusBadge,
   PageHeader,
   EmptyState,
+  ErrorState,
+  Dialog,
   ButtonLink,
   money,
   dateTime,
@@ -21,6 +24,7 @@ export default function RefundDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const [confirmApprove, setConfirmApprove] = useState(false);
 
   // No get-by-id endpoint; locate the refund within the admin list.
   const listQ = useQuery({
@@ -33,11 +37,19 @@ export default function RefundDetail() {
     mutationFn: (decision: 'APPROVE' | 'REJECT') => api.refunds.process(id, decision),
     onSuccess: (_r, decision) => {
       toast.push(`Refund ${decision === 'APPROVE' ? 'approved' : 'rejected'}.`, 'success');
+      setConfirmApprove(false);
       qc.invalidateQueries({ queryKey: ['admin', 'refunds'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  if (listQ.isError)
+    return (
+      <ErrorState
+        message="We couldn't load this. Please try again."
+        onRetry={() => listQ.refetch()}
+      />
+    );
   if (listQ.isLoading) return <Skeleton className="h-64 w-full" />;
   if (!refund)
     return (
@@ -98,15 +110,17 @@ export default function RefundDetail() {
             <div className="space-y-2">
               <Button
                 className="w-full"
-                loading={process.isPending}
-                onClick={() => process.mutate('APPROVE')}
+                loading={process.isPending && process.variables === 'APPROVE'}
+                disabled={process.isPending}
+                onClick={() => setConfirmApprove(true)}
               >
                 Approve & refund
               </Button>
               <Button
                 variant="danger"
                 className="w-full"
-                loading={process.isPending}
+                loading={process.isPending && process.variables === 'REJECT'}
+                disabled={process.isPending}
                 onClick={() => process.mutate('REJECT')}
               >
                 Reject
@@ -117,6 +131,30 @@ export default function RefundDetail() {
           )}
         </Card>
       </div>
+
+      <Dialog
+        open={confirmApprove}
+        onClose={() => setConfirmApprove(false)}
+        title="Approve this refund?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirmApprove(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={process.isPending && process.variables === 'APPROVE'}
+              onClick={() => process.mutate('APPROVE')}
+            >
+              Approve &amp; refund
+            </Button>
+          </>
+        }
+      >
+        <p>
+          This will refund <strong>{money(refund.amountMinor)}</strong> to{' '}
+          {refund.booking?.buyerEmail ?? 'the buyer'}. This action cannot be undone.
+        </p>
+      </Dialog>
     </div>
   );
 }

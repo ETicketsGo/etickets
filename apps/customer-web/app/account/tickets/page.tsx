@@ -7,7 +7,13 @@ import Link from 'next/link';
 import { CalendarDays, ChevronRight, Ticket } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
-import { EmptyState, StatusBadge, ButtonLink } from '@/components/ui';
+import { EmptyState, ErrorState, StatusBadge, ButtonLink } from '@/components/ui';
+
+const QR_FALLBACK =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="112" height="112"><rect width="112" height="112" fill="#f1f5f9"/><text x="56" y="60" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">QR unavailable</text></svg>',
+  );
 
 export default function TicketsPage() {
   const router = useRouter();
@@ -15,7 +21,7 @@ export default function TicketsPage() {
     if (!tokenStore.access) router.push('/login?next=/account/tickets');
   }, [router]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['wallet'],
     queryFn: () => api.wallet(),
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
@@ -30,7 +36,12 @@ export default function TicketsPage() {
         </p>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <ErrorState
+          message="We couldn't load your tickets. Please try again."
+          onRetry={() => refetch()}
+        />
+      ) : isLoading ? (
         <div className="grid gap-6 sm:grid-cols-2">
           {Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="h-40 animate-pulse rounded-lg bg-background-subtle" />
@@ -50,6 +61,10 @@ export default function TicketsPage() {
                 <img
                   src={t.qrDataUrl}
                   alt={`QR code for ticket ${t.serial}`}
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+                  }}
                   className="h-28 w-28 rounded-md bg-white p-1"
                 />
                 <span className="absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-background-canvas" />
