@@ -1,5 +1,14 @@
-import { BookingStatus, PaymentStatus } from '@eticketsgo/shared-types';
+import { BookingStatus, ExperienceType, PaymentStatus } from '@eticketsgo/shared-types';
 import { BookingsService } from './bookings.service';
+import { InventoryService } from '../inventory/inventory.service';
+import { GeneralAdmissionInventoryStrategy } from '../inventory/general-admission.strategy';
+import { ExperienceTypeRegistry } from '../experience/experience-type.registry';
+
+/** A real InventoryService wired to the real general-admission strategy, so the
+ *  release path exercises the actual SQL rather than a stub. */
+function realInventory(): InventoryService {
+  return new InventoryService(new ExperienceTypeRegistry(), new GeneralAdmissionInventoryStrategy());
+}
 
 /** Builds a Prisma mock whose $transaction runs the callback with a tx mock. */
 function makePrisma(
@@ -10,8 +19,13 @@ function makePrisma(
     booking: { update: jest.fn().mockResolvedValue({}) },
     payment: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
+  // Every stale booking is an EVENT experience (general-admission inventory).
+  const withExperience = staleBookings.map((b) => ({
+    ...b,
+    event: { experienceType: ExperienceType.EVENT },
+  }));
   const prisma = {
-    booking: { findMany: jest.fn().mockResolvedValue(staleBookings) },
+    booking: { findMany: jest.fn().mockResolvedValue(withExperience) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   return { prisma, tx };
@@ -20,7 +34,7 @@ function makePrisma(
 describe('BookingsService.releaseExpiredHolds', () => {
   it('returns 0 and does nothing when there are no stale holds', async () => {
     const { prisma } = makePrisma([]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never);
+    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
     const released = await service.releaseExpiredHolds();
     expect(released).toBe(0);
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -36,7 +50,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
         ],
       },
     ]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never);
+    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
 
     const released = await service.releaseExpiredHolds('session-1');
     expect(released).toBe(1);
@@ -58,7 +72,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
 
   it('only queries PENDING_PAYMENT holds past their expiry', async () => {
     const { prisma } = makePrisma([]);
-    const service = new BookingsService(prisma as never, {} as never, {} as never);
+    const service = new BookingsService(prisma as never, {} as never, {} as never, realInventory());
     await service.releaseExpiredHolds();
     const where = prisma.booking.findMany.mock.calls[0][0].where;
     expect(where.status).toBe(BookingStatus.PENDING_PAYMENT);

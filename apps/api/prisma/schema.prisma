@@ -50,6 +50,17 @@ enum EventStatus {
   ARCHIVED
 }
 
+// The kind of experience an Event row represents. Existing rows default to EVENT,
+// keeping all current behaviour identical. New types are additive. See ADR-009.
+enum ExperienceType {
+  EVENT
+  MOVIE
+  MUSEUM
+  THEME_PARK
+  ATTRACTION
+  TOUR
+}
+
 enum SessionStatus {
   SCHEDULED
   CANCELLED
@@ -247,6 +258,7 @@ model Event {
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   venueId          String
   venue            Venue       @relation(fields: [venueId], references: [id])
+  experienceType   ExperienceType @default(EVENT)
   title            String
   slug             String      @unique
   category         String

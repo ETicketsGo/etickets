@@ -3,6 +3,7 @@ import { EventStatus } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { availableUnits } from '../inventory/inventory-strategy.interface';
 
 export interface PublicEventFilters {
   q?: string;
@@ -106,6 +107,7 @@ export class PublicEventsService {
       id: event.id,
       title: event.title,
       slug: event.slug,
+      experienceType: event.experienceType,
       category: event.category,
       description: event.description,
       refundPolicy: event.refundPolicy,
@@ -124,9 +126,10 @@ export class PublicEventsService {
           currency: t.currency,
           maxPerOrder: t.maxPerOrder,
           available: t.inventory
-            ? Math.max(
-                0,
-                t.inventory.quantityTotal - t.inventory.quantitySold - t.inventory.quantityHeld,
+            ? availableUnits(
+                t.inventory.quantityTotal,
+                t.inventory.quantitySold,
+                t.inventory.quantityHeld,
               )
             : 0,
         })),

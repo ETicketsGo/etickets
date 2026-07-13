@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
 import type { PaymentEvent, WebhookInput } from './provider/payment-provider.interface';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -24,6 +25,7 @@ export class PaymentsService {
     private readonly provider: MockPaymentProvider,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
+    private readonly inventory: InventoryService,
   ) {}
 
   /** Issue a provider refund for a captured payment. */
@@ -99,7 +101,7 @@ export class PaymentsService {
   private async confirm(event: PaymentEvent) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
-      include: { items: true },
+      include: { items: true, event: { select: { experienceType: true } } },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -116,15 +118,13 @@ export class PaymentsService {
       );
     }
 
+    const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+
     await this.prisma.$transaction(async (tx) => {
+      // Settle inventory (held → sold) via the experience's strategy, then issue
+      // one ticket per unit. See ADR-010.
+      await strategy.confirm(tx, booking.items);
       for (const item of booking.items) {
-        await tx.$executeRaw`
-          UPDATE "TicketInventory"
-          SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${item.quantity}),
-              "quantitySold" = "quantitySold" + ${item.quantity},
-              "updatedAt" = NOW()
-          WHERE "ticketTypeId" = ${item.ticketTypeId}
-        `;
         for (let n = 0; n < item.quantity; n++) {
           await tx.ticket.create({
             data: {

@@ -15,6 +15,35 @@ export const Role = {
 } as const;
 export type Role = (typeof Role)[keyof typeof Role];
 
+/**
+ * The kind of experience an {@link Event} row represents. Existing events are
+ * `EVENT`; new experience types are added here without changing the Event table.
+ * See ADR-009 (Experience Platform).
+ */
+export const ExperienceType = {
+  EVENT: 'EVENT',
+  MOVIE: 'MOVIE',
+  MUSEUM: 'MUSEUM',
+  THEME_PARK: 'THEME_PARK',
+  ATTRACTION: 'ATTRACTION',
+  TOUR: 'TOUR',
+} as const;
+export type ExperienceType = (typeof ExperienceType)[keyof typeof ExperienceType];
+
+/**
+ * The inventory model an experience uses. Each {@link ExperienceType} maps to a
+ * strategy kind via the ExperienceTypeRegistry; the booking engine never hard-codes
+ * a strategy. See ADR-010 (Inventory Strategy).
+ */
+export const InventoryStrategyKind = {
+  GENERAL_ADMISSION: 'GENERAL_ADMISSION',
+  SEAT_BASED: 'SEAT_BASED',
+  CAPACITY: 'CAPACITY',
+  TIME_SLOT: 'TIME_SLOT',
+} as const;
+export type InventoryStrategyKind =
+  (typeof InventoryStrategyKind)[keyof typeof InventoryStrategyKind];
+
 export const EventStatus = {
   DRAFT: 'DRAFT',
   UNDER_REVIEW: 'UNDER_REVIEW',

@@ -11,6 +11,7 @@ import type { CreateBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../audit/audit.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
@@ -24,6 +25,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly audit: AuditService,
+    private readonly inventory: InventoryService,
   ) {}
 
   /**
@@ -102,26 +104,14 @@ export class BookingsService {
 
     const holdExpiresAt = new Date(now.getTime() + HOLD_MINUTES * 60 * 1000);
 
+    // The inventory model is chosen by the experience type — general admission
+    // for events today, seat-based for movies in a later PR — without this
+    // engine changing. See ADR-010.
+    const strategy = this.inventory.forExperienceType(session.event.experienceType);
+
     const booking = await this.prisma.$transaction(async (tx) => {
-      // Atomic conditional hold: only succeeds if enough stock is free.
-      for (const item of input.items) {
-        const affected = await tx.$executeRaw`
-          UPDATE "TicketInventory"
-          SET "quantityHeld" = "quantityHeld" + ${item.quantity},
-              "version" = "version" + 1,
-              "updatedAt" = NOW()
-          WHERE "ticketTypeId" = ${item.ticketTypeId}
-            AND ("quantityTotal" - "quantitySold" - "quantityHeld") >= ${item.quantity}
-        `;
-        if (affected !== 1) {
-          throw new AppException(
-            ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
-            'The requested ticket quantity is no longer available.',
-            HttpStatus.CONFLICT,
-            { ticketTypeId: item.ticketTypeId },
-          );
-        }
-      }
+      // Atomic, oversell-proof hold delegated to the resolved strategy.
+      await strategy.reserve(tx, input.items);
 
       const created = await tx.booking.create({
         data: {
@@ -228,19 +218,14 @@ export class BookingsService {
         holdExpiresAt: { lt: new Date() },
         ...(eventSessionId ? { eventSessionId } : {}),
       },
-      include: { items: true },
+      include: { items: true, event: { select: { experienceType: true } } },
     });
     if (stale.length === 0) return 0;
 
     for (const booking of stale) {
+      const strategy = this.inventory.forExperienceType(booking.event.experienceType);
       await this.prisma.$transaction(async (tx) => {
-        for (const item of booking.items) {
-          await tx.$executeRaw`
-            UPDATE "TicketInventory"
-            SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${item.quantity}), "updatedAt" = NOW()
-            WHERE "ticketTypeId" = ${item.ticketTypeId}
-          `;
-        }
+        await strategy.release(tx, booking.items);
         await tx.booking.update({
           where: { id: booking.id },
           data: { status: BookingStatus.EXPIRED, cancelledAt: new Date() },
