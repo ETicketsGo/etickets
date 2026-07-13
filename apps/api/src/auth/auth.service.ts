@@ -59,7 +59,23 @@ export class AuthService {
   async refresh(refreshToken: string, meta: RequestMeta): Promise<AuthTokens> {
     const tokenHash = this.hashToken(refreshToken);
     const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
-    if (!record || record.revokedAt || record.expiresAt < new Date()) {
+    if (!record || record.expiresAt < new Date()) {
+      throw new AppException(
+        ErrorCodes.INVALID_REFRESH_TOKEN,
+        'Your session has expired. Please sign in again.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    // Reuse detection: a recognized-but-already-revoked token is a token that was
+    // already rotated (or explicitly logged out). Presenting it again is a replay
+    // and a compromise signal — the same secret is now in two places. Treat the
+    // whole family as burned: revoke every still-active refresh token for the user
+    // (forcing a fresh sign-in everywhere), then reject.
+    if (record.revokedAt) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: record.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
       throw new AppException(
         ErrorCodes.INVALID_REFRESH_TOKEN,
         'Your session has expired. Please sign in again.',

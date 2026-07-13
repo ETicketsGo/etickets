@@ -5,6 +5,7 @@ import {
   OrganizationStatus,
   PaymentStatus,
   RefundStatus,
+  Role,
   TicketStatus,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,7 +23,13 @@ export class ReportsService {
   async organizerEventReport(user: RequestUser, eventId: string) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) return null;
-    await this.access.assertMember(user, event.organizationId);
+    // This report exposes gross/net revenue, fees and refunds — financial data.
+    // Restrict to org owners/managers (+ platform admins, who bypass in
+    // assertMember); CHECKIN_STAFF and other members must not read the money.
+    await this.access.assertMember(user, event.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
 
     const paidWhere = { eventId, confirmedAt: { not: null } };
     const money = await this.prisma.booking.aggregate({

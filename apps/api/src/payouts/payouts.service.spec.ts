@@ -1,6 +1,8 @@
-import { PayoutStatus } from '@eticketsgo/shared-types';
+import { PayoutStatus, Role } from '@eticketsgo/shared-types';
 import { PayoutsService } from './payouts.service';
-import { AppException } from '../common/errors';
+import { OrgAccessService } from '../tenancy/org-access.service';
+import { AppException, ErrorCodes } from '../common/errors';
+import type { RequestUser } from '../common/decorators';
 
 const user = { id: 'u1', roles: [] } as never;
 
@@ -58,5 +60,67 @@ describe('PayoutsService (double-payout guards)', () => {
     expect(prisma.payout.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: PayoutStatus.PAID }) }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listForOrg financial-read RBAC (D8) — real OrgAccessService, mocked Prisma.
+// ---------------------------------------------------------------------------
+
+const asUser = (globalRoles: string[] = []): RequestUser => ({
+  id: 'u1',
+  email: 'u1@example.test',
+  fullName: 'User One',
+  roles: globalRoles as never,
+});
+
+function makeServiceWithAccess(membership: { status: string; role: string } | null) {
+  const prisma = {
+    organizationMember: { findUnique: jest.fn().mockResolvedValue(membership) },
+    payout: { findMany: jest.fn().mockResolvedValue([]) },
+  };
+  const access = new OrgAccessService(prisma as never);
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  return {
+    prisma,
+    service: new PayoutsService(prisma as never, access, audit as never),
+  };
+}
+
+describe('PayoutsService.listForOrg financial-read gating', () => {
+  it('FORBIDS an active CHECKIN_STAFF member', async () => {
+    const { service, prisma } = makeServiceWithAccess({
+      status: 'ACTIVE',
+      role: Role.CHECKIN_STAFF,
+    });
+    await expect(service.listForOrg(asUser(), 'org-1')).rejects.toMatchObject({
+      code: ErrorCodes.TENANT_FORBIDDEN,
+    });
+    expect(prisma.payout.findMany).not.toHaveBeenCalled();
+  });
+
+  it('allows ORGANIZER_OWNER', async () => {
+    const { service, prisma } = makeServiceWithAccess({
+      status: 'ACTIVE',
+      role: Role.ORGANIZER_OWNER,
+    });
+    await expect(service.listForOrg(asUser(), 'org-1')).resolves.toEqual([]);
+    expect(prisma.payout.findMany).toHaveBeenCalled();
+  });
+
+  it('allows ORGANIZER_MANAGER', async () => {
+    const { service, prisma } = makeServiceWithAccess({
+      status: 'ACTIVE',
+      role: Role.ORGANIZER_MANAGER,
+    });
+    await expect(service.listForOrg(asUser(), 'org-1')).resolves.toEqual([]);
+    expect(prisma.payout.findMany).toHaveBeenCalled();
+  });
+
+  it('allows a platform admin (no membership needed)', async () => {
+    const { service, prisma } = makeServiceWithAccess(null);
+    await expect(service.listForOrg(asUser([Role.ADMIN]), 'org-1')).resolves.toEqual([]);
+    expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+    expect(prisma.payout.findMany).toHaveBeenCalled();
   });
 });

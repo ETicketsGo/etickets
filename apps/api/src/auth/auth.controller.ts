@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import {
   loginSchema,
@@ -17,12 +18,21 @@ function meta(req: Request) {
   return { userAgent: req.header('user-agent') ?? undefined, ip: req.ip };
 }
 
+/**
+ * Tight per-route throttle for credential/token endpoints. The global guard is
+ * 120 req/60s (fine for general browsing); auth endpoints are brute-force and
+ * token-replay targets, so they get 10 req/60s per client. Well above what any
+ * legitimate login/refresh flow (or the e2e suite's handful of logins) needs.
+ */
+const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post('register')
   @ApiOperation({ summary: 'Register a new customer account.' })
   register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput, @Req() req: Request) {
@@ -30,6 +40,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post('login')
   @ApiOperation({ summary: 'Authenticate and receive access + refresh tokens.' })
   login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput, @Req() req: Request) {
@@ -37,6 +48,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(AUTH_THROTTLE)
   @Post('refresh')
   @ApiOperation({ summary: 'Rotate a refresh token for a new token pair.' })
   refresh(@Body(new ZodValidationPipe(refreshSchema)) body: RefreshInput, @Req() req: Request) {

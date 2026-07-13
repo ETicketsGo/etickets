@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { PayoutStatus, RefundStatus } from '@eticketsgo/shared-types';
+import { PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -96,7 +96,13 @@ export class PayoutsService {
   }
 
   async listForOrg(user: RequestUser, organizationId: string) {
-    await this.access.assertMember(user, organizationId);
+    // Settlement figures are financial data: restrict to org owners/managers
+    // (+ platform admins, who bypass in assertMember). CHECKIN_STAFF and other
+    // members must not read revenue/payout amounts.
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
     return this.prisma.payout.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
