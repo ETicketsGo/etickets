@@ -2,8 +2,26 @@
 
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Clapperboard, Compass, Film, Sparkles, TrendingUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  Building2,
+  Clapperboard,
+  Compass,
+  Film,
+  History,
+  Sparkles,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import { api } from '@/lib/api';
+import type {
+  DiscoverySection,
+  OrganizerSpotlight,
+  PublicEventCard,
+  PublicMovieCard,
+  VenueSpotlight,
+} from '@/lib/api';
+import { getRecent, type RecentEvent } from '@/lib/recent';
 import { EventCard } from '@/components/event-card';
 import { MovieCard } from '@/components/movie-card';
 import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
@@ -72,11 +90,139 @@ function SeeAllLink({ href, label = 'See all' }: { href: string; label?: string 
   );
 }
 
+function EventGrid({ items }: { items: PublicEventCard[] }) {
+  return (
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((e) => (
+        <EventCard key={e.id} event={e} />
+      ))}
+    </div>
+  );
+}
+
+function MovieGrid({ items }: { items: PublicMovieCard[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
+      {items.map((m) => (
+        <MovieCard key={m.id} movie={m} />
+      ))}
+    </div>
+  );
+}
+
+/** Lightweight organizer/venue tiles — reuse existing surface/border styling. */
+function SpotlightTile({
+  href,
+  title,
+  meta,
+  icon: Icon,
+}: {
+  href: string;
+  title: string;
+  meta: string;
+  icon: typeof Users;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-title font-semibold text-text-primary transition-colors group-hover:text-action-primary">
+          {title}
+        </span>
+        <span className="block truncate text-caption text-text-muted">{meta}</span>
+      </span>
+    </Link>
+  );
+}
+
+function OrganizerList({ items }: { items: OrganizerSpotlight[] }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((o) => (
+        <SpotlightTile
+          key={o.id}
+          href={`/organizers/${o.id}`}
+          title={o.name}
+          meta={`${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ' · Verified' : ''}`}
+          icon={Users}
+        />
+      ))}
+    </div>
+  );
+}
+
+function VenueList({ items }: { items: VenueSpotlight[] }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((v) => (
+        <SpotlightTile
+          key={v.id}
+          href={`/events?city=${encodeURIComponent(v.city)}`}
+          title={v.name}
+          meta={`${v.city} · ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`}
+          icon={Building2}
+        />
+      ))}
+    </div>
+  );
+}
+
+const SECTION_ICON: Record<DiscoverySection['kind'], typeof Sparkles> = {
+  events: TrendingUp,
+  movies: Clapperboard,
+  organizers: Users,
+  venues: Building2,
+};
+
+/** Render one composed strategy section, choosing the layout by kind. */
+function DynamicSection({ section }: { section: DiscoverySection }) {
+  const icon = SECTION_ICON[section.kind];
+  let body: React.ReactNode;
+  switch (section.kind) {
+    case 'movies':
+      body = <MovieGrid items={section.items as PublicMovieCard[]} />;
+      break;
+    case 'organizers':
+      body = <OrganizerList items={section.items as OrganizerSpotlight[]} />;
+      break;
+    case 'venues':
+      body = <VenueList items={section.items as VenueSpotlight[]} />;
+      break;
+    case 'events':
+    default:
+      body = <EventGrid items={section.items as PublicEventCard[]} />;
+      break;
+  }
+  return (
+    <Section title={section.title} icon={icon}>
+      {body}
+    </Section>
+  );
+}
+
 export default function ExplorePage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['discovery'],
     queryFn: () => api.discovery(),
   });
+
+  // Composed strategy sections (organizers/venues/nearby/new-releases/…).
+  const sectionsQuery = useQuery({
+    queryKey: ['discovery-sections'],
+    queryFn: () => api.discoverySections(),
+  });
+
+  // Client-only personalisation from the localStorage recent store. Read after
+  // mount to avoid a hydration mismatch (localStorage is unavailable on server).
+  const [recent, setRecent] = useState<RecentEvent[]>([]);
+  useEffect(() => setRecent(getRecent()), []);
+  // "Continue exploring" = the distinct categories of recently-viewed events.
+  const recentCategories = Array.from(new Set(recent.map((e) => e.category))).slice(0, 8);
 
   return (
     <div className="space-y-16">
@@ -106,6 +252,13 @@ export default function ExplorePage() {
         </div>
       </section>
 
+      {/* Recently viewed — client-side, hidden when empty */}
+      {recent.length > 0 && (
+        <Section title="Recently viewed" subtitle="Pick up where you left off." icon={History}>
+          <EventGrid items={recent} />
+        </Section>
+      )}
+
       {isError ? (
         <ErrorState
           message="We couldn't load your discovery feed. Please try again."
@@ -134,11 +287,7 @@ export default function ExplorePage() {
             }
           >
             {data && data.nowShowing.length > 0 ? (
-              <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
-                {data.nowShowing.map((m) => (
-                  <MovieCard key={m.id} movie={m} />
-                ))}
-              </div>
+              <MovieGrid items={data.nowShowing} />
             ) : (
               <EmptyState
                 title="No movies showing yet"
@@ -159,11 +308,7 @@ export default function ExplorePage() {
             }
           >
             {data && data.trendingEvents.length > 0 ? (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {data.trendingEvents.map((e) => (
-                  <EventCard key={e.id} event={e} />
-                ))}
-              </div>
+              <EventGrid items={data.trendingEvents} />
             ) : (
               <EmptyState
                 title="No trending events yet"
@@ -182,13 +327,16 @@ export default function ExplorePage() {
               icon={Sparkles}
               action={<SeeAllLink href="/events" />}
             >
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {data.thisWeekend.map((e) => (
-                  <EventCard key={e.id} event={e} />
-                ))}
-              </div>
+              <EventGrid items={data.thisWeekend} />
             </Section>
           )}
+
+          {/* Composed strategy sections (organizer/venue spotlights, new releases, …). */}
+          {sectionsQuery.data
+            ?.filter((s) => s.key !== 'trending' && s.key !== 'weekend')
+            .map((section) => (
+              <DynamicSection key={section.key} section={section} />
+            ))}
 
           {/* Browse by category — hidden when empty */}
           {data && data.categories.length > 0 && (
@@ -199,6 +347,27 @@ export default function ExplorePage() {
             >
               <div className="flex flex-wrap gap-2.5">
                 {data.categories.map((c) => (
+                  <Link
+                    key={c}
+                    href={`/events?category=${encodeURIComponent(c)}`}
+                    className="rounded-full border border-border bg-background-surface px-4 py-2 text-[0.9375rem] font-medium text-text-secondary shadow-sm transition-all hover:border-border-strong hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+                  >
+                    {c}
+                  </Link>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Continue exploring — client-side, from recently-viewed categories */}
+          {recentCategories.length > 0 && (
+            <Section
+              title="Continue exploring"
+              subtitle="Categories you’ve been browsing."
+              icon={Compass}
+            >
+              <div className="flex flex-wrap gap-2.5">
+                {recentCategories.map((c) => (
                   <Link
                     key={c}
                     href={`/events?category=${encodeURIComponent(c)}`}

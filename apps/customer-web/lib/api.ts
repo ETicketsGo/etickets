@@ -26,6 +26,10 @@ export type {
   SeatLayoutSeat,
   SeatStatus,
   Discovery,
+  DiscoverySection,
+  DiscoverySectionKind,
+  OrganizerSpotlight,
+  VenueSpotlight,
   OrganizerProfile,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
@@ -54,6 +58,9 @@ export const api = {
   // Discovery hub (PR-4): unified movies + events + categories feed, and
   // resolved platform feature flags for capability-gated UI.
   discovery: () => wk.discovery(),
+  // Discovery Platform sprint: composed strategy sections + category counts.
+  discoverySections: (city?: string) => wk.discovery.sections(city),
+  publicCategories: () => wk.publicCategories(),
   capabilities: () => wk.capabilities(),
   // Movies (PR-3): discovery, detail + showtimes, and per-show seat layout.
   listMovies: (params?: { city?: string; genre?: string; q?: string }) =>

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import {
   AdminEventsController,
   EventsController,
+  PublicCategoriesController,
   PublicEventsController,
   PublicOrganizersController,
 } from './events.controller';
@@ -12,6 +13,7 @@ import { PublicEventsService } from './public-events.service';
   controllers: [
     EventsController,
     PublicEventsController,
+    PublicCategoriesController,
     PublicOrganizersController,
     AdminEventsController,
   ],

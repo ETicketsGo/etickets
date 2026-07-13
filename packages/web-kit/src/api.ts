@@ -117,6 +117,17 @@ function qs(params: Record<string, unknown>): string {
 
 // ─────────────────────────── API surface ───────────────────────────
 
+/**
+ * Unified experience discovery. Callable for the legacy combined payload
+ * (`api.discovery()`), with `.sections(city?)` for the composed strategy feed.
+ */
+const discovery = Object.assign(() => request<Discovery>('/public/discovery', { auth: false }), {
+  sections: (city?: string) =>
+    request<{ sections: DiscoverySection[] }>(`/public/discovery/sections${qs({ city })}`, {
+      auth: false,
+    }).then((r) => r.sections),
+});
+
 export const api = {
   request,
 
@@ -158,8 +169,12 @@ export const api = {
       request<OrganizerProfile>(`/public/organizers/${id}`, { auth: false }),
   },
 
-  /** Unified experience discovery (movies + events + categories). */
-  discovery: () => request<Discovery>('/public/discovery', { auth: false }),
+  /** Unified experience discovery (movies + events + categories) + sections feed. */
+  discovery,
+
+  /** Published-event categories with counts (for a richer category experience). */
+  publicCategories: () =>
+    request<{ category: string; count: number }[]>('/public/categories', { auth: false }),
 
   /** Resolved platform feature flags (drives capability-gated UI). */
   capabilities: () => request<Record<string, boolean>>('/capabilities', { auth: false }),
@@ -600,6 +615,38 @@ export interface Discovery {
   trendingEvents: PublicEventCard[];
   thisWeekend: PublicEventCard[];
   categories: string[];
+}
+
+/** The section kinds the composed discovery feed can return. */
+export type DiscoverySectionKind = 'events' | 'movies' | 'organizers' | 'venues';
+
+/** A spotlit organizer card in an `organizers` section. */
+export interface OrganizerSpotlight {
+  id: string;
+  name: string;
+  verified: boolean;
+  eventCount: number;
+}
+
+/** A spotlit venue card in a `venues` section. */
+export interface VenueSpotlight {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  eventCount: number;
+}
+
+/**
+ * One composed discovery section. `items` shape follows `kind`:
+ * events → PublicEventCard, movies → PublicMovieCard,
+ * organizers → OrganizerSpotlight, venues → VenueSpotlight.
+ */
+export interface DiscoverySection {
+  key: string;
+  title: string;
+  kind: DiscoverySectionKind;
+  items: unknown[];
 }
 
 export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD';

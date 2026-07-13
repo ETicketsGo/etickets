@@ -24,7 +24,18 @@ export class PublicEventsService {
       status: EventStatus.PUBLISHED,
       // Keep the generic browse events-only; movie experiences surface via /public/movies.
       experienceType: ExperienceType.EVENT,
-      ...(filters.q ? { title: { contains: filters.q, mode: 'insensitive' } } : {}),
+      // Free-text `q` matches the event title, the organizer name, and the venue
+      // name/city (additive: previously title-only). All other filters unchanged.
+      ...(filters.q
+        ? {
+            OR: [
+              { title: { contains: filters.q, mode: 'insensitive' } },
+              { organization: { name: { contains: filters.q, mode: 'insensitive' } } },
+              { venue: { name: { contains: filters.q, mode: 'insensitive' } } },
+              { venue: { city: { contains: filters.q, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
       ...(filters.category ? { category: { equals: filters.category, mode: 'insensitive' } } : {}),
       ...(filters.city ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } } : {}),
       ...(filters.dateFrom || filters.dateTo
@@ -81,6 +92,22 @@ export class PublicEventsService {
         totalPages: Math.ceil(total / filters.pageSize),
       },
     };
+  }
+
+  /**
+   * Published-event categories with their counts (events-only), for a richer
+   * "browse by category" experience. Sorted by count desc, then name asc so the
+   * result is deterministic. Reuses a Prisma groupBy (no raw SQL).
+   */
+  async categoriesWithCounts(): Promise<{ category: string; count: number }[]> {
+    const rows = await this.prisma.event.groupBy({
+      by: ['category'],
+      where: { status: EventStatus.PUBLISHED, experienceType: ExperienceType.EVENT },
+      _count: { _all: true },
+    });
+    return rows
+      .map((r) => ({ category: r.category, count: r._count._all }))
+      .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
   }
 
   async getBySlug(slug: string) {

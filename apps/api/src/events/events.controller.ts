@@ -176,6 +176,19 @@ export class PublicEventsController {
 }
 
 @ApiTags('public')
+@Controller('public/categories')
+export class PublicCategoriesController {
+  constructor(private readonly publicEvents: PublicEventsService) {}
+
+  @Public()
+  @Get()
+  @ApiOperation({ summary: 'Published-event categories with counts.' })
+  list() {
+    return this.publicEvents.categoriesWithCounts();
+  }
+}
+
+@ApiTags('public')
 @Controller('public/organizers')
 export class PublicOrganizersController {
   constructor(private readonly publicEvents: PublicEventsService) {}
