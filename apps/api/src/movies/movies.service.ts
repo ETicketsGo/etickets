@@ -5,10 +5,14 @@ import type { CreateMovieInput, UpdateMovieInput } from '@eticketsgo/validation'
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
+import { CacheService } from '../cache/cache.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+
+/** Short TTL: the public catalogue is anonymous and safe to serve slightly stale. */
+const CATALOG_CACHE_TTL_SECONDS = 60;
 
 /** Deterministic-ish unique slug from a title, mirroring EventsService. */
 export function slugify(title: string): string {
@@ -123,10 +127,21 @@ export interface PublicMovieFilters {
 
 @Injectable()
 export class PublicMoviesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
 
   /** PUBLISHED movies as browse cards. */
   async list(filters: PublicMovieFilters) {
+    // Filters are part of the anonymous cache key so distinct browse queries
+    // (city/genre/text) never collide. Raw values keep case-sensitive matching
+    // correct.
+    const key = `catalog:movies:${filters.city ?? 'all'}:${filters.genre ?? 'all'}:${filters.q ?? 'all'}`;
+    return this.cache.getOrSet(key, CATALOG_CACHE_TTL_SECONDS, () => this.query(filters));
+  }
+
+  private async query(filters: PublicMovieFilters) {
     const where: Prisma.MovieWhereInput = {
       status: MovieStatus.PUBLISHED,
       ...(filters.q ? { title: { contains: filters.q, mode: 'insensitive' } } : {}),

@@ -31,14 +31,12 @@ function setup(recordOverrides: Record<string, unknown> | null) {
   const prisma = {
     refreshToken,
     user: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({
-          id: 'u1',
-          email: 'u1@x.test',
-          fullName: 'U One',
-          roles: ['CUSTOMER'],
-        }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'u1',
+        email: 'u1@x.test',
+        fullName: 'U One',
+        roles: ['CUSTOMER'],
+      }),
     },
   };
   const jwt = { signAsync: jest.fn().mockResolvedValue('access-token') };

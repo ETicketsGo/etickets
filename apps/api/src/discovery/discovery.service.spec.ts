@@ -61,11 +61,19 @@ describe('DiscoveryService.get', () => {
       Promise.resolve(items),
     );
     const recommender = { rankExperiences } as unknown as RecommendationEngine;
+    // Pass-through cache: always run the producer, so these tests exercise the
+    // real composition (the CacheService has its own dedicated spec).
+    const cache = {
+      getOrSet: jest.fn((_key: string, _ttl: number, producer: () => Promise<unknown>) =>
+        producer(),
+      ),
+    };
     const service = new DiscoveryService(
       prisma as never,
       publicMovies as never,
       publicEvents as never,
       recommender,
+      cache as never,
     );
     return { service, publicMovies, publicEvents, prisma, rankExperiences };
   }

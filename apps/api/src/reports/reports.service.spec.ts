@@ -19,14 +19,12 @@ const asUser = (globalRoles: string[] = []): RequestUser => ({
 function makeService(membership: { status: string; role: string } | null) {
   const prisma = {
     event: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({
-          id: 'ev-1',
-          organizationId: 'org-1',
-          title: 'Show',
-          status: 'PUBLISHED',
-        }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'ev-1',
+        organizationId: 'org-1',
+        title: 'Show',
+        status: 'PUBLISHED',
+      }),
     },
     organizationMember: { findUnique: jest.fn().mockResolvedValue(membership) },
     booking: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },

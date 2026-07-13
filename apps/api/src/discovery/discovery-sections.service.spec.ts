@@ -9,6 +9,13 @@ const strategyReturning = (section: DiscoverySection): DiscoveryStrategy => ({
   discover: jest.fn().mockResolvedValue(section),
 });
 
+// Pass-through cache: always runs the producer so these tests exercise the real
+// composition. The CacheService itself has a dedicated spec.
+const passthroughCache = () =>
+  ({
+    getOrSet: jest.fn((_key: string, _ttl: number, producer: () => Promise<unknown>) => producer()),
+  }) as never;
+
 describe('DiscoverySectionsService', () => {
   it('composes registered strategies in order and drops empty sections', async () => {
     const full: DiscoverySection = {
@@ -25,11 +32,10 @@ describe('DiscoverySectionsService', () => {
       items: [{ id: 'm1' }],
     };
 
-    const service = new DiscoverySectionsService([
-      strategyReturning(full),
-      strategyReturning(empty),
-      strategyReturning(movies),
-    ]);
+    const service = new DiscoverySectionsService(
+      [strategyReturning(full), strategyReturning(empty), strategyReturning(movies)],
+      passthroughCache(),
+    );
 
     const { sections } = await service.sections();
 
@@ -44,7 +50,7 @@ describe('DiscoverySectionsService', () => {
       items: [{ id: 'e' }],
     };
     const strategy = strategyReturning(section);
-    const service = new DiscoverySectionsService([strategy]);
+    const service = new DiscoverySectionsService([strategy], passthroughCache());
 
     await service.sections('BLR');
 
@@ -55,7 +61,7 @@ describe('DiscoverySectionsService', () => {
 
   it('returns an empty feed when every section is empty', async () => {
     const empty: DiscoverySection = { key: 'x', title: 'X', kind: 'events', items: [] };
-    const service = new DiscoverySectionsService([strategyReturning(empty)]);
+    const service = new DiscoverySectionsService([strategyReturning(empty)], passthroughCache());
 
     const { sections } = await service.sections();
 

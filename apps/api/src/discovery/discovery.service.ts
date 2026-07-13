@@ -4,9 +4,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PublicMoviesService } from '../movies/movies.service';
 import { PublicEventsService } from '../events/public-events.service';
 import { RECOMMENDATION_ENGINE, type RecommendationEngine } from '../ai/ai.ports';
+import { CacheService } from '../cache/cache.service';
 
 const TRENDING_PAGE_SIZE = 8;
 const WEEKEND_PAGE_SIZE = 8;
+
+/** Short TTL: the composed feed is anonymous and safe to serve slightly stale. */
+const DISCOVERY_CACHE_TTL_SECONDS = 45;
+const DISCOVERY_CACHE_KEY = 'disc:legacy';
 
 /**
  * Composes the unified experience-discovery payload from the existing public
@@ -20,6 +25,7 @@ export class DiscoveryService {
     private readonly publicMovies: PublicMoviesService,
     private readonly publicEvents: PublicEventsService,
     @Inject(RECOMMENDATION_ENGINE) private readonly recommender: RecommendationEngine,
+    private readonly cache: CacheService,
   ) {}
 
   /** Start-of-today → end of the coming Sunday (server-local), for "this weekend". */
@@ -34,6 +40,12 @@ export class DiscoveryService {
   }
 
   async get() {
+    return this.cache.getOrSet(DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_TTL_SECONDS, () =>
+      this.compose(),
+    );
+  }
+
+  private async compose() {
     const now = new Date();
     const { dateFrom, dateTo } = this.weekendWindow(now);
 
