@@ -49,6 +49,28 @@ export class PayoutsService {
 
   async generate(user: RequestUser, organizationId: string, eventId?: string) {
     await this.access.assertMember(user, organizationId);
+
+    // Guard against duplicate payouts: only one open (PENDING/SCHEDULED) payout may
+    // exist per settlement scope at a time. Combined with the atomic markPaid guard
+    // below, this prevents the same revenue being paid out twice. (A settled-cursor
+    // that also excludes already-PAID revenue across cycles is tracked in the debt
+    // register — it changes payout semantics and needs a schema change.)
+    const openPayout = await this.prisma.payout.findFirst({
+      where: {
+        organizationId,
+        eventId: eventId ?? null,
+        status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] },
+      },
+    });
+    if (openPayout) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'An open payout already exists for this scope; finalize it before generating another.',
+        HttpStatus.CONFLICT,
+        { payoutId: openPayout.id },
+      );
+    }
+
     const s = await this.settle(organizationId, eventId);
     const payout = await this.prisma.payout.create({
       data: {
@@ -92,10 +114,20 @@ export class PayoutsService {
     const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payout not found.', HttpStatus.NOT_FOUND);
-    const updated = await this.prisma.payout.update({
-      where: { id: payoutId },
+
+    // Atomic finalize: only an un-paid payout can be marked PAID, so the same
+    // payout can never be paid twice (idempotent under concurrent admins).
+    const claim = await this.prisma.payout.updateMany({
+      where: { id: payoutId, status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] } },
       data: { status: PayoutStatus.PAID, paidAt: new Date() },
     });
+    if (claim.count !== 1) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `Payout is already ${payout.status}.`,
+        HttpStatus.CONFLICT,
+      );
+    }
     await this.audit.record({
       actorUserId: admin.id,
       organizationId: payout.organizationId,
@@ -103,6 +135,6 @@ export class PayoutsService {
       entityType: 'Payout',
       entityId: payoutId,
     });
-    return updated;
+    return this.prisma.payout.findUnique({ where: { id: payoutId } });
   }
 }
