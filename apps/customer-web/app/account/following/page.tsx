@@ -61,9 +61,7 @@ export default function FollowingPage() {
 
   const loading = ids === null || results.some((r) => r.isLoading);
   const allErrored = ids !== null && ids.length > 0 && results.every((r) => r.isError);
-  const organizers = results
-    .map((r) => r.data)
-    .filter((o): o is OrganizerProfile => Boolean(o));
+  const organizers = results.map((r) => r.data).filter((o): o is OrganizerProfile => Boolean(o));
 
   return (
     <div className="space-y-8">
@@ -79,7 +77,11 @@ export default function FollowingPage() {
           title="You’re not following anyone yet"
           hint="Follow organizers to see them here."
           icon={Users}
-          action={<Link href="/events" className="text-action-primary hover:underline">Browse events</Link>}
+          action={
+            <Link href="/events" className="text-action-primary hover:underline">
+              Browse events
+            </Link>
+          }
         />
       ) : allErrored ? (
         <ErrorState
@@ -106,7 +108,11 @@ export default function FollowingPage() {
           title="You’re not following anyone yet"
           hint="Follow organizers to see them here."
           icon={Users}
-          action={<Link href="/events" className="text-action-primary hover:underline">Browse events</Link>}
+          action={
+            <Link href="/events" className="text-action-primary hover:underline">
+              Browse events
+            </Link>
+          }
         />
       )}
     </div>

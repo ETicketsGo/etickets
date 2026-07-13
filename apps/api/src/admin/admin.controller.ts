@@ -66,7 +66,12 @@ export class AdminController {
         }),
       ),
     )
-    q: { page: number; pageSize: number; status?: MovieStatus; q?: string },
+    q: {
+      page: number;
+      pageSize: number;
+      status?: MovieStatus;
+      q?: string;
+    },
   ) {
     return this.movies.adminList(q.status, q.q, q.page, q.pageSize);
   }

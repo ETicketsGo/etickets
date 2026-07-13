@@ -6,6 +6,7 @@ import {
   availableUnits,
   type InventoryStrategy,
   type PrismaLike,
+  type RefundContext,
   type ReserveContext,
   type TicketIssueSpec,
 } from './inventory-strategy.interface';
@@ -77,10 +78,7 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
    * (booking items don't store seats), marks them sold, and issues one ticket per
    * seat priced by its category's ticket type for the session.
    */
-  async confirm(
-    tx: Prisma.TransactionClient,
-    ctx: ReserveContext,
-  ): Promise<TicketIssueSpec[]> {
+  async confirm(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<TicketIssueSpec[]> {
     const held = await tx.showSeat.findMany({
       where: { holdBookingId: ctx.bookingId, status: 'HELD' },
       select: {
@@ -143,6 +141,35 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
         UPDATE "TicketInventory"
         SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${line.quantity}), "updatedAt" = NOW()
         WHERE "ticketTypeId" = ${line.ticketTypeId}
+      `;
+    }
+  }
+
+  /**
+   * Refund: return SOLD seats to AVAILABLE so they can be resold, and decrement
+   * the per-category sold counter. Without this, refunded movie seats would stay
+   * SOLD forever (the authoritative guard) — permanent inventory loss.
+   */
+  async refund(tx: Prisma.TransactionClient, ctx: RefundContext): Promise<void> {
+    const seatIds = ctx.tickets.map((t) => t.seatId).filter((id): id is string => Boolean(id));
+    if (seatIds.length > 0) {
+      await tx.$executeRaw`
+        UPDATE "ShowSeat"
+        SET "status" = 'AVAILABLE', "holdBookingId" = NULL, "holdExpiresAt" = NULL, "updatedAt" = NOW()
+        WHERE "eventSessionId" = ${ctx.eventSessionId}
+          AND "seatId" IN (${Prisma.join(seatIds)})
+          AND "status" = 'SOLD'
+      `;
+    }
+    const countByType = new Map<string, number>();
+    for (const t of ctx.tickets) {
+      countByType.set(t.ticketTypeId, (countByType.get(t.ticketTypeId) ?? 0) + 1);
+    }
+    for (const [ticketTypeId, count] of countByType) {
+      await tx.$executeRaw`
+        UPDATE "TicketInventory"
+        SET "quantitySold" = GREATEST(0, "quantitySold" - ${count}), "updatedAt" = NOW()
+        WHERE "ticketTypeId" = ${ticketTypeId}
       `;
     }
   }

@@ -49,12 +49,30 @@ describe('GeneralAdmissionInventoryStrategy', () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
+  it('refund decrements sold once per distinct ticket type, by the per-type count', async () => {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
+    // 3 refunded tickets: 2 of t1, 1 of t2 → 2 distinct types → 2 statements.
+    await strategy.refund(tx as never, {
+      eventSessionId: 's1',
+      tickets: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }, { ticketTypeId: 't2' }],
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('refund issues no statements when there are no tickets', async () => {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
+    await strategy.refund(tx as never, { eventSessionId: 's1', tickets: [] });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
   it('availability reports free units and defaults missing ticket types to 0', async () => {
     const client = {
       ticketInventory: {
-        findMany: jest.fn().mockResolvedValue([
-          { ticketTypeId: 't1', quantityTotal: 50, quantitySold: 10, quantityHeld: 5 },
-        ]),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { ticketTypeId: 't1', quantityTotal: 50, quantitySold: 10, quantityHeld: 5 },
+          ]),
       },
     };
     const map = await strategy.availability(client as never, ['t1', 't2']);

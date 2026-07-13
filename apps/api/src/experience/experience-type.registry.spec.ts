@@ -9,9 +9,7 @@ describe('ExperienceTypeRegistry', () => {
     expect(registry.inventoryKindFor(ExperienceType.EVENT)).toBe(
       InventoryStrategyKind.GENERAL_ADMISSION,
     );
-    expect(registry.inventoryKindFor(ExperienceType.MOVIE)).toBe(
-      InventoryStrategyKind.SEAT_BASED,
-    );
+    expect(registry.inventoryKindFor(ExperienceType.MOVIE)).toBe(InventoryStrategyKind.SEAT_BASED);
     expect(registry.supports(ExperienceType.EVENT)).toBe(true);
     expect(registry.supports(ExperienceType.MOVIE)).toBe(true);
   });

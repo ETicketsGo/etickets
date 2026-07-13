@@ -40,8 +40,7 @@ export default function AdminUsers() {
   });
 
   const rows = data?.data.filter(
-    (u) =>
-      (!role || u.roles.includes(role)) && (!userStatus || u.status === userStatus),
+    (u) => (!role || u.roles.includes(role)) && (!userStatus || u.status === userStatus),
   );
 
   const columns: Column<AdminUser>[] = [
@@ -81,11 +80,7 @@ export default function AdminUsers() {
           }}
           placeholder="Search name or email…"
         />
-        <Select
-          aria-label="Role filter"
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-        >
+        <Select aria-label="Role filter" value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="">All roles</option>
           {ROLES.map((r) => (
             <option key={r} value={r}>

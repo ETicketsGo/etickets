@@ -114,9 +114,7 @@ export default function SeatSelectionPage() {
       if ((e as Error).message === 'login') return;
       // A seat may have been taken between load and submit — reset + refetch.
       toast.push(
-        e instanceof ApiRequestError
-          ? e.message
-          : 'Some seats were just taken. Please pick again.',
+        e instanceof ApiRequestError ? e.message : 'Some seats were just taken. Please pick again.',
         'error',
       );
       setSelected([]);
@@ -127,10 +125,15 @@ export default function SeatSelectionPage() {
   if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
   if (isError)
     return (
-      <ErrorState message="We couldn't load the seat map. Please try again." onRetry={() => refetch()} />
+      <ErrorState
+        message="We couldn't load the seat map. Please try again."
+        onRetry={() => refetch()}
+      />
     );
   if (!layout)
-    return <EmptyState title="Seat map unavailable" hint="This show has no seat map." icon={Armchair} />;
+    return (
+      <EmptyState title="Seat map unavailable" hint="This show has no seat map." icon={Armchair} />
+    );
 
   const hasSeats = layout.sections.some((s) => s.rows.some((r) => r.seats.length > 0));
 

@@ -6,6 +6,7 @@ import {
   availableUnits,
   type InventoryStrategy,
   type PrismaLike,
+  type RefundContext,
   type ReserveContext,
   type TicketIssueSpec,
 } from './inventory-strategy.interface';
@@ -47,10 +48,7 @@ export class GeneralAdmissionInventoryStrategy implements InventoryStrategy {
   }
 
   /** Settle a paid booking: held → sold. Issues one ticket per unit. */
-  async confirm(
-    tx: Prisma.TransactionClient,
-    ctx: ReserveContext,
-  ): Promise<TicketIssueSpec[]> {
+  async confirm(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<TicketIssueSpec[]> {
     const specs: TicketIssueSpec[] = [];
     for (const line of ctx.lines) {
       await tx.$executeRaw`
@@ -72,6 +70,21 @@ export class GeneralAdmissionInventoryStrategy implements InventoryStrategy {
         UPDATE "TicketInventory"
         SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${line.quantity}), "updatedAt" = NOW()
         WHERE "ticketTypeId" = ${line.ticketTypeId}
+      `;
+    }
+  }
+
+  /** Refund: return sold units to available stock (sold -= n per ticket type). */
+  async refund(tx: Prisma.TransactionClient, ctx: RefundContext): Promise<void> {
+    const countByType = new Map<string, number>();
+    for (const t of ctx.tickets) {
+      countByType.set(t.ticketTypeId, (countByType.get(t.ticketTypeId) ?? 0) + 1);
+    }
+    for (const [ticketTypeId, count] of countByType) {
+      await tx.$executeRaw`
+        UPDATE "TicketInventory"
+        SET "quantitySold" = GREATEST(0, "quantitySold" - ${count}), "updatedAt" = NOW()
+        WHERE "ticketTypeId" = ${ticketTypeId}
       `;
     }
   }

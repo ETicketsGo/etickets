@@ -97,8 +97,7 @@ export default function ScreenSeatMapPage() {
       const price = Number(s.basePrice);
       if (!s.basePrice || !Number.isFinite(price) || price < 0)
         return `Section ${n}: enter a valid base price.`;
-      if (splitList(s.rowLabels).length === 0)
-        return `Section ${n}: add at least one row label.`;
+      if (splitList(s.rowLabels).length === 0) return `Section ${n}: add at least one row label.`;
       const spr = Number(s.seatsPerRow);
       if (!s.seatsPerRow || !Number.isFinite(spr) || spr < 1)
         return `Section ${n}: seats per row must be at least 1.`;

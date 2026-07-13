@@ -290,6 +290,7 @@ model Movie {
 
   @@index([organizationId])
   @@index([status])
+  @@index([status, releaseDate])
 }
 
 model Cinema {
@@ -457,6 +458,7 @@ model Event {
   @@index([category])
   @@index([experienceType])
   @@index([movieId])
+  @@index([status, experienceType, publishedAt])
 }
 
 model Review {
@@ -601,6 +603,9 @@ model Booking {
   @@index([eventId])
   @@index([status])
   @@index([holdExpiresAt])
+  @@index([userId])
+  @@index([eventSessionId, status])
+  @@index([confirmedAt])
 }
 
 model BookingItem {
@@ -695,6 +700,7 @@ model Refund {
 
   @@index([bookingId])
   @@index([status])
+  @@index([organizationId])
 }
 
 model Payout {

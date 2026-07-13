@@ -636,7 +636,11 @@ export interface SeatMap {
   sections: {
     id: string;
     name: string;
-    rows: { id: string; label: string; seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[] }[];
+    rows: {
+      id: string;
+      label: string;
+      seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[];
+    }[];
   }[];
 }
 

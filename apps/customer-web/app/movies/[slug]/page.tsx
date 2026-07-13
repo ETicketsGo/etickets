@@ -42,11 +42,16 @@ export default function MovieDetailPage() {
     return notFound ? (
       <EmptyState title="Movie not found" hint="This film may no longer be listed." icon={Film} />
     ) : (
-      <ErrorState message="We couldn't load this movie. Please try again." onRetry={() => refetch()} />
+      <ErrorState
+        message="We couldn't load this movie. Please try again."
+        onRetry={() => refetch()}
+      />
     );
   }
   if (!movie)
-    return <EmptyState title="Movie not found" hint="This film may no longer be listed." icon={Film} />;
+    return (
+      <EmptyState title="Movie not found" hint="This film may no longer be listed." icon={Film} />
+    );
 
   const meta = [
     { label: 'Runtime', value: `${movie.runtimeMinutes} min`, icon: Clock },
@@ -135,9 +140,7 @@ export default function MovieDetailPage() {
               <Card key={show.eventId}>
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-action-primary" />
-                  <h3 className="font-semibold text-text-primary">
-                    {show.cinemaName ?? 'Cinema'}
-                  </h3>
+                  <h3 className="font-semibold text-text-primary">{show.cinemaName ?? 'Cinema'}</h3>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {show.sessions.map((s) => (

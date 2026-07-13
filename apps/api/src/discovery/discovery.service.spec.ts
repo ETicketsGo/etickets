@@ -3,13 +3,42 @@ import type { RecommendationEngine } from '../ai/ai.ports';
 
 describe('DiscoveryService.get', () => {
   const movieCards = [
-    { id: 'mv1', title: 'Dune', slug: 'dune', posterUrl: null, certificate: 'UA', language: 'en', genres: ['sci-fi'], runtimeMinutes: 155 },
+    {
+      id: 'mv1',
+      title: 'Dune',
+      slug: 'dune',
+      posterUrl: null,
+      certificate: 'UA',
+      language: 'en',
+      genres: ['sci-fi'],
+      runtimeMinutes: 155,
+    },
   ];
   const trendingCards = [
-    { id: 'ev1', title: 'Jazz Night', slug: 'jazz-night', category: 'Music', venue: { name: 'Hall', city: 'BLR', country: 'IN' }, organizer: 'Org', nextSessionAt: null, fromPriceMinor: 50000, currency: 'INR' },
+    {
+      id: 'ev1',
+      title: 'Jazz Night',
+      slug: 'jazz-night',
+      category: 'Music',
+      venue: { name: 'Hall', city: 'BLR', country: 'IN' },
+      organizer: 'Org',
+      nextSessionAt: null,
+      fromPriceMinor: 50000,
+      currency: 'INR',
+    },
   ];
   const weekendCards = [
-    { id: 'ev2', title: 'Comedy Fest', slug: 'comedy-fest', category: 'Comedy', venue: { name: 'Club', city: 'BLR', country: 'IN' }, organizer: 'Org', nextSessionAt: null, fromPriceMinor: 30000, currency: 'INR' },
+    {
+      id: 'ev2',
+      title: 'Comedy Fest',
+      slug: 'comedy-fest',
+      category: 'Comedy',
+      venue: { name: 'Club', city: 'BLR', country: 'IN' },
+      organizer: 'Org',
+      nextSessionAt: null,
+      fromPriceMinor: 30000,
+      currency: 'INR',
+    },
   ];
 
   function makeService() {
@@ -23,9 +52,7 @@ describe('DiscoveryService.get', () => {
     };
     const prisma = {
       event: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ category: 'Comedy' }, { category: 'Music' }]),
+        findMany: jest.fn().mockResolvedValue([{ category: 'Comedy' }, { category: 'Music' }]),
       },
     };
     // Identity behaviour, like the Noop binding. Typed loosely because the port

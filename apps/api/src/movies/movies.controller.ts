@@ -85,7 +85,11 @@ export class PublicMoviesController {
         }),
       ),
     )
-    q: { city?: string; genre?: string; q?: string },
+    q: {
+      city?: string;
+      genre?: string;
+      q?: string;
+    },
   ) {
     return this.publicMovies.list(q);
   }

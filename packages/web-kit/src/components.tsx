@@ -21,9 +21,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -421,11 +423,17 @@ export function DataTable<T>({
           <tr className="border-b border-border">
             {columns.map((c) => {
               const active = sort?.key === c.key;
-              const SortIcon = active ? (sort!.dir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+              const SortIcon = active
+                ? sort!.dir === 'asc'
+                  ? ChevronUp
+                  : ChevronDown
+                : ChevronsUpDown;
               return (
                 <th
                   key={c.key}
-                  aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                  aria-sort={
+                    active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : undefined
+                  }
                   className={`px-5 py-3.5 text-caption font-semibold uppercase tracking-wide text-text-muted ${c.className ?? ''}`}
                 >
                   {c.sortable ? (
@@ -678,6 +686,9 @@ export function MetricCard({
 
 // ─── Dialog / Drawer (Framer Motion) ───
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function Dialog({
   open,
   onClose,
@@ -691,12 +702,57 @@ export function Dialog({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Focus management: remember the trigger, move focus into the dialog on open,
+  // and restore focus to the trigger on close/unmount (accessibility).
+  useEffect(() => {
+    if (!open) return;
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    if (panel) {
+      const first = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      (first ?? panel).focus();
+    }
+    return () => {
+      previouslyFocused.current?.focus?.();
+    };
+  }, [open]);
+
+  // Trap Tab / Shift+Tab within the panel so focus can't reach the page behind.
+  const onPanelKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab') return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
+    );
+    if (focusable.length === 0) {
+      e.preventDefault();
+      panel.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || active === panel) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else if (active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -710,19 +766,24 @@ export function Dialog({
           transition={{ duration: 0.18 }}
         >
           <motion.div
+            ref={panelRef}
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className="w-full max-w-md rounded-2xl border border-border bg-background-elevated p-6 shadow-lg"
+            tabIndex={-1}
+            onKeyDown={onPanelKeyDown}
+            className="flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none"
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 4 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <h2 className="text-title font-semibold text-text-primary">{title}</h2>
-            <div className="mt-3 text-[0.9375rem] text-text-secondary">{children}</div>
-            {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
+            <h2 className="shrink-0 text-title font-semibold text-text-primary">{title}</h2>
+            <div className="mt-3 flex-1 overflow-y-auto text-[0.9375rem] text-text-secondary">
+              {children}
+            </div>
+            {footer && <div className="mt-6 flex shrink-0 justify-end gap-2">{footer}</div>}
           </motion.div>
         </motion.div>
       )}

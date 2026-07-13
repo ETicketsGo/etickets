@@ -20,7 +20,8 @@ the pluggable `InventoryStrategy` (ADR-010) was designed for.
 SOLD`, a `holdBookingId`, and `holdExpiresAt`. A "show" remains an
 `EventSession` with a `screenId` (ADR-011); its per-category prices are ordinary
 `TicketType` rows carrying a `seatCategoryId`. Tickets gain an optional `seatId`
-+ `seatLabel`.
+
+- `seatLabel`.
 
 **`SeatBasedInventoryStrategy`** implements the same `InventoryStrategy`
 interface as general admission and is registered to `ExperienceType.MOVIE` with a
@@ -29,7 +30,7 @@ the PR-1 seam.
 
 - **Atomic hold / double-book protection:** a single conditional
   `UPDATE "ShowSeat" SET status='HELD', holdBookingId=…, holdExpiresAt=… WHERE
-  eventSessionId=… AND seatId IN (…) AND status='AVAILABLE'`. If the affected row
+eventSessionId=… AND seatId IN (…) AND status='AVAILABLE'`. If the affected row
   count is less than the number of seats requested, some seat was already taken
   and the whole booking transaction rolls back. Concurrency-safe by construction
   — the database, not application code, arbitrates the race.
@@ -58,12 +59,14 @@ type, preventing a client from booking premium seats at a cheaper tier.
 ## Consequences
 
 **Positive**
+
 - Seat booking is atomic, oversell- and double-book-proof under concurrency.
 - Zero changes to the booking/payment control flow for the new inventory model —
   only a new strategy + a one-line registry mapping.
 - General admission is byte-for-byte unchanged (same SQL, now returning specs).
 
 **Negative / trade-offs**
+
 - One `ShowSeat` row per seat per show. For large auditoriums × many shows this
   grows, but rows are tiny, indexed by `(eventSessionId, status)`, and created in
   the show-scheduling transaction. Acceptable for the scale at hand.
@@ -72,6 +75,7 @@ type, preventing a client from booking premium seats at a cheaper tier.
   maps; a graphical builder is future polish.
 
 ## Verification
+
 Additive migration (6 tables, nullable FKs — no drops). Unit tests cover the
 atomic hold, the double-book conflict (fewer rows affected → throw), empty-
 selection rejection, and seat-bound confirm/specs; the general-admission tests

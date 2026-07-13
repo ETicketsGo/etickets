@@ -45,9 +45,9 @@ export class BookingsController {
   }
 
   @Post(':id/pay')
-  @ApiOperation({ summary: 'Create a payment intent for a booking.' })
-  pay(@Param('id') id: string) {
-    return this.payments.createIntent(id);
+  @ApiOperation({ summary: 'Create a payment intent for a booking (owner only).' })
+  pay(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.payments.createIntent(id, user);
   }
 }
 

@@ -36,6 +36,12 @@ const splitList = (v: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+// `datetime-local` inputs expect a local `YYYY-MM-DDTHH:mm` string.
+const localDateTimeValue = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 export default function EditMoviePage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -177,7 +183,10 @@ export default function EditMoviePage() {
       const pricingEntries = cats
         .map((c) => ({ seatCategoryId: c.id, raw: pricing[c.id] }))
         .filter((p) => p.raw != null && p.raw !== '')
-        .map((p) => ({ seatCategoryId: p.seatCategoryId, priceMinor: Math.round(Number(p.raw) * 100) }));
+        .map((p) => ({
+          seatCategoryId: p.seatCategoryId,
+          priceMinor: Math.round(Number(p.raw) * 100),
+        }));
       const body: ScheduleShowBody = {
         screenId: sched.screenId,
         startsAt: new Date(sched.startsAt).toISOString(),
@@ -197,6 +206,8 @@ export default function EditMoviePage() {
   const submitSchedule = () => {
     if (!sched.screenId) return setSchedError('Pick a screen.');
     if (!sched.startsAt || !sched.endsAt) return setSchedError('Set start and end times.');
+    if (new Date(sched.startsAt).getTime() < Date.now())
+      return setSchedError('Start time must be in the future.');
     if (new Date(sched.endsAt) <= new Date(sched.startsAt))
       return setSchedError('End time must be after start time.');
     setSchedError(null);
@@ -430,9 +441,7 @@ export default function EditMoviePage() {
             }}
             disabled={!sched.cinemaId || screensQ.isLoading}
           >
-            <option value="">
-              {sched.cinemaId ? 'Select a screen…' : 'Pick a cinema first'}
-            </option>
+            <option value="">{sched.cinemaId ? 'Select a screen…' : 'Pick a cinema first'}</option>
             {(screensQ.data ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} · {s.screenType}
@@ -445,6 +454,7 @@ export default function EditMoviePage() {
               id="schedStart"
               label="Starts at"
               type="datetime-local"
+              min={localDateTimeValue(new Date())}
               value={sched.startsAt}
               onChange={(e) => setSched({ ...sched, startsAt: e.target.value })}
             />

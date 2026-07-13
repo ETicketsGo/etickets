@@ -47,7 +47,13 @@ export default function OrganizerCinemas() {
         </div>
       ),
     },
-    { key: 'city', header: 'City', sortable: true, sortValue: (c) => c.city, render: (c) => c.city },
+    {
+      key: 'city',
+      header: 'City',
+      sortable: true,
+      sortValue: (c) => c.city,
+      render: (c) => c.city,
+    },
     {
       key: 'screens',
       header: 'Screens',

@@ -127,7 +127,11 @@ export default function ExplorePage() {
             title="Now showing"
             subtitle="Films playing near you right now."
             icon={Clapperboard}
-            action={data && data.nowShowing.length > 0 ? <SeeAllLink href="/movies" label="See all movies" /> : undefined}
+            action={
+              data && data.nowShowing.length > 0 ? (
+                <SeeAllLink href="/movies" label="See all movies" />
+              ) : undefined
+            }
           >
             {data && data.nowShowing.length > 0 ? (
               <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
@@ -150,7 +154,9 @@ export default function ExplorePage() {
             title="Trending events"
             subtitle="Popular events people are booking."
             icon={TrendingUp}
-            action={data && data.trendingEvents.length > 0 ? <SeeAllLink href="/events" /> : undefined}
+            action={
+              data && data.trendingEvents.length > 0 ? <SeeAllLink href="/events" /> : undefined
+            }
           >
             {data && data.trendingEvents.length > 0 ? (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -186,7 +192,11 @@ export default function ExplorePage() {
 
           {/* Browse by category — hidden when empty */}
           {data && data.categories.length > 0 && (
-            <Section title="Browse by category" subtitle="Jump straight to what you love." icon={Compass}>
+            <Section
+              title="Browse by category"
+              subtitle="Jump straight to what you love."
+              icon={Compass}
+            >
               <div className="flex flex-wrap gap-2.5">
                 {data.categories.map((c) => (
                   <Link

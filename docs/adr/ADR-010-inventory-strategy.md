@@ -10,12 +10,12 @@
 
 Different experience types manage stock in fundamentally different ways:
 
-| Experience | Inventory model |
-| --- | --- |
-| Event (today) | General admission — a per-ticket-type counter (total / sold / held) |
-| Movie | Seat-based — specific seats reserved from a seat map |
-| Museum / Theme park | Timed capacity — N slots per time window |
-| Tour / Attraction | Capacity per departure |
+| Experience          | Inventory model                                                     |
+| ------------------- | ------------------------------------------------------------------- |
+| Event (today)       | General admission — a per-ticket-type counter (total / sold / held) |
+| Movie               | Seat-based — specific seats reserved from a seat map                |
+| Museum / Theme park | Timed capacity — N slots per time window                            |
+| Tour / Attraction   | Capacity per departure                                              |
 
 The existing, oversell-proof general-admission logic was **inlined** in three
 places:
@@ -37,9 +37,9 @@ payment engines. Concrete strategies are resolved **by experience type** via the
 
 ```ts
 interface InventoryStrategy {
-  reserve(tx, lines): Promise<void>;   // atomic, oversell-proof hold
-  confirm(tx, lines): Promise<void>;   // held → sold
-  release(tx, lines): Promise<void>;   // held → available
+  reserve(tx, lines): Promise<void>; // atomic, oversell-proof hold
+  confirm(tx, lines): Promise<void>; // held → sold
+  release(tx, lines): Promise<void>; // held → available
   availability(client, ticketTypeIds): Promise<Map<string, number>>;
 }
 ```
@@ -61,8 +61,8 @@ the booking engine is untouched when they land.
 Inventory operations must be atomic with the booking they belong to (hold + create
 booking; confirm + issue tickets). Passing `tx` keeps a single transaction boundary
 owned by the caller, preserving the original atomicity and the oversell guarantee
-under concurrency. The strategy owns *what* the inventory mutation is; the caller
-owns *the transaction* it participates in.
+under concurrency. The strategy owns _what_ the inventory mutation is; the caller
+owns _the transaction_ it participates in.
 
 ### Ticket issuance stays in the booking domain
 
@@ -74,6 +74,7 @@ seat assignment, but ticket creation stays where it is.
 ## Consequences
 
 **Positive**
+
 - The booking/payment engines are open for extension, closed for modification:
   success criterion "new Experience types can be added without modifying the Booking
   Engine" is satisfied structurally.
@@ -84,6 +85,7 @@ seat assignment, but ticket creation stays where it is.
   removing prior duplication.
 
 **Negative / trade-offs**
+
 - One extra indirection (service → registry → strategy) on the booking hot path.
   Negligible cost; the DB round-trips are unchanged.
 - `availability(ids)` is part of the contract but currently has a thin caller

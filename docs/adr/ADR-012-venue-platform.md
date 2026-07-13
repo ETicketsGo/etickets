@@ -21,10 +21,12 @@ Grow the venue platform **incrementally, per experience type**, reusing the
 existing `Venue` model as the shared root rather than replacing it.
 
 For **movies (PR-2)** the concrete need is a cinema topology:
+
 - `Cinema` (optionally linked to a `Venue` for city/geo/discovery reuse) →
 - `Screen` (auditorium: type + capacity; seat map in PR-3).
 
 We deliberately do **not** introduce `Building`/`Hall`/`Room`/`Equipment` yet:
+
 - The spec's `Cinema → Multiplex → Screen` is simplified to `Cinema → Screen`.
   A `Cinema` already represents the physical multiplex; a `Multiplex` table
   between them would be an empty pass-through. Documented here so the omission is
@@ -39,16 +41,19 @@ duplicating address data.
 ## Consequences
 
 **Positive**
+
 - No unused venue tables; every model has a consumer today.
 - `Venue` stays the single shared location root; cinemas extend it rather than
   fork it.
 
 **Negative / trade-offs**
+
 - The full spec hierarchy is not realised in one step. Accepted: it is added
   per experience type as needed, keeping the schema honest.
 - Equipment/availability scheduling (for museums/theme parks) is future work,
   tracked for the PR that introduces those experiences.
 
 ## Verification
+
 `Cinema`/`Screen` are additive; `Cinema.venueId` is a nullable FK to the
 existing `Venue`. No existing venue behaviour changed.

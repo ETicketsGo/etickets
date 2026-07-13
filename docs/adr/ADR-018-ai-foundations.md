@@ -9,7 +9,7 @@
 
 The roadmap wants AI capabilities — recommendation engine, organizer copilot,
 marketing assistant, pricing assistant, review moderation, search ranking — but
-explicitly as *architecture only*, with no model-specific implementation yet.
+explicitly as _architecture only_, with no model-specific implementation yet.
 
 ## Decision
 
@@ -32,11 +32,13 @@ flag governs when a non-noop binding is activated.
 ## Consequences
 
 **Positive**
+
 - The AI extension surface is defined and demonstrably wired, but carries no model
   dependency, cost, or vendor lock-in yet.
 - Every future AI feature is a drop-in provider behind an existing port.
 
 **Negative / trade-offs**
+
 - Ports beyond `RecommendationEngine` have no live caller yet; they are published
   extension points (provided + exported + documented), justified as the intended
   architecture rather than speculative dead code. Callers arrive with their

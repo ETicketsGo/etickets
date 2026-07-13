@@ -71,6 +71,9 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Circular dependency check
+        run: npm run deps:check
+
       - name: Apply migrations & seed
         run: |
           npm run db:deploy

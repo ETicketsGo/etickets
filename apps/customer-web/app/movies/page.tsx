@@ -42,9 +42,7 @@ export default function MoviesPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">Movies</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Find a film and book your seats.
-        </p>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">Find a film and book your seats.</p>
       </div>
 
       <form
@@ -101,11 +99,7 @@ export default function MoviesPage() {
           </div>
         </>
       ) : (
-        <EmptyState
-          title="No movies match your search"
-          hint="Try clearing filters."
-          icon={Film}
-        />
+        <EmptyState title="No movies match your search" hint="Try clearing filters." icon={Film} />
       )}
     </div>
   );

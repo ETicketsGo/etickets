@@ -30,6 +30,18 @@ export interface TicketIssueSpec {
   seatLabel?: string;
 }
 
+/** A refunded ticket to return to available stock (seatId set for seat-based). */
+export interface RefundLine {
+  ticketTypeId: string;
+  seatId?: string | null;
+}
+
+/** Context for returning refunded/voided tickets to inventory. */
+export interface RefundContext {
+  eventSessionId: string;
+  tickets: RefundLine[];
+}
+
 /**
  * The pluggable contract every experience type's inventory model implements.
  * The booking engine depends on THIS interface, never on a concrete strategy,
@@ -54,6 +66,9 @@ export interface InventoryStrategy {
 
   /** Release a held reservation back to available stock. */
   release(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void>;
+
+  /** Return refunded/voided (sold) tickets to available stock. */
+  refund(tx: Prisma.TransactionClient, ctx: RefundContext): Promise<void>;
 
   /** Available units per ticket type (ticket types with no stock report 0). */
   availability(

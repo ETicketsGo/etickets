@@ -31,9 +31,9 @@ Introduce **Experience** as the root domain concept, with existing Events becomi
 table. Instead:
 
 1. Add an `experienceType` **discriminator** column to the existing `Event` table,
-   defaulting to `EVENT`. The `Event` table *is* the physical root of an Experience.
+   defaulting to `EVENT`. The `Event` table _is_ the physical root of an Experience.
    (Migration `20260713093339_experience_type` — additive: new enum + `NOT NULL
-   DEFAULT 'EVENT'` column. Every existing row becomes `EVENT` automatically; no
+DEFAULT 'EVENT'` column. Every existing row becomes `EVENT` automatically; no
    backfill, no data movement, no risk.)
 2. Model the Experience domain as a **layer over Event rows**, not a duplicate of
    them. The first load-bearing piece of this layer is the `ExperienceTypeRegistry`,
@@ -62,12 +62,14 @@ lands in PR-4.
 ## Consequences
 
 **Positive**
+
 - Existing Event behaviour is byte-for-byte unchanged; all prior tests pass.
 - New experience types are added by (a) an enum value, (b) a registry mapping, and
   (c) their own inventory strategy — with **zero** changes to the booking engine.
 - No duplicated data and no risky migration on the live database.
 
 **Negative / trade-offs**
+
 - Experience-type-specific data lives in satellite tables keyed by `eventId` rather
   than under a dedicated `Experience` PK. Accepted: it avoids a disruptive rename
   and keeps the change additive. A future consolidation remains possible but is not

@@ -2,7 +2,14 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, EmptyState, ErrorState, Select, Spinner, type Organization } from '@eticketsgo/web-kit';
+import {
+  api,
+  EmptyState,
+  ErrorState,
+  Select,
+  Spinner,
+  type Organization,
+} from '@eticketsgo/web-kit';
 
 interface OrgCtx {
   orgs: Organization[];
@@ -45,10 +52,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   }
   if (isError) {
     return (
-      <ErrorState
-        message="We couldn't load this. Please try again."
-        onRetry={() => refetch()}
-      />
+      <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
     );
   }
   if (!orgs || orgs.length === 0) {

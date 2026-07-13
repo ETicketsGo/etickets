@@ -32,9 +32,7 @@ export default function OrganizersPage() {
   });
 
   const query = q.trim().toLowerCase();
-  const rows = query
-    ? data?.data.filter((o) => o.name.toLowerCase().includes(query))
-    : data?.data;
+  const rows = query ? data?.data.filter((o) => o.name.toLowerCase().includes(query)) : data?.data;
 
   const columns: Column<Organization>[] = [
     {

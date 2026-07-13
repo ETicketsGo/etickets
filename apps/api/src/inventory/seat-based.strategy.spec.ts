@@ -67,4 +67,40 @@ describe('SeatBasedInventoryStrategy', () => {
     expect(specs).toEqual([]);
     expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
+
+  /** Joins a tagged-template call's SQL fragments so we can assert on its text. */
+  const sqlOf = (call: unknown[]) => (call[0] as string[]).join('?');
+  const seatUpdateCalls = (fn: jest.Mock) =>
+    fn.mock.calls.filter((c) => sqlOf(c).includes('"ShowSeat"'));
+
+  it('refund returns seats to AVAILABLE and decrements sold per type', async () => {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
+    // 2 seated tickets of one type → one ShowSeat UPDATE + one counter decrement.
+    await strategy.refund(tx as never, {
+      eventSessionId: 'sess-1',
+      tickets: [
+        { ticketTypeId: 'tt-1', seatId: 's1' },
+        { ticketTypeId: 'tt-1', seatId: 's2' },
+      ],
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    // The seat UPDATE (ShowSeat → AVAILABLE) ran exactly once.
+    const seatCalls = seatUpdateCalls(tx.$executeRaw);
+    expect(seatCalls).toHaveLength(1);
+    expect(sqlOf(seatCalls[0])).toContain("'AVAILABLE'");
+  });
+
+  it('refund skips the seat UPDATE when no seatIds are present', async () => {
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
+    // Two distinct types, no seats → two counter decrements, zero seat updates.
+    await strategy.refund(tx as never, {
+      eventSessionId: 'sess-1',
+      tickets: [
+        { ticketTypeId: 'tt-1', seatId: null },
+        { ticketTypeId: 'tt-2', seatId: null },
+      ],
+    });
+    expect(seatUpdateCalls(tx.$executeRaw)).toHaveLength(0);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2); // per-type decrements only
+  });
 });

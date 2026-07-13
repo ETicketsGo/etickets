@@ -14,6 +14,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
 import type { PaymentEvent, WebhookInput } from './provider/payment-provider.interface';
 import { AppException, ErrorCodes } from '../common/errors';
+import type { RequestUser } from '../common/decorators';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -33,14 +34,31 @@ export class PaymentsService {
     return this.provider.refund({ providerRef, amountMinor, reason });
   }
 
-  /** Create a payment intent for a pending booking. */
-  async createIntent(bookingId: string) {
+  /** Whether the mock "simulate payment" path is allowed (dev/test only). */
+  private readonly mockEnabled =
+    process.env.PAYMENTS_MOCK_ENABLED !== 'false' && process.env.NODE_ENV !== 'production';
+
+  /** Create a payment intent for a pending booking (owner or platform admin only). */
+  async createIntent(bookingId: string, user?: RequestUser) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: { payment: true },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    // Ownership: an authenticated user may only pay their own booking (guest
+    // bookings have no owner and are paid via the unguessable booking id).
+    if (booking.userId && user) {
+      const isAdmin =
+        user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
+      if (booking.userId !== user.id && !isAdmin) {
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          'You cannot pay for this booking.',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
       throw new AppException(
         ErrorCodes.BOOKING_NOT_PAYABLE,
@@ -75,6 +93,13 @@ export class PaymentsService {
    * our webhook. Payment is NEVER confirmed from the browser redirect directly.
    */
   async mockPay(bookingId: string, outcome: 'succeeded' | 'failed') {
+    if (!this.mockEnabled) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'Mock payments are disabled in this environment.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
     const payment = await this.prisma.payment.findUnique({ where: { bookingId } });
     if (!payment)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payment not found.', HttpStatus.NOT_FOUND);
@@ -119,8 +144,22 @@ export class PaymentsService {
     }
 
     const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+    const expectedUnits = booking.items.reduce((s, i) => s + i.quantity, 0);
+    let alreadyConfirmed = false;
 
     await this.prisma.$transaction(async (tx) => {
+      // Atomic idempotency guard: only the delivery that flips PENDING_PAYMENT →
+      // CONFIRMED issues tickets. Concurrent re-deliveries see count 0 and no-op,
+      // so tickets can never be double-issued.
+      const claim = await tx.booking.updateMany({
+        where: { id: booking.id, status: BookingStatus.PENDING_PAYMENT },
+        data: { status: BookingStatus.CONFIRMED, confirmedAt: new Date() },
+      });
+      if (claim.count !== 1) {
+        alreadyConfirmed = true;
+        return;
+      }
+
       // Settle inventory (held → sold) via the experience's strategy, which returns
       // the exact tickets to issue (one per unit, or one per seat). See ADR-010/013.
       const specs = await strategy.confirm(tx, {
@@ -129,6 +168,16 @@ export class PaymentsService {
         holdExpiresAt: booking.holdExpiresAt,
         lines: booking.items.map((i) => ({ ticketTypeId: i.ticketTypeId, quantity: i.quantity })),
       });
+      // Guard the "charged but hold expired → zero tickets" case: if the strategy
+      // could not settle every booked unit, roll the whole confirm back.
+      if (specs.length !== expectedUnits) {
+        throw new AppException(
+          ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
+          'This booking hold expired before payment settled and needs reconciliation.',
+          HttpStatus.CONFLICT,
+          { bookingId: booking.id },
+        );
+      }
       for (const spec of specs) {
         await tx.ticket.create({
           data: {
@@ -158,10 +207,6 @@ export class PaymentsService {
           rawEvent: event as unknown as object,
         },
       });
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: { status: BookingStatus.CONFIRMED, confirmedAt: new Date() },
-      });
       if (booking.couponId) {
         await tx.coupon.update({
           where: { id: booking.couponId },
@@ -169,6 +214,10 @@ export class PaymentsService {
         });
       }
     });
+
+    if (alreadyConfirmed) {
+      return { status: 'already_confirmed', bookingId: booking.id };
+    }
 
     const ticketCount = booking.items.reduce((s, i) => s + i.quantity, 0);
     await this.notifications.send({

@@ -10,6 +10,7 @@ import {
 import type { RefundRequestInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
@@ -17,11 +18,19 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
 import type { RequestUser } from '../common/decorators';
 
+/** Refund rows that hold or consume a ticket's refund allocation. */
+const OPEN_REFUND_STATUSES = [
+  RefundStatus.REQUESTED,
+  RefundStatus.PROCESSING,
+  RefundStatus.COMPLETED,
+] as const;
+
 @Injectable()
 export class RefundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
+    private readonly inventory: InventoryService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
@@ -55,25 +64,48 @@ export class RefundsService {
       );
     }
 
-    // Resolve which tickets to refund and the amount (face value).
-    const targetTickets = input.ticketIds?.length
-      ? booking.tickets.filter((t) => input.ticketIds!.includes(t.id))
-      : booking.tickets.filter(
-          (t) => t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN,
-        );
-    if (targetTickets.length === 0) {
+    // Tickets already covered by an open (requested/processing/completed) refund
+    // must not be refunded again.
+    const priorRefunds = await this.prisma.refund.findMany({
+      where: { bookingId: booking.id, status: { in: [...OPEN_REFUND_STATUSES] } },
+    });
+    const alreadyCovered = new Set(priorRefunds.flatMap((r) => r.ticketIds));
+
+    // Only ACTIVE/CHECKED_IN tickets are refundable — apply the status filter even
+    // when the client supplies ticketIds (so already-refunded ids can't sneak in).
+    const refundable = (
+      input.ticketIds?.length
+        ? booking.tickets.filter((t) => input.ticketIds!.includes(t.id))
+        : booking.tickets
+    ).filter(
+      (t) =>
+        (t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN) &&
+        !alreadyCovered.has(t.id),
+    );
+    if (refundable.length === 0) {
       throw new AppException(
         ErrorCodes.REFUND_NOT_ELIGIBLE,
         'No refundable tickets in this booking.',
         HttpStatus.CONFLICT,
       );
     }
+    const targetTickets = refundable;
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
     const priceByType = new Map(items.map((i) => [i.ticketTypeId, i.unitPriceMinor]));
     const amountMinor = targetTickets.reduce(
       (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
       0,
     );
+
+    // Never let cumulative refunds exceed what was paid.
+    const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
+    if (priorAmount + amountMinor > booking.totalMinor) {
+      throw new AppException(
+        ErrorCodes.REFUND_NOT_ELIGIBLE,
+        'Refund amount exceeds the remaining refundable balance.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     const refund = await this.prisma.refund.create({
       data: {
@@ -139,10 +171,18 @@ export class RefundsService {
     }
 
     if (decision === 'REJECT') {
-      const rejected = await this.prisma.refund.update({
-        where: { id: refundId },
+      // Atomic claim: only one caller can transition REQUESTED → REJECTED.
+      const claim = await this.prisma.refund.updateMany({
+        where: { id: refundId, status: RefundStatus.REQUESTED },
         data: { status: RefundStatus.REJECTED, processedByUserId: user.id },
       });
+      if (claim.count !== 1) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'Refund is already being processed.',
+          HttpStatus.CONFLICT,
+        );
+      }
       await this.audit.record({
         actorUserId: user.id,
         organizationId: refund.organizationId,
@@ -150,39 +190,78 @@ export class RefundsService {
         entityType: 'Refund',
         entityId: refundId,
       });
-      return rejected;
+      return this.prisma.refund.findUnique({ where: { id: refundId } });
+    }
+
+    // Atomic claim BEFORE any money moves: prevents concurrent double-approval
+    // (and thus double provider refunds). Only the winner proceeds.
+    const claim = await this.prisma.refund.updateMany({
+      where: { id: refundId, status: RefundStatus.REQUESTED },
+      data: { status: RefundStatus.PROCESSING, processedByUserId: user.id },
+    });
+    if (claim.count !== 1) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Refund is already being processed.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: refund.bookingId },
+      include: {
+        tickets: true,
+        items: true,
+        event: { select: { experienceType: true } },
+      },
+    });
+    if (!booking) {
+      await this.prisma.refund.update({
+        where: { id: refundId },
+        data: { status: RefundStatus.FAILED },
+      });
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
 
     const payment = await this.prisma.payment.findUnique({
       where: { bookingId: refund.bookingId },
     });
-    const providerResult = await this.payments.refundPayment(
-      payment?.providerRef ?? 'mock',
-      refund.amountMinor,
-      refund.reason,
+
+    // Provider call happens exactly once (after the claim). On failure the refund
+    // is marked FAILED rather than left stuck in PROCESSING.
+    let providerResult: { providerRef: string };
+    try {
+      providerResult = await this.payments.refundPayment(
+        payment?.providerRef ?? 'mock',
+        refund.amountMinor,
+        refund.reason,
+      );
+    } catch (err) {
+      await this.prisma.refund
+        .update({ where: { id: refundId }, data: { status: RefundStatus.FAILED } })
+        .catch(() => undefined);
+      throw err;
+    }
+
+    // Only void tickets that are still live; return their stock via the
+    // experience's inventory strategy (frees movie seats + decrements counters).
+    const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+    const voided = booking.tickets.filter(
+      (t) =>
+        refund.ticketIds.includes(t.id) &&
+        (t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN),
     );
 
-    const booking = await this.prisma.booking.findUnique({
-      where: { id: refund.bookingId },
-      include: { tickets: true, items: true },
-    });
-    if (!booking)
-      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
-
     await this.prisma.$transaction(async (tx) => {
-      // Void refunded tickets and return their seats to inventory.
-      for (const ticketId of refund.ticketIds) {
-        const ticket = booking.tickets.find((t) => t.id === ticketId);
-        if (!ticket) continue;
-        await tx.ticket.update({
-          where: { id: ticketId },
+      if (voided.length > 0) {
+        await tx.ticket.updateMany({
+          where: { id: { in: voided.map((t) => t.id) } },
           data: { status: TicketStatus.REFUNDED },
         });
-        await tx.$executeRaw`
-          UPDATE "TicketInventory"
-          SET "quantitySold" = GREATEST(0, "quantitySold" - 1), "updatedAt" = NOW()
-          WHERE "ticketTypeId" = ${ticket.ticketTypeId}
-        `;
+        await strategy.refund(tx, {
+          eventSessionId: booking.eventSessionId,
+          tickets: voided.map((t) => ({ ticketTypeId: t.ticketTypeId, seatId: t.seatId })),
+        });
       }
 
       const remainingActive = booking.tickets.filter(

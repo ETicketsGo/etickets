@@ -14,6 +14,7 @@ across earlier work. They existed but weren't presented as a coherent surface.
 
 Treat community as a first-class, shipped capability (`community` flag, default
 on) and **consolidate the existing pieces** rather than rebuild them:
+
 - Reviews/ratings — existing, booking-gated (ADR from prior work).
 - Saved experiences — existing `etg_saved` store + `/account/saved`.
 - Follow organizer — existing `etg_following` store + organizer profiles; PR-4
