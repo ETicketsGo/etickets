@@ -370,8 +370,17 @@ export const api = {
     event: (eventId: string) => request<EventReport>(`/reports/events/${eventId}`),
   },
 
+  analytics: {
+    /** Whole-org organizer dashboard in one aggregate round (replaces per-event fan-out). */
+    organizer: (organizationId: string) =>
+      request<OrganizerAnalytics>(`/analytics/organizer${qs({ organizationId })}`),
+    venue: (venueId: string) => request<VenueAnalytics>(`/analytics/venue/${venueId}`),
+    customer: () => request<CustomerAnalytics>('/analytics/customer'),
+  },
+
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+    platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
     movies: (params?: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminMovieRow>>(`/admin/movies${qs(params ?? {})}`),
     audit: (params: PageParams & { action?: string }) =>
@@ -893,6 +902,56 @@ export interface EventReport {
   checkInCount: number;
   salesByTicketType: { ticketType: string; quantity: number; grossMinor: number }[];
   salesByDay: { day: string; bookings: number; grossMinor: number }[];
+}
+
+export interface AnalyticsRevenue {
+  grossMinor: number;
+  bookingFeesMinor: number;
+  paymentFeesMinor: number;
+  organizerFeesMinor: number;
+  discountMinor: number;
+  netMinor: number;
+  confirmedBookings: number;
+}
+export interface OrganizerAnalytics {
+  organizationId: string;
+  attendance: { issued: number; checkedIn: number; checkInRate: number };
+  conversion: { total: number; confirmed: number; rate: number };
+  repeatVisitors: { totalCustomers: number; repeatCustomers: number; rate: number };
+  topTicketType: { name: string; quantity: number } | null;
+  /** Present only for OWNER/MANAGER + platform admins. */
+  revenue?: AnalyticsRevenue;
+  refunds?: { count: number; amountMinor: number; refundRate: number };
+  coupons?: { redemptions: number; discountMinor: number };
+}
+export interface VenueAnalytics {
+  venue: { id: string; name: string; city: string };
+  utilization: { events: number; sessions: number };
+  occupancy: {
+    soldSeats: number;
+    totalSeats: number;
+    soldGeneralAdmission: number;
+    totalGeneralAdmission: number;
+    sold: number;
+    capacity: number;
+    occupancyRate: number;
+  };
+  revenue: AnalyticsRevenue;
+}
+export interface CustomerAnalytics {
+  bookings: { upcoming: number; past: number; total: number };
+  favoriteOrganizers: { id: string; name: string; bookings: number }[];
+  favoriteVenues: { id: string; name: string; city: string; bookings: number }[];
+  collectionsNote: string;
+}
+export interface PlatformAnalytics {
+  gmvMinor: number;
+  platformRevenueMinor: number;
+  bookings: number;
+  moviesCount: number;
+  eventsCount: number;
+  retention: { totalCustomers: number; repeatCustomers: number; rate: number };
+  funnel: { created: number; confirmed: number; checkedIn: number };
 }
 
 export interface AdminDashboard {

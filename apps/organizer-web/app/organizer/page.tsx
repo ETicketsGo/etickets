@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
   api,
@@ -14,7 +14,6 @@ import {
   ErrorState,
   PageHeader,
   dateOnly,
-  type EventReport,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 
@@ -29,47 +28,36 @@ export default function OrganizerDashboard() {
     queryKey: ['payouts', activeOrg.id],
     queryFn: () => api.payouts.forOrg(activeOrg.id),
   });
-
-  const events = eventsQ.data ?? [];
-  const reportQs = useQueries({
-    queries: events.map((e) => ({
-      queryKey: ['report', e.id],
-      queryFn: () => api.reports.event(e.id),
-      enabled: events.length > 0,
-    })),
+  // Single aggregate call for the whole organization — replaces the previous
+  // per-event `useQueries` fan-out over `GET /reports/event/:id` (N+1).
+  const analyticsQ = useQuery({
+    queryKey: ['analytics', 'organizer', activeOrg.id],
+    queryFn: () => api.analytics.organizer(activeOrg.id),
   });
 
-  const reports = reportQs.map((q) => q.data).filter(Boolean) as EventReport[];
-  const loading = eventsQ.isLoading || reportQs.some((q) => q.isLoading);
-  const isError = eventsQ.isError || payoutsQ.isError || reportQs.some((q) => q.isError);
+  const events = eventsQ.data ?? [];
+  const analytics = analyticsQ.data;
+  const loading = eventsQ.isLoading || analyticsQ.isLoading;
+  const isError = eventsQ.isError || payoutsQ.isError || analyticsQ.isError;
   const refetchAll = () => {
     eventsQ.refetch();
     payoutsQ.refetch();
-    reportQs.forEach((q) => q.refetch());
+    analyticsQ.refetch();
   };
 
-  const sum = reports.reduce(
-    (a, r) => ({
-      gross: a.gross + r.grossTicketSalesMinor,
-      net: a.net + r.netOrganizerRevenueMinor,
-      fees: a.fees + r.bookingFeesMinor,
-      refunds: a.refunds + r.refundsMinor,
-      sold: a.sold + r.ticketsSold,
-      checkins: a.checkins + r.checkInCount,
-    }),
-    { gross: 0, net: 0, fees: 0, refunds: 0, sold: 0, checkins: 0 },
-  );
-  const checkinRate = sum.sold > 0 ? Math.round((sum.checkins / sum.sold) * 100) : 0;
+  const revenue = analytics?.revenue;
+  const sum = {
+    gross: revenue?.grossMinor ?? 0,
+    net: revenue?.netMinor ?? 0,
+    fees: revenue?.bookingFeesMinor ?? 0,
+    refunds: analytics?.refunds?.amountMinor ?? 0,
+    sold: analytics?.attendance.issued ?? 0,
+    checkins: analytics?.attendance.checkedIn ?? 0,
+  };
+  const checkinRate = analytics?.attendance.checkInRate ?? 0;
   const latestPayout = payoutsQ.data?.[0];
 
-  // Most popular ticket type across all events.
-  const typeTotals = new Map<string, number>();
-  for (const r of reports) {
-    for (const t of r.salesByTicketType) {
-      typeTotals.set(t.ticketType, (typeTotals.get(t.ticketType) ?? 0) + t.quantity);
-    }
-  }
-  const mostPopular = [...typeTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+  const mostPopular = analytics?.topTicketType ?? null;
   const publishedCount = events.filter((e) => e.status === 'PUBLISHED').length;
 
   if (isError)
@@ -119,8 +107,8 @@ export default function OrganizerDashboard() {
           />
           <MetricCard
             label="Most popular ticket"
-            value={mostPopular?.[0] ?? '—'}
-            hint={mostPopular ? `${mostPopular[1]} sold` : 'No sales yet'}
+            value={mostPopular?.name ?? '—'}
+            hint={mostPopular ? `${mostPopular.quantity} sold` : 'No sales yet'}
           />
           <MetricCard
             label="Published events"

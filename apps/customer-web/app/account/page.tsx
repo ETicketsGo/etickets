@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
-import { tokenStore } from '@/lib/api';
+import { api, tokenStore } from '@/lib/api';
 
 const LINKS = [
   {
@@ -25,6 +26,13 @@ export default function AccountPage() {
     if (!tokenStore.access) router.push('/login?next=/account');
   }, [router]);
 
+  const analyticsQ = useQuery({
+    queryKey: ['account', 'analytics'],
+    queryFn: () => api.analytics(),
+    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+  });
+  const bookings = analyticsQ.data?.bookings;
+
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <div>
@@ -33,6 +41,18 @@ export default function AccountPage() {
           Manage your bookings, tickets, and details.
         </p>
       </div>
+      {bookings && (bookings.upcoming > 0 || bookings.past > 0) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
+            <p className="text-caption text-text-muted">Upcoming bookings</p>
+            <p className="mt-1 text-h3 font-bold text-text-primary">{bookings.upcoming}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
+            <p className="text-caption text-text-muted">Past bookings</p>
+            <p className="mt-1 text-h3 font-bold text-text-primary">{bookings.past}</p>
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {LINKS.map((l) => {
           const Icon = l.icon;

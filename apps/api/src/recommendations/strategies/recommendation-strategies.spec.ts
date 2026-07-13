@@ -108,19 +108,17 @@ describe('ContentBasedRecommendationStrategy', () => {
   it('falls back to popular categories when there is no seed', async () => {
     const prisma = {
       event: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([
-            {
-              id: 'e1',
-              title: 'E1',
-              slug: 'e1',
-              category: 'Music',
-              venue: {},
-              organization: { name: 'O' },
-              sessions: [],
-            },
-          ]),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'e1',
+            title: 'E1',
+            slug: 'e1',
+            category: 'Music',
+            venue: {},
+            organization: { name: 'O' },
+            sessions: [],
+          },
+        ]),
       },
     };
     const publicEvents = {
@@ -157,14 +155,12 @@ describe('OrganizerRecommendationStrategy', () => {
   it('recommends more events from the seed organizer, excluding the seed', async () => {
     const prisma = {
       event: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({
-            id: 'seed',
-            category: 'Music',
-            organizationId: 'org-1',
-            venueId: 'v',
-          }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'seed',
+          category: 'Music',
+          organizationId: 'org-1',
+          venueId: 'v',
+        }),
         findMany: jest.fn().mockResolvedValue([
           {
             id: 'seed',
@@ -203,27 +199,23 @@ describe('VenueRecommendationStrategy', () => {
   it('recommends upcoming events at the seed venue, excluding the seed', async () => {
     const prisma = {
       event: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({
-            id: 'seed',
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'seed',
+          category: 'Music',
+          organizationId: 'o',
+          venueId: 'ven-1',
+        }),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'e4',
+            title: 'E4',
+            slug: 'e4',
             category: 'Music',
-            organizationId: 'o',
-            venueId: 'ven-1',
-          }),
-        findMany: jest
-          .fn()
-          .mockResolvedValue([
-            {
-              id: 'e4',
-              title: 'E4',
-              slug: 'e4',
-              category: 'Music',
-              venue: {},
-              organization: { name: 'O' },
-              sessions: [],
-            },
-          ]),
+            venue: {},
+            organization: { name: 'O' },
+            sessions: [],
+          },
+        ]),
       },
     };
     const strategy = new VenueRecommendationStrategy(prisma as never);

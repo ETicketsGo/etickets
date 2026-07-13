@@ -17,6 +17,10 @@ import {
 
 export default function AdminDashboard() {
   const dash = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => api.admin.dashboard() });
+  const analytics = useQuery({
+    queryKey: ['admin', 'platform-analytics'],
+    queryFn: () => api.admin.platformAnalytics(),
+  });
   const audit = useQuery({
     queryKey: ['admin', 'audit', 1],
     queryFn: () => api.admin.audit({ page: 1, pageSize: 8 }),
@@ -60,6 +64,21 @@ export default function AdminDashboard() {
             tone={d.paymentFailures > 0 ? 'error' : 'neutral'}
           />
           <MetricCard label="Upcoming payouts" value={d.upcomingPayouts} />
+          <MetricCard
+            label="Repeat-customer rate"
+            value={`${analytics.data?.retention.rate ?? 0}%`}
+            hint={
+              analytics.data
+                ? `${analytics.data.retention.repeatCustomers} of ${analytics.data.retention.totalCustomers}`
+                : undefined
+            }
+            tone="info"
+          />
+          <MetricCard
+            label="Movies live"
+            value={analytics.data?.moviesCount ?? 0}
+            hint={analytics.data ? `${analytics.data.funnel.checkedIn} check-ins` : undefined}
+          />
         </div>
       )}
 

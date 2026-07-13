@@ -70,4 +70,6 @@ export const api = {
     wk.publicMovies.list(params),
   getMovie: (slug: string) => wk.publicMovies.get(slug),
   showSeats: (sessionId: string) => wk.publicShows.seats(sessionId),
+  // Analytics Platform: the signed-in customer's own booking analytics.
+  analytics: () => wk.analytics.customer(),
 };

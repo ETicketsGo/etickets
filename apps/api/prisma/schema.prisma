@@ -459,6 +459,7 @@ model Event {
   @@index([category])
   @@index([experienceType])
   @@index([movieId])
+  @@index([venueId])
   @@index([status, experienceType, publishedAt])
 }
 
