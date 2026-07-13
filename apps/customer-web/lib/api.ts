@@ -13,6 +13,7 @@ import {
 export { tokenStore, ApiRequestError, API_URL };
 export type {
   PublicEvent,
+  PublicEventCard,
   BookingResult,
   BookingDetail,
   WalletTicket,
@@ -24,6 +25,8 @@ export type {
   SeatLayout,
   SeatLayoutSeat,
   SeatStatus,
+  Discovery,
+  OrganizerProfile,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -48,6 +51,10 @@ export const api = {
   myReview: wk.reviews.mine,
   createReview: wk.reviews.create,
   organizerProfile: wk.publicEvents.organizer,
+  // Discovery hub (PR-4): unified movies + events + categories feed, and
+  // resolved platform feature flags for capability-gated UI.
+  discovery: () => wk.discovery(),
+  capabilities: () => wk.capabilities(),
   // Movies (PR-3): discovery, detail + showtimes, and per-show seat layout.
   listMovies: (params?: { city?: string; genre?: string; q?: string }) =>
     wk.publicMovies.list(params),

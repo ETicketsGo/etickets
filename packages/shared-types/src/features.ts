@@ -10,6 +10,8 @@ export const FEATURE_DEFAULTS = {
   reviews: true,
   organizerProfiles: true,
   eventFaq: true,
+  experienceDiscovery: true,
+  community: true,
 
   // Enterprise capabilities — placeholder architecture only, disabled by default.
   memberships: false,
@@ -18,6 +20,9 @@ export const FEATURE_DEFAULTS = {
   marketingAutomation: false,
   dynamicPricing: false,
   whiteLabel: false,
+  sponsors: false,
+  eventTemplates: false,
+  aiRecommendations: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURE_DEFAULTS;
@@ -27,12 +32,17 @@ const ENV_KEY: Record<FeatureFlag, string> = {
   reviews: 'REVIEWS',
   organizerProfiles: 'ORGANIZER_PROFILES',
   eventFaq: 'EVENT_FAQ',
+  experienceDiscovery: 'EXPERIENCE_DISCOVERY',
+  community: 'COMMUNITY',
   memberships: 'MEMBERSHIPS',
   subscriptions: 'SUBSCRIPTIONS',
   organizerCrm: 'ORGANIZER_CRM',
   marketingAutomation: 'MARKETING_AUTOMATION',
   dynamicPricing: 'DYNAMIC_PRICING',
   whiteLabel: 'WHITE_LABEL',
+  sponsors: 'SPONSORS',
+  eventTemplates: 'EVENT_TEMPLATES',
+  aiRecommendations: 'AI_RECOMMENDATIONS',
 };
 
 function readEnv(flag: FeatureFlag): boolean | undefined {
@@ -83,5 +93,20 @@ export const ENTERPRISE_FEATURES: {
     flag: 'whiteLabel',
     title: 'White-label',
     description: 'Run the platform under your own brand and domain.',
+  },
+  {
+    flag: 'sponsors',
+    title: 'Sponsor management',
+    description: 'Sponsor packages, booths, assets, benefits, invoices and reports.',
+  },
+  {
+    flag: 'eventTemplates',
+    title: 'Experience templates',
+    description: 'One-click templates preconfiguring tickets, forms, emails and reports.',
+  },
+  {
+    flag: 'aiRecommendations',
+    title: 'AI recommendations',
+    description: 'Personalised discovery and organizer copilot powered by ranking models.',
   },
 ];

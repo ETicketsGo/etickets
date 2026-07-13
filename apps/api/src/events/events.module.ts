@@ -16,6 +16,6 @@ import { PublicEventsService } from './public-events.service';
     AdminEventsController,
   ],
   providers: [EventsService, PublicEventsService],
-  exports: [EventsService],
+  exports: [EventsService, PublicEventsService],
 })
 export class EventsModule {}

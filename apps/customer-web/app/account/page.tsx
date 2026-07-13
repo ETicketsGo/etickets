@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Heart, Receipt, Ticket, UserRound, ChevronRight } from 'lucide-react';
+import { Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 
 const LINKS = [
@@ -15,6 +15,7 @@ const LINKS = [
   },
   { href: '/account/tickets', label: 'My tickets', hint: 'Your QR passes', icon: Ticket },
   { href: '/account/saved', label: 'Saved events', hint: 'Your wishlist', icon: Heart },
+  { href: '/account/following', label: 'Following', hint: 'Organizers you follow', icon: Users },
   { href: '/account/profile', label: 'Profile', hint: 'Name & account details', icon: UserRound },
 ];
 

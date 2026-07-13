@@ -158,6 +158,12 @@ export const api = {
       request<OrganizerProfile>(`/public/organizers/${id}`, { auth: false }),
   },
 
+  /** Unified experience discovery (movies + events + categories). */
+  discovery: () => request<Discovery>('/public/discovery', { auth: false }),
+
+  /** Resolved platform feature flags (drives capability-gated UI). */
+  capabilities: () => request<Record<string, boolean>>('/capabilities', { auth: false }),
+
   reviews: {
     forEvent: (eventId: string) =>
       request<ReviewSummary>(`/public/reviews/${eventId}`, { auth: false }),
@@ -587,6 +593,13 @@ export interface AdminMovieRow {
   status: MovieStatusValue;
   organizationName: string;
   createdAt: string;
+}
+
+export interface Discovery {
+  nowShowing: PublicMovieCard[];
+  trendingEvents: PublicEventCard[];
+  thisWeekend: PublicEventCard[];
+  categories: string[];
 }
 
 export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD';

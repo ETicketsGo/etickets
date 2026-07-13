@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Ticket, Compass, LogOut, Receipt, Film } from 'lucide-react';
+import { Ticket, Compass, LogOut, Receipt, Film, Sparkles } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { ButtonLink } from '@/components/ui';
 
@@ -40,6 +40,10 @@ export function Header() {
           </span>
         </Link>
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
+          <Link href="/explore" aria-label="Explore" className={navLink}>
+            <Sparkles className="h-4 w-4" />
+            <span className="hidden sm:inline">Explore</span>
+          </Link>
           <Link href="/events" aria-label="Browse events" className={navLink}>
             <Compass className="h-4 w-4" />
             <span className="hidden sm:inline">Browse</span>
