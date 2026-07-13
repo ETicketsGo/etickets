@@ -3,10 +3,12 @@ import { Prisma } from '@prisma/client';
 import {
   BookingStatus,
   EventStatus,
+  ExperienceType,
   FeeMode,
   PaymentStatus,
   SessionStatus,
 } from '@eticketsgo/shared-types';
+import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
@@ -98,6 +100,48 @@ export class BookingsService {
       subtotal += tt.priceMinor * item.quantity;
     }
 
+    // Seat-based experiences (movies): every line must carry seats that belong to
+    // this session and match their ticket type's price category. Actual seat
+    // availability is enforced atomically by the strategy's conditional hold.
+    const isSeatBased = session.event.experienceType === ExperienceType.MOVIE;
+    if (isSeatBased) {
+      const allSeatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      for (const item of input.items) {
+        if (!item.seatIds || item.seatIds.length !== item.quantity) {
+          throw new AppException(
+            ErrorCodes.VALIDATION_FAILED,
+            'Please select a seat for each ticket.',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      }
+      const seats = await this.prisma.seat.findMany({
+        where: { id: { in: allSeatIds } },
+        select: { id: true, seatCategoryId: true },
+      });
+      const categoryBySeat = new Map(seats.map((s) => [s.id, s.seatCategoryId]));
+      if (seats.length !== new Set(allSeatIds).size) {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'One or more selected seats are invalid.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      for (const item of input.items) {
+        const tt = byId.get(item.ticketTypeId)!;
+        for (const seatId of item.seatIds!) {
+          if (categoryBySeat.get(seatId) !== tt.seatCategoryId) {
+            throw new AppException(
+              ErrorCodes.VALIDATION_FAILED,
+              'A selected seat does not match its price category.',
+              HttpStatus.BAD_REQUEST,
+              { seatId },
+            );
+          }
+        }
+      }
+    }
+
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
     const feeMode = session.event.feeMode as FeeMode;
     const fees = await this.pricing.quote(subtotal, feeMode, discountMinor);
@@ -109,10 +153,16 @@ export class BookingsService {
     // engine changing. See ADR-010.
     const strategy = this.inventory.forExperienceType(session.event.experienceType);
 
-    const booking = await this.prisma.$transaction(async (tx) => {
-      // Atomic, oversell-proof hold delegated to the resolved strategy.
-      await strategy.reserve(tx, input.items);
+    const lines: InventoryLine[] = input.items.map((i) => ({
+      ticketTypeId: i.ticketTypeId,
+      quantity: i.quantity,
+      seatIds: i.seatIds,
+    }));
 
+    const booking = await this.prisma.$transaction(async (tx) => {
+      // Create the pending booking first so the strategy can bind held seats to
+      // it, then perform the atomic, oversell-/double-book-proof hold. If the
+      // hold fails the whole transaction (booking + items + payment) rolls back.
       const created = await tx.booking.create({
         data: {
           organizationId: session.event.organizationId,
@@ -153,6 +203,13 @@ export class BookingsService {
           },
         },
         include: { items: true, payment: true },
+      });
+
+      await strategy.reserve(tx, {
+        eventSessionId: session.id,
+        bookingId: created.id,
+        holdExpiresAt,
+        lines,
       });
       return created;
     });
@@ -225,7 +282,12 @@ export class BookingsService {
     for (const booking of stale) {
       const strategy = this.inventory.forExperienceType(booking.event.experienceType);
       await this.prisma.$transaction(async (tx) => {
-        await strategy.release(tx, booking.items);
+        await strategy.release(tx, {
+          eventSessionId: booking.eventSessionId,
+          bookingId: booking.id,
+          holdExpiresAt: booking.holdExpiresAt,
+          lines: booking.items.map((i) => ({ ticketTypeId: i.ticketTypeId, quantity: i.quantity })),
+        });
         await tx.booking.update({
           where: { id: booking.id },
           data: { status: BookingStatus.EXPIRED, cancelledAt: new Date() },

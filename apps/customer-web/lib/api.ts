@@ -19,6 +19,11 @@ export type {
   BookingSummary,
   BookingRequest,
   RefundRow,
+  PublicMovieCard,
+  PublicMovie,
+  SeatLayout,
+  SeatLayoutSeat,
+  SeatStatus,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -43,4 +48,9 @@ export const api = {
   myReview: wk.reviews.mine,
   createReview: wk.reviews.create,
   organizerProfile: wk.publicEvents.organizer,
+  // Movies (PR-3): discovery, detail + showtimes, and per-show seat layout.
+  listMovies: (params?: { city?: string; genre?: string; q?: string }) =>
+    wk.publicMovies.list(params),
+  getMovie: (slug: string) => wk.publicMovies.get(slug),
+  showSeats: (sessionId: string) => wk.publicShows.seats(sessionId),
 };

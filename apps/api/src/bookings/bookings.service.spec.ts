@@ -2,12 +2,17 @@ import { BookingStatus, ExperienceType, PaymentStatus } from '@eticketsgo/shared
 import { BookingsService } from './bookings.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { GeneralAdmissionInventoryStrategy } from '../inventory/general-admission.strategy';
+import { SeatBasedInventoryStrategy } from '../inventory/seat-based.strategy';
 import { ExperienceTypeRegistry } from '../experience/experience-type.registry';
 
-/** A real InventoryService wired to the real general-admission strategy, so the
- *  release path exercises the actual SQL rather than a stub. */
+/** A real InventoryService wired to the real strategies, so the release path
+ *  exercises the actual SQL rather than a stub. */
 function realInventory(): InventoryService {
-  return new InventoryService(new ExperienceTypeRegistry(), new GeneralAdmissionInventoryStrategy());
+  return new InventoryService(
+    new ExperienceTypeRegistry(),
+    new GeneralAdmissionInventoryStrategy(),
+    new SeatBasedInventoryStrategy(),
+  );
 }
 
 /** Builds a Prisma mock whose $transaction runs the callback with a tx mock. */
@@ -22,6 +27,8 @@ function makePrisma(
   // Every stale booking is an EVENT experience (general-admission inventory).
   const withExperience = staleBookings.map((b) => ({
     ...b,
+    eventSessionId: 'session-1',
+    holdExpiresAt: new Date(0),
     event: { experienceType: ExperienceType.EVENT },
   }));
   const prisma = {

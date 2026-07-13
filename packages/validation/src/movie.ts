@@ -47,3 +47,47 @@ export type CreateScreenInput = z.infer<typeof createScreenSchema>;
 
 export const updateScreenSchema = createScreenSchema.partial();
 export type UpdateScreenInput = z.infer<typeof updateScreenSchema>;
+
+/** Generate a screen's seat map from a compact section spec. Each section maps to
+ *  one price category with a set of rows, each holding `seatsPerRow` seats. */
+export const generateSeatMapSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+  sections: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        categoryName: z.string().trim().min(1).max(60),
+        colorHex: z
+          .string()
+          .trim()
+          .regex(/^#([0-9a-fA-F]{6})$/)
+          .optional(),
+        basePriceMinor: z.number().int().min(0),
+        rowLabels: z.array(z.string().trim().min(1).max(4)).min(1).max(40),
+        seatsPerRow: z.number().int().min(1).max(60),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type GenerateSeatMapInput = z.infer<typeof generateSeatMapSchema>;
+
+export const scheduleShowSchema = z
+  .object({
+    screenId: z.string().cuid(),
+    startsAt: z.coerce.date(),
+    endsAt: z.coerce.date(),
+    pricing: z
+      .array(
+        z.object({
+          seatCategoryId: z.string().cuid(),
+          priceMinor: z.number().int().min(0),
+        }),
+      )
+      .optional(),
+  })
+  .refine((v) => v.endsAt > v.startsAt, {
+    message: 'The show must end after it starts.',
+    path: ['endsAt'],
+  });
+export type ScheduleShowInput = z.infer<typeof scheduleShowSchema>;

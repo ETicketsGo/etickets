@@ -11,34 +11,41 @@ describe('availableUnits', () => {
 
 describe('GeneralAdmissionInventoryStrategy', () => {
   const strategy = new GeneralAdmissionInventoryStrategy();
-  const lines = [
-    { ticketTypeId: 't1', quantity: 2 },
-    { ticketTypeId: 't2', quantity: 1 },
-  ];
+  const ctx = {
+    eventSessionId: 's1',
+    bookingId: 'b1',
+    holdExpiresAt: new Date(0),
+    lines: [
+      { ticketTypeId: 't1', quantity: 2 },
+      { ticketTypeId: 't2', quantity: 1 },
+    ],
+  };
 
   it('reserve issues one conditional hold per line when stock is free', async () => {
     const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
-    await strategy.reserve(tx as never, lines);
+    await strategy.reserve(tx as never, ctx);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('reserve throws an oversell error when a line cannot be satisfied', async () => {
     // 0 rows affected → the conditional UPDATE guard rejected the hold.
     const tx = { $executeRaw: jest.fn().mockResolvedValue(0) };
-    await expect(strategy.reserve(tx as never, lines)).rejects.toBeInstanceOf(AppException);
+    await expect(strategy.reserve(tx as never, ctx)).rejects.toBeInstanceOf(AppException);
     // Stops at the first unsatisfiable line.
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
-  it('confirm moves held → sold, one statement per line', async () => {
+  it('confirm moves held → sold and returns one ticket spec per unit', async () => {
     const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
-    await strategy.confirm(tx as never, lines);
+    const specs = await strategy.confirm(tx as never, ctx);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(specs).toHaveLength(3); // 2 + 1 units
+    expect(specs.every((s) => s.seatId === undefined)).toBe(true);
   });
 
   it('release frees held stock, one statement per line', async () => {
     const tx = { $executeRaw: jest.fn().mockResolvedValue(1) };
-    await strategy.release(tx as never, lines);
+    await strategy.release(tx as never, ctx);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 

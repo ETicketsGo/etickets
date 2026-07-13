@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
-import { ExperienceType, MovieStatus, Role } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType, MovieStatus, Role } from '@eticketsgo/shared-types';
 import type { CreateMovieInput, UpdateMovieInput } from '@eticketsgo/validation';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -167,12 +167,13 @@ export class PublicMoviesService {
       where: { slug },
       include: {
         events: {
-          where: { experienceType: ExperienceType.MOVIE },
+          where: { experienceType: ExperienceType.MOVIE, status: EventStatus.PUBLISHED },
           include: {
             sessions: {
+              where: { startsAt: { gt: new Date() }, screenId: { not: null } },
               orderBy: { startsAt: 'asc' },
               include: {
-                screen: { include: { cinema: { select: { name: true } } } },
+                screen: { include: { cinema: { select: { id: true, name: true } } } },
               },
             },
           },
@@ -185,6 +186,37 @@ export class PublicMoviesService {
         'Movie not found or not available.',
         HttpStatus.NOT_FOUND,
       );
+    }
+
+    // Group each published movie-event's future sessions by cinema.
+    const shows: {
+      eventId: string;
+      slug: string;
+      cinemaName: string | null;
+      sessions: { id: string; startsAt: Date; screenName: string | null }[];
+    }[] = [];
+    for (const event of movie.events) {
+      const byCinema = new Map<string, (typeof shows)[number]>();
+      for (const session of event.sessions) {
+        const cinema = session.screen?.cinema;
+        const key = cinema?.id ?? 'unknown';
+        let group = byCinema.get(key);
+        if (!group) {
+          group = {
+            eventId: event.id,
+            slug: event.slug,
+            cinemaName: cinema?.name ?? null,
+            sessions: [],
+          };
+          byCinema.set(key, group);
+          shows.push(group);
+        }
+        group.sessions.push({
+          id: session.id,
+          startsAt: session.startsAt,
+          screenName: session.screen?.name ?? null,
+        });
+      }
     }
 
     return {
@@ -201,16 +233,7 @@ export class PublicMoviesService {
       cast: movie.cast,
       director: movie.director,
       releaseDate: movie.releaseDate,
-      shows: movie.events.map((e) => ({
-        eventId: e.id,
-        slug: e.slug,
-        cinemaName: e.sessions.find((s) => s.screen)?.screen?.cinema.name ?? null,
-        sessions: e.sessions.map((s) => ({
-          id: s.id,
-          startsAt: s.startsAt,
-          screenName: s.screen?.name ?? null,
-        })),
-      })),
+      shows,
     };
   }
 }

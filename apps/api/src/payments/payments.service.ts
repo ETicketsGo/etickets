@@ -121,25 +121,30 @@ export class PaymentsService {
     const strategy = this.inventory.forExperienceType(booking.event.experienceType);
 
     await this.prisma.$transaction(async (tx) => {
-      // Settle inventory (held → sold) via the experience's strategy, then issue
-      // one ticket per unit. See ADR-010.
-      await strategy.confirm(tx, booking.items);
-      for (const item of booking.items) {
-        for (let n = 0; n < item.quantity; n++) {
-          await tx.ticket.create({
-            data: {
-              bookingId: booking.id,
-              ticketTypeId: item.ticketTypeId,
-              eventSessionId: booking.eventSessionId,
-              organizationId: booking.organizationId,
-              serial: serial(),
-              nonce: nonce(),
-              status: TicketStatus.ACTIVE,
-              holderName: booking.buyerName,
-              holderEmail: booking.buyerEmail,
-            },
-          });
-        }
+      // Settle inventory (held → sold) via the experience's strategy, which returns
+      // the exact tickets to issue (one per unit, or one per seat). See ADR-010/013.
+      const specs = await strategy.confirm(tx, {
+        eventSessionId: booking.eventSessionId,
+        bookingId: booking.id,
+        holdExpiresAt: booking.holdExpiresAt,
+        lines: booking.items.map((i) => ({ ticketTypeId: i.ticketTypeId, quantity: i.quantity })),
+      });
+      for (const spec of specs) {
+        await tx.ticket.create({
+          data: {
+            bookingId: booking.id,
+            ticketTypeId: spec.ticketTypeId,
+            eventSessionId: booking.eventSessionId,
+            organizationId: booking.organizationId,
+            serial: serial(),
+            nonce: nonce(),
+            status: TicketStatus.ACTIVE,
+            seatId: spec.seatId ?? null,
+            seatLabel: spec.seatLabel ?? null,
+            holderName: booking.buyerName,
+            holderEmail: booking.buyerEmail,
+          },
+        });
       }
       await tx.payment.update({
         where: { bookingId: booking.id },

@@ -5,6 +5,7 @@ import {
   CheckInResultType,
   CouponType,
   EventStatus,
+  ExperienceType,
   FeeMode,
   MemberStatus,
   MovieStatus,
@@ -75,8 +76,14 @@ async function reset() {
   await prisma.booking.deleteMany();
   await prisma.ticketInventory.deleteMany();
   await prisma.ticketType.deleteMany();
+  await prisma.showSeat.deleteMany();
   await prisma.eventSession.deleteMany();
   await prisma.event.deleteMany();
+  await prisma.seat.deleteMany();
+  await prisma.seatRow.deleteMany();
+  await prisma.seatSection.deleteMany();
+  await prisma.seatCategory.deleteMany();
+  await prisma.seatMap.deleteMany();
   await prisma.screen.deleteMany();
   await prisma.cinema.deleteMany();
   await prisma.movie.deleteMany();
@@ -336,12 +343,13 @@ async function main() {
       trailerUrl: 'https://videos.eticketsgo.test/trailers/pixel-paper-moon.mp4',
     },
   ];
+  const movies = [];
   for (const [i, def] of movieDefs.entries()) {
     const slug = def.title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
-    await prisma.movie.create({
+    const movie = await prisma.movie.create({
       data: {
         organizationId: org.id,
         title: def.title,
@@ -359,9 +367,12 @@ async function main() {
         status: MovieStatus.PUBLISHED,
       },
     });
+    movies.push(movie);
   }
+  // The first movie is made fully bookable below (seat map + shows).
+  const bookableMovie = movies[0];
 
-  await prisma.cinema.create({
+  const cinema = await prisma.cinema.create({
     data: {
       organizationId: org.id,
       venueId: arena.id,
@@ -378,7 +389,128 @@ async function main() {
         ],
       },
     },
+    include: { screens: { orderBy: { name: 'asc' } } },
   });
+  const bookableScreen = cinema.screens[0];
+
+  // ── Bookable movie (PR-3): generate a seat map, then schedule 2 shows. ──
+  console.log('Seeding seat map & movie shows (bookable)...');
+  const seatSections = [
+    {
+      name: 'Normal',
+      categoryName: 'Normal',
+      colorHex: '#38bdf8',
+      basePriceMinor: 20_000,
+      rowLabels: ['A', 'B', 'C', 'D'],
+      seatsPerRow: 12,
+    },
+    {
+      name: 'Premium',
+      categoryName: 'Premium',
+      colorHex: '#a78bfa',
+      basePriceMinor: 30_000,
+      rowLabels: ['E', 'F'],
+      seatsPerRow: 12,
+    },
+    {
+      name: 'Recliner',
+      categoryName: 'Recliner',
+      colorHex: '#f59e0b',
+      basePriceMinor: 45_000,
+      rowLabels: ['G'],
+      seatsPerRow: 8,
+    },
+  ];
+  const seatMap = await prisma.seatMap.create({
+    data: { screenId: bookableScreen.id, name: 'Main Auditorium' },
+  });
+  for (const [i, section] of seatSections.entries()) {
+    const category = await prisma.seatCategory.create({
+      data: {
+        seatMapId: seatMap.id,
+        name: section.categoryName,
+        colorHex: section.colorHex,
+        basePriceMinor: section.basePriceMinor,
+        sortOrder: i,
+      },
+    });
+    const seatSection = await prisma.seatSection.create({
+      data: { seatMapId: seatMap.id, name: section.name, sortOrder: i },
+    });
+    for (const [rowIndex, rowLabel] of section.rowLabels.entries()) {
+      const row = await prisma.seatRow.create({
+        data: { sectionId: seatSection.id, label: rowLabel, sortOrder: rowIndex },
+      });
+      await prisma.seat.createMany({
+        data: Array.from({ length: section.seatsPerRow }, (_unused, k) => ({
+          seatMapId: seatMap.id,
+          rowId: row.id,
+          seatCategoryId: category.id,
+          label: String(k + 1),
+          colIndex: k + 1,
+          kind: 'SEAT',
+        })),
+      });
+    }
+  }
+
+  const fullSeatMap = await prisma.seatMap.findUniqueOrThrow({
+    where: { id: seatMap.id },
+    include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
+  });
+
+  // One movie Event (PUBLISHED => bookable) with two future shows on the screen.
+  const movieEvent = await prisma.event.create({
+    data: {
+      organizationId: org.id,
+      venueId: cinema.venueId ?? arena.id,
+      experienceType: ExperienceType.MOVIE,
+      movieId: bookableMovie.id,
+      title: bookableMovie.title,
+      slug: `${bookableMovie.slug}-show-${rid(3).toLowerCase()}`,
+      category: 'Movie',
+      status: EventStatus.PUBLISHED,
+      publishedAt: new Date(),
+    },
+  });
+
+  for (const startsAt of [days(2), days(5)]) {
+    const endsAt = new Date(startsAt.getTime() + bookableMovie.runtimeMinutes * 60_000);
+    const session = await prisma.eventSession.create({
+      data: {
+        eventId: movieEvent.id,
+        screenId: bookableScreen.id,
+        startsAt,
+        endsAt,
+        status: SessionStatus.SCHEDULED,
+      },
+    });
+    for (const category of fullSeatMap.categories) {
+      const quantityTotal = fullSeatMap.seats.filter(
+        (s) => s.seatCategoryId === category.id,
+      ).length;
+      await prisma.ticketType.create({
+        data: {
+          eventSessionId: session.id,
+          seatCategoryId: category.id,
+          name: category.name,
+          priceMinor: category.basePriceMinor,
+          currency: 'INR',
+          quantityTotal,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          inventory: { create: { quantityTotal, quantitySold: 0, quantityHeld: 0 } },
+        },
+      });
+    }
+    await prisma.showSeat.createMany({
+      data: fullSeatMap.seats.map((s) => ({
+        eventSessionId: session.id,
+        seatId: s.id,
+        status: 'AVAILABLE',
+      })),
+    });
+  }
 
   console.log('Seeding bookings, payments, tickets, check-ins...');
   const musicEvent = createdEvents[0];

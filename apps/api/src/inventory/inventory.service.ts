@@ -3,6 +3,7 @@ import { ExperienceType, InventoryStrategyKind } from '@eticketsgo/shared-types'
 import { AppException, ErrorCodes } from '../common/errors';
 import { ExperienceTypeRegistry } from '../experience/experience-type.registry';
 import { GeneralAdmissionInventoryStrategy } from './general-admission.strategy';
+import { SeatBasedInventoryStrategy } from './seat-based.strategy';
 import type { InventoryStrategy } from './inventory-strategy.interface';
 
 /**
@@ -18,11 +19,13 @@ export class InventoryService {
   constructor(
     private readonly registry: ExperienceTypeRegistry,
     generalAdmission: GeneralAdmissionInventoryStrategy,
+    seatBased: SeatBasedInventoryStrategy,
   ) {
-    // Register every implemented strategy by its kind. New strategies (seat-based,
-    // capacity, time-slot) are added to this map in later PRs.
+    // Register every implemented strategy by its kind. Capacity/time-slot land in
+    // later PRs as those experience types arrive.
     this.byKind = {
       [InventoryStrategyKind.GENERAL_ADMISSION]: generalAdmission,
+      [InventoryStrategyKind.SEAT_BASED]: seatBased,
     };
   }
 

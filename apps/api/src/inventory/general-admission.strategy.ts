@@ -4,9 +4,10 @@ import { InventoryStrategyKind } from '@eticketsgo/shared-types';
 import { AppException, ErrorCodes } from '../common/errors';
 import {
   availableUnits,
-  type InventoryLine,
   type InventoryStrategy,
   type PrismaLike,
+  type ReserveContext,
+  type TicketIssueSpec,
 } from './inventory-strategy.interface';
 
 /**
@@ -24,8 +25,8 @@ export class GeneralAdmissionInventoryStrategy implements InventoryStrategy {
    * Atomic conditional hold: `quantityHeld += qty` only succeeds while enough
    * stock is free, so concurrent buyers can never oversell. Throws otherwise.
    */
-  async reserve(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void> {
-    for (const line of lines) {
+  async reserve(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void> {
+    for (const line of ctx.lines) {
       const affected = await tx.$executeRaw`
         UPDATE "TicketInventory"
         SET "quantityHeld" = "quantityHeld" + ${line.quantity},
@@ -45,9 +46,13 @@ export class GeneralAdmissionInventoryStrategy implements InventoryStrategy {
     }
   }
 
-  /** Settle a paid booking: held → sold. */
-  async confirm(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void> {
-    for (const line of lines) {
+  /** Settle a paid booking: held → sold. Issues one ticket per unit. */
+  async confirm(
+    tx: Prisma.TransactionClient,
+    ctx: ReserveContext,
+  ): Promise<TicketIssueSpec[]> {
+    const specs: TicketIssueSpec[] = [];
+    for (const line of ctx.lines) {
       await tx.$executeRaw`
         UPDATE "TicketInventory"
         SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${line.quantity}),
@@ -55,12 +60,14 @@ export class GeneralAdmissionInventoryStrategy implements InventoryStrategy {
             "updatedAt" = NOW()
         WHERE "ticketTypeId" = ${line.ticketTypeId}
       `;
+      for (let n = 0; n < line.quantity; n++) specs.push({ ticketTypeId: line.ticketTypeId });
     }
+    return specs;
   }
 
   /** Expire / cancel a hold: held → available. */
-  async release(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void> {
-    for (const line of lines) {
+  async release(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void> {
+    for (const line of ctx.lines) {
       await tx.$executeRaw`
         UPDATE "TicketInventory"
         SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${line.quantity}), "updatedAt" = NOW()

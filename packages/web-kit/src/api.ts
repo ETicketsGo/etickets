@@ -259,6 +259,27 @@ export const api = {
     get: (slug: string) => request<PublicMovie>(`/public/movies/${slug}`, { auth: false }),
   },
 
+  publicShows: {
+    /** Seat layout + per-seat availability for one show (session). */
+    seats: (sessionId: string) =>
+      request<SeatLayout>(`/public/shows/${sessionId}/seats`, { auth: false }),
+  },
+
+  shows: {
+    getSeatMap: (screenId: string) => request<SeatMap | null>(`/screens/${screenId}/seatmap`),
+    generateSeatMap: (screenId: string, body: GenerateSeatMapBody) =>
+      request<SeatMap>(`/screens/${screenId}/seatmap`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    listForMovie: (movieId: string) => request<ShowRow[]>(`/movies/${movieId}/shows`),
+    schedule: (movieId: string, body: ScheduleShowBody) =>
+      request<{ eventId: string; sessionId: string }>(`/movies/${movieId}/shows`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
   events: {
     list: (organizationId: string) => request<OrgEventRow[]>(`/events${qs({ organizationId })}`),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
@@ -425,7 +446,7 @@ export interface PublicEvent {
 
 export interface BookingRequest {
   eventSessionId: string;
-  items: { ticketTypeId: string; quantity: number }[];
+  items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
   buyerName: string;
   buyerEmail: string;
   couponCode?: string;
@@ -566,6 +587,73 @@ export interface AdminMovieRow {
   status: MovieStatusValue;
   organizationName: string;
   createdAt: string;
+}
+
+export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD';
+
+export interface SeatLayoutSeat {
+  id: string;
+  label: string;
+  colIndex: number;
+  categoryId: string;
+  status: SeatStatus;
+}
+
+export interface SeatLayout {
+  sessionId: string;
+  /** `id` is the seat category id; `ticketTypeId` is the session's price tier for it. */
+  categories: {
+    id: string;
+    ticketTypeId: string;
+    name: string;
+    colorHex: string | null;
+    priceMinor: number;
+  }[];
+  sections: {
+    name: string;
+    rows: { label: string; seats: SeatLayoutSeat[] }[];
+  }[];
+}
+
+export interface SeatMap {
+  id: string;
+  screenId: string;
+  name: string | null;
+  categories: { id: string; name: string; colorHex: string | null; basePriceMinor: number }[];
+  sections: {
+    id: string;
+    name: string;
+    rows: { id: string; label: string; seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[] }[];
+  }[];
+}
+
+export interface GenerateSeatMapBody {
+  name?: string;
+  sections: {
+    name: string;
+    categoryName: string;
+    colorHex?: string;
+    basePriceMinor: number;
+    rowLabels: string[];
+    seatsPerRow: number;
+  }[];
+}
+
+export interface ScheduleShowBody {
+  screenId: string;
+  startsAt: string;
+  endsAt: string;
+  pricing?: { seatCategoryId: string; priceMinor: number }[];
+}
+
+export interface ShowRow {
+  sessionId: string;
+  startsAt: string;
+  endsAt: string;
+  screenName: string | null;
+  cinemaName: string | null;
+  seatsSold: number;
+  seatsTotal: number;
 }
 
 export interface PublicMovieCard {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ExperienceModule } from '../experience/experience.module';
 import { GeneralAdmissionInventoryStrategy } from './general-admission.strategy';
+import { SeatBasedInventoryStrategy } from './seat-based.strategy';
 import { InventoryService } from './inventory.service';
 
 /**
@@ -10,7 +11,7 @@ import { InventoryService } from './inventory.service';
  */
 @Module({
   imports: [ExperienceModule],
-  providers: [GeneralAdmissionInventoryStrategy, InventoryService],
+  providers: [GeneralAdmissionInventoryStrategy, SeatBasedInventoryStrategy, InventoryService],
   exports: [InventoryService],
 })
 export class InventoryModule {}

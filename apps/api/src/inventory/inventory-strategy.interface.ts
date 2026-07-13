@@ -1,43 +1,61 @@
 import type { Prisma } from '@prisma/client';
 
 /**
- * A single line of inventory demand: N units of one ticket type.
- * (Seat-based strategies in PR-3 will extend this with a seat selection.)
+ * A single line of inventory demand: N units of one ticket type. For seat-based
+ * inventory the line also carries the specific seats selected for that type
+ * (seatIds.length must equal quantity); general admission ignores seatIds.
  */
 export interface InventoryLine {
   ticketTypeId: string;
   quantity: number;
+  seatIds?: string[];
+}
+
+/**
+ * Everything a strategy needs to reserve/confirm/release stock for one booking,
+ * inside the caller's transaction. `bookingId` lets seat-based inventory stamp
+ * held seats; general admission only needs `lines`.
+ */
+export interface ReserveContext {
+  eventSessionId: string;
+  bookingId: string;
+  holdExpiresAt: Date;
+  lines: InventoryLine[];
+}
+
+/** One ticket to issue on confirmation (optionally bound to a specific seat). */
+export interface TicketIssueSpec {
+  ticketTypeId: string;
+  seatId?: string;
+  seatLabel?: string;
 }
 
 /**
  * The pluggable contract every experience type's inventory model implements.
  * The booking engine depends on THIS interface, never on a concrete strategy,
- * so new experience types (movies, museums, tours) can add their own inventory
- * behaviour without the booking engine changing. See ADR-010.
+ * so new experience types (movies, museums, tours) add their own inventory
+ * behaviour without the booking engine changing. See ADR-010, ADR-013.
  *
  * `reserve`, `confirm` and `release` run inside a caller-provided Prisma
  * transaction (`tx`) so they compose atomically with the surrounding booking /
- * payment writes exactly as the original inline logic did.
+ * payment writes.
  */
 export interface InventoryStrategy {
   readonly kind: string;
 
-  /**
-   * Atomically hold stock for the given lines. MUST be oversell-proof under
-   * concurrency and MUST throw if any line cannot be satisfied.
-   */
-  reserve(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void>;
-
-  /** Convert a held reservation into a confirmed sale (held → sold). */
-  confirm(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void>;
-
-  /** Release a held reservation back to free stock (held → available). */
-  release(tx: Prisma.TransactionClient, lines: InventoryLine[]): Promise<void>;
+  /** Atomically hold stock for the context. MUST be oversell-/double-book-proof. */
+  reserve(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void>;
 
   /**
-   * Report currently-available units per ticket type. Returns a map keyed by
-   * ticketTypeId; ticket types with no inventory row report 0.
+   * Convert a held reservation into a confirmed sale and return the exact set of
+   * tickets to issue (one spec per unit / per seat).
    */
+  confirm(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<TicketIssueSpec[]>;
+
+  /** Release a held reservation back to available stock. */
+  release(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void>;
+
+  /** Available units per ticket type (ticket types with no stock report 0). */
   availability(
     client: Prisma.TransactionClient | PrismaLike,
     ticketTypeIds: string[],

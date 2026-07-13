@@ -12,10 +12,10 @@ import { AppException, ErrorCodes } from '../common/errors';
 @Injectable()
 export class ExperienceTypeRegistry {
   private readonly inventoryKindByType: Partial<Record<ExperienceType, InventoryStrategyKind>> = {
-    // The only type live today. Movies/museums/tours are registered in later PRs
-    // as their strategies land — deliberately absent so an unsupported booking
-    // fails loudly rather than silently using the wrong inventory model.
     [ExperienceType.EVENT]: InventoryStrategyKind.GENERAL_ADMISSION,
+    [ExperienceType.MOVIE]: InventoryStrategyKind.SEAT_BASED,
+    // Museums/theme-parks/tours register their strategies (capacity/time-slot) in
+    // later PRs — deliberately absent so an unsupported booking fails loudly.
   };
 
   /** The inventory strategy kind for an experience type, or throw if unsupported. */

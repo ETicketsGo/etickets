@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   api,
   Button,
+  ButtonLink,
   Card,
   Input,
   Select,
@@ -178,6 +179,9 @@ export default function CinemaDetailPage() {
       header: '',
       render: (s) => (
         <div className="flex justify-end gap-2">
+          <ButtonLink variant="ghost" size="sm" href={`/organizer/cinemas/${id}/screens/${s.id}/seatmap`}>
+            Seat map
+          </ButtonLink>
           <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>
             Edit
           </Button>

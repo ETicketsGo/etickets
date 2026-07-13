@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Ticket, Compass, LogOut, Receipt } from 'lucide-react';
+import { Ticket, Compass, LogOut, Receipt, Film } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { ButtonLink } from '@/components/ui';
 
@@ -43,6 +43,10 @@ export function Header() {
           <Link href="/events" aria-label="Browse events" className={navLink}>
             <Compass className="h-4 w-4" />
             <span className="hidden sm:inline">Browse</span>
+          </Link>
+          <Link href="/movies" aria-label="Browse movies" className={navLink}>
+            <Film className="h-4 w-4" />
+            <span className="hidden sm:inline">Movies</span>
           </Link>
           {authed ? (
             <>

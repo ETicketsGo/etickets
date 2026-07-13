@@ -10,15 +10,22 @@ import {
   Input,
   Select,
   Textarea,
+  Dialog,
+  DataTable,
   Skeleton,
   ErrorState,
-  StatusBadge,
   PageHeader,
+  StatusBadge,
   useToast,
   errorMessage,
+  dateTime,
+  type Column,
   type MovieBody,
   type MovieStatusValue,
+  type ShowRow,
+  type ScheduleShowBody,
 } from '@eticketsgo/web-kit';
+import { useOrg } from '@/components/org-context';
 
 const CERTIFICATES = ['U', 'U/A', 'A', 'S'];
 const LANGUAGES = ['Hindi', 'English', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali'];
@@ -128,6 +135,84 @@ export default function EditMoviePage() {
     if (Object.keys(errs).length > 0) return;
     save.mutate();
   };
+
+  // ---- Shows (scheduling) ----
+  const { activeOrg } = useOrg();
+  const showsQ = useQuery({
+    queryKey: ['movie', id, 'shows'],
+    queryFn: () => api.shows.listForMovie(id),
+  });
+  const cinemasQ = useQuery({
+    queryKey: ['cinemas', activeOrg.id],
+    queryFn: () => api.cinemas.list(activeOrg.id),
+  });
+
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [sched, setSched] = useState({ cinemaId: '', screenId: '', startsAt: '', endsAt: '' });
+  const [pricing, setPricing] = useState<Record<string, string>>({});
+  const [schedError, setSchedError] = useState<string | null>(null);
+
+  const screensQ = useQuery({
+    queryKey: ['cinema', sched.cinemaId, 'screens'],
+    queryFn: () => api.cinemas.screens(sched.cinemaId),
+    enabled: !!sched.cinemaId,
+  });
+  // A picked screen's seat map exposes categories for optional per-tier pricing.
+  const schedMapQ = useQuery({
+    queryKey: ['seatmap', sched.screenId],
+    queryFn: () => api.shows.getSeatMap(sched.screenId),
+    enabled: !!sched.screenId,
+  });
+
+  const openSchedule = () => {
+    setSched({ cinemaId: '', screenId: '', startsAt: '', endsAt: '' });
+    setPricing({});
+    setSchedError(null);
+    setScheduleOpen(true);
+  };
+
+  const schedule = useMutation({
+    mutationFn: () => {
+      const cats = schedMapQ.data?.categories ?? [];
+      const pricingEntries = cats
+        .map((c) => ({ seatCategoryId: c.id, raw: pricing[c.id] }))
+        .filter((p) => p.raw != null && p.raw !== '')
+        .map((p) => ({ seatCategoryId: p.seatCategoryId, priceMinor: Math.round(Number(p.raw) * 100) }));
+      const body: ScheduleShowBody = {
+        screenId: sched.screenId,
+        startsAt: new Date(sched.startsAt).toISOString(),
+        endsAt: new Date(sched.endsAt).toISOString(),
+        pricing: pricingEntries.length > 0 ? pricingEntries : undefined,
+      };
+      return api.shows.schedule(id, body);
+    },
+    onSuccess: () => {
+      toast.push('Show scheduled.', 'success');
+      qc.invalidateQueries({ queryKey: ['movie', id, 'shows'] });
+      setScheduleOpen(false);
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const submitSchedule = () => {
+    if (!sched.screenId) return setSchedError('Pick a screen.');
+    if (!sched.startsAt || !sched.endsAt) return setSchedError('Set start and end times.');
+    if (new Date(sched.endsAt) <= new Date(sched.startsAt))
+      return setSchedError('End time must be after start time.');
+    setSchedError(null);
+    schedule.mutate();
+  };
+
+  const showColumns: Column<ShowRow>[] = [
+    { key: 'startsAt', header: 'Showtime', render: (s) => dateTime(s.startsAt) },
+    { key: 'screenName', header: 'Screen', render: (s) => s.screenName ?? '—' },
+    { key: 'cinemaName', header: 'Cinema', render: (s) => s.cinemaName ?? '—' },
+    {
+      key: 'seats',
+      header: 'Seats sold',
+      render: (s) => `${s.seatsSold} / ${s.seatsTotal}`,
+    },
+  ];
 
   if (isError)
     return (
@@ -277,6 +362,136 @@ export default function EditMoviePage() {
           </Button>
         </div>
       </Card>
+
+      <Card
+        title="Shows"
+        action={
+          <Button size="sm" onClick={openSchedule}>
+            Schedule show
+          </Button>
+        }
+      >
+        <DataTable
+          columns={showColumns}
+          rows={showsQ.data}
+          loading={showsQ.isLoading}
+          error={showsQ.isError ? "We couldn't load shows. Please try again." : undefined}
+          onRetry={() => showsQ.refetch()}
+          rowKey={(s) => s.sessionId}
+          empty={
+            <div className="p-8 text-center text-text-muted">
+              No shows scheduled yet. Schedule a show to start selling seats.
+            </div>
+          }
+        />
+      </Card>
+
+      <Dialog
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        title="Schedule show"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setScheduleOpen(false)}
+              disabled={schedule.isPending}
+            >
+              Cancel
+            </Button>
+            <Button loading={schedule.isPending} onClick={submitSchedule}>
+              Schedule
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Select
+            id="schedCinema"
+            label="Cinema"
+            value={sched.cinemaId}
+            onChange={(e) => setSched({ ...sched, cinemaId: e.target.value, screenId: '' })}
+          >
+            <option value="">Select a cinema…</option>
+            {(cinemasQ.data ?? []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.city}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            id="schedScreen"
+            label="Screen"
+            value={sched.screenId}
+            onChange={(e) => {
+              setSched({ ...sched, screenId: e.target.value });
+              setPricing({});
+            }}
+            disabled={!sched.cinemaId || screensQ.isLoading}
+          >
+            <option value="">
+              {sched.cinemaId ? 'Select a screen…' : 'Pick a cinema first'}
+            </option>
+            {(screensQ.data ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} · {s.screenType}
+              </option>
+            ))}
+          </Select>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              id="schedStart"
+              label="Starts at"
+              type="datetime-local"
+              value={sched.startsAt}
+              onChange={(e) => setSched({ ...sched, startsAt: e.target.value })}
+            />
+            <Input
+              id="schedEnd"
+              label="Ends at"
+              type="datetime-local"
+              value={sched.endsAt}
+              onChange={(e) => setSched({ ...sched, endsAt: e.target.value })}
+            />
+          </div>
+
+          {sched.screenId &&
+            (schedMapQ.isLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : schedMapQ.data && schedMapQ.data.categories.length > 0 ? (
+              <div className="space-y-3 rounded-lg border border-border p-4">
+                <p className="text-caption font-medium text-text-secondary">
+                  Pricing (optional — leave blank to use seat-map base price)
+                </p>
+                {schedMapQ.data.categories.map((c) => (
+                  <Input
+                    key={c.id}
+                    id={`price-${c.id}`}
+                    label={`${c.name} (₹)`}
+                    type="number"
+                    min={0}
+                    placeholder={String(c.basePriceMinor / 100)}
+                    value={pricing[c.id] ?? ''}
+                    onChange={(e) => setPricing((p) => ({ ...p, [c.id]: e.target.value }))}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md bg-status-warning/10 p-3 text-caption text-text-secondary">
+                This screen has no seat map yet. Generate one from the cinema page before
+                scheduling, or the show will have no bookable seats.
+              </p>
+            ))}
+
+          {schedError && (
+            <p role="alert" className="text-caption text-status-error">
+              {schedError}
+            </p>
+          )}
+        </div>
+      </Dialog>
     </div>
   );
 }

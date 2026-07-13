@@ -326,8 +326,103 @@ model Screen {
   updatedAt  DateTime @updatedAt
 
   sessions EventSession[]
+  seatMap  SeatMap?
 
   @@index([cinemaId])
+}
+
+// ─────────────────── Seat maps & seat-level inventory (ADR-013) ───────────────────
+// A screen has one SeatMap: categories (pricing tiers) + sections → rows → seats.
+// Per-show seat availability lives in ShowSeat (one row per session×seat), the
+// atomic lock target that makes seat booking oversell- and double-book-proof.
+
+model SeatMap {
+  id        String   @id @default(cuid())
+  screenId  String   @unique
+  screen    Screen   @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories SeatCategory[]
+  sections   SeatSection[]
+  seats      Seat[]
+}
+
+model SeatCategory {
+  id             String       @id @default(cuid())
+  seatMapId      String
+  seatMap        SeatMap      @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  name           String // Recliner, Premium, Normal
+  colorHex       String?
+  basePriceMinor Int
+  sortOrder      Int          @default(0)
+
+  seats       Seat[]
+  ticketTypes TicketType[]
+
+  @@index([seatMapId])
+}
+
+model SeatSection {
+  id        String   @id @default(cuid())
+  seatMapId String
+  seatMap   SeatMap  @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int      @default(0)
+
+  rows SeatRow[]
+
+  @@index([seatMapId])
+}
+
+model SeatRow {
+  id        String      @id @default(cuid())
+  sectionId String
+  section   SeatSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  label     String // "A", "B", ...
+  sortOrder Int         @default(0)
+
+  seats Seat[]
+
+  @@index([sectionId])
+}
+
+model Seat {
+  id             String       @id @default(cuid())
+  seatMapId      String
+  seatMap        SeatMap      @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  rowId          String
+  row            SeatRow      @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  seatCategoryId String
+  seatCategory   SeatCategory @relation(fields: [seatCategoryId], references: [id])
+  label          String // "12" (combined with row = "A12")
+  colIndex       Int // position within the row for layout
+  kind           String       @default("SEAT") // SEAT | GAP (aisle spacer)
+
+  showSeats ShowSeat[]
+  tickets   Ticket[]
+
+  @@unique([rowId, label])
+  @@index([seatMapId])
+}
+
+model ShowSeat {
+  id             String       @id @default(cuid())
+  eventSessionId String
+  eventSession   EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  seatId         String
+  seat           Seat         @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  status         String       @default("AVAILABLE") // AVAILABLE | HELD | SOLD
+  holdBookingId  String?
+  holdBooking    Booking?     @relation(fields: [holdBookingId], references: [id])
+  holdExpiresAt  DateTime?
+  version        Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([eventSessionId, seatId])
+  @@index([eventSessionId, status])
+  @@index([holdBookingId])
 }
 
 model Event {
@@ -396,6 +491,7 @@ model EventSession {
   bookings    Booking[]
   tickets     Ticket[]
   checkIns    CheckIn[]
+  showSeats   ShowSeat[]
 
   @@index([eventId])
   @@index([startsAt])
@@ -406,6 +502,9 @@ model TicketType {
   id             String        @id @default(cuid())
   eventSessionId String
   eventSession   EventSession  @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  // For seat-based (movie) sessions: the seat category this price applies to.
+  seatCategoryId String?
+  seatCategory   SeatCategory? @relation(fields: [seatCategoryId], references: [id])
   name           String
   priceMinor     Int
   currency       String        @default("INR")
@@ -422,6 +521,7 @@ model TicketType {
   tickets      Ticket[]
 
   @@index([eventSessionId])
+  @@index([seatCategoryId])
 }
 
 // One row per ticket type; the concurrency-safe source of truth for stock.
@@ -487,6 +587,8 @@ model Booking {
   cancelledAt   DateTime?
   idempotencyKey String?  @unique
 
+  heldSeats ShowSeat[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -528,6 +630,10 @@ model Ticket {
   nonce          String
   qrVersion      Int          @default(1)
   status         TicketStatus @default(ACTIVE)
+  // Set for seat-based (movie) tickets: the specific seat this ticket admits.
+  seatId         String?
+  seat           Seat?        @relation(fields: [seatId], references: [id])
+  seatLabel      String?
   holderName     String?
   holderEmail    String?
   issuedAt       DateTime     @default(now())
@@ -539,6 +645,7 @@ model Ticket {
   @@index([bookingId])
   @@index([eventSessionId])
   @@index([status])
+  @@index([seatId])
 }
 
 model Payment {
