@@ -125,6 +125,26 @@ All seed accounts use the password **`Password123!`**.
 
 ---
 
+## Documentation
+
+In-depth docs live under [`docs/`](docs):
+
+- [Architecture Handbook](docs/handbooks/ARCHITECTURE-HANDBOOK.md) — bounded
+  contexts, layering, the strategy seams (inventory/pricing/notifications/discovery/
+  recommendations/AI), atomicity guarantees, feature flags, and context/dependency
+  diagrams.
+- [Developer Handbook](docs/handbooks/DEVELOPER-HANDBOOK.md) — setup, env vars, the
+  full script catalog, testing, conventions, and step-by-step "add a …" recipes.
+- [Runbooks](docs/handbooks/RUNBOOKS.md) — operational task recipes (start/stop,
+  migrate/seed/reset, worker jobs, feature-flag toggles, health probes).
+- [Sequence Diagrams](docs/diagrams/SEQUENCE-DIAGRAMS.md) and
+  [Context Map](docs/diagrams/CONTEXT-MAP.md) — Mermaid diagrams of the core flows
+  and inter-context rules.
+- [Architecture Decision Records](docs/adr) (ADR-009…023) and
+  [engineering reports](docs/reports).
+
+---
+
 ## Architecture notes
 
 ### Data model
