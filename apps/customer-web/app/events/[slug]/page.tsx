@@ -18,6 +18,7 @@ import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import { Badge, Button, Card, EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
+import { EventCard } from '@/components/event-card';
 
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -54,6 +55,13 @@ export default function EventDetailPage() {
     queryKey: ['my-review', event?.id],
     queryFn: () => api.myReview(event!.id),
     enabled: !!event && authed,
+  });
+
+  // "You might also like" — read-only recommendations seeded by this event.
+  const recommendations = useQuery({
+    queryKey: ['recommendations', event?.id],
+    queryFn: () => api.recommendations({ eventId: event!.id, limit: 4 }),
+    enabled: !!event,
   });
   useEffect(() => {
     if (mine.data) {
@@ -502,6 +510,27 @@ export default function EventDetailPage() {
           </Card>
         </div>
       </div>
+
+      {/* You might also like — recommendations seeded by this event. */}
+      {recommendations.isLoading ? (
+        <section className="space-y-4">
+          <h2 className="text-title font-semibold text-text-primary">You might also like</h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-64 w-full rounded-lg" />
+            ))}
+          </div>
+        </section>
+      ) : recommendations.data && recommendations.data.length > 0 ? (
+        <section className="space-y-4">
+          <h2 className="text-title font-semibold text-text-primary">You might also like</h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {recommendations.data.map((rec) => (
+              <EventCard key={rec.id} event={rec} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

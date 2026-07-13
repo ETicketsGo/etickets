@@ -29,6 +29,7 @@ import { AdminModule } from './admin/admin.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { AiModule } from './ai/ai.module';
 import { DiscoveryModule } from './discovery/discovery.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -69,6 +70,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     ReviewsModule,
     AiModule,
     DiscoveryModule,
+    RecommendationsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

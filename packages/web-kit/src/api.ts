@@ -172,6 +172,16 @@ export const api = {
   /** Unified experience discovery (movies + events + categories) + sections feed. */
   discovery,
 
+  /**
+   * Recommended "you might also like" events. With `eventId` the result is the
+   * blended similar/organizer/venue mix relative to that event; pass `strategy`
+   * to run a single named strategy (e.g. 'trending', 'content-based', 'ai').
+   */
+  recommendations: (params?: { eventId?: string; limit?: number; strategy?: string }) =>
+    request<{ items: PublicEventCard[] }>(`/public/recommendations${qs(params ?? {})}`, {
+      auth: false,
+    }).then((r) => r.items),
+
   /** Published-event categories with counts (for a richer category experience). */
   publicCategories: () =>
     request<{ category: string; count: number }[]>('/public/categories', { auth: false }),

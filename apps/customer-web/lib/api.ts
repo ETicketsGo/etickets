@@ -60,6 +60,9 @@ export const api = {
   discovery: () => wk.discovery(),
   // Discovery Platform sprint: composed strategy sections + category counts.
   discoverySections: (city?: string) => wk.discovery.sections(city),
+  // Recommendation Platform: "you might also like" events for an event page.
+  recommendations: (params?: { eventId?: string; limit?: number; strategy?: string }) =>
+    wk.recommendations(params),
   publicCategories: () => wk.publicCategories(),
   capabilities: () => wk.capabilities(),
   // Movies (PR-3): discovery, detail + showtimes, and per-show seat layout.
