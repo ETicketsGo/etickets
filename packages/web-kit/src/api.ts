@@ -463,6 +463,60 @@ export const api = {
       settlement: (from?: string, to?: string) =>
         request<SettlementLine[]>(`/admin/payments/settlement${qs({ from, to })}`),
     },
+
+    // ─── Merchant onboarding (admin) ───
+    onboarding: {
+      list: (env?: PaymentEnvValue, status?: OnboardingStatusValue) =>
+        request<MerchantOnboardingRow[]>(`/admin/payments/onboarding${qs({ env, status })}`),
+      detail: (id: string) => request<OnboardingDetail>(`/admin/payments/onboarding/${id}`),
+      create: (body: CreateOnboardingBody) =>
+        request<MerchantOnboardingRow>('/admin/payments/onboarding', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      update: (id: string, patch: OnboardingPatchBody) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+        }),
+      acceptTerms: (id: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/accept-terms`, {
+          method: 'POST',
+        }),
+      setWebhookStatus: (id: string, status: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/webhook-status`, {
+          method: 'POST',
+          body: JSON.stringify({ status }),
+        }),
+      setVerification: (id: string, status: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/verification`, {
+          method: 'POST',
+          body: JSON.stringify({ status }),
+        }),
+      testConnection: (id: string) =>
+        request<TestConnectionResult>(`/admin/payments/onboarding/${id}/test-connection`, {
+          method: 'POST',
+        }),
+      transition: (id: string, to: OnboardingStatusValue) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/transition`, {
+          method: 'POST',
+          body: JSON.stringify({ to }),
+        }),
+      activate: (id: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/activate`, {
+          method: 'POST',
+        }),
+      suspend: (id: string, reason: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/suspend`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      reject: (id: string, reason: string) =>
+        request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
     support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
       request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
     updateSupport: (id: string, status: FeedbackStatusValue) =>
@@ -1253,6 +1307,83 @@ export interface SettlementLine {
   netMinor: number;
   count: number;
 }
+
+// ─── Merchant onboarding (admin) ───
+
+export type OnboardingStatusValue =
+  | 'DRAFT'
+  | 'PENDING_CONFIGURATION'
+  | 'PENDING_VERIFICATION'
+  | 'TESTING'
+  | 'READY_FOR_LIVE'
+  | 'ACTIVE'
+  | 'SUSPENDED'
+  | 'REJECTED';
+
+export interface MerchantOnboardingRow {
+  id: string;
+  env: PaymentEnvValue;
+  organizationId: string | null;
+  country: string;
+  legalBusinessName: string;
+  displayName: string;
+  merchantType: string;
+  settlementCurrency: string;
+  provider: string;
+  mode: PaymentProviderModeValue;
+  accountIdentifier: string | null;
+  secretKeyRef: string | null;
+  webhookSecretRef: string | null;
+  publicKey: string | null;
+  settlementSchedule: string;
+  payoutDestinationRef: string | null;
+  webhookEndpointStatus: string;
+  verificationStatus: string;
+  termsAcceptedAt: string | null;
+  status: OnboardingStatusValue;
+  merchantAccountId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface OnboardingChecklistItem {
+  key: string;
+  label: string;
+  done: boolean;
+  blocking: boolean;
+}
+export interface OnboardingDetail {
+  record: MerchantOnboardingRow;
+  checklist: OnboardingChecklistItem[];
+  activationReady: boolean;
+}
+export interface CreateOnboardingBody {
+  env: PaymentEnvValue;
+  organizationId?: string;
+  country: string;
+  legalBusinessName: string;
+  displayName: string;
+  merchantType?: string;
+  settlementCurrency: string;
+  provider: string;
+  mode?: 'TEST' | 'LIVE';
+}
+export type OnboardingPatchBody = Partial<
+  Pick<
+    MerchantOnboardingRow,
+    | 'country'
+    | 'legalBusinessName'
+    | 'displayName'
+    | 'merchantType'
+    | 'settlementCurrency'
+    | 'provider'
+    | 'accountIdentifier'
+    | 'secretKeyRef'
+    | 'webhookSecretRef'
+    | 'publicKey'
+    | 'settlementSchedule'
+    | 'payoutDestinationRef'
+  >
+>;
 
 export interface ReviewItem {
   id: string;

@@ -134,9 +134,36 @@ export class PaymentProviderFactory implements OnModuleInit {
     return config;
   }
 
+  /**
+   * Build a provider instance from an explicit credential spec WITHOUT caching or
+   * registering it — used to test a merchant's own references during onboarding /
+   * certification. Resolves + validates the same way as the runtime path.
+   */
+  async buildEphemeral(spec: {
+    provider: string;
+    env?: PaymentEnvName;
+    mode: 'DUMMY' | 'TEST' | 'LIVE';
+    publicKey?: string | null;
+    secretKeyRef?: string | null;
+    webhookSecretRef?: string | null;
+    apiBaseUrl?: string | null;
+  }): Promise<PaymentProvider> {
+    const binding = providerBinding(spec.provider);
+    if (!binding)
+      throw this.fail(`Unknown payment provider '${spec.provider}'.`, HttpStatus.NOT_FOUND);
+    return this.build(binding, spec, spec.env ?? this.env);
+  }
+
   private async build(
     binding: ProviderBinding,
-    config: PaymentProviderConfig,
+    config: {
+      mode: 'DUMMY' | 'TEST' | 'LIVE';
+      publicKey?: string | null;
+      secretKeyRef?: string | null;
+      webhookSecretRef?: string | null;
+      apiBaseUrl?: string | null;
+    },
+    env: PaymentEnvName = this.env,
   ): Promise<PaymentProvider> {
     const secret = config.secretKeyRef
       ? await this.secrets.getSecret(config.secretKeyRef)
@@ -152,7 +179,7 @@ export class PaymentProviderFactory implements OnModuleInit {
     });
 
     const reasons = validateCredentials({
-      env: this.env,
+      env,
       mode: config.mode,
       classified,
       publicKey: config.publicKey ?? undefined,
@@ -164,9 +191,7 @@ export class PaymentProviderFactory implements OnModuleInit {
     });
     if (reasons.length > 0) {
       // Reasons are secret-free by construction.
-      throw this.fail(
-        `Cannot activate '${binding.provider}' in ${this.env}: ${reasons.join('; ')}.`,
-      );
+      throw this.fail(`Cannot activate '${binding.provider}' in ${env}: ${reasons.join('; ')}.`);
     }
 
     // Map resolved values → the exact env keys the adapter reads. Non-secret

@@ -223,6 +223,7 @@ model Organization {
   refunds Refund[]
   movies  Movie[]
   cinemas Cinema[]
+  merchantOnboardings MerchantOnboarding[]
 
   @@index([status])
 }
@@ -944,6 +945,63 @@ model MerchantAccount {
 
   @@unique([configId, country, currency])
   @@index([configId, active])
+}
+
+// Merchant onboarding workflow (ADR-025). Tracks a merchant/provider application
+// from DRAFT to ACTIVE, per environment. Stores only provider account IDs and
+// secret REFERENCES / external-account references — never bank credentials.
+enum MerchantOnboardingStatus {
+  DRAFT
+  PENDING_CONFIGURATION
+  PENDING_VERIFICATION
+  TESTING
+  READY_FOR_LIVE
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+model MerchantOnboarding {
+  id             String                   @id @default(cuid())
+  env            PaymentEnv
+  organizationId String?
+  organization   Organization?            @relation(fields: [organizationId], references: [id])
+  // Business identity.
+  country           String // ISO-3166 alpha-2
+  legalBusinessName String
+  displayName       String
+  merchantType      String   @default("STANDARD") // STANDARD | MARKETPLACE | INDIVIDUAL
+  settlementCurrency String  // ISO-4217
+  // Provider binding.
+  provider          String // stripe | razorpay | paypal | square
+  mode              PaymentProviderMode @default(TEST)
+  // Provider-side account identifier + secret REFERENCES (never raw secrets).
+  accountIdentifier String?
+  secretKeyRef      String?
+  webhookSecretRef  String?
+  publicKey         String?
+  // Settlement + payout (references only; never bank credentials).
+  settlementSchedule    String  @default("T_PLUS_2") // e.g. T_PLUS_2, WEEKLY
+  payoutDestinationRef  String?
+  // Verification + webhook posture.
+  webhookEndpointStatus String  @default("NOT_CONFIGURED") // NOT_CONFIGURED | CONFIGURED | VERIFIED
+  verificationStatus    String  @default("UNVERIFIED") // UNVERIFIED | IN_REVIEW | VERIFIED | FAILED
+  // Terms + lifecycle.
+  termsAcceptedAt DateTime?
+  termsAcceptedBy String?
+  status          MerchantOnboardingStatus @default(DRAFT)
+  activatedAt     DateTime?
+  suspendedAt     DateTime?
+  rejectedReason  String?
+  // Linked runtime merchant account once activated.
+  merchantAccountId String?
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([env, status])
+  @@index([organizationId])
+  @@index([provider])
 }
 
 // Editable routing policy. For an environment a (country, currency, method) tuple

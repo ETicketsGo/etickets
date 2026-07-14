@@ -9,6 +9,8 @@ import { PaymentConfigModule } from './configuration/payment-config.module';
 import { PaymentProviderRegistry } from './orchestration/provider-registry';
 import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
 import { PaymentProviderFactory } from './provider/factory/payment-provider.factory';
+import { MerchantOnboardingController } from './onboarding/merchant-onboarding.controller';
+import { MerchantOnboardingService } from './onboarding/merchant-onboarding.service';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
@@ -17,7 +19,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [InventoryModule, PaymentConfigModule],
-  controllers: [PaymentsController, PaymentAdminController],
+  controllers: [PaymentsController, PaymentAdminController, MerchantOnboardingController],
   providers: [
     PaymentsService,
     // Mock stays registered (default provider + PaymentsService's dev mock-pay path).
@@ -35,6 +37,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     PaymentOrchestrator,
     // Production binding: builds provider instances from config + secret manager.
     PaymentProviderFactory,
+    // Merchant onboarding workflow.
+    MerchantOnboardingService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.
