@@ -26,15 +26,45 @@ Booking Engine
 The booking engine contains **no provider-specific logic**. Layers live under
 `apps/api/src/payments/`:
 
-| Folder            | Responsibility                                                                |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `domain/`         | Provider capabilities + normalized `PaymentProviderError` (retryability)      |
-| `provider/`       | The `PaymentProvider` adapters (dummy/stripe/razorpay/paypal/square)          |
-| `configuration/`  | Env resolution, routing policy, fail-closed validator, `PaymentConfigService` |
-| `orchestration/`  | `CircuitBreaker`, `executeWithFailover`, registry, `PaymentOrchestrator`      |
-| `admin/`          | Admin console backend (view/edit/enable/test, all audited)                    |
-| `reconciliation/` | Reconciliation + settlement                                                   |
-| `webhooks/`       | Multi-provider webhook routing                                                |
+| Folder              | Responsibility                                                                |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `domain/`           | Provider capabilities + normalized `PaymentProviderError` (retryability)      |
+| `provider/`         | The `PaymentProvider` adapters (dummy/stripe/razorpay/paypal/square)          |
+| `provider/factory/` | `PaymentProviderFactory` — config + secret manager → validated provider       |
+| `configuration/`    | Env resolution, routing policy, fail-closed validator, `PaymentConfigService` |
+| `orchestration/`    | `CircuitBreaker`, `executeWithFailover`, registry, `PaymentOrchestrator`      |
+| `onboarding/`       | Merchant onboarding workflow                                                  |
+| `promotion/`        | Controlled environment promotion (validate → approve → apply)                 |
+| `certification/`    | Sandbox certification runner + opt-in command                                 |
+| `readiness/`        | Payment-live readiness (production safety controls)                           |
+| `finance/`          | Reconciliation discrepancy queue                                              |
+| `outage/`           | Provider outage operations (suspensions + failover controls)                  |
+| `admin/`            | Admin console backend (view/edit/enable/test, all audited)                    |
+| `reconciliation/`   | Reconciliation + settlement                                                   |
+| `webhooks/`         | Multi-provider webhook routing                                                |
+
+### Production-binding path (ADR-024…030)
+
+Turning a stored secret **reference** into an activated live provider:
+
+```
+Payment Route → Merchant Account → Secret Reference
+  → SecretManager (env | azure | aws | gcp)
+    → Validated Credentials (test/live separation, no placeholders)
+      → Provider Instance (PaymentProviderFactory, via a ConfigService shim)
+        → Health Validation → Activation (readiness GO + PAYMENT_LIVE_ENABLED)
+```
+
+Operator guides: [Secret Manager](./SECRET-MANAGER-INTEGRATION.md) ·
+[Azure](./AZURE-KEY-VAULT-SETUP.md) · [AWS](./AWS-SECRETS-MANAGER-SETUP.md) ·
+[Merchant Onboarding](./MERCHANT-ONBOARDING.md) ·
+[Sandbox Certification](./SANDBOX-CERTIFICATION.md) ·
+[Environment Promotion](./ENVIRONMENT-PROMOTION.md) ·
+[Production Activation](./PRODUCTION-ACTIVATION.md) ·
+[Provider Outage Runbook](./PROVIDER-OUTAGE-RUNBOOK.md) ·
+[Reconciliation Operations](./RECONCILIATION-OPERATIONS.md) ·
+[Credential Rotation](./CREDENTIAL-ROTATION-RUNBOOK.md) ·
+[Security Checklist](./PAYMENT-SECURITY-CHECKLIST.md).
 
 ---
 
