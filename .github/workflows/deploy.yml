@@ -1,0 +1,170 @@
+# ─────────────────────────────────────────────────────────────
+# ETicketsGo — build, push, and deploy pipeline (CD).
+#
+# Runs the CI verification gate first, then builds + pushes the five service
+# images to GHCR (tagged by git SHA + environment), then runs migrations and
+# (re)starts services on the target host, then a post-deploy smoke test.
+#
+# The actual "ship to the host" step is a PLACEHOLDER — the concrete target
+# (k8s / Render / Fly / SSH+compose / ECS) is not decided yet. Replace the
+# marked steps with your platform's deploy mechanism.
+#
+# Secrets referenced (configure in repo/environment settings — never hardcode):
+#   GITHUB_TOKEN              (built-in) — push images to GHCR.
+#   DEPLOY_DATABASE_URL       — target DB for `prisma migrate deploy`.
+#   PRODUCTION_BASE_URL /
+#   STAGING_BASE_URL          — public API base for the smoke test.
+#   (+ whatever your deploy target needs: KUBE_CONFIG, SSH_KEY, RENDER_API_KEY…)
+# ─────────────────────────────────────────────────────────────
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging, production]
+        default: staging
+
+concurrency:
+  group: deploy-${{ github.ref }}-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  # Lower-cased owner/repo is required for GHCR image names.
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  # 1) Reuse the CI gate as a prerequisite (lint/typecheck/test/build/e2e).
+  gate:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  # 2) Build + push the five service images to GHCR.
+  build-images:
+    name: Build & push images
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: api
+            dockerfile: apps/api/Dockerfile
+          - name: worker
+            dockerfile: apps/worker/Dockerfile
+          - name: customer-web
+            dockerfile: apps/customer-web/Dockerfile
+          - name: organizer-web
+            dockerfile: apps/organizer-web/Dockerfile
+          - name: admin-web
+            dockerfile: apps/admin-web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve environment + lowercase image name
+        id: meta
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'production' }}"
+          echo "environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "image=$(echo "${IMAGE_PREFIX}/${{ matrix.name }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          # Tag with the git SHA (immutable) + the environment (moving pointer).
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.environment }}
+          # NEXT_PUBLIC_API_URL is inlined into the web bundles at build time.
+          # It is a public value (not a secret); set it per environment.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 3) Run migrations + (re)start services on the target host.
+  deploy:
+    name: Deploy
+    needs: build-images
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Apply additive migrations to the target DB BEFORE rolling new images.
+      # (Additive-only migrations keep the old image compatible → safe rollback.)
+      - name: Install deps (Prisma CLI + schema)
+        run: npm ci
+
+      - name: prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DEPLOY_DATABASE_URL }}
+        run: npm run db:deploy
+
+      # ─────────────────────────────────────────────────────────
+      # PLACEHOLDER — replace with your real deploy mechanism.
+      # Images are at:
+      #   ghcr.io/<owner>/<repo>/{api,worker,customer-web,organizer-web,admin-web}:${{ github.sha }}
+      #
+      # Examples (pick one, delete the rest):
+      #   • Kubernetes:  kubectl set image deploy/api api=…:${{ github.sha }} && kubectl rollout status …
+      #   • SSH+compose: ssh $HOST 'cd /srv/eticketsgo && REGISTRY=ghcr.io/<owner>/<repo> IMAGE_TAG=${{ github.sha }} \
+      #                    docker compose -f docker-compose.prod.yml --env-file .env.production up -d'
+      #   • Render:      curl -X POST "https://api.render.com/deploy/srv-…?key=${{ secrets.RENDER_DEPLOY_KEY }}"
+      #   • Fly.io:      flyctl deploy --image …:${{ github.sha }} -a eticketsgo-api
+      # Gate rollout on GET /api/ready before shifting traffic.
+      # ─────────────────────────────────────────────────────────
+      - name: Deploy images to target
+        run: |
+          echo "TODO: deploy ghcr images tagged ${{ github.sha }} to '${{ github.event.inputs.environment || 'production' }}'."
+          echo "Replace this step with your host/k8s/render/fly deploy command."
+
+  # 4) Post-deploy smoke test against the freshly deployed API.
+  smoke:
+    name: Post-deploy smoke
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test health / ready / metrics
+        env:
+          # Set per environment; falls back to the production base URL.
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL || secrets.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "BASE_URL not configured — set repo variable DEPLOY_BASE_URL or secret PRODUCTION_BASE_URL." >&2
+            exit 1
+          fi
+          echo "Smoke-testing $BASE_URL ..."
+          curl -fsS "$BASE_URL/api/health"  | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -fsS "$BASE_URL/api/ready"   >/dev/null
+          curl -fsS "$BASE_URL/api/metrics" | grep -q 'etg_'
+          echo "Smoke test passed."

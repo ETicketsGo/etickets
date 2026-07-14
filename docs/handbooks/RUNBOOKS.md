@@ -181,10 +181,14 @@ the signed-webhook path only.
 These are **not** implemented; documented so their absence is a decision, not a
 surprise. Tracked for the Operations sprint.
 
-- **Real production deploy** (containerized apps, staged rollout). CI
-  (`.github/workflows/ci.yml`) currently installs, format-checks, lints,
-  type-checks, migrates + seeds, unit-tests, builds, and runs Playwright — it does
-  not deploy.
+- **Real production deploy to a live host** (staged rollout). The
+  infrastructure-as-code now exists — per-service multi-stage Dockerfiles,
+  `docker-compose.prod.yml`, backup/restore scripts, and a build-push-deploy
+  pipeline (`.github/workflows/deploy.yml`) — see the
+  [Deployment Guide](../guides/DEPLOYMENT.md). What remains is wiring it to a
+  concrete registry + host (the deploy step is a labelled placeholder) and
+  provisioning managed Postgres/Redis + a TLS reverse proxy. CI
+  (`.github/workflows/ci.yml`) still only verifies; it does not deploy.
 - **Backup / restore automation** for Postgres (a manual `pg_dump`/`pg_restore`
   procedure now exists — see "Backup & Restore (dev)" above and the
   [Operations Runbook](../reports/OPERATIONS.md); scheduled/automated backups and

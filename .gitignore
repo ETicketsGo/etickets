@@ -18,6 +18,9 @@ out/
 # prisma
 apps/api/prisma/*.db
 
+# database backups (pg_dump output — see scripts/backup-db.sh)
+backups/
+
 # logs
 *.log
 npm-debug.log*

@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────
+# Docker build context excludes. Keep images small and builds
+# reproducible: never ship host node_modules, prior build output,
+# secrets, or test artifacts into the build context.
+# ─────────────────────────────────────────────────────────────
+
+# dependencies (reinstalled inside the image via `npm ci`)
+**/node_modules
+
+# build output (regenerated inside the image)
+**/dist
+**/.next
+**/out
+**/build
+.turbo
+**/.turbo
+**/*.tsbuildinfo
+
+# env / secrets — never bake into an image layer
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# vcs / ci / editor
+.git
+.gitignore
+.github
+.idea
+.vscode
+
+# testing / coverage
+**/coverage
+**/playwright-report
+**/test-results
+apps/e2e/playwright/.cache
+
+# local data / backups / storage
+backups
+.storage
+**/*.db
+
+# docs are not needed at build time
+docs
+
+# os
+.DS_Store
+Thumbs.db
+
+# docker files themselves
+**/Dockerfile
+.dockerignore
+docker-compose*.yml

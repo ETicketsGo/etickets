@@ -1,0 +1,181 @@
+# ─────────────────────────────────────────────────────────────
+# ETicketsGo — PRODUCTION / STAGING compose.
+#
+# Runs the full platform: Postgres + Redis + api + worker + 3 web apps.
+# Migrations run as a one-shot `migrate` service BEFORE the api starts; the
+# database is NEVER seeded here (seeding is dev-only).
+#
+# Usage:
+#   cp .env.production.example .env.production   # then fill in real secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env.production build
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# Validate syntax without building:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production config
+#
+# In real deployments the images are usually built + pushed by CI (see
+# .github/workflows/deploy.yml) and pulled here via `image:` instead of `build:`.
+# ─────────────────────────────────────────────────────────────
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eticketsgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-eticketsgo}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # No host port publish by default — keep Postgres on the private network.
+    # Uncomment to expose for admin access (prefer an SSH tunnel instead):
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-eticketsgo}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: apply committed Prisma migrations, then exit. Additive-only
+  # migrations keep the previous API image compatible (safe rollback).
+  migrate:
+    image: ${REGISTRY:-eticketsgo}/api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app/apps/api
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    env_file:
+      - .env.production
+    restart: 'no'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: ${REGISTRY:-eticketsgo}/api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+    expose:
+      - '4000'
+    # Publish the API only if it is not fronted by a reverse proxy / LB on the
+    # same host. Prefer terminating TLS at nginx/Caddy/an LB (see DEPLOYMENT.md).
+    ports:
+      - '${API_PUBLISH:-127.0.0.1:4000}:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:4000/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    image: ${REGISTRY:-eticketsgo}/worker:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: 4100
+    expose:
+      - '4100'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:4100/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  customer-web:
+    image: ${REGISTRY:-eticketsgo}/customer-web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/customer-web/Dockerfile
+      args:
+        # NEXT_PUBLIC_* is inlined at build time — must be the PUBLIC API URL.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - '${CUSTOMER_WEB_PUBLISH:-127.0.0.1:3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  organizer-web:
+    image: ${REGISTRY:-eticketsgo}/organizer-web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/organizer-web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    ports:
+      - '${ORGANIZER_WEB_PUBLISH:-127.0.0.1:3001}:3001'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  admin-web:
+    image: ${REGISTRY:-eticketsgo}/admin-web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/admin-web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+    ports:
+      - '${ADMIN_WEB_PUBLISH:-127.0.0.1:3002}:3002'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  redis-data:
