@@ -15,6 +15,7 @@ import {
   Film,
   LifeBuoy,
   Activity,
+  BarChart3,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -26,6 +27,7 @@ const nav: NavItem[] = [
   { label: 'Payments', href: '/admin/payments', icon: CreditCard },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
+  { label: 'Reports', href: '/admin/reports', icon: BarChart3 },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Support', href: '/admin/support', icon: LifeBuoy },
   { label: 'Audit', href: '/admin/audit', icon: ScrollText },

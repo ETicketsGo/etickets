@@ -73,8 +73,12 @@ export class AnalyticsService {
 
   // ───────────────────────── Reusable metric blocks ─────────────────────────
 
-  /** Confirmed-booking money in one aggregate. `where` scopes org / event / venue. */
-  private async revenue(where: Prisma.BookingWhereInput): Promise<RevenueMetrics> {
+  /**
+   * Confirmed-booking money in one aggregate. `where` scopes org / event / venue.
+   * Public so business-operations reports can reuse it (a date range is carried in
+   * an `AND` clause, since this helper pins `confirmedAt: { not: null }`).
+   */
+  async revenue(where: Prisma.BookingWhereInput): Promise<RevenueMetrics> {
     const agg = await this.prisma.booking.aggregate({
       where: { ...where, confirmedAt: { not: null } },
       _sum: {
@@ -101,8 +105,8 @@ export class AnalyticsService {
     };
   }
 
-  /** Completed-refund count + amount in one aggregate. */
-  private async refundStats(where: Prisma.RefundWhereInput): Promise<RefundMetrics> {
+  /** Completed-refund count + amount in one aggregate. Public for report reuse. */
+  async refundStats(where: Prisma.RefundWhereInput): Promise<RefundMetrics> {
     const agg = await this.prisma.refund.aggregate({
       where: { ...where, status: RefundStatus.COMPLETED },
       _sum: { amountMinor: true },
@@ -163,7 +167,7 @@ export class AnalyticsService {
    * One grouped query returns one row per customer; we fold it in memory (no
    * per-user query). `total` = distinct customers, `repeat` = those with >1.
    */
-  private async repeatCustomers(where: Prisma.BookingWhereInput): Promise<RepeatCustomerMetrics> {
+  async repeatCustomers(where: Prisma.BookingWhereInput): Promise<RepeatCustomerMetrics> {
     const groups = await this.prisma.booking.groupBy({
       by: ['userId'],
       where: { ...where, confirmedAt: { not: null }, userId: { not: null } },

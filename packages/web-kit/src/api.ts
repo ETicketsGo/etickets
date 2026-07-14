@@ -454,6 +454,50 @@ export const api = {
         body: JSON.stringify(body),
       }),
     opsFlags: () => request<OpsFlags>('/admin/ops/flags'),
+
+    // ─── Business-operations reports (admin-only, read-only) ───
+    reports: {
+      dailyRevenue: (params?: ReportRange) =>
+        request<DailyRevenueReport>(`/admin/reports/daily-revenue${qs(params ?? {})}`),
+      organizerRevenue: (params?: ReportRange & { limit?: number }) =>
+        request<OrganizerRevenueReport>(`/admin/reports/organizer-revenue${qs(params ?? {})}`),
+      settlement: () => request<SettlementReport>('/admin/reports/settlement'),
+      refunds: (params?: ReportRange) =>
+        request<RefundReport>(`/admin/reports/refunds${qs(params ?? {})}`),
+      platformFees: (params?: ReportRange) =>
+        request<PlatformFeesReport>(`/admin/reports/platform-fees${qs(params ?? {})}`),
+      tax: (params?: ReportRange) => request<TaxReport>(`/admin/reports/tax${qs(params ?? {})}`),
+      topExperiences: (params?: ReportRange & { limit?: number }) =>
+        request<TopExperiencesReport>(`/admin/reports/top-experiences${qs(params ?? {})}`),
+      growth: (params?: ReportRange) =>
+        request<GrowthReport>(`/admin/reports/growth${qs(params ?? {})}`),
+
+      /** Absolute URL for a report's CSV export (bearer auth still required). */
+      csvUrl: (report: ReportCsvName, params?: ReportRange & { limit?: number }) =>
+        `${API_URL}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
+
+      /**
+       * Fetch a report's CSV with the bearer token and trigger a browser download.
+       * Used instead of a naked link so the admin-gated endpoint stays authorized.
+       */
+      downloadCsv: async (report: ReportCsvName, params?: ReportRange & { limit?: number }) => {
+        const res = await fetch(
+          `${API_URL}/admin/reports/${report}${qs({ ...(params ?? {}), format: 'csv' })}`,
+          { headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {} },
+        );
+        if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
+        const blob = await res.blob();
+        if (typeof window === 'undefined') return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${report}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      },
+    },
   },
 };
 
@@ -1179,4 +1223,105 @@ export interface OpsFlag {
 export interface OpsFlags {
   flags: OpsFlag[];
   note: string;
+}
+
+// ─── Business-operations reports ───
+
+/** Optional inclusive date range; both default server-side to the last 30 days. */
+export type ReportRange = {
+  from?: string;
+  to?: string;
+};
+/** Reports that support a `?format=csv` export. */
+export type ReportCsvName = 'daily-revenue' | 'organizer-revenue' | 'refunds' | 'settlement';
+
+export interface DailyRevenuePoint {
+  day: string;
+  grossMinor: number;
+  platformFeesMinor: number;
+  refundsMinor: number;
+  netMinor: number;
+  bookings: number;
+}
+export interface DailyRevenueReport {
+  from: string;
+  to: string;
+  totals: {
+    grossMinor: number;
+    platformFeesMinor: number;
+    refundsMinor: number;
+    netMinor: number;
+    bookings: number;
+  };
+  series: DailyRevenuePoint[];
+}
+export interface OrganizerRevenueRow {
+  organizationId: string;
+  organizationName: string;
+  grossMinor: number;
+  platformFeesMinor: number;
+  refundsMinor: number;
+  netMinor: number;
+  bookings: number;
+}
+export interface OrganizerRevenueReport {
+  from: string;
+  to: string;
+  organizers: OrganizerRevenueRow[];
+}
+export interface SettlementOrgRow {
+  organizationId: string;
+  organizationName: string;
+  outstandingMinor: number;
+  paidMinor: number;
+  outstandingCount: number;
+  paidCount: number;
+}
+export interface SettlementReport {
+  totals: { outstandingMinor: number; paidMinor: number; payoutCount: number };
+  byOrg: SettlementOrgRow[];
+  payouts: Payout[];
+}
+export interface RefundReport {
+  from: string;
+  to: string;
+  totals: { count: number; amountMinor: number };
+  byStatus: { status: string; count: number; amountMinor: number }[];
+  byDay: { day: string; count: number; amountMinor: number }[];
+}
+export interface PlatformFeesReport {
+  from: string;
+  to: string;
+  totals: { platformFeesMinor: number };
+  series: { day: string; feesMinor: number }[];
+}
+export interface TaxReport {
+  from: string;
+  to: string;
+  taxModelled: false;
+  taxCollectedMinor: number;
+  note: string;
+  taxableBaseMinor: number;
+  grossMinor: number;
+  platformFeesMinor: number;
+}
+export interface TopExperienceRow {
+  eventId: string;
+  title: string;
+  experienceType: string;
+  movieTitle: string | null;
+  bookings: number;
+  grossMinor: number;
+}
+export interface TopExperiencesReport {
+  from: string;
+  to: string;
+  experiences: TopExperienceRow[];
+}
+export interface GrowthReport {
+  from: string;
+  to: string;
+  retention: { totalCustomers: number; repeatCustomers: number; rate: number };
+  newUsers: { day: string; count: number }[];
+  newBookings: { day: string; count: number }[];
 }
