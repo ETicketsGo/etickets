@@ -6,11 +6,19 @@ import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PaymentConfigService } from '../configuration/payment-config.service';
+import { PaymentReconciliationService } from '../reconciliation/payment-reconciliation.service';
 import {
   PaymentAdminService,
   type ProviderConfigPatch,
   type RouteInput,
 } from './payment-admin.service';
+
+/** Parse an optional ISO date, or fall back. */
+function parseDate(raw: string | undefined, fallback: Date): Date {
+  if (!raw) return fallback;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? fallback : d;
+}
 
 const envSchema = z.enum(PAYMENT_ENVS);
 
@@ -58,6 +66,7 @@ export class PaymentAdminController {
   constructor(
     private readonly admin: PaymentAdminService,
     private readonly config: PaymentConfigService,
+    private readonly reconciliation: PaymentReconciliationService,
   ) {}
 
   private resolveEnv(raw?: string): PaymentEnvName {
@@ -69,6 +78,28 @@ export class PaymentAdminController {
   @ApiOperation({ summary: 'Payment configuration overview for an environment (admin).' })
   overview(@Query('env') env?: string) {
     return this.admin.overview(this.resolveEnv(env));
+  }
+
+  @Get('health')
+  @ApiOperation({ summary: 'Live health of constructed payment provider adapters (admin).' })
+  health() {
+    return this.admin.providerHealth();
+  }
+
+  @Get('reconciliation')
+  @ApiOperation({ summary: 'Reconcile our payments against provider truth for a window (admin).' })
+  reconcile(@Query('from') from?: string, @Query('to') to?: string) {
+    const toDate = parseDate(to, new Date());
+    const fromDate = parseDate(from, new Date(toDate.getTime() - 7 * 24 * 3600 * 1000));
+    return this.reconciliation.reconcile(fromDate, toDate);
+  }
+
+  @Get('settlement')
+  @ApiOperation({ summary: 'Settlement summary per provider + currency for a window (admin).' })
+  settlement(@Query('from') from?: string, @Query('to') to?: string) {
+    const toDate = parseDate(to, new Date());
+    const fromDate = parseDate(from, new Date(toDate.getTime() - 30 * 24 * 3600 * 1000));
+    return this.reconciliation.settlement(fromDate, toDate);
   }
 
   @Patch('config/:id')

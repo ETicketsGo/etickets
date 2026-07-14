@@ -457,6 +457,11 @@ export const api = {
         request<{ deleted: boolean }>(`/admin/payments/routes/${id}${qs({ env })}`, {
           method: 'DELETE',
         }),
+      health: () => request<ProviderHealthReport>('/admin/payments/health'),
+      reconciliation: (from?: string, to?: string) =>
+        request<ReconciliationReport>(`/admin/payments/reconciliation${qs({ from, to })}`),
+      settlement: (from?: string, to?: string) =>
+        request<SettlementLine[]>(`/admin/payments/settlement${qs({ from, to })}`),
     },
     support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
       request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
@@ -1213,6 +1218,40 @@ export interface TestConnectionResult {
   healthy: boolean;
   mode?: string;
   message?: string;
+}
+export interface ProviderHealthRow {
+  provider: string;
+  healthy: boolean;
+  mode?: string;
+  message?: string;
+}
+export interface ProviderHealthReport {
+  activeEnv: PaymentEnvValue;
+  providers: ProviderHealthRow[];
+}
+export interface ReconciliationReport {
+  window: { from: string; to: string };
+  checked: number;
+  matched: number;
+  mismatched: number;
+  unverifiable: number;
+  mismatches: {
+    bookingId: string;
+    provider: string;
+    providerRef: string;
+    ourStatus: string;
+    providerStatus: string;
+    ourAmountMinor: number;
+    providerAmountMinor: number;
+  }[];
+}
+export interface SettlementLine {
+  provider: string;
+  currency: string;
+  grossMinor: number;
+  refundedMinor: number;
+  netMinor: number;
+  count: number;
 }
 
 export interface ReviewItem {

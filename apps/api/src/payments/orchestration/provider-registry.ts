@@ -39,4 +39,9 @@ export class PaymentProviderRegistry {
   has(name: string): boolean {
     return this.byName.has(name.toLowerCase());
   }
+
+  /** Distinct constructed adapters (deduped — 'dummy'/'mock' resolve to one). */
+  list(): PaymentProvider[] {
+    return Array.from(new Set(this.byName.values()));
+  }
 }

@@ -18,13 +18,11 @@ function provider(name: string, over: Partial<PaymentProvider> = {}): PaymentPro
     webhookSignatureHeader: 'x',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     capabilities: {} as any,
-    createPayment: jest
-      .fn()
-      .mockResolvedValue({
-        providerRef: `${name}_pi`,
-        clientActionUrl: 'u',
-        status: 'REQUIRES_PAYMENT',
-      }),
+    createPayment: jest.fn().mockResolvedValue({
+      providerRef: `${name}_pi`,
+      clientActionUrl: 'u',
+      status: 'REQUIRES_PAYMENT',
+    }),
     verifyWebhook: jest.fn(),
     refund: jest.fn().mockResolvedValue({ providerRef: `${name}_rf`, status: 'COMPLETED' }),
     ...over,

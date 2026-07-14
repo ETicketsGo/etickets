@@ -213,6 +213,27 @@ export class PaymentAdminService {
     return result;
   }
 
+  /** Live health of every provider adapter constructed in this process. */
+  async providerHealth() {
+    const providers = await Promise.all(
+      this.registry.list().map(async (p) => {
+        if (!p.healthCheck) {
+          return { provider: p.name, healthy: false, message: 'no health check available' };
+        }
+        try {
+          return { provider: p.name, ...(await p.healthCheck()) };
+        } catch (err) {
+          return {
+            provider: p.name,
+            healthy: false,
+            message: err instanceof Error ? err.message : 'health check failed',
+          };
+        }
+      }),
+    );
+    return { activeEnv: this.config.environment, providers };
+  }
+
   /** Read the env's config via the tx and reject if a fail-closed env is invalid. */
   private async assertValidAfter(tx: Prisma.TransactionClient, env: PaymentEnvName): Promise<void> {
     const [providers, routes] = await Promise.all([

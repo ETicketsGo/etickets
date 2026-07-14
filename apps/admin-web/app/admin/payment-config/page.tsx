@@ -17,6 +17,7 @@ import {
   Skeleton,
   useToast,
   errorMessage,
+  money,
   type BadgeTone,
   type Column,
   type PaymentConfigOverview,
@@ -24,6 +25,8 @@ import {
   type PaymentProviderConfigRow,
   type PaymentProviderModeValue,
   type PaymentRouteRow,
+  type ProviderHealthRow,
+  type SettlementLine,
 } from '@eticketsgo/web-kit';
 
 const ENVS: PaymentEnvValue[] = ['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION'];
@@ -134,6 +137,8 @@ export default function PaymentConfigPage() {
               onDelete={(id) => deleteRoute.mutate(id)}
             />
           </Card>
+
+          <OperationsSection />
         </>
       )}
 
@@ -523,5 +528,82 @@ function RouteDialog({
         </p>
       </div>
     </Dialog>
+  );
+}
+
+function OperationsSection() {
+  const { push } = useToast();
+  const health = useQuery({
+    queryKey: ['admin', 'payment-health'],
+    queryFn: () => api.admin.paymentConfig.health(),
+  });
+  const settlement = useQuery({
+    queryKey: ['admin', 'payment-settlement'],
+    queryFn: () => api.admin.paymentConfig.settlement(),
+  });
+  const reconcile = useMutation({
+    mutationFn: () => api.admin.paymentConfig.reconciliation(),
+    onSuccess: (r) =>
+      push(
+        `Reconciled ${r.checked}: ${r.matched} matched, ${r.mismatched} mismatched, ${r.unverifiable} unverifiable`,
+        r.mismatched > 0 ? 'warning' : 'success',
+      ),
+    onError: (e) => push(errorMessage(e), 'error'),
+  });
+
+  const healthColumns: Column<ProviderHealthRow>[] = [
+    { key: 'provider', header: 'Provider', render: (r) => <strong>{r.provider}</strong> },
+    {
+      key: 'healthy',
+      header: 'Status',
+      render: (r) => (
+        <Badge tone={r.healthy ? 'success' : 'error'}>{r.healthy ? 'Healthy' : 'Unhealthy'}</Badge>
+      ),
+    },
+    { key: 'mode', header: 'Mode', render: (r) => r.mode ?? '—' },
+    { key: 'message', header: 'Detail', render: (r) => r.message ?? '—' },
+  ];
+
+  const settlementColumns: Column<SettlementLine>[] = [
+    { key: 'provider', header: 'Provider', render: (r) => <strong>{r.provider}</strong> },
+    { key: 'currency', header: 'Currency', render: (r) => r.currency },
+    { key: 'gross', header: 'Gross', render: (r) => money(r.grossMinor) },
+    { key: 'refunded', header: 'Refunded', render: (r) => money(r.refundedMinor) },
+    { key: 'net', header: 'Net', render: (r) => <strong>{money(r.netMinor)}</strong> },
+    { key: 'count', header: 'Payments', render: (r) => r.count },
+  ];
+
+  return (
+    <>
+      <Card
+        title="Provider health"
+        action={
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => reconcile.mutate()}
+            loading={reconcile.isPending}
+          >
+            Run reconciliation
+          </Button>
+        }
+      >
+        <DataTable
+          columns={healthColumns}
+          rows={health.data?.providers}
+          loading={health.isLoading}
+          rowKey={(r) => r.provider}
+        />
+      </Card>
+
+      <Card title="Settlement (last 30 days)">
+        <DataTable
+          columns={settlementColumns}
+          rows={settlement.data}
+          loading={settlement.isLoading}
+          rowKey={(r) => `${r.provider}-${r.currency}`}
+        />
+      </Card>
+    </>
   );
 }

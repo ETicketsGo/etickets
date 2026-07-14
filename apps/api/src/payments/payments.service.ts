@@ -150,9 +150,18 @@ export class PaymentsService {
     return this.handleWebhook(signed);
   }
 
-  /** Public webhook entry point — verifies signature, then processes. */
+  /** Public webhook entry point — verifies signature with the active provider. */
   async handleWebhook(input: WebhookInput) {
     const event = await this.provider.verifyWebhook(input);
+    return this.processVerifiedEvent(event);
+  }
+
+  /**
+   * Process an already-verified payment event (succeeded → confirm, else fail).
+   * Used by the multi-provider webhook router after a provider-specific adapter
+   * has verified the signature.
+   */
+  processVerifiedEvent(event: PaymentEvent) {
     if (event.type === 'payment.succeeded') {
       return this.confirm(event);
     }

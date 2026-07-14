@@ -10,6 +10,8 @@ import { PaymentProviderRegistry } from './orchestration/provider-registry';
 import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
+import { WebhookRouter } from './webhooks/webhook-router.service';
+import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
@@ -32,6 +34,9 @@ import { InventoryModule } from '../inventory/inventory.module';
     PaymentOrchestrator,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
+    // Multi-provider webhook routing + reconciliation/settlement.
+    WebhookRouter,
+    PaymentReconciliationService,
   ],
   exports: [PaymentsService],
 })

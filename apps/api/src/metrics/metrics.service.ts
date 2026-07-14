@@ -25,10 +25,24 @@ export class MetricsService {
   private readonly httpDuration: Histogram<'method' | 'status_class'>;
   private readonly dbQueryDuration: Histogram;
   private readonly slowQueries: Counter;
+  private readonly paymentWebhooks: Counter<'provider' | 'result'>;
+  private readonly paymentReconciliations: Counter<'result'>;
 
   constructor() {
     this.registry = new Registry();
     collectDefaultMetrics({ register: this.registry });
+    this.paymentWebhooks = new Counter({
+      name: 'etg_payment_webhooks_total',
+      help: 'Payment webhooks received, labelled by provider and result.',
+      labelNames: ['provider', 'result'],
+      registers: [this.registry],
+    });
+    this.paymentReconciliations = new Counter({
+      name: 'etg_payment_reconciliations_total',
+      help: 'Payments checked during reconciliation, labelled by result.',
+      labelNames: ['result'],
+      registers: [this.registry],
+    });
 
     this.bookingsCreated = new Counter({
       name: 'etg_bookings_created_total',
@@ -143,6 +157,21 @@ export class MetricsService {
       if (Number.isFinite(amountMinor) && amountMinor > 0) {
         this.gmvMinor.inc(amountMinor);
       }
+    });
+  }
+
+  /** Record a routed payment webhook (result: verified | rejected | processed | failed). */
+  recordPaymentWebhook(provider: string, result: string): void {
+    this.safe(() => this.paymentWebhooks.inc({ provider, result }));
+  }
+
+  /** Record reconciliation outcomes for a run (matched, mismatched, unverifiable counts). */
+  recordReconciliation(matched: number, mismatched: number, unverifiable: number): void {
+    this.safe(() => {
+      if (matched > 0) this.paymentReconciliations.inc({ result: 'matched' }, matched);
+      if (mismatched > 0) this.paymentReconciliations.inc({ result: 'mismatched' }, mismatched);
+      if (unverifiable > 0)
+        this.paymentReconciliations.inc({ result: 'unverifiable' }, unverifiable);
     });
   }
 
