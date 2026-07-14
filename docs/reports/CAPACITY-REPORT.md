@@ -12,12 +12,12 @@ _Derived from the live single-node measurements in `PERFORMANCE-VALIDATION.md`. 
 
 ## 1. Measured basis (from `PERFORMANCE-VALIDATION.md`)
 
-| Path | Observation |
-| --- | --- |
-| Seat hold, 25-way same-seat race | Warm rounds: **~245 ms** wall to resolve 25 concurrent attempts (1 win + 24 fast 409). Per-req p50 ~220 ms. |
-| GA hold, 64-way single-row race | **766 ms** wall to resolve 64 concurrent quantity-1 holds → **49 successful holds** + 15 × 409, on **one** hot inventory row. Per-req p50 ~710 ms. |
-| Cached read `/public/discovery` | Hit p50 **~4 ms**; 40 concurrent drained in **91.6 ms** (~437 served req/s). |
-| Cached read `/public/movies` | Hit p50 **~3.5 ms**; 40 concurrent drained in **73.2 ms** (~547 served req/s). |
+| Path                             | Observation                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Seat hold, 25-way same-seat race | Warm rounds: **~245 ms** wall to resolve 25 concurrent attempts (1 win + 24 fast 409). Per-req p50 ~220 ms.                                        |
+| GA hold, 64-way single-row race  | **766 ms** wall to resolve 64 concurrent quantity-1 holds → **49 successful holds** + 15 × 409, on **one** hot inventory row. Per-req p50 ~710 ms. |
+| Cached read `/public/discovery`  | Hit p50 **~4 ms**; 40 concurrent drained in **91.6 ms** (~437 served req/s).                                                                       |
+| Cached read `/public/movies`     | Hit p50 **~3.5 ms**; 40 concurrent drained in **73.2 ms** (~547 served req/s).                                                                     |
 
 ---
 
@@ -54,11 +54,11 @@ type and is what to size Postgres around.
 
 ### Write path (bookings / inventory holds)
 
-| Scenario | Indicative sustained rate | Basis |
-| --- | --- | --- |
-| Holds on **one** hot GA counter (worst case) | **~60 holds/s → ~3,600/min** | 49 serialized holds in 766 ms |
-| Holds spread across **distinct** seats/rows | **Several × higher** (scales with distinct hot rows until DB CPU/IO binds) | losers don't serialize; per-seat partitioning |
-| Same-seat collision resolution | **< 1 s** for 25-way | warm rounds ~245 ms |
+| Scenario                                     | Indicative sustained rate                                                  | Basis                                         |
+| -------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- |
+| Holds on **one** hot GA counter (worst case) | **~60 holds/s → ~3,600/min**                                               | 49 serialized holds in 766 ms                 |
+| Holds spread across **distinct** seats/rows  | **Several × higher** (scales with distinct hot rows until DB CPU/IO binds) | losers don't serialize; per-seat partitioning |
+| Same-seat collision resolution               | **< 1 s** for 25-way                                                       | warm rounds ~245 ms                           |
 
 A realistic hot on-sale spreads demand across many seats/ticket types, so the practical booking
 ceiling on this single node is **comfortably in the thousands of holds/minute**, with the **single
@@ -68,10 +68,10 @@ of comparable cost when sizing.
 
 ### Read path (anonymous browse)
 
-| Path | Indicative served capacity (this node) | Notes |
-| --- | --- | --- |
-| `/public/discovery` (cached) | **≥ ~440 req/s** measured floor | 40 concurrent in 91.6 ms; hit p50 ~4 ms |
-| `/public/movies` (cached) | **≥ ~550 req/s** measured floor | 40 concurrent in 73.2 ms; hit p50 ~3.5 ms |
+| Path                         | Indicative served capacity (this node) | Notes                                     |
+| ---------------------------- | -------------------------------------- | ----------------------------------------- |
+| `/public/discovery` (cached) | **≥ ~440 req/s** measured floor        | 40 concurrent in 91.6 ms; hit p50 ~4 ms   |
+| `/public/movies` (cached)    | **≥ ~550 req/s** measured floor        | 40 concurrent in 73.2 ms; hit p50 ~3.5 ms |
 
 These are **floors** — the harness never saturated the server (it stayed inside the 120 req/60 s
 per-IP throttle). Because a cache hit is ~3–4 ms of Redis + JSON, per-node read capacity is bound by

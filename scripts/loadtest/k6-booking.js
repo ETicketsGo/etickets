@@ -89,7 +89,9 @@ export default function () {
 
   // Resolve a session + an available seat.
   let sessionId = null;
-  const movie = http.get(`${BASE_URL}/public/movies/${MOVIE_SLUG}`, { tags: { name: 'movie_detail' } });
+  const movie = http.get(`${BASE_URL}/public/movies/${MOVIE_SLUG}`, {
+    tags: { name: 'movie_detail' },
+  });
   try {
     const sessions = (movie.json('shows') || []).flatMap((s) => s.sessions || []);
     if (sessions.length) sessionId = sessions[sessions.length - 1].id; // furthest-out show
@@ -104,7 +106,9 @@ export default function () {
   let seat = null;
   let ticketTypeId = null;
   group('seat_layout', () => {
-    const res = http.get(`${BASE_URL}/public/shows/${sessionId}/seats`, { tags: { name: 'seat_layout' } });
+    const res = http.get(`${BASE_URL}/public/shows/${sessionId}/seats`, {
+      tags: { name: 'seat_layout' },
+    });
     check(res, { 'seat layout 200': (r) => r.status === 200 });
     serverErrors.add(res.status >= 500);
     try {

@@ -37,11 +37,11 @@ measured numbers**. It does not re-state their content.
 
 ### What each test proves
 
-| Test | Invariant under test |
-| --- | --- |
+| Test                            | Invariant under test                                                                                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Concurrent **seat** reservation | Reserved-seating double-book safety: N clients race for the **same** `ShowSeat` row → exactly **one** wins, all others `409 BOOKING_INVENTORY_UNAVAILABLE`, no 5xx, no oversell. |
-| Concurrent **GA** oversell | Quantity-counter oversell safety: N concurrent quantity-1 holds against one ticket type → number that succeed **equals remaining stock**, never more; the rest `409`. |
-| API **read** throughput | Served throughput + latency distribution of the cached anonymous browse paths. |
+| Concurrent **GA** oversell      | Quantity-counter oversell safety: N concurrent quantity-1 holds against one ticket type → number that succeed **equals remaining stock**, never more; the rest `409`.            |
+| API **read** throughput         | Served throughput + latency distribution of the cached anonymous browse paths.                                                                                                   |
 
 ---
 
@@ -51,11 +51,11 @@ Logged in as `customer1@eticketsgo.test`, fetched the seat layout for the second
 then for each of **3 distinct available seats** fired **N = 25 concurrent** `POST /bookings` all
 requesting that **same seat** (`Promise.all`).
 
-| Round | Seat | Concurrency | Wins (201) | 409 `BOOKING_INVENTORY_UNAVAILABLE` | Unexpected / 5xx | Wall | Per-req p50 / p95 / p99 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 (cold) | 4 | 25 | **1** | **24** | 0 | 584.3 ms | 561.9 / 571.6 / 575.5 ms |
-| 2 (warm) | 5 | 25 | **1** | **24** | 0 | 245.7 ms | 219.8 / 239.5 / 242.8 ms |
-| 3 (warm) | 6 | 25 | **1** | **24** | 0 | 242.5 ms | 225.4 / 238.1 / 241.9 ms |
+| Round    | Seat | Concurrency | Wins (201) | 409 `BOOKING_INVENTORY_UNAVAILABLE` | Unexpected / 5xx | Wall     | Per-req p50 / p95 / p99  |
+| -------- | ---- | ----------- | ---------- | ----------------------------------- | ---------------- | -------- | ------------------------ |
+| 1 (cold) | 4    | 25          | **1**      | **24**                              | 0                | 584.3 ms | 561.9 / 571.6 / 575.5 ms |
+| 2 (warm) | 5    | 25          | **1**      | **24**                              | 0                | 245.7 ms | 219.8 / 239.5 / 242.8 ms |
+| 3 (warm) | 6    | 25          | **1**      | **24**                              | 0                | 242.5 ms | 225.4 / 238.1 / 241.9 ms |
 
 **Every round: exactly one booking id returned, the other 24 rejected with `409
 BOOKING_INVENTORY_UNAVAILABLE`, zero 5xx, zero oversell.** This is the atomic conditional
@@ -69,9 +69,9 @@ Targeted the GA event's smallest-stock ticket type (**VIP**). A single **primer*
 triggered the service's lazy `releaseExpiredHolds()` so availability was exact, then **64 concurrent
 quantity-1** `POST /bookings` were fired against a read stock of **49**.
 
-| Ticket type | Remaining stock | Concurrent racers | Wins (201) | 409 rejected | Unexpected / 5xx | Wall | Per-req p50 / p95 / p99 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| VIP | 49 | 64 (49 + 15 overshoot) | **49** | **15** | 0 | 766.0 ms | 710.8 / 742.7 / 747.8 ms |
+| Ticket type | Remaining stock | Concurrent racers      | Wins (201) | 409 rejected | Unexpected / 5xx | Wall     | Per-req p50 / p95 / p99  |
+| ----------- | --------------- | ---------------------- | ---------- | ------------ | ---------------- | -------- | ------------------------ |
+| VIP         | 49              | 64 (49 + 15 overshoot) | **49**     | **15**       | 0                | 766.0 ms | 710.8 / 742.7 / 747.8 ms |
 
 **Confirmed holds equalled remaining stock exactly (49 == 49) — never more — and the 15 overshoot
 requests were each rejected `409 BOOKING_INVENTORY_UNAVAILABLE`, zero 5xx.** This is the atomic
@@ -84,10 +84,10 @@ while refusing the 16th-beyond-capacity attempts.
 Warmup + measurement of the two cached anonymous read paths, within the throttle budget, counting
 **only genuinely served 2xx** responses.
 
-| Path | Sequential p50 / p95 / p99 | Concurrent (40) p50 / p95 / p99 | Concurrent wall | Served req/s | 429s |
-| --- | --- | --- | --- | --- | --- |
-| `/public/discovery` | 4.23 / 13.04 / 69.83 ms | 71.06 / 84.99 / 85.16 ms | 91.6 ms | **~437** | 0 |
-| `/public/movies` | 3.51 / 4.63 / 18.32 ms | 57.52 / 65.83 / 66.04 ms | 73.2 ms | **~547** | 0 |
+| Path                | Sequential p50 / p95 / p99 | Concurrent (40) p50 / p95 / p99 | Concurrent wall | Served req/s | 429s |
+| ------------------- | -------------------------- | ------------------------------- | --------------- | ------------ | ---- |
+| `/public/discovery` | 4.23 / 13.04 / 69.83 ms    | 71.06 / 84.99 / 85.16 ms        | 91.6 ms         | **~437**     | 0    |
+| `/public/movies`    | 3.51 / 4.63 / 18.32 ms     | 57.52 / 65.83 / 66.04 ms        | 73.2 ms         | **~547**     | 0    |
 
 Steady-state single-client latency for a **cache hit** is **~3–4 ms p50** on both paths — consistent
 with `PERFORMANCE-REPORT.md §4`'s claim that a hit collapses to "one Redis `GET` + a JSON parse"
@@ -169,7 +169,7 @@ OVERALL: PASS ✅
 
 1. **The atomic, DB-arbitrated inventory holds hold under real concurrency.** Both the seat-based
    conditional `UPDATE … WHERE status='AVAILABLE'` and the GA conditional `UPDATE … WHERE
-   (total − sold − held) >= qty` were driven with true parallel requests and produced **zero
+(total − sold − held) >= qty` were driven with true parallel requests and produced **zero
    oversell, zero double-book, zero 5xx** across every round. Correctness is enforced by Postgres
    row arbitration, exactly as designed in ADR-010 / ADR-013.
 2. **Closes the intent of TECH-DEBT D13.** D13 asked for a real-DB concurrency test ("fire N
@@ -179,7 +179,7 @@ OVERALL: PASS ✅
    **intent-satisfied / validated**, with the CI-integration form as the remaining follow-up.)
 3. **The discovery/catalog cache behaves as claimed.** Cache-hit reads are ~3–4 ms p50, and repeated
    identical anonymous reads never fell through to a slow recompute — matching `PERFORMANCE-REPORT.md
-   §4`. Observed cache-hit behaviour: warm sequential reads are flat and fast; the only slow sample
+§4`. Observed cache-hit behaviour: warm sequential reads are flat and fast; the only slow sample
    is a lone TTL-refresh miss.
 
 ## 7. Worker / queue notes
