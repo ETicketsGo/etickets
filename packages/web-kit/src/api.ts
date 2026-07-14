@@ -517,6 +517,33 @@ export const api = {
           body: JSON.stringify({ reason }),
         }),
     },
+
+    // ─── Environment promotion (admin) ───
+    promotion: {
+      report: (from: PaymentEnvValue, to: PaymentEnvValue, provider: string) =>
+        request<PromotionReportResult>(
+          `/admin/payments/promotion/report${qs({ from, to, provider })}`,
+        ),
+      list: (to?: PaymentEnvValue, status?: PromotionStatusValue) =>
+        request<PromotionRequestRow[]>(`/admin/payments/promotion${qs({ to, status })}`),
+      create: (fromEnv: PaymentEnvValue, toEnv: PaymentEnvValue, provider: string) =>
+        request<PromotionRequestRow>('/admin/payments/promotion', {
+          method: 'POST',
+          body: JSON.stringify({ fromEnv, toEnv, provider }),
+        }),
+      approve: (id: string, note?: string) =>
+        request<PromotionRequestRow>(`/admin/payments/promotion/${id}/approve`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        }),
+      reject: (id: string, reason: string) =>
+        request<PromotionRequestRow>(`/admin/payments/promotion/${id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      apply: (id: string) =>
+        request<PromotionRequestRow>(`/admin/payments/promotion/${id}/apply`, { method: 'POST' }),
+    },
     support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
       request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
     updateSupport: (id: string, status: FeedbackStatusValue) =>
@@ -1384,6 +1411,37 @@ export type OnboardingPatchBody = Partial<
     | 'payoutDestinationRef'
   >
 >;
+
+// ─── Environment promotion (admin) ───
+
+export type PromotionStatusValue = 'PENDING_APPROVAL' | 'APPROVED' | 'APPLIED' | 'REJECTED';
+export interface PromotionCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  blocking: boolean;
+  detail?: string;
+}
+export interface PromotionReportResult {
+  fromEnv: PaymentEnvValue;
+  toEnv: PaymentEnvValue;
+  provider: string;
+  ok: boolean;
+  checks: PromotionCheck[];
+}
+export interface PromotionRequestRow {
+  id: string;
+  provider: string;
+  fromEnv: PaymentEnvValue;
+  toEnv: PaymentEnvValue;
+  status: PromotionStatusValue;
+  requiredApprovals: number;
+  report: PromotionReportResult;
+  approvals: { userId: string; at: string; note?: string }[];
+  rejectedReason: string | null;
+  appliedAt: string | null;
+  createdAt: string;
+}
 
 export interface ReviewItem {
   id: string;

@@ -11,6 +11,8 @@ import { PaymentOrchestrator } from './orchestration/payment-orchestrator.servic
 import { PaymentProviderFactory } from './provider/factory/payment-provider.factory';
 import { MerchantOnboardingController } from './onboarding/merchant-onboarding.controller';
 import { MerchantOnboardingService } from './onboarding/merchant-onboarding.service';
+import { PromotionController } from './promotion/promotion.controller';
+import { PromotionService } from './promotion/promotion.service';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
@@ -19,7 +21,12 @@ import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [InventoryModule, PaymentConfigModule],
-  controllers: [PaymentsController, PaymentAdminController, MerchantOnboardingController],
+  controllers: [
+    PaymentsController,
+    PaymentAdminController,
+    MerchantOnboardingController,
+    PromotionController,
+  ],
   providers: [
     PaymentsService,
     // Mock stays registered (default provider + PaymentsService's dev mock-pay path).
@@ -39,6 +46,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     PaymentProviderFactory,
     // Merchant onboarding workflow.
     MerchantOnboardingService,
+    // Environment promotion (validate → approve → apply).
+    PromotionService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.

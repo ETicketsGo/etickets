@@ -18,6 +18,7 @@ import {
   BarChart3,
   SlidersHorizontal,
   Store,
+  GitBranch,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -29,6 +30,7 @@ const nav: NavItem[] = [
   { label: 'Payments', href: '/admin/payments', icon: CreditCard },
   { label: 'Payment Config', href: '/admin/payment-config', icon: SlidersHorizontal },
   { label: 'Merchant Onboarding', href: '/admin/merchant-onboarding', icon: Store },
+  { label: 'Env Promotion', href: '/admin/payment-promotion', icon: GitBranch },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },

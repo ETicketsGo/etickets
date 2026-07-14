@@ -1004,6 +1004,37 @@ model MerchantOnboarding {
   @@index([provider])
 }
 
+// Controlled environment promotion of a provider configuration (ADR-026). A
+// promotion is validated, then approved (two-person for PRODUCTION), then applied —
+// never copied blindly. The report + approvals are retained for audit.
+enum PromotionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  APPLIED
+  REJECTED
+}
+
+model PromotionRequest {
+  id                String          @id @default(cuid())
+  provider          String
+  fromEnv           PaymentEnv
+  toEnv             PaymentEnv
+  status            PromotionStatus @default(PENDING_APPROVAL)
+  requiredApprovals Int             @default(1)
+  // Validation report snapshot at request time: { ok, checks: [...] }.
+  report            Json
+  // Approvals list: [{ userId, at, note }] — distinct users; 2 required for prod.
+  approvals         Json            @default("[]")
+  requestedByUserId String?
+  rejectedReason    String?
+  appliedAt         DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([toEnv, status])
+  @@index([provider])
+}
+
 // Editable routing policy. For an environment a (country, currency, method) tuple
 // selects a primary provider and an optional failover provider. '*' is a wildcard;
 // the most specific active row wins, ties broken by priority (lower first).
