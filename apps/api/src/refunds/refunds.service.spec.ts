@@ -8,6 +8,7 @@ import {
 import { RefundsService } from './refunds.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 const ADMIN: RequestUser = {
   id: 'admin-1',
@@ -107,6 +108,7 @@ function setupProcess(opts: ProcessOpts = {}) {
     access as never,
     audit as never,
     notifications as never,
+    new MetricsService(),
   );
   return { service, prisma, tx, strategy, payments, access, audit, notifications };
 }
@@ -261,6 +263,7 @@ function setupRequest(opts: RequestOpts) {
     access as never,
     audit as never,
     { send: jest.fn() } as never,
+    new MetricsService(),
   );
   return { service, prisma };
 }

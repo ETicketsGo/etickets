@@ -4,6 +4,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { GeneralAdmissionInventoryStrategy } from '../inventory/general-admission.strategy';
 import { SeatBasedInventoryStrategy } from '../inventory/seat-based.strategy';
 import { ExperienceTypeRegistry } from '../experience/experience-type.registry';
+import { MetricsService } from '../metrics/metrics.service';
 
 /** A real InventoryService wired to the real strategies, so the release path
  *  exercises the actual SQL rather than a stub. */
@@ -47,6 +48,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new MetricsService(),
     );
     const released = await service.releaseExpiredHolds();
     expect(released).toBe(0);
@@ -69,6 +71,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new MetricsService(),
     );
 
     const released = await service.releaseExpiredHolds('session-1');
@@ -97,6 +100,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new MetricsService(),
     );
     await service.releaseExpiredHolds();
     const where = prisma.booking.findMany.mock.calls[0][0].where;

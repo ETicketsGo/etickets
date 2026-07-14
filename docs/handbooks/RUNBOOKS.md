@@ -141,8 +141,31 @@ FEATURE_COMMUNITY=false npm run dev -w @eticketsgo/api
 | ------------------ | ------------------------------------------------------------------------------ |
 | `GET /api/health`  | API liveness (`{ status: "ok", uptime }`).                                     |
 | `GET /api/ready`   | API readiness — checks Postgres + Redis; `degraded` + `503` if either is down. |
+| `GET /api/metrics` | Prometheus exposition (default process + `etg_*` metrics). Ops-only.           |
 | `GET :4100/health` | Worker liveness.                                                               |
 | `GET :4100/ready`  | Worker readiness — Postgres + Redis.                                           |
+
+> `/api/metrics` is public (unauthenticated) so a scraper can reach it — in
+> production it must be network-restricted to the Prometheus scraper. See the
+> [Operations Runbook](../reports/OPERATIONS.md) for the metrics catalog, alert
+> rules, and Grafana panels.
+
+## Backup & Restore (dev)
+
+Logical `pg_dump` of the compose Postgres:
+
+```bash
+docker exec -t eticketsgo-db pg_dump -U eticketsgo -d eticketsgo -Fc \
+  > backups/eticketsgo-$(date +%Y%m%d-%H%M%S).dump
+# restore (stop API + worker first):
+docker exec -i eticketsgo-db pg_restore -U eticketsgo -d eticketsgo --clean --if-exists \
+  < backups/eticketsgo-YYYYMMDD-HHMMSS.dump
+```
+
+Redis holds no source of truth (holds re-derive), so it needs no backup. Full
+procedure, cadence, and the recommended managed-Postgres PITR for production are
+in the [Operations Runbook](../reports/OPERATIONS.md#5-backups--restore). For a
+destructive local reset (not a restore), use `npm run db:reset` above.
 
 ## Toggle mock payments
 
@@ -162,7 +185,10 @@ surprise. Tracked for the Operations sprint.
   (`.github/workflows/ci.yml`) currently installs, format-checks, lints,
   type-checks, migrates + seeds, unit-tests, builds, and runs Playwright — it does
   not deploy.
-- **Backup / restore automation** for Postgres and Redis.
+- **Backup / restore automation** for Postgres (a manual `pg_dump`/`pg_restore`
+  procedure now exists — see "Backup & Restore (dev)" above and the
+  [Operations Runbook](../reports/OPERATIONS.md); scheduled/automated backups and
+  managed-Postgres PITR remain planned).
 - **Real payment provider** (Stripe/Razorpay) behind the existing
   `PaymentProvider` interface — today only the mock provider exists.
 - **Real notification delivery** (SendGrid/Twilio/FCM) behind the

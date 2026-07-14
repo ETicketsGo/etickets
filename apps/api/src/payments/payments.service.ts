@@ -15,6 +15,7 @@ import { MockPaymentProvider } from './provider/mock-payment.provider';
 import type { PaymentEvent, WebhookInput } from './provider/payment-provider.interface';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -27,6 +28,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /** Issue a provider refund for a captured payment. */
@@ -233,6 +235,7 @@ export class PaymentsService {
       entityId: booking.id,
       metadata: { providerRef: event.providerRef },
     });
+    this.metrics.recordBookingConfirmed();
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
   }
 
@@ -259,6 +262,7 @@ export class PaymentsService {
       toEmail: booking.buyerEmail,
       payload: { bookingId: booking.id },
     });
+    this.metrics.recordPaymentFailed();
     // The inventory hold stays until it expires, allowing the buyer to retry.
     return { status: 'failed', bookingId: booking.id };
   }

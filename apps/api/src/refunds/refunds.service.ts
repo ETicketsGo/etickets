@@ -17,6 +17,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 /** Refund rows that hold or consume a ticket's refund allocation. */
 const OPEN_REFUND_STATUSES = [
@@ -34,6 +35,7 @@ export class RefundsService {
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
+    private readonly metrics: MetricsService,
   ) {}
 
   async request(user: RequestUser, input: RefundRequestInput) {
@@ -303,6 +305,7 @@ export class RefundsService {
       entityId: refundId,
       metadata: { amountMinor: refund.amountMinor, providerRef: providerResult.providerRef },
     });
+    this.metrics.recordRefundCompleted();
     return this.prisma.refund.findUnique({ where: { id: refundId } });
   }
 }

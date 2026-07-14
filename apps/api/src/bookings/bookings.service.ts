@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 const HOLD_MINUTES = 10;
 
@@ -31,6 +32,7 @@ export class BookingsService {
     private readonly pricingStrategies: PricingStrategiesService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -239,6 +241,7 @@ export class BookingsService {
       entityId: booking.id,
       metadata: { totalMinor: booking.totalMinor },
     });
+    this.metrics.recordBookingCreated();
 
     const result = {
       id: booking.id,

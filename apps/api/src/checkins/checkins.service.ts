@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 
@@ -30,6 +31,7 @@ export class CheckinsService {
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
+    private readonly metrics: MetricsService,
   ) {}
 
   /**
@@ -143,6 +145,7 @@ export class CheckinsService {
         payload: { ticketId: ticket.id, serial: ticket.serial },
       });
     }
+    this.metrics.recordCheckin();
     return {
       result: CheckInResult.SUCCESS,
       message: 'Checked in successfully.',

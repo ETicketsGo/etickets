@@ -2,6 +2,7 @@ import { CheckInResult, TicketStatus } from '@eticketsgo/shared-types';
 import { CheckinsService } from './checkins.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { MetricsService } from '../metrics/metrics.service';
 
 const STAFF: RequestUser = {
   id: 'staff-1',
@@ -70,6 +71,7 @@ function setup(opts: {
     access as never,
     audit as never,
     notifications as never,
+    new MetricsService(),
   );
   return { service, qr, prisma, access, audit, notifications };
 }
