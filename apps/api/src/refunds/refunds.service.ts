@@ -239,6 +239,8 @@ export class RefundsService {
         refund.reason,
         // Keep the refund on the gateway that captured the payment.
         payment?.provider,
+        // Currency lets PayPal/Square format a partial refund.
+        booking.currency,
       );
     } catch (err) {
       await this.prisma.refund

@@ -40,12 +40,28 @@ const envSchema = z.object({
   // Which real/mock provider the PAYMENT_PROVIDER token resolves to. Optional so
   // dev/test/mock boots without any gateway keys. Only the selected provider is
   // constructed (see payments.module.ts), and it fails fast if its keys are unset.
-  PAYMENT_PROVIDER_NAME: z.enum(['mock', 'razorpay', 'stripe']).default('mock'),
+  PAYMENT_PROVIDER_NAME: z.enum(['mock', 'razorpay', 'stripe', 'paypal', 'square']).default('mock'),
 
   // --- Razorpay (India). Sandbox vs production is purely test vs live keys. ---
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  // --- PayPal (global, Orders v2 REST). Endpoint configurable; defaults to sandbox. ---
+  PAYPAL_CLIENT_ID: z.string().optional(),
+  PAYPAL_CLIENT_SECRET: z.string().optional(),
+  PAYPAL_WEBHOOK_ID: z.string().optional(),
+  PAYPAL_API_BASE_URL: z.string().optional(),
+  PAYPAL_RETURN_URL: z.string().optional(),
+  PAYPAL_CANCEL_URL: z.string().optional(),
+
+  // --- Square (Connect REST). Endpoint configurable; defaults to sandbox. ---
+  SQUARE_ACCESS_TOKEN: z.string().optional(),
+  SQUARE_LOCATION_ID: z.string().optional(),
+  SQUARE_API_BASE_URL: z.string().optional(),
+  SQUARE_API_VERSION: z.string().optional(),
+  SQUARE_WEBHOOK_SIGNATURE_KEY: z.string().optional(),
+  SQUARE_WEBHOOK_URL: z.string().optional(),
 
   // --- Stripe (global). Sandbox vs production is purely test vs live keys. ---
   STRIPE_SECRET_KEY: z.string().optional(),

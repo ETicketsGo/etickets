@@ -1,10 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import type { MockPaymentProvider } from './mock-payment.provider';
 import type { PaymentProvider } from './payment-provider.interface';
+import { PayPalPaymentProvider } from './paypal-payment.provider';
 import { RazorpayPaymentProvider } from './razorpay-payment.provider';
+import { SquarePaymentProvider } from './square-payment.provider';
 import { StripePaymentProvider } from './stripe-payment.provider';
 
-export type PaymentProviderName = 'mock' | 'razorpay' | 'stripe';
+export type PaymentProviderName = 'mock' | 'razorpay' | 'stripe' | 'paypal' | 'square';
 
 /**
  * Resolves the active PaymentProvider from PAYMENT_PROVIDER_NAME (default 'mock').
@@ -23,6 +25,10 @@ export function selectPaymentProvider(
       return new StripePaymentProvider(config);
     case 'razorpay':
       return new RazorpayPaymentProvider(config);
+    case 'paypal':
+      return new PayPalPaymentProvider(config);
+    case 'square':
+      return new SquarePaymentProvider(config);
     case 'mock':
       return mock;
     default:

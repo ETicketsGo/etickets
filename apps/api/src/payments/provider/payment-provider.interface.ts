@@ -40,6 +40,11 @@ export interface RefundInput {
   providerRef: string;
   amountMinor: number;
   reason?: string;
+  /**
+   * ISO-4217 currency of the original payment. Optional for backward compatibility
+   * (Stripe/Razorpay infer it); PayPal/Square require it to format a partial refund.
+   */
+  currency?: string;
 }
 
 export interface RefundResult {

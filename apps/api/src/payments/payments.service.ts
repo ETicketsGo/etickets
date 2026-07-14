@@ -47,8 +47,14 @@ export class PaymentsService {
    * for retry/timeout/circuit protection; `provider` (when known) keeps the refund
    * on the gateway that took the payment.
    */
-  refundPayment(providerRef: string, amountMinor: number, reason?: string, provider?: string) {
-    return this.orchestrator.refund({ providerRef, amountMinor, reason }, { provider });
+  refundPayment(
+    providerRef: string,
+    amountMinor: number,
+    reason?: string,
+    provider?: string,
+    currency?: string,
+  ) {
+    return this.orchestrator.refund({ providerRef, amountMinor, reason, currency }, { provider });
   }
 
   /** Whether the mock "simulate payment" path is allowed (dev/test only). */
