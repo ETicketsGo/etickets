@@ -179,9 +179,11 @@ async function seedPaymentPlatform() {
     priority: 100,
   }));
   const realRoutes = [PaymentEnv.UAT, ...liveEnvs].flatMap((env) => [
+    // INR settles via Razorpay (failover Stripe); everything else via Stripe.
+    // Currency-based so it routes without depending on venue country formatting.
     {
       env,
-      country: 'IN',
+      country: '*',
       currency: 'INR',
       method: '*',
       provider: 'razorpay',

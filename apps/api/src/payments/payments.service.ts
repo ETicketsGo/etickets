@@ -18,6 +18,7 @@ import {
   type PaymentProvider,
   type WebhookInput,
 } from './provider/payment-provider.interface';
+import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -33,15 +34,21 @@ export class PaymentsService {
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
     // The mock is used only by the dev-only mockPay() path to sign a test event.
     private readonly mockProvider: MockPaymentProvider,
+    // Routes + fails over across configured providers (resilient createPayment).
+    private readonly orchestrator: PaymentOrchestrator,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
     private readonly metrics: MetricsService,
   ) {}
 
-  /** Issue a provider refund for a captured payment. */
-  refundPayment(providerRef: string, amountMinor: number, reason?: string) {
-    return this.provider.refund({ providerRef, amountMinor, reason });
+  /**
+   * Issue a provider refund for a captured payment. Routed through the orchestrator
+   * for retry/timeout/circuit protection; `provider` (when known) keeps the refund
+   * on the gateway that took the payment.
+   */
+  refundPayment(providerRef: string, amountMinor: number, reason?: string, provider?: string) {
+    return this.orchestrator.refund({ providerRef, amountMinor, reason }, { provider });
   }
 
   /** Whether the mock "simulate payment" path is allowed (dev/test only). */
@@ -84,16 +91,27 @@ export class PaymentsService {
       );
     }
 
-    const intent = await this.provider.createPayment({
-      bookingId,
-      amountMinor: booking.totalMinor,
-      currency: booking.currency,
-      buyerEmail: booking.buyerEmail,
-      idempotencyKey: booking.id,
-    });
+    // Route through the orchestrator: it resolves the configured provider chain for
+    // this currency and fails over across constructed adapters. In local/dev (dummy
+    // only) it resolves to the mock, preserving the existing flow exactly.
+    const { intent, provider } = await this.orchestrator.createPayment(
+      { currency: booking.currency },
+      {
+        bookingId,
+        amountMinor: booking.totalMinor,
+        currency: booking.currency,
+        buyerEmail: booking.buyerEmail,
+        idempotencyKey: booking.id,
+      },
+    );
     await this.prisma.payment.update({
       where: { bookingId },
-      data: { status: PaymentStatus.PROCESSING, providerRef: intent.providerRef },
+      data: {
+        status: PaymentStatus.PROCESSING,
+        providerRef: intent.providerRef,
+        // Record which gateway actually handled the intent (default 'mock').
+        ...(provider ? { provider } : {}),
+      },
     });
     return intent;
   }

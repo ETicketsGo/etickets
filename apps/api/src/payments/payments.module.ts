@@ -6,6 +6,8 @@ import { MockPaymentProvider } from './provider/mock-payment.provider';
 import { PAYMENT_PROVIDER } from './provider/payment-provider.interface';
 import { selectPaymentProvider } from './provider/payment-provider.factory';
 import { PaymentConfigModule } from './configuration/payment-config.module';
+import { PaymentProviderRegistry } from './orchestration/provider-registry';
+import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
@@ -23,6 +25,9 @@ import { InventoryModule } from '../inventory/inventory.module';
       inject: [ConfigService, MockPaymentProvider],
       useFactory: selectPaymentProvider,
     },
+    // Orchestration: routes + fails over across constructed provider adapters.
+    PaymentProviderRegistry,
+    PaymentOrchestrator,
   ],
   exports: [PaymentsService],
 })

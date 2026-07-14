@@ -237,6 +237,8 @@ export class RefundsService {
         payment?.providerRef ?? 'mock',
         refund.amountMinor,
         refund.reason,
+        // Keep the refund on the gateway that captured the payment.
+        payment?.provider,
       );
     } catch (err) {
       await this.prisma.refund

@@ -63,6 +63,12 @@ function setup(opts: {
   const mockProvider = {
     signEvent: jest.fn((e) => ({ rawBody: JSON.stringify(e), signature: 'x' })),
   };
+  const orchestrator = {
+    createPayment: jest
+      .fn()
+      .mockResolvedValue({ intent: { providerRef: 'mock_pi_123' }, provider: 'mock' }),
+    refund: jest.fn().mockResolvedValue({ providerRef: 'mock_rf_1', status: 'COMPLETED' }),
+  };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
@@ -71,6 +77,7 @@ function setup(opts: {
     prisma as never,
     provider as never,
     mockProvider as never,
+    orchestrator as never,
     audit as never,
     notifications as never,
     inventory as never,
