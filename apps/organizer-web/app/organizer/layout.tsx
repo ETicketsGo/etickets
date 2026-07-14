@@ -10,17 +10,21 @@ import {
   Sparkles,
   Film,
   Building2,
+  Rocket,
+  LifeBuoy,
 } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 
 const nav: NavItem[] = [
   { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
+  { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
   { label: 'Events', href: '/organizer/events', icon: CalendarDays },
   { label: 'Movies', href: '/organizer/movies', icon: Film },
   { label: 'Cinemas', href: '/organizer/cinemas', icon: Building2 },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Team', href: '/organizer/team', icon: Users },
   { label: 'Premium', href: '/organizer/premium', icon: Sparkles },
+  { label: 'Help', href: '/organizer/help', icon: LifeBuoy },
   { label: 'Settings', href: '/organizer/settings', icon: Settings },
 ];
 

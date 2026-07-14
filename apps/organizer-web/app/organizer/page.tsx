@@ -16,6 +16,7 @@ import {
   dateOnly,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { WelcomeCard } from '@/components/onboarding-checklist';
 
 export default function OrganizerDashboard() {
   const { activeOrg } = useOrg();
@@ -82,6 +83,8 @@ export default function OrganizerDashboard() {
         description="Your sales, tickets, and payout status at a glance."
         action={<ButtonLink href="/organizer/events/new">Create event</ButtonLink>}
       />
+
+      <WelcomeCard orgId={activeOrg.id} orgName={activeOrg.name} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

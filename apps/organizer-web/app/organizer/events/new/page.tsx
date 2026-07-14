@@ -1,8 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import {
   api,
   Button,
@@ -12,11 +12,13 @@ import {
   Textarea,
   Stepper,
   PageHeader,
+  Skeleton,
   useToast,
   errorMessage,
   money,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { getTemplate } from '@/lib/templates';
 
 const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
 const FEE_MODES = [
@@ -37,10 +39,14 @@ interface TicketDraft {
   maxPerOrder: string;
 }
 
-export default function NewEventWizard() {
+function NewEventWizard() {
   const { activeOrg } = useOrg();
   const router = useRouter();
   const toast = useToast();
+  // Optional starter template deep-linked from onboarding (?template=concert, …).
+  // Purely seeds initial field values — the wizard's own logic is unchanged.
+  const searchParams = useSearchParams();
+  const template = getTemplate(searchParams.get('template'));
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -52,9 +58,9 @@ export default function NewEventWizard() {
   });
 
   const [basics, setBasics] = useState({
-    title: '',
-    category: '',
-    description: '',
+    title: template?.suggestedTitle ?? '',
+    category: template?.category ?? '',
+    description: template?.description ?? '',
     refundPolicy: '',
   });
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
@@ -517,5 +523,14 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-text-muted">{label}</span>
       <span className="text-right font-medium text-text-primary">{value || '—'}</span>
     </div>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary during static generation.
+export default function NewEventPage() {
+  return (
+    <Suspense fallback={<Skeleton className="mx-auto h-96 max-w-2xl" />}>
+      <NewEventWizard />
+    </Suspense>
   );
 }
