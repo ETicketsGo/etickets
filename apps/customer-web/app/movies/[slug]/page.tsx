@@ -3,9 +3,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Clock, Film, MapPin, Clapperboard, Users } from 'lucide-react';
+import { Clock, Film, MapPin, Clapperboard, Users, Play } from 'lucide-react';
+import { gradientFor } from '@eticketsgo/web-kit';
 import { api, ApiRequestError } from '@/lib/api';
-import { Badge, Card, EmptyState, ErrorState } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, ErrorState } from '@/components/ui';
 
 function showtime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-IN', {
@@ -72,7 +73,9 @@ export default function MovieDetailPage() {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center">
+              <div
+                className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${gradientFor(movie.id)}`}
+              >
                 <Film className="h-10 w-10 text-text-primary/25" />
               </div>
             )}
@@ -105,6 +108,18 @@ export default function MovieDetailPage() {
                   {g}
                 </Badge>
               ))}
+            </div>
+          )}
+
+          {movie.trailerUrl && (
+            <div>
+              <Button
+                variant="outline"
+                onClick={() => window.open(movie.trailerUrl!, '_blank', 'noopener,noreferrer')}
+              >
+                <Play className="h-4 w-4" />
+                Watch trailer
+              </Button>
             </div>
           )}
 

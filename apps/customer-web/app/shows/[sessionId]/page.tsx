@@ -3,13 +3,37 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { MonitorPlay, Armchair } from 'lucide-react';
+import { MonitorPlay, Armchair, X, Clock } from 'lucide-react';
 import { useToast } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 
 const MAX_SEATS = 10;
+
+/**
+ * Pick a readable foreground for a selected seat filled with an arbitrary
+ * category swatch, so selection never relies on a fixed `text-white` that may
+ * be invisible on a light swatch. Uses perceived (Rec. 601) luminance and
+ * returns design-token colours.
+ */
+function readableTextOn(hex?: string): string {
+  if (!hex) return 'var(--action-primary-foreground)';
+  const raw = hex.replace('#', '');
+  const full =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : raw;
+  if (full.length < 6) return 'var(--action-primary-foreground)';
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? 'var(--text-primary)' : '#ffffff';
+}
 
 export default function SeatSelectionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -136,6 +160,12 @@ export default function SeatSelectionPage() {
     );
 
   const hasSeats = layout.sections.some((s) => s.rows.some((r) => r.seats.length > 0));
+  const hasSold = layout.sections.some((s) =>
+    s.rows.some((r) => r.seats.some((seat) => seat.status === 'SOLD')),
+  );
+  const hasHeld = layout.sections.some((s) =>
+    s.rows.some((r) => r.seats.some((seat) => seat.status === 'HELD')),
+  );
 
   return (
     <div className="space-y-6">
@@ -211,18 +241,28 @@ export default function SeatSelectionPage() {
                                           available && !isSelected && color
                                             ? { borderColor: color, color }
                                             : isSelected && color
-                                              ? { backgroundColor: color, borderColor: color }
+                                              ? {
+                                                  backgroundColor: color,
+                                                  borderColor: color,
+                                                  color: readableTextOn(color),
+                                                }
                                               : undefined
                                         }
-                                        className={`flex h-7 w-7 items-center justify-center rounded-md border text-[0.625rem] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                                        className={`flex h-9 w-9 items-center justify-center rounded-md border text-[0.625rem] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-7 sm:w-7 ${
                                           !available
-                                            ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted/50'
+                                            ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted/60'
                                             : isSelected
-                                              ? 'text-white'
+                                              ? 'bg-action-primary text-action-primary-foreground ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface hover:scale-110'
                                               : 'bg-background-surface hover:scale-110'
                                         }`}
                                       >
-                                        {seat.label.replace(/^[A-Za-z]+/, '')}
+                                        {available ? (
+                                          seat.label.replace(/^[A-Za-z]+/, '')
+                                        ) : seat.status === 'SOLD' ? (
+                                          <X className="h-3.5 w-3.5" aria-hidden />
+                                        ) : (
+                                          <Clock className="h-3 w-3" aria-hidden />
+                                        )}
                                       </button>
                                     </span>
                                   );
@@ -236,24 +276,47 @@ export default function SeatSelectionPage() {
                   ))}
                 </div>
 
-                {/* Legend */}
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-4 text-caption text-text-secondary">
-                  {layout.categories.map((c) => (
-                    <span key={c.id} className="flex items-center gap-1.5">
-                      <span
-                        className="h-3.5 w-3.5 rounded border"
-                        style={{
-                          borderColor: c.colorHex ?? 'var(--border)',
-                          backgroundColor: c.colorHex ? `${c.colorHex}22` : undefined,
-                        }}
-                      />
-                      {c.name} · {money(c.priceMinor)}
+                {/* Legend — status is conveyed by shape/icon, not colour alone. */}
+                <div className="space-y-3 border-t border-border pt-4 text-caption text-text-secondary">
+                  {/* Available seats, by price tier */}
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <span className="font-medium text-text-muted">Available</span>
+                    {layout.categories.map((c) => (
+                      <span key={c.id} className="flex items-center gap-1.5">
+                        <span
+                          className="h-3.5 w-3.5 rounded border"
+                          style={{
+                            borderColor: c.colorHex ?? 'var(--border)',
+                            backgroundColor: c.colorHex ? `${c.colorHex}22` : undefined,
+                          }}
+                        />
+                        {c.name} · {money(c.priceMinor)}
+                      </span>
+                    ))}
+                  </div>
+                  {/* Selection & unavailable states, each with a non-colour affordance */}
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-3.5 w-3.5 rounded bg-action-primary ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface" />
+                      Selected
                     </span>
-                  ))}
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-3.5 w-3.5 rounded border border-border bg-background-subtle" />
-                    Sold / held
-                  </span>
+                    {hasSold && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
+                          <X className="h-2.5 w-2.5" aria-hidden />
+                        </span>
+                        Sold
+                      </span>
+                    )}
+                    {hasHeld && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
+                          <Clock className="h-2.5 w-2.5" aria-hidden />
+                        </span>
+                        Held
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

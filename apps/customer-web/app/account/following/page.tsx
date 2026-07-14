@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { BadgeCheck, ChevronRight, Users } from 'lucide-react';
 import { api, type OrganizerProfile } from '@/lib/api';
 import { dateOnly } from '@/lib/format';
-import { EmptyState, ErrorState } from '@/components/ui';
+import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
 
 const FOLLOW_KEY = 'etg_following';
 
@@ -77,11 +77,7 @@ export default function FollowingPage() {
           title="You’re not following anyone yet"
           hint="Follow organizers to see them here."
           icon={Users}
-          action={
-            <Link href="/events" className="text-action-primary hover:underline">
-              Browse events
-            </Link>
-          }
+          action={<ButtonLink href="/events">Browse events</ButtonLink>}
         />
       ) : allErrored ? (
         <ErrorState
@@ -108,11 +104,7 @@ export default function FollowingPage() {
           title="You’re not following anyone yet"
           hint="Follow organizers to see them here."
           icon={Users}
-          action={
-            <Link href="/events" className="text-action-primary hover:underline">
-              Browse events
-            </Link>
-          }
+          action={<ButtonLink href="/events">Browse events</ButtonLink>}
         />
       )}
     </div>

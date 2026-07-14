@@ -91,7 +91,9 @@ export default function MoviesPage() {
         </div>
       ) : data && data.length > 0 ? (
         <>
-          <p className="text-caption text-text-muted">{data.length} movie(s)</p>
+          <p className="text-caption text-text-muted">
+            {data.length} movie{data.length === 1 ? '' : 's'}
+          </p>
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4">
             {data.map((m) => (
               <MovieCard key={m.id} movie={m} />
