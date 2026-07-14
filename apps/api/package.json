@@ -21,7 +21,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
-    "db:seed": "ts-node --transpile-only prisma/seed.ts"
+    "db:seed": "ts-node --transpile-only prisma/seed.ts",
+    "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"

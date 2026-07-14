@@ -11,6 +11,7 @@ import {
   type CreateOnboardingInput,
   type OnboardingPatch,
 } from './merchant-onboarding.service';
+import { SandboxCertificationService } from '../certification/sandbox-certification.service';
 
 const createSchema = z.object({
   env: z.enum(PAYMENT_ENVS),
@@ -54,7 +55,10 @@ const reasonSchema = z.object({ reason: z.string().min(1) });
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
 @Controller('admin/payments/onboarding')
 export class MerchantOnboardingController {
-  constructor(private readonly onboarding: MerchantOnboardingService) {}
+  constructor(
+    private readonly onboarding: MerchantOnboardingService,
+    private readonly certification: SandboxCertificationService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List merchant onboarding records (admin).' })
@@ -131,6 +135,18 @@ export class MerchantOnboardingController {
   @ApiOperation({ summary: "Health-check the merchant's own credentials (admin)." })
   testConnection(@CurrentUser() user: RequestUser, @Ip() ip: string, @Param('id') id: string) {
     return this.onboarding.testConnection(id, { userId: user.id, ip });
+  }
+
+  @Post(':id/certify')
+  @ApiOperation({ summary: 'Run sandbox certification for this merchant (admin).' })
+  certify(@CurrentUser() user: RequestUser, @Ip() ip: string, @Param('id') id: string) {
+    return this.certification.certifyOnboarding(id, { userId: user.id, ip });
+  }
+
+  @Get(':id/certifications')
+  @ApiOperation({ summary: 'List certification runs for this merchant (admin).' })
+  certifications(@Param('id') id: string) {
+    return this.certification.list(id);
   }
 
   @Post(':id/transition')

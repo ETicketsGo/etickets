@@ -1004,6 +1004,34 @@ model MerchantOnboarding {
   @@index([provider])
 }
 
+// Sandbox certification of a merchant/provider combination (ADR-027). Records the
+// result of the automated end-to-end certification run (health → payment → webhook
+// → confirm → ticket → partial refund → refund webhook → reconcile → settlement).
+enum CertificationResult {
+  PASS
+  PARTIAL
+  FAIL
+}
+
+model MerchantCertification {
+  id                   String              @id @default(cuid())
+  merchantOnboardingId String?
+  env                  PaymentEnv
+  provider             String
+  result               CertificationResult
+  // Steps: [{ step, label, status: PASS|FAIL|SKIP, detail, ref }] (refs are tx ids,
+  // never secrets).
+  steps                Json
+  passedCount          Int                 @default(0)
+  failedCount          Int                 @default(0)
+  skippedCount         Int                 @default(0)
+  operator             String?
+  createdAt            DateTime            @default(now())
+
+  @@index([merchantOnboardingId])
+  @@index([env, provider])
+}
+
 // Controlled environment promotion of a provider configuration (ADR-026). A
 // promotion is validated, then approved (two-person for PRODUCTION), then applied —
 // never copied blindly. The report + approvals are retained for audit.

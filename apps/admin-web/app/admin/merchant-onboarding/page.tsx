@@ -347,6 +347,27 @@ function DetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
             >
               <PlugZap className="h-4 w-4" /> Test connection
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                api.admin.onboarding
+                  .certify(id)
+                  .then((c) =>
+                    push(
+                      `Certification ${c.result} (${c.passedCount}✓ ${c.failedCount}✗ ${c.skippedCount}–)`,
+                      c.result === 'FAIL'
+                        ? 'error'
+                        : c.result === 'PARTIAL'
+                          ? 'warning'
+                          : 'success',
+                    ),
+                  )
+                  .catch((e) => push(errorMessage(e), 'error'))
+              }
+            >
+              Run certification
+            </Button>
             {NEXT[record.status] && (
               <Button
                 size="sm"

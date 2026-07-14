@@ -497,6 +497,12 @@ export const api = {
         request<TestConnectionResult>(`/admin/payments/onboarding/${id}/test-connection`, {
           method: 'POST',
         }),
+      certify: (id: string) =>
+        request<MerchantCertificationRow>(`/admin/payments/onboarding/${id}/certify`, {
+          method: 'POST',
+        }),
+      certifications: (id: string) =>
+        request<MerchantCertificationRow[]>(`/admin/payments/onboarding/${id}/certifications`),
       transition: (id: string, to: OnboardingStatusValue) =>
         request<MerchantOnboardingRow>(`/admin/payments/onboarding/${id}/transition`, {
           method: 'POST',
@@ -1382,6 +1388,26 @@ export interface OnboardingDetail {
   record: MerchantOnboardingRow;
   checklist: OnboardingChecklistItem[];
   activationReady: boolean;
+}
+export interface CertificationStepRow {
+  step: number;
+  key: string;
+  label: string;
+  status: 'PASS' | 'FAIL' | 'SKIP';
+  detail?: string;
+  ref?: string;
+}
+export interface MerchantCertificationRow {
+  id: string;
+  env: PaymentEnvValue;
+  provider: string;
+  result: 'PASS' | 'PARTIAL' | 'FAIL';
+  steps: CertificationStepRow[];
+  passedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  operator: string | null;
+  createdAt: string;
 }
 export interface CreateOnboardingBody {
   env: PaymentEnvValue;
