@@ -1,20 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   ChannelKey,
   NotificationChannel,
   RenderedNotification,
 } from './notification-channel.interface';
+import {
+  WHATSAPP_TRANSPORT,
+  WhatsAppLogTransport,
+  WhatsAppTransport,
+} from './transports/whatsapp.transport';
 
 /**
- * WhatsApp channel. MVP log-only stub — a real provider (e.g. Twilio WhatsApp
- * Business API) would send the rendered body inside {@link deliver}.
+ * WhatsApp channel. Delivery is delegated to an injected {@link WhatsAppTransport},
+ * selected by `WHATSAPP_PROVIDER` (default `log`). The Cloud API transport reads
+ * the recipient from `payload.phone` and skips cleanly when it is absent.
  */
 @Injectable()
 export class WhatsAppChannel implements NotificationChannel {
   readonly key: ChannelKey = 'whatsapp';
-  private readonly logger = new Logger('Notification');
+
+  constructor(
+    @Inject(WHATSAPP_TRANSPORT)
+    private readonly transport: WhatsAppTransport = new WhatsAppLogTransport(),
+  ) {}
 
   async deliver(msg: RenderedNotification): Promise<void> {
-    this.logger.log(`[whatsapp:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.body}`);
+    await this.transport.send(msg);
   }
 }

@@ -27,6 +27,7 @@
     "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1086.0",
     "@eticketsgo/shared-types": "*",
     "@eticketsgo/validation": "*",
     "@nestjs/common": "^10.4.4",
@@ -38,10 +39,12 @@
     "@nestjs/swagger": "^7.4.2",
     "@nestjs/throttler": "^6.2.1",
     "@prisma/client": "^5.20.0",
+    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.13.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "firebase-admin": "^14.1.0",
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
     "passport": "^0.7.0",
@@ -51,6 +54,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "stripe": "^22.3.1",
+    "twilio": "^6.0.2",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
   },

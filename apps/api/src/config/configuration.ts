@@ -42,6 +42,41 @@ const envSchema = z.object({
 
   STORAGE_DRIVER: z.string().default('local'),
   STORAGE_LOCAL_DIR: z.string().default('.storage'),
+
+  // ─── Notification delivery transports ──────────────────────────────────────
+  // Each channel picks a transport via <CHANNEL>_PROVIDER (default `log` = the
+  // original log-only behaviour, so mock/dev/test/e2e boot with none of the keys
+  // below). Only the selected provider is constructed; if selected but its keys
+  // are missing, construction fails fast with a key-named error. Sandbox vs
+  // production is purely test vs live credentials — same code.
+
+  // --- Email (recipient = notification.toEmail) ---
+  EMAIL_PROVIDER: z.enum(['log', 'sendgrid', 'ses']).default('log'),
+  EMAIL_FROM: z.string().optional(),
+  // SendGrid (EMAIL_PROVIDER=sendgrid)
+  SENDGRID_API_KEY: z.string().optional(),
+  // AWS SES v2 (EMAIL_PROVIDER=ses). Credentials fall back to the default AWS
+  // provider chain when the explicit access-key pair is omitted.
+  AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+
+  // --- SMS (recipient = payload.phone) ---
+  SMS_PROVIDER: z.enum(['log', 'twilio']).default('log'),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM_NUMBER: z.string().optional(),
+
+  // --- WhatsApp (recipient = payload.phone) ---
+  WHATSAPP_PROVIDER: z.enum(['log', 'cloud']).default('log'),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+
+  // --- Push (recipient = payload.pushToken / payload.pushTokens) ---
+  PUSH_PROVIDER: z.enum(['log', 'fcm']).default('log'),
+  FCM_PROJECT_ID: z.string().optional(),
+  FCM_CLIENT_EMAIL: z.string().optional(),
+  FCM_PRIVATE_KEY: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

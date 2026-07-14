@@ -1,20 +1,27 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   ChannelKey,
   NotificationChannel,
   RenderedNotification,
 } from './notification-channel.interface';
+import { PUSH_TRANSPORT, PushLogTransport, PushTransport } from './transports/push.transport';
 
 /**
- * Push channel. MVP log-only stub — a real provider (e.g. Firebase Cloud
- * Messaging / APNs) would push the rendered subject+body inside {@link deliver}.
+ * Push channel. Delivery is delegated to an injected {@link PushTransport},
+ * selected by `PUSH_PROVIDER` (default `log`). The FCM transport reads the device
+ * token(s) from `payload.pushToken` / `payload.pushTokens` and skips cleanly when
+ * none are present.
  */
 @Injectable()
 export class PushChannel implements NotificationChannel {
   readonly key: ChannelKey = 'push';
-  private readonly logger = new Logger('Notification');
+
+  constructor(
+    @Inject(PUSH_TRANSPORT)
+    private readonly transport: PushTransport = new PushLogTransport(),
+  ) {}
 
   async deliver(msg: RenderedNotification): Promise<void> {
-    this.logger.log(`[push:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.subject}`);
+    await this.transport.send(msg);
   }
 }
