@@ -8,6 +8,7 @@ import {
   type Paged,
   type PublicEventCard,
   type BookingRequest,
+  type FeedbackSubmission,
 } from '@eticketsgo/web-kit';
 
 export { tokenStore, ApiRequestError, API_URL };
@@ -31,6 +32,7 @@ export type {
   OrganizerSpotlight,
   VenueSpotlight,
   OrganizerProfile,
+  FeedbackSubmission,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -72,4 +74,6 @@ export const api = {
   showSeats: (sessionId: string) => wk.publicShows.seats(sessionId),
   // Analytics Platform: the signed-in customer's own booking analytics.
   analytics: () => wk.analytics.customer(),
+  // Customer Success: contact, bug report, feature request, feedback, CSAT.
+  submitFeedback: (body: FeedbackSubmission) => wk.support.submit(body),
 };

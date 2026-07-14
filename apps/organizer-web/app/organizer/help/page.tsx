@@ -2,6 +2,7 @@
 
 import { ChevronRight, PlayCircle, Mail, Rocket, BookOpen } from 'lucide-react';
 import { ButtonLink, Card, PageHeader } from '@eticketsgo/web-kit';
+import { OrganizerFeedback } from '@/components/organizer-feedback';
 
 const SUPPORT_EMAIL = 'organizers@eticketsgo.example';
 
@@ -151,6 +152,9 @@ export default function HelpPage() {
           </ButtonLink>
         </div>
       </Card>
+
+      {/* Organizer satisfaction survey + send feedback */}
+      <OrganizerFeedback />
     </div>
   );
 }

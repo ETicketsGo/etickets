@@ -30,6 +30,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
@@ -74,6 +75,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     AnalyticsModule,
     AdminModule,
     ReviewsModule,
+    SupportModule,
     AiModule,
     DiscoveryModule,
     RecommendationsModule,

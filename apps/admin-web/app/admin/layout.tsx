@@ -13,6 +13,7 @@ import {
   ScrollText,
   Settings,
   Film,
+  LifeBuoy,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -25,6 +26,7 @@ const nav: NavItem[] = [
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
   { label: 'Users', href: '/admin/users', icon: Users },
+  { label: 'Support', href: '/admin/support', icon: LifeBuoy },
   { label: 'Audit', href: '/admin/audit', icon: ScrollText },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];

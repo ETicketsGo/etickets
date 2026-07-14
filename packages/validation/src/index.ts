@@ -5,3 +5,4 @@ export * from './event';
 export * from './movie';
 export * from './booking';
 export * from './review';
+export * from './feedback';

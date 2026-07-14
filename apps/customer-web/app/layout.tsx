@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { Header } from '@/components/header';
+import { FeedbackWidget } from '@/components/feedback-widget';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <footer className="mt-16 border-t border-border py-8 text-center text-caption text-text-muted">
             ETicketsGo — demo MVP. Mock payments only.
           </footer>
+          <FeedbackWidget />
         </Providers>
       </body>
     </html>

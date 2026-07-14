@@ -162,6 +162,7 @@ model User {
   bookings      Booking[]
   notifications Notification[]
   notificationPreferences NotificationPreference[]
+  feedback                Feedback[]
   checkIns      CheckIn[]            @relation("CheckInActor")
   auditLogs     AuditLog[]
   reviews       Review[]
@@ -785,6 +786,35 @@ model NotificationPreference {
 
   @@unique([userId, type, channel])
   @@index([userId])
+}
+
+// Customer-success submissions: contact/bug/feature/general + satisfaction surveys.
+enum FeedbackKind {
+  CONTACT
+  BUG
+  FEATURE
+  GENERAL
+  CSAT // customer satisfaction (rating)
+  ORGANIZER_CSAT // organizer satisfaction (rating)
+}
+
+model Feedback {
+  id        String       @id @default(cuid())
+  kind      FeedbackKind
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id])
+  email     String?
+  subject   String?
+  message   String
+  rating    Int? // 1..5 for CSAT/ORGANIZER_CSAT
+  metadata  Json? // url, userAgent, appVersion, etc.
+  status    String       @default("OPEN") // OPEN | TRIAGED | CLOSED
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([kind])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model AuditLog {

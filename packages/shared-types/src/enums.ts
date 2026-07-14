@@ -182,3 +182,26 @@ export const CheckInResult = {
   WRONG_SESSION: 'WRONG_SESSION',
 } as const;
 export type CheckInResult = (typeof CheckInResult)[keyof typeof CheckInResult];
+
+/**
+ * The kind of customer-success submission. CONTACT/BUG/FEATURE/GENERAL are
+ * free-form; CSAT/ORGANIZER_CSAT carry a 1..5 satisfaction rating. See ADR
+ * (Customer Success).
+ */
+export const FeedbackKind = {
+  CONTACT: 'CONTACT',
+  BUG: 'BUG',
+  FEATURE: 'FEATURE',
+  GENERAL: 'GENERAL',
+  CSAT: 'CSAT',
+  ORGANIZER_CSAT: 'ORGANIZER_CSAT',
+} as const;
+export type FeedbackKind = (typeof FeedbackKind)[keyof typeof FeedbackKind];
+
+/** Triage lifecycle of a {@link FeedbackKind} submission. */
+export const FeedbackStatus = {
+  OPEN: 'OPEN',
+  TRIAGED: 'TRIAGED',
+  CLOSED: 'CLOSED',
+} as const;
+export type FeedbackStatus = (typeof FeedbackStatus)[keyof typeof FeedbackStatus];

@@ -197,6 +197,19 @@ export const api = {
       request<MyReview>('/reviews', { method: 'POST', body: JSON.stringify(body) }),
   },
 
+  support: {
+    /**
+     * Submit a support/feedback item. Public — logged-out visitors can contact
+     * or report. The bearer token is sent when present so the API can attach the
+     * signed-in user; `auth` is left default so refresh-on-401 still applies.
+     */
+    submit: (body: FeedbackSubmission) =>
+      request<{ id: string; status: FeedbackStatusValue }>('/support', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
   bookings: {
     create: (body: BookingRequest, idempotencyKey?: string) =>
       request<BookingResult>('/bookings', {
@@ -413,6 +426,13 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
+      request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
+    updateSupport: (id: string, status: FeedbackStatusValue) =>
+      request<{ id: string; status: FeedbackStatusValue }>(`/admin/support/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
   },
 };
 
@@ -1032,6 +1052,38 @@ export interface MyReview {
   id: string;
   rating: number;
   comment: string | null;
+}
+
+// ─── Support / Customer Success ───
+
+export type FeedbackKindValue =
+  'CONTACT' | 'BUG' | 'FEATURE' | 'GENERAL' | 'CSAT' | 'ORGANIZER_CSAT';
+export type FeedbackStatusValue = 'OPEN' | 'TRIAGED' | 'CLOSED';
+
+/** Payload for `api.support.submit`. */
+export interface FeedbackSubmission {
+  kind: FeedbackKindValue;
+  email?: string;
+  subject?: string;
+  message: string;
+  rating?: number;
+  metadata?: Record<string, unknown>;
+}
+
+/** A support submission row as returned by the admin inbox. */
+export interface FeedbackRow {
+  id: string;
+  kind: FeedbackKindValue;
+  status: FeedbackStatusValue;
+  email: string | null;
+  subject: string | null;
+  message: string;
+  rating: number | null;
+  metadata: Record<string, unknown> | null;
+  userId: string | null;
+  user: { email: string; fullName: string } | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OrganizerProfile {
