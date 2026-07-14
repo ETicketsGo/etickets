@@ -19,6 +19,7 @@ import { FinanceReconciliationController } from './finance/finance-reconciliatio
 import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
 import { PaymentOutageController } from './outage/payment-outage.controller';
 import { PaymentOutageService } from './outage/payment-outage.service';
+import { LaunchGateService } from './launch/launch-gate.service';
 import { OpsModule } from '../ops/ops.module';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
@@ -65,6 +66,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     FinanceReconciliationService,
     // Provider outage operations (suspensions + failover controls).
     PaymentOutageService,
+    // Final launch gate (matrices + GO/NO-GO aggregation).
+    LaunchGateService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.

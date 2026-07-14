@@ -8,6 +8,7 @@ import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-envi
 import { PaymentConfigService } from '../configuration/payment-config.service';
 import { PaymentReconciliationService } from '../reconciliation/payment-reconciliation.service';
 import { PaymentLiveReadinessService } from '../readiness/payment-live-readiness.service';
+import { LaunchGateService } from '../launch/launch-gate.service';
 import {
   PaymentAdminService,
   type ProviderConfigPatch,
@@ -69,6 +70,7 @@ export class PaymentAdminController {
     private readonly config: PaymentConfigService,
     private readonly reconciliation: PaymentReconciliationService,
     private readonly readiness: PaymentLiveReadinessService,
+    private readonly launchGate: LaunchGateService,
   ) {}
 
   private resolveEnv(raw?: string): PaymentEnvName {
@@ -92,6 +94,12 @@ export class PaymentAdminController {
   @ApiOperation({ summary: 'Payment-live readiness checklist (production safety) (admin).' })
   liveReadiness(@Query('provider') provider?: string) {
     return this.readiness.evaluate(provider);
+  }
+
+  @Get('launch-gate')
+  @ApiOperation({ summary: 'Final launch gate: matrices + GO/NO-GO by provider (admin).' })
+  launchGateReport() {
+    return this.launchGate.report();
   }
 
   @Get('reconciliation')
