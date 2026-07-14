@@ -433,6 +433,27 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       }),
+
+    // ─── Internal operations console (admin-only) ───
+    opsHealth: () => request<OpsHealth>('/admin/ops/health'),
+    opsQueues: () => request<OpsQueues>('/admin/ops/queues'),
+    opsFailedJobs: (limit?: number) =>
+      request<{ jobs: OpsFailedJob[] }>(`/admin/ops/queues/failed${qs({ limit })}`),
+    opsRetryFailed: () =>
+      request<{ retried: number; total: number }>('/admin/ops/queues/retry-failed', {
+        method: 'POST',
+      }),
+    opsRetryJob: (id: string) =>
+      request<{ id: string; retried: boolean }>(`/admin/ops/queues/jobs/${id}/retry`, {
+        method: 'POST',
+      }),
+    maintenance: () => request<MaintenanceState>('/admin/ops/maintenance'),
+    setMaintenance: (body: { enabled: boolean; message?: string }) =>
+      request<MaintenanceState>('/admin/ops/maintenance', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    opsFlags: () => request<OpsFlags>('/admin/ops/flags'),
   },
 };
 
@@ -1093,4 +1114,69 @@ export interface OrganizerProfile {
   memberSince: string;
   eventCount: number;
   events: PublicEventCard[];
+}
+
+// ─── Internal operations console ───
+
+export type OpsCheckStatus = 'up' | 'down';
+export interface OpsDependencyCheck {
+  status: OpsCheckStatus;
+  latencyMs: number;
+  error?: string;
+}
+export interface OpsQueueCheck {
+  status: 'ok' | 'degraded' | 'down';
+  latencyMs: number;
+  failed?: number;
+  error?: string;
+}
+export interface OpsHealth {
+  status: 'ok' | 'degraded';
+  database: OpsDependencyCheck;
+  redis: OpsDependencyCheck;
+  queue: OpsQueueCheck;
+  storage: { status: 'not_configured' };
+  uptime: number;
+  nodeEnv: string;
+}
+
+export interface OpsQueueCounts {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  paused: number;
+}
+export interface OpsRepeatableJob {
+  name: string;
+  every: string | null;
+  pattern: string | null;
+  next: string | null;
+}
+export interface OpsQueues {
+  name: string;
+  counts: OpsQueueCounts;
+  repeatable: OpsRepeatableJob[];
+}
+export interface OpsFailedJob {
+  id: string | null;
+  name: string;
+  failedReason: string | null;
+  attemptsMade: number;
+  timestamp: string | null;
+}
+
+export interface MaintenanceState {
+  enabled: boolean;
+  message?: string;
+}
+
+export interface OpsFlag {
+  key: string;
+  enabled: boolean;
+}
+export interface OpsFlags {
+  flags: OpsFlag[];
+  note: string;
 }

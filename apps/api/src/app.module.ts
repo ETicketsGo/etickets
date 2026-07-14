@@ -29,6 +29,7 @@ import { PayoutsModule } from './payouts/payouts.module';
 import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
+import { OpsModule } from './ops/ops.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
@@ -38,6 +39,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { MaintenanceGuard } from './ops/maintenance.guard';
 import { LoggingInterceptor } from './common/logging.interceptor';
 
 @Module({
@@ -74,6 +76,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     ReportsModule,
     AnalyticsModule,
     AdminModule,
+    OpsModule,
     ReviewsModule,
     SupportModule,
     AiModule,
@@ -83,6 +86,10 @@ import { LoggingInterceptor } from './common/logging.interceptor';
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    // MaintenanceGuard runs FIRST so non-exempt routes get a clean 503 during
+    // maintenance (before auth challenges). OFF by default + fail-open, so this
+    // is a near-zero-cost pass-through in normal operation.
+    { provide: APP_GUARD, useClass: MaintenanceGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

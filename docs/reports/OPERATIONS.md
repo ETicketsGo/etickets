@@ -57,6 +57,55 @@ internet. It sends `Cache-Control: no-store`.
 - **Grafana** dashboards over the Prometheus data source (panels in §9).
 - **Alertmanager** wired to the alert rules in §2.
 
+### Built — internal operations console (admin)
+
+An admin-only console (`admin-web` → **Operations**) backed by the `ops` API
+module (`apps/api/src/ops`). Additive and read/manage-only — it changes no
+business logic. Every endpoint requires `ADMIN`/`SUPER_ADMIN` (`@Roles`).
+
+| Endpoint                               | Method | Purpose                                                                                    |
+| -------------------------------------- | ------ | ------------------------------------------------------------------------------------------ |
+| `/api/admin/ops/health`                | GET    | System health: `database`, `redis`, `queue` (up/down + latency ms), `storage`, uptime, env |
+| `/api/admin/ops/queues`                | GET    | `holds` queue job counts + repeatable schedules                                            |
+| `/api/admin/ops/queues/failed?limit=`  | GET    | Recent failed jobs (id, name, failedReason, attemptsMade, timestamp); `limit` 1–100        |
+| `/api/admin/ops/queues/retry-failed`   | POST   | Retry all failed jobs (bounded to 100) → `{ retried, total }`                              |
+| `/api/admin/ops/queues/jobs/:id/retry` | POST   | Retry a single failed job                                                                  |
+| `/api/admin/ops/maintenance`           | GET    | Current maintenance flag `{ enabled, message? }`                                           |
+| `/api/admin/ops/maintenance`           | POST   | Set the flag `{ enabled, message? }`                                                       |
+| `/api/admin/ops/flags`                 | GET    | Resolved feature flags (read-only; toggling stays env-based — see §8)                      |
+
+- **Health never throws.** A failing dependency is reported as `down` with its
+  error message; the endpoint still returns 200 with `status: "degraded"`.
+  `storage` is honestly `{ status: "not_configured" }` until S3/blob is wired.
+- **Queue client.** The module owns a BullMQ `Queue('holds')` **client** built
+  from the same `REDIS_URL`/connection settings the worker uses (host/port,
+  `maxRetriesPerRequest: null`). It only reads/manages jobs — it registers no
+  processor and never competes with the worker. It is a singleton, closed on
+  module destroy.
+- **Queue retry usage.** Use per-row **Retry** for a single job, or **Retry all
+  failed** (confirm dialog) to re-queue the failed set. Retries that are no
+  longer applicable (job already moved on) are skipped and counted honestly.
+
+### Built — maintenance mode (Redis-backed, OFF by default)
+
+A single Redis key (`etg:maintenance`, JSON `{ enabled, message? }`, no
+migration) drives a global `MaintenanceGuard`. When **ON**, non-exempt requests
+receive **HTTP 503** with the standard error envelope
+(`code: "MAINTENANCE_MODE"`, `message`).
+
+- **OFF by default.** With the key unset the guard is a pass-through — existing
+  flows and e2e behave exactly as before.
+- **Fail-open.** The flag is read via a short-lived (~3s) in-memory cache that
+  **never throws**; if Redis is unreachable the guard treats maintenance as OFF,
+  so an outage can never start blocking traffic.
+- **Always exempt** (so probes/scrapers keep working and admins can turn it off):
+  `/api/health`, `/api/ready`, `/api/metrics`, everything under `/api/auth/*`,
+  and everything under `/api/admin/*` (which includes the ops + maintenance
+  endpoints themselves).
+
+Toggle it from **Operations → Maintenance mode** (confirm dialog + optional
+message) or `POST /api/admin/ops/maintenance`.
+
 ---
 
 ## 2. Metrics catalog

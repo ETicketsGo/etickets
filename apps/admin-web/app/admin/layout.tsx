@@ -14,6 +14,7 @@ import {
   Settings,
   Film,
   LifeBuoy,
+  Activity,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -28,6 +29,7 @@ const nav: NavItem[] = [
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Support', href: '/admin/support', icon: LifeBuoy },
   { label: 'Audit', href: '/admin/audit', icon: ScrollText },
+  { label: 'Operations', href: '/admin/ops', icon: Activity },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 
