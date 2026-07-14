@@ -32,6 +32,16 @@ export class PaymentProviderRegistry {
     this.byName.set(provider.name.toLowerCase(), provider);
   }
 
+  /**
+   * Register (or replace) an adapter built at runtime by the PaymentProviderFactory
+   * from database config + resolved secrets. Lets the orchestrator/webhook/
+   * reconciliation layers reach factory-constructed providers, and lets a refreshed
+   * instance (post secret-rotation) replace the old one under the same name.
+   */
+  add(provider: PaymentProvider): void {
+    this.register(provider);
+  }
+
   get(name: string): PaymentProvider | undefined {
     return this.byName.get(name.toLowerCase());
   }

@@ -52,6 +52,13 @@ const envSchema = z.object({
   // GCP Secret Manager (SECRET_MANAGER_PROVIDER=gcp).
   GCP_PROJECT_ID: z.string().optional(),
 
+  // Allow LIVE-classified keys in lower environments (LOCAL/DEV/QA/UAT). Off by
+  // default so live credentials cannot activate outside staging/production.
+  PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV: z.enum(['true', 'false']).default('false'),
+  // Construct enabled real providers from the secret manager on boot (best-effort;
+  // failures never break boot and surface via the readiness endpoint).
+  PAYMENT_FACTORY_WARMUP: z.enum(['true', 'false']).default('true'),
+
   // Which real/mock provider the PAYMENT_PROVIDER token resolves to. Optional so
   // dev/test/mock boots without any gateway keys. Only the selected provider is
   // constructed (see payments.module.ts), and it fails fast if its keys are unset.
