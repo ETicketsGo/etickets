@@ -3,6 +3,10 @@ import { z } from 'zod';
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // Deployment environment for runtime payment configuration (ADR-020). Selects
+  // which env-scoped provider configs / routes / merchant accounts are used.
+  // Defaults to LOCAL so dev/test/mock boot unchanged.
+  APP_ENV: z.enum(['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION']).default('LOCAL'),
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),

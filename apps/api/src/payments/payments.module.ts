@@ -5,10 +5,11 @@ import { PaymentsService } from './payments.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
 import { PAYMENT_PROVIDER } from './provider/payment-provider.interface';
 import { selectPaymentProvider } from './provider/payment-provider.factory';
+import { PaymentConfigModule } from './configuration/payment-config.module';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [InventoryModule],
+  imports: [InventoryModule, PaymentConfigModule],
   controllers: [PaymentsController],
   providers: [
     PaymentsService,

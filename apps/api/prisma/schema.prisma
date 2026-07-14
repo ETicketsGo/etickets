@@ -101,6 +101,26 @@ enum PaymentStatus {
   PARTIALLY_REFUNDED
 }
 
+// Deployment environments for runtime payment configuration (ADR-020). Each env
+// independently enables providers, modes, routes and merchant accounts, so the
+// same code base serves local through production without redeploys.
+enum PaymentEnv {
+  LOCAL
+  DEV
+  QA
+  UAT
+  STAGING
+  PRODUCTION
+}
+
+// A provider config's operating mode. DUMMY is the simulated in-process provider
+// (local/dev/QA only); TEST/LIVE are a real gateway's sandbox vs production keys.
+enum PaymentProviderMode {
+  DUMMY
+  TEST
+  LIVE
+}
+
 enum PaymentAttemptStatus {
   CREATED
   SUCCEEDED
@@ -861,4 +881,87 @@ model FeeRule {
   updatedAt DateTime @updatedAt
 
   @@index([active])
+}
+
+// ─────────────────── Runtime payment configuration (ADR-020) ───────────────────
+// Env-scoped, admin-editable configuration for the multi-country / multi-provider
+// payment platform. NO raw secrets are ever stored here — only non-secret public
+// identifiers and secret *references* (a path/key resolved from the secret manager
+// at runtime). Production fails closed when this configuration is invalid; see
+// PaymentConfigValidator.
+
+// One payment provider's configuration within one environment.
+model PaymentProviderConfig {
+  id       String              @id @default(cuid())
+  env      PaymentEnv
+  provider String // 'dummy' | 'stripe' | 'razorpay' | 'paypal' | 'square'
+  enabled  Boolean             @default(false)
+  mode     PaymentProviderMode @default(TEST)
+
+  // Non-secret public identifier (publishable key / client id) — safe to store.
+  publicKey String?
+  // Secret REFERENCES only, e.g. 'payments/stripe/test/secret-key'. Never raw.
+  secretKeyRef     String?
+  webhookSecretRef String?
+  // Optional endpoint override (e.g. a sandbox base URL). Not hardcoded in code.
+  apiBaseUrl String?
+
+  // Operational controls (failover / circuit-breaker / timeouts) consumed by the
+  // orchestrator. Editable per env without a deploy.
+  timeoutMs               Int @default(15000)
+  maxRetries              Int @default(2)
+  retryBackoffMs          Int @default(500)
+  circuitFailureThreshold Int @default(5)
+  circuitCooldownMs       Int @default(30000)
+  // Lower value = higher priority when several providers can serve a route.
+  priority                Int @default(100)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  merchantAccounts MerchantAccount[]
+
+  @@unique([env, provider])
+  @@index([env, enabled])
+}
+
+// A merchant/settlement account for a provider config, optionally scoped to a
+// country and/or currency (null = applies to anything the provider serves). Holds
+// only non-secret identifiers and secret references.
+model MerchantAccount {
+  id       String                @id @default(cuid())
+  configId String
+  config   PaymentProviderConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  label    String
+  country  String? // ISO-3166 alpha-2; null = any
+  currency String? // ISO-4217; null = any
+  // Provider-side account identifier (e.g. Stripe connected account id). Reference,
+  // not a secret credential.
+  merchantIdRef String?
+  active        Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([configId, country, currency])
+  @@index([configId, active])
+}
+
+// Editable routing policy. For an environment a (country, currency, method) tuple
+// selects a primary provider and an optional failover provider. '*' is a wildcard;
+// the most specific active row wins, ties broken by priority (lower first).
+model PaymentRoute {
+  id               String     @id @default(cuid())
+  env              PaymentEnv
+  country          String     @default("*") // ISO-3166 alpha-2 or '*'
+  currency         String     @default("*") // ISO-4217 or '*'
+  method           String     @default("*") // PaymentMethod or '*'
+  provider         String // primary provider name
+  failoverProvider String? // optional secondary provider
+  priority         Int        @default(100)
+  active           Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([env, country, currency, method])
+  @@index([env, active])
 }

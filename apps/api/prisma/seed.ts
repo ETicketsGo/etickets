@@ -12,6 +12,8 @@ import {
   NotificationType,
   OrganizationStatus,
   PaymentAttemptStatus,
+  PaymentEnv,
+  PaymentProviderMode,
   PaymentStatus,
   PayoutStatus,
   PrismaClient,
@@ -97,8 +99,112 @@ async function reset() {
   await prisma.organization.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.feeRule.deleteMany();
+  await prisma.merchantAccount.deleteMany();
+  await prisma.paymentProviderConfig.deleteMany();
+  await prisma.paymentRoute.deleteMany();
   await prisma.idempotencyRecord.deleteMany();
   await prisma.user.deleteMany();
+}
+
+/**
+ * Editable runtime payment configuration (ADR-020). Secrets are stored ONLY as
+ * references — the placeholder `*_replace_me` public keys and disabled real-provider
+ * configs are deliberately safe: they cannot process real money until an admin fills
+ * real credentials and enables them. LOCAL/DEV/QA use the simulated dummy provider.
+ */
+async function seedPaymentPlatform() {
+  const localEnvs = [PaymentEnv.LOCAL, PaymentEnv.DEV, PaymentEnv.QA];
+  const liveEnvs = [PaymentEnv.STAGING, PaymentEnv.PRODUCTION];
+
+  // 1) Provider configs. Dummy is enabled in the local family; real providers are
+  //    seeded disabled with secret REFERENCES so they can be wired up per env.
+  const dummyConfigs = localEnvs.map((env) => ({
+    env,
+    provider: 'dummy',
+    enabled: true,
+    mode: PaymentProviderMode.DUMMY,
+    priority: 10,
+  }));
+  const realConfigs = [
+    // UAT — sandbox (TEST) keys.
+    ...['razorpay', 'stripe'].map((provider) => ({
+      env: PaymentEnv.UAT,
+      provider,
+      enabled: false,
+      mode: PaymentProviderMode.TEST,
+      publicKey: provider === 'razorpay' ? 'rzp_test_replace_me' : 'pk_test_replace_me',
+      secretKeyRef: `payments/${provider}/test/secret-key`,
+      webhookSecretRef: `payments/${provider}/test/webhook-secret`,
+      priority: 20,
+    })),
+    // STAGING / PRODUCTION — LIVE keys, disabled until real credentials are wired.
+    ...liveEnvs.flatMap((env) =>
+      ['razorpay', 'stripe'].map((provider) => ({
+        env,
+        provider,
+        enabled: false,
+        mode: PaymentProviderMode.LIVE,
+        publicKey: provider === 'razorpay' ? 'rzp_live_replace_me' : 'pk_live_replace_me',
+        secretKeyRef: `payments/${provider}/${env.toLowerCase()}/secret-key`,
+        webhookSecretRef: `payments/${provider}/${env.toLowerCase()}/webhook-secret`,
+        priority: 20,
+      })),
+    ),
+  ];
+
+  for (const cfg of [...dummyConfigs, ...realConfigs]) {
+    const config = await prisma.paymentProviderConfig.upsert({
+      where: { env_provider: { env: cfg.env, provider: cfg.provider } },
+      update: cfg,
+      create: cfg,
+    });
+    // One catch-all merchant account per config (country/currency = any).
+    await prisma.merchantAccount.create({
+      data: {
+        configId: config.id,
+        label: `${cfg.provider} ${cfg.env.toLowerCase()} settlement`,
+        merchantIdRef: cfg.provider === 'dummy' ? null : `payments/${cfg.provider}/merchant-id`,
+      },
+    });
+  }
+
+  // 2) Editable routing policy. Local family routes everything to dummy; higher
+  //    envs route India→Razorpay (failover Stripe) and everything else→Stripe.
+  const dummyRoutes = localEnvs.map((env) => ({
+    env,
+    country: '*',
+    currency: '*',
+    method: '*',
+    provider: 'dummy',
+    priority: 100,
+  }));
+  const realRoutes = [PaymentEnv.UAT, ...liveEnvs].flatMap((env) => [
+    {
+      env,
+      country: 'IN',
+      currency: 'INR',
+      method: '*',
+      provider: 'razorpay',
+      failoverProvider: 'stripe',
+      priority: 10,
+    },
+    { env, country: '*', currency: '*', method: '*', provider: 'stripe', priority: 100 },
+  ]);
+
+  for (const route of [...dummyRoutes, ...realRoutes]) {
+    await prisma.paymentRoute.upsert({
+      where: {
+        env_country_currency_method: {
+          env: route.env,
+          country: route.country,
+          currency: route.currency,
+          method: route.method,
+        },
+      },
+      update: route,
+      create: route,
+    });
+  }
 }
 
 async function main() {
@@ -109,6 +215,9 @@ async function main() {
 
   console.log('Seeding fee rules & coupons...');
   await prisma.feeRule.createMany({ data: FEE_TIERS });
+
+  console.log('Seeding payment platform (providers, routes, merchants)...');
+  await seedPaymentPlatform();
   await prisma.coupon.createMany({
     data: [
       { code: 'WELCOME10', type: CouponType.PERCENT, value: 10, maxRedemptions: 1000 },
