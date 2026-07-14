@@ -552,6 +552,34 @@ export const api = {
       apply: (id: string) =>
         request<PromotionRequestRow>(`/admin/payments/promotion/${id}/apply`, { method: 'POST' }),
     },
+
+    // ─── Finance reconciliation (admin) ───
+    finance: {
+      detect: (from?: string, to?: string) =>
+        request<{ detected: number; created: number }>(
+          `/admin/payments/finance/detect${qs({ from, to })}`,
+          { method: 'POST' },
+        ),
+      discrepancies: (status?: string, type?: string) =>
+        request<DiscrepancyRow[]>(`/admin/payments/finance/discrepancies${qs({ status, type })}`),
+      aging: () => request<AgingBucket[]>('/admin/payments/finance/aging'),
+      assign: (id: string, userId: string) =>
+        request<DiscrepancyRow>(`/admin/payments/finance/discrepancies/${id}/assign`, {
+          method: 'POST',
+          body: JSON.stringify({ userId }),
+        }),
+      resolve: (id: string, notes: string) =>
+        request<DiscrepancyRow>(`/admin/payments/finance/discrepancies/${id}/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({ notes }),
+        }),
+      ignore: (id: string, notes: string) =>
+        request<DiscrepancyRow>(`/admin/payments/finance/discrepancies/${id}/ignore`, {
+          method: 'POST',
+          body: JSON.stringify({ notes }),
+        }),
+      csvUrl: () => `${API_URL}/admin/payments/finance/discrepancies.csv`,
+    },
     support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
       request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
     updateSupport: (id: string, status: FeedbackStatusValue) =>
@@ -1358,6 +1386,28 @@ export interface LiveReadinessReport {
   ok: boolean;
   global: ReadinessCheck[];
   providers: ProviderReadiness[];
+}
+
+// ─── Finance reconciliation (admin) ───
+
+export type DiscrepancyStatusValue = 'OPEN' | 'ASSIGNED' | 'RESOLVED' | 'IGNORED';
+export interface DiscrepancyRow {
+  id: string;
+  env: PaymentEnvValue;
+  type: string;
+  provider: string;
+  entityRef: string;
+  amountMinor: number | null;
+  currency: string | null;
+  detail: string | null;
+  status: DiscrepancyStatusValue;
+  assignedToUserId: string | null;
+  resolutionNotes: string | null;
+  createdAt: string;
+}
+export interface AgingBucket {
+  bucket: string;
+  count: number;
 }
 
 // ─── Merchant onboarding (admin) ───

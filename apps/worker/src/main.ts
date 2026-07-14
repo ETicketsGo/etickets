@@ -8,6 +8,7 @@ import {
   AppModule,
   BookingsService,
   EventsService,
+  FinanceReconciliationService,
   NotificationService,
   PrismaService,
 } from '@eticketsgo/api';
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
+  const finance = app.get(FinanceReconciliationService);
+  const RECONCILE_EVERY_MS = Number(process.env.RECONCILE_INTERVAL_MS ?? 24 * 3600 * 1000);
 
   // A plain options object avoids a type clash between our ioredis and the one
   // bundled inside bullmq. The IORedis instance is used only for health pings.
@@ -108,9 +111,29 @@ async function main(): Promise<void> {
     },
   );
 
+  // Daily finance reconciliation — detects discrepancies into the triage queue.
+  // Idempotent: detection dedupes open discrepancies for the same (env,type,ref).
+  await queue.add(
+    'reconcile-finance',
+    {},
+    {
+      repeat: { every: RECONCILE_EVERY_MS },
+      jobId: 'reconcile-finance',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'reconcile-finance') {
+        const summary = await finance.runDailyDetection();
+        if (summary.created > 0) log('info', 'filed reconciliation discrepancies', { ...summary });
+        return summary;
+      }
       if (job.name === 'dispatch-notifications') {
         const summary = await notifications.dispatchDue();
         if (summary.sent + summary.failed + summary.retried > 0) {

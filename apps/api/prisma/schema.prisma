@@ -1004,6 +1004,51 @@ model MerchantOnboarding {
   @@index([provider])
 }
 
+// Finance reconciliation discrepancy queue (ADR-029). Detected differences between
+// our records and provider truth, triaged by finance ops. Financial records are
+// NEVER auto-corrected — resolution is a human, audited action.
+enum DiscrepancyType {
+  PAYMENT_MISSING_INTERNALLY
+  PAYMENT_MISSING_AT_PROVIDER
+  AMOUNT_MISMATCH
+  CURRENCY_MISMATCH
+  DUPLICATE_CAPTURE
+  REFUND_MISMATCH
+  CHARGEBACK
+  SETTLEMENT_MISMATCH
+  GATEWAY_FEE_MISMATCH
+  ORGANIZER_PAYABLE_MISMATCH
+}
+
+enum DiscrepancyStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+  IGNORED
+}
+
+model ReconciliationDiscrepancy {
+  id               String            @id @default(cuid())
+  env              PaymentEnv
+  type             DiscrepancyType
+  provider         String
+  // The business/transaction key this discrepancy is about (bookingId / providerRef).
+  entityRef        String
+  amountMinor      Int?
+  currency         String?
+  detail           String?
+  status           DiscrepancyStatus @default(OPEN)
+  assignedToUserId String?
+  resolutionNotes  String?
+  resolvedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([status])
+  @@index([env, type])
+  @@index([entityRef])
+}
+
 // Sandbox certification of a merchant/provider combination (ADR-027). Records the
 // result of the automated end-to-end certification run (health → payment → webhook
 // → confirm → ticket → partial refund → refund webhook → reconcile → settlement).

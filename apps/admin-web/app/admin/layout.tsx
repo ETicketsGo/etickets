@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
   Store,
   GitBranch,
+  Scale,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -31,6 +32,7 @@ const nav: NavItem[] = [
   { label: 'Payment Config', href: '/admin/payment-config', icon: SlidersHorizontal },
   { label: 'Merchant Onboarding', href: '/admin/merchant-onboarding', icon: Store },
   { label: 'Env Promotion', href: '/admin/payment-promotion', icon: GitBranch },
+  { label: 'Finance Recon', href: '/admin/finance-reconciliation', icon: Scale },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },

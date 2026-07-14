@@ -15,6 +15,8 @@ import { PromotionController } from './promotion/promotion.controller';
 import { PromotionService } from './promotion/promotion.service';
 import { SandboxCertificationService } from './certification/sandbox-certification.service';
 import { PaymentLiveReadinessService } from './readiness/payment-live-readiness.service';
+import { FinanceReconciliationController } from './finance/finance-reconciliation.controller';
+import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
 import { OpsModule } from '../ops/ops.module';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
@@ -29,6 +31,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     PaymentAdminController,
     MerchantOnboardingController,
     PromotionController,
+    FinanceReconciliationController,
   ],
   providers: [
     PaymentsService,
@@ -55,12 +58,19 @@ import { InventoryModule } from '../inventory/inventory.module';
     SandboxCertificationService,
     // Production safety controls: payment-live readiness checklist.
     PaymentLiveReadinessService,
+    // Finance reconciliation + discrepancy queue.
+    FinanceReconciliationService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.
     WebhookRouter,
     PaymentReconciliationService,
   ],
-  exports: [PaymentsService, PaymentProviderFactory, PaymentProviderRegistry],
+  exports: [
+    PaymentsService,
+    PaymentProviderFactory,
+    PaymentProviderRegistry,
+    FinanceReconciliationService,
+  ],
 })
 export class PaymentsModule {}

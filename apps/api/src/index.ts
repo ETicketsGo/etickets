@@ -5,3 +5,4 @@ export { BookingsService } from './bookings/bookings.service';
 export { EventsService } from './events/events.service';
 export { PrismaService } from './prisma/prisma.service';
 export { NotificationService } from './notifications/notification.service';
+export { FinanceReconciliationService } from './payments/finance/finance-reconciliation.service';
