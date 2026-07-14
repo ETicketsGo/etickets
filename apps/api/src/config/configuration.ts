@@ -58,6 +58,11 @@ const envSchema = z.object({
   // Construct enabled real providers from the secret manager on boot (best-effort;
   // failures never break boot and surface via the readiness endpoint).
   PAYMENT_FACTORY_WARMUP: z.enum(['true', 'false']).default('true'),
+  // Master switch that must be true before any real (live) payment is accepted.
+  // Off by default so live payments cannot be enabled by accident (ADR-028).
+  PAYMENT_LIVE_ENABLED: z.enum(['true', 'false']).default('false'),
+  // A merchant's sandbox certification must be newer than this to count as valid.
+  CERTIFICATION_MAX_AGE_DAYS: z.coerce.number().default(30),
 
   // Which real/mock provider the PAYMENT_PROVIDER token resolves to. Optional so
   // dev/test/mock boots without any gateway keys. Only the selected provider is

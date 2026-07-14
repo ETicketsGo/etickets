@@ -7,6 +7,7 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PaymentConfigService } from '../configuration/payment-config.service';
 import { PaymentReconciliationService } from '../reconciliation/payment-reconciliation.service';
+import { PaymentLiveReadinessService } from '../readiness/payment-live-readiness.service';
 import {
   PaymentAdminService,
   type ProviderConfigPatch,
@@ -67,6 +68,7 @@ export class PaymentAdminController {
     private readonly admin: PaymentAdminService,
     private readonly config: PaymentConfigService,
     private readonly reconciliation: PaymentReconciliationService,
+    private readonly readiness: PaymentLiveReadinessService,
   ) {}
 
   private resolveEnv(raw?: string): PaymentEnvName {
@@ -84,6 +86,12 @@ export class PaymentAdminController {
   @ApiOperation({ summary: 'Live health of constructed payment provider adapters (admin).' })
   health() {
     return this.admin.providerHealth();
+  }
+
+  @Get('live-readiness')
+  @ApiOperation({ summary: 'Payment-live readiness checklist (production safety) (admin).' })
+  liveReadiness(@Query('provider') provider?: string) {
+    return this.readiness.evaluate(provider);
   }
 
   @Get('reconciliation')

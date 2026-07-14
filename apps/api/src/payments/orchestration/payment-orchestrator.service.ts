@@ -195,6 +195,19 @@ export class PaymentOrchestrator {
     }
     return breaker;
   }
+
+  /** Whether a provider's circuit breaker is currently OPEN (short-circuiting). */
+  isCircuitOpen(name: string): boolean {
+    const breaker = this.breakers.get(name.toLowerCase());
+    return breaker ? !breaker.canAttempt() : false;
+  }
+
+  /** Current circuit state per known provider (for observability / readiness). */
+  circuitStates(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [name, breaker] of this.breakers) out[name] = breaker.currentState();
+    return out;
+  }
 }
 
 interface ResolvedCandidate {

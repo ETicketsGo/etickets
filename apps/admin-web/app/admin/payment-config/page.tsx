@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, PlugZap, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, PlugZap, Plus, Trash2, XCircle } from 'lucide-react';
 import {
   api,
   Badge,
@@ -604,6 +604,63 @@ function OperationsSection() {
           rowKey={(r) => `${r.provider}-${r.currency}`}
         />
       </Card>
+
+      <LiveReadinessCard />
     </>
+  );
+}
+
+function LiveReadinessCard() {
+  const readiness = useQuery({
+    queryKey: ['admin', 'payment-live-readiness'],
+    queryFn: () => api.admin.paymentConfig.liveReadiness(),
+  });
+  const r = readiness.data;
+  const Row = ({ passed, label, detail }: { passed: boolean; label: string; detail?: string }) => (
+    <li className="flex items-center gap-2 text-sm">
+      {passed ? (
+        <CheckCircle2 className="h-4 w-4 text-status-success" />
+      ) : (
+        <XCircle className="h-4 w-4 text-status-error" />
+      )}
+      <span className={passed ? '' : 'text-status-error'}>{label}</span>
+      {detail && <span className="text-xs text-text-muted">— {detail}</span>}
+    </li>
+  );
+  return (
+    <Card
+      title="Payment-live readiness"
+      action={
+        r ? <Badge tone={r.ok ? 'success' : 'error'}>{r.ok ? 'GO' : 'NO-GO'}</Badge> : undefined
+      }
+    >
+      {readiness.isLoading || !r ? (
+        <Skeleton className="h-24" />
+      ) : (
+        <div className="space-y-3">
+          <ul className="space-y-1">
+            {r.global.map((c) => (
+              <Row key={c.key} passed={c.passed} label={c.label} detail={c.detail} />
+            ))}
+          </ul>
+          {r.providers.map((p) => (
+            <div key={p.provider}>
+              <p className="mb-1 text-xs font-medium text-text-muted">
+                {p.provider} {p.ok ? '✓' : '✗'}
+              </p>
+              <ul className="space-y-1 pl-2">
+                {p.checks.map((c) => (
+                  <Row key={c.key} passed={c.passed} label={c.label} detail={c.detail} />
+                ))}
+              </ul>
+            </div>
+          ))}
+          <p className="text-xs text-text-muted">
+            Never exposes secrets — booleans only. Production only becomes live when every check is
+            green.
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }

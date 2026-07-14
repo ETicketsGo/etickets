@@ -14,6 +14,8 @@ import { MerchantOnboardingService } from './onboarding/merchant-onboarding.serv
 import { PromotionController } from './promotion/promotion.controller';
 import { PromotionService } from './promotion/promotion.service';
 import { SandboxCertificationService } from './certification/sandbox-certification.service';
+import { PaymentLiveReadinessService } from './readiness/payment-live-readiness.service';
+import { OpsModule } from '../ops/ops.module';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
@@ -21,7 +23,7 @@ import { PaymentReconciliationService } from './reconciliation/payment-reconcili
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [InventoryModule, PaymentConfigModule],
+  imports: [InventoryModule, PaymentConfigModule, OpsModule],
   controllers: [
     PaymentsController,
     PaymentAdminController,
@@ -51,6 +53,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     PromotionService,
     // Sandbox certification (10-step evidence run).
     SandboxCertificationService,
+    // Production safety controls: payment-live readiness checklist.
+    PaymentLiveReadinessService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.

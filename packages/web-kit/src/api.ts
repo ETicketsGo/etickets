@@ -458,6 +458,8 @@ export const api = {
           method: 'DELETE',
         }),
       health: () => request<ProviderHealthReport>('/admin/payments/health'),
+      liveReadiness: (provider?: string) =>
+        request<LiveReadinessReport>(`/admin/payments/live-readiness${qs({ provider })}`),
       reconciliation: (from?: string, to?: string) =>
         request<ReconciliationReport>(`/admin/payments/reconciliation${qs({ from, to })}`),
       settlement: (from?: string, to?: string) =>
@@ -1339,6 +1341,23 @@ export interface SettlementLine {
   refundedMinor: number;
   netMinor: number;
   count: number;
+}
+export interface ReadinessCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  detail?: string;
+}
+export interface ProviderReadiness {
+  provider: string;
+  ok: boolean;
+  checks: ReadinessCheck[];
+}
+export interface LiveReadinessReport {
+  env: PaymentEnvValue;
+  ok: boolean;
+  global: ReadinessCheck[];
+  providers: ProviderReadiness[];
 }
 
 // ─── Merchant onboarding (admin) ───
