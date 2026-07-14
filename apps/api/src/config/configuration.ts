@@ -37,6 +37,21 @@ const envSchema = z.object({
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 
+  // ─── Secret manager (production-binding layer, ADR-024) ───
+  // Resolves secret REFERENCES (e.g. payments/stripe/live/secret-key) into secret
+  // values. `env` reads from process.env (LOCAL/DEV only — rejected in PRODUCTION);
+  // azure/aws/gcp are feature-gated cloud managers (their SDK is loaded lazily and
+  // only required when selected). Default `env` keeps local/dev/test/e2e unchanged.
+  SECRET_MANAGER_PROVIDER: z.enum(['env', 'azure', 'aws', 'gcp']).default('env'),
+  // Short cache TTL (ms) for resolved secrets; supports rotation without restart.
+  SECRET_CACHE_TTL_MS: z.coerce.number().default(300000),
+  // Azure Key Vault (SECRET_MANAGER_PROVIDER=azure). Uses DefaultAzureCredential.
+  AZURE_KEY_VAULT_URL: z.string().optional(),
+  // AWS Secrets Manager (SECRET_MANAGER_PROVIDER=aws). Uses the default AWS chain.
+  AWS_SECRETS_REGION: z.string().optional(),
+  // GCP Secret Manager (SECRET_MANAGER_PROVIDER=gcp).
+  GCP_PROJECT_ID: z.string().optional(),
+
   // Which real/mock provider the PAYMENT_PROVIDER token resolves to. Optional so
   // dev/test/mock boots without any gateway keys. Only the selected provider is
   // constructed (see payments.module.ts), and it fails fast if its keys are unset.
