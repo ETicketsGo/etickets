@@ -59,6 +59,16 @@ export class CircuitBreaker {
     }
   }
 
+  /** Operator control: force the breaker OPEN (activate failover away from it). */
+  forceOpen(): void {
+    this.trip();
+  }
+
+  /** Operator control: reset the breaker to CLOSED (roll failover back). */
+  reset(): void {
+    this.recordSuccess();
+  }
+
   private trip(): void {
     this.state = 'OPEN';
     this.openedAt = this.now();

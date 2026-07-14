@@ -1,5 +1,7 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { AuditService } from '../../audit/audit.service';
+import { MetricsService } from '../../metrics/metrics.service';
 import { isFailClosed } from '../configuration/payment-environment';
 import {
   PaymentConfigService,
@@ -53,6 +55,8 @@ export class PaymentOrchestrator {
     private readonly config: PaymentConfigService,
     private readonly registry: PaymentProviderRegistry,
     @Inject(PAYMENT_PROVIDER) private readonly defaultProvider: PaymentProvider,
+    @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   /** Create a payment intent, routing + failing over per runtime configuration. */
@@ -83,7 +87,48 @@ export class PaymentOrchestrator {
       );
     }
     const intent = await executeWithFailover(candidates);
+
+    // Failover safety: createPayment happens BEFORE any irreversible capture (which
+    // is confirmed later via webhook), so failing over here never risks a double
+    // charge. Record the decision + alert, preserving the original attempt.
+    const primary = candidates[0]?.provider;
+    if (used && primary && used !== primary) {
+      this.logger.warn(`Payment failover: ${primary} → ${used} (pre-capture).`);
+      this.metrics?.recordPaymentWebhook(used, 'failover');
+      await this.audit?.record({
+        action: 'PAYMENT_FAILOVER',
+        entityType: 'Payment',
+        entityId: input.bookingId,
+        metadata: { originalProvider: primary, usedProvider: used, currency: input.currency },
+      });
+    }
     return { intent, provider: used };
+  }
+
+  /** Operator control: force a provider's circuit OPEN (activate failover away). */
+  async activateFailover(provider: string, actor?: { userId?: string }): Promise<void> {
+    this.breakerFor(provider, 5, 30_000).forceOpen();
+    this.logger.warn(`Failover activated for '${provider}' (circuit forced OPEN).`);
+    await this.audit?.record({
+      actorUserId: actor?.userId,
+      action: 'PAYMENT_FAILOVER_ACTIVATED',
+      entityType: 'PaymentProvider',
+      entityId: provider,
+      metadata: { provider },
+    });
+  }
+
+  /** Operator control: reset a provider's circuit to CLOSED (roll failover back). */
+  async rollbackFailover(provider: string, actor?: { userId?: string }): Promise<void> {
+    this.breakerFor(provider, 5, 30_000).reset();
+    this.logger.log(`Failover rolled back for '${provider}' (circuit reset).`);
+    await this.audit?.record({
+      actorUserId: actor?.userId,
+      action: 'PAYMENT_FAILOVER_ROLLED_BACK',
+      entityType: 'PaymentProvider',
+      entityId: provider,
+      metadata: { provider },
+    });
   }
 
   /**

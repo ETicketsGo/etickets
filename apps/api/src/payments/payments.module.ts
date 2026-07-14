@@ -17,6 +17,8 @@ import { SandboxCertificationService } from './certification/sandbox-certificati
 import { PaymentLiveReadinessService } from './readiness/payment-live-readiness.service';
 import { FinanceReconciliationController } from './finance/finance-reconciliation.controller';
 import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
+import { PaymentOutageController } from './outage/payment-outage.controller';
+import { PaymentOutageService } from './outage/payment-outage.service';
 import { OpsModule } from '../ops/ops.module';
 import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
@@ -32,6 +34,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     MerchantOnboardingController,
     PromotionController,
     FinanceReconciliationController,
+    PaymentOutageController,
   ],
   providers: [
     PaymentsService,
@@ -60,6 +63,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     PaymentLiveReadinessService,
     // Finance reconciliation + discrepancy queue.
     FinanceReconciliationService,
+    // Provider outage operations (suspensions + failover controls).
+    PaymentOutageService,
     // Admin console backend for runtime payment configuration.
     PaymentAdminService,
     // Multi-provider webhook routing + reconciliation/settlement.
