@@ -47,7 +47,10 @@ export class CheckinsService {
     try {
       payload = this.qr.verify(token);
     } catch {
-      return { result: CheckInResult.INVALID, message: 'Invalid or unverifiable ticket code.' };
+      return this.withScanMetric({
+        result: CheckInResult.INVALID,
+        message: 'Invalid or unverifiable ticket code.',
+      });
     }
 
     const ticket = await this.prisma.ticket.findUnique({
@@ -55,7 +58,7 @@ export class CheckinsService {
       include: { ticketType: { select: { name: true } } },
     });
     if (!ticket || ticket.nonce !== payload.nonce) {
-      return { result: CheckInResult.INVALID, message: 'Ticket not found.' };
+      return this.withScanMetric({ result: CheckInResult.INVALID, message: 'Ticket not found.' });
     }
 
     // Staff must belong to the ticket's organization.
@@ -77,11 +80,11 @@ export class CheckinsService {
         staff.id,
         opts.deviceInfo,
       );
-      return {
+      return this.withScanMetric({
         result: CheckInResult.WRONG_SESSION,
         message: 'This ticket is for a different session.',
         ticket: summary,
-      };
+      });
     }
 
     const deadStatuses: TicketStatus[] = [
@@ -97,11 +100,11 @@ export class CheckinsService {
         staff.id,
         opts.deviceInfo,
       );
-      return {
+      return this.withScanMetric({
         result: CheckInResult.CANCELLED,
         message: `Ticket is ${ticket.status.toLowerCase()}.`,
         ticket: summary,
-      };
+      });
     }
 
     // Atomic transition ACTIVE -> CHECKED_IN prevents duplicate check-in races.
@@ -117,11 +120,11 @@ export class CheckinsService {
         staff.id,
         opts.deviceInfo,
       );
-      return {
+      return this.withScanMetric({
         result: CheckInResult.DUPLICATE,
         message: 'Ticket has already been checked in.',
         ticket: { ...summary, status: TicketStatus.CHECKED_IN },
-      };
+      });
     }
 
     await this.log(
@@ -146,11 +149,20 @@ export class CheckinsService {
       });
     }
     this.metrics.recordCheckin();
-    return {
+    return this.withScanMetric({
       result: CheckInResult.SUCCESS,
       message: 'Checked in successfully.',
       ticket: { ...summary, status: TicketStatus.CHECKED_IN },
-    };
+    });
+  }
+
+  /**
+   * Records the QR check-in scan metric (success vs failure) for every scan
+   * outcome and returns it unchanged. Best-effort — MetricsService never throws.
+   */
+  private withScanMetric(outcome: CheckInOutcome): CheckInOutcome {
+    this.metrics.recordQrCheckin(outcome.result === CheckInResult.SUCCESS);
+    return outcome;
   }
 
   /** Authorized reversal of a check-in (organizer/admin only). */

@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+// Must be the first non-polyfill import: starts tracing/Sentry before other
+// modules load. No-op unless OTEL_EXPORTER_OTLP_ENDPOINT / SENTRY_DSN are set.
+import './observability/instrument';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';

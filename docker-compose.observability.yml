@@ -1,0 +1,52 @@
+# ETicketsGo observability stack: Prometheus + Grafana.
+#
+# This stack is infra-only — it does NOT run the app. Start the API (:4000) and
+# worker (:4100) on the host as usual, then bring this up:
+#
+#   docker compose -f docker-compose.observability.yml up -d
+#
+# Prometheus:  http://localhost:9090
+# Grafana:     http://localhost:3005  (admin / admin — change GF_SECURITY_ADMIN_PASSWORD)
+#              (3005, not 3000-3002, to avoid clashing with the three web apps)
+#
+# Prometheus scrapes the app via host.docker.internal (see observability/prometheus/
+# prometheus.yml). The datasource + the ETicketsGo dashboard are auto-provisioned.
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: eticketsgo-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # Lets the container reach host-bound services (API/worker) on Linux.
+      - 'host.docker.internal:host-gateway'
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: eticketsgo-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - '3005:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:

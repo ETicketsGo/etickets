@@ -17,8 +17,14 @@ export class MetricsService {
   private readonly refundsCompleted: Counter;
   private readonly checkins: Counter;
   private readonly paymentsFailed: Counter;
+  private readonly paymentsSucceeded: Counter;
+  private readonly gmvMinor: Counter;
+  private readonly qrCheckinSuccess: Counter;
+  private readonly qrCheckinFailure: Counter;
   private readonly httpRequests: Counter<'method' | 'status_class'>;
   private readonly httpDuration: Histogram<'method' | 'status_class'>;
+  private readonly dbQueryDuration: Histogram;
+  private readonly slowQueries: Counter;
 
   constructor() {
     this.registry = new Registry();
@@ -49,6 +55,26 @@ export class MetricsService {
       help: 'Total payments that failed at the provider webhook.',
       registers: [this.registry],
     });
+    this.paymentsSucceeded = new Counter({
+      name: 'etg_payments_succeeded_total',
+      help: 'Total payments that succeeded at the provider webhook (booking confirmed).',
+      registers: [this.registry],
+    });
+    this.gmvMinor = new Counter({
+      name: 'etg_gmv_minor_total',
+      help: 'Gross merchandise value in currency minor units (e.g. paise), summed on booking confirm.',
+      registers: [this.registry],
+    });
+    this.qrCheckinSuccess = new Counter({
+      name: 'etg_qr_checkin_success_total',
+      help: 'Total QR check-in scans that resulted in a successful check-in.',
+      registers: [this.registry],
+    });
+    this.qrCheckinFailure = new Counter({
+      name: 'etg_qr_checkin_failure_total',
+      help: 'Total QR check-in scans that did NOT succeed (invalid, duplicate, cancelled, wrong session).',
+      registers: [this.registry],
+    });
 
     this.httpRequests = new Counter({
       name: 'etg_http_requests_total',
@@ -61,6 +87,18 @@ export class MetricsService {
       help: 'HTTP request duration in seconds, labelled by method and status class.',
       labelNames: ['method', 'status_class'],
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+
+    this.dbQueryDuration = new Histogram({
+      name: 'etg_db_query_duration_seconds',
+      help: 'Prisma database query duration in seconds (no query text/params — duration only).',
+      buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      registers: [this.registry],
+    });
+    this.slowQueries = new Counter({
+      name: 'etg_slow_queries_total',
+      help: 'Total Prisma queries whose duration exceeded SLOW_QUERY_MS.',
       registers: [this.registry],
     });
   }
@@ -93,6 +131,35 @@ export class MetricsService {
 
   recordPaymentFailed(): void {
     this.safe(() => this.paymentsFailed.inc());
+  }
+
+  recordPaymentSucceeded(): void {
+    this.safe(() => this.paymentsSucceeded.inc());
+  }
+
+  /** Add a booking's total (minor units) to gross merchandise value on confirm. */
+  recordGmv(amountMinor: number): void {
+    this.safe(() => {
+      if (Number.isFinite(amountMinor) && amountMinor > 0) {
+        this.gmvMinor.inc(amountMinor);
+      }
+    });
+  }
+
+  /** Record a QR check-in scan result: success bumps success, anything else failure. */
+  recordQrCheckin(success: boolean): void {
+    this.safe(() => (success ? this.qrCheckinSuccess.inc() : this.qrCheckinFailure.inc()));
+  }
+
+  /**
+   * Record one Prisma query's duration (seconds). Always observes the histogram;
+   * when over the slow threshold it also bumps the slow-query counter.
+   */
+  observeDbQuery(durationSeconds: number, slow: boolean): void {
+    this.safe(() => {
+      this.dbQueryDuration.observe(durationSeconds);
+      if (slow) this.slowQueries.inc();
+    });
   }
 
   /** Record one finished HTTP request (counter + duration histogram). */

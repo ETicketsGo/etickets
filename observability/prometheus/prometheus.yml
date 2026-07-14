@@ -1,0 +1,34 @@
+# Prometheus scrape config for ETicketsGo.
+#
+# The API and worker run on the host (not inside this compose stack), so we scrape
+# them via `host.docker.internal`. The API exposes Prometheus metrics at
+# /api/metrics; the worker owns the BullMQ queue and exposes its own /metrics
+# (including etg_queue_jobs) at :4100/metrics.
+#
+# If you run the API/worker as compose services on the same network instead, swap
+# the targets for their service names (e.g. `api:4000`, `worker:4100`).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: eticketsgo
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: eticketsgo-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ['host.docker.internal:4000']
+        labels: { service: api }
+
+  - job_name: eticketsgo-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:4100']
+        labels: { service: worker }
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

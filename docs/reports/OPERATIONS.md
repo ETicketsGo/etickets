@@ -11,6 +11,11 @@ This document was produced by the Operations Excellence sprint, which added
 structured JSON request logging, a Prometheus `/metrics` endpoint, and the
 domain/HTTP metrics catalog described below.
 
+> **Production observability** (full metrics catalog incl. GMV/QR/DB metrics,
+> the Prometheus+Grafana stack, alert rules, Sentry, slow-query and tracing
+> setup, and the queue-monitoring approach) now lives in
+> **[docs/guides/MONITORING.md](../guides/MONITORING.md)**.
+
 ---
 
 ## 1. Monitoring & Health

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ErrorCodes } from './errors';
+import { captureException } from '../observability/sentry';
 
 interface ErrorEnvelope {
   code: string;
@@ -58,6 +59,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `[${correlationId}] ${req.method} ${req.url} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+      // Report only unexpected server errors to Sentry (no-op unless SENTRY_DSN
+      // is set). Expected 4xx AppExceptions are filtered out above by status.
+      captureException(exception, {
+        correlationId,
+        method: req.method,
+        path: (req.originalUrl || req.url || '').split('?')[0],
+      });
     } else {
       this.logger.warn(`[${correlationId}] ${req.method} ${req.url} -> ${status} ${body.code}`);
     }

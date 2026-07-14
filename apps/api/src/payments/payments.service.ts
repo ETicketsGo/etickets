@@ -246,6 +246,8 @@ export class PaymentsService {
       metadata: { providerRef: event.providerRef },
     });
     this.metrics.recordBookingConfirmed();
+    this.metrics.recordPaymentSucceeded();
+    this.metrics.recordGmv(booking.totalMinor);
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
   }
 

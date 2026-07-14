@@ -10,6 +10,19 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
+  // ─── Observability (all optional; unset ⇒ feature is a complete no-op) ───────
+  // Slow-query reporting threshold (ms). Queries slower than this are logged
+  // (duration + target only, no SQL/params) and counted in etg_slow_queries_total.
+  SLOW_QUERY_MS: z.coerce.number().default(500),
+  // Error tracking (Sentry). No DSN ⇒ Sentry is never initialised.
+  SENTRY_DSN: z.string().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().optional(),
+  // Distributed tracing (OpenTelemetry). No endpoint ⇒ tracing never starts.
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  OTEL_SERVICE_NAME: z.string().optional(),
+
   JWT_ACCESS_SECRET: z.string().min(1),
   JWT_REFRESH_SECRET: z.string().min(1),
   JWT_ACCESS_TTL: z.string().default('900s'),

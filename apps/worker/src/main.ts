@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { NestFactory } from '@nestjs/core';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
+import * as Sentry from '@sentry/node';
 import {
   AppModule,
   BookingsService,
@@ -10,6 +11,7 @@ import {
   NotificationService,
   PrismaService,
 } from '@eticketsgo/api';
+import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const WORKER_PORT = Number(process.env.WORKER_PORT ?? 4100);
@@ -18,7 +20,36 @@ const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
 const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 30_000);
 const NOTIFICATION_SWEEP_MS =
   Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 30_000;
+const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
+const QUEUE_METRICS_MS =
+  Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
 const QUEUE_NAME = 'holds';
+
+// Error tracking — a complete no-op unless SENTRY_DSN is set. Manual capture only.
+const SENTRY_ENABLED = Boolean(process.env.SENTRY_DSN);
+if (SENTRY_ENABLED) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
+    release: process.env.SENTRY_RELEASE,
+    tracesSampleRate: 0,
+    sendDefaultPii: false,
+  });
+}
+
+/** Capture to Sentry when enabled; otherwise a no-op. Never throws. */
+function capture(error: unknown, tags?: Record<string, string>): void {
+  if (!SENTRY_ENABLED) return;
+  try {
+    Sentry.withScope((scope) => {
+      scope.setTag('service', 'worker');
+      if (tags) for (const [k, v] of Object.entries(tags)) scope.setTag(k, v);
+      Sentry.captureException(error);
+    });
+  } catch {
+    /* best-effort */
+  }
+}
 
 function log(
   level: 'info' | 'warn' | 'error',
@@ -97,10 +128,14 @@ async function main(): Promise<void> {
     { connection: redisConnection },
   );
 
-  worker.on('failed', (job, err) =>
-    log('error', 'job failed', { jobId: job?.id, error: err.message }),
-  );
-  worker.on('error', (err) => log('error', 'worker error', { error: err.message }));
+  worker.on('failed', (job, err) => {
+    log('error', 'job failed', { jobId: job?.id, error: err.message });
+    capture(err, { jobId: job?.id ?? '-', jobName: job?.name ?? '-' });
+  });
+  worker.on('error', (err) => {
+    log('error', 'worker error', { error: err.message });
+    capture(err);
+  });
 
   // Run once immediately on boot so restarts pick up any backlog promptly.
   await bookings
@@ -110,8 +145,21 @@ async function main(): Promise<void> {
     .completePastEvents()
     .then((n) => n > 0 && log('info', 'startup sweep completed past events', { completed: n }));
 
-  // Minimal health/readiness endpoint.
+  // Sample queue depth into gauges on an interval (best-effort, never throws).
+  await sampleQueueMetrics(queue);
+  const metricsTimer = setInterval(() => void sampleQueueMetrics(queue), QUEUE_METRICS_MS);
+  metricsTimer.unref?.();
+
+  // Minimal health/readiness + Prometheus metrics endpoint.
   const health = createServer(async (req, res) => {
+    if (req.url === '/metrics') {
+      // The worker owns the queue, so it exposes queue metrics itself; Prometheus
+      // scrapes both API (:4000/api/metrics) and worker (:4100/metrics).
+      const { body, contentType } = await renderWorkerMetrics();
+      res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
+      res.end(body);
+      return;
+    }
     if (req.url === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
@@ -149,6 +197,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     log('info', 'shutting down', { signal });
+    clearInterval(metricsTimer);
     await worker.close();
     await queue.close();
     await connection.quit().catch(() => undefined);
@@ -162,5 +211,6 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   log('error', 'worker crashed', { error: err instanceof Error ? err.message : String(err) });
+  capture(err, { phase: 'startup' });
   process.exit(1);
 });

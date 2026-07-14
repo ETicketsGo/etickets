@@ -1,0 +1,94 @@
+# ETicketsGo alert rules. PromQL is written against the etg_* metric names the
+# API and worker export. Wire these into Alertmanager for notifications.
+groups:
+  - name: eticketsgo-http
+    rules:
+      # >5% of HTTP requests returning 5xx over 5m — the API is degrading.
+      - alert: HighHttp5xxRate
+        expr: |
+          sum(rate(etg_http_requests_total{status_class="5xx"}[5m]))
+          / clamp_min(sum(rate(etg_http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'High 5xx rate (>5% of requests)'
+          description: 'More than 5% of HTTP requests have returned 5xx for 5 minutes.'
+
+      # API p95 latency SLO breach (> 1s over 10m).
+      - alert: ApiLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(etg_http_request_duration_seconds_bucket[10m])) by (le)) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'API p95 latency > 1s'
+          description: 'The 95th-percentile HTTP latency has exceeded 1s for 10 minutes.'
+
+  - name: eticketsgo-business
+    rules:
+      # Elevated payment-failure rate relative to bookings created (>20% over 10m).
+      - alert: PaymentsFailureRateHigh
+        expr: |
+          sum(rate(etg_payments_failed_total[10m]))
+          / clamp_min(sum(rate(etg_bookings_created_total[10m])), 1) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Elevated payment failure rate (>20%)'
+          description: 'More than 20% of created bookings are hitting payment failure.'
+
+      # Booking-confirm path is failing: created bookings are not confirming.
+      # (Payments failing OR 5xx on POST both suppress confirmations.)
+      - alert: BookingConfirmErrorRateHigh
+        expr: |
+          (
+            sum(rate(etg_bookings_created_total[10m]))
+            - sum(rate(etg_bookings_confirmed_total[10m]))
+            - sum(rate(etg_payments_failed_total[10m]))
+          ) / clamp_min(sum(rate(etg_bookings_created_total[10m])), 1) > 0.3
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Booking-confirm gap is high'
+          description: 'A large share of created bookings neither confirm nor fail payment — the confirm path may be erroring.'
+
+  - name: eticketsgo-queue
+    rules:
+      # BullMQ failed jobs growing — worker jobs are erroring.
+      - alert: QueueFailedGrowing
+        expr: sum(increase(etg_queue_jobs{state="failed"}[10m])) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Queue failed jobs growing'
+          description: 'The number of failed BullMQ jobs has increased over the last 10 minutes.'
+
+      # Queue backing up — waiting jobs consistently high.
+      - alert: QueueBacklogHigh
+        expr: sum(etg_queue_jobs{state="waiting"}) > 100
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Queue backlog high (>100 waiting)'
+          description: 'More than 100 jobs have been waiting in the queue for 10 minutes.'
+
+  - name: eticketsgo-availability
+    rules:
+      # The worker scrape target is down (process crashed or unreachable).
+      - alert: WorkerDown
+        expr: up{job="eticketsgo-worker"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Worker is down'
+          description: 'Prometheus cannot scrape the worker /metrics endpoint.'
+
+      # The API scrape target is down.
+      - alert: ApiDown
+        expr: up{job="eticketsgo-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'API is down'
+          description: 'Prometheus cannot scrape the API /api/metrics endpoint.'
