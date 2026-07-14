@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type {
   CreatePaymentInput,
+  HealthCheckResult,
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
@@ -11,6 +12,7 @@ import type {
   RefundResult,
   WebhookInput,
 } from './payment-provider.interface';
+import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
 
 /**
  * Stripe (global) provider. Buyers pay via a hosted Stripe Checkout Session
@@ -22,11 +24,26 @@ import type {
 export class StripePaymentProvider implements PaymentProvider {
   readonly name = 'stripe';
   readonly webhookSignatureHeader = 'stripe-signature';
+  readonly capabilities: PaymentProviderCapabilities = {
+    countries: ['US', 'CA', 'GB', 'AU', 'AE', 'SG', 'IE', 'NZ', 'DE', 'FR'],
+    currencies: ['USD', 'CAD', 'GBP', 'AUD', 'AED', 'SGD', 'EUR', 'NZD'],
+    paymentMethods: [PaymentMethod.CARD, PaymentMethod.APPLE_PAY, PaymentMethod.GOOGLE_PAY],
+    supportsPartialRefunds: true,
+    supportsMultiplePartialRefunds: true,
+    supportsAuthorizeCapture: true,
+    supportsConnectedAccounts: true,
+    supportsApplePay: true,
+    supportsGooglePay: true,
+    supportsUPI: false,
+    supportsNetBanking: false,
+    supportsWallets: true,
+  };
 
   private readonly client: Stripe;
   private readonly webhookSecret: string;
   private readonly successUrl: string;
   private readonly cancelUrl: string;
+  private readonly testMode: boolean;
 
   constructor(config: ConfigService) {
     const secretKey = requireKey(config, 'STRIPE_SECRET_KEY');
@@ -34,7 +51,18 @@ export class StripePaymentProvider implements PaymentProvider {
     // These have config-schema defaults, so getOrThrow-style access is safe.
     this.successUrl = config.getOrThrow<string>('STRIPE_SUCCESS_URL');
     this.cancelUrl = config.getOrThrow<string>('STRIPE_CANCEL_URL');
+    this.testMode = secretKey.startsWith('sk_test_');
     this.client = new Stripe(secretKey, { typescript: true });
+  }
+
+  async healthCheck(): Promise<HealthCheckResult> {
+    const mode = this.testMode ? 'test' : 'live';
+    try {
+      await this.client.balance.retrieve();
+      return { healthy: true, mode };
+    } catch (err) {
+      return { healthy: false, mode, message: err instanceof Error ? err.message : 'unhealthy' };
+    }
   }
 
   async createPayment(input: CreatePaymentInput): Promise<PaymentIntent> {

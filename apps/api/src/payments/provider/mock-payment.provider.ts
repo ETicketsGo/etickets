@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type {
   CreatePaymentInput,
+  HealthCheckResult,
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
@@ -11,6 +12,7 @@ import type {
   RefundResult,
   WebhookInput,
 } from './payment-provider.interface';
+import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
 
 /**
  * Local mock provider. Simulates a real gateway: payments complete out-of-band
@@ -21,10 +23,36 @@ import type {
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = 'mock';
   readonly webhookSignatureHeader = 'x-payment-signature';
+  /** The dummy provider simulates everything, everywhere (local/dev/QA only). */
+  readonly capabilities: PaymentProviderCapabilities = {
+    countries: ['*'],
+    currencies: ['*'],
+    paymentMethods: [
+      PaymentMethod.CARD,
+      PaymentMethod.UPI,
+      PaymentMethod.NETBANKING,
+      PaymentMethod.WALLET,
+      PaymentMethod.APPLE_PAY,
+      PaymentMethod.GOOGLE_PAY,
+    ],
+    supportsPartialRefunds: true,
+    supportsMultiplePartialRefunds: true,
+    supportsAuthorizeCapture: true,
+    supportsConnectedAccounts: false,
+    supportsApplePay: true,
+    supportsGooglePay: true,
+    supportsUPI: true,
+    supportsNetBanking: true,
+    supportsWallets: true,
+  };
   private readonly secret: string;
 
   constructor(config: ConfigService) {
     this.secret = config.getOrThrow<string>('PAYMENT_WEBHOOK_SECRET');
+  }
+
+  async healthCheck(): Promise<HealthCheckResult> {
+    return { healthy: true, mode: 'dummy', message: 'dummy provider — no external calls' };
   }
 
   async createPayment(input: CreatePaymentInput): Promise<PaymentIntent> {

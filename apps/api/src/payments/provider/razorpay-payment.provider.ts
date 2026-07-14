@@ -5,6 +5,7 @@ import Razorpay from 'razorpay';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type {
   CreatePaymentInput,
+  HealthCheckResult,
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
@@ -12,6 +13,7 @@ import type {
   RefundResult,
   WebhookInput,
 } from './payment-provider.interface';
+import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
 
 /** Shape of the Razorpay webhook JSON we consume (only the fields we read). */
 interface RazorpayWebhookBody {
@@ -41,15 +43,47 @@ interface RazorpayWebhookBody {
 export class RazorpayPaymentProvider implements PaymentProvider {
   readonly name = 'razorpay';
   readonly webhookSignatureHeader = 'x-razorpay-signature';
+  readonly capabilities: PaymentProviderCapabilities = {
+    countries: ['IN'],
+    currencies: ['INR'],
+    paymentMethods: [
+      PaymentMethod.CARD,
+      PaymentMethod.UPI,
+      PaymentMethod.NETBANKING,
+      PaymentMethod.WALLET,
+    ],
+    supportsPartialRefunds: true,
+    supportsMultiplePartialRefunds: true,
+    supportsAuthorizeCapture: false,
+    supportsConnectedAccounts: true,
+    supportsApplePay: false,
+    supportsGooglePay: true,
+    supportsUPI: true,
+    supportsNetBanking: true,
+    supportsWallets: true,
+  };
 
   private readonly client: Razorpay;
   private readonly webhookSecret: string;
+  private readonly testMode: boolean;
 
   constructor(config: ConfigService) {
     const keyId = requireKey(config, 'RAZORPAY_KEY_ID');
     const keySecret = requireKey(config, 'RAZORPAY_KEY_SECRET');
     this.webhookSecret = requireKey(config, 'RAZORPAY_WEBHOOK_SECRET');
+    this.testMode = keyId.startsWith('rzp_test_');
     this.client = new Razorpay({ key_id: keyId, key_secret: keySecret });
+  }
+
+  async healthCheck(): Promise<HealthCheckResult> {
+    const mode = this.testMode ? 'test' : 'live';
+    try {
+      // A cheap authenticated read; throws on bad credentials/connectivity.
+      await this.client.orders.all({ count: 1 });
+      return { healthy: true, mode };
+    } catch (err) {
+      return { healthy: false, mode, message: err instanceof Error ? err.message : 'unhealthy' };
+    }
   }
 
   async createPayment(input: CreatePaymentInput): Promise<PaymentIntent> {
