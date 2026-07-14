@@ -60,6 +60,9 @@ function setup(opts: {
     confirm: jest.fn().mockResolvedValue(opts.specs ?? []),
   };
   const provider = { verifyWebhook: jest.fn().mockResolvedValue(SUCCEEDED_EVENT) };
+  const mockProvider = {
+    signEvent: jest.fn((e) => ({ rawBody: JSON.stringify(e), signature: 'x' })),
+  };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
@@ -67,6 +70,7 @@ function setup(opts: {
   const service = new PaymentsService(
     prisma as never,
     provider as never,
+    mockProvider as never,
     audit as never,
     notifications as never,
     inventory as never,

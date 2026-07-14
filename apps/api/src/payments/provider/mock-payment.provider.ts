@@ -20,6 +20,7 @@ import type {
 @Injectable()
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = 'mock';
+  readonly webhookSignatureHeader = 'x-payment-signature';
   private readonly secret: string;
 
   constructor(config: ConfigService) {

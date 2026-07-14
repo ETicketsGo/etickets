@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import {
   BookingStatus,
@@ -12,7 +12,12 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
-import type { PaymentEvent, WebhookInput } from './provider/payment-provider.interface';
+import {
+  PAYMENT_PROVIDER,
+  type PaymentEvent,
+  type PaymentProvider,
+  type WebhookInput,
+} from './provider/payment-provider.interface';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
@@ -24,7 +29,10 @@ const nonce = () => randomBytes(8).toString('hex');
 export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly provider: MockPaymentProvider,
+    // The selected gateway (mock | razorpay | stripe) for real charge/verify/refund.
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    // The mock is used only by the dev-only mockPay() path to sign a test event.
+    private readonly mockProvider: MockPaymentProvider,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
@@ -112,7 +120,9 @@ export class PaymentsService {
       bookingId,
       amountMinor: payment.amountMinor,
     };
-    const signed = this.provider.signEvent(event);
+    // Dev-only: sign a synthetic event with the mock secret and feed it through
+    // the normal webhook path. Guarded by mockEnabled above.
+    const signed = this.mockProvider.signEvent(event);
     return this.handleWebhook(signed);
   }
 
