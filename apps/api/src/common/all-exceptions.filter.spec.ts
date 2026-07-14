@@ -53,4 +53,17 @@ describe('AllExceptionsFilter — Sentry capture is 5xx-only', () => {
     new AllExceptionsFilter().catch(new HttpException('bad', HttpStatus.BAD_REQUEST), host);
     expect(captureMock).not.toHaveBeenCalled();
   });
+
+  // Security regression (ADR-031): a raw provider/SDK error must NEVER leak its
+  // message (which could echo a credential or gateway detail) to the client.
+  it('never leaks a non-HttpException error message to the client body', () => {
+    const { host, json } = makeHost();
+    const leaky = new Error('Stripe error: Invalid API Key sk_live_supersecretvalue');
+    leaky.name = 'PaymentProviderError';
+    new AllExceptionsFilter().catch(leaky, host);
+    const body = json.mock.calls[0][0];
+    expect(body.message).toBe('Something went wrong.');
+    expect(JSON.stringify(body)).not.toContain('sk_live_');
+    expect(JSON.stringify(body)).not.toContain('Invalid API Key');
+  });
 });
