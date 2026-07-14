@@ -16,6 +16,7 @@ import {
   LifeBuoy,
   Activity,
   BarChart3,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -25,6 +26,7 @@ const nav: NavItem[] = [
   { label: 'Movies', href: '/admin/movies', icon: Film },
   { label: 'Bookings', href: '/admin/bookings', icon: Receipt },
   { label: 'Payments', href: '/admin/payments', icon: CreditCard },
+  { label: 'Payment Config', href: '/admin/payment-config', icon: SlidersHorizontal },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },

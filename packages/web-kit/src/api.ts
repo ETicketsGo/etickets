@@ -426,6 +426,38 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+
+    // ─── Runtime payment configuration (admin) ───
+    paymentConfig: {
+      overview: (env?: PaymentEnvValue) =>
+        request<PaymentConfigOverview>(`/admin/payments/config${qs({ env })}`),
+      updateProvider: (id: string, patch: PaymentConfigPatch, env?: PaymentEnvValue) =>
+        request<PaymentProviderConfigRow>(`/admin/payments/config/${id}${qs({ env })}`, {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+        }),
+      testConnection: (id: string, env?: PaymentEnvValue) =>
+        request<TestConnectionResult>(
+          `/admin/payments/config/${id}/test-connection${qs({ env })}`,
+          {
+            method: 'POST',
+          },
+        ),
+      createRoute: (input: PaymentRouteInput, env?: PaymentEnvValue) =>
+        request<PaymentRouteRow>(`/admin/payments/routes${qs({ env })}`, {
+          method: 'POST',
+          body: JSON.stringify(input),
+        }),
+      updateRoute: (id: string, input: Partial<PaymentRouteInput>, env?: PaymentEnvValue) =>
+        request<PaymentRouteRow>(`/admin/payments/routes/${id}${qs({ env })}`, {
+          method: 'PATCH',
+          body: JSON.stringify(input),
+        }),
+      deleteRoute: (id: string, env?: PaymentEnvValue) =>
+        request<{ deleted: boolean }>(`/admin/payments/routes/${id}${qs({ env })}`, {
+          method: 'DELETE',
+        }),
+    },
     support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
       request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
     updateSupport: (id: string, status: FeedbackStatusValue) =>
@@ -1098,6 +1130,89 @@ export interface FeeRule {
   feeMinor: number;
   currency: string;
   active: boolean;
+}
+
+// ─── Runtime payment configuration (admin) ───
+
+export type PaymentEnvValue = 'LOCAL' | 'DEV' | 'QA' | 'UAT' | 'STAGING' | 'PRODUCTION';
+export type PaymentProviderModeValue = 'DUMMY' | 'TEST' | 'LIVE';
+
+export interface MerchantAccountRow {
+  id: string;
+  label: string;
+  country: string | null;
+  currency: string | null;
+  merchantIdRef: string | null;
+  active: boolean;
+}
+export interface PaymentProviderConfigRow {
+  id: string;
+  env: PaymentEnvValue;
+  provider: string;
+  enabled: boolean;
+  mode: PaymentProviderModeValue;
+  publicKey: string | null;
+  secretKeyRef: string | null;
+  webhookSecretRef: string | null;
+  apiBaseUrl: string | null;
+  timeoutMs: number;
+  maxRetries: number;
+  retryBackoffMs: number;
+  circuitFailureThreshold: number;
+  circuitCooldownMs: number;
+  priority: number;
+  merchantAccounts: MerchantAccountRow[];
+}
+export interface PaymentRouteRow {
+  id: string;
+  env: PaymentEnvValue;
+  country: string;
+  currency: string;
+  method: string;
+  provider: string;
+  failoverProvider: string | null;
+  priority: number;
+  active: boolean;
+}
+export interface PaymentConfigIssue {
+  severity: 'ERROR' | 'WARN';
+  provider?: string;
+  message: string;
+}
+export interface PaymentConfigOverview {
+  env: PaymentEnvValue;
+  activeEnv: PaymentEnvValue;
+  providers: PaymentProviderConfigRow[];
+  routes: PaymentRouteRow[];
+  validation: { ok: boolean; issues: PaymentConfigIssue[] };
+}
+export interface PaymentConfigPatch {
+  enabled?: boolean;
+  mode?: PaymentProviderModeValue;
+  publicKey?: string | null;
+  secretKeyRef?: string | null;
+  webhookSecretRef?: string | null;
+  apiBaseUrl?: string | null;
+  timeoutMs?: number;
+  maxRetries?: number;
+  retryBackoffMs?: number;
+  circuitFailureThreshold?: number;
+  circuitCooldownMs?: number;
+  priority?: number;
+}
+export interface PaymentRouteInput {
+  country: string;
+  currency: string;
+  method: string;
+  provider: string;
+  failoverProvider?: string | null;
+  priority?: number;
+  active?: boolean;
+}
+export interface TestConnectionResult {
+  healthy: boolean;
+  mode?: string;
+  message?: string;
 }
 
 export interface ReviewItem {

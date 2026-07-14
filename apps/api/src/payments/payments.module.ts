@@ -8,11 +8,13 @@ import { selectPaymentProvider } from './provider/payment-provider.factory';
 import { PaymentConfigModule } from './configuration/payment-config.module';
 import { PaymentProviderRegistry } from './orchestration/provider-registry';
 import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
+import { PaymentAdminController } from './admin/payment-admin.controller';
+import { PaymentAdminService } from './admin/payment-admin.service';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [InventoryModule, PaymentConfigModule],
-  controllers: [PaymentsController],
+  controllers: [PaymentsController, PaymentAdminController],
   providers: [
     PaymentsService,
     // Mock stays registered (default provider + PaymentsService's dev mock-pay path).
@@ -28,6 +30,8 @@ import { InventoryModule } from '../inventory/inventory.module';
     // Orchestration: routes + fails over across constructed provider adapters.
     PaymentProviderRegistry,
     PaymentOrchestrator,
+    // Admin console backend for runtime payment configuration.
+    PaymentAdminService,
   ],
   exports: [PaymentsService],
 })
