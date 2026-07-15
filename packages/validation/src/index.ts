@@ -6,3 +6,4 @@ export * from './movie';
 export * from './booking';
 export * from './review';
 export * from './feedback';
+export * from './attendee';

@@ -239,6 +239,42 @@ export const api = {
     get: (id: string) => request<WalletTicket>(`/tickets/${id}`),
   },
 
+  // Attendee identity layer (ADR-031): assign / invite / transfer / claim.
+  attendees: {
+    assign: (ticketId: string, body: AssignAttendeeBody) =>
+      request<AttendeeTicket>(`/tickets/${ticketId}/attendee`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    invite: (ticketId: string, body: InviteAttendeeBody) =>
+      request<InviteResult>(`/tickets/${ticketId}/invite`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    transfer: (ticketId: string, body: InviteAttendeeBody) =>
+      request<InviteResult>(`/tickets/${ticketId}/transfer`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    unassign: (ticketId: string) =>
+      request<AttendeeTicket>(`/tickets/${ticketId}/unassign`, { method: 'POST' }),
+    summary: (bookingId: string) => request<AttendeeSummary>(`/bookings/${bookingId}/attendees`),
+    accept: (token: string) =>
+      request<AttendeeTicket>(`/attendee-invites/${encodeURIComponent(token)}/accept`, {
+        method: 'POST',
+      }),
+    decline: (token: string) =>
+      request<{ ticketId: string; status: string }>(
+        `/attendee-invites/${encodeURIComponent(token)}/decline`,
+        { method: 'POST' },
+      ),
+    resend: (inviteId: string) =>
+      request<{ id: string; email: string; token: string }>(
+        `/attendee-invites/${inviteId}/resend`,
+        { method: 'POST' },
+      ),
+  },
+
   organizations: {
     create: (body: { name: string; contactEmail?: string }) =>
       request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
@@ -792,6 +828,73 @@ export interface WalletTicket {
   venueName?: string | null;
   screenName?: string | null;
   cinemaName?: string | null;
+  // Attendee identity (ADR-031).
+  assignmentStatus?: AttendeeAssignmentValue;
+  attendeeName?: string | null;
+  ownedByViewer?: boolean;
+  assignedToViewer?: boolean;
+}
+
+export type AttendeeAssignmentValue =
+  'UNASSIGNED' | 'ASSIGNED' | 'INVITED' | 'ACCEPTED' | 'DECLINED';
+
+export interface AssignAttendeeBody {
+  name: string;
+  email: string;
+  phone?: string;
+  country?: string;
+  company?: string;
+  designation?: string;
+  studentId?: string;
+  memberId?: string;
+  customFields?: Record<string, string>;
+}
+export interface InviteAttendeeBody {
+  email: string;
+  phone?: string;
+  name?: string;
+}
+export interface AttendeeTicket {
+  id: string;
+  serial: string;
+  status: string;
+  assignmentStatus: AttendeeAssignmentValue;
+  attendeeName: string | null;
+  attendeeEmail: string | null;
+  seatLabel: string | null;
+}
+export interface InviteResult {
+  id: string;
+  ticketId: string;
+  email: string;
+  kind: 'INVITE' | 'TRANSFER';
+  status: string;
+  /** Raw claim token — owner may copy/share the /invite/<token> link. */
+  token: string;
+}
+export interface AttendeeSummary {
+  bookingId: string;
+  reference: string | null;
+  counts: {
+    total: number;
+    unassigned: number;
+    assigned: number;
+    invited: number;
+    accepted: number;
+    declined: number;
+    checkedIn: number;
+  };
+  tickets: {
+    id: string;
+    serial: string;
+    seatLabel: string | null;
+    ticketType: string;
+    status: string;
+    assignmentStatus: AttendeeAssignmentValue;
+    attendeeName: string | null;
+    attendeeEmail: string | null;
+    pendingInvite: { id: string; email: string; kind: string; expiresAt: string } | null;
+  }[];
 }
 
 export interface Organization {
@@ -1111,6 +1214,8 @@ export interface CheckInOutcome {
     holderName: string | null;
     ticketType: string;
     status: string;
+    reference: string | null;
+    seatLabel: string | null;
   };
 }
 

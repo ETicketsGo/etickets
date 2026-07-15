@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { AssignAttendeeDialog } from '@/components/assign-attendee-dialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -78,6 +79,7 @@ export default function BookingTicketsViewer() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [eventDayOpen, setEventDayOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -221,6 +223,8 @@ export default function BookingTicketsViewer() {
     );
 
   const timing = eventTiming(current.startsAt, Date.now());
+  const canAssign = current.ownedByViewer !== false && current.status === 'ACTIVE';
+  const assignmentLine = attendeeLine(current);
   const showNextActive = tickets.some((t) => t.status === 'ACTIVE') && current.status !== 'ACTIVE';
   const inactive = isTicketInactive(current.status);
   const seat = current.seatLabel;
@@ -326,6 +330,10 @@ export default function BookingTicketsViewer() {
               </div>
             </dl>
 
+            {assignmentLine && (
+              <p className="mt-2 text-caption font-medium text-text-secondary">{assignmentLine}</p>
+            )}
+
             {inactive && (
               <p className="mt-3 max-w-xs text-caption text-text-muted">
                 This ticket is {current.status.toLowerCase().replace('_', ' ')} and can’t be used at
@@ -377,7 +385,16 @@ export default function BookingTicketsViewer() {
           <QuickAction
             icon={UserPlus}
             label="Assign"
-            onClick={() => toast.push('Attendee assignment is coming soon.', 'info')}
+            onClick={() =>
+              canAssign
+                ? setAssignOpen(true)
+                : toast.push(
+                    current.status === 'ACTIVE'
+                      ? 'Only the booking owner can assign this ticket.'
+                      : 'This ticket can no longer be reassigned.',
+                    'info',
+                  )
+            }
           />
           <QuickAction icon={Download} label="PDF" onClick={() => window.print()} />
           <QuickAction
@@ -439,8 +456,28 @@ export default function BookingTicketsViewer() {
           online={online}
         />
       )}
+
+      <AssignAttendeeDialog
+        ticket={current}
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+      />
     </>
   );
+}
+
+/** Human line describing who a ticket is assigned to, from the viewer's angle. */
+function attendeeLine(t: WalletTicket): string | null {
+  const status = t.assignmentStatus;
+  if (!status || status === 'UNASSIGNED')
+    return t.ownedByViewer === false ? null : 'Not yet assigned';
+  if (t.assignedToViewer && !t.ownedByViewer) return 'This ticket is yours';
+  const who = t.attendeeName || 'an attendee';
+  if (status === 'INVITED') return `Invitation sent to ${who}`;
+  if (status === 'ACCEPTED') return `Claimed by ${who}`;
+  if (status === 'ASSIGNED') return `Assigned to ${who}`;
+  if (status === 'DECLINED') return 'Invitation declined — reassign when ready';
+  return null;
 }
 
 /** Group header: title, count, reference, check-in progress dots + status summary. */

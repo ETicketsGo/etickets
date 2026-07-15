@@ -268,10 +268,21 @@ export default function CheckinTab() {
                 <div className="mt-3 space-y-1 text-sm">
                   <p className="font-medium text-text-primary">
                     {outcome.ticket.holderName ?? '—'}
+                    {outcome.ticket.seatLabel && (
+                      <span className="ml-2 rounded bg-background-subtle px-1.5 py-0.5 text-xs font-normal text-text-secondary">
+                        Seat {outcome.ticket.seatLabel}
+                      </span>
+                    )}
                   </p>
                   <p className="text-text-muted">
                     {outcome.ticket.ticketType} ·{' '}
                     <span className="font-mono text-xs">{outcome.ticket.serial}</span>
+                    {outcome.ticket.reference && (
+                      <>
+                        {' · '}
+                        <span className="font-mono text-xs">{outcome.ticket.reference}</span>
+                      </>
+                    )}
                   </p>
                   {outcome.result === 'SUCCESS' && (
                     <Button

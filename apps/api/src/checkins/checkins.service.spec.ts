@@ -20,9 +20,11 @@ interface TicketShape {
   organizationId: string;
   eventSessionId: string;
   serial: string;
+  seatLabel: string | null;
   holderName: string | null;
   holderEmail: string | null;
   ticketType: { name: string };
+  booking: { reference: string | null };
 }
 
 function ticket(over: Partial<TicketShape> = {}): TicketShape {
@@ -33,9 +35,11 @@ function ticket(over: Partial<TicketShape> = {}): TicketShape {
     organizationId: 'org-1',
     eventSessionId: 'sess-1',
     serial: 'TKT-ABC',
+    seatLabel: null,
     holderName: 'Ada',
     holderEmail: 'ada@example.test',
     ticketType: { name: 'General' },
+    booking: { reference: 'ETG-IND-2026-000001' },
     ...over,
   };
 }

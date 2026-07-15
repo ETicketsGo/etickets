@@ -75,3 +75,56 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(page).toHaveURL(/\/account\/tickets\/.+/);
   await expect(page.getByRole('button', { name: /All tickets/ })).toBeVisible({ timeout: 20_000 });
 });
+
+test('attendee identity: owner invites, recipient claims, ticket moves to their wallet', async ({
+  page,
+}) => {
+  // Owner registers and books one ticket
+  await page.goto(`${CUSTOMER}/register`);
+  await page.getByLabel('Full name').fill('Owner Olive');
+  await page.getByLabel('Email').fill(uniqueEmail('owner'));
+  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+
+  await page.goto(`${CUSTOMER}/events`);
+  await page.locator('a[href^="/events/"]').first().click();
+  await expect(page).toHaveURL(/\/events\/.+/);
+  const qty = page.locator('select[aria-label^="Quantity"]').first();
+  await qty.selectOption('1');
+  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+  await page.getByRole('button', { name: /Pay/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
+  await page.getByRole('link', { name: 'View my ticket' }).click();
+
+  // Open the ticket viewer and invite an attendee by email
+  await page.getByRole('link', { name: /View ticket/ }).click();
+  await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
+  await page.getByRole('button', { name: 'Assign', exact: true }).click();
+  const attendeeEmail = uniqueEmail('attendee');
+  await page.getByLabel('Attendee email').fill(attendeeEmail);
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+
+  // Copy the generated claim link, then leave the owner session
+  const inviteLink = await page.getByLabel('Invitation link').inputValue();
+  expect(inviteLink).toContain('/invite/');
+  await page.evaluate(() => localStorage.clear());
+
+  // Recipient registers, then claims the ticket
+  await page.goto(`${CUSTOMER}/register`);
+  await page.getByLabel('Full name').fill('Rita Recipient');
+  await page.getByLabel('Email').fill(attendeeEmail);
+  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+
+  await page.goto(inviteLink);
+  await page.getByRole('button', { name: 'Accept ticket' }).click();
+  await expect(page.getByText('Ticket added to your wallet')).toBeVisible({ timeout: 20_000 });
+
+  // The claimed ticket now appears in the recipient's wallet
+  await page.getByRole('link', { name: 'Go to my tickets' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets/);
+  await expect(page.getByRole('article')).toHaveCount(1);
+});

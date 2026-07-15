@@ -20,6 +20,9 @@ export interface CheckInOutcome {
     holderName: string | null;
     ticketType: string;
     status: string;
+    // Identity/context so gate staff always see the latest attendee + booking.
+    reference: string | null;
+    seatLabel: string | null;
   };
 }
 
@@ -55,8 +58,12 @@ export class CheckinsService {
 
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: payload.ticketId },
-      include: { ticketType: { select: { name: true } } },
+      include: {
+        ticketType: { select: { name: true } },
+        booking: { select: { reference: true } },
+      },
     });
+    // A rotated nonce (attendee transfer/unassign) invalidates the old QR here.
     if (!ticket || ticket.nonce !== payload.nonce) {
       return this.withScanMetric({ result: CheckInResult.INVALID, message: 'Ticket not found.' });
     }
@@ -70,6 +77,8 @@ export class CheckinsService {
       holderName: ticket.holderName,
       ticketType: ticket.ticketType.name,
       status: ticket.status,
+      reference: ticket.booking.reference,
+      seatLabel: ticket.seatLabel,
     };
 
     if (opts.expectedSessionId && opts.expectedSessionId !== ticket.eventSessionId) {

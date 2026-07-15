@@ -54,6 +54,24 @@ const EN: LocaleTemplates = {
     subject: 'Ticket checked in',
     body: `Ticket ${str(p, 'serial', str(p, 'ticketId', ''))} has been checked in.`,
   }),
+  [NotificationType.ATTENDEE_INVITED]: (p) => ({
+    subject: 'You’ve been given a ticket',
+    body: `You have been invited to claim a ticket${
+      p['ref'] ? ` (${str(p, 'ref')})` : ''
+    }. Open the link to accept it into your wallet.`,
+  }),
+  [NotificationType.ATTENDEE_ACCEPTED]: (p) => ({
+    subject: 'Your ticket was claimed',
+    body: `${str(p, 'attendee', 'The attendee')} has accepted the ticket you shared.`,
+  }),
+  [NotificationType.ATTENDEE_DECLINED]: (p) => ({
+    subject: 'A ticket invitation was declined',
+    body: `An invitation for ticket ${str(p, 'ticketId', '')} was declined; the ticket is yours to reassign.`,
+  }),
+  [NotificationType.TICKET_TRANSFERRED]: (p) => ({
+    subject: 'Ticket transferred',
+    body: `Ticket ${str(p, 'ticketId', '')} has been transferred to a new holder.`,
+  }),
 };
 
 /** Registry of templates keyed by locale. Add locales here as they land. */

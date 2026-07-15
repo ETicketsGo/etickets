@@ -12,7 +12,7 @@ import type { RequestUser } from '../common/decorators';
  * existing event + ticket-type fields. Purely additive to the response shape.
  */
 const TICKET_INCLUDE = {
-  booking: { select: { reference: true } },
+  booking: { select: { reference: true, userId: true } },
   ticketType: { select: { name: true } },
   eventSession: {
     select: {
@@ -48,15 +48,15 @@ export class TicketsService {
   async wallet(user: RequestUser) {
     const tickets = await this.prisma.ticket.findMany({
       where: {
-        booking: {
-          userId: user.id,
-          status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
-        },
+        booking: { status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] } },
+        // The buyer sees their booking's tickets; an attendee also sees tickets
+        // assigned to them (the identity layer — "My Experiences").
+        OR: [{ booking: { userId: user.id } }, { attendeeUserId: user.id }],
       },
       orderBy: [{ createdAt: 'desc' }, { serial: 'asc' }],
       include: TICKET_INCLUDE,
     });
-    return Promise.all(tickets.map((t) => this.decorate(t)));
+    return Promise.all(tickets.map((t) => this.decorate(t, user.id)));
   }
 
   async getForUser(user: RequestUser, id: string) {
@@ -71,39 +71,45 @@ export class TicketsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
     const isAdmin =
       user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-    if (ticket.booking.userId !== user.id && !isAdmin) {
+    // Owner OR the assigned attendee may view a single ticket.
+    if (ticket.booking.userId !== user.id && ticket.attendeeUserId !== user.id && !isAdmin) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot view this ticket.',
         HttpStatus.FORBIDDEN,
       );
     }
-    return this.decorate(ticket);
+    return this.decorate(ticket, user.id);
   }
 
-  private async decorate(ticket: {
-    id: string;
-    bookingId: string;
-    eventSessionId: string;
-    nonce: string;
-    qrVersion: number;
-    serial: string;
-    status: string;
-    seatLabel: string | null;
-    holderName: string | null;
-    booking: { reference: string | null };
-    ticketType: { name: string };
-    eventSession: {
-      startsAt: Date;
-      screen: { name: string; cinema: { name: string } | null } | null;
-      event: {
-        title: string;
-        slug: string;
-        experienceType: string;
-        venue: { name: string; city: string } | null;
+  private async decorate(
+    ticket: {
+      id: string;
+      bookingId: string;
+      eventSessionId: string;
+      nonce: string;
+      qrVersion: number;
+      serial: string;
+      status: string;
+      seatLabel: string | null;
+      holderName: string | null;
+      assignmentStatus: string;
+      attendeeUserId: string | null;
+      booking: { reference: string | null; userId: string | null };
+      ticketType: { name: string };
+      eventSession: {
+        startsAt: Date;
+        screen: { name: string; cinema: { name: string } | null } | null;
+        event: {
+          title: string;
+          slug: string;
+          experienceType: string;
+          venue: { name: string; city: string } | null;
+        };
       };
-    };
-  }) {
+    },
+    viewerUserId: string,
+  ) {
     const token = this.qr.sign({
       ticketId: ticket.id,
       eventSessionId: ticket.eventSessionId,
@@ -132,6 +138,12 @@ export class TicketsService {
       venueName: event.venue?.name ?? null,
       screenName: screen?.name ?? null,
       cinemaName: screen?.cinema?.name ?? null,
+      // Attendee identity (ADR-031): assignment lifecycle + whether the viewer is
+      // the booking owner (vs an attendee this ticket was assigned to).
+      assignmentStatus: ticket.assignmentStatus,
+      attendeeName: ticket.holderName,
+      ownedByViewer: ticket.booking.userId === viewerUserId,
+      assignedToViewer: ticket.attendeeUserId === viewerUserId,
     };
   }
 }

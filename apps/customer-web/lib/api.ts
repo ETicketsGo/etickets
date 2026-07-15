@@ -9,6 +9,8 @@ import {
   type PublicEventCard,
   type BookingRequest,
   type FeedbackSubmission,
+  type AssignAttendeeBody,
+  type InviteAttendeeBody,
 } from '@eticketsgo/web-kit';
 
 export { tokenStore, ApiRequestError, API_URL };
@@ -33,6 +35,10 @@ export type {
   VenueSpotlight,
   OrganizerProfile,
   FeedbackSubmission,
+  AttendeeTicket,
+  AttendeeSummary,
+  AttendeeAssignmentValue,
+  InviteResult,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -49,6 +55,18 @@ export const api = {
   mockPay: wk.payments.mockPay,
   wallet: wk.tickets.wallet,
   getTicket: wk.tickets.get,
+  // Attendee identity (ADR-031): assign / invite / transfer / claim.
+  assignAttendee: (ticketId: string, body: AssignAttendeeBody) =>
+    wk.attendees.assign(ticketId, body),
+  inviteAttendee: (ticketId: string, body: InviteAttendeeBody) =>
+    wk.attendees.invite(ticketId, body),
+  transferTicket: (ticketId: string, body: InviteAttendeeBody) =>
+    wk.attendees.transfer(ticketId, body),
+  unassignAttendee: (ticketId: string) => wk.attendees.unassign(ticketId),
+  attendeeSummary: (bookingId: string) => wk.attendees.summary(bookingId),
+  acceptInvite: (token: string) => wk.attendees.accept(token),
+  declineInvite: (token: string) => wk.attendees.decline(token),
+  resendInvite: (inviteId: string) => wk.attendees.resend(inviteId),
   listBookings: wk.bookings.list,
   requestRefund: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
     wk.refunds.request(body),

@@ -171,8 +171,45 @@ export const NotificationType = {
   BOOKING_CANCELLED: 'BOOKING_CANCELLED',
   REFUND_COMPLETED: 'REFUND_COMPLETED',
   TICKET_CHECKED_IN: 'TICKET_CHECKED_IN',
+  ATTENDEE_INVITED: 'ATTENDEE_INVITED',
+  ATTENDEE_ACCEPTED: 'ATTENDEE_ACCEPTED',
+  ATTENDEE_DECLINED: 'ATTENDEE_DECLINED',
+  TICKET_TRANSFERRED: 'TICKET_TRANSFERRED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
+
+/**
+ * The assignment lifecycle of a ticket to an attendee (the identity layer). This
+ * is orthogonal to {@link TicketStatus} (gate/refund lifecycle): a ticket can be
+ * ACCEPTED (assignment) and CHECKED_IN (gate) at the same time. Reused by every
+ * experience type — events, movies, attractions, memberships. See ADR-031.
+ */
+export const AttendeeAssignmentStatus = {
+  UNASSIGNED: 'UNASSIGNED',
+  ASSIGNED: 'ASSIGNED',
+  INVITED: 'INVITED',
+  ACCEPTED: 'ACCEPTED',
+  DECLINED: 'DECLINED',
+} as const;
+export type AttendeeAssignmentStatus =
+  (typeof AttendeeAssignmentStatus)[keyof typeof AttendeeAssignmentStatus];
+
+/** Whether an invite hands a ticket to a new holder (INVITE) or gives it away (TRANSFER). */
+export const TicketInviteKind = {
+  INVITE: 'INVITE',
+  TRANSFER: 'TRANSFER',
+} as const;
+export type TicketInviteKind = (typeof TicketInviteKind)[keyof typeof TicketInviteKind];
+
+/** Lifecycle of a single invitation/transfer token. */
+export const TicketInviteStatus = {
+  PENDING: 'PENDING',
+  ACCEPTED: 'ACCEPTED',
+  DECLINED: 'DECLINED',
+  REVOKED: 'REVOKED',
+  EXPIRED: 'EXPIRED',
+} as const;
+export type TicketInviteStatus = (typeof TicketInviteStatus)[keyof typeof TicketInviteStatus];
 
 export const CheckInResult = {
   SUCCESS: 'SUCCESS',

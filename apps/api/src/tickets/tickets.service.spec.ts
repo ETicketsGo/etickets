@@ -24,7 +24,9 @@ function row(over: Record<string, unknown> = {}) {
     seatId: null,
     seatLabel: null,
     holderName: 'Ada',
-    booking: { reference: 'ETG-IND-2026-000042' },
+    assignmentStatus: 'ASSIGNED',
+    attendeeUserId: 'user-1',
+    booking: { reference: 'ETG-IND-2026-000042', userId: 'user-1' },
     ticketType: { name: 'VIP' },
     eventSession: {
       startsAt: new Date('2026-09-01T10:00:00.000Z'),
