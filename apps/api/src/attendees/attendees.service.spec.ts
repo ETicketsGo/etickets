@@ -149,6 +149,7 @@ describe('AttendeesService', () => {
       ticketId: 'tk1',
       organizationId: 'org1',
       kind: 'INVITE',
+      permission: 'TRANSFER',
       status: 'PENDING',
       email: 'rec@e.test',
       expiresAt: new Date(Date.now() + 3_600_000),
@@ -177,6 +178,14 @@ describe('AttendeesService', () => {
       const { svc, prisma } = setup();
       (prisma.ticketInvite.findUnique as jest.Mock).mockResolvedValue(null);
       await expect(svc.accept(RECIPIENT, 'nope')).rejects.toThrow(/no longer valid/i);
+    });
+
+    it('refuses to take ownership via a VIEW/GUEST share token (security)', async () => {
+      const { svc, prisma } = setup();
+      (prisma.ticketInvite.findUnique as jest.Mock).mockResolvedValue(
+        pendingInvite({ permission: 'VIEW' }),
+      );
+      await expect(svc.accept(RECIPIENT, 'view-token')).rejects.toThrow(/ownership/i);
     });
 
     it('rejects and marks an expired invite', async () => {

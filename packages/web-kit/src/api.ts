@@ -275,6 +275,34 @@ export const api = {
       ),
   },
 
+  // Secure Experience Sharing (ADR-032). Generic over resource types.
+  sharing: {
+    create: (ticketId: string, body: CreateShareBody) =>
+      request<ShareCreated>(`/tickets/${ticketId}/share`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    activity: (ticketId: string) => request<ShareActivity>(`/tickets/${ticketId}/shares`),
+    revoke: (shareId: string) =>
+      request<{ id: string; status: string }>(`/shares/${shareId}/revoke`, { method: 'POST' }),
+    extend: (shareId: string, expiry: ShareExpiryValue) =>
+      request<{ id: string; expiresAt: string }>(`/shares/${shareId}/extend`, {
+        method: 'POST',
+        body: JSON.stringify({ expiry }),
+      }),
+    permission: (shareId: string, permission: SharePermissionValue) =>
+      request<{ id: string; permission: string }>(`/shares/${shareId}/permission`, {
+        method: 'POST',
+        body: JSON.stringify({ permission }),
+      }),
+    // Public — resolve a share link (no auth required).
+    resolve: (token: string) =>
+      request<ResolvedShare>(`/public/share/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        auth: false,
+      }),
+  },
+
   organizations: {
     create: (body: { name: string; contactEmail?: string }) =>
       request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
@@ -872,6 +900,70 @@ export interface InviteResult {
   /** Raw claim token — owner may copy/share the /invite/<token> link. */
   token: string;
 }
+// ── Secure Experience Sharing (ADR-032) ──
+export type SharePermissionValue = 'VIEW' | 'GUEST' | 'TRANSFER';
+export type ShareExpiryValue = '1h' | '6h' | '24h' | 'event_end' | 'never';
+export type ShareResourceType =
+  'TICKET' | 'MEMBERSHIP' | 'PARKING_PASS' | 'FOOD_VOUCHER' | 'VIP_PASS';
+
+export interface CreateShareBody {
+  permission: SharePermissionValue;
+  expiry: ShareExpiryValue;
+  maxOpens?: number;
+  email?: string;
+  label?: string;
+}
+export interface ShareCreated {
+  id: string;
+  token: string;
+  shareUrl: string;
+  qrDataUrl: string;
+  permission: SharePermissionValue;
+  expiresAt: string;
+  maxOpens: number | null;
+}
+export interface ShareActivityRow {
+  id: string;
+  permission: SharePermissionValue;
+  status: string;
+  email: string | null;
+  label: string | null;
+  openCount: number;
+  maxOpens: number | null;
+  expiresAt: string;
+  lastOpenedAt: string | null;
+  createdAt: string;
+}
+export interface ShareActivity {
+  ticketId: string;
+  shares: ShareActivityRow[];
+}
+export interface SharedResourceView {
+  resourceType: ShareResourceType;
+  title: string;
+  subtitle: string | null;
+  status: string;
+  reference: string | null;
+  ticketType: string | null;
+  attendeeName: string | null;
+  seatLabel: string | null;
+  venueName: string | null;
+  screenName: string | null;
+  cinemaName: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+export interface ResolvedShare {
+  permission: SharePermissionValue;
+  resource: SharedResourceView;
+  qrDataUrl: string | null;
+  canCheckIn: boolean;
+  canTransfer: boolean;
+  canDownload: boolean;
+  expiresAt: string;
+  remainingOpens: number | null;
+}
+
 export interface AttendeeSummary {
   bookingId: string;
   reference: string | null;

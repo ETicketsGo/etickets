@@ -128,3 +128,49 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await expect(page).toHaveURL(/\/account\/tickets/);
   await expect(page.getByRole('article')).toHaveCount(1);
 });
+
+test('secure sharing: owner creates a guest link, recipient opens it, then it is revoked', async ({
+  page,
+}) => {
+  // Owner registers and books one ticket
+  await page.goto(`${CUSTOMER}/register`);
+  await page.getByLabel('Full name').fill('Share Owner');
+  await page.getByLabel('Email').fill(uniqueEmail('sharer'));
+  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+
+  await page.goto(`${CUSTOMER}/events`);
+  await page.locator('a[href^="/events/"]').first().click();
+  await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
+  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+  await page.getByRole('button', { name: /Pay/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
+  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: /View ticket/ }).click();
+  await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
+  const viewerUrl = page.url();
+
+  // Create a GUEST share link
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('input[value="GUEST"]').check();
+  await page.getByRole('button', { name: 'Create link' }).click();
+  const shareLink = await page.getByLabel('Share link').inputValue();
+  expect(shareLink).toContain('/share/');
+
+  // Recipient opens the guest link — sees the live QR
+  await page.goto(shareLink);
+  await expect(page.getByText('Shared with you')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('img[alt="Ticket QR code"]')).toBeVisible();
+
+  // Owner revokes the share
+  await page.goto(viewerUrl);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.getByRole('button', { name: 'Revoke' }).first().click();
+  await expect(page.getByText(/Share revoked/i)).toBeVisible({ timeout: 20_000 });
+
+  // The link no longer works
+  await page.goto(shareLink);
+  await expect(page.getByText('This share has been revoked.')).toBeVisible({ timeout: 20_000 });
+});

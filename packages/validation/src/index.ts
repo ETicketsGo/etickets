@@ -7,3 +7,4 @@ export * from './booking';
 export * from './review';
 export * from './feedback';
 export * from './attendee';
+export * from './share';

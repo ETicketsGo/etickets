@@ -11,6 +11,9 @@ import {
   type FeedbackSubmission,
   type AssignAttendeeBody,
   type InviteAttendeeBody,
+  type CreateShareBody,
+  type ShareExpiryValue,
+  type SharePermissionValue,
 } from '@eticketsgo/web-kit';
 
 export { tokenStore, ApiRequestError, API_URL };
@@ -39,6 +42,11 @@ export type {
   AttendeeSummary,
   AttendeeAssignmentValue,
   InviteResult,
+  ShareCreated,
+  ShareActivity,
+  ResolvedShare,
+  SharePermissionValue,
+  ShareExpiryValue,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -67,6 +75,14 @@ export const api = {
   acceptInvite: (token: string) => wk.attendees.accept(token),
   declineInvite: (token: string) => wk.attendees.decline(token),
   resendInvite: (inviteId: string) => wk.attendees.resend(inviteId),
+  // Secure Experience Sharing (ADR-032).
+  createShare: (ticketId: string, body: CreateShareBody) => wk.sharing.create(ticketId, body),
+  shareActivity: (ticketId: string) => wk.sharing.activity(ticketId),
+  revokeShare: (shareId: string) => wk.sharing.revoke(shareId),
+  extendShare: (shareId: string, expiry: ShareExpiryValue) => wk.sharing.extend(shareId, expiry),
+  changeSharePermission: (shareId: string, permission: SharePermissionValue) =>
+    wk.sharing.permission(shareId, permission),
+  resolveShare: (token: string) => wk.sharing.resolve(token),
   listBookings: wk.bookings.list,
   requestRefund: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
     wk.refunds.request(body),

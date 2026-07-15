@@ -175,8 +175,38 @@ export const NotificationType = {
   ATTENDEE_ACCEPTED: 'ATTENDEE_ACCEPTED',
   ATTENDEE_DECLINED: 'ATTENDEE_DECLINED',
   TICKET_TRANSFERRED: 'TICKET_TRANSFERRED',
+  SHARE_CREATED: 'SHARE_CREATED',
+  SHARE_VIEWED: 'SHARE_VIEWED',
+  SHARE_REVOKED: 'SHARE_REVOKED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
+
+/**
+ * What a share link lets its holder do with a resource (ADR-032). VIEW is
+ * read-only (no live QR); GUEST grants temporary, expiring access including the
+ * live QR so the holder can be checked in; TRANSFER hands over ownership (reuses
+ * the Sprint-4 accept flow + QR rotation). Never creates a second valid QR.
+ */
+export const SharePermission = {
+  VIEW: 'VIEW',
+  GUEST: 'GUEST',
+  TRANSFER: 'TRANSFER',
+} as const;
+export type SharePermission = (typeof SharePermission)[keyof typeof SharePermission];
+
+/**
+ * The kind of shareable resource. Only TICKET exists today; the sharing platform
+ * is generic (ShareableResource) so memberships, passes, vouchers and parking
+ * plug in later (Experience Wallet) without a schema change. See ADR-032.
+ */
+export const ResourceType = {
+  TICKET: 'TICKET',
+  MEMBERSHIP: 'MEMBERSHIP',
+  PARKING_PASS: 'PARKING_PASS',
+  FOOD_VOUCHER: 'FOOD_VOUCHER',
+  VIP_PASS: 'VIP_PASS',
+} as const;
+export type ResourceType = (typeof ResourceType)[keyof typeof ResourceType];
 
 /**
  * The assignment lifecycle of a ticket to an attendee (the identity layer). This

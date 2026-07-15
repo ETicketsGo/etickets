@@ -248,6 +248,15 @@ export class AttendeesService {
   /** Recipient accepts: relinks the ticket to their account and rotates the QR. */
   async accept(user: RequestUser, rawToken: string) {
     const invite = await this.resolveInvite(rawToken);
+    // Security: only a TRANSFER-permission link may seize ownership. A VIEW/GUEST
+    // share token can never be used to accept/transfer the ticket.
+    if (invite.permission !== 'TRANSFER') {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This link does not allow taking ownership.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
     const ticket = await this.prisma.ticket.findUnique({ where: { id: invite.ticketId } });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);

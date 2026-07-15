@@ -72,6 +72,18 @@ const EN: LocaleTemplates = {
     subject: 'Ticket transferred',
     body: `Ticket ${str(p, 'ticketId', '')} has been transferred to a new holder.`,
   }),
+  [NotificationType.SHARE_CREATED]: (p) => ({
+    subject: 'Someone shared an experience with you',
+    body: `You’ve been sent ${str(p, 'permission', 'view')} access. Open the link to view it: ${str(p, 'url', '')}`,
+  }),
+  [NotificationType.SHARE_VIEWED]: (p) => ({
+    subject: 'Your shared link was opened',
+    body: `A share link for ticket ${str(p, 'ticketId', '')} was just opened.`,
+  }),
+  [NotificationType.SHARE_REVOKED]: (p) => ({
+    subject: 'Share access revoked',
+    body: `Access to ticket ${str(p, 'ticketId', '')} has been revoked.`,
+  }),
 };
 
 /** Registry of templates keyed by locale. Add locales here as they land. */

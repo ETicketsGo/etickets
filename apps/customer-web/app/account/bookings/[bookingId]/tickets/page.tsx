@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AssignAttendeeDialog } from '@/components/assign-attendee-dialog';
+import { ShareDialog } from '@/components/share-dialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -80,6 +81,7 @@ export default function BookingTicketsViewer() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [eventDayOpen, setEventDayOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [autoAdvance, setAutoAdvance] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -235,16 +237,6 @@ export default function BookingTicketsViewer() {
     ? [group.cinemaName, group.venueName].filter(Boolean).join(', ') || group.title
     : group.venueName || group.title;
 
-  const shareTicket = async () => {
-    const url = `${window.location.origin}/account/tickets/${current.id}`;
-    if (navigator.share) {
-      await navigator.share({ title: group.title, url }).catch(() => undefined);
-    } else {
-      await navigator.clipboard.writeText(url).catch(() => undefined);
-      toast.push('Ticket link copied.', 'success');
-    }
-  };
-
   return (
     <>
       <section className="mx-auto max-w-2xl space-y-6" aria-label={`Tickets for ${group.title}`}>
@@ -381,7 +373,7 @@ export default function BookingTicketsViewer() {
 
         {/* Quick actions */}
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          <QuickAction icon={Share2} label="Share" onClick={shareTicket} />
+          <QuickAction icon={Share2} label="Share" onClick={() => setShareOpen(true)} />
           <QuickAction
             icon={UserPlus}
             label="Assign"
@@ -462,6 +454,8 @@ export default function BookingTicketsViewer() {
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
       />
+
+      <ShareDialog ticket={current} open={shareOpen} onClose={() => setShareOpen(false)} />
     </>
   );
 }

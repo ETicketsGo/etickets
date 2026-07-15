@@ -159,6 +159,9 @@ enum NotificationType {
   ATTENDEE_ACCEPTED
   ATTENDEE_DECLINED
   TICKET_TRANSFERRED
+  SHARE_CREATED
+  SHARE_VIEWED
+  SHARE_REVOKED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -182,6 +185,23 @@ enum TicketInviteStatus {
   DECLINED
   REVOKED
   EXPIRED
+}
+
+// What a share link grants (ADR-032). VIEW = read-only (no live QR); GUEST =
+// temporary access incl. live QR (checkable in); TRANSFER = ownership handover.
+enum SharePermission {
+  VIEW
+  GUEST
+  TRANSFER
+}
+
+// Generic shareable resource type. Only TICKET today; additive for the wallet.
+enum ResourceType {
+  TICKET
+  MEMBERSHIP
+  PARKING_PASS
+  FOOD_VOUCHER
+  VIP_PASS
 }
 
 enum CheckInResultType {
@@ -740,8 +760,18 @@ model TicketInvite {
   organizationId String
   kind           TicketInviteKind   @default(INVITE)
   status         TicketInviteStatus @default(PENDING)
+  // Secure Experience Sharing (ADR-032). permission drives what the link grants;
+  // resourceType keeps the ledger generic for future wallet items; open counters
+  // + limits enforce single/multi-use policy. Existing rows are TRANSFER/TICKET.
+  permission     SharePermission    @default(TRANSFER)
+  resourceType   ResourceType       @default(TICKET)
+  maxOpens       Int?
+  openCount      Int                @default(0)
+  lastOpenedAt   DateTime?
+  lastOpenedByUserId String?
+  label          String?
   // Intended recipient (for delivery + display); the accepting account may differ.
-  email          String
+  email          String?
   phone          String?
   tokenHash      String             @unique
   expiresAt      DateTime
