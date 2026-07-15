@@ -47,6 +47,13 @@ export default function OrdersTab() {
 
   const columns: Column<OrderRow>[] = [
     {
+      key: 'reference',
+      header: 'Reference',
+      render: (o) => (
+        <span className="font-mono text-xs text-text-muted">{o.reference ?? '—'}</span>
+      ),
+    },
+    {
       key: 'buyer',
       header: 'Buyer',
       render: (o) => (
@@ -95,7 +102,7 @@ export default function OrdersTab() {
             setApplied(q);
             setPage(1);
           }}
-          placeholder="Search buyer name or email…"
+          placeholder="Search reference, buyer name or email…"
         />
         <Select
           aria-label="Status filter"

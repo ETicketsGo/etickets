@@ -135,6 +135,7 @@ export class EventsService {
             OR: [
               { buyerName: { contains: params.q, mode: 'insensitive' as const } },
               { buyerEmail: { contains: params.q, mode: 'insensitive' as const } },
+              { reference: { contains: params.q, mode: 'insensitive' as const } },
             ],
           }
         : {}),
@@ -152,6 +153,7 @@ export class EventsService {
     return {
       data: bookings.map((b) => ({
         id: b.id,
+        reference: b.reference,
         status: b.status,
         buyerName: b.buyerName,
         buyerEmail: b.buyerEmail,

@@ -26,9 +26,10 @@ import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
 import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
 import { InventoryModule } from '../inventory/inventory.module';
+import { BookingReferenceModule } from '../bookings/booking-reference.module';
 
 @Module({
-  imports: [InventoryModule, PaymentConfigModule, OpsModule],
+  imports: [InventoryModule, PaymentConfigModule, OpsModule, BookingReferenceModule],
   controllers: [
     PaymentsController,
     PaymentAdminController,

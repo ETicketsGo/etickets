@@ -12,6 +12,7 @@ import type { RequestUser } from '../common/decorators';
  * existing event + ticket-type fields. Purely additive to the response shape.
  */
 const TICKET_INCLUDE = {
+  booking: { select: { reference: true } },
   ticketType: { select: { name: true } },
   eventSession: {
     select: {
@@ -61,7 +62,10 @@ export class TicketsService {
   async getForUser(user: RequestUser, id: string) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id },
-      include: { booking: { select: { userId: true } }, ...TICKET_INCLUDE },
+      include: {
+        ...TICKET_INCLUDE,
+        booking: { select: { userId: true, reference: true } },
+      },
     });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
@@ -87,6 +91,7 @@ export class TicketsService {
     status: string;
     seatLabel: string | null;
     holderName: string | null;
+    booking: { reference: string | null };
     ticketType: { name: string };
     eventSession: {
       startsAt: Date;
@@ -119,8 +124,9 @@ export class TicketsService {
       qrDataUrl,
       // Additive fields for booking grouping + seat/screen context.
       bookingId: ticket.bookingId,
-      // Short human-readable reference derived from the booking id (no schema change).
-      bookingRef: ticket.bookingId.slice(-6).toUpperCase(),
+      // Prefer the real public reference; fall back to a derived short code for
+      // legacy/pending bookings that predate reference assignment.
+      bookingRef: ticket.booking.reference ?? ticket.bookingId.slice(-6).toUpperCase(),
       experienceType: event.experienceType,
       seatLabel: ticket.seatLabel,
       venueName: event.venue?.name ?? null,

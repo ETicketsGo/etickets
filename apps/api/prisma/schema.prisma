@@ -593,6 +593,11 @@ model Booking {
   couponId       String?
   coupon         Coupon?       @relation(fields: [couponId], references: [id])
 
+  // Human-readable, globally-unique, immutable public reference assigned once at
+  // confirmation, e.g. "ETG-IND-2026-000001" (brand-country-year-sequence). Null
+  // for pending/legacy bookings; read paths fall back to a derived short code.
+  // See BookingReferenceService + BookingReferenceCounter.
+  reference  String?       @unique
   buyerName  String
   buyerEmail String
   status     BookingStatus @default(PENDING_PAYMENT)
@@ -867,6 +872,16 @@ model IdempotencyRecord {
   expiresAt    DateTime?
 
   @@unique([scope, key])
+}
+
+// Monotonic per-(country, year) sequence backing human-readable booking references
+// (ADR-030). `scope` is "<ALPHA3>-<YEAR>" e.g. "IND-2026"; `value` is the last
+// number issued. Incremented atomically inside the booking-confirm transaction so
+// references are collision-free and gap-tolerant under concurrency and multi-region.
+model BookingReferenceCounter {
+  scope     String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 // Configurable, tiered platform fee rules. Admin-managed (section 13).

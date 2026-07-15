@@ -9,6 +9,7 @@ import { PaymentsService } from './payments.service';
 import { AppException } from '../common/errors';
 import type { PaymentEvent } from './provider/payment-provider.interface';
 import { MetricsService } from '../metrics/metrics.service';
+import { BookingReferenceService } from '../bookings/booking-reference.service';
 
 const SUCCEEDED_EVENT: PaymentEvent = {
   type: 'payment.succeeded',
@@ -28,13 +29,19 @@ interface BookingShape {
   holdExpiresAt: Date;
   couponId?: string | null;
   items: Array<{ ticketTypeId: string; quantity: number }>;
-  event: { experienceType: string };
+  event: { experienceType: string; venue: { country: string } | null };
 }
 
 /** A tx mock exposing exactly the writes confirm() performs. */
 function makeTx(claimCount: number) {
   return {
-    booking: { updateMany: jest.fn().mockResolvedValue({ count: claimCount }) },
+    booking: {
+      updateMany: jest.fn().mockResolvedValue({ count: claimCount }),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    bookingReferenceCounter: {
+      upsert: jest.fn().mockResolvedValue({ scope: 'IND-2026', value: 7 }),
+    },
     ticket: { create: jest.fn().mockResolvedValue({}) },
     payment: { update: jest.fn().mockResolvedValue({}) },
     paymentAttempt: { create: jest.fn().mockResolvedValue({}) },
@@ -82,6 +89,7 @@ function setup(opts: {
     notifications as never,
     inventory as never,
     new MetricsService(),
+    new BookingReferenceService(),
   );
   return { service, prisma, tx, strategy, provider, audit, notifications, inventory };
 }
@@ -97,7 +105,7 @@ const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
   holdExpiresAt: new Date(Date.now() + 60_000),
   couponId: null,
   items: [{ ticketTypeId: 't1', quantity: 2 }],
-  event: { experienceType: ExperienceType.EVENT },
+  event: { experienceType: ExperienceType.EVENT, venue: { country: 'India' } },
   ...over,
 });
 
@@ -119,6 +127,16 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
       expect.objectContaining({
         where: { id: 'b1', status: BookingStatus.PENDING_PAYMENT },
         data: expect.objectContaining({ status: BookingStatus.CONFIRMED }),
+      }),
+    );
+    // The immutable public reference is assigned inside the confirm transaction.
+    expect(tx.bookingReferenceCounter.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { scope: expect.stringMatching(/^IND-\d{4}$/) } }),
+    );
+    expect(tx.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'b1' },
+        data: { reference: expect.stringMatching(/^ETG-IND-\d{4}-000007$/) },
       }),
     );
     // One ticket per spec unit.

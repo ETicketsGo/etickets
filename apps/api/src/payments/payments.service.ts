@@ -22,6 +22,7 @@ import { PaymentOrchestrator } from './orchestration/payment-orchestrator.servic
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { BookingReferenceService } from '../bookings/booking-reference.service';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -40,6 +41,7 @@ export class PaymentsService {
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
     private readonly metrics: MetricsService,
+    private readonly bookingReference: BookingReferenceService,
   ) {}
 
   /**
@@ -171,7 +173,10 @@ export class PaymentsService {
   private async confirm(event: PaymentEvent) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
-      include: { items: true, event: { select: { experienceType: true } } },
+      include: {
+        items: true,
+        event: { select: { experienceType: true, venue: { select: { country: true } } } },
+      },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -204,6 +209,14 @@ export class PaymentsService {
         alreadyConfirmed = true;
         return;
       }
+
+      // Assign the immutable public reference in the same atomic step that flips
+      // the booking to CONFIRMED — only ever the first delivery reaches here.
+      const reference = await this.bookingReference.assign(tx, {
+        country: booking.event.venue?.country,
+        at: new Date(),
+      });
+      await tx.booking.update({ where: { id: booking.id }, data: { reference } });
 
       // Settle inventory (held → sold) via the experience's strategy, which returns
       // the exact tickets to issue (one per unit, or one per seat). See ADR-010/013.

@@ -24,6 +24,7 @@ function row(over: Record<string, unknown> = {}) {
     seatId: null,
     seatLabel: null,
     holderName: 'Ada',
+    booking: { reference: 'ETG-IND-2026-000042' },
     ticketType: { name: 'VIP' },
     eventSession: {
       startsAt: new Date('2026-09-01T10:00:00.000Z'),
@@ -51,11 +52,17 @@ describe('TicketsService.wallet', () => {
     const { svc } = setup([row()]);
     const [t] = await svc.wallet(USER);
     expect(t.bookingId).toBe('bk_abc123DEF');
-    // Short human ref = last 6 chars of the booking id, upper-cased.
-    expect(t.bookingRef).toBe('123DEF');
+    // Prefers the real public reference when present.
+    expect(t.bookingRef).toBe('ETG-IND-2026-000042');
     expect(t.experienceType).toBe('EVENT');
     expect(t.venueName).toBe('Hall A');
     expect(t.qrDataUrl.startsWith('data:image/png')).toBe(true);
+  });
+
+  it('falls back to a derived short code when no reference is set (legacy booking)', async () => {
+    const { svc } = setup([row({ booking: { reference: null } })]);
+    const [t] = await svc.wallet(USER);
+    expect(t.bookingRef).toBe('123DEF'); // last 6 of bk_abc123DEF
   });
 
   it('surfaces movie screen + cinema + seat label', async () => {

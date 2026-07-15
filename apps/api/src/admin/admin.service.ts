@@ -12,7 +12,14 @@ export class AdminService {
   async bookings(params: { page: number; pageSize: number; status?: string; q?: string }) {
     const where = {
       ...(params.status ? { status: params.status as never } : {}),
-      ...(params.q ? { buyerEmail: { contains: params.q, mode: 'insensitive' as const } } : {}),
+      ...(params.q
+        ? {
+            OR: [
+              { buyerEmail: { contains: params.q, mode: 'insensitive' as const } },
+              { reference: { contains: params.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
     };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.booking.count({ where }),
@@ -27,6 +34,7 @@ export class AdminService {
     return {
       data: rows.map((b) => ({
         id: b.id,
+        reference: b.reference,
         status: b.status,
         buyerEmail: b.buyerEmail,
         totalMinor: b.totalMinor,

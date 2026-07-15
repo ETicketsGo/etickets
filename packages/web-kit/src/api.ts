@@ -747,6 +747,7 @@ export interface BookingResult {
 }
 export interface BookingDetail {
   id: string;
+  reference: string | null;
   status: string;
   holdExpiresAt: string;
   totalMinor: number;
@@ -765,6 +766,7 @@ export interface BookingDetail {
 }
 export interface BookingSummary {
   id: string;
+  reference: string | null;
   status: string;
   event: { title: string; slug: string };
   eventSession: { startsAt: string };
@@ -1080,6 +1082,7 @@ export interface CreateTicketTypeBody {
 
 export interface OrderRow {
   id: string;
+  reference: string | null;
   status: string;
   buyerName: string;
   buyerEmail: string;
@@ -1228,6 +1231,7 @@ export interface AdminEventRow {
 }
 export interface AdminBookingRow {
   id: string;
+  reference: string | null;
   status: string;
   buyerEmail: string;
   totalMinor: number;

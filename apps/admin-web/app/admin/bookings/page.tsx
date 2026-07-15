@@ -47,6 +47,13 @@ export default function AdminBookings() {
   });
 
   const columns: Column<AdminBookingRow>[] = [
+    {
+      key: 'reference',
+      header: 'Reference',
+      render: (b) => (
+        <span className="font-mono text-caption text-text-muted">{b.reference ?? '—'}</span>
+      ),
+    },
     { key: 'buyer', header: 'Buyer', render: (b) => b.buyerEmail },
     { key: 'event', header: 'Event', render: (b) => b.event.title },
     {
@@ -82,7 +89,7 @@ export default function AdminBookings() {
             setApplied(q);
             setPage(1);
           }}
-          placeholder="Search buyer email…"
+          placeholder="Search reference or buyer email…"
         />
         <Select
           aria-label="Status filter"

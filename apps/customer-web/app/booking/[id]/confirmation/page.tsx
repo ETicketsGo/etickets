@@ -92,6 +92,12 @@ export default function ConfirmationPage() {
         <p className="text-[0.9375rem] text-text-muted">
           {dateTime(booking.eventSession.startsAt)}
         </p>
+        {booking.reference && (
+          <div className="flex items-center justify-between text-[0.9375rem]">
+            <span className="text-text-secondary">Booking reference</span>
+            <span className="font-mono font-medium text-text-primary">{booking.reference}</span>
+          </div>
+        )}
         <div className="flex justify-between border-t border-border pt-3 text-[0.9375rem]">
           <span className="text-text-secondary">Total paid</span>
           <span className="font-semibold text-text-primary">{money(booking.totalMinor)}</span>

@@ -98,6 +98,9 @@ export default function BookingsPage() {
                   <CalendarDays className="h-3.5 w-3.5" />
                   {dateTime(row.eventSession.startsAt)} · {row._count.tickets} ticket(s)
                 </p>
+                {row.reference && (
+                  <p className="mt-1 font-mono text-caption text-text-muted">{row.reference}</p>
+                )}
               </div>
               <StatusBadge status={row.status} />
             </button>
@@ -130,6 +133,9 @@ export default function BookingsPage() {
               <p className="mt-1 text-[0.9375rem] text-text-muted">
                 {dateTime(b.eventSession.startsAt)}
               </p>
+              {b.reference && (
+                <p className="mt-1 font-mono text-caption text-text-muted">Ref {b.reference}</p>
+              )}
             </div>
 
             <Card className="p-4">
