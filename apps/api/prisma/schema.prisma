@@ -859,6 +859,65 @@ model Payout {
   @@index([status])
 }
 
+// ─────────── Offline gate check-in (ADR-035) — DISABLED by default ───────────
+// A registered, org/event-scoped device that may validate tickets during a
+// temporary connectivity loss against a server-signed manifest. Private keys
+// never leave the device; only a reference is stored. Feature-flagged off until
+// live conflict/device-loss/reconciliation drills pass — see OFFLINE-CHECKIN docs.
+
+enum CheckInDeviceStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  EXPIRED
+}
+
+model CheckInDevice {
+  id                  String              @id @default(cuid())
+  organizationId      String
+  eventId             String?
+  eventSessionId      String?
+  assignedStaffUserId String?
+  name                String
+  platform            String?
+  // Reference to the device's public key (never a private key). Non-secret.
+  publicKeyRef        String?
+  status              CheckInDeviceStatus @default(PENDING)
+  manifestVersion     Int                 @default(0)
+  keyVersion          Int                 @default(1)
+  expiresAt           DateTime?
+  lastSeenAt          DateTime?
+  approvedByUserId    String?
+  createdByUserId     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([organizationId])
+  @@index([eventId])
+  @@index([status])
+}
+
+// Audit header for a signed offline manifest issued for a session (the entries
+// themselves are derived from tickets at build time and transmitted, not stored).
+model CheckInManifest {
+  id              String   @id @default(cuid())
+  organizationId  String
+  eventId         String
+  eventSessionId  String
+  version         Int
+  validFrom       DateTime
+  expiresAt       DateTime
+  ticketCount     Int
+  signature       String
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@unique([eventSessionId, version])
+  @@index([organizationId])
+  @@index([eventSessionId])
+}
+
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {

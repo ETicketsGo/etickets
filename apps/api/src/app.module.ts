@@ -27,6 +27,7 @@ import { TicketsModule } from './tickets/tickets.module';
 import { AttendeesModule } from './attendees/attendees.module';
 import { SharingModule } from './sharing/sharing.module';
 import { CheckinsModule } from './checkins/checkins.module';
+import { OfflineCheckinModule } from './checkins/offline/offline-checkin.module';
 import { RefundsModule } from './refunds/refunds.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { ReportsModule } from './reports/reports.module';
@@ -77,6 +78,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     AttendeesModule,
     SharingModule,
     CheckinsModule,
+    OfflineCheckinModule,
     RefundsModule,
     PayoutsModule,
     ReportsModule,

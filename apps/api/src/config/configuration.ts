@@ -33,6 +33,13 @@ const envSchema = z.object({
   JWT_REFRESH_TTL: z.string().default('30d'),
 
   QR_SIGNING_SECRET: z.string().min(1),
+  // Offline gate check-in (ADR-035). OFF by default; endpoints 404 when disabled.
+  // Manifest signing reuses QR_SIGNING_SECRET unless a dedicated secret is set.
+  OFFLINE_CHECKIN_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  MANIFEST_SIGNING_SECRET: z.string().optional(),
 
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
