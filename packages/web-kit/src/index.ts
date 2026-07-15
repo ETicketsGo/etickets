@@ -3,6 +3,7 @@ export * from './utils';
 export * from './tickets';
 export * from './event-timing';
 export * from './wallet';
+export * from './offline-eligibility';
 export * from './api';
 export * from './components';
 export * from './hooks';
