@@ -33,6 +33,7 @@ export function EventDayMode({
   onNavigate,
   onExit,
   online,
+  syncedAt,
 }: {
   group: BookingGroup;
   tickets: WalletTicket[];
@@ -40,6 +41,7 @@ export function EventDayMode({
   onNavigate: (next: number) => void;
   onExit: () => void;
   online: boolean;
+  syncedAt?: number | null;
 }) {
   const current = tickets[index];
   const wake = useWakeLock(true);
@@ -136,9 +138,16 @@ export function EventDayMode({
         {!online && (
           <div
             role="status"
-            className="flex items-center justify-center gap-2 bg-status-warning/12 px-4 py-1.5 text-caption font-medium text-status-warning"
+            aria-live="polite"
+            className="flex flex-col items-center gap-0.5 bg-status-warning/12 px-4 py-1.5 text-center text-caption font-medium text-status-warning"
           >
-            <WifiOff className="h-3.5 w-3.5" /> Offline — using your cached ticket
+            <span className="flex items-center gap-2">
+              <WifiOff className="h-3.5 w-3.5" /> Offline — last verified{' '}
+              {syncedAt ? dateTime(new Date(syncedAt)) : 'earlier'}
+            </span>
+            <span className="font-normal text-status-warning/80">
+              This is your saved pass; entry is confirmed by the scanner at the gate.
+            </span>
           </div>
         )}
         {showBrightnessTip && (

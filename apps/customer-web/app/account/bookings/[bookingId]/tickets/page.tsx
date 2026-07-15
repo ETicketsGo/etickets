@@ -35,11 +35,11 @@ import {
   type BookingGroup,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
-import { api, tokenStore } from '@/lib/api';
+import { tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/components/ui';
 import { EventDayMode } from '@/components/event-day-mode';
-import { readWalletCache, writeWalletCache } from '@/lib/wallet-cache';
+import { fetchWalletWithOffline, lastSyncedAt } from '@/lib/offline/sync';
 
 const QR_FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -62,14 +62,13 @@ export default function BookingTicketsViewer() {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['wallet'],
-    queryFn: () => api.wallet(),
+    queryFn: fetchWalletWithOffline,
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
-    // Seed from the offline cache so tickets render instantly and work offline.
-    initialData: () => readWalletCache(),
-    initialDataUpdatedAt: 0,
   });
+  // Last successful sync time — shown in Event Day Mode as "last verified".
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
   useEffect(() => {
-    if (data && data.length) writeWalletCache(data);
+    lastSyncedAt().then(setSyncedAt);
   }, [data]);
 
   const group = useMemo(
@@ -446,6 +445,7 @@ export default function BookingTicketsViewer() {
           onNavigate={goTo}
           onExit={() => setEventDayOpen(false)}
           online={online}
+          syncedAt={syncedAt}
         />
       )}
 

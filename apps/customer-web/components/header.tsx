@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { Ticket, Compass, LogOut, Receipt, Film, Sparkles, LifeBuoy } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { ButtonLink } from '@/components/ui';
+import { currentUserId } from '@/lib/offline/identity';
+import { purgeUser } from '@/lib/offline/wallet-store';
 
 const navLink =
   'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
@@ -19,6 +21,10 @@ export function Header() {
   }, []);
 
   const logout = () => {
+    // Shared-device safety: remove this user's cached wallet + QR payloads before
+    // clearing the session, so nothing private survives logout on the device.
+    const uid = currentUserId();
+    if (uid) void purgeUser(uid);
     tokenStore.clear();
     setAuthed(false);
     router.push('/');

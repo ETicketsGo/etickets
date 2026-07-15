@@ -3,23 +3,46 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Ticket } from 'lucide-react';
+import { RefreshCw, Ticket, Trash2, WifiOff } from 'lucide-react';
 import {
   buildWallet,
   filterWallet,
   searchWallet,
   sectionizeWallet,
+  useOnline,
   useToast,
   DEFAULT_WALLET_FLAGS,
   WALLET_SECTION_LABELS,
+  type OfflineSyncState,
   type WalletFilter,
   type WalletFlags,
   type WalletItem,
 } from '@eticketsgo/web-kit';
-import { api, tokenStore } from '@/lib/api';
+import { tokenStore } from '@/lib/api';
 import { EmptyState, ErrorState, ButtonLink, Input } from '@/components/ui';
 import { WalletCard } from '@/components/wallet-card';
-import { readWalletCache, writeWalletCache } from '@/lib/wallet-cache';
+import { fetchWalletWithOffline, lastSyncedAt, deriveSyncState } from '@/lib/offline/sync';
+import { clearAllOffline } from '@/lib/offline/wallet-store';
+
+function formatSynced(ts: number | null): string {
+  if (!ts) return 'not yet';
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hr ago`;
+  return `${Math.round(hrs / 24)} d ago`;
+}
+
+const SYNC_LABEL: Record<OfflineSyncState, string> = {
+  CURRENT: 'Up to date',
+  SYNCING: 'Syncing…',
+  STALE: 'Offline — showing saved passes',
+  OFFLINE: 'Offline',
+  PARTIAL: 'Partially synced',
+  FAILED: 'Sync failed',
+  REQUIRES_SIGN_IN: 'Sign in required',
+};
 
 const FILTER_CHIPS: { value: WalletFilter; label: string }[] = [
   { value: 'movies', label: 'Movies' },
@@ -56,16 +79,31 @@ export default function ExperienceWalletPage() {
     setFlags(readFlags());
   }, [router]);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const online = useOnline();
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['wallet'],
-    queryFn: () => api.wallet(),
+    queryFn: fetchWalletWithOffline,
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
-    initialData: () => readWalletCache(),
-    initialDataUpdatedAt: 0,
   });
+  // Track the last successful sync time for the "Updated …" label.
   useEffect(() => {
-    if (data && data.length) writeWalletCache(data);
+    lastSyncedAt().then(setSyncedAt);
   }, [data]);
+
+  const syncState = deriveSyncState({
+    hasToken: typeof window !== 'undefined' && !!tokenStore.access,
+    online,
+    isFetching,
+    hasData: !!data && data.length > 0,
+    isError,
+  });
+
+  const clearOffline = async () => {
+    await clearAllOffline();
+    toast.push('Offline data cleared from this device.', 'success');
+  };
 
   // Build the generic wallet, then apply search + filters, then sectionize.
   const items = useMemo(() => (data ? buildWallet({ tickets: data }, flags) : []), [data, flags]);
@@ -91,6 +129,38 @@ export default function ExperienceWalletPage() {
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">
           Your tickets, passes and more — everything in one wallet.
         </p>
+      </div>
+
+      {/* Offline / sync status — announced to assistive tech, never colour-only */}
+      <div
+        role="status"
+        aria-live="polite"
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-2.5 text-caption ${
+          online
+            ? 'border-border bg-background-surface text-text-secondary'
+            : 'border-status-warning/30 bg-status-warning/10 text-status-warning'
+        }`}
+      >
+        <span className="inline-flex items-center gap-2 font-medium">
+          {!online && <WifiOff className="h-3.5 w-3.5" aria-hidden />}
+          {SYNC_LABEL[syncState]}
+          <span className="font-normal text-text-muted">· updated {formatSynced(syncedAt)}</span>
+        </span>
+        <span className="flex items-center gap-3">
+          <button
+            onClick={() => refetch()}
+            disabled={!online || isFetching}
+            className="inline-flex items-center gap-1.5 font-medium text-action-primary hover:underline disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} /> Sync now
+          </button>
+          <button
+            onClick={clearOffline}
+            className="inline-flex items-center gap-1.5 font-medium text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Clear offline data
+          </button>
+        </span>
       </div>
 
       {isError && !data ? (
