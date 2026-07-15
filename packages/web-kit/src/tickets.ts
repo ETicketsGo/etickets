@@ -16,7 +16,8 @@ export interface GroupCounts {
   checkedIn: number;
   refunded: number;
   cancelled: number;
-  /** Any other state (e.g. TRANSFERRED) — still counted, never hidden. */
+  transferred: number;
+  /** Any other/unknown state — still counted, never hidden. */
   other: number;
 }
 
@@ -79,6 +80,7 @@ export function countByStatus(tickets: WalletTicket[]): GroupCounts {
     checkedIn: 0,
     refunded: 0,
     cancelled: 0,
+    transferred: 0,
     other: 0,
   };
   for (const t of tickets) {
@@ -96,6 +98,9 @@ export function countByStatus(tickets: WalletTicket[]): GroupCounts {
       case 'VOID':
         c.cancelled++;
         break;
+      case 'TRANSFERRED':
+        c.transferred++;
+        break;
       default:
         c.other++;
     }
@@ -104,12 +109,24 @@ export function countByStatus(tickets: WalletTicket[]): GroupCounts {
 }
 
 /**
+ * Index of the next ACTIVE ticket after `fromIndex`, wrapping around; `-1` if the
+ * group has none. Powers "next active QR" and check-in auto-advance.
+ */
+export function nextActiveIndex(tickets: WalletTicket[], fromIndex: number): number {
+  for (let step = 1; step <= tickets.length; step++) {
+    const i = (fromIndex + step) % tickets.length;
+    if (tickets[i].status === ACTIVE) return i;
+  }
+  return -1;
+}
+
+/**
  * Builds the group-level status summary and tone from ticket counts.
  * Communicates status with words (never colour alone); the tone only tints an
  * accompanying icon/badge.
  */
 export function summarizeBookingGroup(c: GroupCounts): { summary: string; tone: GroupStatusTone } {
-  const usable = c.active + c.other;
+  const usable = c.active + c.transferred + c.other;
 
   let summary: string;
   if (c.total > 0 && c.checkedIn === c.total) {
@@ -120,6 +137,7 @@ export function summarizeBookingGroup(c: GroupCounts): { summary: string; tone: 
     const seg: string[] = [];
     if (c.refunded) seg.push(`${c.refunded} refunded`);
     if (c.cancelled) seg.push(`${c.cancelled} cancelled`);
+    if (c.transferred) seg.push(`${c.transferred} transferred`);
     if (c.checkedIn && c.active) {
       seg.push(`${c.checkedIn} checked in`, `${c.active} remaining`);
     } else {

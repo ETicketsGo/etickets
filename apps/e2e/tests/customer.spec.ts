@@ -57,6 +57,19 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   const secondQrAlt = await page.locator('img[alt^="QR code for ticket"]').getAttribute('alt');
   expect(secondQrAlt).not.toEqual(firstQrAlt);
 
+  // Event Day Mode: full-screen boarding-pass experience
+  await page.getByRole('button', { name: 'Event Day Mode', exact: true }).click();
+  const eventDay = page.getByRole('dialog');
+  await expect(eventDay).toBeVisible();
+  await expect(eventDay.locator('img[alt^="QR code for ticket"]')).toBeVisible();
+  await expect(eventDay.getByText('2 / 2')).toBeVisible();
+
+  // Navigate inside Event Day Mode, then exit back to the viewer
+  await eventDay.getByRole('button', { name: 'Previous ticket' }).click();
+  await expect(eventDay.getByText('1 / 2')).toBeVisible();
+  await eventDay.getByRole('button', { name: 'Exit event day mode' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
   // The individual ticket detail page still works from the viewer
   await page.getByRole('link', { name: 'Full ticket details' }).click();
   await expect(page).toHaveURL(/\/account\/tickets\/.+/);

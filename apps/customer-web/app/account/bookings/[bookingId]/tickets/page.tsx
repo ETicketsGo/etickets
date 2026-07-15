@@ -4,16 +4,40 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, MapPin, ScanLine } from 'lucide-react';
 import {
+  ArrowLeft,
+  Car,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  LifeBuoy,
+  MapPin,
+  Maximize2,
+  Navigation,
+  ScanLine,
+  Share2,
+  UserPlus,
+  Wallet,
+  WifiOff,
+} from 'lucide-react';
+import {
+  eventTiming,
+  googleDirectionsUrl,
+  googleMapsUrl,
   groupWalletTickets,
   isTicketInactive,
+  nextActiveIndex,
   pickInitialTicketIndex,
+  useOnline,
+  useToast,
+  type BookingGroup,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/components/ui';
+import { EventDayMode } from '@/components/event-day-mode';
+import { readWalletCache, writeWalletCache } from '@/lib/wallet-cache';
 
 const QR_FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -22,10 +46,13 @@ const QR_FALLBACK =
   );
 
 const SWIPE_THRESHOLD = 48;
+const AUTO_ADVANCE_KEY = 'etg_auto_advance';
 
 export default function BookingTicketsViewer() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const router = useRouter();
+  const toast = useToast();
+  const online = useOnline();
 
   useEffect(() => {
     if (!tokenStore.access) router.push(`/login?next=/account/bookings/${bookingId}/tickets`);
@@ -35,7 +62,13 @@ export default function BookingTicketsViewer() {
     queryKey: ['wallet'],
     queryFn: () => api.wallet(),
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Seed from the offline cache so tickets render instantly and work offline.
+    initialData: () => readWalletCache(),
+    initialDataUpdatedAt: 0,
   });
+  useEffect(() => {
+    if (data && data.length) writeWalletCache(data);
+  }, [data]);
 
   const group = useMemo(
     () => (data ? groupWalletTickets(data).find((g) => g.bookingId === bookingId) : undefined),
@@ -43,13 +76,31 @@ export default function BookingTicketsViewer() {
   );
   const tickets = useMemo(() => group?.tickets ?? [], [group]);
 
-  // Track selection by ticket id so a background refetch (e.g. a ticket becomes
-  // checked in) never yanks the user to a different card unexpectedly.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [eventDayOpen, setEventDayOpen] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Initialise selection once tickets are available: honour ?active=1, else the
-  // first active / not-checked-in / first ticket.
+  useEffect(() => {
+    try {
+      setAutoAdvance(window.localStorage.getItem(AUTO_ADVANCE_KEY) === '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleAutoAdvance = () => {
+    setAutoAdvance((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(AUTO_ADVANCE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // Initialise selection: honour ?active=1, else first active / not-checked-in.
   useEffect(() => {
     if (tickets.length === 0) return;
     if (selectedId && tickets.some((t) => t.id === selectedId)) return;
@@ -76,25 +127,37 @@ export default function BookingTicketsViewer() {
     [tickets],
   );
 
-  // Keyboard: left/right arrows move between tickets.
+  // Auto-advance: when the selected ticket flips ACTIVE → CHECKED_IN on a data
+  // refresh (organizer scanned it) and the option is on, move to the next active
+  // ticket. Only fires on a real transition, so it never surprises the user.
+  const prevStatuses = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const prev = prevStatuses.current;
+    if (autoAdvance && selectedId) {
+      const sel = tickets.find((t) => t.id === selectedId);
+      if (sel && prev.get(selectedId) === 'ACTIVE' && sel.status === 'CHECKED_IN') {
+        const ni = nextActiveIndex(tickets, tickets.indexOf(sel));
+        if (ni >= 0) setSelectedId(tickets[ni].id);
+      }
+    }
+    prevStatuses.current = new Map(tickets.map((t) => [t.id, t.status]));
+  }, [tickets, autoAdvance, selectedId]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (eventDayOpen) return; // Event Day Mode owns keys while open
       if (e.key === 'ArrowRight') goTo(index + 1);
       else if (e.key === 'ArrowLeft') goTo(index - 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goTo, index]);
+  }, [goTo, index, eventDayOpen]);
 
-  // Move focus to the viewer heading when it first opens (accessibility).
   useEffect(() => {
     if (current) headingRef.current?.focus();
-    // Focus once per booking open, not on every navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!group]);
 
-  // Touch swipe (horizontal only; the container uses touch-action: pan-y so the
-  // page still scrolls vertically but horizontal swipes drive navigation).
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -112,15 +175,9 @@ export default function BookingTicketsViewer() {
     }
   };
 
-  const nextActive = useCallback(() => {
-    if (tickets.length === 0) return;
-    for (let step = 1; step <= tickets.length; step++) {
-      const i = (index + step) % tickets.length;
-      if (tickets[i].status === 'ACTIVE') {
-        setSelectedId(tickets[i].id);
-        return;
-      }
-    }
+  const jumpNextActive = useCallback(() => {
+    const ni = nextActiveIndex(tickets, index);
+    if (ni >= 0) setSelectedId(tickets[ni].id);
   }, [tickets, index]);
 
   const backLink = (
@@ -132,7 +189,7 @@ export default function BookingTicketsViewer() {
     </button>
   );
 
-  if (isError)
+  if (isError && !data)
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         {backLink}
@@ -143,7 +200,7 @@ export default function BookingTicketsViewer() {
       </div>
     );
 
-  if (isLoading || !data)
+  if (isLoading && !data)
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         {backLink}
@@ -163,173 +220,364 @@ export default function BookingTicketsViewer() {
       </div>
     );
 
-  const hasActive = tickets.some((t) => t.status === 'ACTIVE');
-  const showNextActive = hasActive && current.status !== 'ACTIVE';
+  const timing = eventTiming(current.startsAt, Date.now());
+  const showNextActive = tickets.some((t) => t.status === 'ACTIVE') && current.status !== 'ACTIVE';
   const inactive = isTicketInactive(current.status);
   const seat = current.seatLabel;
   const place = group.isMovie
     ? [group.cinemaName, group.screenName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ')
     : [group.venueName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ');
+  const mapsQuery = group.isMovie
+    ? [group.cinemaName, group.venueName].filter(Boolean).join(', ') || group.title
+    : group.venueName || group.title;
+
+  const shareTicket = async () => {
+    const url = `${window.location.origin}/account/tickets/${current.id}`;
+    if (navigator.share) {
+      await navigator.share({ title: group.title, url }).catch(() => undefined);
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => undefined);
+      toast.push('Ticket link copied.', 'success');
+    }
+  };
 
   return (
-    <section className="mx-auto max-w-2xl space-y-6" aria-label={`Tickets for ${group.title}`}>
-      <div className="flex items-center justify-between gap-3">
-        {backLink}
-        <span className="font-mono text-caption text-text-muted">Ref {group.bookingRef}</span>
-      </div>
-
-      <div>
-        <h1
-          ref={headingRef}
-          tabIndex={-1}
-          className="text-h3 font-bold tracking-tight text-text-primary focus:outline-none"
-        >
-          {group.title}
-        </h1>
-        <p className="mt-1 text-[0.9375rem] text-text-muted">
-          {group.checkInProgress} · {group.counts.total}{' '}
-          {group.counts.total === 1 ? 'ticket' : 'tickets'} in this booking
-        </p>
-      </div>
-
-      {/* Ticket viewer: one ticket at a time */}
-      <div
-        className="rounded-lg border border-border bg-background-surface shadow-sm"
-        style={{ touchAction: 'pan-y' }}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-      >
-        <div
-          role="group"
-          aria-label={`Ticket ${index + 1} of ${tickets.length}`}
-          aria-live="polite"
-          className="flex flex-col items-center p-6 text-center"
-        >
-          <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-            Ticket {index + 1} of {tickets.length}
-          </p>
-
-          {/* Large, stable QR — never animated or rotated */}
-          <div className="mt-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              key={current.id}
-              src={current.qrDataUrl}
-              alt={`QR code for ticket ${current.serial}`}
-              onError={(e) => {
-                const img = e.currentTarget;
-                if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
-              }}
-              className={`h-56 w-56 rounded-2xl bg-white p-2 shadow-sm ${inactive ? 'opacity-40 grayscale' : ''}`}
-            />
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <StatusBadge status={current.status} />
-            <span className="font-mono text-caption text-text-muted">{current.serial}</span>
-          </div>
-
-          <dl className="mt-3 space-y-0.5 text-[0.9375rem] text-text-secondary">
-            <div className="flex items-center justify-center gap-1.5">
-              <dt className="sr-only">Ticket type</dt>
-              <dd>{current.ticketType}</dd>
-            </div>
-            {current.holderName && (
-              <div>
-                <dt className="sr-only">Attendee</dt>
-                <dd>{current.holderName}</dd>
-              </div>
-            )}
-            {place && (
-              <div className="flex items-center justify-center gap-1.5 text-text-muted">
-                <MapPin className="h-3.5 w-3.5" aria-hidden />
-                <dt className="sr-only">Location</dt>
-                <dd>{place}</dd>
-              </div>
-            )}
-            <div className="text-caption text-text-muted">
-              <dt className="sr-only">Date and time</dt>
-              <dd>{dateTime(current.startsAt)}</dd>
-            </div>
-          </dl>
-
-          {inactive && (
-            <p className="mt-3 max-w-xs text-caption text-text-muted">
-              This ticket is {current.status.toLowerCase().replace('_', ' ')} and can’t be used at
-              the gate. It stays here as part of your booking history.
-            </p>
+    <>
+      <section className="mx-auto max-w-2xl space-y-6" aria-label={`Tickets for ${group.title}`}>
+        <div className="flex items-center justify-between gap-3">
+          {backLink}
+          {!online && (
+            <span className="inline-flex items-center gap-1.5 text-caption font-medium text-status-warning">
+              <WifiOff className="h-3.5 w-3.5" /> Offline · saved tickets
+            </span>
           )}
+        </div>
 
-          <Link
-            href={`/account/tickets/${current.id}`}
-            className="mt-4 text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        {/* Group header */}
+        <GroupHeader group={group} />
+
+        {/* Event Day Mode entry — prominent on event day, always available below */}
+        {timing.isEventDay && (
+          <button
+            onClick={() => setEventDayOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-action-primary px-5 py-3.5 font-semibold text-action-primary-foreground shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
           >
-            Full ticket details
+            <Maximize2 className="h-4 w-4" /> Enter Event Day Mode
+          </button>
+        )}
+
+        {/* Ticket viewer: one ticket at a time */}
+        <div
+          className="rounded-lg border border-border bg-background-surface shadow-sm"
+          style={{ touchAction: 'pan-y' }}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+        >
+          <div
+            role="group"
+            aria-label={`Ticket ${index + 1} of ${tickets.length}`}
+            aria-live="polite"
+            className="flex flex-col items-center p-6 text-center"
+          >
+            <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
+              Ticket {index + 1} of {tickets.length}
+            </p>
+
+            <div className="mt-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={current.id}
+                src={current.qrDataUrl}
+                alt={`QR code for ticket ${current.serial}`}
+                onError={(e) => {
+                  const img = e.currentTarget;
+                  if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+                }}
+                className={`h-56 w-56 rounded-2xl bg-white p-2 shadow-sm ${inactive ? 'opacity-40 grayscale' : ''}`}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <StatusBadge status={current.status} />
+              <span className="font-mono text-caption text-text-muted">{current.serial}</span>
+            </div>
+
+            <dl className="mt-3 space-y-0.5 text-[0.9375rem] text-text-secondary">
+              <div className="flex items-center justify-center gap-1.5">
+                <dt className="sr-only">Ticket type</dt>
+                <dd>{current.ticketType}</dd>
+              </div>
+              {current.holderName && (
+                <div>
+                  <dt className="sr-only">Attendee</dt>
+                  <dd>{current.holderName}</dd>
+                </div>
+              )}
+              {place && (
+                <div className="flex items-center justify-center gap-1.5 text-text-muted">
+                  <MapPin className="h-3.5 w-3.5" aria-hidden />
+                  <dt className="sr-only">Location</dt>
+                  <dd>{place}</dd>
+                </div>
+              )}
+              <div className="text-caption text-text-muted">
+                <dt className="sr-only">Date and time</dt>
+                <dd>{dateTime(current.startsAt)}</dd>
+              </div>
+            </dl>
+
+            {inactive && (
+              <p className="mt-3 max-w-xs text-caption text-text-muted">
+                This ticket is {current.status.toLowerCase().replace('_', ' ')} and can’t be used at
+                the gate. It stays here as part of your booking history.
+              </p>
+            )}
+
+            <Link
+              href={`/account/tickets/${current.id}`}
+              className="mt-4 text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Full ticket details
+            </Link>
+          </div>
+
+          {tickets.length > 1 && (
+            <div className="flex items-center justify-between border-t border-border p-3">
+              <button
+                onClick={() => goTo(index - 1)}
+                disabled={index === 0}
+                aria-label="Previous ticket"
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </button>
+              {showNextActive && (
+                <button
+                  onClick={jumpNextActive}
+                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-caption font-semibold text-action-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <ScanLine className="h-4 w-4" /> Next active QR
+                </button>
+              )}
+              <button
+                onClick={() => goTo(index + 1)}
+                disabled={index === tickets.length - 1}
+                aria-label="Next ticket"
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Quick actions */}
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          <QuickAction icon={Share2} label="Share" onClick={shareTicket} />
+          <QuickAction
+            icon={UserPlus}
+            label="Assign"
+            onClick={() => toast.push('Attendee assignment is coming soon.', 'info')}
+          />
+          <QuickAction icon={Download} label="PDF" onClick={() => window.print()} />
+          <QuickAction
+            icon={Wallet}
+            label="Wallet"
+            onClick={() => toast.push('Wallet passes are coming soon.', 'info')}
+          />
+          <QuickAction icon={Navigation} label="Directions" href={googleDirectionsUrl(mapsQuery)} />
+          <QuickAction
+            icon={Car}
+            label="Parking"
+            href={googleMapsUrl(`parking near ${mapsQuery}`)}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={() => setEventDayOpen(true)}
+            className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <Maximize2 className="h-3.5 w-3.5" /> Event Day Mode
+          </button>
+          <Link
+            href="/help"
+            className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <LifeBuoy className="h-3.5 w-3.5" /> Support
           </Link>
         </div>
 
-        {/* Prev / next */}
+        {/* Ticket strip + auto-advance */}
         {tickets.length > 1 && (
-          <div className="flex items-center justify-between border-t border-border p-3">
-            <button
-              onClick={() => goTo(index - 1)}
-              disabled={index === 0}
-              aria-label="Previous ticket"
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <ChevronLeft className="h-4 w-4" /> Prev
-            </button>
-            {showNextActive && (
-              <button
-                onClick={nextActive}
-                className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-caption font-semibold text-action-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <ScanLine className="h-4 w-4" /> Next active QR
-              </button>
-            )}
-            <button
-              onClick={() => goTo(index + 1)}
-              disabled={index === tickets.length - 1}
-              aria-label="Next ticket"
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
+                All tickets in this booking
+              </p>
+              <label className="flex cursor-pointer items-center gap-1.5 text-caption text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={autoAdvance}
+                  onChange={toggleAutoAdvance}
+                  className="h-3.5 w-3.5 rounded border-border text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                />
+                Auto-advance
+              </label>
+            </div>
+            <TicketStrip tickets={tickets} index={index} onSelect={goTo} isMovie={group.isMovie} />
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Compact ticket index */}
-      {tickets.length > 1 && (
-        <div>
-          <p className="mb-2 text-caption font-medium uppercase tracking-wide text-text-muted">
-            All tickets in this booking
-          </p>
-          <ul className="flex flex-wrap gap-2" aria-label="Select a ticket">
-            {tickets.map((t, i) => {
-              const selected = i === index;
-              const dim = isTicketInactive(t.status);
-              const label = t.seatLabel ?? `#${i + 1}`;
-              return (
-                <li key={t.id}>
-                  <button
-                    onClick={() => goTo(i)}
-                    aria-current={selected ? 'true' : undefined}
-                    aria-label={`Ticket ${i + 1}${t.seatLabel ? `, seat ${t.seatLabel}` : ''}, ${t.status.toLowerCase().replace('_', ' ')}`}
-                    className={`min-w-[3rem] rounded-md border px-3 py-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                      selected
-                        ? 'border-action-primary bg-action-primary/10 text-action-primary'
-                        : 'border-border text-text-secondary hover:bg-background-subtle'
-                    } ${dim ? 'opacity-50' : ''}`}
-                  >
-                    {label}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+      {eventDayOpen && (
+        <EventDayMode
+          group={group}
+          tickets={tickets}
+          index={index}
+          onNavigate={goTo}
+          onExit={() => setEventDayOpen(false)}
+          online={online}
+        />
+      )}
+    </>
+  );
+}
+
+/** Group header: title, count, reference, check-in progress dots + status summary. */
+function GroupHeader({ group }: { group: BookingGroup }) {
+  const { counts } = group;
+  const segments: { label: string; n: number; tone: string }[] = [
+    { label: 'Active', n: counts.active, tone: 'text-status-success' },
+    { label: 'Checked in', n: counts.checkedIn, tone: 'text-status-info' },
+    { label: 'Transferred', n: counts.transferred, tone: 'text-text-secondary' },
+    { label: 'Refunded', n: counts.refunded, tone: 'text-status-error' },
+    { label: 'Cancelled', n: counts.cancelled, tone: 'text-status-error' },
+  ].filter((s) => s.n > 0);
+
+  return (
+    <header>
+      <h1 className="text-h3 font-bold tracking-tight text-text-primary" tabIndex={-1}>
+        {group.title}
+      </h1>
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-text-muted">
+        <span>
+          {counts.total} {counts.total === 1 ? 'ticket' : 'tickets'}
+        </span>
+        <span aria-hidden>·</span>
+        <span className="font-mono">{group.bookingRef}</span>
+      </p>
+
+      {/* Check-in progress: dots (never colour alone — filled ✓ vs hollow) */}
+      {counts.total > 1 && (
+        <div className="mt-3">
+          <div className="mb-1.5 flex items-center justify-between text-caption text-text-muted">
+            <span>{group.checkInProgress}</span>
+            <span>{counts.total - counts.checkedIn} remaining</span>
+          </div>
+          <div className="flex flex-wrap gap-1" role="img" aria-label={group.checkInProgress}>
+            {group.tickets.map((t) => (
+              <span
+                key={t.id}
+                className={`h-2.5 w-2.5 rounded-full ${
+                  t.status === 'CHECKED_IN'
+                    ? 'bg-status-info'
+                    : t.status === 'ACTIVE'
+                      ? 'bg-status-success'
+                      : 'border border-border-strong bg-transparent'
+                }`}
+              />
+            ))}
+          </div>
         </div>
       )}
-    </section>
+
+      {/* Status summary — text + count, icon-independent (never hide any bucket) */}
+      {segments.length > 0 && (
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {segments.map((s) => (
+            <li
+              key={s.label}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-caption font-medium"
+            >
+              <span className={s.tone}>{s.n}</span>
+              <span className="text-text-secondary">{s.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </header>
+  );
+}
+
+/** Numbered ticket strip: seat/index chips with a check mark for checked-in. */
+function TicketStrip({
+  tickets,
+  index,
+  onSelect,
+  isMovie,
+}: {
+  tickets: WalletTicket[];
+  index: number;
+  onSelect: (i: number) => void;
+  isMovie: boolean;
+}) {
+  return (
+    <ul className="flex flex-wrap gap-2" aria-label="Select a ticket">
+      {tickets.map((t, i) => {
+        const selected = i === index;
+        const dim = isTicketInactive(t.status);
+        const checkedIn = t.status === 'CHECKED_IN';
+        const label = t.seatLabel ?? `${i + 1}`;
+        return (
+          <li key={t.id}>
+            <button
+              onClick={() => onSelect(i)}
+              aria-current={selected ? 'true' : undefined}
+              aria-label={`Ticket ${i + 1}${t.seatLabel ? `, seat ${t.seatLabel}` : ''}${
+                isMovie ? '' : `, ${t.ticketType}`
+              }, ${t.status.toLowerCase().replace('_', ' ')}`}
+              className={`flex min-w-[3rem] items-center justify-center gap-1 rounded-md border px-3 py-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                selected
+                  ? 'border-action-primary bg-action-primary/10 text-action-primary'
+                  : 'border-border text-text-secondary hover:bg-background-subtle'
+              } ${dim ? 'opacity-50' : ''}`}
+            >
+              {checkedIn && <span aria-hidden>✓</span>}
+              {label}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function QuickAction({
+  icon: Icon,
+  label,
+  onClick,
+  href,
+}: {
+  icon: typeof Share2;
+  label: string;
+  onClick?: () => void;
+  href?: string;
+}) {
+  const cls =
+    'flex flex-col items-center gap-1 rounded-lg border border-border bg-background-surface px-2 py-3 text-caption font-medium text-text-secondary shadow-sm transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
+  const inner = (
+    <>
+      <Icon className="h-4 w-4" />
+      {label}
+    </>
+  );
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className={cls}>
+      {inner}
+    </a>
+  ) : (
+    <button onClick={onClick} className={cls}>
+      {inner}
+    </button>
   );
 }

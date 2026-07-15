@@ -5,6 +5,7 @@ import {
   countByStatus,
   compareSeatLabels,
   pickInitialTicketIndex,
+  nextActiveIndex,
   isTicketInactive,
   type GroupCounts,
 } from './tickets';
@@ -31,6 +32,7 @@ const counts = (over: Partial<GroupCounts>): GroupCounts => ({
   checkedIn: 0,
   refunded: 0,
   cancelled: 0,
+  transferred: 0,
   other: 0,
   ...over,
 });
@@ -140,13 +142,29 @@ describe('summarizeBookingGroup', () => {
 });
 
 describe('countByStatus', () => {
-  it('buckets VOID as cancelled and unknown states as other', () => {
+  it('buckets VOID as cancelled and TRANSFERRED separately', () => {
     const c = countByStatus([
       ticket({ id: '1', status: 'VOID' }),
       ticket({ id: '2', status: 'TRANSFERRED' }),
+      ticket({ id: '3', status: 'SOMETHING_NEW' }),
     ]);
     expect(c.cancelled).toBe(1);
+    expect(c.transferred).toBe(1);
     expect(c.other).toBe(1);
+  });
+});
+
+describe('nextActiveIndex', () => {
+  it('wraps to the next ACTIVE ticket and returns -1 when none', () => {
+    const ts = [
+      ticket({ id: '1', status: 'CHECKED_IN' }),
+      ticket({ id: '2', status: 'ACTIVE' }),
+      ticket({ id: '3', status: 'CHECKED_IN' }),
+      ticket({ id: '4', status: 'ACTIVE' }),
+    ];
+    expect(nextActiveIndex(ts, 1)).toBe(3);
+    expect(nextActiveIndex(ts, 3)).toBe(1); // wraps
+    expect(nextActiveIndex([ticket({ id: 'x', status: 'CHECKED_IN' })], 0)).toBe(-1);
   });
 });
 
