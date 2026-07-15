@@ -1,0 +1,35 @@
+# Normalize all text to LF in the repository (authoritative), so Windows checkouts
+# stop showing spurious CRLF-only "changes". Binary files are marked so Git never
+# touches their bytes.
+* text=auto eol=lf
+
+# Explicit text types (belt and suspenders)
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.prisma text eol=lf
+*.sql   text eol=lf
+*.sh    text eol=lf
+*.env.example text eol=lf
+
+# Binary assets — never normalize
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.mp4   binary
+*.zip   binary
