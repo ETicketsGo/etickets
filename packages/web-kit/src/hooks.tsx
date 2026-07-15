@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, tokenStore, type AuthUser } from './api';
 import { Spinner } from './components';
 
@@ -93,6 +93,63 @@ export function useCountdown(target: string | Date | undefined) {
     minutes: Math.floor((s % 3600) / 60),
     seconds: s % 60,
   };
+}
+
+interface WakeLockSentinelLike {
+  release(): Promise<void>;
+  addEventListener?(type: 'release', listener: () => void): void;
+}
+interface WakeLockNavigator {
+  wakeLock?: { request(type: 'screen'): Promise<WakeLockSentinelLike> };
+}
+
+/**
+ * Keeps the screen awake while `active` (Event Day Mode) using the Wake Lock API,
+ * re-acquiring after tab visibility changes and releasing on cleanup. Degrades
+ * gracefully: `supported` is false where the API is unavailable so the UI can
+ * explain it. Never throws.
+ */
+export function useWakeLock(active: boolean): { supported: boolean; engaged: boolean } {
+  const [supported] = useState(() => typeof navigator !== 'undefined' && 'wakeLock' in navigator);
+  const [engaged, setEngaged] = useState(false);
+  const sentinel = useRef<WakeLockSentinelLike | null>(null);
+
+  useEffect(() => {
+    if (!active || !supported) return;
+    let cancelled = false;
+
+    const request = async () => {
+      try {
+        const nav = navigator as unknown as WakeLockNavigator;
+        const lock = await nav.wakeLock!.request('screen');
+        if (cancelled) {
+          await lock.release().catch(() => undefined);
+          return;
+        }
+        sentinel.current = lock;
+        setEngaged(true);
+        lock.addEventListener?.('release', () => setEngaged(false));
+      } catch {
+        setEngaged(false);
+      }
+    };
+
+    void request();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void request();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      sentinel.current?.release().catch(() => undefined);
+      sentinel.current = null;
+      setEngaged(false);
+    };
+  }, [active, supported]);
+
+  return { supported, engaged };
 }
 
 /** Tracks browser online/offline state (for the live check-in screen). */
