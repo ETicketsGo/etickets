@@ -250,6 +250,16 @@ export const CheckInResult = {
 } as const;
 export type CheckInResult = (typeof CheckInResult)[keyof typeof CheckInResult];
 
+/** Lifecycle of a registered offline check-in device (ADR-035). */
+export const CheckInDeviceStatus = {
+  PENDING: 'PENDING',
+  ACTIVE: 'ACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  REVOKED: 'REVOKED',
+  EXPIRED: 'EXPIRED',
+} as const;
+export type CheckInDeviceStatus = (typeof CheckInDeviceStatus)[keyof typeof CheckInDeviceStatus];
+
 /**
  * The kind of customer-success submission. CONTACT/BUG/FEATURE/GENERAL are
  * free-form; CSAT/ORGANIZER_CSAT carry a 1..5 satisfaction rating. See ADR
