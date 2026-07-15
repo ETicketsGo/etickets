@@ -174,3 +174,37 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await page.goto(shareLink);
   await expect(page.getByText('This share has been revoked.')).toBeVisible({ timeout: 20_000 });
 });
+
+test('experience wallet: placeholder items appear behind a feature flag and filter', async ({
+  page,
+}) => {
+  // Register + book a ticket
+  await page.goto(`${CUSTOMER}/register`);
+  await page.getByLabel('Full name').fill('Wallet User');
+  await page.getByLabel('Email').fill(uniqueEmail('wallet'));
+  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
+
+  await page.goto(`${CUSTOMER}/events`);
+  await page.locator('a[href^="/events/"]').first().click();
+  await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
+  await page.getByRole('button', { name: /Continue to payment/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+  await page.getByRole('button', { name: /Pay/ }).click();
+  await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
+
+  // Wallet with placeholder items enabled via feature flag
+  await page.goto(`${CUSTOMER}/account/tickets?preview=memberships,coupons`);
+  await expect(page.getByRole('heading', { name: 'My experiences' })).toBeVisible();
+  await expect(page.getByText('ETicketsGo Gold')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('10% Welcome Coupon')).toBeVisible();
+  // The real ticket item is present too (generic card, no type branching)
+  await expect(page.getByRole('link', { name: /View ticket/ })).toBeVisible();
+
+  // Filter to Memberships → only the membership remains
+  await page.getByRole('button', { name: 'Memberships' }).click();
+  await expect(page.getByText('ETicketsGo Gold')).toBeVisible();
+  await expect(page.getByRole('link', { name: /View ticket/ })).toHaveCount(0);
+  await expect(page.getByText('10% Welcome Coupon')).toHaveCount(0);
+});
