@@ -4,7 +4,7 @@
 // with the minimum needed to render a pass, and are purged on logout / transfer /
 // refund / revoke (via re-sync replacement). No tokens or secrets are stored.
 
-import { offlineEligibleTickets, type WalletTicket } from '@eticketsgo/web-kit';
+import { selectForOfflineStorage, type WalletTicket } from '@eticketsgo/web-kit';
 
 const DB_NAME = 'etg-offline';
 const DB_VERSION = 1;
@@ -44,10 +44,26 @@ function minimize(t: WalletTicket): WalletTicket {
   return rest;
 }
 
-/** Persists the offline-eligible slice of a user's wallet. Best-effort. */
+/** Ask the browser to make storage persistent (best-effort; not all browsers). */
+async function requestPersistence(): Promise<void> {
+  try {
+    if (navigator.storage?.persist && !(await navigator.storage.persisted?.())) {
+      await navigator.storage.persist();
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Persists the offline-eligible slice of a user's wallet, enforcing the storage
+ * ceiling (eviction: oldest historical first, upcoming/event-day preserved).
+ * Best-effort.
+ */
 export async function saveWallet(userId: string, tickets: WalletTicket[]): Promise<void> {
   if (!hasIdb() || !userId) return;
-  const items = offlineEligibleTickets(tickets).map(minimize);
+  void requestPersistence();
+  const items = selectForOfflineStorage(tickets, Date.now()).map(minimize);
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {

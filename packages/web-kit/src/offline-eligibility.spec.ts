@@ -3,6 +3,7 @@ import {
   isOfflineEligible,
   isTicketOfflineEligible,
   offlineEligibleTickets,
+  selectForOfflineStorage,
 } from './offline-eligibility';
 import type { WalletTicket } from './api';
 
@@ -86,5 +87,43 @@ describe('offlineEligibleTickets', () => {
   it('isTicketOfflineEligible mirrors the policy', () => {
     expect(isTicketOfflineEligible(ticket({ id: 'a' }))).toBe(true);
     expect(isTicketOfflineEligible(ticket({ id: 'b', status: 'VOID' }))).toBe(false);
+  });
+});
+
+describe('selectForOfflineStorage', () => {
+  const NOW = new Date('2026-07-15T12:00:00.000Z').getTime();
+  const days = (n: number) => new Date(NOW + n * 86_400_000).toISOString();
+
+  it('keeps everything when under the ceiling', () => {
+    const kept = selectForOfflineStorage(
+      [ticket({ id: 'a', startsAt: days(1) }), ticket({ id: 'b', startsAt: days(2) })],
+      NOW,
+    );
+    expect(kept).toHaveLength(2);
+  });
+
+  it('evicts the oldest historical passes first, preserving upcoming ones', () => {
+    const tickets = [
+      ticket({ id: 'up1', status: 'ACTIVE', startsAt: days(1) }),
+      ticket({ id: 'up2', status: 'ACTIVE', startsAt: days(2) }),
+      ticket({ id: 'old', status: 'CHECKED_IN', startsAt: days(-1) }),
+    ];
+    const kept = selectForOfflineStorage(tickets, NOW, { maxItems: 2, completedRetentionDays: 30 });
+    const ids = kept.map((t) => t.id);
+    expect(ids).toContain('up1');
+    expect(ids).toContain('up2');
+    expect(ids).not.toContain('old'); // historical evicted before upcoming
+  });
+
+  it('age-evicts historical tickets beyond the retention window', () => {
+    const kept = selectForOfflineStorage(
+      [
+        ticket({ id: 'recent', status: 'ACTIVE', startsAt: days(1) }),
+        ticket({ id: 'stale', status: 'CHECKED_IN', startsAt: days(-10) }),
+      ],
+      NOW,
+      { maxItems: 60, completedRetentionDays: 3 },
+    );
+    expect(kept.map((t) => t.id)).toEqual(['recent']);
   });
 });
