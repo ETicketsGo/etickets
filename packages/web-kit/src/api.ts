@@ -780,6 +780,16 @@ export interface WalletTicket {
   startsAt: string;
   qrDataUrl: string;
   qrToken?: string;
+  // Booking-grouping + seat/screen context. Additive — older API responses (and
+  // older cached payloads) omit these, so every consumer must treat them as
+  // optional and fall back gracefully.
+  bookingId?: string;
+  bookingRef?: string;
+  experienceType?: string;
+  seatLabel?: string | null;
+  venueName?: string | null;
+  screenName?: string | null;
+  cinemaName?: string | null;
 }
 
 export interface Organization {

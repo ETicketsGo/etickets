@@ -21,10 +21,10 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(page.getByText('Ratings & reviews')).toBeVisible();
   await expect(page.getByText('Frequently asked questions')).toBeVisible();
 
-  // Select a ticket quantity
+  // Select a ticket quantity — book MULTIPLE tickets in one booking
   const qty = page.locator('select[aria-label^="Quantity"]').first();
   await expect(qty).toBeVisible();
-  await qty.selectOption('1');
+  await qty.selectOption('2');
 
   await page.getByRole('button', { name: /Continue to payment/ }).click();
 
@@ -37,15 +37,28 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
   await expect(page.getByRole('link', { name: 'View my ticket' })).toBeVisible({ timeout: 20_000 });
 
-  // QR ticket wallet
+  // Ticket wallet: the multi-ticket booking shows as ONE booking group card
   await page.getByRole('link', { name: 'View my ticket' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);
-  await expect(page.locator('img[alt^="QR code for ticket"]').first()).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await expect(page.getByText('2 tickets')).toBeVisible({ timeout: 20_000 });
 
-  // Open the premium ticket detail
-  await page.locator('a[href^="/account/tickets/"]').first().click();
+  // Open the group → focused ticket viewer
+  await page.getByRole('link', { name: 'View tickets' }).click();
+  await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
+  await expect(page.getByText('Ticket 1 of 2')).toBeVisible({ timeout: 20_000 });
+
+  // Each ticket has its own distinct QR / ticket id
+  const firstQrAlt = await page.locator('img[alt^="QR code for ticket"]').getAttribute('alt');
+
+  // Navigate to the next ticket → counter updates, QR changes
+  await page.getByRole('button', { name: 'Next ticket' }).click();
+  await expect(page.getByText('Ticket 2 of 2')).toBeVisible();
+  const secondQrAlt = await page.locator('img[alt^="QR code for ticket"]').getAttribute('alt');
+  expect(secondQrAlt).not.toEqual(firstQrAlt);
+
+  // The individual ticket detail page still works from the viewer
+  await page.getByRole('link', { name: 'Full ticket details' }).click();
   await expect(page).toHaveURL(/\/account\/tickets\/.+/);
   await expect(page.getByRole('button', { name: /All tickets/ })).toBeVisible({ timeout: 20_000 });
 });
