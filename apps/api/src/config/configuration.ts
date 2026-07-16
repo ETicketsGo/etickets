@@ -148,6 +148,49 @@ const envSchema = z.object({
 
 export type AppConfig = z.infer<typeof envSchema>;
 
+// Shared shipped-placeholder pattern (mirrors the payments credential validator) so
+// the auth/QR/webhook secrets get the same fail-closed treatment the payment layer
+// already applies to gateway keys.
+const PLACEHOLDER_SECRET =
+  /(replace_me|replace-me|replace_from|changeme|change[_-]?me|your_|xxxx|placeholder|CHANGE_ME)/i;
+const MIN_SECRET_LEN = 24;
+
+/**
+ * Extra fail-closed checks that only apply to real deployments (NODE_ENV=production or
+ * APP_ENV in STAGING/PRODUCTION). Boots MUST NOT succeed with a shipped placeholder /
+ * weak core signing secret, and CORS must be explicitly configured. Lower environments
+ * (LOCAL/DEV/QA/UAT, dev/test) are unaffected so mock/dev/e2e boot unchanged.
+ */
+function assertProductionHardening(cfg: AppConfig): void {
+  const isProdLike =
+    cfg.NODE_ENV === 'production' || ['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV);
+  if (!isProdLike) return;
+
+  const errors: string[] = [];
+  const secrets: Record<string, string | undefined> = {
+    JWT_ACCESS_SECRET: cfg.JWT_ACCESS_SECRET,
+    JWT_REFRESH_SECRET: cfg.JWT_REFRESH_SECRET,
+    QR_SIGNING_SECRET: cfg.QR_SIGNING_SECRET,
+    PAYMENT_WEBHOOK_SECRET: cfg.PAYMENT_WEBHOOK_SECRET,
+    // Only enforced when explicitly set (optional; falls back to QR_SIGNING_SECRET).
+    MANIFEST_SIGNING_SECRET: cfg.MANIFEST_SIGNING_SECRET,
+  };
+  for (const [name, value] of Object.entries(secrets)) {
+    if (value === undefined) continue;
+    if (PLACEHOLDER_SECRET.test(value)) {
+      errors.push(`  - ${name}: looks like a shipped placeholder — set a real secret.`);
+    } else if (value.length < MIN_SECRET_LEN) {
+      errors.push(`  - ${name}: too short (< ${MIN_SECRET_LEN} chars) for production.`);
+    }
+  }
+  if (!process.env.CORS_ORIGINS || cfg.CORS_ORIGINS.includes('localhost')) {
+    errors.push('  - CORS_ORIGINS: must be set to the real frontend origin(s) in production.');
+  }
+  if (errors.length) {
+    throw new Error(`Insecure production configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -156,5 +199,6 @@ export function loadConfig(): AppConfig {
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
+  assertProductionHardening(parsed.data);
   return parsed.data;
 }

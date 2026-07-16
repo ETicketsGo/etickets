@@ -25,14 +25,21 @@ async function bootstrap(): Promise<void> {
     .filter(Boolean);
   app.enableCors({ origin: origins, credentials: true });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('ETicketsGo API')
-    .setDescription('Event operating system — customer, organizer, and admin APIs.')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup(`${prefix}/docs`, app, document);
+  // Swagger publishes the full API surface — keep it out of production unless
+  // explicitly enabled (ENABLE_SWAGGER=true) to avoid free reconnaissance.
+  const swaggerEnabled =
+    config.get<string>('NODE_ENV') !== 'production' ||
+    config.get<string>('ENABLE_SWAGGER') === 'true';
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('ETicketsGo API')
+      .setDescription('Event operating system — customer, organizer, and admin APIs.')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup(`${prefix}/docs`, app, document);
+  }
 
   const port = config.get<number>('API_PORT', 4000);
   await app.listen(port);
