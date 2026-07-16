@@ -25,6 +25,7 @@ import { api, tokenStore } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
+import { WalletPasses } from '@/components/wallet-passes';
 
 const QR_FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -245,6 +246,9 @@ export default function TicketDetailPage() {
           <MapPin className="h-4 w-4" /> View venue
         </a>
       </div>
+
+      {/* Wallet passes (only when a provider is configured + the ticket is eligible) */}
+      <WalletPasses ticketId={ticket.id} ticketStatus={ticket.status} />
 
       {/* Venue + placeholders */}
       <div className="grid gap-3 sm:grid-cols-3">

@@ -63,6 +63,10 @@ export const api = {
   mockPay: wk.payments.mockPay,
   wallet: wk.tickets.wallet,
   getTicket: wk.tickets.get,
+  // Wallet-pass sandbox (Apple/Google) — projections of an existing valid ticket.
+  walletProviders: wk.walletPasses.providers,
+  generateWalletPass: (ticketId: string, provider: 'apple' | 'google') =>
+    wk.walletPasses.generate(ticketId, provider),
   // Attendee identity (ADR-031): assign / invite / transfer / claim.
   assignAttendee: (ticketId: string, body: AssignAttendeeBody) =>
     wk.attendees.assign(ticketId, body),
