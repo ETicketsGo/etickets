@@ -14,6 +14,8 @@ import {
   initialReviewState,
   allowedReconcileResolutions,
   canResolveReconcile,
+  deriveCommandCenterAlerts,
+  type CommandCenterSignals,
   type DecodedQr,
   type ManifestEntry,
   type ManifestMeta,
@@ -355,5 +357,96 @@ describe('reconciliation console rules (presentation + safe resolution)', () => 
       false,
     );
     expect(canResolveReconcile('WRONG_SESSION', 'PENDING', 'DISMISSED')).toBe(false);
+  });
+});
+
+describe('command center alert derivation (deterministic, deduped, ranked)', () => {
+  const healthy: CommandCenterSignals = {
+    eventSessionId: 'se1',
+    verdict: 'GO',
+    hasActivationDecision: true,
+    downgradeActive: false,
+    downgradeReasons: [],
+    manifestStale: false,
+    activeDeviceCount: 2,
+    revokedDeviceActivityCount: 0,
+    totalScans: 40,
+    duplicateCount: 1,
+    pendingReviewCount: 0,
+    syncFailureCount: 0,
+    oldestActiveDeviceUnseenMs: 10_000,
+  };
+
+  it('produces no alerts for a healthy session', () => {
+    expect(deriveCommandCenterAlerts(healthy)).toEqual([]);
+  });
+
+  it('flags a downgraded live activation as critical', () => {
+    const alerts = deriveCommandCenterAlerts({
+      ...healthy,
+      verdict: 'NO_GO',
+      downgradeActive: true,
+      downgradeReasons: ['A scoped device is no longer active'],
+    });
+    const a = alerts.find((x) => x.type === 'ACTIVATION_DOWNGRADE');
+    expect(a?.severity).toBe('critical');
+    expect(a?.detail).toMatch(/no longer active/);
+  });
+
+  it('does not alert on NO_GO when no decision exists (uncertified is normal)', () => {
+    const alerts = deriveCommandCenterAlerts({
+      ...healthy,
+      hasActivationDecision: false,
+      verdict: 'NO_GO',
+    });
+    expect(alerts.find((x) => x.type === 'ACTIVATION_DOWNGRADE')).toBeUndefined();
+  });
+
+  it('flags revoked-device activity, stale manifest, no devices, pending reviews', () => {
+    const alerts = deriveCommandCenterAlerts({
+      ...healthy,
+      revokedDeviceActivityCount: 3,
+      manifestStale: true,
+      activeDeviceCount: 0,
+      pendingReviewCount: 2,
+    });
+    const types = alerts.map((a) => a.type);
+    expect(types).toContain('REVOKED_DEVICE_ACTIVITY');
+    expect(types).toContain('STALE_MANIFEST');
+    expect(types).toContain('NO_ACTIVE_DEVICES');
+    expect(types).toContain('PENDING_SUPERVISOR_REVIEWS');
+    // Critical alerts sort before warnings.
+    expect(alerts[0].severity).toBe('critical');
+  });
+
+  it('applies the duplicate-rate threshold + minimum sample', () => {
+    // Below sample size: no alert even at a high rate.
+    expect(
+      deriveCommandCenterAlerts({ ...healthy, totalScans: 4, duplicateCount: 3 }).find(
+        (a) => a.type === 'HIGH_DUPLICATE_RATE',
+      ),
+    ).toBeUndefined();
+    // Above sample + above rate: alert.
+    expect(
+      deriveCommandCenterAlerts({ ...healthy, totalScans: 20, duplicateCount: 8 }).find(
+        (a) => a.type === 'HIGH_DUPLICATE_RATE',
+      ),
+    ).toBeDefined();
+  });
+
+  it('is idempotent: re-deriving yields identical keys (no duplicates on polling)', () => {
+    const s = { ...healthy, pendingReviewCount: 1, manifestStale: true };
+    const first = deriveCommandCenterAlerts(s).map((a) => a.key);
+    const second = deriveCommandCenterAlerts(s).map((a) => a.key);
+    expect(second).toEqual(first);
+    expect(new Set(first).size).toBe(first.length); // unique keys
+  });
+
+  it('flags a device that has not synced (queue-growth proxy)', () => {
+    const a = deriveCommandCenterAlerts({
+      ...healthy,
+      oldestActiveDeviceUnseenMs: 9 * 60_000,
+    }).find((x) => x.type === 'QUEUE_GROWTH');
+    expect(a?.severity).toBe('warning');
   });
 });

@@ -140,6 +140,29 @@ export class OfflineActivationService {
   }
 
   /**
+   * Diagnostics for the command center: whether a live decision exists for the scope
+   * and, if so, its runtime downgrade signals + human reasons. Read-only; reuses the
+   * same resolveDecision + downgradeSignals the gate uses, so it can never disagree.
+   */
+  async diagnostics(
+    organizationId: string,
+    eventSessionId?: string,
+  ): Promise<{ hasDecision: boolean; downgradeActive: boolean; downgradeReasons: string[] }> {
+    const decision = await this.resolveDecision(organizationId, eventSessionId);
+    if (!decision) return { hasDecision: false, downgradeActive: false, downgradeReasons: [] };
+    const signals = await this.downgradeSignals(decision);
+    const reasons: string[] = [];
+    if (signals.deviceRevoked) reasons.push('A scoped device is no longer active');
+    if (signals.manifestExpired) reasons.push('The manifest has expired');
+    if (signals.deltaTooStale) reasons.push('The revocation delta is too stale');
+    return {
+      hasDecision: true,
+      downgradeActive: mustDowngrade(signals),
+      downgradeReasons: reasons,
+    };
+  }
+
+  /**
    * Records a scoped admin activation decision. Rejects unless the feature flag is
    * on and every blocking readiness + drill check is already green and current
    * (i.e. recording the decision would make the gate GO), the scope is valid, and

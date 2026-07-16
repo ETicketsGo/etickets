@@ -492,6 +492,25 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ action, reason }),
       }),
+    commandCenter: (organizationId: string, eventSessionId: string) =>
+      request<CommandCenterSnapshot>(
+        `/checkin/command-center${qs({ organizationId, eventSessionId })}`,
+      ),
+    commandCenterActivity: (organizationId: string, page?: number) =>
+      request<Paged<ActivityRow>>(
+        `/checkin/command-center/activity${qs({ organizationId, page })}`,
+      ),
+    acknowledgeAlert: (body: {
+      organizationId: string;
+      eventSessionId: string;
+      alertKey: string;
+      severity: AlertSeverity;
+      reason: string;
+    }) =>
+      request<{ id: string }>('/checkin/command-center/alerts/ack', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   refunds: {
@@ -1497,6 +1516,73 @@ export interface ReconciliationQuery {
   to?: string;
   page?: number;
   pageSize?: number;
+}
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
+export interface CommandCenterAlertRow {
+  key: string;
+  type: string;
+  severity: AlertSeverity;
+  title: string;
+  detail: string;
+  eventSessionId: string;
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  acknowledgedByUserId: string | null;
+  acknowledgeReason: string | null;
+}
+export interface CommandCenterSnapshot {
+  generatedAt: string;
+  activation: {
+    verdict: 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
+    checks: { key: string; label: string; passed: boolean; blocking?: boolean }[];
+    note: string;
+  };
+  downgrade: { hasDecision: boolean; downgradeActive: boolean; downgradeReasons: string[] };
+  devices: {
+    counts: {
+      total: number;
+      pending: number;
+      active: number;
+      suspended: number;
+      revoked: number;
+      expired: number;
+      online: number;
+      offline: number;
+    };
+    list: {
+      id: string;
+      name: string;
+      status: string;
+      manifestVersion: number;
+      lastSeenAt: string | null;
+      expiresAt: string | null;
+    }[];
+  };
+  manifest: { version: number | null; stale: boolean; expiresAt: string | null };
+  attendance: { total: number; admitted: number; remaining: number; admissionRate: number };
+  reconciliation: {
+    totalScans: number;
+    accepted: number;
+    duplicates: number;
+    rejected: number;
+    review: number;
+    pendingReviews: number;
+  };
+  sync: {
+    latency: { sampleSize: number; avgMs: number | null; maxMs: number | null };
+    oldestActiveDeviceUnseenMs: number | null;
+    note: string;
+  };
+  alerts: CommandCenterAlertRow[];
+}
+export interface ActivityRow {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  createdAt: string;
+  actor: { email: string } | null;
 }
 
 export interface CheckInOutcome {

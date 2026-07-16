@@ -11,6 +11,10 @@ import {
   OfflineReconciliationConsoleService,
   type ReconciliationFilters,
 } from './offline-reconciliation-console.service';
+import {
+  OfflineCommandCenterService,
+  type AcknowledgeAlertInput,
+} from './offline-command-center.service';
 import type { ReconcileResolutionAction } from '@eticketsgo/shared-types';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
@@ -31,6 +35,7 @@ export class OfflineCheckinController {
     private readonly drills: OfflineDrillService,
     private readonly activations: OfflineActivationService,
     private readonly reconciliationConsole: OfflineReconciliationConsoleService,
+    private readonly commandCenter: OfflineCommandCenterService,
   ) {}
 
   private assertEnabled() {
@@ -184,5 +189,40 @@ export class OfflineCheckinController {
   ) {
     this.assertEnabled();
     return this.reconciliationConsole.resolve(user, id, body?.action, body?.reason);
+  }
+
+  @Get('command-center')
+  @ApiOperation({ summary: 'Live Event Command Center snapshot + alerts (staff read).' })
+  commandCenterSnapshot(
+    @CurrentUser() user: RequestUser,
+    @Query('organizationId') organizationId: string,
+    @Query('eventSessionId') eventSessionId: string,
+  ) {
+    this.assertEnabled();
+    return this.commandCenter.snapshot(user, organizationId, eventSessionId);
+  }
+
+  @Get('command-center/activity')
+  @ApiOperation({ summary: 'Paginated recent offline operational activity (staff read).' })
+  commandCenterActivity(
+    @CurrentUser() user: RequestUser,
+    @Query('organizationId') organizationId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    this.assertEnabled();
+    return this.commandCenter.activity(
+      user,
+      organizationId,
+      page ? Number(page) : undefined,
+      pageSize ? Number(pageSize) : undefined,
+    );
+  }
+
+  @Post('command-center/alerts/ack')
+  @ApiOperation({ summary: 'Acknowledge a command-center alert (manager/admin, audited).' })
+  acknowledgeAlert(@CurrentUser() user: RequestUser, @Body() body: AcknowledgeAlertInput) {
+    this.assertEnabled();
+    return this.commandCenter.acknowledgeAlert(user, body);
   }
 }

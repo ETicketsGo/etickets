@@ -495,3 +495,157 @@ export function mustDowngrade(s: DowngradeSignals): boolean {
     s.securityConfigInvalid
   );
 }
+
+// ───────────────── Live Event Command Center — alert derivation ─────────────────
+// Pure, deterministic derivation of event-day operational alerts from a snapshot of
+// signals the server already has. Alerts are severity-ranked and deduplicated by a
+// stable per-condition key (one alert per condition per session) — re-evaluating on
+// each poll produces the SAME keys, so polling never creates duplicates. Nothing here
+// admits a ticket or changes gate state; acknowledgement is layered on top.
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
+
+/** Server-known signals for one event session, fed to the alert rules. */
+export interface CommandCenterSignals {
+  eventSessionId: string;
+  verdict: ActivationVerdict;
+  hasActivationDecision: boolean;
+  downgradeActive: boolean;
+  downgradeReasons: string[];
+  manifestStale: boolean;
+  activeDeviceCount: number;
+  revokedDeviceActivityCount: number;
+  totalScans: number;
+  duplicateCount: number;
+  pendingReviewCount: number;
+  syncFailureCount: number;
+  /** ms since the least-recently-seen active device checked in; null if not derivable. */
+  oldestActiveDeviceUnseenMs: number | null;
+}
+
+export interface CommandCenterAlert {
+  /** Stable dedup key: `${type}:${eventSessionId}` — identical across polls. */
+  key: string;
+  type: string;
+  severity: AlertSeverity;
+  title: string;
+  detail: string;
+  eventSessionId: string;
+}
+
+// Deterministic thresholds (documented so the UI + tests agree).
+export const ALERT_DUP_RATE = 0.25;
+export const ALERT_DUP_MIN_SAMPLE = 10;
+export const ALERT_DEVICE_UNSEEN_MS = 5 * 60_000;
+
+const SEVERITY_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
+
+/**
+ * Derives the current operational alerts for a session. Deterministic + deduplicated
+ * (one entry per condition), severity-ranked (critical first). Only conditions the
+ * current data supports fire — nothing is fabricated.
+ */
+export function deriveCommandCenterAlerts(s: CommandCenterSignals): CommandCenterAlert[] {
+  const out: CommandCenterAlert[] = [];
+  const k = (type: string): string => `${type}:${s.eventSessionId}`;
+
+  // A live activation that has regressed / been downgraded mid-event is the most
+  // urgent condition — the scope was GO and is not anymore.
+  if (s.hasActivationDecision && (s.downgradeActive || s.verdict === 'NO_GO')) {
+    out.push({
+      key: k('ACTIVATION_DOWNGRADE'),
+      type: 'ACTIVATION_DOWNGRADE',
+      severity: 'critical',
+      title: 'Activation downgraded',
+      detail:
+        s.downgradeReasons.length > 0
+          ? `The approved scope is no longer GO: ${s.downgradeReasons.join('; ')}.`
+          : 'The approved scope is no longer GO.',
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.revokedDeviceActivityCount > 0) {
+    out.push({
+      key: k('REVOKED_DEVICE_ACTIVITY'),
+      type: 'REVOKED_DEVICE_ACTIVITY',
+      severity: 'critical',
+      title: 'Revoked/expired device activity',
+      detail: `${s.revokedDeviceActivityCount} reconciliation(s) came from a device that is no longer active.`,
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.activeDeviceCount === 0) {
+    out.push({
+      key: k('NO_ACTIVE_DEVICES'),
+      type: 'NO_ACTIVE_DEVICES',
+      severity: s.hasActivationDecision ? 'critical' : 'warning',
+      title: 'No active devices',
+      detail: 'No approved device is currently active for this session.',
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.manifestStale) {
+    out.push({
+      key: k('STALE_MANIFEST'),
+      type: 'STALE_MANIFEST',
+      severity: 'warning',
+      title: 'Stale manifest',
+      detail: 'No fresh signed manifest is available for this session.',
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.totalScans >= ALERT_DUP_MIN_SAMPLE && s.duplicateCount / s.totalScans >= ALERT_DUP_RATE) {
+    const pct = Math.round((s.duplicateCount / s.totalScans) * 100);
+    out.push({
+      key: k('HIGH_DUPLICATE_RATE'),
+      type: 'HIGH_DUPLICATE_RATE',
+      severity: 'warning',
+      title: 'High duplicate rate',
+      detail: `${pct}% of ${s.totalScans} reconciled scans were duplicates.`,
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.pendingReviewCount > 0) {
+    out.push({
+      key: k('PENDING_SUPERVISOR_REVIEWS'),
+      type: 'PENDING_SUPERVISOR_REVIEWS',
+      severity: 'warning',
+      title: 'Pending supervisor reviews',
+      detail: `${s.pendingReviewCount} reconciliation case(s) need a supervisor decision.`,
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (s.syncFailureCount > 0) {
+    out.push({
+      key: k('SYNC_FAILURE'),
+      type: 'SYNC_FAILURE',
+      severity: 'warning',
+      title: 'Recent sync failures',
+      detail: `${s.syncFailureCount} recent reconciliation sync failure(s).`,
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  if (
+    s.oldestActiveDeviceUnseenMs !== null &&
+    s.oldestActiveDeviceUnseenMs > ALERT_DEVICE_UNSEEN_MS
+  ) {
+    const mins = Math.round(s.oldestActiveDeviceUnseenMs / 60_000);
+    out.push({
+      key: k('QUEUE_GROWTH'),
+      type: 'QUEUE_GROWTH',
+      severity: 'warning',
+      title: 'Device not syncing',
+      detail: `An active device has not synced for ~${mins} min — its offline queue may be growing.`,
+      eventSessionId: s.eventSessionId,
+    });
+  }
+
+  return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+}

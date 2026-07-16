@@ -1023,6 +1023,25 @@ model OfflineReconciliationRecord {
   @@index([ticketId])
 }
 
+// A manager/admin acknowledgement of a Live Event Command Center alert (ADR-035).
+// Alerts themselves are DERIVED deterministically per poll (deduped by key); only the
+// acknowledgement is persisted. Acknowledging records who/when/why for audit — it
+// never suppresses the underlying condition (the alert keeps deriving) or changes the
+// gate. Unique per (session, alertKey) so re-acknowledging is idempotent.
+model OfflineAlertAck {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  eventSessionId     String
+  alertKey           String
+  severityAtAck      String
+  reason             String
+  acknowledgedByUserId String
+  acknowledgedAt     DateTime @default(now())
+
+  @@unique([eventSessionId, alertKey])
+  @@index([organizationId, eventSessionId])
+}
+
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {
