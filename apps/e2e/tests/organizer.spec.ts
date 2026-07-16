@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ORGANIZER, login, futureLocal } from './helpers';
 
 test('organizer logs in and creates + submits an event via the wizard', async ({ page }) => {
-  await login(page, ORGANIZER);
+  await login(page, ORGANIZER, 'owner@eticketsgo.test');
   await expect(page).toHaveURL(/\/organizer/, { timeout: 20_000 });
   await expect(page.getByRole('heading', { name: /Welcome/ })).toBeVisible();
 
