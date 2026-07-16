@@ -15,6 +15,7 @@ import {
   OfflineCommandCenterService,
   type AcknowledgeAlertInput,
 } from './offline-command-center.service';
+import { OfflinePreflightService, type PreflightInput } from './offline-preflight.service';
 import type { ReconcileResolutionAction } from '@eticketsgo/shared-types';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
@@ -36,6 +37,7 @@ export class OfflineCheckinController {
     private readonly activations: OfflineActivationService,
     private readonly reconciliationConsole: OfflineReconciliationConsoleService,
     private readonly commandCenter: OfflineCommandCenterService,
+    private readonly preflight: OfflinePreflightService,
   ) {}
 
   private assertEnabled() {
@@ -250,5 +252,14 @@ export class OfflineCheckinController {
   acknowledgeAlert(@CurrentUser() user: RequestUser, @Body() body: AcknowledgeAlertInput) {
     this.assertEnabled();
     return this.commandCenter.acknowledgeAlert(user, body);
+  }
+
+  @Post('preflight')
+  @ApiOperation({
+    summary: 'Advisory device preflight checklist (staff read; never overrides rules).',
+  })
+  preflightChecklist(@CurrentUser() user: RequestUser, @Body() body: PreflightInput) {
+    this.assertEnabled();
+    return this.preflight.checklist(user, body);
   }
 }

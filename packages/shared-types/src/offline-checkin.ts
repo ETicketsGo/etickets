@@ -649,3 +649,313 @@ export function deriveCommandCenterAlerts(s: CommandCenterSignals): CommandCente
 
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
 }
+
+// ─────────────── Offline preflight checklist (device pre-event gate) ───────────────
+// A pure, device-scoped readiness aggregation. ADVISORY ONLY — it re-uses (never
+// re-derives) the activation verdict + command-center diagnostics and NEVER overrides
+// them. Blocking failures produce NOT_READY; non-blocking issues produce WARNING.
+
+export type PreflightStatus = 'pass' | 'warn' | 'fail';
+export type PreflightVerdict = 'READY' | 'WARNING' | 'NOT_READY';
+
+export interface PreflightCheck {
+  key: string;
+  label: string;
+  status: PreflightStatus;
+  /** A failed BLOCKING check forces NOT_READY. Non-blocking checks warn at worst. */
+  blocking: boolean;
+  explanation: string;
+  /** Actionable guidance for a non-pass check (empty when passing). */
+  guidance: string;
+}
+
+export interface PreflightSignals {
+  deviceActive: boolean;
+  deviceInScope: boolean;
+  latestManifestVersion: number | null;
+  /** The manifest version the device currently holds; null if it did not report. */
+  clientManifestVersion: number | null;
+  manifestFresh: boolean;
+  /** ms since the device last synced; null if it never has. */
+  lastSeenMsAgo: number | null;
+  deltaWindowMs: number;
+  /** |serverNow - deviceClock|; null if the device did not report its clock. */
+  clockSkewMs: number | null;
+  clockToleranceMs: number;
+  /** Client-reported local queue depth; null if not reported. */
+  queueDepth: number | null;
+  syncFailureCount: number;
+  pendingReviewCount: number;
+  activationVerdict: ActivationVerdict;
+  criticalAlertCount: number;
+}
+
+export const PREFLIGHT_CLOCK_TOLERANCE_MS = 120_000;
+export const PREFLIGHT_DELTA_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Builds the preflight checklist from already-gathered signals (pure + fully
+ * testable). Reuses the activation verdict and command-center alert/review counts
+ * verbatim — it does not re-implement any readiness rule.
+ */
+export function buildPreflightChecks(s: PreflightSignals): PreflightCheck[] {
+  const pass = (
+    key: string,
+    label: string,
+    blocking: boolean,
+    explanation: string,
+  ): PreflightCheck => ({ key, label, status: 'pass', blocking, explanation, guidance: '' });
+  const bad = (
+    key: string,
+    label: string,
+    blocking: boolean,
+    status: 'warn' | 'fail',
+    explanation: string,
+    guidance: string,
+  ): PreflightCheck => ({ key, label, status, blocking, explanation, guidance });
+
+  const checks: PreflightCheck[] = [];
+
+  checks.push(
+    s.deviceActive
+      ? pass(
+          'device_active',
+          'Device approved & active',
+          true,
+          'The device is approved and not expired.',
+        )
+      : bad(
+          'device_active',
+          'Device approved & active',
+          true,
+          'fail',
+          'The device is not approved/active (pending, suspended, revoked, or expired).',
+          'Have a manager approve the device, or replace it with an approved one.',
+        ),
+  );
+
+  checks.push(
+    s.deviceInScope
+      ? pass(
+          'device_scope',
+          'Device in scope',
+          true,
+          'The device is assigned to this event/session.',
+        )
+      : bad(
+          'device_scope',
+          'Device in scope',
+          true,
+          'fail',
+          'The device is not assigned to this event/session.',
+          'Register/assign a device scoped to this event before going offline.',
+        ),
+  );
+
+  // Latest signed manifest: fail (blocking) only when the device is known behind or
+  // has none; unknown (device did not report) is a non-fatal warning.
+  if (s.clientManifestVersion === null) {
+    checks.push(
+      bad(
+        'manifest_latest',
+        'Latest signed manifest',
+        true,
+        'warn',
+        'The device did not report its manifest version, so it could not be verified.',
+        'Open the offline panel and download the latest manifest, then re-run preflight.',
+      ),
+    );
+  } else if (
+    s.latestManifestVersion !== null &&
+    s.clientManifestVersion === s.latestManifestVersion
+  ) {
+    checks.push(
+      pass(
+        'manifest_latest',
+        'Latest signed manifest',
+        true,
+        'The device holds the current signed manifest.',
+      ),
+    );
+  } else {
+    checks.push(
+      bad(
+        'manifest_latest',
+        'Latest signed manifest',
+        true,
+        'fail',
+        `The device holds manifest v${s.clientManifestVersion ?? '-'} but the current version is v${s.latestManifestVersion ?? '-'}.`,
+        'Download the latest manifest before going offline - the held one may miss revocations.',
+      ),
+    );
+  }
+
+  checks.push(
+    s.manifestFresh
+      ? pass(
+          'manifest_fresh',
+          'Manifest not expired',
+          true,
+          'A fresh, unexpired manifest exists for this session.',
+        )
+      : bad(
+          'manifest_fresh',
+          'Manifest not expired',
+          true,
+          'fail',
+          'The latest manifest is missing or expired.',
+          'Issue/download a fresh manifest before going offline.',
+        ),
+  );
+
+  const deltasCurrent = s.lastSeenMsAgo !== null && s.lastSeenMsAgo <= s.deltaWindowMs;
+  checks.push(
+    deltasCurrent
+      ? pass(
+          'deltas_current',
+          'Revocation deltas current',
+          false,
+          'The device has synced recently.',
+        )
+      : bad(
+          'deltas_current',
+          'Revocation deltas current',
+          false,
+          'warn',
+          s.lastSeenMsAgo === null
+            ? 'The device has not synced yet, so revocation deltas may be missing.'
+            : `The device last synced ${Math.round(s.lastSeenMsAgo / 60_000)} min ago.`,
+          'Fetch the latest revocation deltas (or re-download the manifest) before going offline.',
+        ),
+  );
+
+  if (s.clockSkewMs === null) {
+    checks.push(
+      bad(
+        'clock_skew',
+        'Device clock in tolerance',
+        true,
+        'warn',
+        'The device did not report its clock, so skew could not be checked.',
+        'Report the device time so clock skew can be verified.',
+      ),
+    );
+  } else if (s.clockSkewMs <= s.clockToleranceMs) {
+    checks.push(
+      pass(
+        'clock_skew',
+        'Device clock in tolerance',
+        true,
+        'The device clock is within tolerance.',
+      ),
+    );
+  } else {
+    checks.push(
+      bad(
+        'clock_skew',
+        'Device clock in tolerance',
+        true,
+        'fail',
+        `The device clock is off by ~${Math.round(s.clockSkewMs / 1000)}s (tolerance ${Math.round(s.clockToleranceMs / 1000)}s).`,
+        'Correct the device clock (enable automatic time) before going offline.',
+      ),
+    );
+  }
+
+  if (s.queueDepth === null) {
+    checks.push(
+      bad(
+        'queue_empty',
+        'Local queue clear',
+        false,
+        'warn',
+        'The device did not report its local queue.',
+        'Confirm the device has synced any pending scans.',
+      ),
+    );
+  } else if (s.queueDepth === 0) {
+    checks.push(
+      pass(
+        'queue_empty',
+        'Local queue clear',
+        false,
+        'No scans are waiting to sync on the device.',
+      ),
+    );
+  } else {
+    checks.push(
+      bad(
+        'queue_empty',
+        'Local queue clear',
+        false,
+        'warn',
+        `${s.queueDepth} scan(s) are still queued on the device.`,
+        'Sync the device (Sync now) so queued scans reconcile before going offline again.',
+      ),
+    );
+  }
+
+  const unresolved = s.syncFailureCount + s.pendingReviewCount;
+  checks.push(
+    unresolved === 0
+      ? pass(
+          'sync_clean',
+          'No unresolved sync issues',
+          false,
+          'No sync failures or pending supervisor reviews.',
+        )
+      : bad(
+          'sync_clean',
+          'No unresolved sync issues',
+          false,
+          'warn',
+          `${s.pendingReviewCount} pending review(s) and ${s.syncFailureCount} sync failure(s) are unresolved.`,
+          'Resolve them in the Reconciliation console before relying on offline mode.',
+        ),
+  );
+
+  checks.push(
+    s.activationVerdict === 'GO'
+      ? pass(
+          'activation_go',
+          'Activation scope is GO',
+          true,
+          'The activation gate is GO for this scope.',
+        )
+      : bad(
+          'activation_go',
+          'Activation scope is GO',
+          true,
+          'fail',
+          `The activation gate is ${s.activationVerdict.replace('_', ' ')} for this scope.`,
+          'A manager must record/repair the activation (see the Command Center) - preflight cannot override it.',
+        ),
+  );
+
+  checks.push(
+    s.criticalAlertCount === 0
+      ? pass(
+          'no_blocking_alerts',
+          'No blocking alerts',
+          true,
+          'No critical command-center alerts for this scope.',
+        )
+      : bad(
+          'no_blocking_alerts',
+          'No blocking alerts',
+          true,
+          'fail',
+          `${s.criticalAlertCount} critical command-center alert(s) are active.`,
+          'Resolve the critical alerts in the Command Center before going offline.',
+        ),
+  );
+
+  return checks;
+}
+
+/** Rolls checks up to a verdict: any blocking failure → NOT_READY; any issue → WARNING. */
+export function derivePreflightVerdict(checks: PreflightCheck[]): PreflightVerdict {
+  if (checks.some((c) => c.blocking && c.status === 'fail')) return 'NOT_READY';
+  if (checks.some((c) => c.status !== 'pass')) return 'WARNING';
+  return 'READY';
+}

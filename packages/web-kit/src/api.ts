@@ -524,6 +524,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    preflight: (body: PreflightRequest) =>
+      request<PreflightReport>('/checkin/preflight', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   refunds: {
@@ -1596,6 +1601,34 @@ export interface ActivityRow {
   entityId: string | null;
   createdAt: string;
   actor: { email: string } | null;
+}
+
+export type PreflightStatus = 'pass' | 'warn' | 'fail';
+export type PreflightVerdict = 'READY' | 'WARNING' | 'NOT_READY';
+export interface PreflightCheckRow {
+  key: string;
+  label: string;
+  status: PreflightStatus;
+  blocking: boolean;
+  explanation: string;
+  guidance: string;
+}
+export interface PreflightRequest {
+  organizationId: string;
+  eventSessionId: string;
+  deviceId: string;
+  clientManifestVersion?: number;
+  clientTimeMs?: number;
+  queueDepth?: number;
+  syncFailureCount?: number;
+}
+export interface PreflightReport {
+  generatedAt: string;
+  deviceId: string;
+  deviceName: string;
+  eventSessionId: string;
+  verdict: PreflightVerdict;
+  checks: PreflightCheckRow[];
 }
 
 export interface CheckInOutcome {

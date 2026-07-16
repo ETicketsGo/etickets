@@ -15,7 +15,12 @@ import {
   allowedReconcileResolutions,
   canResolveReconcile,
   deriveCommandCenterAlerts,
+  buildPreflightChecks,
+  derivePreflightVerdict,
+  PREFLIGHT_CLOCK_TOLERANCE_MS,
+  PREFLIGHT_DELTA_WINDOW_MS,
   type CommandCenterSignals,
+  type PreflightSignals,
   type DecodedQr,
   type ManifestEntry,
   type ManifestMeta,
@@ -448,5 +453,69 @@ describe('command center alert derivation (deterministic, deduped, ranked)', () 
       oldestActiveDeviceUnseenMs: 9 * 60_000,
     }).find((x) => x.type === 'QUEUE_GROWTH');
     expect(a?.severity).toBe('warning');
+  });
+});
+
+describe('offline preflight checklist (device pre-event gate)', () => {
+  const ready: PreflightSignals = {
+    deviceActive: true,
+    deviceInScope: true,
+    latestManifestVersion: 5,
+    clientManifestVersion: 5,
+    manifestFresh: true,
+    lastSeenMsAgo: 60_000,
+    deltaWindowMs: PREFLIGHT_DELTA_WINDOW_MS,
+    clockSkewMs: 1_000,
+    clockToleranceMs: PREFLIGHT_CLOCK_TOLERANCE_MS,
+    queueDepth: 0,
+    syncFailureCount: 0,
+    pendingReviewCount: 0,
+    activationVerdict: 'GO',
+    criticalAlertCount: 0,
+  };
+  const verdictOf = (s: PreflightSignals) => derivePreflightVerdict(buildPreflightChecks(s));
+
+  it('is READY when every check passes', () => {
+    expect(verdictOf(ready)).toBe('READY');
+    expect(buildPreflightChecks(ready).every((c) => c.status === 'pass')).toBe(true);
+  });
+
+  it('NOT_READY on any blocking failure', () => {
+    expect(verdictOf({ ...ready, deviceActive: false })).toBe('NOT_READY');
+    expect(verdictOf({ ...ready, deviceInScope: false })).toBe('NOT_READY');
+    expect(verdictOf({ ...ready, manifestFresh: false })).toBe('NOT_READY');
+    expect(verdictOf({ ...ready, clientManifestVersion: 4 })).toBe('NOT_READY'); // stale manifest
+    expect(verdictOf({ ...ready, clockSkewMs: 5 * 60_000 })).toBe('NOT_READY');
+    expect(verdictOf({ ...ready, activationVerdict: 'NO_GO' })).toBe('NOT_READY');
+    expect(verdictOf({ ...ready, criticalAlertCount: 1 })).toBe('NOT_READY');
+  });
+
+  it('WARNING (not NOT_READY) on non-blocking issues', () => {
+    expect(verdictOf({ ...ready, queueDepth: 3 })).toBe('WARNING');
+    expect(verdictOf({ ...ready, pendingReviewCount: 2 })).toBe('WARNING');
+    expect(verdictOf({ ...ready, lastSeenMsAgo: 3 * 60 * 60_000 })).toBe('WARNING');
+  });
+
+  it('treats an unreported manifest version / clock / queue as a warning, not a block', () => {
+    const s = { ...ready, clientManifestVersion: null, clockSkewMs: null, queueDepth: null };
+    expect(verdictOf(s)).toBe('WARNING');
+    const manifest = buildPreflightChecks(s).find((c) => c.key === 'manifest_latest')!;
+    expect(manifest.status).toBe('warn');
+  });
+
+  it('every non-pass check carries actionable guidance', () => {
+    const checks = buildPreflightChecks({ ...ready, deviceActive: false, queueDepth: 2 });
+    for (const c of checks) {
+      if (c.status !== 'pass') expect(c.guidance.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a stale manifest is a blocking failure with a clear explanation', () => {
+    const c = buildPreflightChecks({ ...ready, clientManifestVersion: 3 }).find(
+      (x) => x.key === 'manifest_latest',
+    )!;
+    expect(c.status).toBe('fail');
+    expect(c.blocking).toBe(true);
+    expect(c.explanation).toMatch(/v3/);
   });
 });
