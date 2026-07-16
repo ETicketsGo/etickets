@@ -94,6 +94,10 @@ jobs:
         working-directory: apps/e2e
 
       - name: Start services
+        # The e2e suite runs many login-heavy specs within a minute; raise the auth
+        # throttle for this test run only (production leaves it unset → 10/min per IP).
+        env:
+          AUTH_THROTTLE_LIMIT: '1000'
         run: |
           node apps/api/dist/main.js & echo $! > /tmp/api.pid
           npx --workspace @eticketsgo/customer-web next start -p 3000 & echo $! > /tmp/cust.pid

@@ -330,9 +330,56 @@ is disabled without a reason, revoking an in-scope device **downgrades activatio
 NO_GO** (rules enforced, not bypassed), a **customer cannot** suspend/revoke (403),
 and every action is **audited**. Skips when the flag is off.
 
+## Offline Preflight Checklist (Sprint 12)
+
+A device-scoped, **advisory** pre-event gate that tells an operator whether a device
+is safe to enter offline mode. It **reuses** the command-center snapshot (activation
+verdict, manifest freshness, pending reviews, critical alerts) + the device record —
+it **never re-derives or overrides** any readiness/activation rule. Read-only; the
+server stays authoritative. All behind `OFFLINE_CHECKIN_ENABLED`.
+
+### Checklist items (10)
+
+Blocking (a failure → **NOT_READY**): device approved & active; device in scope;
+holds the **latest signed manifest**; manifest not expired; device **clock within
+tolerance** (2 min); **activation scope is GO**; **no critical command-center alerts**.
+Informational (a failure → **WARNING**): revocation **deltas current** (device synced
+within the delta window); **local queue clear**; **no unresolved sync issues**
+(pending reviews / sync failures). Every non-pass check carries a plain-language
+explanation **and actionable guidance**.
+
+### Readiness aggregation
+
+Pure + unit-tested (`buildPreflightChecks` + `derivePreflightVerdict` in shared-types):
+each signal maps to a check with `status` (pass/warn/fail) + `blocking`. The verdict
+is **NOT_READY** if any blocking check fails, else **WARNING** if any check is not a
+pass, else **READY**. The device runs its own preflight — the browser reports its
+held manifest version (from IndexedDB), local queue depth, and clock; the server
+supplies the authoritative activation/alert/manifest signals via the command-center
+snapshot. `POST /checkin/preflight` (staff read, flag-gated).
+
+### Console UI
+
+`organizer-web` route `…/events/[id]/preflight` (a **Preflight** tab shown only when
+the flag is on). Pick a session + device, **Run checks** (re-runnable), and see the
+**verdict banner** (READY / WARNING / NOT READY, icon + text + badge), the checks
+split into **Blocking** vs **Informational** groups, each with an icon, status label,
+explanation and guidance (never colour alone), and a **Print** button for operational
+records.
+
+### Verification
+
+Unit tests cover the aggregation (every condition, blocking vs warning, verdict
+rollup, unreported-values-as-warnings, guidance present). The drill
+`apps/e2e/tests/offline-preflight.spec.ts` asserts every condition via the API
+(stale manifest, clock skew, queued items, revoked device, activation downgrade,
+customer 403) and drives the UI through **READY → WARNING → NOT_READY**, confirming a
+blocking failure surfaces its guidance and that revoking an in-scope device downgrades
+activation (rules enforced, not bypassed). Skips when the flag is off.
+
 ## What is deliberately NOT in this sprint
 
-Documented as follow-ups, not faked as complete: the offline **preflight** checklist,
-queue **backoff/dead-letter + multi-tab lock**, and the **wallet-pass sandbox**. None
-of the existing Booking Engine, Inventory, Payment, QR signing, ownership/assignment/
-sharing, customer offline wallet, or online check-in flows were changed.
+Documented as follow-ups, not faked as complete: queue **backoff/dead-letter +
+multi-tab lock**, and the **wallet-pass sandbox**. None of the existing Booking
+Engine, Inventory, Payment, QR signing, ownership/assignment/sharing, customer offline
+wallet, or online check-in flows were changed.

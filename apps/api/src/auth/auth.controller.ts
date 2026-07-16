@@ -24,7 +24,12 @@ function meta(req: Request) {
  * token-replay targets, so they get 10 req/60s per client. Well above what any
  * legitimate login/refresh flow (or the e2e suite's handful of logins) needs.
  */
-const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
+// Production default is 10/min per IP (brute-force protection). The limit is
+// env-overridable ONLY so a login-heavy local/e2e run (many suites in one minute)
+// doesn't trip it — production leaves AUTH_THROTTLE_LIMIT unset and keeps 10.
+const AUTH_THROTTLE = {
+  default: { limit: Number(process.env.AUTH_THROTTLE_LIMIT ?? 10), ttl: 60_000 },
+};
 
 @ApiTags('auth')
 @Controller('auth')
