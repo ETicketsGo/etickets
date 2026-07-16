@@ -24,8 +24,9 @@ export function LoginForm({
   subtitle?: string;
 }) {
   const router = useRouter();
-  const [email, setEmail] = useState(defaultEmail);
-  const [password, setPassword] = useState(defaultEmail ? 'Password123!' : '');
+  const [email, setEmail] = useState(defaultEmail ?? '');
+  // Never pre-fill the password — shipping a real credential in a launch build is unsafe.
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 

@@ -7,7 +7,6 @@ export default function OrganizerLogin() {
     <LoginForm
       title="Organizer sign in"
       subtitle="Manage your events, orders, and payouts."
-      defaultEmail="owner@eticketsgo.test"
       defaultRedirect="/organizer"
       allowedRoles={[
         'ORGANIZER_OWNER',
