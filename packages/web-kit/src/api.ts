@@ -1,4 +1,14 @@
-import type { ApiError, AuthTokens } from '@eticketsgo/shared-types';
+import type {
+  ApiError,
+  AuthTokens,
+  ManifestEntry,
+  ManifestMeta,
+  QueuedCheckIn,
+  ReconcileOutcome,
+  RevocationDelta,
+} from '@eticketsgo/shared-types';
+
+export type { QueuedCheckIn, RevocationDelta } from '@eticketsgo/shared-types';
 
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
@@ -421,6 +431,41 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ ticketId }),
       }),
+  },
+
+  // Offline gate check-in (ADR-035) — endpoints 404 while the feature flag is off.
+  offlineCheckin: {
+    listDevices: (organizationId: string, eventId?: string) =>
+      request<CheckInDeviceRow[]>(`/checkin/devices${qs({ organizationId, eventId })}`),
+    registerDevice: (body: {
+      organizationId: string;
+      eventId?: string;
+      eventSessionId?: string;
+      name: string;
+      platform?: string;
+    }) =>
+      request<CheckInDeviceRow>('/checkin/devices', { method: 'POST', body: JSON.stringify(body) }),
+    approveDevice: (id: string) =>
+      request<CheckInDeviceRow>(`/checkin/devices/${id}/approve`, { method: 'POST' }),
+    revokeDevice: (id: string) =>
+      request<CheckInDeviceRow>(`/checkin/devices/${id}/revoke`, { method: 'POST' }),
+    manifest: (eventSessionId: string) =>
+      request<SignedManifest>(`/checkin/manifest${qs({ eventSessionId })}`),
+    deltas: (eventSessionId: string, sinceMs: number) =>
+      request<RevocationDelta>(`/checkin/deltas${qs({ eventSessionId, sinceMs })}`),
+    reconcile: (deviceId: string, checkIns: QueuedCheckIn[]) =>
+      request<ReconcileResultItem[]>('/checkin/reconcile', {
+        method: 'POST',
+        body: JSON.stringify({ deviceId, checkIns }),
+      }),
+    offlineReadiness: (organizationId: string, eventSessionId?: string) =>
+      request<OfflineReadinessReport>(
+        `/checkin/offline-readiness${qs({ organizationId, eventSessionId })}`,
+      ),
+    activation: (organizationId: string, eventSessionId?: string) =>
+      request<OfflineReadinessReport>(
+        `/checkin/activation${qs({ organizationId, eventSessionId })}`,
+      ),
   },
 
   refunds: {
@@ -1295,6 +1340,35 @@ export interface AttendeeRow {
   ticketType: string;
   sessionStartsAt: string;
   checkedInAt: string | null;
+}
+
+// ── Offline gate check-in (ADR-035) ──
+export interface CheckInDeviceRow {
+  id: string;
+  organizationId: string;
+  eventId: string | null;
+  eventSessionId: string | null;
+  name: string;
+  platform: string | null;
+  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
+  manifestVersion: number;
+  expiresAt: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+export interface SignedManifest {
+  meta: ManifestMeta;
+  entries: ManifestEntry[];
+  signature: string;
+}
+export interface ReconcileResultItem {
+  ticketId: string;
+  outcome: ReconcileOutcome;
+}
+export interface OfflineReadinessReport {
+  verdict: 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
+  checks: { key: string; label: string; passed: boolean; blocking?: boolean }[];
+  note: string;
 }
 
 export interface CheckInOutcome {

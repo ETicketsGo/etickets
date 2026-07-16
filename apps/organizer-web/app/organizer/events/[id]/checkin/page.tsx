@@ -21,6 +21,7 @@ import {
   type CheckInOutcome,
   type BadgeTone,
 } from '@eticketsgo/web-kit';
+import { OfflineCheckin } from '@/components/offline-checkin';
 
 interface DetectedBarcode {
   rawValue: string;
@@ -53,6 +54,16 @@ export default function CheckinTab() {
   const checkedIn = report.data?.checkInCount ?? 0;
   const expected = report.data?.ticketsSold ?? 0;
   const pct = expected > 0 ? Math.round((checkedIn / expected) * 100) : 0;
+
+  // Offline gate mode is shown only when the feature flag is enabled for the org.
+  const offlineReadiness = useQuery({
+    queryKey: ['offline-readiness', event?.organizationId],
+    queryFn: () => api.offlineCheckin.offlineReadiness(event!.organizationId),
+    enabled: !!event?.organizationId,
+    retry: false,
+  });
+  const offlineEnabled =
+    offlineReadiness.data?.checks.find((c) => c.key === 'flag')?.passed ?? false;
 
   const [sessionId, setSessionId] = useState('');
   const [token, setToken] = useState('');
@@ -325,6 +336,14 @@ export default function CheckinTab() {
           </Card>
         </div>
       </div>
+
+      {offlineEnabled && event && (
+        <OfflineCheckin
+          organizationId={event.organizationId}
+          eventId={id}
+          sessions={event.sessions.map((s) => ({ id: s.id, startsAt: s.startsAt }))}
+        />
+      )}
     </div>
   );
 }
