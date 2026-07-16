@@ -8,7 +8,18 @@ export class RedisService implements OnModuleDestroy {
 
   constructor(config: ConfigService) {
     const url = config.get<string>('REDIS_URL', 'redis://localhost:6379');
-    this.client = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: false });
+    // commandTimeout + no offline queue so commands REJECT quickly when Redis is
+    // unreachable instead of hanging indefinitely — this is what lets the fail-open
+    // consumers (cache, maintenance guard) actually degrade gracefully on an outage.
+    this.client = new IORedis(url, {
+      maxRetriesPerRequest: null,
+      lazyConnect: false,
+      commandTimeout: Number(config.get<string>('REDIS_COMMAND_TIMEOUT_MS') ?? 1000),
+      enableOfflineQueue: false,
+    });
+    // ioredis emits 'error' on connection loss; without a listener it can crash the
+    // process. Swallow — consumers already handle command-level failures fail-open.
+    this.client.on('error', () => undefined);
   }
 
   async ping(): Promise<boolean> {

@@ -9,6 +9,7 @@ import {
 import { Request, Response } from 'express';
 import { ErrorCodes } from './errors';
 import { captureException } from '../observability/sentry';
+import { PaymentProviderError, PaymentErrorCode } from '../payments/domain/payment-errors';
 
 interface ErrorEnvelope {
   code: string;
@@ -52,11 +53,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
           correlationId,
         };
       }
+    } else if (exception instanceof PaymentProviderError) {
+      // Classify normalized payment failures instead of letting them fall through
+      // to an opaque 500 (which also mis-pages Sentry for ordinary card declines).
+      const mapped = mapPaymentError(exception);
+      status = mapped.status;
+      body = {
+        code: mapped.code,
+        message: mapped.message,
+        details: { provider: exception.provider, reason: exception.code },
+        correlationId,
+      };
     }
 
+    // Path only (never the query string — it can carry tokens/PII), matching the
+    // request logging interceptor.
+    const path = (req.originalUrl || req.url || '').split('?')[0];
     if (status >= 500) {
       this.logger.error(
-        `[${correlationId}] ${req.method} ${req.url} -> ${status}`,
+        `[${correlationId}] ${req.method} ${path} -> ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
       // Report only unexpected server errors to Sentry (no-op unless SENTRY_DSN
@@ -67,10 +82,60 @@ export class AllExceptionsFilter implements ExceptionFilter {
         path: (req.originalUrl || req.url || '').split('?')[0],
       });
     } else {
-      this.logger.warn(`[${correlationId}] ${req.method} ${req.url} -> ${status} ${body.code}`);
+      this.logger.warn(`[${correlationId}] ${req.method} ${path} -> ${status} ${body.code}`);
     }
 
     res.status(status).json(body);
+  }
+}
+
+/** Maps a normalized payment error to an HTTP status + safe client envelope. */
+function mapPaymentError(e: PaymentProviderError): {
+  status: HttpStatus;
+  code: string;
+  message: string;
+} {
+  switch (e.code) {
+    case PaymentErrorCode.CARD_DECLINED:
+      return {
+        status: HttpStatus.PAYMENT_REQUIRED,
+        code: 'PAYMENT_DECLINED',
+        message: 'Your card was declined.',
+      };
+    case PaymentErrorCode.INSUFFICIENT_FUNDS:
+      return {
+        status: HttpStatus.PAYMENT_REQUIRED,
+        code: 'PAYMENT_INSUFFICIENT_FUNDS',
+        message: 'Insufficient funds.',
+      };
+    case PaymentErrorCode.INVALID_REQUEST:
+    case PaymentErrorCode.UNSUPPORTED:
+    case PaymentErrorCode.WEBHOOK_INVALID:
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        code: 'PAYMENT_INVALID_REQUEST',
+        message: 'The payment request was invalid.',
+      };
+    case PaymentErrorCode.DUPLICATE:
+      return {
+        status: HttpStatus.CONFLICT,
+        code: 'PAYMENT_DUPLICATE',
+        message: 'Duplicate payment request.',
+      };
+    case PaymentErrorCode.PROVIDER_UNAVAILABLE:
+    case PaymentErrorCode.PROVIDER_TIMEOUT:
+    case PaymentErrorCode.AUTHENTICATION_FAILED:
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: 'PAYMENT_PROVIDER_UNAVAILABLE',
+        message: 'The payment provider is temporarily unavailable. Please try again.',
+      };
+    default:
+      return {
+        status: HttpStatus.BAD_GATEWAY,
+        code: 'PAYMENT_ERROR',
+        message: 'Payment could not be processed.',
+      };
   }
 }
 
