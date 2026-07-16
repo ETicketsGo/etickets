@@ -22,8 +22,13 @@ export class PricingService {
   }
 
   /** Compute fees for a quote using the currently active DB fee rules. */
-  async quote(subtotalMinor: number, feeMode: FeeMode, discountMinor = 0): Promise<FeeCalcResult> {
+  async quote(
+    subtotalMinor: number,
+    feeMode: FeeMode,
+    discountMinor = 0,
+    currency?: string,
+  ): Promise<FeeCalcResult> {
     const tiers = await this.loadTiers();
-    return calculateFees({ subtotalMinor, feeMode, discountMinor, tiers });
+    return calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
   }
 }

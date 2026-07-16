@@ -25,6 +25,8 @@ export interface FeeCalcInput {
   discountMinor?: number;
   tiers?: FeeTier[];
   paymentFeeBps?: number;
+  /** ISO 4217 currency; flows through to the result. Defaults to INR (seed market). */
+  currency?: string;
 }
 
 export interface FeeCalcResult {
@@ -83,7 +85,7 @@ export function calculateFees(input: FeeCalcInput): FeeCalcResult {
   }
 
   return {
-    currency: 'INR',
+    currency: input.currency ?? 'INR',
     subtotalMinor,
     discountMinor,
     netSubtotalMinor,
