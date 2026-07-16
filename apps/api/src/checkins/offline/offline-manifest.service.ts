@@ -83,7 +83,14 @@ export class OfflineManifestService {
     });
 
     const now = Date.now();
-    const version = now; // monotonic, replay-resistant version stamp
+    // Monotonic per-session version (fits INT4; the unique [session, version] key
+    // makes it replay-resistant). Wall-clock ms is used only for the TTL below.
+    const last = await this.prisma.checkInManifest.findFirst({
+      where: { eventSessionId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = (last?.version ?? 0) + 1;
     const meta: ManifestMeta = {
       organizationId: session.event.organizationId,
       eventId: session.event.id,
