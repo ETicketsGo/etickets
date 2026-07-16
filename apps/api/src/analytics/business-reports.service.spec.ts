@@ -355,6 +355,47 @@ describe('BusinessReportsService.growth', () => {
   });
 });
 
+describe('BusinessReportsService.paymentHealth', () => {
+  it('computes success rate overall and per provider, sorted by volume', async () => {
+    const { service } = makeService({
+      prisma: {
+        payment: {
+          groupBy: jest.fn().mockResolvedValue([
+            { provider: 'stripe', status: 'SUCCEEDED', _count: { _all: 9 } },
+            { provider: 'stripe', status: 'FAILED', _count: { _all: 1 } },
+            { provider: 'razorpay', status: 'SUCCEEDED', _count: { _all: 3 } },
+            { provider: 'razorpay', status: 'FAILED', _count: { _all: 1 } },
+            { provider: 'razorpay', status: 'PROCESSING', _count: { _all: 2 } },
+          ]),
+        },
+      },
+    });
+    const r = await service.paymentHealth(FROM, TO);
+    // 12 succeeded / 14 settled → 85.7% overall.
+    expect(r.overallSuccessRate).toBe(85.7);
+    // Sorted by settled volume desc: stripe (10) before razorpay (4).
+    expect(r.providers.map((p) => p.provider)).toEqual(['stripe', 'razorpay']);
+    expect(r.providers[0]).toMatchObject({ succeeded: 9, failed: 1, successRate: 90 });
+    expect(r.providers[1]).toMatchObject({ succeeded: 3, failed: 1, pending: 2, successRate: 75 });
+  });
+
+  it('returns null rates when nothing has settled', async () => {
+    const { service } = makeService({
+      prisma: {
+        payment: {
+          groupBy: jest
+            .fn()
+            .mockResolvedValue([{ provider: 'stripe', status: 'PROCESSING', _count: { _all: 4 } }]),
+        },
+      },
+    });
+    const r = await service.paymentHealth(FROM, TO);
+    expect(r.overallSuccessRate).toBeNull();
+    expect(r.providers[0].successRate).toBeNull();
+    expect(r.providers[0].pending).toBe(4);
+  });
+});
+
 describe('toCsv (injection-safe)', () => {
   it('quotes fields, escapes embedded quotes, and neutralises formula injection', () => {
     const csv = toCsv(
