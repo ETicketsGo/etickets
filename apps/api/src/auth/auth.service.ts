@@ -8,6 +8,7 @@ import { Role } from '@eticketsgo/shared-types';
 import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { AuditService } from '../audit/audit.service';
 import type { AccessTokenPayload } from './jwt.strategy';
 
 interface RequestMeta {
@@ -21,6 +22,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
   ) {}
 
   async register(input: RegisterInput, meta: RequestMeta): Promise<AuthTokens> {
@@ -47,12 +49,28 @@ export class AuthService {
   async login(input: LoginInput, meta: RequestMeta): Promise<AuthTokens> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
+      // Forensic trail for credential-stuffing / brute-force (audit is fail-safe).
+      await this.audit.record({
+        actorUserId: user?.id ?? null,
+        action: 'AUTH_LOGIN_FAILED',
+        entityType: 'User',
+        entityId: user?.id ?? null,
+        metadata: { email: input.email, reason: user ? 'bad_password' : 'unknown_user' },
+        ip: meta.ip ?? null,
+      });
       throw new AppException(
         ErrorCodes.INVALID_CREDENTIALS,
         'Incorrect email or password.',
         HttpStatus.UNAUTHORIZED,
       );
     }
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'AUTH_LOGIN',
+      entityType: 'User',
+      entityId: user.id,
+      ip: meta.ip ?? null,
+    });
     return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
   }
 
@@ -75,6 +93,15 @@ export class AuthService {
       await this.prisma.refreshToken.updateMany({
         where: { userId: record.userId, revokedAt: null },
         data: { revokedAt: new Date() },
+      });
+      // Replay of a rotated/revoked token = compromise signal; record the family burn.
+      await this.audit.record({
+        actorUserId: record.userId,
+        action: 'AUTH_TOKEN_REUSE_DETECTED',
+        entityType: 'RefreshToken',
+        entityId: record.id,
+        metadata: { familyRevoked: true },
+        ip: meta.ip ?? null,
       });
       throw new AppException(
         ErrorCodes.INVALID_REFRESH_TOKEN,

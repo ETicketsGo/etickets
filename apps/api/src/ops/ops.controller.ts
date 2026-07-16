@@ -2,8 +2,9 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
-import { Roles } from '../common/decorators';
+import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AuditService } from '../audit/audit.service';
 import { OpsService } from './ops.service';
 import { MaintenanceService, type MaintenanceState } from './maintenance.service';
 
@@ -26,6 +27,7 @@ export class OpsController {
   constructor(
     private readonly ops: OpsService,
     private readonly maintenance: MaintenanceService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('health')
@@ -67,10 +69,19 @@ export class OpsController {
 
   @Post('maintenance')
   @ApiOperation({ summary: 'Set the maintenance-mode flag (and optional message).' })
-  setMaintenance(
+  async setMaintenance(
+    @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(maintenanceSchema)) body: MaintenanceState,
   ): Promise<MaintenanceState> {
-    return this.maintenance.setState(body);
+    const state = await this.maintenance.setState(body);
+    // High-impact global kill-switch — record who flipped it and when.
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'MAINTENANCE_TOGGLED',
+      entityType: 'Maintenance',
+      metadata: { enabled: body.enabled, message: body.message ?? null },
+    });
+    return state;
   }
 
   @Get('flags')

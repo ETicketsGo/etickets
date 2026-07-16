@@ -45,8 +45,9 @@ function setup(recordOverrides: Record<string, unknown> | null) {
     get: jest.fn((_key: string, def?: string) => def),
   };
 
-  const service = new AuthService(prisma as never, jwt as never, config as never);
-  return { service, prisma, refreshToken };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const service = new AuthService(prisma as never, jwt as never, config as never, audit as never);
+  return { service, prisma, refreshToken, audit };
 }
 
 describe('AuthService.refresh reuse detection', () => {
