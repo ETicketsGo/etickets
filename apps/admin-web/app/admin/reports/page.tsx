@@ -42,6 +42,7 @@ const TABS = [
   { key: 'tax', label: 'Tax' },
   { key: 'top-experiences', label: 'Top Experiences' },
   { key: 'growth', label: 'Growth & Retention' },
+  { key: 'payment-health', label: 'Payment Health' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -449,6 +450,7 @@ function GrowthSection({ range }: { range: ReportRange }) {
   });
   const maxUsers = Math.max(1, ...(query.data?.newUsers.map((u) => u.count) ?? [1]));
   const maxBookings = Math.max(1, ...(query.data?.newBookings.map((b) => b.count) ?? [1]));
+  const maxOrgs = Math.max(1, ...(query.data?.newOrganizers.map((o) => o.count) ?? [1]));
   return (
     <Section query={query}>
       {(d) => (
@@ -496,7 +498,66 @@ function GrowthSection({ range }: { range: ReportRange }) {
                 </div>
               )}
             </Card>
+            <Card title="New organizers by day">
+              {d.newOrganizers.length === 0 ? (
+                <EmptyState title="No new organizers in this range" />
+              ) : (
+                <div className="space-y-2.5">
+                  {d.newOrganizers.map((o) => (
+                    <BarRow
+                      key={o.day}
+                      label={o.day}
+                      value={o.count}
+                      max={maxOrgs}
+                      display={String(o.count)}
+                    />
+                  ))}
+                </div>
+              )}
+            </Card>
           </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function PaymentHealthSection({ range }: { range: ReportRange }) {
+  const query = useQuery({
+    queryKey: ['admin', 'reports', 'payment-health', range],
+    queryFn: () => api.admin.reports.paymentHealth(range),
+  });
+  return (
+    <Section query={query} isEmpty={(d) => d.providers.length === 0}>
+      {(d) => (
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <MetricCard
+              label="Overall success rate"
+              value={d.overallSuccessRate === null ? '—' : `${d.overallSuccessRate}%`}
+              tone={
+                d.overallSuccessRate !== null && d.overallSuccessRate >= 95
+                  ? 'success'
+                  : d.overallSuccessRate !== null && d.overallSuccessRate < 85
+                    ? 'warning'
+                    : 'info'
+              }
+            />
+          </div>
+          <Card title="By provider">
+            <ul className="divide-y divide-border text-sm">
+              {d.providers.map((p) => (
+                <li key={p.provider} className="flex items-center justify-between py-2.5">
+                  <span className="font-medium text-text-primary">{p.provider}</span>
+                  <span className="text-text-muted">
+                    {p.successRate === null ? '—' : `${p.successRate}%`} · {p.succeeded} ok ·{' '}
+                    {p.failed} failed
+                    {p.pending > 0 ? ` · ${p.pending} pending` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
         </div>
       )}
     </Section>
@@ -585,6 +646,7 @@ export default function AdminReports() {
       {tab === 'tax' && <TaxSection range={range} />}
       {tab === 'top-experiences' && <TopExperiencesSection range={range} />}
       {tab === 'growth' && <GrowthSection range={range} />}
+      {tab === 'payment-health' && <PaymentHealthSection range={range} />}
     </div>
   );
 }

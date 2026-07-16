@@ -397,7 +397,7 @@ export class BusinessReportsService {
   // ─────────────────────── 8. Growth & retention ───────────────────────
 
   async growth(from: Date, to: Date) {
-    const [retention, newUsersRaw, newBookingsRaw] = await Promise.all([
+    const [retention, newUsersRaw, newBookingsRaw, newOrganizersRaw] = await Promise.all([
       // Reuse: platform retention / repeat-customer block (all-time).
       this.analytics.repeatCustomers({}),
       this.prisma.$queryRaw<{ day: Date; count: bigint }[]>`
@@ -412,6 +412,12 @@ export class BusinessReportsService {
         WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
         GROUP BY 1 ORDER BY 1 ASC
       `,
+      this.prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+        SELECT date_trunc('day', "createdAt") AS day, COUNT(*)::bigint AS count
+        FROM "Organization"
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        GROUP BY 1 ORDER BY 1 ASC
+      `,
     ]);
     return {
       from,
@@ -419,6 +425,51 @@ export class BusinessReportsService {
       retention,
       newUsers: newUsersRaw.map((r) => ({ day: dayKey(r.day), count: Number(r.count) })),
       newBookings: newBookingsRaw.map((r) => ({ day: dayKey(r.day), count: Number(r.count) })),
+      newOrganizers: newOrganizersRaw.map((r) => ({ day: dayKey(r.day), count: Number(r.count) })),
+    };
+  }
+
+  /**
+   * Payment success rate per provider — the key health metric for a multi-provider
+   * platform. Reuses the indexed Payment.status/provider columns; no new pipeline.
+   */
+  async paymentHealth(from: Date, to: Date) {
+    const groups = await this.prisma.payment.groupBy({
+      by: ['provider', 'status'],
+      where: { createdAt: { gte: from, lte: to } },
+      _count: { _all: true },
+    });
+    const byProvider = new Map<string, { succeeded: number; failed: number; other: number }>();
+    for (const g of groups) {
+      const row = byProvider.get(g.provider) ?? { succeeded: 0, failed: 0, other: 0 };
+      const n = g._count._all;
+      if (g.status === 'SUCCEEDED') row.succeeded += n;
+      else if (g.status === 'FAILED') row.failed += n;
+      else row.other += n;
+      byProvider.set(g.provider, row);
+    }
+    const providers = [...byProvider.entries()].map(([provider, r]) => {
+      const settled = r.succeeded + r.failed;
+      return {
+        provider,
+        succeeded: r.succeeded,
+        failed: r.failed,
+        pending: r.other,
+        // Success rate over settled (succeeded+failed) attempts; null when none settled.
+        successRate: settled === 0 ? null : Math.round((r.succeeded / settled) * 1000) / 10,
+      };
+    });
+    const totals = providers.reduce(
+      (a, p) => ({ succeeded: a.succeeded + p.succeeded, failed: a.failed + p.failed }),
+      { succeeded: 0, failed: 0 },
+    );
+    const settled = totals.succeeded + totals.failed;
+    return {
+      from,
+      to,
+      overallSuccessRate:
+        settled === 0 ? null : Math.round((totals.succeeded / settled) * 1000) / 10,
+      providers: providers.sort((a, b) => b.succeeded + b.failed - (a.succeeded + a.failed)),
     };
   }
 
