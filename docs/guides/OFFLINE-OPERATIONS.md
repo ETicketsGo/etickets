@@ -83,12 +83,12 @@ NO-GO to **CONDITIONAL_GO**.
 
 **Not proven here (still NO-GO for activation):**
 
-- **Reconciliation** across a real browser (refund/transfer/wrong-session surfaced,
-  never accepted). The service-level drill covers the protocol; the browser version
-  is still required.
-- **Deployment-during-event** drill.
-- The **recorded org/event/device admin activation**. `GET /checkin/activation`
-  remains the enforced gate and still returns `NO_GO`.
+- The **recorded org/event/device admin activation** (the controlled activation
+  workflow). `GET /checkin/activation` remains the enforced gate and still returns
+  `NO_GO`. This is now the **only** remaining blocking check — all three drill
+  checks are green.
+- **Deployment-during-event** drill (operational hardening, not an activation-gate
+  input).
 
 ### Two-browser conflict drill + evidence store (Sprint 11, M14)
 
@@ -119,6 +119,26 @@ and server truth confirms the ticket was **never admitted** (`ACTIVE` + eligible
 On PASS it records `DEVICE_LOSS` evidence, flipping `drill_device_loss` green. After
 M15 two of the three activation-gate drills are evidence-backed; `drill_reconcile`
 is still fail-closed and admin activation is unrecorded, so the gate remains `NO_GO`.
+
+### Reconciliation drill (Sprint 11, M16)
+
+`apps/e2e/tests/offline-gate-reconciliation.spec.ts` proves **the server always wins
+and no invalid admission is ever accepted**. The panel drives the valid
+offline→queue→sync→`ACCEPTED` round-trip; then a deterministic divergence matrix is
+replayed through the real `POST /checkin/reconcile` using the panel's approved
+device: wrong-session → `WRONG_SESSION`, rotated nonce → `TRANSFERRED_AFTER_DOWNLOAD`,
+vanished ticket → `SUPERVISOR_REVIEW_REQUIRED` (none accepted, ticket stays `ACTIVE`),
+a correct scan → `ACCEPTED` exactly once, a replay → `DUPLICATE_SAME_DEVICE`
+(idempotent). Repeated inputs yield identical outcomes (deterministic) and every
+reconcile is recorded in the admin audit log (`OFFLINE_CHECKIN_RECONCILED`). On PASS
+it records `RECONCILIATION` evidence, flipping `drill_reconcile` green. After M16
+**all three** activation-gate drills are evidence-backed; the gate remains `NO_GO`
+only on the unrecorded admin activation.
+
+> **Test note.** The offline drills authenticate once via the API and seed the
+> browser session (`seedBrowserAuth`) rather than logging in through the form a
+> second time, keeping the four-drill flag-on run under the auth login throttle
+> (10/min) without weakening it.
 
 ## Running the drill locally
 
