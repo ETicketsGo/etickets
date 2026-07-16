@@ -30,6 +30,20 @@ export default function EventLayout({ children }: { children: React.ReactNode })
     queryFn: () => api.events.get(id),
   });
 
+  // The Reconciliation console is an offline-gate feature — only surface its tab
+  // when the org has offline check-in enabled (flag off → endpoints 404).
+  const offlineReadiness = useQuery({
+    queryKey: ['offline-readiness', event?.organizationId],
+    queryFn: () => api.offlineCheckin.offlineReadiness(event!.organizationId),
+    enabled: !!event?.organizationId,
+    retry: false,
+  });
+  const offlineEnabled =
+    offlineReadiness.data?.checks.find((c) => c.key === 'flag')?.passed ?? false;
+  const tabs = offlineEnabled
+    ? [...TABS, { label: 'Reconciliation', seg: '/reconciliation' }]
+    : TABS;
+
   if (isError)
     return (
       <ErrorState message="We couldn't load this. Please try again." onRetry={() => refetch()} />
@@ -55,7 +69,7 @@ export default function EventLayout({ children }: { children: React.ReactNode })
 
       <div className="overflow-x-auto border-b border-border">
         <nav className="flex min-w-max gap-1" aria-label="Event sections">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const href = `${base}${t.seg}`;
             const active = t.seg === '' ? pathname === base : pathname === href;
             return (
