@@ -81,14 +81,11 @@ against a flag-on API. It self-discovers a seeded session with an active ticket 
 drains. This is the single-browser **client round-trip**, moving that leg from
 NO-GO to **CONDITIONAL_GO**.
 
-**Not proven here (still NO-GO for activation):**
+**Remaining (operational, not gate logic):**
 
-- The **recorded org/event/device admin activation** (the controlled activation
-  workflow). `GET /checkin/activation` remains the enforced gate and still returns
-  `NO_GO`. This is now the **only** remaining blocking check — all three drill
-  checks are green.
 - **Deployment-during-event** drill (operational hardening, not an activation-gate
   input).
+- The reconciliation console + Live Event Command Center for day-of visibility.
 
 ### Two-browser conflict drill + evidence store (Sprint 11, M14)
 
@@ -134,6 +131,33 @@ reconcile is recorded in the admin audit log (`OFFLINE_CHECKIN_RECONCILED`). On 
 it records `RECONCILIATION` evidence, flipping `drill_reconcile` green. After M16
 **all three** activation-gate drills are evidence-backed; the gate remains `NO_GO`
 only on the unrecorded admin activation.
+
+### Controlled activation workflow (Sprint 11, M17)
+
+The final blocking gate is a real, scoped, audited decision — never a bare flag flip.
+`OfflineActivationService` owns the **single source of truth** for the gate's inputs
+(`computeInputs`), used by both `GET /checkin/activation` and the activate pre-check.
+
+- `POST /checkin/activation/record` (manager/admin-only, flag-gated) scopes the
+  decision to one org/event/session + explicit ACTIVE devices, only succeeds when
+  recording it would make the gate GO (all other blocking readiness + drill checks
+  green + current), stores an **immutable evidence snapshot**, supersedes any prior
+  ACTIVE decision for the scope, and audits `OFFLINE_ACTIVATION_RECORDED`.
+- `POST /checkin/activation/:id/revoke` sets `REVOKED` (who/when/why, audited); the
+  scope returns to NO_GO immediately.
+- `GET /checkin/activation/decisions` lists recorded decisions.
+- **mustDowngrade stays authoritative:** a live decision is ignored the moment a
+  scoped device is revoked or the manifest expires — the scope downgrades to NO_GO.
+
+The drill `apps/e2e/tests/offline-gate-activation.spec.ts` proves the lifecycle end
+to end: NO_GO before approval → 403 for a non-manager → 400 for an unknown/unapproved
+device → recorded `ACTIVE` with a snapshot → **GO for the approved scope** → NO_GO
+for any other scope → revoke → NO_GO, with every decision in the admin audit log.
+
+**Net:** `GET /checkin/activation` returns **GO only for a certified, admin-approved,
+non-downgraded scope**; everything else is NO_GO. `OFFLINE_CHECKIN_ENABLED` stays
+disabled by default — a pilot enables the flag for its deployment, then a manager
+records the scoped activation.
 
 > **Test note.** The offline drills authenticate once via the API and seed the
 > browser session (`seedBrowserAuth`) rather than logging in through the form a

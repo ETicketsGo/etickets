@@ -6,11 +6,12 @@ proving the conflict/loss/reconciliation protocol, the **single-browser drill**
 proving the scan UI + durable queue round-trip (M13), the **two-browser conflict
 drill** proving exactly-one-ACCEPTED with a persisted evidence store that now drives
 the gate (M14), the **device-loss drill** proving a revoked device is fail-closed
-(M15), and the **reconciliation drill** proving the server always wins and no bad
-admission is ever accepted (M16). With all three activation-gate drills now
-evidence-backed green, offline gate activation remains **NO-GO** — by policy — until
-the **recorded admin decision** (the controlled activation workflow) also exists.
-Activation is always org/event/device-scoped; there is no global enable.
+(M15), the **reconciliation drill** proving the server always wins and no bad
+admission is ever accepted (M16), and the **controlled activation workflow** — the
+recorded, scoped, audited admin decision that is the final blocking gate (M17). With
+all three drills evidence-backed and a certified scope approved, `GET /checkin/activation`
+can now return **GO for that exact scope**; every other scope stays NO-GO, and
+activation is always org/event/device-scoped with no global enable.
 
 ## Drill harness (M11) — results
 
@@ -134,6 +135,52 @@ auditable. It is the **third and final** activation-gate drill to earn recorded
 evidence. After M16 all three drill checks are green; the gate stays **NO_GO** only
 on the **recorded admin activation**.
 
+## Controlled activation workflow (M17)
+
+The final blocking gate — `adminActivationRecorded` — is now a real, scoped, audited
+decision (`OfflineActivation`), never a bare flag flip. `OfflineActivationService` is
+the **single source of truth** for the gate's inputs: `GET /checkin/activation` and
+the activate pre-check both read `computeInputs`, so the gate and the workflow can
+never disagree.
+
+- **Record** (`POST /checkin/activation/record`, manager/admin-only, flag-gated):
+  scopes the decision to one org/event/session + an explicit set of ACTIVE devices,
+  requires every named device to be approved/unexpired/event-scoped, and only
+  succeeds when recording it would make the gate GO (i.e. every other blocking
+  readiness + drill check is already green and current). It stores an **immutable
+  evidence snapshot** (the `ActivationInputs` + derived checks + device ids +
+  timestamp), supersedes any prior ACTIVE decision for the scope, and audits
+  `OFFLINE_ACTIVATION_RECORDED`.
+- **Revoke** (`POST /checkin/activation/:id/revoke`): sets `REVOKED`, records who/when/
+  why, audits `OFFLINE_ACTIVATION_REVOKED`; the scope returns to NO_GO immediately.
+- **mustDowngrade stays authoritative at read time:** a decision only counts while
+  its scoped devices are still ACTIVE and the manifest is unexpired — a revoked
+  device or expired manifest downgrades the scope to NO_GO even with a live decision.
+
+### Activation drill (M17) — result
+
+`apps/e2e/tests/offline-gate-activation.spec.ts` exercises the real endpoints
+end-to-end (skips when the flag is off):
+
+| Assertion                                                                                | Result  |
+| ---------------------------------------------------------------------------------------- | ------- |
+| Gate is **NO_GO before approval** (all readiness/drill checks green, only admin missing) | ✅ PASS |
+| Non-manager (customer) cannot record — **403**                                           | ✅ PASS |
+| Unknown device / unapproved device rejected — **400** (scope + missing evidence)         | ✅ PASS |
+| Valid scoped approval recorded → `ACTIVE` with an immutable evidence snapshot            | ✅ PASS |
+| Gate becomes **GO for the approved scope**                                               | ✅ PASS |
+| An **unapproved scope** (org-wide / no session) stays **NO_GO** — never global           | ✅ PASS |
+| **Revocation** returns the scope to **NO_GO**                                            | ✅ PASS |
+| Decision + revocation recorded in the admin **audit log**                                | ✅ PASS |
+
+Unit tests (`offline-activation.service.spec.ts`) cover the fail-closed eligibility
+matrix: no decision → false; healthy ACTIVE decision → true; a scoped device revoked
+or manifest expired → `mustDowngrade` → false; record rejects a red drill / an
+unapproved device / an empty scope; revoke flips the scope back.
+
+This closes the launch gate: a **certified, admin-approved scope can reach GO**,
+while everything uncertified or unapproved stays NO_GO — enforced, audited, revocable.
+
 ## Revocation deltas (M5)
 
 `GET /checkin/deltas?eventSessionId&sinceMs` returns a **signed, incremental**
@@ -154,25 +201,27 @@ check failing → **NO_GO**; only non-blocking gaps → **CONDITIONAL_GO**.
 expiry, stale delta, queue corruption, or audit/reconciliation/security-config
 failure.
 
-`GET /checkin/activation` reports the current verdict. As of M16 **all three** drill
-checks are evidence-backed green (two-device, device-loss, reconciliation); the only
-remaining blocking check is the **recorded admin activation**, so it still returns
-**NO_GO** — an honest state, not a false GO. Drill inputs are read from the
-persisted evidence store (fail-closed), not hardcoded.
+`GET /checkin/activation` reports the current verdict. As of M17 **every** input is
+evidence-driven: the three drill checks (fail-closed evidence store) and the
+`adminActivationRecorded` check (a scoped `OfflineActivation`, with `mustDowngrade`
+applied). For an org/event/session that is fully certified AND has a live, non-
+downgraded admin decision it returns **GO**; every other scope returns NO_GO. No
+input is hardcoded, and there is no global enable.
 
 ## Launch report — GO / NO-GO
 
-| Item                                                                                         | Status                                                    |
-| -------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Offline check-in **protocol** (validator, reconciliation, manifest, deltas, activation gate) | ✅ shipped + tested                                       |
-| Service-level drills (conflict / loss / reconciliation / flapping)                           | ✅ PASS                                                   |
-| Storage eviction (customer)                                                                  | ✅ shipped (Sprint 8)                                     |
-| Organizer offline **scan UI + durable queue** (single-browser round-trip)                    | ✅ shipped + browser drill PASS → **CONDITIONAL_GO**      |
-| **Two-browser conflict** drill (exactly one ACCEPTED) + recorded evidence                    | ✅ PASS (M14) — `drill_two_device` green                  |
-| **Device-loss** drill (revoked device fail-closed) + recorded evidence                       | ✅ PASS (M15) — `drill_device_loss` green                 |
-| **Reconciliation** drill (server wins, no bad admission) + recorded evidence                 | ✅ PASS (M16) — `drill_reconcile` green                   |
-| Offline gate **activation**                                                                  | ⛔ **NO-GO** — needs the recorded admin decision only     |
-| Native wallet passes                                                                         | ⛔ **NO-GO** — needs real Apple/Google issuer credentials |
+| Item                                                                                         | Status                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Offline check-in **protocol** (validator, reconciliation, manifest, deltas, activation gate) | ✅ shipped + tested                                                |
+| Service-level drills (conflict / loss / reconciliation / flapping)                           | ✅ PASS                                                            |
+| Storage eviction (customer)                                                                  | ✅ shipped (Sprint 8)                                              |
+| Organizer offline **scan UI + durable queue** (single-browser round-trip)                    | ✅ shipped + browser drill PASS → **CONDITIONAL_GO**               |
+| **Two-browser conflict** drill (exactly one ACCEPTED) + recorded evidence                    | ✅ PASS (M14) — `drill_two_device` green                           |
+| **Device-loss** drill (revoked device fail-closed) + recorded evidence                       | ✅ PASS (M15) — `drill_device_loss` green                          |
+| **Reconciliation** drill (server wins, no bad admission) + recorded evidence                 | ✅ PASS (M16) — `drill_reconcile` green                            |
+| **Controlled activation workflow** (scoped, audited, revocable admin decision)               | ✅ shipped + drill PASS (M17)                                      |
+| Offline gate **activation**                                                                  | ✅ **GO achievable** per certified+approved scope; NO_GO otherwise |
+| Native wallet passes                                                                         | ⛔ **NO-GO** — needs real Apple/Google issuer credentials          |
 
 ## Remaining engineering (documented; not shipped this sprint)
 
@@ -199,17 +248,22 @@ this sprint (see [OFFLINE-OPERATIONS.md](OFFLINE-OPERATIONS.md)); the rest remai
 8. ✅ **Browser drills executed + recorded** — two-browser conflict (M14),
    device-loss (M15) and reconciliation (M16) all PASS + recorded. All three
    `drill_*` activation checks are green.
-9. **Controlled activation workflow** — the recorded org/event/device admin decision
-   (`adminActivationRecorded`), now the **only** remaining blocking gate before GO.
+9. ✅ **Controlled activation workflow** (M17) — the scoped, audited, revocable admin
+   decision (`OfflineActivation`) that drives `adminActivationRecorded`. A certified,
+   approved scope can now reach GO. This closes the launch gate.
 
 ## Recommendation
 
-The protocol, its gate, the **scan UI + durable queue**, and **all three
-activation-gate drills** (two-browser conflict, device-loss, reconciliation — with a
-persisted, fail-closed evidence store now driving the gate) are proven. Exactly one
-blocking check remains: the **controlled activation workflow** (the recorded
-org/event/device admin decision). Once that lands and is recorded, `GET /checkin/activation`
-can reach GO for a scoped pilot; the reconciliation console + command center then add
-operational visibility. Do not enable offline gate mode at a real event until the
-admin activation is recorded; `GET /checkin/activation` remains the enforced source
-of truth and still returns NO_GO.
+The launch gate is **closed**: the protocol, the scan UI + durable queue, all three
+activation-gate drills, and the **controlled activation workflow** are shipped and
+proven. `GET /checkin/activation` now returns **GO only for a fully certified,
+admin-approved, non-downgraded scope**, and NO_GO for everything else — enforced,
+audited, and revocable, with `mustDowngrade` authoritative at read time.
+
+Remaining before a real pilot is **operational**, not gate logic:
+`OFFLINE_CHECKIN_ENABLED` stays disabled by default and must be enabled for the
+pilot deployment; a manager/admin then records the scoped activation via
+`POST /checkin/activation/record`. The reconciliation console + Live Event Command
+Center add day-of visibility on top of this gate. Do not enable offline gate mode at
+a real event without a recorded activation for that exact org/event/session scope;
+`GET /checkin/activation` remains the enforced source of truth.
