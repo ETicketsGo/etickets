@@ -41,7 +41,11 @@ export default function EventLayout({ children }: { children: React.ReactNode })
   const offlineEnabled =
     offlineReadiness.data?.checks.find((c) => c.key === 'flag')?.passed ?? false;
   const tabs = offlineEnabled
-    ? [...TABS, { label: 'Reconciliation', seg: '/reconciliation' }]
+    ? [
+        ...TABS,
+        { label: 'Command center', seg: '/command-center' },
+        { label: 'Reconciliation', seg: '/reconciliation' },
+      ]
     : TABS;
 
   if (isError)
