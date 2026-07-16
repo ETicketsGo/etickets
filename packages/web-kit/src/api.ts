@@ -252,6 +252,16 @@ export const api = {
     get: (id: string) => request<WalletTicket>(`/tickets/${id}`),
   },
 
+  // Wallet-pass sandbox (Apple/Google) — projections of an existing valid ticket.
+  walletPasses: {
+    providers: () => request<{ providers: WalletProviderStatusRow[] }>('/wallet/providers'),
+    generate: (ticketId: string, provider: 'apple' | 'google') =>
+      request<WalletPassResponse>('/wallet/passes', {
+        method: 'POST',
+        body: JSON.stringify({ ticketId, provider }),
+      }),
+  },
+
   // Attendee identity layer (ADR-031): assign / invite / transfer / claim.
   attendees: {
     assign: (ticketId: string, body: AssignAttendeeBody) =>
@@ -1538,6 +1548,32 @@ export interface ReconciliationQuery {
   page?: number;
   pageSize?: number;
 }
+
+export type WalletPassProviderName = 'apple' | 'google';
+export type WalletPassStatus = 'unavailable' | 'sandbox' | 'configured';
+export interface WalletProviderStatusRow {
+  provider: WalletPassProviderName;
+  status: WalletPassStatus;
+  mode: 'sandbox' | 'production';
+}
+export type WalletPassResponse =
+  | { available: false; provider: WalletPassProviderName; status: 'unavailable'; reason: string }
+  | {
+      available: true;
+      eligible: false;
+      provider: WalletPassProviderName;
+      status: string;
+      reason: string;
+    }
+  | {
+      available: true;
+      eligible: true;
+      provider: WalletPassProviderName;
+      status: WalletPassStatus;
+      mode: 'sandbox' | 'production';
+      descriptor: Record<string, unknown>;
+      note: string;
+    };
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 export interface CommandCenterAlertRow {

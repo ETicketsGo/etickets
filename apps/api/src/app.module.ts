@@ -24,6 +24,7 @@ import { ShowsModule } from './shows/shows.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TicketsModule } from './tickets/tickets.module';
+import { WalletModule } from './wallet/wallet.module';
 import { AttendeesModule } from './attendees/attendees.module';
 import { SharingModule } from './sharing/sharing.module';
 import { CheckinsModule } from './checkins/checkins.module';
@@ -75,6 +76,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     BookingsModule,
     PaymentsModule,
     TicketsModule,
+    WalletModule,
     AttendeesModule,
     SharingModule,
     CheckinsModule,
