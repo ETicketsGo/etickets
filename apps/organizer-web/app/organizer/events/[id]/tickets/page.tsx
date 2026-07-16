@@ -7,21 +7,33 @@ import {
   api,
   Button,
   Card,
+  Dialog,
   Input,
   Select,
   EmptyState,
   Skeleton,
+  StatusBadge,
   ErrorState,
   useToast,
   errorMessage,
   money,
   dateTime,
+  type TicketType,
 } from '@eticketsgo/web-kit';
 
 export default function TicketsTab() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const [editing, setEditing] = useState<TicketType | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    priceRupees: '',
+    quantityTotal: '',
+    maxPerOrder: '',
+  });
+  const [deleting, setDeleting] = useState<TicketType | null>(null);
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['event', id] });
   const {
     data: event,
     isLoading,
@@ -52,10 +64,65 @@ export default function TicketsTab() {
     onSuccess: () => {
       toast.push('Ticket type added.', 'success');
       setForm({ ...form, name: '', priceRupees: '', quantityTotal: '' });
-      qc.invalidateQueries({ queryKey: ['event', id] });
+      invalidate();
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
+
+  const saveEdit = useMutation({
+    mutationFn: () =>
+      api.events.updateTicketType(editing!.id, {
+        name: editForm.name.trim() || undefined,
+        priceMinor:
+          editForm.priceRupees === '' ? undefined : Math.round(Number(editForm.priceRupees) * 100),
+        quantityTotal: editForm.quantityTotal === '' ? undefined : Number(editForm.quantityTotal),
+        maxPerOrder: editForm.maxPerOrder === '' ? undefined : Number(editForm.maxPerOrder),
+      }),
+    onSuccess: () => {
+      toast.push('Ticket type updated.', 'success');
+      setEditing(null);
+      invalidate();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: (t: TicketType) =>
+      api.events.updateTicketType(t.id, { status: t.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }),
+    onSuccess: () => {
+      toast.push('Status updated.', 'success');
+      invalidate();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const del = useMutation({
+    mutationFn: (t: TicketType) => api.events.deleteTicketType(t.id),
+    onSuccess: () => {
+      toast.push('Ticket type deleted.', 'success');
+      setDeleting(null);
+      invalidate();
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const openEdit = (t: TicketType) => {
+    setEditing(t);
+    setEditForm({
+      name: t.name,
+      priceRupees: String(t.priceMinor / 100),
+      quantityTotal: String(t.quantityTotal),
+      maxPerOrder: String(t.maxPerOrder),
+    });
+  };
+  const committed = (t: TicketType) =>
+    (t.inventory?.quantitySold ?? 0) + (t.inventory?.quantityHeld ?? 0);
+  const editValid =
+    editForm.name.trim() !== '' &&
+    editForm.priceRupees !== '' &&
+    Number(editForm.priceRupees) >= 0 &&
+    editForm.quantityTotal !== '' &&
+    Number(editForm.quantityTotal) >= 1;
 
   if (isError)
     return (
@@ -64,7 +131,11 @@ export default function TicketsTab() {
   if (isLoading || !event) return <Skeleton className="h-64 w-full" />;
 
   const valid =
-    form.eventSessionId && form.name && Number(form.quantityTotal) > 0 && form.priceRupees !== '';
+    form.eventSessionId &&
+    form.name &&
+    Number(form.quantityTotal) > 0 &&
+    form.priceRupees !== '' &&
+    Number(form.priceRupees) >= 0;
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -77,11 +148,43 @@ export default function TicketsTab() {
               {s.ticketTypes && s.ticketTypes.length > 0 ? (
                 <ul className="divide-y divide-border text-sm">
                   {s.ticketTypes.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between py-2">
-                      <span className="font-medium text-text-primary">{t.name}</span>
-                      <span className="text-text-secondary">
-                        {money(t.priceMinor)} · sold {t.inventory?.quantitySold ?? 0}/
-                        {t.quantityTotal}
+                    <li
+                      key={t.id}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium text-text-primary">{t.name}</span>
+                        {t.status !== 'ACTIVE' && <StatusBadge status={t.status} />}
+                      </span>
+                      <span className="flex items-center gap-3">
+                        <span className="text-text-secondary">
+                          {money(t.priceMinor)} · sold {t.inventory?.quantitySold ?? 0} · held{' '}
+                          {t.inventory?.quantityHeld ?? 0} / {t.quantityTotal}
+                        </span>
+                        <span className="flex gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            loading={toggleActive.isPending}
+                            onClick={() => toggleActive.mutate(t)}
+                          >
+                            {t.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={committed(t) > 0}
+                            title={
+                              committed(t) > 0 ? 'Has sales/holds — deactivate instead.' : undefined
+                            }
+                            onClick={() => setDeleting(t)}
+                          >
+                            Delete
+                          </Button>
+                        </span>
                       </span>
                     </li>
                   ))}
@@ -146,6 +249,76 @@ export default function TicketsTab() {
           </Button>
         </div>
       </Card>
+
+      <Dialog open={editing !== null} onClose={() => setEditing(null)} title="Edit ticket type">
+        <div className="space-y-3">
+          <Input
+            id="en"
+            label="Name"
+            value={editForm.name}
+            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+          />
+          <Input
+            id="ep"
+            label="Price (₹)"
+            type="number"
+            value={editForm.priceRupees}
+            disabled={(editing?.inventory?.quantitySold ?? 0) > 0}
+            onChange={(e) => setEditForm({ ...editForm, priceRupees: e.target.value })}
+          />
+          {(editing?.inventory?.quantitySold ?? 0) > 0 && (
+            <p className="text-caption text-text-muted">
+              Price is locked because tickets have sold.
+            </p>
+          )}
+          <Input
+            id="eq"
+            label={`Quantity (min ${editing ? committed(editing) : 0} sold/held)`}
+            type="number"
+            value={editForm.quantityTotal}
+            onChange={(e) => setEditForm({ ...editForm, quantityTotal: e.target.value })}
+          />
+          <Input
+            id="em"
+            label="Max per order"
+            type="number"
+            value={editForm.maxPerOrder}
+            onChange={(e) => setEditForm({ ...editForm, maxPerOrder: e.target.value })}
+          />
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button
+              loading={saveEdit.isPending}
+              disabled={!editValid}
+              onClick={() => saveEdit.mutate()}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete ticket type?"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.9375rem] text-text-secondary">
+            Delete <span className="font-medium">{deleting?.name}</span>? This can’t be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={del.isPending} onClick={() => del.mutate(deleting!)}>
+              Delete
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
