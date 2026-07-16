@@ -71,6 +71,7 @@ function statefulPrisma(
         return Promise.resolve({});
       },
     },
+    offlineReconciliationRecord: { create: () => Promise.resolve({ id: 'rec' }) },
   } as unknown as PrismaService;
 }
 

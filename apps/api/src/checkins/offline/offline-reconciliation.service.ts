@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { CheckInResult, CheckInDeviceStatus, Role, TicketStatus } from '@eticketsgo/shared-types';
 import {
   classifyReconciliation,
+  initialReviewState,
   type QueuedCheckIn,
   type ReconcileOutcome,
   type ServerTicketState,
@@ -103,13 +104,30 @@ export class OfflineReconciliationService {
         }
       }
 
+      // Durable ledger entry for the Reconciliation Console. The outcome is
+      // immutable; only supervisor resolution (audit-only) may annotate it later.
+      const record = await this.prisma.offlineReconciliationRecord.create({
+        data: {
+          organizationId: device.organizationId,
+          eventId: device.eventId,
+          eventSessionId: q.eventSessionId,
+          deviceId,
+          ticketId: q.ticketId,
+          operatorUserId: user.id,
+          localScannedAt: new Date(q.checkedInAt),
+          outcome,
+          wasOverride: q.wasOverride,
+          reviewState: initialReviewState(outcome),
+        },
+      });
+
       await this.audit.record({
         actorUserId: user.id,
         organizationId: device.organizationId,
         action: 'OFFLINE_CHECKIN_RECONCILED',
-        entityType: 'Ticket',
-        entityId: q.ticketId,
-        metadata: { deviceId, outcome, wasOverride: q.wasOverride },
+        entityType: 'OfflineReconciliationRecord',
+        entityId: record.id,
+        metadata: { deviceId, ticketId: q.ticketId, outcome, wasOverride: q.wasOverride },
       });
       results.push({ ticketId: q.ticketId, outcome });
     }

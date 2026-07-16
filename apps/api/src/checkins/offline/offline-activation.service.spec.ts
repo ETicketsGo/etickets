@@ -207,14 +207,12 @@ describe('OfflineActivationService.revoke', () => {
     const update = jest.fn().mockResolvedValue({ id: 'act1', state: 'REVOKED' });
     const { svc, audit } = build({
       offlineActivation: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({
-            id: 'act1',
-            organizationId: 'org1',
-            state: 'ACTIVE',
-            eventSessionId: 's1',
-          }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'act1',
+          organizationId: 'org1',
+          state: 'ACTIVE',
+          eventSessionId: 's1',
+        }),
         update,
       },
     });

@@ -982,6 +982,47 @@ model OfflineActivation {
   @@index([organizationId, eventSessionId, state])
 }
 
+// A durable per-item record of an offline check-in reconciliation (ADR-035). Written
+// by the reconcile engine for every queued item it processes, this is the ledger the
+// Reconciliation Console reads. The outcome is IMMUTABLE — supervisor resolution is an
+// audit-only annotation that never converts an outcome into an admission.
+enum ReconcileReviewState {
+  NOT_REQUIRED
+  PENDING
+  RESOLVED
+}
+
+enum ReconcileResolutionAction {
+  ACKNOWLEDGED
+  DISMISSED
+}
+
+model OfflineReconciliationRecord {
+  id               String                     @id @default(cuid())
+  organizationId   String
+  eventId          String?
+  eventSessionId   String
+  deviceId         String
+  ticketId         String
+  operatorUserId   String?
+  localScannedAt   DateTime
+  reconciledAt     DateTime                   @default(now())
+  outcome          String
+  wasOverride      Boolean                    @default(false)
+  reviewState      ReconcileReviewState       @default(NOT_REQUIRED)
+  resolutionAction ReconcileResolutionAction?
+  resolutionReason String?
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime                   @default(now())
+
+  @@index([organizationId, eventSessionId])
+  @@index([organizationId, reviewState])
+  @@index([organizationId, outcome])
+  @@index([deviceId])
+  @@index([ticketId])
+}
+
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {

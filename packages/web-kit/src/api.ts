@@ -485,6 +485,13 @@ export const api = {
       }),
     listActivations: (organizationId: string) =>
       request<OfflineActivationRow[]>(`/checkin/activation/decisions${qs({ organizationId })}`),
+    reconciliation: (filters: ReconciliationQuery) =>
+      request<Paged<ReconciliationRow>>(`/checkin/reconciliation${qs({ ...filters })}`),
+    resolveReconciliation: (id: string, action: ReconcileResolutionAction, reason: string) =>
+      request<ReconciliationRow>(`/checkin/reconciliation/${id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ action, reason }),
+      }),
   },
 
   refunds: {
@@ -1437,6 +1444,59 @@ export interface RecordActivationInput {
   eventSessionId: string;
   deviceIds: string[];
   reason: string;
+}
+
+export type ReconcileOutcomeName =
+  | 'ACCEPTED'
+  | 'DUPLICATE_SAME_DEVICE'
+  | 'DUPLICATE_OTHER_DEVICE'
+  | 'REVOKED_AFTER_DOWNLOAD'
+  | 'REFUNDED_AFTER_DOWNLOAD'
+  | 'TRANSFERRED_AFTER_DOWNLOAD'
+  | 'WRONG_SESSION'
+  | 'ALREADY_CHECKED_IN_ONLINE'
+  | 'SUPERVISOR_REVIEW_REQUIRED';
+export type ReconcileReviewStateName = 'NOT_REQUIRED' | 'PENDING' | 'RESOLVED';
+export type ReconcileResolutionAction = 'ACKNOWLEDGED' | 'DISMISSED';
+
+interface ReconcileUserRef {
+  id: string;
+  email: string;
+  fullName: string | null;
+}
+export interface ReconciliationRow {
+  id: string;
+  organizationId: string;
+  eventId: string | null;
+  eventSessionId: string;
+  deviceId: string;
+  ticketId: string;
+  operatorUserId: string | null;
+  localScannedAt: string;
+  reconciledAt: string;
+  outcome: ReconcileOutcomeName;
+  wasOverride: boolean;
+  reviewState: ReconcileReviewStateName;
+  resolutionAction: ReconcileResolutionAction | null;
+  resolutionReason: string | null;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  operator: ReconcileUserRef | null;
+  resolvedBy: ReconcileUserRef | null;
+}
+export interface ReconciliationQuery {
+  organizationId: string;
+  eventId?: string;
+  eventSessionId?: string;
+  deviceId?: string;
+  outcome?: string;
+  reviewState?: string;
+  ticketId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface CheckInOutcome {

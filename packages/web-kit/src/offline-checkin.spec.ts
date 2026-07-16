@@ -7,6 +7,13 @@ import {
   hasDeltaGap,
   deriveActivationVerdict,
   mustDowngrade,
+  RECONCILE_META,
+  RECONCILE_OUTCOMES,
+  reconcileAdmitted,
+  reconcileNeedsReview,
+  initialReviewState,
+  allowedReconcileResolutions,
+  canResolveReconcile,
   type DecodedQr,
   type ManifestEntry,
   type ManifestMeta,
@@ -15,6 +22,7 @@ import {
   type ServerTicketState,
   type RevocationDelta,
   type ActivationInputs,
+  type ReconcileOutcome,
 } from '@eticketsgo/shared-types';
 
 const NOW = 1_800_000_000_000;
@@ -294,5 +302,58 @@ describe('activation policy', () => {
         securityConfigInvalid: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe('reconciliation console rules (presentation + safe resolution)', () => {
+  it('marks ONLY ACCEPTED as an admission', () => {
+    const admitted = RECONCILE_OUTCOMES.filter(reconcileAdmitted);
+    expect(admitted).toEqual(['ACCEPTED']);
+  });
+
+  it('needs review only for SUPERVISOR_REVIEW_REQUIRED', () => {
+    const review = RECONCILE_OUTCOMES.filter(reconcileNeedsReview);
+    expect(review).toEqual(['SUPERVISOR_REVIEW_REQUIRED']);
+    expect(initialReviewState('SUPERVISOR_REVIEW_REQUIRED')).toBe('PENDING');
+    expect(initialReviewState('ACCEPTED')).toBe('NOT_REQUIRED');
+    expect(initialReviewState('WRONG_SESSION')).toBe('NOT_REQUIRED');
+  });
+
+  it('every outcome has display metadata with a label + tone', () => {
+    for (const o of RECONCILE_OUTCOMES) {
+      expect(RECONCILE_META[o].label.length).toBeGreaterThan(0);
+      expect(['success', 'info', 'warning', 'danger']).toContain(RECONCILE_META[o].tone);
+    }
+  });
+
+  it('allows audit-only resolutions ONLY for a PENDING review case', () => {
+    expect(allowedReconcileResolutions('SUPERVISOR_REVIEW_REQUIRED', 'PENDING')).toEqual([
+      'ACKNOWLEDGED',
+      'DISMISSED',
+    ]);
+    // Already resolved → nothing.
+    expect(allowedReconcileResolutions('SUPERVISOR_REVIEW_REQUIRED', 'RESOLVED')).toEqual([]);
+    // Informational outcomes are never resolvable, whatever the state.
+    expect(allowedReconcileResolutions('WRONG_SESSION', 'PENDING')).toEqual([]);
+    expect(allowedReconcileResolutions('ACCEPTED', 'NOT_REQUIRED')).toEqual([]);
+  });
+
+  it('never offers a resolution that admits a ticket', () => {
+    for (const o of RECONCILE_OUTCOMES) {
+      for (const state of ['NOT_REQUIRED', 'PENDING', 'RESOLVED'] as const) {
+        const actions = allowedReconcileResolutions(o as ReconcileOutcome, state);
+        // The only actions are audit-only annotations; there is no ACCEPT action.
+        for (const a of actions) expect(['ACKNOWLEDGED', 'DISMISSED']).toContain(a);
+      }
+    }
+  });
+
+  it('canResolveReconcile agrees with the allowed set', () => {
+    expect(canResolveReconcile('SUPERVISOR_REVIEW_REQUIRED', 'PENDING', 'ACKNOWLEDGED')).toBe(true);
+    expect(canResolveReconcile('SUPERVISOR_REVIEW_REQUIRED', 'PENDING', 'DISMISSED')).toBe(true);
+    expect(canResolveReconcile('SUPERVISOR_REVIEW_REQUIRED', 'RESOLVED', 'ACKNOWLEDGED')).toBe(
+      false,
+    );
+    expect(canResolveReconcile('WRONG_SESSION', 'PENDING', 'DISMISSED')).toBe(false);
   });
 });

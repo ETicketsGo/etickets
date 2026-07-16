@@ -159,6 +159,105 @@ export type ReconcileOutcome =
   | 'ALREADY_CHECKED_IN_ONLINE'
   | 'SUPERVISOR_REVIEW_REQUIRED';
 
+// ───────────────── Reconciliation console presentation + rules ─────────────────
+// Pure display metadata + the safe-resolution rules for the operations console.
+// These NEVER convert an outcome into an admission: `admitted` is true only for
+// ACCEPTED, resolution actions are audit-only annotations, and only a PENDING
+// supervisor-review case may be resolved.
+
+export type ReconcileReviewState = 'NOT_REQUIRED' | 'PENDING' | 'RESOLVED';
+export type ReconcileResolutionAction = 'ACKNOWLEDGED' | 'DISMISSED';
+
+export interface ReconcileOutcomeMeta {
+  label: string;
+  /** Non-colour label tone; the UI must also render text + an icon, never colour alone. */
+  tone: 'success' | 'info' | 'warning' | 'danger';
+  /** True ONLY for ACCEPTED — the sole outcome that admitted the ticket. */
+  admitted: boolean;
+  /** True when the outcome needs a supervisor decision (review-required). */
+  needsReview: boolean;
+}
+
+export const RECONCILE_META: Record<ReconcileOutcome, ReconcileOutcomeMeta> = {
+  ACCEPTED: { label: 'Accepted', tone: 'success', admitted: true, needsReview: false },
+  DUPLICATE_SAME_DEVICE: {
+    label: 'Duplicate (same device)',
+    tone: 'info',
+    admitted: false,
+    needsReview: false,
+  },
+  DUPLICATE_OTHER_DEVICE: {
+    label: 'Duplicate (other device)',
+    tone: 'warning',
+    admitted: false,
+    needsReview: false,
+  },
+  REVOKED_AFTER_DOWNLOAD: {
+    label: 'Revoked after download',
+    tone: 'danger',
+    admitted: false,
+    needsReview: false,
+  },
+  REFUNDED_AFTER_DOWNLOAD: {
+    label: 'Refunded after download',
+    tone: 'danger',
+    admitted: false,
+    needsReview: false,
+  },
+  TRANSFERRED_AFTER_DOWNLOAD: {
+    label: 'Transferred after download',
+    tone: 'warning',
+    admitted: false,
+    needsReview: false,
+  },
+  WRONG_SESSION: { label: 'Wrong session', tone: 'warning', admitted: false, needsReview: false },
+  ALREADY_CHECKED_IN_ONLINE: {
+    label: 'Already checked in (online)',
+    tone: 'info',
+    admitted: false,
+    needsReview: false,
+  },
+  SUPERVISOR_REVIEW_REQUIRED: {
+    label: 'Supervisor review required',
+    tone: 'warning',
+    admitted: false,
+    needsReview: true,
+  },
+};
+
+export const RECONCILE_OUTCOMES = Object.keys(RECONCILE_META) as ReconcileOutcome[];
+
+export function reconcileAdmitted(outcome: ReconcileOutcome): boolean {
+  return RECONCILE_META[outcome].admitted;
+}
+export function reconcileNeedsReview(outcome: ReconcileOutcome): boolean {
+  return RECONCILE_META[outcome].needsReview;
+}
+/** The review state a freshly reconciled outcome starts in. */
+export function initialReviewState(outcome: ReconcileOutcome): ReconcileReviewState {
+  return reconcileNeedsReview(outcome) ? 'PENDING' : 'NOT_REQUIRED';
+}
+
+/**
+ * Safe supervisor resolutions for a record — audit-only annotations that NEVER
+ * change the outcome or admit a ticket. Only a still-PENDING review-required case is
+ * resolvable; everything else (informational or already resolved) yields none.
+ */
+export function allowedReconcileResolutions(
+  outcome: ReconcileOutcome,
+  reviewState: ReconcileReviewState,
+): ReconcileResolutionAction[] {
+  if (reviewState !== 'PENDING' || !reconcileNeedsReview(outcome)) return [];
+  return ['ACKNOWLEDGED', 'DISMISSED'];
+}
+export function canResolveReconcile(
+  outcome: ReconcileOutcome,
+  reviewState: ReconcileReviewState,
+  action: ReconcileResolutionAction,
+): boolean {
+  return allowedReconcileResolutions(outcome, reviewState).includes(action);
+}
+
 /** A queued offline check-in submitted for server reconciliation. */
 export interface QueuedCheckIn {
   ticketId: string;

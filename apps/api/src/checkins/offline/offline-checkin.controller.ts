@@ -7,6 +7,11 @@ import { OfflineReconciliationService } from './offline-reconciliation.service';
 import { OfflineCheckinReadinessService } from './offline-readiness.service';
 import { OfflineDrillService, type RecordDrillInput } from './offline-drill.service';
 import { OfflineActivationService, type RecordActivationInput } from './offline-activation.service';
+import {
+  OfflineReconciliationConsoleService,
+  type ReconciliationFilters,
+} from './offline-reconciliation-console.service';
+import type { ReconcileResolutionAction } from '@eticketsgo/shared-types';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
 
@@ -25,6 +30,7 @@ export class OfflineCheckinController {
     private readonly readiness: OfflineCheckinReadinessService,
     private readonly drills: OfflineDrillService,
     private readonly activations: OfflineActivationService,
+    private readonly reconciliationConsole: OfflineReconciliationConsoleService,
   ) {}
 
   private assertEnabled() {
@@ -153,5 +159,30 @@ export class OfflineCheckinController {
   ) {
     this.assertEnabled();
     return this.activations.list(user, organizationId);
+  }
+
+  @Get('reconciliation')
+  @ApiOperation({ summary: 'Reconciliation console: filtered + paginated ledger (staff read).' })
+  reconciliationList(
+    @CurrentUser() user: RequestUser,
+    @Query() query: ReconciliationFilters & { page?: string; pageSize?: string },
+  ) {
+    this.assertEnabled();
+    return this.reconciliationConsole.list(user, {
+      ...query,
+      page: query.page ? Number(query.page) : undefined,
+      pageSize: query.pageSize ? Number(query.pageSize) : undefined,
+    });
+  }
+
+  @Post('reconciliation/:id/resolve')
+  @ApiOperation({ summary: 'Resolve a supervisor-review case (manager/admin, audit-only).' })
+  resolveReconciliation(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { action: ReconcileResolutionAction; reason: string },
+  ) {
+    this.assertEnabled();
+    return this.reconciliationConsole.resolve(user, id, body?.action, body?.reason);
   }
 }

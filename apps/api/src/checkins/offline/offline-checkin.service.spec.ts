@@ -194,6 +194,7 @@ describe('OfflineReconciliationService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       checkIn: { create: jest.fn().mockResolvedValue({}) },
+      offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
     } as unknown as PrismaService;
     const svc = new OfflineReconciliationService(prisma, access, audit);
 
@@ -232,6 +233,7 @@ describe('OfflineReconciliationService', () => {
         updateMany: jest.fn(),
       },
       checkIn: { create: jest.fn() },
+      offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
     } as unknown as PrismaService;
     const svc = new OfflineReconciliationService(prisma, access, audit);
     const res = await svc.reconcile(USER, 'dev1', [
