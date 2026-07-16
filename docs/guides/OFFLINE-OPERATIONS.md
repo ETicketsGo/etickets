@@ -83,12 +83,31 @@ NO-GO to **CONDITIONAL_GO**.
 
 **Not proven here (still NO-GO for activation):**
 
-- **Two-device conflict / device-loss** across two _real_ browsers — the
-  single-browser drill cannot exercise cross-device races. The service-level drills
-  cover the protocol; the browser versions are still required.
+- **Device-loss** across a real browser (a REVOKED device's queue rejected at
+  reconcile). The service-level drill covers the protocol; the browser version is
+  still required.
 - **Deployment-during-event** drill.
 - The **recorded org/event/device admin activation**. `GET /checkin/activation`
   remains the enforced gate and still returns `NO_GO`.
+
+### Two-browser conflict drill + evidence store (Sprint 11, M14)
+
+`apps/e2e/tests/offline-gate-two-browser.spec.ts` drives **two independent
+browsers** — separate devices, separate IndexedDB — that both scan the same ticket
+offline and queue it, then reconnect and sync **concurrently**, racing the atomic
+`ACTIVE→CHECKED_IN` claim. Proven (PASS): **exactly one `ACCEPTED`**, the other
+`DUPLICATE_OTHER_DEVICE` — no double check-in. This exercises both the classify path
+and the atomic-claim path in [offline-reconciliation.service.ts](../../apps/api/src/checkins/offline/offline-reconciliation.service.ts).
+
+Drill results are now **persisted and drive the gate**. On PASS the drill records an
+`OfflineDrillRun` via `POST /checkin/drills` (manager-only, flag-gated). The
+activation gate reads this evidence **fail-closed** — `deriveActivationVerdict`
+treats a drill check as passed only when its latest run is a `PASS` within
+`DRILL_EVIDENCE_TTL_MS` (90 days). A drill never run, last-failed, or stale keeps the
+gate closed. This replaced the previously hardcoded `false` drill inputs; after M14
+the `drill_two_device` check is green while `drill_device_loss` / `drill_reconcile`
+remain fail-closed, so `GET /checkin/activation` is still `NO_GO`. `GET /checkin/drills`
+lists recorded results for a future reconciliation console / command center.
 
 ## Running the drill locally
 
