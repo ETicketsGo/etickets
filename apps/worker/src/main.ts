@@ -6,6 +6,7 @@ import IORedis from 'ioredis';
 import * as Sentry from '@sentry/node';
 import {
   AppModule,
+  AuthService,
   BookingsService,
   EventsService,
   FinanceReconciliationService,
@@ -69,7 +70,9 @@ async function main(): Promise<void> {
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
   const finance = app.get(FinanceReconciliationService);
+  const auth = app.get(AuthService);
   const RECONCILE_EVERY_MS = Number(process.env.RECONCILE_INTERVAL_MS ?? 24 * 3600 * 1000);
+  const TOKEN_PRUNE_EVERY_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? 24 * 3600 * 1000);
 
   // A plain options object avoids a type clash between our ioredis and the one
   // bundled inside bullmq. The IORedis instance is used only for health pings.
@@ -126,9 +129,29 @@ async function main(): Promise<void> {
     },
   );
 
+  // Daily retention sweep — prune dead (expired/old-revoked) refresh tokens so the
+  // PII-bearing table stays bounded. Idempotent: deleting already-gone rows is a no-op.
+  await queue.add(
+    'prune-tokens',
+    {},
+    {
+      repeat: { every: TOKEN_PRUNE_EVERY_MS },
+      jobId: 'prune-tokens',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'prune-tokens') {
+        const pruned = await auth.pruneExpiredRefreshTokens();
+        if (pruned > 0) log('info', 'pruned expired refresh tokens', { pruned });
+        return { pruned };
+      }
       if (job.name === 'reconcile-finance') {
         const summary = await finance.runDailyDetection();
         if (summary.created > 0) log('info', 'filed reconciliation discrepancies', { ...summary });

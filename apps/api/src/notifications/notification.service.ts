@@ -122,8 +122,12 @@ export class NotificationService {
    * SCHEDULED for a later retry).
    */
   async dispatchDue(now: Date = new Date(), maxAttempts = 3): Promise<DispatchSummary> {
+    // Bounded per tick so a large scheduled blast (e.g. a 50k-attendee reminder) can't
+    // pull the whole backlog into memory; the remainder stays SCHEDULED for the next run.
     const due = await this.prisma.notification.findMany({
       where: { status: 'SCHEDULED', scheduledFor: { lte: now } },
+      orderBy: { scheduledFor: 'asc' },
+      take: 500,
     });
 
     const summary: DispatchSummary = { sent: 0, failed: 0, retried: 0 };

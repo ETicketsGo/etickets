@@ -143,6 +143,21 @@ export class AuthService {
       .catch(() => undefined);
   }
 
+  /**
+   * Retention/hygiene sweep: delete refresh tokens that are safely dead — expired
+   * past a grace period, or revoked more than `graceDays` ago. Keeps the PII-bearing
+   * (ip/userAgent) table bounded and drops data past any lawful basis. Idempotent.
+   */
+  async pruneExpiredRefreshTokens(now: Date = new Date(), graceDays = 7): Promise<number> {
+    const cutoff = new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
+    const { count } = await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [{ expiresAt: { lt: cutoff } }, { revokedAt: { lt: cutoff } }],
+      },
+    });
+    return count;
+  }
+
   private async issueTokens(
     userId: string,
     email: string,
