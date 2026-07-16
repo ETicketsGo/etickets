@@ -13,6 +13,14 @@ foundation ([OFFLINE-CHECKIN.md](OFFLINE-CHECKIN.md)) and its launch gate
 > `OFFLINE_CHECKIN_ENABLED` remains **disabled by default** (endpoints 404; activation
 > NO_GO), and wallet providers are **unavailable** unless explicitly configured.
 
+> **Sprint 13 status.** Controlled-pilot readiness shipped: a pilot **runbook**
+> ([PILOT-RUNBOOK.md](PILOT-RUNBOOK.md)) with explicit GO/NO-GO gates, an **evidence
+> package** template ([PILOT-EVIDENCE.md](PILOT-EVIDENCE.md)) over existing audit/ops
+> data, a **readiness review** ([PILOT-READINESS.md](PILOT-READINESS.md)) with two small
+> panel fixes (IndexedDB-unavailable warning; dead-letter export fallback), and an
+> **isolated pilot fixture** (`npm run db:pilot`) driving an end-to-end simulation
+> (`offline-pilot-simulation.spec.ts`) that never competes with the shared seed pool.
+
 > **Running the flag-on drills.** Each offline drill is flag-gated (skipped in the
 > default suite) and self-discovers a seeded ticket, which it then consumes (checks
 > in). They are therefore **isolation-scoped**: run them individually, or reseed
