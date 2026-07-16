@@ -447,8 +447,21 @@ export const api = {
       request<CheckInDeviceRow>('/checkin/devices', { method: 'POST', body: JSON.stringify(body) }),
     approveDevice: (id: string) =>
       request<CheckInDeviceRow>(`/checkin/devices/${id}/approve`, { method: 'POST' }),
-    revokeDevice: (id: string) =>
-      request<CheckInDeviceRow>(`/checkin/devices/${id}/revoke`, { method: 'POST' }),
+    suspendDevice: (id: string, reason?: string) =>
+      request<CheckInDeviceRow>(`/checkin/devices/${id}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    revokeDevice: (id: string, reason?: string) =>
+      request<CheckInDeviceRow>(`/checkin/devices/${id}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reportLostDevice: (id: string, reason: string) =>
+      request<CheckInDeviceRow>(`/checkin/devices/${id}/report-lost`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
     manifest: (eventSessionId: string) =>
       request<SignedManifest>(`/checkin/manifest${qs({ eventSessionId })}`),
     deltas: (eventSessionId: string, sinceMs: number) =>

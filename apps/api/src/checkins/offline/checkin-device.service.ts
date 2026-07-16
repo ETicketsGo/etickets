@@ -86,7 +86,32 @@ export class CheckInDeviceService {
     return updated;
   }
 
-  async revoke(user: RequestUser, id: string) {
+  /** Temporarily suspends an ACTIVE/PENDING device (reversible via approve). */
+  async suspend(user: RequestUser, id: string, reason?: string) {
+    const device = await this.load(user, id, MANAGER_ROLES);
+    if (device.status === CheckInDeviceStatus.REVOKED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'A revoked device cannot be suspended.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const updated = await this.prisma.checkInDevice.update({
+      where: { id },
+      data: { status: CheckInDeviceStatus.SUSPENDED },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: device.organizationId,
+      action: 'CHECKIN_DEVICE_SUSPENDED',
+      entityType: 'CheckInDevice',
+      entityId: id,
+      metadata: reason ? { reason } : undefined,
+    });
+    return updated;
+  }
+
+  async revoke(user: RequestUser, id: string, reason?: string) {
     const device = await this.load(user, id, MANAGER_ROLES);
     const updated = await this.prisma.checkInDevice.update({
       where: { id },
@@ -98,6 +123,25 @@ export class CheckInDeviceService {
       action: 'CHECKIN_DEVICE_REVOKED',
       entityType: 'CheckInDevice',
       entityId: id,
+      metadata: reason ? { reason } : undefined,
+    });
+    return updated;
+  }
+
+  /** Reports a device lost/stolen — revokes it and records a distinct audit action. */
+  async reportLost(user: RequestUser, id: string, reason: string) {
+    const device = await this.load(user, id, MANAGER_ROLES);
+    const updated = await this.prisma.checkInDevice.update({
+      where: { id },
+      data: { status: CheckInDeviceStatus.REVOKED },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: device.organizationId,
+      action: 'CHECKIN_DEVICE_REPORTED_LOST',
+      entityType: 'CheckInDevice',
+      entityId: id,
+      metadata: { reason, lost: true },
     });
     return updated;
   }
@@ -107,6 +151,7 @@ export class CheckInDeviceService {
     return this.prisma.checkInDevice.findMany({
       where: { organizationId, ...(eventId ? { eventId } : {}) },
       orderBy: { createdAt: 'desc' },
+      take: 200, // bounded — a device fleet per org is small; avoids unbounded scans
     });
   }
 

@@ -58,11 +58,37 @@ export class OfflineCheckinController {
     return this.devices.approve(user, id);
   }
 
+  @Post('devices/:id/suspend')
+  @ApiOperation({ summary: 'Suspend a device (reversible via approve).' })
+  suspend(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    this.assertEnabled();
+    return this.devices.suspend(user, id, body?.reason);
+  }
+
   @Post('devices/:id/revoke')
   @ApiOperation({ summary: 'Revoke a device (lost/rotated).' })
-  revoke(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+  revoke(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
     this.assertEnabled();
-    return this.devices.revoke(user, id);
+    return this.devices.revoke(user, id, body?.reason);
+  }
+
+  @Post('devices/:id/report-lost')
+  @ApiOperation({ summary: 'Report a device lost/stolen (revokes + distinct audit).' })
+  reportLost(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+  ) {
+    this.assertEnabled();
+    return this.devices.reportLost(user, id, body?.reason);
   }
 
   @Get('devices')
