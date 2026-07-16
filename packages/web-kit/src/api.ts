@@ -40,6 +40,8 @@ export class ApiRequestError extends Error {
     message: string,
     readonly details?: Record<string, unknown>,
     readonly correlationId?: string,
+    /** HTTP status of the failed response (used e.g. for retry classification). */
+    readonly status?: number,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -112,6 +114,7 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       err?.message ?? 'Request failed.',
       err?.details,
       err?.correlationId,
+      res.status,
     );
   }
   return data as T;

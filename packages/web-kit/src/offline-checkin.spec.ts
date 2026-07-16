@@ -15,6 +15,13 @@ import {
   allowedReconcileResolutions,
   canResolveReconcile,
   deriveCommandCenterAlerts,
+  classifyQueueFailure as qClassify,
+  backoffDelayMs,
+  planRetry,
+  isSyncEligible,
+  QUEUE_MAX_RETRIES,
+  QUEUE_BACKOFF_BASE_MS,
+  QUEUE_BACKOFF_MAX_MS,
   buildPreflightChecks,
   derivePreflightVerdict,
   PREFLIGHT_CLOCK_TOLERANCE_MS,
@@ -517,5 +524,56 @@ describe('offline preflight checklist (device pre-event gate)', () => {
     expect(c.status).toBe('fail');
     expect(c.blocking).toBe(true);
     expect(c.explanation).toMatch(/v3/);
+  });
+});
+
+describe('offline queue retry policy (pure)', () => {
+  it('classifies network + 5xx + 429 as retryable, 4xx as non-retryable', () => {
+    expect(qClassify('network').retryable).toBe(true);
+    expect(qClassify(503).retryable).toBe(true);
+    expect(qClassify(429).retryable).toBe(true);
+    expect(qClassify(403).retryable).toBe(false);
+    expect(qClassify(409).retryable).toBe(false);
+    expect(qClassify(400).retryable).toBe(false);
+    // Every message is operator-safe (non-empty, no stack/secret markers).
+    for (const s of ['network', 500, 429, 403, 409] as const) {
+      expect(qClassify(s).message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('applies bounded exponential backoff', () => {
+    expect(backoffDelayMs(0)).toBe(QUEUE_BACKOFF_BASE_MS);
+    expect(backoffDelayMs(1)).toBe(QUEUE_BACKOFF_BASE_MS * 2);
+    expect(backoffDelayMs(2)).toBe(QUEUE_BACKOFF_BASE_MS * 4);
+    expect(backoffDelayMs(100)).toBe(QUEUE_BACKOFF_MAX_MS); // capped
+  });
+
+  it('schedules the next attempt for a retryable failure', () => {
+    const plan = planRetry(0, qClassify('network'), 1_000);
+    expect(plan.disposition).toBe('RETRYING');
+    expect(plan.retryCount).toBe(1);
+    expect(plan.nextAttemptAt).toBe(1_000 + QUEUE_BACKOFF_BASE_MS);
+    expect(plan.failureCategory).toBe('RETRYABLE_NETWORK');
+  });
+
+  it('dead-letters immediately on a non-retryable failure', () => {
+    const plan = planRetry(0, qClassify(403), 1_000);
+    expect(plan.disposition).toBe('BLOCKED');
+    expect(plan.nextAttemptAt).toBeNull();
+  });
+
+  it('dead-letters after exhausting the retry budget', () => {
+    const plan = planRetry(QUEUE_MAX_RETRIES, qClassify('network'), 1_000);
+    expect(plan.disposition).toBe('BLOCKED');
+    expect(plan.retryCount).toBe(QUEUE_MAX_RETRIES + 1);
+    expect(plan.nextAttemptAt).toBeNull();
+  });
+
+  it('computes sync eligibility (PENDING always, RETRYING after backoff, BLOCKED never)', () => {
+    expect(isSyncEligible({ status: 'PENDING' }, 100)).toBe(true);
+    expect(isSyncEligible({ status: 'RETRYING', nextAttemptAt: 200 }, 100)).toBe(false);
+    expect(isSyncEligible({ status: 'RETRYING', nextAttemptAt: 50 }, 100)).toBe(true);
+    expect(isSyncEligible({ status: 'BLOCKED', nextAttemptAt: null }, 100)).toBe(false);
+    expect(isSyncEligible({ status: 'ACCEPTED' }, 100)).toBe(false);
   });
 });
