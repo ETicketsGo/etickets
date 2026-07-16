@@ -1,20 +1,19 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { ORGANIZER, SEED_PASSWORD, login } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { ORGANIZER, API, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
 
-const API = process.env.API_URL ?? 'http://localhost:4000/api';
 const OWNER = 'owner@eticketsgo.test';
 
-async function apiLogin(request: APIRequestContext): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email: OWNER, password: SEED_PASSWORD },
-  });
-  return (await res.json()).accessToken as string;
-}
 const authed = (t: string) => ({ authorization: `Bearer ${t}` });
 
 /** Drives one browser's offline panel up to a queued (not yet synced) scan. */
-async function queueScan(page: Page, eventId: string, sessionId: string, qr: string) {
-  await login(page, ORGANIZER, OWNER);
+async function queueScan(
+  page: Page,
+  tokens: AuthTokens,
+  eventId: string,
+  sessionId: string,
+  qr: string,
+) {
+  await seedBrowserAuth(page.context(), tokens);
   await page.goto(`${ORGANIZER}/organizer/events/${eventId}/checkin`);
   await expect(page.getByRole('heading', { name: 'Offline mode' })).toBeVisible({
     timeout: 20_000,
@@ -56,7 +55,8 @@ test('offline gate: two devices scan one ticket, exactly one ACCEPTED', async ({
   browser,
   request,
 }) => {
-  const token = await apiLogin(request);
+  const ownerTokens = await apiLogin(request, OWNER);
+  const token = ownerTokens.accessToken;
   const org = (
     await (await request.get(`${API}/organizations`, { headers: authed(token) })).json()
   )[0];
@@ -112,8 +112,8 @@ test('offline gate: two devices scan one ticket, exactly one ACCEPTED', async ({
     const pageB = await ctxB.newPage();
 
     // Both queue the SAME ticket offline before either reconnects.
-    await queueScan(pageA, t.eventId, t.sessionId, t.qr);
-    await queueScan(pageB, t.eventId, t.sessionId, t.qr);
+    await queueScan(pageA, ownerTokens, t.eventId, t.sessionId, t.qr);
+    await queueScan(pageB, ownerTokens, t.eventId, t.sessionId, t.qr);
 
     // Reconnect both at once — race the atomic claim.
     const [outcomeA, outcomeB] = await Promise.all([syncAndOutcome(pageA), syncAndOutcome(pageB)]);

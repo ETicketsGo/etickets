@@ -1,15 +1,8 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, SEED_PASSWORD, login } from './helpers';
+import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
 
-const API = process.env.API_URL ?? 'http://localhost:4000/api';
 const OWNER = 'owner@eticketsgo.test';
 
-async function apiLogin(request: APIRequestContext): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email: OWNER, password: SEED_PASSWORD },
-  });
-  return (await res.json()).accessToken as string;
-}
 const authed = (t: string) => ({ authorization: `Bearer ${t}` });
 
 /** The manifest entry for a ticket, or undefined — used to assert server truth. */
@@ -41,7 +34,8 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
   page,
   request,
 }) => {
-  const token = await apiLogin(request);
+  const ownerTokens = await apiLogin(request, OWNER);
+  const token = ownerTokens.accessToken;
   const org = (
     await (await request.get(`${API}/organizations`, { headers: authed(token) })).json()
   )[0];
@@ -90,7 +84,7 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
   const t = target!;
 
   // Drive the offline panel: approve device, capture its id, queue a scan.
-  await login(page, ORGANIZER, OWNER);
+  await seedBrowserAuth(page.context(), ownerTokens);
   await page.goto(`${ORGANIZER}/organizer/events/${t.eventId}/checkin`);
   await expect(page.getByRole('heading', { name: 'Offline mode' })).toBeVisible({
     timeout: 20_000,

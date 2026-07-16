@@ -1,15 +1,8 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
-import { ORGANIZER, SEED_PASSWORD, login } from './helpers';
+import { test, expect } from '@playwright/test';
+import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
 
-const API = process.env.API_URL ?? 'http://localhost:4000/api';
 const OWNER = 'owner@eticketsgo.test';
 
-async function apiLogin(request: APIRequestContext): Promise<string> {
-  const res = await request.post(`${API}/auth/login`, {
-    data: { email: OWNER, password: SEED_PASSWORD },
-  });
-  return (await res.json()).accessToken as string;
-}
 const authed = (t: string) => ({ authorization: `Bearer ${t}` });
 
 /**
@@ -20,7 +13,8 @@ const authed = (t: string) => ({ authorization: `Bearer ${t}` });
  * NO-GO toward CONDITIONAL_GO.
  */
 test('offline gate drill: validate, queue durably, dedupe, sync', async ({ page, request }) => {
-  const token = await apiLogin(request);
+  const ownerTokens = await apiLogin(request, OWNER);
+  const token = ownerTokens.accessToken;
 
   // Discover the org + a session that has an ACTIVE ticket (flag on required).
   const org = (
@@ -70,7 +64,7 @@ test('offline gate drill: validate, queue durably, dedupe, sync', async ({ page,
   const t = target!;
 
   // Drive the organizer offline panel in the browser.
-  await login(page, ORGANIZER, OWNER);
+  await seedBrowserAuth(page.context(), ownerTokens);
   await page.goto(`${ORGANIZER}/organizer/events/${t.eventId}/checkin`);
   const panel = page.getByRole('heading', { name: 'Offline mode' });
   await expect(panel).toBeVisible({ timeout: 20_000 });
