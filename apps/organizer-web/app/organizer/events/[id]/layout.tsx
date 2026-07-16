@@ -45,6 +45,7 @@ export default function EventLayout({ children }: { children: React.ReactNode })
         ...TABS,
         { label: 'Command center', seg: '/command-center' },
         { label: 'Devices', seg: '/devices' },
+        { label: 'Preflight', seg: '/preflight' },
         { label: 'Reconciliation', seg: '/reconciliation' },
       ]
     : TABS;
