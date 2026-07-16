@@ -19,6 +19,10 @@ import { OfflinePreflightService, type PreflightInput } from './offline-prefligh
 import type { ReconcileResolutionAction } from '@eticketsgo/shared-types';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { OrgAccessService } from '../../tenancy/org-access.service';
+import { Role } from '@eticketsgo/shared-types';
+
+const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
 
 /**
  * Offline gate check-in API (ADR-035). Operational endpoints 404 while the feature
@@ -38,6 +42,7 @@ export class OfflineCheckinController {
     private readonly reconciliationConsole: OfflineReconciliationConsoleService,
     private readonly commandCenter: OfflineCommandCenterService,
     private readonly preflight: OfflinePreflightService,
+    private readonly access: OrgAccessService,
   ) {}
 
   private assertEnabled() {
@@ -148,21 +153,23 @@ export class OfflineCheckinController {
 
   @Get('offline-readiness')
   @ApiOperation({ summary: 'GO / CONDITIONAL_GO / NO_GO for offline gate check-in.' })
-  offlineReadiness(
-    @CurrentUser() _user: RequestUser,
+  async offlineReadiness(
+    @CurrentUser() user: RequestUser,
     @Query('organizationId') organizationId: string,
     @Query('eventSessionId') eventSessionId?: string,
   ) {
+    await this.access.assertMember(user, organizationId, STAFF_ROLES);
     return this.readiness.report(organizationId, eventSessionId);
   }
 
   @Get('activation')
   @ApiOperation({ summary: 'Strict activation launch gate (drills + admin decision required).' })
-  activation(
-    @CurrentUser() _user: RequestUser,
+  async activation(
+    @CurrentUser() user: RequestUser,
     @Query('organizationId') organizationId: string,
     @Query('eventSessionId') eventSessionId?: string,
   ) {
+    await this.access.assertMember(user, organizationId, STAFF_ROLES);
     return this.readiness.activation(organizationId, eventSessionId);
   }
 
