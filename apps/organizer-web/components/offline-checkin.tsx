@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CloudOff, RefreshCw, ShieldCheck } from 'lucide-react';
 import {
   api,
+  ApiRequestError,
   Badge,
   Button,
   Card,
@@ -21,17 +22,22 @@ import {
   type OfflineCheckInResult,
 } from '@eticketsgo/shared-types';
 import {
+  applyFailure,
+  applyOutcomes,
   clearAcknowledged,
   decodeQr,
+  eligibleCheckIns,
   enqueueCheckIn,
+  exportDeadLetter,
   listQueue,
   loadManifest,
   localCheckedIn,
-  pendingCheckIns,
+  manualRetryRecord,
+  markSyncing,
   saveManifest,
-  updateQueueStatus,
   type QueueRecord,
 } from '@/lib/offline/checkin-queue';
+import { queueChannel, runAsSyncLeader } from '@/lib/offline/sync-coordinator';
 
 const OK_RESULTS: OfflineCheckInResult[] = ['VALID'];
 
@@ -82,6 +88,13 @@ export function OfflineCheckin({
   useEffect(() => {
     refreshQueue();
   }, [refreshQueue]);
+
+  // Follower tabs refresh their queue view when the leader tab syncs (multi-tab).
+  useEffect(() => {
+    if (!deviceId) return;
+    const ch = queueChannel(deviceId);
+    return ch.subscribe(() => refreshQueue());
+  }, [deviceId, refreshQueue]);
 
   // Register + approve THIS device (owner/manager approves their own device).
   const setupDevice = async () => {
@@ -169,37 +182,87 @@ export function OfflineCheckin({
     refreshQueue();
   };
 
-  const sync = async () => {
-    if (!deviceId) return;
-    const { records, payload } = await pendingCheckIns();
-    if (payload.length === 0) {
-      toast.push('Nothing to sync.', 'info');
-      return;
-    }
-    try {
-      const results = await api.offlineCheckin.reconcile(deviceId, payload);
-      const byTicket = new Map(results.map((r) => [r.ticketId, r.outcome]));
-      for (const rec of records) {
-        const outcome = byTicket.get(rec.ticketId);
-        const status =
-          outcome === 'ACCEPTED'
-            ? 'ACCEPTED'
-            : outcome?.startsWith('DUPLICATE')
-              ? 'DUPLICATE'
-              : outcome === 'SUPERVISOR_REVIEW_REQUIRED'
-                ? 'REVIEW_REQUIRED'
-                : 'CONFLICT';
-        await updateQueueStatus(rec.localId, status, outcome ?? null);
+  const doSync = useCallback(
+    async (opts: { silent?: boolean } = {}): Promise<void> => {
+      if (!deviceId) return;
+      const now = Date.now();
+      const { records, payload } = await eligibleCheckIns(now);
+      if (payload.length === 0) {
+        if (!opts.silent) toast.push('Nothing to sync.', 'info');
+        return;
       }
-      await clearAcknowledged();
+      const ch = queueChannel(deviceId);
+      // Only the sync LEADER for this device submits — other tabs skip this cycle so
+      // the same queue is never submitted twice concurrently.
+      const outcome = await runAsSyncLeader(deviceId, async () => {
+        await markSyncing(records.map((r) => r.localId));
+        try {
+          const results = await api.offlineCheckin.reconcile(deviceId, payload);
+          await applyOutcomes(records, results);
+          await clearAcknowledged();
+          return { ok: true as const };
+        } catch (e) {
+          // Classify the failure: HTTP status (retryable 5xx/429 vs authoritative 4xx)
+          // or a network error. Records are never dropped — they retry or dead-letter.
+          const status = e instanceof ApiRequestError ? (e.status ?? 'network') : 'network';
+          const failure = await applyFailure(records, status, Date.now());
+          return { ok: false as const, message: failure.message };
+        }
+      });
+
+      if (!outcome.ran) {
+        if (!opts.silent) toast.push('Another tab is handling sync for this device.', 'info');
+        return;
+      }
       await refreshQueue();
-      toast.push('Synced.', 'success');
-    } catch (e) {
-      toast.push(errorMessage(e), 'error');
+      ch.post();
+      if (opts.silent) return;
+      if (outcome.result?.ok) toast.push('Synced.', 'success');
+      else toast.push(outcome.result?.message ?? 'Sync failed — will retry.', 'warning');
+    },
+    [deviceId, refreshQueue, toast],
+  );
+
+  const sync = () => doSync();
+
+  // Automatic, backoff-respecting retry ONLY for records already in a RETRYING backoff
+  // whose next-attempt time has elapsed. Fresh scans are never auto-submitted here (the
+  // operator syncs those) — this timer just drains transient failures once they are due.
+  useEffect(() => {
+    if (!deviceId || !online) return;
+    const timer = setInterval(async () => {
+      const now = Date.now();
+      const q = await listQueue();
+      const dueRetry = q.some(
+        (r) => r.status === 'RETRYING' && r.nextAttemptAt != null && r.nextAttemptAt <= now,
+      );
+      if (dueRetry) void doSync({ silent: true });
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [deviceId, online, doSync]);
+
+  const retryBlocked = async () => {
+    const blocked = queue.filter((r) => r.status === 'BLOCKED');
+    for (const r of blocked) await manualRetryRecord(r.localId);
+    await refreshQueue();
+    if (blocked.length) toast.push(`${blocked.length} record(s) re-queued for retry.`, 'success');
+  };
+
+  const copyDeadLetter = async () => {
+    try {
+      const json = await exportDeadLetter();
+      await navigator.clipboard?.writeText(json);
+      toast.push('Dead-letter diagnostic copied to clipboard.', 'success');
+    } catch {
+      toast.push('Could not copy the diagnostic.', 'error');
     }
   };
 
-  const pending = queue.filter((r) => r.status === 'PENDING' || r.status === 'SYNCING').length;
+  const pending = queue.filter(
+    (r) => r.status === 'PENDING' || r.status === 'SYNCING' || r.status === 'RETRYING',
+  ).length;
+  const retrying = queue.filter((r) => r.status === 'RETRYING').length;
+  const blocked = queue.filter((r) => r.status === 'BLOCKED').length;
   const conflicts = queue.filter(
     (r) => r.status === 'CONFLICT' || r.status === 'REVIEW_REQUIRED',
   ).length;
@@ -281,12 +344,33 @@ export function OfflineCheckin({
         {/* Queue health + sync */}
         <div className="flex items-center justify-between border-t border-border pt-3">
           <span className="text-caption text-text-secondary" data-testid="queue-count">
-            {pending} queued · {conflicts} conflicts
+            {pending} queued · {retrying} retrying · {blocked} blocked · {conflicts} conflicts
           </span>
           <Button size="sm" variant="outline" onClick={sync} disabled={!online || pending === 0}>
             <RefreshCw className="h-3.5 w-3.5" /> Sync now
           </Button>
         </div>
+
+        {blocked > 0 && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-caption text-status-error"
+            data-testid="deadletter-banner"
+          >
+            <span>
+              {blocked} scan(s) could not sync and are held (not lost, not admitted). Retry when the
+              cause is fixed, or copy the diagnostic.
+            </span>
+            <span className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={retryBlocked} disabled={!online}>
+                Retry blocked
+              </Button>
+              <Button size="sm" variant="ghost" onClick={copyDeadLetter}>
+                Copy diagnostic
+              </Button>
+            </span>
+          </div>
+        )}
 
         {queue.length > 0 && (
           <ul className="space-y-1.5" aria-label="Offline check-in queue">
@@ -295,7 +379,15 @@ export function OfflineCheckin({
                 key={r.localId}
                 className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-caption"
               >
-                <span className="font-mono text-text-muted">{r.ticketId.slice(0, 12)}…</span>
+                <span className="min-w-0">
+                  <span className="font-mono text-text-muted">{r.ticketId.slice(0, 12)}…</span>
+                  {r.failureMessage && (r.status === 'RETRYING' || r.status === 'BLOCKED') && (
+                    <span className="block text-text-muted">
+                      {r.failureMessage}
+                      {r.status === 'RETRYING' && r.retryCount > 0 && ` (attempt ${r.retryCount})`}
+                    </span>
+                  )}
+                </span>
                 <StatusBadge status={r.status} />
               </li>
             ))}

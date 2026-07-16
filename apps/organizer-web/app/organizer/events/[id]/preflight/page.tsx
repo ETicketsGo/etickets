@@ -27,7 +27,7 @@ import {
   type PreflightStatus,
   type PreflightVerdict,
 } from '@eticketsgo/web-kit';
-import { listQueue, loadManifest } from '@/lib/offline/checkin-queue';
+import { loadManifest, queueMetrics } from '@/lib/offline/checkin-queue';
 
 const VERDICT: Record<
   PreflightVerdict,
@@ -75,10 +75,7 @@ export default function PreflightPage() {
     mutationFn: async () => {
       // The device runs its own preflight: report local clock, held manifest + queue.
       const cached = await loadManifest(activeSession).catch(() => null);
-      const queue = await listQueue().catch(() => []);
-      const queueDepth = queue.filter(
-        (q) => q.status === 'PENDING' || q.status === 'SYNCING',
-      ).length;
+      const m = await queueMetrics().catch(() => null);
       const clientManifestVersion = cached
         ? (cached.meta as { version?: number }).version
         : undefined;
@@ -88,7 +85,10 @@ export default function PreflightPage() {
         deviceId,
         clientTimeMs: Date.now(),
         clientManifestVersion,
-        queueDepth,
+        // pending + retrying counts as queue depth; blocked (dead-letter) surfaces as
+        // an unresolved sync failure so preflight warns before going offline.
+        queueDepth: m ? m.pending + m.retrying : undefined,
+        syncFailureCount: m ? m.blocked : undefined,
       });
     },
   });
