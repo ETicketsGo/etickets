@@ -22,7 +22,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
-    "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts"
+    "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts",
+    "db:pilot": "ts-node --transpile-only prisma/pilot-fixture.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
