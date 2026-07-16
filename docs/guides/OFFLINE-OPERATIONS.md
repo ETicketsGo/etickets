@@ -177,11 +177,65 @@ npx playwright test offline-gate-drill --reporter=list
 With the flag **off** (production/CI default) the same command reports the drill as
 skipped, and the full suite stays green (`9 passed, 1 skipped`).
 
+## Reconciliation Console (Sprint 12, Priority 1)
+
+The offline operations console for a controlled live pilot. It reads a **durable
+reconciliation ledger** and lets a supervisor safely resolve review cases — the
+server always wins and the console can **never** convert an invalid admission into
+ACCEPTED.
+
+### Durable ledger
+
+The reconcile engine now writes an `OfflineReconciliationRecord` for **every** queued
+item it processes (additive; the reconciliation logic, atomic claim, and outcomes are
+unchanged). Each record carries the org/event/session, device, operator, **local scan
+time** (`localScannedAt`) and **server reconcile time** (`reconciledAt`), the outcome,
+`wasOverride`, and a `reviewState` (`NOT_REQUIRED` / `PENDING` / `RESOLVED`). The
+outcome is **immutable**; only supervisor resolution may annotate it. Each reconcile
+is audited (`OFFLINE_CHECKIN_RECONCILED`, entity `OfflineReconciliationRecord`).
+
+### API (flag-gated, 404 when off)
+
+- `GET /checkin/reconciliation` — staff read; filters by event, session, **device,
+  outcome, review status, ticket reference, and time range**; `reconciledAt desc`;
+  pagination with a **hard `pageSize` cap of 100** (default 25). Operator/resolver
+  emails resolved in one batched query.
+- `POST /checkin/reconciliation/:id/resolve` — **manager/admin-only**, requires an
+  `action` + a **reason**, fully audited (`OFFLINE_RECONCILIATION_RESOLVED`).
+
+### Console UI
+
+`organizer-web` route `…/events/[id]/reconciliation` (a tab shown **only** when the
+offline flag is on). Filters, a paginated table, and a resolve dialog. Every outcome
+is shown as **icon + text + badge** (never colour alone). Loading / empty / error
+states come from `DataTable`; a "last updated" line + Refresh surface stale data.
+
+### Manual-resolution safeguards (defence in depth)
+
+- **Pure rule** `allowedReconcileResolutions(outcome, reviewState)` returns actions
+  **only** for a still-`PENDING` supervisor-review case, and only the audit-only
+  `ACKNOWLEDGED` / `DISMISSED` — there is **no ACCEPT/admit action anywhere**.
+- The API re-checks the same rule (`canResolveReconcile`); a non-review or
+  already-resolved record → **409**; a missing reason → **400**.
+- Resolution updates only `reviewState`/annotation fields — the **outcome is never
+  changed** and no check-in is ever created here.
+- Manager/admin authorization + an audit record on every manual action.
+
+### Verification
+
+Unit tests cover the presentation + resolution rules (only ACCEPTED is an admission;
+only a pending review case is resolvable) and the service (invalid transitions,
+pagination caps). The drill `apps/e2e/tests/offline-reconciliation-console.spec.ts`
+seeds a record of every category through the real reconcile engine, drives the
+console UI (filter + resolve), and asserts the safeguards: a **customer cannot view
+(403) or resolve (403)**, a **non-review record cannot be resolved (409)**, and the
+resolution is **audited**. Skips when the flag is off.
+
 ## What is deliberately NOT in this sprint
 
-Documented as follow-ups, not faked as complete: the **reconciliation console** +
-supervisor override UI, the **Live Event Command Center** + event-day alerting, the
-full **device-management lifecycle** UI, offline **preflight** checklist, queue
-**backoff/dead-letter + multi-tab lock**, and the **wallet-pass sandbox**. None of
-the existing Booking Engine, Inventory, Payment, QR signing, ownership/assignment/
-sharing, customer offline wallet, or online check-in flows were changed.
+Documented as follow-ups, not faked as complete: the **Live Event Command Center** +
+event-day alerting, the full **device-management lifecycle** UI, offline **preflight**
+checklist, queue **backoff/dead-letter + multi-tab lock**, and the **wallet-pass
+sandbox**. None of the existing Booking Engine, Inventory, Payment, QR signing,
+ownership/assignment/sharing, customer offline wallet, or online check-in flows were
+changed.
