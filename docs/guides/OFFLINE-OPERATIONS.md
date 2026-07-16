@@ -377,9 +377,56 @@ customer 403) and drives the UI through **READY → WARNING → NOT_READY**, con
 blocking failure surfaces its guidance and that revoking an in-scope device downgrades
 activation (rules enforced, not bypassed). Skips when the flag is off.
 
+## Offline Queue Resilience (Sprint 12)
+
+Production-grade resilience for the durable IndexedDB queue, preserving every existing
+guarantee: **records are never deleted before a server acknowledgement**, sync stays
+**ordered** and **per-record idempotent** (`deviceId:ticketId:nonce`), the **local
+duplicate ledger** and **reload durability** are unchanged, and the **server remains
+authoritative** — no client action can make a rejected scan `ACCEPTED`.
+
+### Retry, backoff, dead-letter
+
+The pure policy lives in `@eticketsgo/shared-types/offline-queue.ts` (unit-tested):
+
+- **Failure classification** — a sync transport failure is either retryable
+  (network / HTTP 5xx / 429) or a **non-retryable** authoritative rejection (HTTP 4xx,
+  e.g. a revoked-device 403). `ApiRequestError` now carries the HTTP `status` so the
+  queue can classify precisely.
+- **Bounded exponential backoff** — `backoffDelayMs` = 5s · 2ⁿ capped at 5 min; up to
+  `QUEUE_MAX_RETRIES` (6) attempts, then the record **dead-letters** (`BLOCKED`).
+- **Per-record retry metadata** — `retryCount`, `lastAttemptAt`, `nextAttemptAt`,
+  `failureCategory`, and a **safe operator-facing `failureMessage`** are persisted on
+  each record. `isSyncEligible` re-attempts a `RETRYING` record only after its backoff
+  elapses; a background timer drains due retries automatically while online.
+- **Dead-letter (`BLOCKED`)** — a record that cannot safely continue retrying is held,
+  never dropped and never admitted. Operators see it, can **manually retry** eligible
+  records (re-submits for the server to decide — never a local ACCEPT), and can **copy
+  a safe JSON diagnostic** (ids + failure only, no secrets).
+- **Operator visibility** — the panel shows `N queued · N retrying · N blocked · N
+conflicts`, with a dead-letter banner (Retry / Copy diagnostic). Queue health also
+  feeds **Preflight** (pending+retrying → queue depth; blocked → unresolved sync
+  failures) so a device with a growing/blocked queue warns before going offline.
+
+### Multi-tab coordination
+
+Only **one tab acts as the sync leader** per device, so concurrent tabs never submit
+the same queue independently (`sync-coordinator.ts`, progressive enhancement):
+
+1. **Web Locks API** (`navigator.locks`, `ifAvailable`) — the browser auto-releases the
+   lock on tab close/crash/refresh, giving free **leader takeover**.
+2. **localStorage lease** fallback with stale-lease takeover when Web Locks are absent.
+3. If neither exists, sync runs directly — the server's idempotency key remains the
+   ultimate guard against a double check-in.
+
+A `BroadcastChannel` notifies follower tabs to refresh their queue view after a leader
+sync. Verified by `apps/e2e/tests/offline-queue-resilience.spec.ts`: retryable failure
+→ auto-recovery; non-retryable → dead-letter → manual retry; reload durability; a scan
+never disappears without an ack; and two tabs sharing one device submit the queue
+**exactly once**.
+
 ## What is deliberately NOT in this sprint
 
-Documented as follow-ups, not faked as complete: queue **backoff/dead-letter +
-multi-tab lock**, and the **wallet-pass sandbox**. None of the existing Booking
-Engine, Inventory, Payment, QR signing, ownership/assignment/sharing, customer offline
-wallet, or online check-in flows were changed.
+Documented as a follow-up, not faked as complete: the **wallet-pass sandbox**. None of
+the existing Booking Engine, Inventory, Payment, QR signing, ownership/assignment/
+sharing, customer offline wallet, or online check-in flows were changed.

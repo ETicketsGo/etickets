@@ -123,8 +123,9 @@ test('offline gate: a revoked device cannot check anyone in (fail-closed)', asyn
   ]);
   expect(reconcileResp.status(), 'revoked device reconcile is forbidden').toBe(403);
 
-  // The scan was neither accepted nor silently dropped — it stays queued.
-  await expect(page.getByTestId('queue-count')).toContainText('1 queued');
+  // The scan was neither accepted nor silently dropped — a 403 is a non-retryable
+  // failure so it is held as a dead-letter (BLOCKED), not lost, not admitted.
+  await expect(page.getByTestId('queue-count')).toContainText('1 blocked');
 
   // Server truth: the ticket was never admitted — still ACTIVE + eligible.
   const entry = await manifestEntry(request, token, t.sessionId, t.ticketId);
