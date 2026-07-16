@@ -3,10 +3,11 @@
 This document tracks the **launch gate** for offline gate check-in: the strict
 activation policy, revocation-delta transport, the deterministic **drill harness**
 proving the conflict/loss/reconciliation protocol, the **single-browser drill**
-proving the scan UI + durable queue round-trip (M13), and the **two-browser conflict
+proving the scan UI + durable queue round-trip (M13), the **two-browser conflict
 drill** proving exactly-one-ACCEPTED with a persisted evidence store that now drives
-the gate (M14). Offline gate activation remains **NO-GO** — by policy — until the
-device-loss browser drill and a recorded admin decision also exist. Activation is
+the gate (M14), and the **device-loss drill** proving a revoked device is fail-closed
+(M15). Offline gate activation remains **NO-GO** — by policy — until the
+reconciliation browser drill and a recorded admin decision also exist. Activation is
 always org/event/device-scoped; there is no global enable.
 
 ## Drill harness (M11) — results
@@ -79,11 +80,31 @@ gate closed. `POST /checkin/drills` records a result (manager-only, flag-gated);
 `GET /checkin/drills` lists them. This replaces the previously hardcoded `false`
 drill inputs — evidence, not assumption, drives the gate.
 
-**Still required before GO:** the **device-loss** and **deployment-during-event**
-browser drills (their `drill_device_loss` / `drill_reconcile` checks are still
-fail-closed), and the **recorded admin activation** (the controlled activation
-workflow — priority 7, not yet built). Until all exist, `GET /checkin/activation`
-stays NO_GO.
+**Still required before GO:** the **device-loss** (M15 below) and reconciliation
+browser drills, and the **recorded admin activation** (the controlled activation
+workflow — priority 7, not yet built).
+
+## Device-loss browser drill (M15) — result
+
+Run through the **real organizer scan UI** (`apps/e2e/tests/offline-gate-device-loss.spec.ts`)
+against a flag-on API. A device queues an offline scan, is then **REVOKED** (lost /
+reported stolen) while the scan is still queued, and reconnects. Skips when the flag
+is off.
+
+| Assertion                                                                          | Result  |
+| ---------------------------------------------------------------------------------- | ------- |
+| Scan validates + queues while the device is still ACTIVE                           | ✅ PASS |
+| After revoke, reconnect sync is rejected — reconcile returns **403** (fail-closed) | ✅ PASS |
+| The queued scan is **not** silently dropped (stays queued for a valid device)      | ✅ PASS |
+| Server truth: the ticket was never admitted — still `ACTIVE` + eligible            | ✅ PASS |
+| On PASS the drill records evidence; `drill_device_loss` check → green              | ✅ PASS |
+
+This certifies that **a lost device can never admit anyone offline**: the server
+rejects a revoked device's entire queue at reconcile ([offline-reconciliation.service.ts](../../apps/api/src/checkins/offline/offline-reconciliation.service.ts))
+and nothing is accepted. It is the second activation-gate drill to earn recorded
+evidence. After M15, `drill_two_device` and `drill_device_loss` are green; the
+gate stays **NO_GO** — `drill_reconcile` is still fail-closed and admin activation
+is unrecorded.
 
 ## Revocation deltas (M5)
 
@@ -105,23 +126,24 @@ check failing → **NO_GO**; only non-blocking gaps → **CONDITIONAL_GO**.
 expiry, stale delta, queue corruption, or audit/reconciliation/security-config
 failure.
 
-`GET /checkin/activation` reports the current verdict. As of M14 the two-device
-drill's evidence is recorded (its check is green), but the device-loss/reconciliation
-browser drills and the admin activation are not — so it still returns **NO_GO**, an
-honest state, not a false GO. Drill inputs are now read from the persisted evidence
+`GET /checkin/activation` reports the current verdict. As of M15 the two-device and
+device-loss drills' evidence is recorded (both checks green), but the reconciliation
+browser drill and the admin activation are not — so it still returns **NO_GO**, an
+honest state, not a false GO. Drill inputs are read from the persisted evidence
 store (fail-closed), not hardcoded.
 
 ## Launch report — GO / NO-GO
 
-| Item                                                                                         | Status                                                                     |
-| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Offline check-in **protocol** (validator, reconciliation, manifest, deltas, activation gate) | ✅ shipped + tested                                                        |
-| Service-level drills (conflict / loss / reconciliation / flapping)                           | ✅ PASS                                                                    |
-| Storage eviction (customer)                                                                  | ✅ shipped (Sprint 8)                                                      |
-| Organizer offline **scan UI + durable queue** (single-browser round-trip)                    | ✅ shipped + browser drill PASS → **CONDITIONAL_GO**                       |
-| **Two-browser conflict** drill (exactly one ACCEPTED) + recorded evidence                    | ✅ PASS (M14) — `drill_two_device` green                                   |
-| Offline gate **activation**                                                                  | ⛔ **NO-GO** — needs device-loss/reconcile browser drills + admin decision |
-| Native wallet passes                                                                         | ⛔ **NO-GO** — needs real Apple/Google issuer credentials                  |
+| Item                                                                                         | Status                                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Offline check-in **protocol** (validator, reconciliation, manifest, deltas, activation gate) | ✅ shipped + tested                                                |
+| Service-level drills (conflict / loss / reconciliation / flapping)                           | ✅ PASS                                                            |
+| Storage eviction (customer)                                                                  | ✅ shipped (Sprint 8)                                              |
+| Organizer offline **scan UI + durable queue** (single-browser round-trip)                    | ✅ shipped + browser drill PASS → **CONDITIONAL_GO**               |
+| **Two-browser conflict** drill (exactly one ACCEPTED) + recorded evidence                    | ✅ PASS (M14) — `drill_two_device` green                           |
+| **Device-loss** drill (revoked device fail-closed) + recorded evidence                       | ✅ PASS (M15) — `drill_device_loss` green                          |
+| Offline gate **activation**                                                                  | ⛔ **NO-GO** — needs reconciliation browser drill + admin decision |
+| Native wallet passes                                                                         | ⛔ **NO-GO** — needs real Apple/Google issuer credentials          |
 
 ## Remaining engineering (documented; not shipped this sprint)
 
@@ -146,19 +168,19 @@ this sprint (see [OFFLINE-OPERATIONS.md](OFFLINE-OPERATIONS.md)); the rest remai
 7. **Wallet-pass sandbox** (`WalletPassProvider` + Apple/Google adapters, fail-
    closed, test-mode only).
 8. Execute + record the remaining browser drills, then flip activation per policy.
-   _(Two-browser conflict is PASS + recorded — M14 above; **device-loss** and
-   **deployment-during-event** still remain.)_
+   _(Two-browser conflict — M14 — and device-loss — M15 — are PASS + recorded; the
+   **reconciliation** browser drill still remains.)_
 9. **Controlled activation workflow** — the recorded org/event/device admin decision
    (`adminActivationRecorded`), still the last blocking gate before GO.
 
 ## Recommendation
 
-The protocol, its gate, the **scan UI + durable queue**, and the **two-browser
-conflict drill** (with a persisted, fail-closed evidence store now driving the
-activation gate) are all proven. The remaining steps before a real-event GO are
-narrow and operational, not architectural: (a) the **device-loss** and
-**deployment-during-event** browser drills, (b) the reconciliation console + command
-center for gate visibility, and (c) the **controlled activation workflow** (the
-recorded admin decision). Do not enable offline gate mode at a real event until
-(a) and (c) are complete; `GET /checkin/activation` remains the enforced source of
-truth and still returns NO_GO.
+The protocol, its gate, the **scan UI + durable queue**, the **two-browser conflict
+drill**, and the **device-loss drill** (with a persisted, fail-closed evidence store
+now driving the activation gate) are all proven. The remaining steps before a
+real-event GO are narrow and operational, not architectural: (a) the **reconciliation**
+browser drill, (b) the reconciliation console + command center for gate visibility,
+and (c) the **controlled activation workflow** (the recorded admin decision). Do not
+enable offline gate mode at a real event until (a) and (c) are complete;
+`GET /checkin/activation` remains the enforced source of truth and still returns
+NO_GO.

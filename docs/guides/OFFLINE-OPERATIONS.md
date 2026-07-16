@@ -83,9 +83,9 @@ NO-GO to **CONDITIONAL_GO**.
 
 **Not proven here (still NO-GO for activation):**
 
-- **Device-loss** across a real browser (a REVOKED device's queue rejected at
-  reconcile). The service-level drill covers the protocol; the browser version is
-  still required.
+- **Reconciliation** across a real browser (refund/transfer/wrong-session surfaced,
+  never accepted). The service-level drill covers the protocol; the browser version
+  is still required.
 - **Deployment-during-event** drill.
 - The **recorded org/event/device admin activation**. `GET /checkin/activation`
   remains the enforced gate and still returns `NO_GO`.
@@ -108,6 +108,17 @@ gate closed. This replaced the previously hardcoded `false` drill inputs; after 
 the `drill_two_device` check is green while `drill_device_loss` / `drill_reconcile`
 remain fail-closed, so `GET /checkin/activation` is still `NO_GO`. `GET /checkin/drills`
 lists recorded results for a future reconciliation console / command center.
+
+### Device-loss drill (Sprint 11, M15)
+
+`apps/e2e/tests/offline-gate-device-loss.spec.ts` drives the real panel: a device
+queues an offline scan, is **REVOKED** while the scan is still queued, then
+reconnects. Proven (PASS): the reconcile call returns **403** (a revoked device's
+whole queue is rejected — fail-closed), the queued scan is **not** silently dropped,
+and server truth confirms the ticket was **never admitted** (`ACTIVE` + eligible).
+On PASS it records `DEVICE_LOSS` evidence, flipping `drill_device_loss` green. After
+M15 two of the three activation-gate drills are evidence-backed; `drill_reconcile`
+is still fail-closed and admin activation is unrecorded, so the gate remains `NO_GO`.
 
 ## Running the drill locally
 
