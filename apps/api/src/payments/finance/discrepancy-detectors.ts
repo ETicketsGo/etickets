@@ -9,6 +9,8 @@
  * so skip to avoid false positives). Internal-only detectors (duplicate capture,
  * over-refund) always run.
  */
+import { toCsv } from '../../common/csv';
+
 export type DiscrepancyType =
   | 'PAYMENT_MISSING_INTERNALLY'
   | 'PAYMENT_MISSING_AT_PROVIDER'
@@ -172,12 +174,11 @@ export function discrepanciesToCsv(
     'assignedTo',
     'resolutionNotes',
   ];
-  const esc = (v: unknown): string => {
-    const s = v === null || v === undefined ? '' : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = rows.map((r) =>
-    [
+  // Use the shared, formula-injection-safe serializer (the previous inline escaper
+  // quoted only when needed and had no injection guard).
+  return toCsv(
+    header,
+    rows.map((r) => [
       r.id,
       new Date(r.createdAt).toISOString(),
       r.env,
@@ -189,11 +190,8 @@ export function discrepanciesToCsv(
       r.status,
       r.assignedToUserId ?? '',
       r.resolutionNotes ?? '',
-    ]
-      .map(esc)
-      .join(','),
+    ]),
   );
-  return [header.join(','), ...lines].join('\n');
 }
 
 /** Aging buckets (days) for a set of open discrepancy timestamps. */
