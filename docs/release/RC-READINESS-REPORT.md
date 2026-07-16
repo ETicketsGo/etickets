@@ -101,6 +101,16 @@ fail-closed by default, with no Critical/High open issues. Recommended launch sh
 
 ## 7. Final commit
 
-Final RC1 commit hash on `main`: **recorded at push time** (see repository `main` HEAD /
-the RC1 tag). This report and all RC documentation are committed alongside the RC hardening
-fixes.
+RC1 base (Phase 1 complete): `bc062d4`. RC1 hardening + documentation commits on `main`:
+
+| Commit | Change |
+| --- | --- |
+| `9e24cd0` | fail-closed prod config guard + Swagger prod-gate |
+| `9831ebe` | org membership on offline readiness/activation reads |
+| `3bceaf3` | redis fail-open timeout + payment error classification + log hygiene |
+| `a94c9c1` | audit auth events + maintenance toggle |
+| `f77bd9f` | web security headers + health routes |
+| `98b04ac` | env docs, Node pin, license |
+| `d92ef72` | RC1 release documentation set |
+
+The RC1 line is `bc062d4 → d92ef72` on `main`, finalized by the commit recording this table.
