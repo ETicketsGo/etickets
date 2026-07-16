@@ -231,11 +231,68 @@ console UI (filter + resolve), and asserts the safeguards: a **customer cannot v
 (403) or resolve (403)**, a **non-review record cannot be resolved (409)**, and the
 resolution is **audited**. Skips when the flag is off.
 
+## Live Event Command Center (Sprint 12, Priority 2)
+
+Read-only event-day operational visibility for a controlled pilot, composed entirely
+from **existing** activation / readiness / device / reconciliation / attendance /
+audit data — no duplicated operational store, and **no action admits a ticket or
+changes the gate**. The server stays authoritative.
+
+### API (flag-gated, 404 when off)
+
+- `GET /checkin/command-center?organizationId&eventSessionId` — **staff read**; a
+  single bounded, parallel aggregation (no N+1, capped device list, groupBy for
+  reconciliation, bounded latency sample) returning: the **activation verdict +
+  blocking/downgrade reasons**; device counts (pending/active/suspended/revoked/
+  expired/online/offline) with last-seen + manifest version; attendance (total,
+  admitted, remaining, admission rate); reconciliation counts (accepted, duplicates,
+  rejected, review, **pending reviews**); sync latency + oldest-unseen device; and
+  the derived alerts. Devices are scoped to the session's event; records to the
+  session.
+- `GET /checkin/command-center/activity` — bounded, **paginated** recent offline
+  audit activity (hard `pageSize` cap 100).
+- `POST /checkin/command-center/alerts/ack` — **manager/admin-only**, requires a
+  reason, audited (`OFFLINE_ALERT_ACKNOWLEDGED`); idempotent per (session, alertKey).
+
+### Alerts (deterministic, deduped, throttled)
+
+`deriveCommandCenterAlerts` (pure, unit-tested) turns the snapshot signals into
+severity-ranked alerts, each with a **stable key `TYPE:sessionId`** — so re-evaluating
+on every poll yields the **same keys and never duplicates**. Rules: `ACTIVATION_DOWNGRADE`
+(critical — a live decision no longer GO / mustDowngrade), `REVOKED_DEVICE_ACTIVITY`
+(critical), `NO_ACTIVE_DEVICES` (critical when a decision exists), `STALE_MANIFEST`,
+`HIGH_DUPLICATE_RATE` (≥25% over a ≥10 sample), `PENDING_SUPERVISOR_REVIEWS`,
+`SYNC_FAILURE`, and `QUEUE_GROWTH` (an active device unseen > 5 min). Only
+**acknowledgements** are persisted (`OfflineAlertAck`, unique per session+key);
+**acknowledging never suppresses the condition** (it keeps deriving) or changes the
+gate — the alert stays visible, marked acknowledged.
+
+### Console UI
+
+`organizer-web` route `…/events/[id]/command-center` (a tab shown only when the flag
+is on). A session selector, an alerts panel (severity as **icon + text + badge**,
+never colour alone; Acknowledge for managers), the activation verdict + reasons,
+attendance/reconciliation/device metric cards, a device list with last-seen + manifest
+version, and a **paginated** recent-activity table. **Production-safe polling** (15 s
+`refetchInterval`) with a "last updated" line + manual Refresh; loading / empty /
+error / permission states are all handled.
+
+### Verification
+
+Unit tests cover the alert derivation (each condition, thresholds, severity ranking,
+idempotent keys) and the service (ack requires a reason + manager, activity pagination
+caps). The drill `apps/e2e/tests/offline-command-center.spec.ts` seeds real
+reconciliation + device data, produces one critical condition, and asserts: the
+console loads for the scope, metrics reflect real data, **exactly one alert** is
+created, **repeated polling does not duplicate it**, a customer **cannot view (403) or
+acknowledge (403)**, a reason is **required (400)**, the alert is **scope-isolated**,
+acknowledgement is **audited**, and the **underlying condition remains visible** after
+ack. Skips when the flag is off.
+
 ## What is deliberately NOT in this sprint
 
-Documented as follow-ups, not faked as complete: the **Live Event Command Center** +
-event-day alerting, the full **device-management lifecycle** UI, offline **preflight**
-checklist, queue **backoff/dead-letter + multi-tab lock**, and the **wallet-pass
-sandbox**. None of the existing Booking Engine, Inventory, Payment, QR signing,
-ownership/assignment/sharing, customer offline wallet, or online check-in flows were
-changed.
+Documented as follow-ups, not faked as complete: the full **device-management
+lifecycle** UI, offline **preflight** checklist, queue **backoff/dead-letter +
+multi-tab lock**, and the **wallet-pass sandbox**. None of the existing Booking
+Engine, Inventory, Payment, QR signing, ownership/assignment/sharing, customer offline
+wallet, or online check-in flows were changed.
