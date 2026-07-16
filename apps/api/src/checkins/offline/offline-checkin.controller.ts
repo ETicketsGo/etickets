@@ -5,6 +5,7 @@ import { OfflineManifestService } from './offline-manifest.service';
 import { CheckInDeviceService, type RegisterDeviceInput } from './checkin-device.service';
 import { OfflineReconciliationService } from './offline-reconciliation.service';
 import { OfflineCheckinReadinessService } from './offline-readiness.service';
+import { OfflineDrillService, type RecordDrillInput } from './offline-drill.service';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
 
@@ -21,6 +22,7 @@ export class OfflineCheckinController {
     private readonly devices: CheckInDeviceService,
     private readonly reconciliation: OfflineReconciliationService,
     private readonly readiness: OfflineCheckinReadinessService,
+    private readonly drills: OfflineDrillService,
   ) {}
 
   private assertEnabled() {
@@ -87,6 +89,20 @@ export class OfflineCheckinController {
   ) {
     this.assertEnabled();
     return this.manifest.buildDelta(user, eventSessionId, Number(sinceMs ?? 0) || 0);
+  }
+
+  @Post('drills')
+  @ApiOperation({ summary: 'Record a live/browser certification drill result (manager).' })
+  recordDrill(@CurrentUser() user: RequestUser, @Body() body: RecordDrillInput) {
+    this.assertEnabled();
+    return this.drills.record(user, body);
+  }
+
+  @Get('drills')
+  @ApiOperation({ summary: 'List recent certification drill results for an organization.' })
+  listDrills(@CurrentUser() user: RequestUser, @Query('organizationId') organizationId: string) {
+    this.assertEnabled();
+    return this.drills.list(user, organizationId);
   }
 
   @Get('offline-readiness')

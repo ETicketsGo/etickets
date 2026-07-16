@@ -466,6 +466,13 @@ export const api = {
       request<OfflineReadinessReport>(
         `/checkin/activation${qs({ organizationId, eventSessionId })}`,
       ),
+    recordDrill: (body: RecordDrillInput) =>
+      request<OfflineDrillRunRow>('/checkin/drills', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    listDrills: (organizationId: string) =>
+      request<OfflineDrillRunRow[]>(`/checkin/drills${qs({ organizationId })}`),
   },
 
   refunds: {
@@ -1369,6 +1376,31 @@ export interface OfflineReadinessReport {
   verdict: 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
   checks: { key: string; label: string; passed: boolean; blocking?: boolean }[];
   note: string;
+}
+
+export type OfflineDrillKey =
+  'TWO_DEVICE_CONFLICT' | 'DEVICE_LOSS' | 'RECONCILIATION' | 'NETWORK_LOSS';
+export type OfflineDrillOutcome = 'PASS' | 'FAIL';
+export interface OfflineDrillRunRow {
+  id: string;
+  organizationId: string;
+  eventId: string | null;
+  eventSessionId: string | null;
+  drillKey: OfflineDrillKey;
+  outcome: OfflineDrillOutcome;
+  summary: string;
+  evidence: unknown;
+  ranByUserId: string | null;
+  createdAt: string;
+}
+export interface RecordDrillInput {
+  organizationId: string;
+  eventId?: string;
+  eventSessionId?: string;
+  drillKey: OfflineDrillKey;
+  outcome: OfflineDrillOutcome;
+  summary: string;
+  evidence?: unknown;
 }
 
 export interface CheckInOutcome {

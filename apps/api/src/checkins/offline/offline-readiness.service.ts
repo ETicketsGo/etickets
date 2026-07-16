@@ -7,6 +7,7 @@ import {
   type ActivationCheck,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OfflineDrillService } from './offline-drill.service';
 
 export type OfflineReadinessVerdict = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
 
@@ -32,6 +33,7 @@ export class OfflineCheckinReadinessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly drills: OfflineDrillService,
   ) {}
 
   isEnabled(): boolean {
@@ -80,10 +82,11 @@ export class OfflineCheckinReadinessService {
   }
 
   /**
-   * The strict launch gate (M12). Combines computable state with drill/activation
-   * evidence. Drill and admin-activation evidence is not yet recorded in the
-   * system, so this correctly returns NO_GO until the live-drill/activation
-   * workflow lands — never a false GO.
+   * The strict launch gate (M12). Combines computable state with recorded drill
+   * evidence (fail-closed: a drill counts only with a fresh PASS on record — see
+   * {@link OfflineDrillService}). Admin activation is a separate recorded decision
+   * (the controlled activation workflow) and remains pending, so this stays NO_GO
+   * until that lands — never a false GO.
    */
   async activation(
     organizationId: string,
@@ -102,6 +105,9 @@ export class OfflineCheckinReadinessService {
       manifestValid = !!latest && latest.expiresAt.getTime() > Date.now();
     }
 
+    // Recorded live-drill evidence, fail-closed (absent/failed/stale → false).
+    const evidence = await this.drills.drillEvidence(organizationId);
+
     const { verdict, checks } = deriveActivationVerdict({
       flagEnabled: enabled,
       organizationApproved: true,
@@ -113,11 +119,12 @@ export class OfflineCheckinReadinessService {
       reconciliationOperational: true,
       alertsOperational: true,
       auditHealthy: true,
-      // Live browser drills + admin activation are NOT yet recorded → NO_GO.
-      twoDeviceDrillPassed: false,
-      deviceLossDrillPassed: false,
-      reconciliationDrillPassed: false,
+      twoDeviceDrillPassed: evidence.twoDeviceDrillPassed,
+      deviceLossDrillPassed: evidence.deviceLossDrillPassed,
+      reconciliationDrillPassed: evidence.reconciliationDrillPassed,
       openCriticalFindings: 0,
+      // Admin activation is a separate recorded decision (controlled activation
+      // workflow) — not yet implemented, so the gate cannot reach GO yet.
       adminActivationRecorded: false,
     });
 

@@ -1,6 +1,11 @@
 import { OfflineManifestService } from './offline-manifest.service';
 import { OfflineReconciliationService } from './offline-reconciliation.service';
 import { OfflineCheckinReadinessService } from './offline-readiness.service';
+import {
+  OfflineDrillService,
+  DRILL_EVIDENCE_TTL_MS,
+  type DrillEvidence,
+} from './offline-drill.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrgAccessService } from '../../tenancy/org-access.service';
 import { AuditService } from '../../audit/audit.service';
@@ -51,8 +56,17 @@ describe('OfflineManifestService signing', () => {
   });
 });
 
+const NO_DRILLS: DrillEvidence = {
+  twoDeviceDrillPassed: false,
+  deviceLossDrillPassed: false,
+  reconciliationDrillPassed: false,
+};
+function drillsStub(evidence: DrillEvidence = NO_DRILLS) {
+  return { drillEvidence: jest.fn().mockResolvedValue(evidence) } as unknown as OfflineDrillService;
+}
+
 describe('OfflineCheckinReadinessService', () => {
-  function setup(enabled: boolean, approved = 0) {
+  function setup(enabled: boolean, approved = 0, evidence: DrillEvidence = NO_DRILLS) {
     const prisma = {
       checkInDevice: { count: jest.fn().mockResolvedValue(approved) },
       checkInManifest: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -60,7 +74,7 @@ describe('OfflineCheckinReadinessService', () => {
     const cfg = {
       get: (k: string) => (k === 'OFFLINE_CHECKIN_ENABLED' ? enabled : undefined),
     } as never;
-    return new OfflineCheckinReadinessService(prisma, cfg);
+    return new OfflineCheckinReadinessService(prisma, cfg, drillsStub(evidence));
   }
 
   it('is NO_GO while the feature flag is off', async () => {
@@ -72,6 +86,67 @@ describe('OfflineCheckinReadinessService', () => {
   it('is CONDITIONAL_GO when enabled but no approved device', async () => {
     const r = await setup(true, 0).report('org1');
     expect(r.verdict).toBe('CONDITIONAL_GO');
+  });
+
+  it('activation stays NO_GO with no recorded drill evidence (fail-closed)', async () => {
+    const { verdict, checks } = await setup(true, 1).activation('org1');
+    expect(verdict).toBe('NO_GO');
+    expect(checks.find((c) => c.key === 'drill_two_device')?.passed).toBe(false);
+  });
+
+  it('activation flips drill_two_device green once evidence is recorded', async () => {
+    const evidence: DrillEvidence = { ...NO_DRILLS, twoDeviceDrillPassed: true };
+    const { verdict, checks } = await setup(true, 1, evidence).activation('org1');
+    // The two-device check now passes, but admin activation is still unrecorded → NO_GO.
+    expect(checks.find((c) => c.key === 'drill_two_device')?.passed).toBe(true);
+    expect(checks.find((c) => c.key === 'activation')?.passed).toBe(false);
+    expect(verdict).toBe('NO_GO');
+  });
+});
+
+describe('OfflineDrillService.drillEvidence (fail-closed)', () => {
+  function svcWith(latest: (key: string) => unknown) {
+    const prisma = {
+      offlineDrillRun: {
+        findFirst: jest.fn((args: { where: { drillKey: string } }) =>
+          Promise.resolve(latest(args.where.drillKey)),
+        ),
+      },
+    } as unknown as PrismaService;
+    return new OfflineDrillService(prisma, access, audit);
+  }
+
+  it('reports every drill false when nothing is recorded', async () => {
+    const ev = await svcWith(() => null).drillEvidence('org1');
+    expect(ev).toEqual(NO_DRILLS);
+  });
+
+  it('counts a fresh PASS for its own key only', async () => {
+    const now = 1_000_000_000_000;
+    const svc = svcWith((key) =>
+      key === 'TWO_DEVICE_CONFLICT' ? { outcome: 'PASS', createdAt: new Date(now - 1000) } : null,
+    );
+    const ev = await svc.drillEvidence('org1', now);
+    expect(ev.twoDeviceDrillPassed).toBe(true);
+    expect(ev.deviceLossDrillPassed).toBe(false);
+    expect(ev.reconciliationDrillPassed).toBe(false);
+  });
+
+  it('does not count a stale PASS', async () => {
+    const now = 1_000_000_000_000;
+    const svc = svcWith(() => ({
+      outcome: 'PASS',
+      createdAt: new Date(now - DRILL_EVIDENCE_TTL_MS - 1),
+    }));
+    const ev = await svc.drillEvidence('org1', now);
+    expect(ev.twoDeviceDrillPassed).toBe(false);
+  });
+
+  it('does not count when the latest run FAILED', async () => {
+    const now = 1_000_000_000_000;
+    const svc = svcWith(() => ({ outcome: 'FAIL', createdAt: new Date(now - 1000) }));
+    const ev = await svc.drillEvidence('org1', now);
+    expect(ev.twoDeviceDrillPassed).toBe(false);
   });
 });
 

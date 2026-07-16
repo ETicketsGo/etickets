@@ -918,6 +918,38 @@ model CheckInManifest {
   @@index([eventSessionId])
 }
 
+// Recorded result of a live/browser offline certification drill (ADR-035). The
+// activation gate reads the latest PASS per drill key within a freshness window as
+// evidence — a drill never recorded, last FAILED, or stale keeps the gate closed
+// (fail-closed). Evidence is structured + non-secret (ticket/device ids, outcomes);
+// never PII or credentials.
+enum OfflineDrillKey {
+  TWO_DEVICE_CONFLICT
+  DEVICE_LOSS
+  RECONCILIATION
+  NETWORK_LOSS
+}
+
+enum OfflineDrillOutcome {
+  PASS
+  FAIL
+}
+
+model OfflineDrillRun {
+  id             String              @id @default(cuid())
+  organizationId String
+  eventId        String?
+  eventSessionId String?
+  drillKey       OfflineDrillKey
+  outcome        OfflineDrillOutcome
+  summary        String
+  evidence       Json?
+  ranByUserId    String?
+  createdAt      DateTime            @default(now())
+
+  @@index([organizationId, drillKey, createdAt])
+}
+
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {
