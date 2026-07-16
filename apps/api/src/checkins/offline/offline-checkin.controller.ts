@@ -78,6 +78,17 @@ export class OfflineCheckinController {
     return this.reconciliation.reconcile(user, body.deviceId, body.checkIns ?? []);
   }
 
+  @Get('deltas')
+  @ApiOperation({ summary: 'Signed revocation delta since a version (incremental).' })
+  deltas(
+    @CurrentUser() user: RequestUser,
+    @Query('eventSessionId') eventSessionId: string,
+    @Query('sinceMs') sinceMs?: string,
+  ) {
+    this.assertEnabled();
+    return this.manifest.buildDelta(user, eventSessionId, Number(sinceMs ?? 0) || 0);
+  }
+
   @Get('offline-readiness')
   @ApiOperation({ summary: 'GO / CONDITIONAL_GO / NO_GO for offline gate check-in.' })
   offlineReadiness(
@@ -86,5 +97,15 @@ export class OfflineCheckinController {
     @Query('eventSessionId') eventSessionId?: string,
   ) {
     return this.readiness.report(organizationId, eventSessionId);
+  }
+
+  @Get('activation')
+  @ApiOperation({ summary: 'Strict activation launch gate (drills + admin decision required).' })
+  activation(
+    @CurrentUser() _user: RequestUser,
+    @Query('organizationId') organizationId: string,
+    @Query('eventSessionId') eventSessionId?: string,
+  ) {
+    return this.readiness.activation(organizationId, eventSessionId);
   }
 }

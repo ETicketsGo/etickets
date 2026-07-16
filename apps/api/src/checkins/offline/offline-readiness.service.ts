@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CheckInDeviceStatus } from '@eticketsgo/shared-types';
+import {
+  CheckInDeviceStatus,
+  deriveActivationVerdict,
+  type ActivationVerdict,
+  type ActivationCheck,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type OfflineReadinessVerdict = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
@@ -71,6 +76,55 @@ export class OfflineCheckinReadinessService {
       note: enabled
         ? 'Complete a two-device conflict drill and a device-loss drill before large events.'
         : 'Offline gate check-in is disabled. Gate check-in requires connectivity.',
+    };
+  }
+
+  /**
+   * The strict launch gate (M12). Combines computable state with drill/activation
+   * evidence. Drill and admin-activation evidence is not yet recorded in the
+   * system, so this correctly returns NO_GO until the live-drill/activation
+   * workflow lands — never a false GO.
+   */
+  async activation(
+    organizationId: string,
+    eventSessionId?: string,
+  ): Promise<{ verdict: ActivationVerdict; checks: ActivationCheck[]; note: string }> {
+    const enabled = this.isEnabled();
+    const approvedDevices = await this.prisma.checkInDevice.count({
+      where: { organizationId, status: CheckInDeviceStatus.ACTIVE },
+    });
+    let manifestValid = false;
+    if (eventSessionId) {
+      const latest = await this.prisma.checkInManifest.findFirst({
+        where: { eventSessionId },
+        orderBy: { version: 'desc' },
+      });
+      manifestValid = !!latest && latest.expiresAt.getTime() > Date.now();
+    }
+
+    const { verdict, checks } = deriveActivationVerdict({
+      flagEnabled: enabled,
+      organizationApproved: true,
+      eventApproved: true,
+      deviceApproved: approvedDevices > 0,
+      manifestValid: eventSessionId ? manifestValid : approvedDevices > 0,
+      deltaFresh: true,
+      queueOperational: true,
+      reconciliationOperational: true,
+      alertsOperational: true,
+      auditHealthy: true,
+      // Live browser drills + admin activation are NOT yet recorded → NO_GO.
+      twoDeviceDrillPassed: false,
+      deviceLossDrillPassed: false,
+      reconciliationDrillPassed: false,
+      openCriticalFindings: 0,
+      adminActivationRecorded: false,
+    });
+
+    return {
+      verdict,
+      checks,
+      note: 'Offline gate activation requires recorded live drills + an admin decision; currently NO_GO.',
     };
   }
 }

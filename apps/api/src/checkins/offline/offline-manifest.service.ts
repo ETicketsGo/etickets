@@ -2,7 +2,12 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Role, TicketStatus } from '@eticketsgo/shared-types';
-import type { ManifestEntry, ManifestMeta } from '@eticketsgo/shared-types';
+import type {
+  DeltaChange,
+  ManifestEntry,
+  ManifestMeta,
+  RevocationDelta,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrgAccessService } from '../../tenancy/org-access.service';
 import { AuditService } from '../../audit/audit.service';
@@ -120,5 +125,48 @@ export class OfflineManifestService {
     });
 
     return { meta, entries, signature };
+  }
+
+  /** Signs a revocation delta (changes since a base version). */
+  signDelta(delta: Omit<RevocationDelta, 'signature'>): string {
+    const canonical =
+      `${delta.eventSessionId}|${delta.baseVersion}|${delta.toVersion}|` +
+      delta.changes
+        .map((c) => `${c.ticketId}:${c.nonce}:${c.version}:${c.status}:${c.eligible ? 1 : 0}`)
+        .join(',');
+    return createHmac('sha256', this.secret()).update(canonical).digest('hex');
+  }
+
+  /**
+   * Builds an incremental, signed revocation delta: tickets whose state changed
+   * since the device's last-applied version (`sinceMs`). Compact + monotonic; the
+   * device applies it atomically or, on a gap, refetches the full manifest.
+   */
+  async buildDelta(
+    user: RequestUser,
+    eventSessionId: string,
+    sinceMs: number,
+  ): Promise<RevocationDelta> {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: eventSessionId },
+      select: { event: { select: { organizationId: true } } },
+    });
+    if (!session)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, session.event.organizationId, STAFF_ROLES);
+
+    const changed = await this.prisma.ticket.findMany({
+      where: { eventSessionId, updatedAt: { gt: new Date(sinceMs) } },
+      select: { id: true, nonce: true, qrVersion: true, status: true },
+    });
+    const changes: DeltaChange[] = changed.map((t) => ({
+      ticketId: t.id,
+      nonce: t.nonce,
+      version: t.qrVersion,
+      status: t.status,
+      eligible: t.status === TicketStatus.ACTIVE,
+    }));
+    const base = { eventSessionId, baseVersion: sinceMs, toVersion: Date.now(), changes };
+    return { ...base, signature: this.signDelta(base) };
   }
 }

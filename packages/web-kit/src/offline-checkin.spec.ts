@@ -3,12 +3,18 @@ import {
   validateOfflineScan,
   classifyReconciliation,
   isOverridable,
+  applyDelta,
+  hasDeltaGap,
+  deriveActivationVerdict,
+  mustDowngrade,
   type DecodedQr,
   type ManifestEntry,
   type ManifestMeta,
   type DeviceScope,
   type QueuedCheckIn,
   type ServerTicketState,
+  type RevocationDelta,
+  type ActivationInputs,
 } from '@eticketsgo/shared-types';
 
 const NOW = 1_800_000_000_000;
@@ -183,5 +189,110 @@ describe('classifyReconciliation', () => {
   it('routes a wrong session and a vanished ticket to review', () => {
     expect(classifyReconciliation(q, server({ eventSessionId: 'seX' }))).toBe('WRONG_SESSION');
     expect(classifyReconciliation(q, null)).toBe('SUPERVISOR_REVIEW_REQUIRED');
+  });
+});
+
+describe('revocation deltas', () => {
+  const delta = (over: Partial<RevocationDelta> = {}): RevocationDelta => ({
+    eventSessionId: 'se1',
+    baseVersion: 100,
+    toVersion: 200,
+    changes: [{ ticketId: 'tk1', nonce: 'rotated', version: 2, status: 'ACTIVE', eligible: true }],
+    signature: 'sig',
+    ...over,
+  });
+
+  it('applies changes and bumps entries (server wins)', () => {
+    const entries = new Map<string, ManifestEntry>([
+      [
+        'tk1',
+        {
+          ticketId: 'tk1',
+          eventSessionId: 'se1',
+          nonce: 'old',
+          version: 1,
+          status: 'ACTIVE',
+          eligible: true,
+        },
+      ],
+    ]);
+    const next = applyDelta(entries, 100, delta());
+    expect(next.get('tk1')!.nonce).toBe('rotated');
+    expect(next.get('tk1')!.version).toBe(2);
+  });
+
+  it('is a no-op for a stale/rollback delta', () => {
+    const entries = new Map<string, ManifestEntry>();
+    expect(applyDelta(entries, 300, delta({ toVersion: 200 }))).toBe(entries);
+  });
+
+  it('detects a gap and forces a full refresh', () => {
+    expect(hasDeltaGap(50, delta())).toBe(true); // local 50 < base 100
+    expect(() => applyDelta(new Map(), 50, delta())).toThrow(/DELTA_GAP/);
+  });
+});
+
+describe('activation policy', () => {
+  const inputs = (over: Partial<ActivationInputs> = {}): ActivationInputs => ({
+    flagEnabled: true,
+    organizationApproved: true,
+    eventApproved: true,
+    deviceApproved: true,
+    manifestValid: true,
+    deltaFresh: true,
+    queueOperational: true,
+    reconciliationOperational: true,
+    alertsOperational: true,
+    auditHealthy: true,
+    twoDeviceDrillPassed: true,
+    deviceLossDrillPassed: true,
+    reconciliationDrillPassed: true,
+    openCriticalFindings: 0,
+    adminActivationRecorded: true,
+    ...over,
+  });
+
+  it('is GO only when every gate passes', () => {
+    expect(deriveActivationVerdict(inputs()).verdict).toBe('GO');
+  });
+
+  it('is NO_GO when the flag is off or a drill is missing', () => {
+    expect(deriveActivationVerdict(inputs({ flagEnabled: false })).verdict).toBe('NO_GO');
+    expect(deriveActivationVerdict(inputs({ twoDeviceDrillPassed: false })).verdict).toBe('NO_GO');
+    expect(deriveActivationVerdict(inputs({ openCriticalFindings: 1 })).verdict).toBe('NO_GO');
+    expect(deriveActivationVerdict(inputs({ adminActivationRecorded: false })).verdict).toBe(
+      'NO_GO',
+    );
+  });
+
+  it('is CONDITIONAL_GO when only non-blocking checks fail', () => {
+    expect(deriveActivationVerdict(inputs({ alertsOperational: false })).verdict).toBe(
+      'CONDITIONAL_GO',
+    );
+  });
+
+  it('mustDowngrade fires on any runtime failure signal', () => {
+    expect(
+      mustDowngrade({
+        deviceRevoked: false,
+        manifestExpired: true,
+        deltaTooStale: false,
+        queueCorrupt: false,
+        auditUnavailable: false,
+        reconciliationUnavailable: false,
+        securityConfigInvalid: false,
+      }),
+    ).toBe(true);
+    expect(
+      mustDowngrade({
+        deviceRevoked: false,
+        manifestExpired: false,
+        deltaTooStale: false,
+        queueCorrupt: false,
+        auditUnavailable: false,
+        reconciliationUnavailable: false,
+        securityConfigInvalid: false,
+      }),
+    ).toBe(false);
   });
 });

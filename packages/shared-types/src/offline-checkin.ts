@@ -205,3 +205,194 @@ export function classifyReconciliation(
   if (server.status !== 'ACTIVE') return 'SUPERVISOR_REVIEW_REQUIRED';
   return 'ACCEPTED';
 }
+
+// ─────────────────────────── Revocation deltas (M5) ───────────────────────────
+
+/** One changed ticket in an incremental revocation delta. */
+export interface DeltaChange {
+  ticketId: string;
+  nonce: string;
+  version: number;
+  status: string;
+  eligible: boolean;
+}
+
+/**
+ * An incremental, server-signed set of manifest changes since `baseVersion`.
+ * Monotonic; event/session scoped. A device applies it atomically and stores
+ * `toVersion`; a gap forces a full-manifest refresh.
+ */
+export interface RevocationDelta {
+  eventSessionId: string;
+  baseVersion: number;
+  toVersion: number;
+  changes: DeltaChange[];
+  signature: string;
+}
+
+/**
+ * A gap exists when the device's last-applied version is older than the delta's
+ * base (missed changes) — the device must refetch the full manifest, never apply
+ * partially (rollback/gap prevention).
+ */
+export function hasDeltaGap(localVersion: number, delta: { baseVersion: number }): boolean {
+  return localVersion < delta.baseVersion;
+}
+
+/**
+ * Applies a delta to a manifest-entry map, returning a NEW map. Rejects rollbacks
+ * (a delta older than what's applied) and gaps by throwing — the caller must then
+ * do a full refresh. Server always wins for the changed entries.
+ */
+export function applyDelta(
+  entries: Map<string, ManifestEntry>,
+  localVersion: number,
+  delta: RevocationDelta,
+): Map<string, ManifestEntry> {
+  if (delta.toVersion <= localVersion) return entries; // stale/rollback → no-op
+  if (hasDeltaGap(localVersion, delta)) {
+    throw new Error('DELTA_GAP: full manifest refresh required');
+  }
+  const next = new Map(entries);
+  for (const c of delta.changes) {
+    next.set(c.ticketId, {
+      ticketId: c.ticketId,
+      eventSessionId: delta.eventSessionId,
+      nonce: c.nonce,
+      version: c.version,
+      status: c.status,
+      eligible: c.eligible,
+    });
+  }
+  return next;
+}
+
+// ───────────────────────── Offline activation policy (M12) ─────────────────────
+
+export type ActivationVerdict = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
+
+export interface ActivationInputs {
+  flagEnabled: boolean;
+  organizationApproved: boolean;
+  eventApproved: boolean;
+  deviceApproved: boolean;
+  manifestValid: boolean;
+  deltaFresh: boolean;
+  queueOperational: boolean;
+  reconciliationOperational: boolean;
+  alertsOperational: boolean;
+  auditHealthy: boolean;
+  twoDeviceDrillPassed: boolean;
+  deviceLossDrillPassed: boolean;
+  reconciliationDrillPassed: boolean;
+  openCriticalFindings: number;
+  adminActivationRecorded: boolean;
+}
+
+export interface ActivationCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  /** A failed blocking check forces NO_GO regardless of the others. */
+  blocking: boolean;
+}
+
+/**
+ * Strict launch gate for offline gate check-in (M12). GO requires the flag,
+ * org/event/device approval, a valid manifest, fresh deltas, operational queue/
+ * reconciliation/alerts/audit, ALL three live drills passed, zero open Critical/
+ * High findings, and a recorded admin activation. Anything blocking failing →
+ * NO_GO; otherwise partial → CONDITIONAL_GO.
+ */
+export function deriveActivationVerdict(inputs: ActivationInputs): {
+  verdict: ActivationVerdict;
+  checks: ActivationCheck[];
+} {
+  const checks: ActivationCheck[] = [
+    { key: 'flag', label: 'Feature flag enabled', passed: inputs.flagEnabled, blocking: true },
+    {
+      key: 'org',
+      label: 'Organization approved',
+      passed: inputs.organizationApproved,
+      blocking: true,
+    },
+    { key: 'event', label: 'Event approved', passed: inputs.eventApproved, blocking: true },
+    { key: 'device', label: 'Device approved', passed: inputs.deviceApproved, blocking: true },
+    { key: 'manifest', label: 'Manifest valid', passed: inputs.manifestValid, blocking: true },
+    { key: 'delta', label: 'Revocation delta fresh', passed: inputs.deltaFresh, blocking: false },
+    { key: 'queue', label: 'Queue operational', passed: inputs.queueOperational, blocking: false },
+    {
+      key: 'reconciliation',
+      label: 'Reconciliation operational',
+      passed: inputs.reconciliationOperational,
+      blocking: true,
+    },
+    {
+      key: 'alerts',
+      label: 'Alerting operational',
+      passed: inputs.alertsOperational,
+      blocking: false,
+    },
+    { key: 'audit', label: 'Audit logging healthy', passed: inputs.auditHealthy, blocking: true },
+    {
+      key: 'drill_two_device',
+      label: 'Two-device drill passed',
+      passed: inputs.twoDeviceDrillPassed,
+      blocking: true,
+    },
+    {
+      key: 'drill_device_loss',
+      label: 'Device-loss drill passed',
+      passed: inputs.deviceLossDrillPassed,
+      blocking: true,
+    },
+    {
+      key: 'drill_reconcile',
+      label: 'Reconciliation drill passed',
+      passed: inputs.reconciliationDrillPassed,
+      blocking: true,
+    },
+    {
+      key: 'findings',
+      label: 'No open Critical/High findings',
+      passed: inputs.openCriticalFindings === 0,
+      blocking: true,
+    },
+    {
+      key: 'activation',
+      label: 'Admin activation recorded',
+      passed: inputs.adminActivationRecorded,
+      blocking: true,
+    },
+  ];
+
+  const blockingFailed = checks.some((c) => c.blocking && !c.passed);
+  const allPassed = checks.every((c) => c.passed);
+  let verdict: ActivationVerdict;
+  if (blockingFailed) verdict = 'NO_GO';
+  else if (allPassed) verdict = 'GO';
+  else verdict = 'CONDITIONAL_GO';
+  return { verdict, checks };
+}
+
+/** Runtime signals that force an immediate downgrade to NO_GO mid-event. */
+export interface DowngradeSignals {
+  deviceRevoked: boolean;
+  manifestExpired: boolean;
+  deltaTooStale: boolean;
+  queueCorrupt: boolean;
+  auditUnavailable: boolean;
+  reconciliationUnavailable: boolean;
+  securityConfigInvalid: boolean;
+}
+export function mustDowngrade(s: DowngradeSignals): boolean {
+  return (
+    s.deviceRevoked ||
+    s.manifestExpired ||
+    s.deltaTooStale ||
+    s.queueCorrupt ||
+    s.auditUnavailable ||
+    s.reconciliationUnavailable ||
+    s.securityConfigInvalid
+  );
+}
