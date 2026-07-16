@@ -5,6 +5,7 @@ import { CheckInDeviceService } from './checkin-device.service';
 import { OfflineReconciliationService } from './offline-reconciliation.service';
 import { OfflineCheckinReadinessService } from './offline-readiness.service';
 import { OfflineDrillService } from './offline-drill.service';
+import { OfflineActivationService } from './offline-activation.service';
 
 /**
  * Offline gate check-in (ADR-035). All dependencies (Prisma, Tenancy, Audit,
@@ -19,6 +20,7 @@ import { OfflineDrillService } from './offline-drill.service';
     OfflineReconciliationService,
     OfflineCheckinReadinessService,
     OfflineDrillService,
+    OfflineActivationService,
   ],
 })
 export class OfflineCheckinModule {}

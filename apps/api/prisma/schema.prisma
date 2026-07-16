@@ -950,6 +950,38 @@ model OfflineDrillRun {
   @@index([organizationId, drillKey, createdAt])
 }
 
+// A recorded administrator decision to activate offline gate check-in for a specific
+// scope (ADR-035). Activation is never a bare flag flip: it is scoped to an
+// org/event/session and an explicit set of approved devices, may only be recorded
+// when every blocking readiness + drill check is green and current, carries an
+// immutable evidence snapshot, and is fully audited + revocable. mustDowngrade and
+// the activation policy remain authoritative at read time.
+enum OfflineActivationState {
+  ACTIVE
+  REVOKED
+  SUPERSEDED
+}
+
+model OfflineActivation {
+  id               String                 @id @default(cuid())
+  organizationId   String
+  eventId          String
+  eventSessionId   String
+  deviceIds        String[]
+  state            OfflineActivationState @default(ACTIVE)
+  reason           String
+  // Immutable snapshot of the ActivationInputs + derived checks at approval time.
+  evidenceSnapshot Json
+  approvedByUserId String
+  approvedAt       DateTime               @default(now())
+  revokedByUserId  String?
+  revokedAt        DateTime?
+  revokeReason     String?
+  createdAt        DateTime               @default(now())
+
+  @@index([organizationId, eventSessionId, state])
+}
+
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {

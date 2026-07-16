@@ -7,7 +7,7 @@ import {
   type ActivationCheck,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
-import { OfflineDrillService } from './offline-drill.service';
+import { OfflineActivationService } from './offline-activation.service';
 
 export type OfflineReadinessVerdict = 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
 
@@ -33,7 +33,7 @@ export class OfflineCheckinReadinessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly drills: OfflineDrillService,
+    private readonly activations: OfflineActivationService,
   ) {}
 
   isEnabled(): boolean {
@@ -82,56 +82,23 @@ export class OfflineCheckinReadinessService {
   }
 
   /**
-   * The strict launch gate (M12). Combines computable state with recorded drill
-   * evidence (fail-closed: a drill counts only with a fresh PASS on record — see
-   * {@link OfflineDrillService}). Admin activation is a separate recorded decision
-   * (the controlled activation workflow) and remains pending, so this stays NO_GO
-   * until that lands — never a false GO.
+   * The strict launch gate (M12). Delegates to {@link OfflineActivationService} for
+   * the full activation-policy inputs — computable readiness, fail-closed drill
+   * evidence, AND the recorded scoped admin decision (with mustDowngrade applied) —
+   * so the gate and the activation workflow can never disagree. Returns GO only for
+   * a certified, approved, non-downgraded scope; otherwise CONDITIONAL_GO / NO_GO.
    */
   async activation(
     organizationId: string,
     eventSessionId?: string,
   ): Promise<{ verdict: ActivationVerdict; checks: ActivationCheck[]; note: string }> {
-    const enabled = this.isEnabled();
-    const approvedDevices = await this.prisma.checkInDevice.count({
-      where: { organizationId, status: CheckInDeviceStatus.ACTIVE },
-    });
-    let manifestValid = false;
-    if (eventSessionId) {
-      const latest = await this.prisma.checkInManifest.findFirst({
-        where: { eventSessionId },
-        orderBy: { version: 'desc' },
-      });
-      manifestValid = !!latest && latest.expiresAt.getTime() > Date.now();
-    }
+    const inputs = await this.activations.computeInputs(organizationId, eventSessionId);
+    const { verdict, checks } = deriveActivationVerdict(inputs);
 
-    // Recorded live-drill evidence, fail-closed (absent/failed/stale → false).
-    const evidence = await this.drills.drillEvidence(organizationId);
-
-    const { verdict, checks } = deriveActivationVerdict({
-      flagEnabled: enabled,
-      organizationApproved: true,
-      eventApproved: true,
-      deviceApproved: approvedDevices > 0,
-      manifestValid: eventSessionId ? manifestValid : approvedDevices > 0,
-      deltaFresh: true,
-      queueOperational: true,
-      reconciliationOperational: true,
-      alertsOperational: true,
-      auditHealthy: true,
-      twoDeviceDrillPassed: evidence.twoDeviceDrillPassed,
-      deviceLossDrillPassed: evidence.deviceLossDrillPassed,
-      reconciliationDrillPassed: evidence.reconciliationDrillPassed,
-      openCriticalFindings: 0,
-      // Admin activation is a separate recorded decision (controlled activation
-      // workflow) — not yet implemented, so the gate cannot reach GO yet.
-      adminActivationRecorded: false,
-    });
-
-    return {
-      verdict,
-      checks,
-      note: 'Offline gate activation requires recorded live drills + an admin decision; currently NO_GO.',
-    };
+    const note =
+      verdict === 'GO'
+        ? 'Offline gate check-in is activated for this scope (certified + admin-approved).'
+        : 'Offline gate activation requires green readiness/drills + a recorded admin decision for this scope.';
+    return { verdict, checks, note };
   }
 }

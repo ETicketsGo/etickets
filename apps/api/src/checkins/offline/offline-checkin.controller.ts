@@ -6,6 +6,7 @@ import { CheckInDeviceService, type RegisterDeviceInput } from './checkin-device
 import { OfflineReconciliationService } from './offline-reconciliation.service';
 import { OfflineCheckinReadinessService } from './offline-readiness.service';
 import { OfflineDrillService, type RecordDrillInput } from './offline-drill.service';
+import { OfflineActivationService, type RecordActivationInput } from './offline-activation.service';
 import { CurrentUser, type RequestUser } from '../../common/decorators';
 import { AppException, ErrorCodes } from '../../common/errors';
 
@@ -23,6 +24,7 @@ export class OfflineCheckinController {
     private readonly reconciliation: OfflineReconciliationService,
     private readonly readiness: OfflineCheckinReadinessService,
     private readonly drills: OfflineDrillService,
+    private readonly activations: OfflineActivationService,
   ) {}
 
   private assertEnabled() {
@@ -123,5 +125,33 @@ export class OfflineCheckinController {
     @Query('eventSessionId') eventSessionId?: string,
   ) {
     return this.readiness.activation(organizationId, eventSessionId);
+  }
+
+  @Post('activation/record')
+  @ApiOperation({ summary: 'Record a scoped admin activation decision (manager/admin only).' })
+  recordActivation(@CurrentUser() user: RequestUser, @Body() body: RecordActivationInput) {
+    this.assertEnabled();
+    return this.activations.record(user, body);
+  }
+
+  @Post('activation/:id/revoke')
+  @ApiOperation({ summary: 'Revoke/downgrade an activation decision (manager/admin only).' })
+  revokeActivation(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    this.assertEnabled();
+    return this.activations.revoke(user, id, body?.reason ?? '');
+  }
+
+  @Get('activation/decisions')
+  @ApiOperation({ summary: 'List recorded activation decisions for an organization.' })
+  listActivations(
+    @CurrentUser() user: RequestUser,
+    @Query('organizationId') organizationId: string,
+  ) {
+    this.assertEnabled();
+    return this.activations.list(user, organizationId);
   }
 }

@@ -473,6 +473,18 @@ export const api = {
       }),
     listDrills: (organizationId: string) =>
       request<OfflineDrillRunRow[]>(`/checkin/drills${qs({ organizationId })}`),
+    recordActivation: (body: RecordActivationInput) =>
+      request<OfflineActivationRow>('/checkin/activation/record', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    revokeActivation: (id: string, reason: string) =>
+      request<OfflineActivationRow>(`/checkin/activation/${id}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    listActivations: (organizationId: string) =>
+      request<OfflineActivationRow[]>(`/checkin/activation/decisions${qs({ organizationId })}`),
   },
 
   refunds: {
@@ -1401,6 +1413,30 @@ export interface RecordDrillInput {
   outcome: OfflineDrillOutcome;
   summary: string;
   evidence?: unknown;
+}
+
+export type OfflineActivationState = 'ACTIVE' | 'REVOKED' | 'SUPERSEDED';
+export interface OfflineActivationRow {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  eventSessionId: string;
+  deviceIds: string[];
+  state: OfflineActivationState;
+  reason: string;
+  evidenceSnapshot: unknown;
+  approvedByUserId: string;
+  approvedAt: string;
+  revokedByUserId: string | null;
+  revokedAt: string | null;
+  revokeReason: string | null;
+  createdAt: string;
+}
+export interface RecordActivationInput {
+  organizationId: string;
+  eventSessionId: string;
+  deviceIds: string[];
+  reason: string;
 }
 
 export interface CheckInOutcome {

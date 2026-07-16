@@ -6,6 +6,8 @@ import {
   DRILL_EVIDENCE_TTL_MS,
   type DrillEvidence,
 } from './offline-drill.service';
+import { OfflineActivationService } from './offline-activation.service';
+import type { ActivationInputs } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrgAccessService } from '../../tenancy/org-access.service';
 import { AuditService } from '../../audit/audit.service';
@@ -61,12 +63,32 @@ const NO_DRILLS: DrillEvidence = {
   deviceLossDrillPassed: false,
   reconciliationDrillPassed: false,
 };
-function drillsStub(evidence: DrillEvidence = NO_DRILLS) {
-  return { drillEvidence: jest.fn().mockResolvedValue(evidence) } as unknown as OfflineDrillService;
+
+const ALL_GREEN: ActivationInputs = {
+  flagEnabled: true,
+  organizationApproved: true,
+  eventApproved: true,
+  deviceApproved: true,
+  manifestValid: true,
+  deltaFresh: true,
+  queueOperational: true,
+  reconciliationOperational: true,
+  alertsOperational: true,
+  auditHealthy: true,
+  twoDeviceDrillPassed: true,
+  deviceLossDrillPassed: true,
+  reconciliationDrillPassed: true,
+  openCriticalFindings: 0,
+  adminActivationRecorded: false,
+};
+function activationsStub(inputs: Partial<ActivationInputs> = {}) {
+  return {
+    computeInputs: jest.fn().mockResolvedValue({ ...ALL_GREEN, ...inputs }),
+  } as unknown as OfflineActivationService;
 }
 
 describe('OfflineCheckinReadinessService', () => {
-  function setup(enabled: boolean, approved = 0, evidence: DrillEvidence = NO_DRILLS) {
+  function setup(enabled: boolean, approved = 0, activations = activationsStub()) {
     const prisma = {
       checkInDevice: { count: jest.fn().mockResolvedValue(approved) },
       checkInManifest: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -74,7 +96,7 @@ describe('OfflineCheckinReadinessService', () => {
     const cfg = {
       get: (k: string) => (k === 'OFFLINE_CHECKIN_ENABLED' ? enabled : undefined),
     } as never;
-    return new OfflineCheckinReadinessService(prisma, cfg, drillsStub(evidence));
+    return new OfflineCheckinReadinessService(prisma, cfg, activations);
   }
 
   it('is NO_GO while the feature flag is off', async () => {
@@ -88,19 +110,19 @@ describe('OfflineCheckinReadinessService', () => {
     expect(r.verdict).toBe('CONDITIONAL_GO');
   });
 
-  it('activation stays NO_GO with no recorded drill evidence (fail-closed)', async () => {
-    const { verdict, checks } = await setup(true, 1).activation('org1');
+  it('activation stays NO_GO while the admin decision is unrecorded', async () => {
+    const { verdict, checks } = await setup(true, 1, activationsStub()).activation('org1', 's1');
     expect(verdict).toBe('NO_GO');
-    expect(checks.find((c) => c.key === 'drill_two_device')?.passed).toBe(false);
+    expect(checks.find((c) => c.key === 'activation')?.passed).toBe(false);
   });
 
-  it('activation flips drill_two_device green once evidence is recorded', async () => {
-    const evidence: DrillEvidence = { ...NO_DRILLS, twoDeviceDrillPassed: true };
-    const { verdict, checks } = await setup(true, 1, evidence).activation('org1');
-    // The two-device check now passes, but admin activation is still unrecorded → NO_GO.
-    expect(checks.find((c) => c.key === 'drill_two_device')?.passed).toBe(true);
-    expect(checks.find((c) => c.key === 'activation')?.passed).toBe(false);
-    expect(verdict).toBe('NO_GO');
+  it('activation is GO for a certified, approved, non-downgraded scope', async () => {
+    const { verdict } = await setup(
+      true,
+      1,
+      activationsStub({ adminActivationRecorded: true }),
+    ).activation('org1', 's1');
+    expect(verdict).toBe('GO');
   });
 });
 
