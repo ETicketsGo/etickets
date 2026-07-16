@@ -58,25 +58,26 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
   const flagOn = readiness.checks?.find((c: { key: string }) => c.key === 'flag')?.passed === true;
   test.skip(!flagOn, 'Offline check-in feature flag is disabled — drill not applicable.');
 
-  // Find an event/session with two active tickets, and approve a device for it.
+  // Find an event/session with an active ticket. One ticket seeds every category: the
+  // non-consuming cases run while it is ACTIVE, then it is accepted + replayed.
   const events = await (
     await request.get(`${API}/events?organizationId=${org.id}`, { headers: authed(token) })
   ).json();
-  let target: { eventId: string; sessionId: string; a: Entry; b: Entry } | null = null;
+  let target: { eventId: string; sessionId: string; a: Entry } | null = null;
   for (const e of events.slice(0, 25)) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
     for (const s of det.sessions ?? []) {
       const active = await activeEntries(request, token, s.id);
-      if (active.length >= 2) {
-        target = { eventId: e.id, sessionId: s.id, a: active[0], b: active[1] };
+      if (active.length >= 1) {
+        target = { eventId: e.id, sessionId: s.id, a: active[0] };
         break;
       }
     }
     if (target) break;
   }
-  expect(target, 'a session with two active tickets').not.toBeNull();
+  expect(target, 'a session with an active ticket').not.toBeNull();
   const t = target!;
 
   const device = await (
@@ -98,7 +99,21 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
     ...over,
   });
 
-  // Seed one record of each category through the real reconcile engine.
+  // Seed one record of each category through the real reconcile engine, using ONE
+  // ticket: the non-consuming cases first (while ACTIVE), then accept + duplicate.
+  await reconcile(
+    request,
+    token,
+    dev,
+    base(t.a.ticketId, { nonce: t.a.nonce, version: t.a.version, eventSessionId: 'other-session' }),
+  ); // WRONG_SESSION
+  await reconcile(
+    request,
+    token,
+    dev,
+    base(t.a.ticketId, { nonce: `rot-${t.a.nonce}`, version: t.a.version }),
+  ); // TRANSFERRED_AFTER_DOWNLOAD
+  await reconcile(request, token, dev, base('ckvanished0000000000000000')); // SUPERVISOR_REVIEW_REQUIRED
   await reconcile(
     request,
     token,
@@ -111,19 +126,6 @@ test('reconciliation console: categories, filter, safe resolve, authz', async ({
     dev,
     base(t.a.ticketId, { nonce: t.a.nonce, version: t.a.version }),
   ); // DUPLICATE_SAME_DEVICE
-  await reconcile(
-    request,
-    token,
-    dev,
-    base(t.b.ticketId, { nonce: t.b.nonce, version: t.b.version, eventSessionId: 'other-session' }),
-  ); // WRONG_SESSION
-  await reconcile(
-    request,
-    token,
-    dev,
-    base(t.b.ticketId, { nonce: `rot-${t.b.nonce}`, version: t.b.version }),
-  ); // TRANSFERRED_AFTER_DOWNLOAD
-  await reconcile(request, token, dev, base('ckvanished0000000000000000')); // SUPERVISOR_REVIEW_REQUIRED
 
   // ── API safeguards ──
   // Unauthorized: a customer can neither view nor resolve.

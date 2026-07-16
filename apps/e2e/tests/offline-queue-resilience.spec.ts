@@ -50,12 +50,11 @@ async function discover(request: APIRequestContext, token: string) {
           headers: authed(token),
         })
       ).json();
-      const active = (man.entries ?? []).filter((x: Entry) => x.status === 'ACTIVE' && x.eligible);
-      if (active.length >= 2)
-        return { org, flagOn, eventId: e.id, sessionId: s.id, a: active[0], b: active[1] };
+      const active = (man.entries ?? []).find((x: Entry) => x.status === 'ACTIVE' && x.eligible);
+      if (active) return { org, flagOn, eventId: e.id, sessionId: s.id, a: active as Entry };
     }
   }
-  return { org, flagOn, eventId: null, sessionId: null, a: null, b: null };
+  return { org, flagOn, eventId: null, sessionId: null, a: null };
 }
 async function setupPanel(page: Page, eventId: string, sessionId: string) {
   await page.goto(`${ORGANIZER}/organizer/events/${eventId}/checkin`);
@@ -76,19 +75,20 @@ async function scan(page: Page, token: string) {
 }
 
 /**
- * Offline queue resilience drill (ADR-035, Sprint 12 W1). Proves: a retryable failure
- * holds the scan and auto-recovers; a non-retryable failure dead-letters (BLOCKED) and
- * can be manually retried; state survives reload; and a scan is NEVER lost without a
- * server acknowledgement. Skips when the flag is off.
+ * Offline queue resilience drill (ADR-035, Sprint 12 W1). One active ticket exercises
+ * the whole resilience path: a non-retryable failure dead-letters (BLOCKED); the state
+ * survives reload; manual retry re-queues; a retryable failure schedules a backoff
+ * retry (RETRYING); the backoff timer auto-recovers to ACCEPTED. Throughout, the scan
+ * is NEVER lost or admitted without a server acknowledgement. Skips when flag is off.
  */
-test('offline queue: retry → recover, non-retryable → dead-letter → manual retry, reload durable', async ({
+test('offline queue: dead-letter → reload → manual retry → RETRYING → auto-recover (never lost)', async ({
   page,
   request,
 }) => {
   const owner = await apiLogin(request, OWNER);
   const d = await discover(request, owner.accessToken);
   test.skip(!d.flagOn, 'Offline check-in feature flag is disabled — drill not applicable.');
-  expect(d.sessionId, 'a session with two active tickets').not.toBeNull();
+  expect(d.sessionId, 'a session with an active ticket').not.toBeNull();
 
   // Toggleable network fault injection on the reconcile call.
   let mode: 'ok' | 'abort' | '500' | '403' = 'ok';
@@ -111,49 +111,39 @@ test('offline queue: retry → recover, non-retryable → dead-letter → manual
 
   await seedBrowserAuth(page.context(), owner);
   await setupPanel(page, d.eventId!, d.sessionId!);
-
-  // ── Retryable network failure → RETRYING (held, not lost) → auto-recovery ──
   await scan(page, qrToken(d.a!, d.sessionId!));
   await expect(page.getByTestId('queue-count')).toContainText('1 queued');
-  mode = 'abort';
-  await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByTestId('queue-count')).toContainText('1 retrying', { timeout: 20_000 });
-  // The record survived the failure (never deleted without an ack).
-  await expect(page.getByTestId('queue-count')).toContainText('0 blocked');
-  // Recover: stop failing; the backoff timer re-attempts and the server accepts it.
-  mode = 'ok';
-  await expect(page.getByTestId('queue-count')).toContainText('0 retrying', { timeout: 30_000 });
-  await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 30_000 });
 
-  // ── Non-retryable rejection → BLOCKED (dead-letter), not lost, not admitted ──
-  await scan(page, qrToken(d.b!, d.sessionId!));
-  await expect(page.getByTestId('queue-count')).toContainText('1 queued');
+  // Non-retryable (403) → BLOCKED (dead-letter), held not dropped, not admitted.
   mode = '403';
   await page.getByRole('button', { name: 'Sync now' }).click();
   await expect(page.getByTestId('queue-count')).toContainText('1 blocked', { timeout: 20_000 });
   await expect(page.getByTestId('deadletter-banner')).toBeVisible();
 
-  // Reload durability: the blocked record persists in IndexedDB across a restart.
+  // Reload durability: the blocked record persists across a restart.
   await page.reload();
   await expect(page.getByTestId('queue-count')).toContainText('1 blocked', { timeout: 20_000 });
 
-  // ── Manual retry of the dead-letter, once the cause is fixed ──
-  mode = 'ok';
+  // Manual retry re-queues, then a retryable (network) failure schedules a backoff retry.
+  mode = 'abort';
   await page.getByRole('button', { name: 'Retry blocked' }).click();
   await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByTestId('queue-count')).toContainText('0 blocked', { timeout: 20_000 });
-  await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 20_000 });
+  await expect(page.getByTestId('queue-count')).toContainText('1 retrying', { timeout: 20_000 });
+  await expect(page.getByTestId('queue-count')).toContainText('0 blocked');
 
-  // Server truth: exactly the two tickets ended up checked in (nothing lost/duplicated).
+  // Recover: the backoff timer re-attempts and the server accepts it.
+  mode = 'ok';
+  await expect(page.getByTestId('queue-count')).toContainText('0 retrying', { timeout: 30_000 });
+  await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 30_000 });
+
+  // Server truth: the ticket was admitted exactly once (no longer ACTIVE).
   const man = await (
     await request.get(`${API}/checkin/manifest?eventSessionId=${d.sessionId}`, {
       headers: authed(owner.accessToken),
     })
   ).json();
-  const stillActive = (man.entries as Entry[]).filter(
-    (e) => (e.ticketId === d.a!.ticketId || e.ticketId === d.b!.ticketId) && e.status === 'ACTIVE',
-  );
-  expect(stillActive.length, 'both scanned tickets were admitted (none stuck ACTIVE)').toBe(0);
+  const entry = (man.entries as Entry[]).find((e) => e.ticketId === d.a!.ticketId);
+  expect(entry?.status, 'ticket admitted (not stuck ACTIVE)').not.toBe('ACTIVE');
 });
 
 /**
@@ -180,20 +170,17 @@ test('offline queue: two tabs share one device — exactly one sync leader', asy
     const tab1 = await context.newPage();
     const tab2 = await context.newPage();
 
-    // Tab 1 sets up the device + manifest and queues one scan (shared IndexedDB).
     await setupPanel(tab1, d.eventId!, d.sessionId!);
     await scan(tab1, qrToken(d.a!, d.sessionId!));
     await expect(tab1.getByTestId('queue-count')).toContainText('1 queued');
 
-    // Tab 2 opens the same device (deviceId shared via localStorage) and sees the queue.
     await tab2.goto(`${ORGANIZER}/organizer/events/${d.eventId}/checkin`);
     await expect(tab2.getByRole('heading', { name: 'Offline mode' })).toBeVisible({
       timeout: 20_000,
     });
     await expect(tab2.getByTestId('queue-count')).toContainText('1 queued', { timeout: 20_000 });
 
-    // Both tabs sync concurrently — the Web Lock elects a single leader, so the queue is
-    // submitted exactly once.
+    // Both tabs sync concurrently — the Web Lock elects a single leader.
     await Promise.all([
       tab1.getByRole('button', { name: 'Sync now' }).click(),
       tab2.getByRole('button', { name: 'Sync now' }).click(),

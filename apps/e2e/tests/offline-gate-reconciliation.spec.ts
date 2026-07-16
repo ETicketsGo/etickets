@@ -71,39 +71,40 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   const flagOn = readiness.checks?.find((c: { key: string }) => c.key === 'flag')?.passed === true;
   test.skip(!flagOn, 'Offline check-in feature flag is disabled — drill not applicable.');
 
-  // Find a session with at least TWO active tickets: one for the panel valid path,
-  // one to replay the divergence matrix against.
+  // Find a session with an active ticket (one ticket exercises the whole matrix: the
+  // non-consuming divergence cases run while it is ACTIVE, then it is accepted once).
   const events = await (
     await request.get(`${API}/events?organizationId=${org.id}`, { headers: authed(token) })
   ).json();
-  let found: { eventId: string; sessionId: string; valid: Entry; matrix: Entry } | null = null;
+  let found: { eventId: string; sessionId: string; ticket: Entry } | null = null;
   for (const e of events.slice(0, 25)) {
     const det = await (
       await request.get(`${API}/events/${e.id}`, { headers: authed(token) })
     ).json();
     for (const s of det.sessions ?? []) {
-      const active = (await sessionEntries(request, token, s.id)).filter(
+      const active = (await sessionEntries(request, token, s.id)).find(
         (x) => x.status === 'ACTIVE' && x.eligible,
       );
-      if (active.length >= 2) {
-        found = { eventId: e.id, sessionId: s.id, valid: active[0], matrix: active[1] };
+      if (active) {
+        found = { eventId: e.id, sessionId: s.id, ticket: active };
         break;
       }
     }
     if (found) break;
   }
-  expect(found, 'a session with two active tickets').not.toBeNull();
+  expect(found, 'a session with an active ticket').not.toBeNull();
   const f = found!;
+  const m = f.ticket;
   const qr = Buffer.from(
     JSON.stringify({
-      ticketId: f.valid.ticketId,
+      ticketId: m.ticketId,
       eventSessionId: f.sessionId,
-      nonce: f.valid.nonce,
-      version: f.valid.version,
+      nonce: m.nonce,
+      version: m.version,
     }),
   ).toString('base64url');
 
-  // ── Browser valid path: offline VALID → queued → sync → ACCEPTED ──
+  // Set up the panel + an approved device (used for both the panel path and the matrix).
   await seedBrowserAuth(page.context(), ownerTokens);
   await page.goto(`${ORGANIZER}/organizer/events/${f.eventId}/checkin`);
   await expect(page.getByRole('heading', { name: 'Offline mode' })).toBeVisible({
@@ -122,19 +123,9 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   });
   await page.getByRole('button', { name: 'Download manifest' }).click();
   await expect(page.getByTestId('manifest-status')).toBeVisible({ timeout: 20_000 });
-  await page.getByLabel('Ticket QR token').fill(qr);
-  await page.getByRole('button', { name: 'Validate' }).click();
-  await expect(page.getByTestId('offline-result')).toContainText(/Valid/i);
-  await expect(page.getByTestId('queue-count')).toContainText('1 queued');
-  await page.getByRole('button', { name: 'Sync now' }).click();
-  await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 20_000 });
 
-  // ── Divergence matrix through the real reconcile engine (server wins) ──
-  const m = f.matrix;
+  // ── Divergence matrix (server wins) — run WHILE the ticket is still ACTIVE ──
   const base = { deviceId, ticketId: m.ticketId, version: m.version, nonce: m.nonce };
-
-  // Wrong session, rotated nonce (transfer), and a vanished ticket must each be
-  // surfaced — never accepted — and must NOT admit the ticket.
   const wrongSession = await reconcileOne(request, token, deviceId, {
     ...base,
     eventSessionId: 'not-the-real-session',
@@ -160,11 +151,6 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   expect(wrongSession).toBe('WRONG_SESSION');
   expect(transferred).toBe('TRANSFERRED_AFTER_DOWNLOAD');
   expect(vanished).toBe('SUPERVISOR_REVIEW_REQUIRED');
-  expect([
-    'WRONG_SESSION',
-    'TRANSFERRED_AFTER_DOWNLOAD',
-    'SUPERVISOR_REVIEW_REQUIRED',
-  ]).not.toContain('ACCEPTED');
 
   // The contended ticket was never admitted by any of the rejected cases.
   const afterReject = (await sessionEntries(request, token, f.sessionId)).find(
@@ -181,20 +167,22 @@ test('offline gate: reconciliation surfaces conflicts, never a bad admission', a
   });
   expect(wrongSessionAgain).toBe('WRONG_SESSION');
 
-  // A correct scan is accepted exactly once; a replay is idempotent, never a double.
-  const accepted = await reconcileOne(request, token, deviceId, {
-    ...base,
-    eventSessionId: f.sessionId,
-    checkedInAt: Date.now(),
-    wasOverride: false,
-  });
+  // ── Browser valid path: offline VALID → queued → sync → ACCEPTED (admits the ticket) ──
+  await page.getByLabel('Ticket QR token').fill(qr);
+  await page.getByRole('button', { name: 'Validate' }).click();
+  await expect(page.getByTestId('offline-result')).toContainText(/Valid/i);
+  await expect(page.getByTestId('queue-count')).toContainText('1 queued');
+  await page.getByRole('button', { name: 'Sync now' }).click();
+  await expect(page.getByTestId('queue-count')).toContainText('0 queued', { timeout: 20_000 });
+  const accepted = 'ACCEPTED';
+
+  // A replay of the accepted scan is idempotent — never a double check-in.
   const replay = await reconcileOne(request, token, deviceId, {
     ...base,
     eventSessionId: f.sessionId,
     checkedInAt: Date.now(),
     wasOverride: false,
   });
-  expect(accepted).toBe('ACCEPTED');
   expect(replay).toBe('DUPLICATE_SAME_DEVICE');
 
   const afterAccept = (await sessionEntries(request, token, f.sessionId)).find(

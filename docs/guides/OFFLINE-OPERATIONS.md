@@ -6,6 +6,21 @@ proving the client round-trip end-to-end. It builds on the flag-off protocol
 foundation ([OFFLINE-CHECKIN.md](OFFLINE-CHECKIN.md)) and its launch gate
 ([LIVE-DRILLS.md](LIVE-DRILLS.md)) without changing either.
 
+> **Sprint 12 status.** The pilot operations suite is complete: certification →
+> controlled activation → reconciliation console → command center → device lifecycle →
+> preflight checklist → **queue resilience (retry/backoff/dead-letter + multi-tab
+> leader)** → **wallet-pass sandbox** ([WALLET-PASSES.md](WALLET-PASSES.md)).
+> `OFFLINE_CHECKIN_ENABLED` remains **disabled by default** (endpoints 404; activation
+> NO_GO), and wallet providers are **unavailable** unless explicitly configured.
+
+> **Running the flag-on drills.** Each offline drill is flag-gated (skipped in the
+> default suite) and self-discovers a seeded ticket, which it then consumes (checks
+> in). They are therefore **isolation-scoped**: run them individually, or reseed
+> (`npm run db:seed`) between them, against an API started with
+> `OFFLINE_CHECKIN_ENABLED=true`. The default **flag-off** Playwright suite is the
+> authoritative CI gate — every offline drill skips there and the core Booking /
+> Inventory / Payments / QR / Sharing / Online-check-in / Customer-wallet specs pass.
+
 **Still gated.** Offline gate check-in stays **disabled by default** and
 activation is still **NO-GO**. Everything here renders and functions only where the
 `OFFLINE_CHECKIN_ENABLED` flag is on; with it off, the panel does not render and the
