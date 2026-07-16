@@ -29,6 +29,7 @@ import {
   eligibleCheckIns,
   enqueueCheckIn,
   exportDeadLetter,
+  isQueueDurable,
   listQueue,
   loadManifest,
   localCheckedIn,
@@ -83,6 +84,9 @@ export function OfflineCheckin({
   const [token, setToken] = useState('');
   const [lastResult, setLastResult] = useState<OfflineCheckInResult | null>(null);
   const [queue, setQueue] = useState<QueueRecord[]>([]);
+  // Durable queueing requires IndexedDB; warn (never silently lose scans) if absent.
+  const [durable, setDurable] = useState(true);
+  useEffect(() => setDurable(isQueueDurable()), []);
 
   const refreshQueue = useCallback(() => listQueue().then(setQueue), []);
   useEffect(() => {
@@ -251,10 +255,21 @@ export function OfflineCheckin({
   const copyDeadLetter = async () => {
     try {
       const json = await exportDeadLetter();
-      await navigator.clipboard?.writeText(json);
-      toast.push('Dead-letter diagnostic copied to clipboard.', 'success');
+      // Clipboard needs a secure context; fall back to a file download otherwise.
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(json);
+        toast.push('Dead-letter diagnostic copied to clipboard.', 'success');
+      } else {
+        const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'offline-deadletter.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.push('Dead-letter diagnostic downloaded.', 'success');
+      }
     } catch {
-      toast.push('Could not copy the diagnostic.', 'error');
+      toast.push('Could not export the diagnostic.', 'error');
     }
   };
 
@@ -277,6 +292,17 @@ export function OfflineCheckin({
           Scans validate against a signed manifest and queue durably; the server reconciles on
           reconnect and remains the authority.
         </p>
+
+        {!durable && (
+          <div
+            role="alert"
+            data-testid="durability-warning"
+            className="rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2 text-caption text-status-error"
+          >
+            Durable offline queueing is unavailable in this browser (IndexedDB disabled). Do not
+            rely on offline mode here — use a supported browser, or stay online.
+          </div>
+        )}
 
         {/* Device + manifest preflight */}
         <div className="grid gap-2 sm:grid-cols-2">

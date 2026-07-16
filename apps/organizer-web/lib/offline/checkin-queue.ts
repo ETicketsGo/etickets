@@ -55,6 +55,15 @@ function hasIdb(): boolean {
   return typeof window !== 'undefined' && 'indexedDB' in window;
 }
 
+/**
+ * Whether durable offline queueing is available in this browser. When false (e.g.
+ * IndexedDB disabled/private mode), offline scans cannot be persisted — the operator
+ * must be warned rather than silently losing scans.
+ */
+export function isQueueDurable(): boolean {
+  return hasIdb();
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
