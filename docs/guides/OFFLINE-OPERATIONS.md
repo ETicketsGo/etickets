@@ -289,10 +289,50 @@ acknowledge (403)**, a reason is **required (400)**, the alert is **scope-isolat
 acknowledgement is **audited**, and the **underlying condition remains visible** after
 ack. Skips when the flag is off.
 
+## Device Lifecycle Management (Sprint 12)
+
+A complete organizer UI for managing offline devices over the existing device API.
+
+### Backend (genuine gaps filled — required by the workflows)
+
+Three capabilities the enum implied but no endpoint provided were added to
+`CheckInDeviceService` + the controller (flag-gated, manager/admin-only, audited):
+
+- **Suspend** — `POST /checkin/devices/:id/suspend` → `SUSPENDED` (reversible via
+  approve), audits `CHECKIN_DEVICE_SUSPENDED`. Refuses to suspend a revoked device.
+- **Revoke with a reason** — revoke now records the reason in the audit metadata.
+- **Report lost** — `POST /checkin/devices/:id/report-lost` → revokes and records a
+  **distinct** `CHECKIN_DEVICE_REPORTED_LOST` audit action with the reason.
+- The device list query is now bounded (`take: 200`). No other backend change; the
+  activation/readiness rules are untouched — a revoked/suspended device downgrades
+  its scope via the existing `mustDowngrade`, not a new path.
+
+### Console UI
+
+`organizer-web` route `…/events/[id]/devices` (a **Devices** tab shown only when the
+flag is on). A searchable / status-filterable / sortable / **paginated** table with
+per-device **status (icon + badge + text, never colour alone)**, assigned
+event/session, last-seen, manifest version, and expiration; a **details** dialog; and
+a **Register** dialog (creates a pending device). Manager/admin row actions —
+**Approve, Suspend, Revoke, Report lost** — each open a **confirmation** dialog;
+**Revoke and Report-lost require a reason** (Confirm stays disabled until one is
+given). Before a destructive action on a device that is part of an **active
+activation**, the dialog shows an **activation-impact** warning (the scope will
+downgrade to NO_GO). Non-managers see a read-only view.
+
+### Verification
+
+Unit tests cover the new service methods (suspend/revoke-reason/report-lost audit +
+the suspend-revoked guard). The drill `apps/e2e/tests/offline-device-lifecycle.spec.ts`
+drives the **full lifecycle through the UI** (register → approve → suspend → resume →
+revoke → report-lost), and asserts: the **activation-impact** warning appears, Confirm
+is disabled without a reason, revoking an in-scope device **downgrades activation to
+NO_GO** (rules enforced, not bypassed), a **customer cannot** suspend/revoke (403),
+and every action is **audited**. Skips when the flag is off.
+
 ## What is deliberately NOT in this sprint
 
-Documented as follow-ups, not faked as complete: the full **device-management
-lifecycle** UI, offline **preflight** checklist, queue **backoff/dead-letter +
-multi-tab lock**, and the **wallet-pass sandbox**. None of the existing Booking
-Engine, Inventory, Payment, QR signing, ownership/assignment/sharing, customer offline
-wallet, or online check-in flows were changed.
+Documented as follow-ups, not faked as complete: the offline **preflight** checklist,
+queue **backoff/dead-letter + multi-tab lock**, and the **wallet-pass sandbox**. None
+of the existing Booking Engine, Inventory, Payment, QR signing, ownership/assignment/
+sharing, customer offline wallet, or online check-in flows were changed.
