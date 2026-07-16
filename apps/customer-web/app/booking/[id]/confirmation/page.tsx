@@ -26,6 +26,9 @@ export default function ConfirmationPage() {
   } = useQuery({
     queryKey: ['booking', id],
     queryFn: () => api.getBooking(id),
+    // Confirmation arrives via an async signed webhook — poll until confirmed so the
+    // buyer isn't stranded on a "pending" screen, then stop.
+    refetchInterval: (query) => (query.state.data?.status === 'CONFIRMED' ? false : 4000),
   });
   const upcoming = useQuery({
     queryKey: ['events', 'upcoming'],

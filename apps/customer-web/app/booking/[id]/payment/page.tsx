@@ -68,7 +68,16 @@ export default function PaymentPage() {
       qc.invalidateQueries({ queryKey: ['booking', id] });
       router.push(`/booking/${id}/confirmation`);
     },
-    onError: () => setError('Payment could not be completed. Please try again.'),
+    onError: (err: unknown) => {
+      // The API returns 402 for a declined/insufficient-funds payment — tell the
+      // buyer specifically so they can try another method (see all-exceptions.filter).
+      const status = (err as { status?: number }).status;
+      setError(
+        status === 402
+          ? 'Your payment was declined. Please try a different card or payment method.'
+          : 'Payment could not be completed. Please try again.',
+      );
+    },
   });
 
   if (isError)

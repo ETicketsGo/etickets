@@ -10,8 +10,8 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/account/tickets';
-  const [email, setEmail] = useState('customer1@eticketsgo.test');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
