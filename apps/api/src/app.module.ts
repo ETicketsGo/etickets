@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { VenuesModule } from './venues/venues.module';
 import { EventsModule } from './events/events.module';
+import { CouponsModule } from './coupons/coupons.module';
 import { MoviesModule } from './movies/movies.module';
 import { CinemasModule } from './cinemas/cinemas.module';
 import { ShowsModule } from './shows/shows.module';
@@ -70,6 +71,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     OrganizationsModule,
     VenuesModule,
     EventsModule,
+    CouponsModule,
     MoviesModule,
     CinemasModule,
     ShowsModule,

@@ -425,6 +425,13 @@ export const api = {
       }),
     addTicketType: (body: CreateTicketTypeBody) =>
       request<TicketType>('/events/ticket-types', { method: 'POST', body: JSON.stringify(body) }),
+    updateTicketType: (id: string, body: UpdateTicketTypeBody) =>
+      request<TicketType>(`/events/ticket-types/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    deleteTicketType: (id: string) =>
+      request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     resume: (id: string) => request<OrgEventDetail>(`/events/${id}/resume`, { method: 'POST' }),
@@ -434,6 +441,16 @@ export const api = {
       id: string,
       params: PageParams & { status?: string; q?: string; sessionId?: string },
     ) => request<Paged<AttendeeRow>>(`/events/${id}/attendees${qs(params)}`),
+  },
+
+  coupons: {
+    list: (organizationId: string, params?: PageParams) =>
+      request<Paged<Coupon>>(`/coupons${qs({ organizationId, ...(params ?? {}) })}`),
+    create: (body: CreateCouponBody) =>
+      request<Coupon>('/coupons', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: UpdateCouponBody) =>
+      request<Coupon>(`/coupons/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/coupons/${id}`, { method: 'DELETE' }),
   },
 
   checkins: {
@@ -1137,6 +1154,38 @@ export interface Venue {
   areas?: { id: string; name: string }[];
 }
 
+export type CouponType = 'PERCENT' | 'FIXED';
+export interface Coupon {
+  id: string;
+  organizationId: string | null;
+  code: string;
+  type: CouponType;
+  value: number;
+  maxRedemptions: number | null;
+  redemptions: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CreateCouponBody {
+  organizationId: string;
+  code: string;
+  type: CouponType;
+  value: number;
+  maxRedemptions?: number;
+  startsAt?: string;
+  endsAt?: string;
+}
+export interface UpdateCouponBody {
+  value?: number;
+  maxRedemptions?: number | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
 export type MovieStatusValue = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 export interface MovieBody {
@@ -1396,6 +1445,15 @@ export interface CreateTicketTypeBody {
   maxPerOrder?: number;
   salesStartAt?: string;
   salesEndAt?: string;
+}
+export interface UpdateTicketTypeBody {
+  name?: string;
+  priceMinor?: number;
+  quantityTotal?: number;
+  maxPerOrder?: number;
+  salesStartAt?: string | null;
+  salesEndAt?: string | null;
+  status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface OrderRow {

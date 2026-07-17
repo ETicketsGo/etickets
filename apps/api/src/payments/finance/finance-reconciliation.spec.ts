@@ -107,7 +107,10 @@ describe('csv + aging helpers', () => {
         resolutionNotes: 'needs "review", urgent',
       },
     ]);
-    expect(csv.split('\n')[0]).toContain('id,createdAt');
+    // Shared injection-safe serializer: CRLF-delimited, every cell quoted.
+    expect(csv.split('\r\n')[0]).toBe(
+      '"id","createdAt","env","type","provider","entityRef","amountMinor","currency","status","assignedTo","resolutionNotes"',
+    );
     expect(csv).toContain('"needs ""review"", urgent"');
   });
 

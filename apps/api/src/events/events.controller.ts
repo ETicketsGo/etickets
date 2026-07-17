@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { EventStatus, Role } from '@eticketsgo/shared-types';
@@ -6,10 +6,12 @@ import {
   createEventSchema,
   createSessionSchema,
   createTicketTypeSchema,
+  updateTicketTypeSchema,
   paginationSchema,
   reviewDecisionSchema,
   type CreateSessionInput,
   type CreateTicketTypeInput,
+  type UpdateTicketTypeInput,
   type ReviewDecisionInput,
 } from '@eticketsgo/validation';
 import { EventsService } from './events.service';
@@ -79,6 +81,22 @@ export class EventsController {
     @Body(new ZodValidationPipe(createTicketTypeSchema)) body: CreateTicketTypeInput,
   ) {
     return this.events.addTicketType(user, body);
+  }
+
+  @Patch('ticket-types/:id')
+  @ApiOperation({ summary: 'Edit a ticket type (price locked after sale; quantity only rises).' })
+  updateTicketType(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateTicketTypeSchema)) body: UpdateTicketTypeInput,
+  ) {
+    return this.events.updateTicketType(user, id, body);
+  }
+
+  @Delete('ticket-types/:id')
+  @ApiOperation({ summary: 'Delete a ticket type with no sales/holds.' })
+  deleteTicketType(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.events.deleteTicketType(user, id);
   }
 
   @Get(':id/orders')

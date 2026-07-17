@@ -5,6 +5,7 @@ import type {
   CreateEventInput,
   CreateSessionInput,
   CreateTicketTypeInput,
+  UpdateTicketTypeInput,
   ReviewDecisionInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -251,6 +252,96 @@ export class EventsService {
       },
       include: { inventory: true },
     });
+  }
+
+  /** Load a ticket type with its inventory + owning org, and assert organizer access. */
+  private async loadOwnedTicketType(user: RequestUser, id: string) {
+    const tt = await this.prisma.ticketType.findUnique({
+      where: { id },
+      include: { inventory: true, eventSession: { include: { event: true } } },
+    });
+    if (!tt)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket type not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, tt.eventSession.event.organizationId, ORGANIZER_ROLES);
+    return tt;
+  }
+
+  /**
+   * Edit a ticket type with sales-safety rules: the price is locked once any ticket
+   * has sold (changing a paid price is a financial-integrity risk), and the quantity
+   * can only rise to at least the already-committed (sold + held) amount — it can
+   * never drop below what buyers already hold. Name/limits/window/status are free.
+   */
+  async updateTicketType(user: RequestUser, id: string, input: UpdateTicketTypeInput) {
+    const tt = await this.loadOwnedTicketType(user, id);
+    const committed = (tt.inventory?.quantitySold ?? 0) + (tt.inventory?.quantityHeld ?? 0);
+    const sold = tt.inventory?.quantitySold ?? 0;
+
+    if (input.priceMinor !== undefined && input.priceMinor !== tt.priceMinor && sold > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Price cannot be changed after tickets have sold.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (input.quantityTotal !== undefined && input.quantityTotal < committed) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `Quantity cannot be below the ${committed} already sold/held.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const updated = await this.prisma.ticketType.update({
+      where: { id },
+      data: {
+        name: input.name ?? undefined,
+        priceMinor: input.priceMinor ?? undefined,
+        maxPerOrder: input.maxPerOrder ?? undefined,
+        status: input.status ?? undefined,
+        salesStartAt: input.salesStartAt === undefined ? undefined : input.salesStartAt,
+        salesEndAt: input.salesEndAt === undefined ? undefined : input.salesEndAt,
+        quantityTotal: input.quantityTotal ?? undefined,
+        ...(input.quantityTotal !== undefined
+          ? { inventory: { update: { quantityTotal: input.quantityTotal } } }
+          : {}),
+      },
+      include: { inventory: true },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: tt.eventSession.event.organizationId,
+      action: 'TICKET_TYPE_UPDATED',
+      entityType: 'TicketType',
+      entityId: id,
+      metadata: { ...input, salesStartAt: undefined, salesEndAt: undefined },
+    });
+    return updated;
+  }
+
+  /** Delete a ticket type only when nothing has been sold or held against it. */
+  async deleteTicketType(user: RequestUser, id: string) {
+    const tt = await this.loadOwnedTicketType(user, id);
+    if ((tt.inventory?.quantitySold ?? 0) > 0 || (tt.inventory?.quantityHeld ?? 0) > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This ticket type has sales/holds and cannot be deleted. Deactivate it instead.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    await this.prisma.$transaction([
+      this.prisma.ticketInventory.deleteMany({ where: { ticketTypeId: id } }),
+      this.prisma.ticketType.delete({ where: { id } }),
+    ]);
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: tt.eventSession.event.organizationId,
+      action: 'TICKET_TYPE_DELETED',
+      entityType: 'TicketType',
+      entityId: id,
+      metadata: { name: tt.name },
+    });
+    return { ok: true };
   }
 
   async submitForReview(user: RequestUser, id: string) {

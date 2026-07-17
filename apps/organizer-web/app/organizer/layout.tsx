@@ -12,6 +12,7 @@ import {
   Building2,
   Rocket,
   LifeBuoy,
+  TicketPercent,
 } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 
@@ -21,6 +22,7 @@ const nav: NavItem[] = [
   { label: 'Events', href: '/organizer/events', icon: CalendarDays },
   { label: 'Movies', href: '/organizer/movies', icon: Film },
   { label: 'Cinemas', href: '/organizer/cinemas', icon: Building2 },
+  { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Team', href: '/organizer/team', icon: Users },
   { label: 'Premium', href: '/organizer/premium', icon: Sparkles },

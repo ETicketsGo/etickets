@@ -51,6 +51,14 @@ export default function EventsPage() {
     setPage(1);
     setApplied({ q: q || undefined, city: city || undefined, category: category || undefined });
   };
+  const hasFilters = Boolean(applied.q || applied.city || applied.category);
+  const clearFilters = () => {
+    setQ('');
+    setCity('');
+    setCategory('');
+    setPage(1);
+    setApplied({});
+  };
 
   return (
     <div className="space-y-8">
@@ -136,8 +144,15 @@ export default function EventsPage() {
       ) : (
         <EmptyState
           title="No events match your search"
-          hint="Try clearing filters."
+          hint={hasFilters ? 'Try clearing your filters.' : 'Check back soon for new events.'}
           icon={Search}
+          action={
+            hasFilters ? (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : undefined
+          }
         />
       )}
     </div>

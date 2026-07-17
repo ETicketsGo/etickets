@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, login } from './helpers';
 
 test('admin reviews an event, then inspects refunds and audit', async ({ page }) => {
-  await login(page, ADMIN);
+  await login(page, ADMIN, 'admin@eticketsgo.test');
   await expect(page).toHaveURL(/\/admin/, { timeout: 20_000 });
   await expect(page.getByRole('heading', { name: 'Platform overview' })).toBeVisible();
 

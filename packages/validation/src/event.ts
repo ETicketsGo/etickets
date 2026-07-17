@@ -43,3 +43,16 @@ export const createTicketTypeSchema = z.object({
   maxPerOrder: z.number().int().min(1).max(50).default(10),
 });
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeSchema>;
+
+/** Partial ticket-type update. Server enforces sales-safety (price locked after
+ *  first sale; quantity can only rise to cover committed inventory). */
+export const updateTicketTypeSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  priceMinor: z.number().int().min(0).optional(),
+  quantityTotal: z.number().int().min(1).optional(),
+  salesStartAt: z.coerce.date().nullable().optional(),
+  salesEndAt: z.coerce.date().nullable().optional(),
+  maxPerOrder: z.number().int().min(1).max(50).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+export type UpdateTicketTypeInput = z.infer<typeof updateTicketTypeSchema>;

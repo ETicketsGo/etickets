@@ -34,24 +34,9 @@ function dayKey(d: Date | string): string {
   return new Date(d).toISOString().slice(0, 10);
 }
 
-// ─────────────────────────── CSV (injection-safe) ───────────────────────────
-
-type CsvValue = string | number | null | undefined;
-
-/** One CSV cell: quoted, quote-escaped, and guarded against formula injection. */
-function csvCell(value: CsvValue): string {
-  let s = value == null ? '' : String(value);
-  // Neutralise spreadsheet formula injection (=, +, -, @, tab, CR lead chars).
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return `"${s.replace(/"/g, '""')}"`;
-}
-
-/** Build a CRLF-delimited CSV document from a header row + data rows. */
-export function toCsv(headers: string[], rows: CsvValue[][]): string {
-  const lines = [headers.map(csvCell).join(',')];
-  for (const row of rows) lines.push(row.map(csvCell).join(','));
-  return lines.join('\r\n');
-}
+// CSV serialization is shared, injection-safe, and lives in one place.
+import { toCsv } from '../common/csv';
+export { toCsv };
 
 // ─────────────────────────── Report shapes ───────────────────────────
 
