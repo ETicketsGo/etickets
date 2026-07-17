@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Ticket, Menu, X } from 'lucide-react';
-import { tokenStore } from '@/lib/api';
+import { isSignedIn } from '@/lib/auth-flag';
 
 const LINKS = [
   { href: '/features', label: 'Features' },
@@ -21,7 +21,7 @@ export function MarketingNav() {
   // The logo always goes to the home page (/). Only the right-hand actions adapt to
   // auth so a signed-in visitor sees a way into the app instead of "Sign in".
   const [authed, setAuthed] = useState(false);
-  useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
+  useEffect(() => setAuthed(isSignedIn()), [pathname]);
 
   // Close the mobile menu whenever the route changes.
   useEffect(() => setOpen(false), [pathname]);
@@ -76,7 +76,7 @@ export function MarketingNav() {
                 Browse events
               </Link>
               <Link
-                href="/discover"
+                href="/"
                 className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
                 Go to app
@@ -139,7 +139,7 @@ export function MarketingNav() {
                     Browse events
                   </Link>
                   <Link
-                    href="/discover"
+                    href="/"
                     className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
                   >
                     Go to app

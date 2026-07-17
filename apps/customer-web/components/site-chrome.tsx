@@ -1,6 +1,8 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { isSignedIn } from '@/lib/auth-flag';
 import { Header } from '@/components/header';
 import { FeedbackWidget } from '@/components/feedback-widget';
 import { MarketingNav } from '@/components/marketing/nav';
@@ -35,8 +37,16 @@ function isMarketing(path: string): boolean {
 
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  // The home page (/) is adaptive: signed-in visitors see the app (discovery) there,
+  // so it needs the app chrome; signed-out visitors get the marketing shell. Every
+  // other marketing route always uses the marketing shell. Defaults to signed-out on
+  // the server so crawlers + first paint get the marketing landing.
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => setAuthed(isSignedIn()), [pathname]);
 
-  if (isMarketing(pathname)) {
+  const useMarketingShell = isMarketing(pathname) && !(pathname === '/' && authed);
+
+  if (useMarketingShell) {
     return (
       <>
         <MarketingNav />
