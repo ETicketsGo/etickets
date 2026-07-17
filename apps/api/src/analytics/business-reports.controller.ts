@@ -124,9 +124,18 @@ export class AdminBusinessReportsController {
   }
 
   @Get('growth')
-  @ApiOperation({ summary: 'New users + new bookings daily series and retention (repeat rate).' })
+  @ApiOperation({
+    summary: 'New users + new bookings + new organizers daily series and retention.',
+  })
   growth(@Query(new ZodValidationPipe(rangeQuery)) q: RangeQuery) {
     const range = resolveRange(q.from, q.to);
     return this.reports.growth(range.from, range.to);
+  }
+
+  @Get('payment-health')
+  @ApiOperation({ summary: 'Payment success rate overall and per provider.' })
+  paymentHealth(@Query(new ZodValidationPipe(rangeQuery)) q: RangeQuery) {
+    const range = resolveRange(q.from, q.to);
+    return this.reports.paymentHealth(range.from, range.to);
   }
 }

@@ -43,6 +43,7 @@ export default function AttendeesTab() {
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['attendees', id, page, status, applied],
@@ -95,15 +96,32 @@ export default function AttendeesTab() {
     },
   ];
 
-  const exportCsv = () => {
-    if (!data) return;
-    const blob = new Blob([toCsv(data.data)], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `attendees-page-${page}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Export the FULL filtered attendee list, not just the current page — a door list
+  // with 20 of N rows is a silent, high-impact trap. Pages through at the 100-row cap.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const all: AttendeeRow[] = [];
+      for (let p = 1; ; p += 1) {
+        const res = await api.events.attendees(id, {
+          page: p,
+          pageSize: 100,
+          status: status || undefined,
+          q: applied || undefined,
+        });
+        all.push(...res.data);
+        if (res.data.length === 0 || all.length >= res.meta.total) break;
+      }
+      const blob = new Blob([toCsv(all)], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `attendees-${id}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -133,8 +151,12 @@ export default function AttendeesTab() {
             </option>
           ))}
         </Select>
-        <Button variant="outline" onClick={exportCsv} disabled={!data || data.data.length === 0}>
-          Export CSV
+        <Button
+          variant="outline"
+          onClick={exportCsv}
+          disabled={exporting || !data || data.meta.total === 0}
+        >
+          {exporting ? 'Exporting…' : 'Export CSV'}
         </Button>
       </div>
 

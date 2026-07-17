@@ -342,7 +342,8 @@ describe('BusinessReportsService.growth', () => {
         $queryRaw: jest
           .fn()
           .mockResolvedValueOnce([{ day: new Date('2026-07-01'), count: 5n }])
-          .mockResolvedValueOnce([{ day: new Date('2026-07-01'), count: 10n }]),
+          .mockResolvedValueOnce([{ day: new Date('2026-07-01'), count: 10n }])
+          .mockResolvedValueOnce([{ day: new Date('2026-07-01'), count: 2n }]),
       },
     });
     const r = await service.growth(FROM, TO);
@@ -350,6 +351,7 @@ describe('BusinessReportsService.growth', () => {
     expect(r.retention.rate).toBe(67);
     expect(r.newUsers).toEqual([{ day: '2026-07-01', count: 5 }]);
     expect(r.newBookings).toEqual([{ day: '2026-07-01', count: 10 }]);
+    expect(r.newOrganizers).toEqual([{ day: '2026-07-01', count: 2 }]);
   });
 });
 

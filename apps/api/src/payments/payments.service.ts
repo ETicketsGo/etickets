@@ -67,7 +67,11 @@ export class PaymentsService {
   async createIntent(bookingId: string, user?: RequestUser) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { payment: true },
+      include: {
+        payment: true,
+        // Country feeds the multi-country payment routing dimension (see webhook path).
+        event: { select: { venue: { select: { country: true } } } },
+      },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -103,7 +107,7 @@ export class PaymentsService {
     // this currency and fails over across constructed adapters. In local/dev (dummy
     // only) it resolves to the mock, preserving the existing flow exactly.
     const { intent, provider } = await this.orchestrator.createPayment(
-      { currency: booking.currency },
+      { currency: booking.currency, country: booking.event?.venue?.country ?? undefined },
       {
         bookingId,
         amountMinor: booking.totalMinor,

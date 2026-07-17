@@ -2,16 +2,21 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Input } from '@/components/ui';
+
+const PAGE_SIZE = 24;
 
 export default function EventsPage() {
   const [q, setQ] = useState('');
   const [city, setCity] = useState('');
   const [category, setCategory] = useState('');
   const [applied, setApplied] = useState<{ q?: string; city?: string; category?: string }>({});
+  const [page, setPage] = useState(1);
+  // Accumulate loaded pages so "Load more" appends rather than replaces.
+  const [items, setItems] = useState<ComponentProps<typeof EventCard>['event'][]>([]);
 
   // Honour deep links from the home page (?q= / ?category= / ?city=).
   useEffect(() => {
@@ -31,10 +36,21 @@ export default function EventsPage() {
     });
   }, []);
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['events', applied],
-    queryFn: () => api.listEvents({ pageSize: '24', ...applied }),
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['events', applied, page],
+    queryFn: () => api.listEvents({ pageSize: String(PAGE_SIZE), page: String(page), ...applied }),
   });
+
+  // Replace on a new search (page 1), append on Load more.
+  useEffect(() => {
+    if (!data) return;
+    setItems((prev) => (page === 1 ? data.data : [...prev, ...data.data]));
+  }, [data, page]);
+
+  const applyFilters = () => {
+    setPage(1);
+    setApplied({ q: q || undefined, city: city || undefined, category: category || undefined });
+  };
 
   return (
     <div className="space-y-8">
@@ -49,11 +65,7 @@ export default function EventsPage() {
         className="grid gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:grid-cols-[1fr_1fr_1fr_auto]"
         onSubmit={(e) => {
           e.preventDefault();
-          setApplied({
-            q: q || undefined,
-            city: city || undefined,
-            category: category || undefined,
-          });
+          applyFilters();
         }}
       >
         <Input
@@ -99,14 +111,27 @@ export default function EventsPage() {
             />
           ))}
         </div>
-      ) : data && data.data.length > 0 ? (
+      ) : items.length > 0 ? (
         <>
-          <p className="text-caption text-text-muted">{data.meta.total} event(s)</p>
+          <p className="text-caption text-text-muted">
+            Showing {items.length} of {data?.meta.total ?? items.length} event(s)
+          </p>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {data.data.map((e) => (
+            {items.map((e) => (
               <EventCard key={e.id} event={e} />
             ))}
           </div>
+          {data && items.length < data.meta.total && (
+            <div className="flex justify-center pt-2">
+              <Button
+                variant="secondary"
+                disabled={isFetching}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                {isFetching ? 'Loading…' : 'Load more'}
+              </Button>
+            </div>
+          )}
         </>
       ) : (
         <EmptyState

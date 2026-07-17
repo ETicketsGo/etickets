@@ -810,6 +810,8 @@ export const api = {
         request<TopExperiencesReport>(`/admin/reports/top-experiences${qs(params ?? {})}`),
       growth: (params?: ReportRange) =>
         request<GrowthReport>(`/admin/reports/growth${qs(params ?? {})}`),
+      paymentHealth: (params?: ReportRange) =>
+        request<PaymentHealthReport>(`/admin/reports/payment-health${qs(params ?? {})}`),
 
       /** Absolute URL for a report's CSV export (bearer auth still required). */
       csvUrl: (report: ReportCsvName, params?: ReportRange & { limit?: number }) =>
@@ -2346,4 +2348,18 @@ export interface GrowthReport {
   retention: { totalCustomers: number; repeatCustomers: number; rate: number };
   newUsers: { day: string; count: number }[];
   newBookings: { day: string; count: number }[];
+  newOrganizers: { day: string; count: number }[];
+}
+
+export interface PaymentHealthReport {
+  from: string;
+  to: string;
+  overallSuccessRate: number | null;
+  providers: {
+    provider: string;
+    succeeded: number;
+    failed: number;
+    pending: number;
+    successRate: number | null;
+  }[];
 }

@@ -255,7 +255,10 @@ export default function HomePage() {
               Publish events, sell tickets, and check in guests with a beautiful organizer console.
             </p>
           </div>
-          <ButtonLink href="http://localhost:3001" variant="primary">
+          <ButtonLink
+            href={process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001'}
+            variant="primary"
+          >
             Open organizer console
           </ButtonLink>
         </div>

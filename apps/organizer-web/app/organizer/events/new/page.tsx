@@ -104,6 +104,12 @@ function NewEventWizard() {
       if (tickets.length === 0) e.form = 'Add at least one ticket type.';
       tickets.forEach((t, i) => {
         if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
+        if (
+          t.priceRupees === '' ||
+          !Number.isFinite(Number(t.priceRupees)) ||
+          Number(t.priceRupees) < 0
+        )
+          e[`t${i}Price`] = 'Enter a valid price (0 or more).';
         if (Number(t.quantityTotal) < 1) e[`t${i}Qty`] = 'Quantity must be at least 1.';
       });
     }
@@ -382,6 +388,7 @@ function NewEventWizard() {
                   label="Price (₹)"
                   type="number"
                   value={t.priceRupees}
+                  error={fieldErrors[`t${i}Price`]}
                   onChange={(e) =>
                     setTickets(
                       tickets.map((x, j) => (j === i ? { ...x, priceRupees: e.target.value } : x)),

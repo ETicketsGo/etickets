@@ -288,6 +288,8 @@ export class BookingsService {
 
   /** Expire stale holds for a session (lazy expiry path). */
   async releaseExpiredHolds(eventSessionId?: string): Promise<number> {
+    // Bounded per sweep so a flash on-sale that abandons tens of thousands of holds
+    // can't load them all at once; the remainder is released on the next tick.
     const stale = await this.prisma.booking.findMany({
       where: {
         status: BookingStatus.PENDING_PAYMENT,
@@ -295,6 +297,8 @@ export class BookingsService {
         ...(eventSessionId ? { eventSessionId } : {}),
       },
       include: { items: true, event: { select: { experienceType: true } } },
+      orderBy: { holdExpiresAt: 'asc' },
+      take: 500,
     });
     if (stale.length === 0) return 0;
 
