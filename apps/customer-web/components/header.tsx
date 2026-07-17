@@ -34,7 +34,7 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <Link
-          href="/discover"
+          href={authed ? '/discover' : '/'}
           aria-label="ETicketsGo home"
           className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >

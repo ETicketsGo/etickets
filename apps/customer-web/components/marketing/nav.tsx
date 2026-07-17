@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Ticket, Menu, X } from 'lucide-react';
+import { tokenStore } from '@/lib/api';
 
 const LINKS = [
   { href: '/features', label: 'Features' },
@@ -17,9 +18,15 @@ const LINKS = [
 export function MarketingNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // The logo + actions adapt to auth so the marketing header behaves like the app
+  // header: a signed-in visitor's logo goes to their app home, not the marketing home.
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
 
   // Close the mobile menu whenever the route changes.
   useEffect(() => setOpen(false), [pathname]);
+
+  const homeHref = authed ? '/discover' : '/';
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background-canvas/80 backdrop-blur-lg">
@@ -28,7 +35,7 @@ export function MarketingNav() {
         aria-label="Primary"
       >
         <Link
-          href="/"
+          href={homeHref}
           aria-label="ETicketsGo home"
           className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
@@ -62,18 +69,37 @@ export function MarketingNav() {
 
         {/* Desktop actions */}
         <div className="hidden items-center gap-2 lg:flex">
-          <Link
-            href="/login"
-            className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/register"
-            className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-          >
-            Get started
-          </Link>
+          {authed ? (
+            <>
+              <Link
+                href="/events"
+                className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                Browse events
+              </Link>
+              <Link
+                href="/discover"
+                className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+              >
+                Go to app
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/register"
+                className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+              >
+                Get started
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile toggle */}
@@ -106,18 +132,37 @@ export function MarketingNav() {
               </Link>
             ))}
             <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-4">
-              <Link
-                href="/login"
-                className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/register"
-                className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
-              >
-                Get started
-              </Link>
+              {authed ? (
+                <>
+                  <Link
+                    href="/events"
+                    className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
+                  >
+                    Browse events
+                  </Link>
+                  <Link
+                    href="/discover"
+                    className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
+                  >
+                    Go to app
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
+                  >
+                    Get started
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
