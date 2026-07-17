@@ -18,15 +18,13 @@ const LINKS = [
 export function MarketingNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  // The logo + actions adapt to auth so the marketing header behaves like the app
-  // header: a signed-in visitor's logo goes to their app home, not the marketing home.
+  // The logo always goes to the home page (/). Only the right-hand actions adapt to
+  // auth so a signed-in visitor sees a way into the app instead of "Sign in".
   const [authed, setAuthed] = useState(false);
   useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
 
   // Close the mobile menu whenever the route changes.
   useEffect(() => setOpen(false), [pathname]);
-
-  const homeHref = authed ? '/discover' : '/';
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background-canvas/80 backdrop-blur-lg">
@@ -35,7 +33,7 @@ export function MarketingNav() {
         aria-label="Primary"
       >
         <Link
-          href={homeHref}
+          href="/"
           aria-label="ETicketsGo home"
           className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
