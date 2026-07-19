@@ -60,7 +60,7 @@ export function AppShell({
             href={item.href}
             onClick={() => setMobileOpen(false)}
             aria-current={active ? 'page' : undefined}
-            className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-[0.9375rem] transition-colors ${
+            className={`flex min-h-[2.75rem] items-center gap-2.5 rounded-md px-3 py-2 text-[0.9375rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0 ${
               active
                 ? 'bg-action-primary/10 font-semibold text-action-primary'
                 : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
@@ -75,13 +75,14 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen bg-background-canvas">
-      <header className="sticky top-0 z-30 border-b border-border bg-background-surface/80 backdrop-blur-md">
+    <div className="min-h-dvh bg-background-canvas">
+      <header className="sticky top-0 z-30 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="flex items-center justify-between px-4 py-3 lg:px-6">
           <div className="flex items-center gap-3">
             <button
-              className="rounded-md p-1.5 text-text-secondary hover:bg-background-subtle lg:hidden"
+              className="flex h-11 w-11 items-center justify-center rounded-md text-text-secondary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:hidden"
               aria-label="Toggle navigation"
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen((o) => !o)}
             >
               <Menu className="h-5 w-5" />

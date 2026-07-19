@@ -23,6 +23,7 @@ import { EmptyState, ErrorState, ButtonLink, Input } from '@/components/ui';
 import { WalletCard } from '@/components/wallet-card';
 import { fetchWalletWithOffline, lastSyncedAt, deriveSyncState } from '@/lib/offline/sync';
 import { clearAllOffline } from '@/lib/offline/wallet-store';
+import { requestWalletSync } from '@/lib/push';
 
 function formatSynced(ts: number | null): string {
   if (!ts) return 'not yet';
@@ -91,6 +92,18 @@ export default function ExperienceWalletPage() {
   useEffect(() => {
     lastSyncedAt().then(setSyncedAt);
   }, [data]);
+
+  // Background sync (WS8): register a wallet-sync tag and refetch when the service
+  // worker signals SYNC_WALLET (fired on the browser's `sync` event after reconnect).
+  useEffect(() => {
+    void requestWalletSync();
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'SYNC_WALLET') refetch();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [refetch]);
 
   const syncState = deriveSyncState({
     hasToken: typeof window !== 'undefined' && !!tokenStore.access,

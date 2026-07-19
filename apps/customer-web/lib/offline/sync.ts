@@ -23,6 +23,23 @@ export async function fetchWalletWithOffline(): Promise<WalletTicket[]> {
   }
 }
 
+/**
+ * A single ticket, offline-aware (v1.4 WS8): network-first, falling back to the
+ * cached wallet copy in IndexedDB so an installed/offline device can still show the
+ * pass + its QR. Reuses the same user-scoped store as the wallet list.
+ */
+export async function fetchTicketWithOffline(ticketId: string): Promise<WalletTicket> {
+  const userId = currentUserId();
+  try {
+    return await api.getTicket(ticketId);
+  } catch (err) {
+    const record = userId ? await loadWallet(userId) : null;
+    const found = record?.items.find((t) => t.id === ticketId);
+    if (found) return found;
+    throw err;
+  }
+}
+
 /** Reads the last successful sync time for the current user (for "Updated …"). */
 export async function lastSyncedAt(): Promise<number | null> {
   const userId = currentUserId();

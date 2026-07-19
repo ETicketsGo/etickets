@@ -22,10 +22,18 @@ import {
   useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
+import { fetchTicketWithOffline } from '@/lib/offline/sync';
 import { dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
+import dynamic from 'next/dynamic';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
-import { WalletPasses } from '@/components/wallet-passes';
+
+// Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
+// needed when a pass is available, so it's split out of the initial ticket bundle.
+const WalletPasses = dynamic(
+  () => import('@/components/wallet-passes').then((m) => m.WalletPasses),
+  { ssr: false, loading: () => null },
+);
 
 const QR_FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -46,7 +54,8 @@ export default function TicketDetailPage() {
 
   const ticketQ = useQuery({
     queryKey: ['ticket', ticketId],
-    queryFn: () => api.getTicket(ticketId),
+    // Offline-aware (WS8): falls back to the cached wallet copy when offline.
+    queryFn: () => fetchTicketWithOffline(ticketId),
     enabled: typeof window !== 'undefined' && !!tokenStore.access,
   });
   const ticket = ticketQ.data;

@@ -362,6 +362,25 @@ export const api = {
       }),
   },
 
+  // Browser Web Push (v1.4): VAPID key + subscription register/unregister.
+  push: {
+    vapidKey: () => request<{ publicKey: string | null }>('/push/vapid-public-key'),
+    subscribe: (body: {
+      endpoint: string;
+      keys: { p256dh: string; auth: string };
+      userAgent?: string;
+    }) =>
+      request<{ subscribed: boolean }>('/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    unsubscribe: (endpoint: string) =>
+      request<{ removed: number }>('/push/unsubscribe', {
+        method: 'POST',
+        body: JSON.stringify({ endpoint }),
+      }),
+  },
+
   notifications: {
     inbox: (params: { limit?: number; before?: string } = {}) =>
       request<NotificationInbox>(`/notifications${qs(params)}`),

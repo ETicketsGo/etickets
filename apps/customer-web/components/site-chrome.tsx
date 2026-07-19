@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { isSignedIn } from '@/lib/auth-flag';
 import { Header } from '@/components/header';
 import { FeedbackWidget } from '@/components/feedback-widget';
+import { BottomNav } from '@/components/bottom-nav';
+import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
 
@@ -59,11 +61,14 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">{children}</main>
+      {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
+      <main className="mx-auto max-w-6xl px-4 py-10 pb-24 sm:px-6 lg:pb-10">{children}</main>
       <footer className="mt-16 border-t border-border py-8 text-center text-caption text-text-muted">
         ETicketsGo — demo MVP. Mock payments only.
       </footer>
       <FeedbackWidget />
+      <BottomNav />
+      <InstallPrompt />
     </>
   );
 }

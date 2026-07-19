@@ -144,6 +144,14 @@ const envSchema = z.object({
   FCM_PROJECT_ID: z.string().optional(),
   FCM_CLIENT_EMAIL: z.string().optional(),
   FCM_PRIVATE_KEY: z.string().optional(),
+
+  // --- Browser Web Push (v1.4). Self-hosted VAPID, no third party. The delivery
+  //     transport is a placeholder ('log') until a VAPID transport is wired; the
+  //     keys below are optional and only exposed as non-secret public key. ---
+  WEBPUSH_PROVIDER: z.enum(['log', 'vapid']).default('log'),
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

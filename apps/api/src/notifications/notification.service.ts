@@ -29,10 +29,10 @@ export interface DispatchSummary {
   retried: number;
 }
 
-// Every notification also lands in the in-app inbox (WS8); `in_app` delivery is a
-// no-op persist, so this adds an inbox row without any external send. Per-user
-// preferences can still opt out of either channel.
-const DEFAULT_CHANNELS = ['email', 'in_app'];
+// Every notification lands in email + the in-app inbox, and is push-ready (v1.4):
+// the `push` channel fans out to the user's registered browser subscriptions and
+// no-ops cleanly when there are none. All three respect per-user preferences.
+const DEFAULT_CHANNELS = ['email', 'in_app', 'push'];
 const DEFAULT_LOCALE = 'en';
 
 /**
