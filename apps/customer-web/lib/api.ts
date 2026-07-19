@@ -47,6 +47,8 @@ export type {
   ResolvedShare,
   SharePermissionValue,
   ShareExpiryValue,
+  PublicAddOn,
+  PublicBundle,
 } from '@eticketsgo/web-kit';
 export type PaginatedEvents = Paged<PublicEventCard>;
 
@@ -114,6 +116,9 @@ export const api = {
   analytics: () => wk.analytics.customer(),
   // Customer Success: contact, bug report, feature request, feedback, CSAT.
   submitFeedback: (body: FeedbackSubmission) => wk.support.submit(body),
+  // Experience Commerce (v1.3): public add-ons + bundles for an event.
+  publicAddOns: (eventId: string) => wk.commerce.publicAddOns(eventId),
+  publicBundles: (eventId: string) => wk.commerce.publicBundles(eventId),
   // Notification center (v1.2 WS8): in-app inbox + read state.
   notificationsInbox: (params?: { limit?: number; before?: string }) =>
     wk.notifications.inbox(params),
