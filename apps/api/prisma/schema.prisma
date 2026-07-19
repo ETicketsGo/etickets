@@ -265,12 +265,31 @@ model User {
   assignedTickets         Ticket[]                 @relation("TicketAttendee")
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
+  pushSubscriptions       PushSubscription[]
   feedback                Feedback[]
   checkIns                CheckIn[]                @relation("CheckInActor")
   auditLogs               AuditLog[]
   reviews                 Review[]
 
   @@index([status])
+}
+
+// A browser Web Push subscription (v1.4). Stores only the standard public
+// subscription material (endpoint + p256dh/auth keys) — no secrets. Delivery goes
+// through the pluggable WebPush dispatcher (default: log placeholder; a VAPID
+// transport drops in without schema change). One row per browser/endpoint.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model RefreshToken {

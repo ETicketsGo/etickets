@@ -2,6 +2,9 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { NotificationService } from './notification.service';
+import { WebPushController } from './web-push/web-push.controller';
+import { WebPushService } from './web-push/web-push.service';
+import { WEB_PUSH_DISPATCHER, selectWebPushDispatcher } from './web-push/web-push.dispatcher';
 import { NotificationTemplateService } from './templates/notification-template.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
@@ -20,8 +23,10 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
 
 @Global()
 @Module({
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, WebPushController],
   providers: [
+    WebPushService,
+    { provide: WEB_PUSH_DISPATCHER, inject: [ConfigService], useFactory: selectWebPushDispatcher },
     NotificationService,
     NotificationTemplateService,
     NotificationPreferencesService,
