@@ -5,6 +5,7 @@ import { Bell } from 'lucide-react';
 import { api } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
+import { PushToggle } from '@/components/push-toggle';
 
 export default function NotificationsPage() {
   const qc = useQueryClient();
@@ -48,6 +49,8 @@ export default function NotificationsPage() {
           </Button>
         )}
       </div>
+
+      <PushToggle />
 
       {isError ? (
         <ErrorState

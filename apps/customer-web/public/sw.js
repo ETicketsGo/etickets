@@ -4,7 +4,7 @@
  * requests and all non-GET (mutations) are passed straight through to the
  * network, so offline access can never bypass server authorization. */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const APP_CACHE = `etg-app-${VERSION}`;
 const STATIC_CACHE = `etg-static-${VERSION}`;
 const OFFLINE_URL = '/offline.html';
@@ -33,6 +33,53 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// ── Web Push (v1.4) ── Render a notification from the pushed payload. The payload
+// carries no secrets; deep-link target lives in `data.url`.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  const title = data.title || 'ETicketsGo';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      tag: data.tag,
+      data: { url: data.url || '/account/tickets' },
+    }),
+  );
+});
+
+// Focus an existing tab on the target route, or open one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const existing = all.find((c) => c.url.includes(target));
+      if (existing) return existing.focus();
+      return self.clients.openWindow(target);
+    })(),
+  );
+});
+
+// ── Background Sync (v1.4) ── The SW has no auth token, so it nudges any open
+// client to refresh its wallet from the network when connectivity returns.
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'etg-wallet-sync') return;
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ includeUncontrolled: true });
+      all.forEach((c) => c.postMessage({ type: 'SYNC_WALLET' }));
+    })(),
+  );
 });
 
 self.addEventListener('fetch', (event) => {

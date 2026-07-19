@@ -119,6 +119,14 @@ export const api = {
   // Experience Commerce (v1.3): public add-ons + bundles for an event.
   publicAddOns: (eventId: string) => wk.commerce.publicAddOns(eventId),
   publicBundles: (eventId: string) => wk.commerce.publicBundles(eventId),
+  // Web Push (v1.4): VAPID key + browser subscription register/unregister.
+  pushVapidKey: () => wk.push.vapidKey(),
+  pushSubscribe: (body: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    userAgent?: string;
+  }) => wk.push.subscribe(body),
+  pushUnsubscribe: (endpoint: string) => wk.push.unsubscribe(endpoint),
   // Notification center (v1.2 WS8): in-app inbox + read state.
   notificationsInbox: (params?: { limit?: number; before?: string }) =>
     wk.notifications.inbox(params),

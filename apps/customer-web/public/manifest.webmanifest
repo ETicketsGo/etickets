@@ -15,5 +15,25 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "My tickets",
+      "short_name": "Tickets",
+      "description": "Open your wallet",
+      "url": "/account/tickets"
+    },
+    {
+      "name": "Explore events",
+      "short_name": "Explore",
+      "description": "Discover what's on",
+      "url": "/explore"
+    },
+    {
+      "name": "My bookings",
+      "short_name": "Bookings",
+      "description": "View your orders",
+      "url": "/account/bookings"
+    }
   ]
 }
