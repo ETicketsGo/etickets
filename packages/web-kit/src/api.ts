@@ -584,6 +584,22 @@ export const api = {
 
   reports: {
     event: (eventId: string) => request<EventReport>(`/reports/events/${eventId}`),
+    downloadEventCsv: async (eventId: string) => {
+      const res = await fetch(`${API_URL}/reports/events/${eventId}?format=csv`, {
+        headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
+      });
+      if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
+      const blob = await res.blob();
+      if (typeof window === 'undefined') return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `event-report-${eventId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
   },
 
   analytics: {

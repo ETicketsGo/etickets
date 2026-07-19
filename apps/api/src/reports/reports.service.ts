@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import type { RequestUser } from '../common/decorators';
+import { toCsv } from '../common/csv';
 
 @Injectable()
 export class ReportsService {
@@ -108,6 +109,39 @@ export class ReportsService {
         grossMinor: Number(r.gross),
       })),
     };
+  }
+
+  /** CSV form of the organizer event report (summary + sales by ticket type + by day). */
+  async organizerEventReportCsv(user: RequestUser, eventId: string): Promise<string | null> {
+    const r = await this.organizerEventReport(user, eventId);
+    if (!r) return null;
+    const summary = toCsv(
+      ['metric', 'value'],
+      [
+        ['Event', r.event.title],
+        ['Gross ticket sales (minor)', r.grossTicketSalesMinor],
+        ['Booking fees (minor)', r.bookingFeesMinor],
+        ['Payment fees (minor)', r.paymentFeesMinor],
+        ['Refunds (minor)', r.refundsMinor],
+        ['Net organizer revenue (minor)', r.netOrganizerRevenueMinor],
+        ['Tickets sold', r.ticketsSold],
+        ['Tickets remaining', r.ticketsRemaining],
+        ['Checked in', r.checkInCount],
+      ],
+    );
+    const byType = toCsv(
+      ['ticketType', 'quantity', 'grossMinor'],
+      r.salesByTicketType.map((s) => [s.ticketType, s.quantity, s.grossMinor]),
+    );
+    const byDay = toCsv(
+      ['day', 'bookings', 'grossMinor'],
+      r.salesByDay.map((s) => [
+        new Date(s.day).toISOString().slice(0, 10),
+        s.bookings,
+        s.grossMinor,
+      ]),
+    );
+    return `Summary\r\n${summary}\r\n\r\nSales by ticket type\r\n${byType}\r\n\r\nSales by day\r\n${byDay}\r\n`;
   }
 
   /** Platform-wide admin dashboard (section 18). */
