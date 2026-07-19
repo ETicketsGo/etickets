@@ -5,10 +5,19 @@ lifecycle: _discover → view → select ticket → book → pay → receive QR 
 
 Built as a **modular monolith** in a Turborepo monorepo with strict TypeScript.
 
-> **Status:** Feature-complete MVP. The backend (auth/RBAC, events, booking, payments, tickets/QR,
-> check-in, refunds, payouts, reporting, audit) and **all three web apps** — customer, organizer, and
-> admin — are implemented and verified end-to-end, along with a standalone hold-expiry **worker**,
-> **Playwright** e2e for the critical flows, and a **CI** pipeline. See [Roadmap](#roadmap).
+> **Status:** Production-candidate (v2.1). The core platform (auth/RBAC, events, booking, payments,
+> tickets/QR, check-in, refunds, payouts, reporting, audit) plus all shipped milestones — **Public
+> Experience** (marketing + discovery), **Organizer Growth** (dashboard 2.0, event duplication,
+> marketing tools, sales reports, insights, organizer profiles, notification center), **Experience
+> Commerce** (add-ons, bundles, unified cart, mixed orders), **Mobile Platform** (installable PWA,
+> bottom nav, browser Web Push, offline wallet/tickets), and **AI & Growth** (organizer assistant,
+> event summaries, growth recommendations, smart search, risk signals, admin AI console) — are
+> implemented and verified across all three web apps, a movies/cinema domain, a standalone worker,
+> **Playwright** e2e, and **CI**. AI, offline check-in and web-push ship **disabled/placeholder by
+> default** (see [docs/ops/CAPABILITY-INVENTORY.md](docs/ops/CAPABILITY-INVENTORY.md)). A v2.1
+> enterprise-readiness audit added scalability indexes, a bounded commerce report, AI rate limiting,
+> and a hardened readiness probe — see
+> [docs/release/PRODUCTION-CERTIFICATION-v2.1.md](docs/release/PRODUCTION-CERTIFICATION-v2.1.md).
 
 ---
 
