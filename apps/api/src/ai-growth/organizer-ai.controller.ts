@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
+
+// AI generation endpoints invoke the gateway (and, when enabled, a paid provider);
+// a tighter per-client budget than the global 120/min guards against cost abuse.
+const AI_THROTTLE = { default: { limit: 20, ttl: 60_000 } };
 import { OrganizerAiService } from './organizer-ai.service';
 import { ContentService, type ContentDraftInput } from './content.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
@@ -42,6 +47,7 @@ export class OrganizerAiController {
   }
 
   @Post('organizer/ask')
+  @Throttle(AI_THROTTLE)
   @ApiOperation({ summary: 'Organizer assistant — answers from authorized org analytics.' })
   ask(
     @CurrentUser() user: RequestUser,
@@ -51,6 +57,7 @@ export class OrganizerAiController {
   }
 
   @Post('content/draft')
+  @Throttle(AI_THROTTLE)
   @ApiOperation({ summary: 'Draft event copy from organizer-provided facts (review required).' })
   draft(
     @CurrentUser() user: RequestUser,

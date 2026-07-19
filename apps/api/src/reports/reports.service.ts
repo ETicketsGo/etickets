@@ -160,71 +160,72 @@ export class ReportsService {
     ]);
 
     const paidBooking = { eventId, confirmedAt: { not: null } };
-    const [addOnLines, bundleLines] = await Promise.all([
-      this.prisma.bookingItem.findMany({
-        where: { kind: 'ADDON', booking: paidBooking },
-        select: {
-          quantity: true,
-          lineTotalMinor: true,
-          addOnId: true,
-          addOn: { select: { name: true, type: true } },
-        },
+    // Aggregate in SQL grouped by add-on / bundle (cardinality = distinct products,
+    // bounded), not per line item, so a huge event never loads every row into memory.
+    const [addOnGroups, bundleGroups] = await Promise.all([
+      this.prisma.bookingItem.groupBy({
+        by: ['addOnId'],
+        where: { kind: 'ADDON', addOnId: { not: null }, booking: paidBooking },
+        _sum: { quantity: true, lineTotalMinor: true },
       }),
-      this.prisma.bookingItem.findMany({
-        where: { kind: 'BUNDLE', booking: paidBooking },
-        select: {
-          quantity: true,
-          lineTotalMinor: true,
-          bundleId: true,
-          bundle: { select: { name: true, type: true } },
-        },
+      this.prisma.bookingItem.groupBy({
+        by: ['bundleId'],
+        where: { kind: 'BUNDLE', bundleId: { not: null }, booking: paidBooking },
+        _sum: { quantity: true, lineTotalMinor: true },
       }),
     ]);
 
+    const addOnIds = addOnGroups.map((g) => g.addOnId).filter((x): x is string => !!x);
+    const bundleIds = bundleGroups.map((g) => g.bundleId).filter((x): x is string => !!x);
+    const [addOns, bundles] = await Promise.all([
+      addOnIds.length
+        ? this.prisma.addOn.findMany({
+            where: { id: { in: addOnIds } },
+            select: { id: true, name: true, type: true },
+          })
+        : Promise.resolve([]),
+      bundleIds.length
+        ? this.prisma.bundle.findMany({
+            where: { id: { in: bundleIds } },
+            select: { id: true, name: true, type: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const addOnMeta = new Map(addOns.map((a) => [a.id, a]));
+    const bundleMeta = new Map(bundles.map((b) => [b.id, b]));
+
     const byType = new Map<string, { quantity: number; grossMinor: number }>();
-    const byAddOn = new Map<
-      string,
-      { name: string; type: string; quantity: number; grossMinor: number }
-    >();
-    for (const l of addOnLines) {
-      const type = l.addOn?.type ?? 'UNKNOWN';
+    const topAddOns: { name: string; type: string; quantity: number; grossMinor: number }[] = [];
+    let addOnRevenueMinor = 0;
+    for (const g of addOnGroups) {
+      const meta = g.addOnId ? addOnMeta.get(g.addOnId) : undefined;
+      const type = meta?.type ?? 'UNKNOWN';
+      const quantity = g._sum.quantity ?? 0;
+      const grossMinor = g._sum.lineTotalMinor ?? 0;
+      addOnRevenueMinor += grossMinor;
       const t = byType.get(type) ?? { quantity: 0, grossMinor: 0 };
-      t.quantity += l.quantity;
-      t.grossMinor += l.lineTotalMinor;
+      t.quantity += quantity;
+      t.grossMinor += grossMinor;
       byType.set(type, t);
-      if (l.addOnId) {
-        const a = byAddOn.get(l.addOnId) ?? {
-          name: l.addOn?.name ?? 'Add-on',
-          type,
-          quantity: 0,
-          grossMinor: 0,
-        };
-        a.quantity += l.quantity;
-        a.grossMinor += l.lineTotalMinor;
-        byAddOn.set(l.addOnId, a);
-      }
+      topAddOns.push({ name: meta?.name ?? 'Add-on', type, quantity, grossMinor });
     }
 
-    const byBundle = new Map<
-      string,
-      { name: string; type: string; quantity: number; grossMinor: number }
-    >();
-    for (const l of bundleLines) {
-      if (!l.bundleId) continue;
-      const b = byBundle.get(l.bundleId) ?? {
-        name: l.bundle?.name ?? 'Bundle',
-        type: l.bundle?.type ?? 'UNKNOWN',
-        quantity: 0,
-        grossMinor: 0,
-      };
-      b.quantity += l.quantity;
-      b.grossMinor += l.lineTotalMinor;
-      byBundle.set(l.bundleId, b);
+    const bundleRows: { name: string; type: string; quantity: number; grossMinor: number }[] = [];
+    let bundleRevenueMinor = 0;
+    for (const g of bundleGroups) {
+      const meta = g.bundleId ? bundleMeta.get(g.bundleId) : undefined;
+      const quantity = g._sum.quantity ?? 0;
+      const grossMinor = g._sum.lineTotalMinor ?? 0;
+      bundleRevenueMinor += grossMinor;
+      bundleRows.push({
+        name: meta?.name ?? 'Bundle',
+        type: meta?.type ?? 'UNKNOWN',
+        quantity,
+        grossMinor,
+      });
     }
 
     const typeTotal = (type: string) => byType.get(type)?.grossMinor ?? 0;
-    const addOnRevenueMinor = addOnLines.reduce((s, l) => s + l.lineTotalMinor, 0);
-    const bundleRevenueMinor = bundleLines.reduce((s, l) => s + l.lineTotalMinor, 0);
 
     return {
       event: { id: event.id, title: event.title },
@@ -237,8 +238,8 @@ export class ReportsService {
       byType: [...byType.entries()]
         .map(([type, v]) => ({ type, ...v }))
         .sort((a, b) => b.grossMinor - a.grossMinor),
-      topAddOns: [...byAddOn.values()].sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20),
-      bundles: [...byBundle.values()].sort((a, b) => b.grossMinor - a.grossMinor),
+      topAddOns: topAddOns.sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20),
+      bundles: bundleRows.sort((a, b) => b.grossMinor - a.grossMinor),
     };
   }
 
