@@ -145,6 +145,16 @@ const envSchema = z.object({
   FCM_CLIENT_EMAIL: z.string().optional(),
   FCM_PRIVATE_KEY: z.string().optional(),
 
+  // --- AI & Growth (v2.0). Disabled by default: features fall back to deterministic
+  //     insights until a real provider is wired. No provider response is ever faked. ---
+  AI_PROVIDER: z.enum(['disabled', 'openai', 'anthropic']).default('disabled'),
+  AI_MODEL: z.string().optional(),
+  AI_API_KEY: z.string().optional(),
+  AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(8000),
+  AI_MAX_RETRIES: z.coerce.number().int().min(0).max(3).default(1),
+  // Rough cost estimate per 1K tokens (minor units) for the ops-console cost figure.
+  AI_COST_PER_1K_MINOR: z.coerce.number().int().min(0).default(0),
+
   // --- Browser Web Push (v1.4). Self-hosted VAPID, no third party. The delivery
   //     transport is a placeholder ('log') until a VAPID transport is wired; the
   //     keys below are optional and only exposed as non-secret public key. ---

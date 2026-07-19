@@ -274,6 +274,34 @@ model User {
   @@index([status])
 }
 
+// AI usage/cost/latency telemetry (v2.0 WS1/WS9). One row per gateway call —
+// including disabled/fallback/error outcomes — so the ops console can report request
+// volume, fallback rate, latency, cost estimate and safety events. Never stores the
+// prompt text or any customer payload; only the feature/prompt key + counters.
+model AiUsage {
+  id             String   @id @default(cuid())
+  feature        String
+  promptKey      String
+  promptVersion  String
+  provider       String
+  // success | fallback | error | disabled
+  status         String
+  latencyMs      Int      @default(0)
+  tokensIn       Int      @default(0)
+  tokensOut      Int      @default(0)
+  costMinor      Int      @default(0)
+  // Count of PII redactions performed on the input (a safety signal; 0 = clean).
+  redactions     Int      @default(0)
+  organizationId String?
+  actorUserId    String?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([feature])
+  @@index([status])
+  @@index([createdAt])
+}
+
 // A browser Web Push subscription (v1.4). Stores only the standard public
 // subscription material (endpoint + p256dh/auth keys) — no secrets. Delivery goes
 // through the pluggable WebPush dispatcher (default: log placeholder; a VAPID
