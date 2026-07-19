@@ -76,6 +76,79 @@ export class EventsService {
     return event;
   }
 
+  /**
+   * Duplicate an event into a fresh DRAFT: copies the event's settings, its sessions,
+   * and each session's ticket types (with brand-new, empty inventory). Deliberately
+   * excludes orders, attendees, payments, and audit history (those belong to the
+   * original). Coupons are organization-scoped (not event-bound) and images are not
+   * modelled on events, so neither needs copying.
+   */
+  async duplicate(user: RequestUser, eventId: string) {
+    const original = await this.loadOwnedEvent(user, eventId);
+    const sessions = await this.prisma.eventSession.findMany({
+      where: { eventId },
+      orderBy: { startsAt: 'asc' },
+      include: { ticketTypes: true },
+    });
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const copy = await tx.event.create({
+        data: {
+          organizationId: original.organizationId,
+          venueId: original.venueId,
+          experienceType: original.experienceType,
+          movieId: original.movieId,
+          title: `${original.title} (Copy)`,
+          slug: slugify(`${original.title}-copy`),
+          category: original.category,
+          description: original.description,
+          feeMode: original.feeMode,
+          refundPolicy: original.refundPolicy,
+          status: EventStatus.DRAFT,
+        },
+      });
+      for (const s of sessions) {
+        const newSession = await tx.eventSession.create({
+          data: {
+            eventId: copy.id,
+            screenId: s.screenId,
+            startsAt: s.startsAt,
+            endsAt: s.endsAt,
+          },
+        });
+        for (const t of s.ticketTypes) {
+          await tx.ticketType.create({
+            data: {
+              eventSessionId: newSession.id,
+              seatCategoryId: t.seatCategoryId,
+              name: t.name,
+              priceMinor: t.priceMinor,
+              currency: t.currency,
+              quantityTotal: t.quantityTotal,
+              maxPerOrder: t.maxPerOrder,
+              salesStartAt: t.salesStartAt,
+              salesEndAt: t.salesEndAt,
+              status: t.status,
+              // Fresh inventory — none of the original's sales/holds carry over.
+              inventory: { create: { quantityTotal: t.quantityTotal } },
+            },
+          });
+        }
+      }
+      return copy;
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: original.organizationId,
+      action: 'EVENT_DUPLICATED',
+      entityType: 'Event',
+      entityId: created.id,
+      metadata: { sourceEventId: eventId, sessions: sessions.length },
+    });
+    return created;
+  }
+
   async update(user: RequestUser, id: string, patch: Partial<CreateEventInput>) {
     const event = await this.loadOwnedEvent(user, id);
     const editable: EventStatus[] = [

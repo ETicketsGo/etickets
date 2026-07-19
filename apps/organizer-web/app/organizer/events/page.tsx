@@ -1,10 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   api,
+  Button,
   DataTable,
   StatusBadge,
   ButtonLink,
@@ -13,6 +14,8 @@ import {
   Pagination,
   PageHeader,
   dateOnly,
+  useToast,
+  errorMessage,
   type Column,
   type OrgEventRow,
 } from '@eticketsgo/web-kit';
@@ -36,9 +39,21 @@ export default function OrganizerEvents() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  const qc = useQueryClient();
+  const toast = useToast();
   const { data, isLoading } = useQuery({
     queryKey: ['events', activeOrg.id],
     queryFn: () => api.events.list(activeOrg.id),
+  });
+
+  const duplicate = useMutation({
+    mutationFn: (id: string) => api.events.duplicate(id),
+    onSuccess: (created) => {
+      toast.push('Event duplicated as a new draft.', 'success');
+      qc.invalidateQueries({ queryKey: ['events', activeOrg.id] });
+      router.push(`/organizer/events/${created.id}`);
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
   const rows = useMemo(() => {
@@ -85,6 +100,25 @@ export default function OrganizerEvents() {
       sortable: true,
       sortValue: (e) => e.createdAt,
       render: (e) => dateOnly(e.createdAt),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (e) => (
+        <div className="flex justify-end gap-2">
+          <ButtonLink href={`/organizer/events/${e.id}`} variant="outline" size="sm">
+            Manage
+          </ButtonLink>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={duplicate.isPending && duplicate.variables === e.id}
+            onClick={() => duplicate.mutate(e.id)}
+          >
+            Duplicate
+          </Button>
+        </div>
+      ),
     },
   ];
 

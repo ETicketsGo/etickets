@@ -139,6 +139,14 @@ export class EventsController {
     return this.events.submitForReview(user, id);
   }
 
+  @Post(':id/duplicate')
+  @ApiOperation({
+    summary: 'Duplicate an event (settings + sessions + ticket types) as a new draft.',
+  })
+  duplicate(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.events.duplicate(user, id);
+  }
+
   @Post(':id/pause')
   @ApiOperation({ summary: 'Pause a published event.' })
   pause(@CurrentUser() user: RequestUser, @Param('id') id: string) {

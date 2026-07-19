@@ -433,6 +433,7 @@ export const api = {
     deleteTicketType: (id: string) =>
       request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
+    duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     resume: (id: string) => request<OrgEventDetail>(`/events/${id}/resume`, { method: 'POST' }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
