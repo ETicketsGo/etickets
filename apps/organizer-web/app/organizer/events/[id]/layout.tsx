@@ -15,6 +15,7 @@ const TABS = [
   { label: 'Attendees', seg: '/attendees' },
   { label: 'Check-in', seg: '/checkin' },
   { label: 'Reports', seg: '/reports' },
+  { label: 'Assistant', seg: '/assistant' },
   { label: 'Promote', seg: '/promote' },
 ];
 

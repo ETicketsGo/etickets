@@ -682,9 +682,29 @@ export const api = {
     customer: () => request<CustomerAnalytics>('/analytics/customer'),
   },
 
+  // AI & Growth (v2.0): organizer assistant, summaries, growth recs, content drafts.
+  ai: {
+    eventSummary: (eventId: string) => request<AiEventSummary>(`/ai/events/${eventId}/summary`),
+    recommendations: (eventId: string) =>
+      request<{ recommendations: GrowthRecommendation[] }>(`/ai/events/${eventId}/recommendations`),
+    ask: (organizationId: string, question: string) =>
+      request<AiAnswer>('/ai/organizer/ask', {
+        method: 'POST',
+        body: JSON.stringify({ organizationId, question }),
+      }),
+    contentDraft: (body: AiContentDraftInput) =>
+      request<AiContentDraft>('/ai/content/draft', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
+    aiStatus: () => request<AiStatus>('/admin/ai/status'),
+    aiUsage: () => request<AiUsageSummary>('/admin/ai/usage'),
+    aiRisk: () => request<AiRiskReport>('/admin/ai/risk'),
     movies: (params?: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminMovieRow>>(`/admin/movies${qs(params ?? {})}`),
     audit: (params: PageParams & { action?: string }) =>
@@ -2036,6 +2056,85 @@ export interface CommerceReport {
   byType: { type: string; quantity: number; grossMinor: number }[];
   topAddOns: { name: string; type: string; quantity: number; grossMinor: number }[];
   bundles: { name: string; type: string; quantity: number; grossMinor: number }[];
+}
+
+// ─── AI & Growth (v2.0) ───
+export interface EventSummarySection {
+  key: string;
+  label: string;
+  text: string;
+  level: 'positive' | 'info' | 'warning';
+}
+export interface AiEventSummary {
+  aiEnabled: boolean;
+  generated: boolean;
+  summary: {
+    headline: string;
+    sections: EventSummarySection[];
+    narrative: string;
+    insights: { key: string; level: string; title: string; detail: string }[];
+  };
+  narrative: string;
+}
+export interface GrowthRecommendation {
+  key: string;
+  title: string;
+  metric: string;
+  reason: string;
+  action: string;
+  evidence: 'strong' | 'moderate' | 'weak';
+}
+export interface AiAnswer {
+  aiEnabled: boolean;
+  generated: boolean;
+  answer: string;
+  sources: string[];
+}
+export type AiContentKind = 'description' | 'caption' | 'email' | 'faq' | 'reminder' | 'social';
+export interface AiContentDraftInput {
+  kind: AiContentKind;
+  title: string;
+  city?: string;
+  venue?: string;
+  dateText?: string;
+  highlights?: string;
+}
+export interface AiContentDraft {
+  aiEnabled: boolean;
+  generated: boolean;
+  label: string;
+  drafts: string[];
+}
+export interface AiStatus {
+  enabled: boolean;
+  provider: string;
+  model: string | null;
+  timeoutMs: number;
+  maxRetries: number;
+  prompts: { key: string; version: string }[];
+}
+export interface AiUsageSummary {
+  windowDays: number;
+  totalRequests: number;
+  byStatus: Record<string, number>;
+  errorCount: number;
+  fallbackRate: number;
+  avgLatencyMs: number;
+  estimatedCostMinor: number;
+  safetyRedactions: number;
+  byFeature: { feature: string; count: number }[];
+}
+export interface RiskSignal {
+  key: string;
+  severity: 'low' | 'medium' | 'high';
+  title: string;
+  evidence: string;
+  recommendation: string;
+}
+export interface AiRiskReport {
+  windowLabel: string;
+  windowDays: number;
+  signals: RiskSignal[];
 }
 
 export interface AnalyticsRevenue {
