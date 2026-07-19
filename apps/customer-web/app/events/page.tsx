@@ -2,7 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps } from 'react';
+import {
+  parseSearchQuery,
+  emptyResultSuggestions,
+  type SearchIntent,
+} from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Input } from '@/components/ui';
@@ -17,6 +22,15 @@ export default function EventsPage() {
   const [page, setPage] = useState(1);
   // Accumulate loaded pages so "Load more" appends rather than replaces.
   const [items, setItems] = useState<ComponentProps<typeof EventCard>['event'][]>([]);
+  // Smart-search (WS6): deterministic interpretation of the free-text query.
+  const [intent, setIntent] = useState<SearchIntent | null>(null);
+
+  const catQ = useQuery({ queryKey: ['public-categories'], queryFn: () => api.publicCategories() });
+  const categoryNames = useMemo(() => (catQ.data ?? []).map((c) => c.category), [catQ.data]);
+  const cities = useMemo(
+    () => Array.from(new Set(items.map((i) => i.venue?.city).filter(Boolean) as string[])),
+    [items],
+  );
 
   // Honour deep links from the home page (?q= / ?category= / ?city=).
   useEffect(() => {
@@ -49,7 +63,15 @@ export default function EventsPage() {
 
   const applyFilters = () => {
     setPage(1);
-    setApplied({ q: q || undefined, city: city || undefined, category: category || undefined });
+    // Deterministic parse of the free-text query: pull out category/city, keep the
+    // rest as the title search. Explicit fields still win over interpretation.
+    const parsed = parseSearchQuery(q, { categories: categoryNames, cities, now: new Date() });
+    setIntent(parsed);
+    setApplied({
+      q: parsed.text || undefined,
+      city: city || parsed.city || undefined,
+      category: category || parsed.category || undefined,
+    });
   };
   const hasFilters = Boolean(applied.q || applied.city || applied.category);
   const clearFilters = () => {
@@ -105,6 +127,21 @@ export default function EventsPage() {
         </div>
       </form>
 
+      {intent && intent.applied.length > 0 && (
+        <p className="text-caption text-text-muted" role="status">
+          Interpreted your search as:{' '}
+          {intent.applied.map((a, i) => (
+            <span
+              key={a}
+              className="mr-1 inline-block rounded-full bg-background-subtle px-2 py-0.5 text-text-secondary"
+            >
+              {a}
+              {i < intent.applied.length - 1 ? '' : ''}
+            </span>
+          ))}
+        </p>
+      )}
+
       {isError ? (
         <ErrorState
           message="We couldn't load events. Please try again."
@@ -144,7 +181,13 @@ export default function EventsPage() {
       ) : (
         <EmptyState
           title="No events match your search"
-          hint={hasFilters ? 'Try clearing your filters.' : 'Check back soon for new events.'}
+          hint={
+            hasFilters
+              ? intent
+                ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' · ')
+                : 'Try clearing your filters.'
+              : 'Check back soon for new events.'
+          }
           icon={Search}
           action={
             hasFilters ? (
