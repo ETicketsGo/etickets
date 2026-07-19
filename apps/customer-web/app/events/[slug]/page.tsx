@@ -425,6 +425,7 @@ export default function EventDetailPage() {
                 </div>
                 <Textarea
                   id="review-comment"
+                  aria-label="Your review"
                   className="mt-3"
                   rows={3}
                   placeholder="Share how the event went…"

@@ -18,6 +18,8 @@ export function MovieCard({ movie }: { movie: PublicMovieCard }) {
           <img
             src={movie.posterUrl}
             alt={`${movie.title} poster`}
+            loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover transition-transform duration-300 ease-premium group-hover:scale-105"
           />
         ) : (
