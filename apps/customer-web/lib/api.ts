@@ -114,4 +114,10 @@ export const api = {
   analytics: () => wk.analytics.customer(),
   // Customer Success: contact, bug report, feature request, feedback, CSAT.
   submitFeedback: (body: FeedbackSubmission) => wk.support.submit(body),
+  // Notification center (v1.2 WS8): in-app inbox + read state.
+  notificationsInbox: (params?: { limit?: number; before?: string }) =>
+    wk.notifications.inbox(params),
+  notificationsUnreadCount: () => wk.notifications.unreadCount(),
+  markNotificationRead: (id: string) => wk.notifications.markRead(id),
+  markAllNotificationsRead: () => wk.notifications.markAllRead(),
 };

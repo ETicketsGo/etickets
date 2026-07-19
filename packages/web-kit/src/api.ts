@@ -331,12 +331,26 @@ export const api = {
       request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
     listMine: () => request<Organization[]>('/organizations'),
     get: (id: string) => request<Organization>(`/organizations/${id}`),
+    updateProfile: (id: string, body: OrganizationProfileInput) =>
+      request<Organization>(`/organizations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<OrgMember>(`/organizations/${id}/members`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+  },
+
+  notifications: {
+    inbox: (params: { limit?: number; before?: string } = {}) =>
+      request<NotificationInbox>(`/notifications${qs(params)}`),
+    unreadCount: () => request<{ unreadCount: number }>('/notifications/unread-count'),
+    markRead: (id: string) =>
+      request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
+    markAllRead: () => request<{ updated: number }>('/notifications/read-all', { method: 'POST' }),
   },
 
   venues: {
@@ -433,6 +447,8 @@ export const api = {
     deleteTicketType: (id: string) =>
       request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
+    duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
+    promotion: (id: string) => request<EventPromotion>(`/events/${id}/promotion`),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     resume: (id: string) => request<OrgEventDetail>(`/events/${id}/resume`, { method: 'POST' }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
@@ -583,6 +599,22 @@ export const api = {
 
   reports: {
     event: (eventId: string) => request<EventReport>(`/reports/events/${eventId}`),
+    downloadEventCsv: async (eventId: string) => {
+      const res = await fetch(`${API_URL}/reports/events/${eventId}?format=csv`, {
+        headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
+      });
+      if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
+      const blob = await res.blob();
+      if (typeof window === 'undefined') return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `event-report-${eventId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
   },
 
   analytics: {
@@ -1136,13 +1168,46 @@ export interface Organization {
   status: string;
   contactEmail: string | null;
   createdAt: string;
+  // Public organizer profile (v1.2 WS6).
+  description?: string | null;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  website?: string | null;
+  contactPhone?: string | null;
+  twitterUrl?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  verified?: boolean;
   _count?: { members: number; events: number; venues?: number };
+}
+export interface OrganizationProfileInput {
+  description?: string;
+  logoUrl?: string;
+  coverImageUrl?: string;
+  website?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  twitterUrl?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
 }
 export interface OrgMember {
   id: string;
   role: string;
   status: string;
   user: { id: string; email: string; fullName: string };
+}
+export interface NotificationItem {
+  id: string;
+  type: string;
+  subject: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+export interface NotificationInbox {
+  items: NotificationItem[];
+  unreadCount: number;
 }
 export interface Venue {
   id: string;
@@ -1392,6 +1457,14 @@ export interface OrgEventRow {
   createdAt: string;
   venue: { name: string; city: string };
   _count: { sessions: number; bookings: number };
+}
+export interface EventPromotion {
+  eventId: string;
+  title: string;
+  slug: string;
+  published: boolean;
+  publicUrl: string;
+  qrDataUrl: string;
 }
 export interface EventSession {
   id: string;
@@ -1801,10 +1874,12 @@ export interface OrganizerAnalytics {
   conversion: { total: number; confirmed: number; rate: number };
   repeatVisitors: { totalCustomers: number; repeatCustomers: number; rate: number };
   topTicketType: { name: string; quantity: number } | null;
+  capacity: { sold: number; capacity: number; utilization: number };
   /** Present only for OWNER/MANAGER + platform admins. */
   revenue?: AnalyticsRevenue;
   refunds?: { count: number; amountMinor: number; refundRate: number };
   coupons?: { redemptions: number; discountMinor: number };
+  topEvents?: { eventId: string; title: string; grossMinor: number; bookings: number }[];
 }
 export interface VenueAnalytics {
   venue: { id: string; name: string; city: string };
@@ -2239,6 +2314,15 @@ export interface OrganizerProfile {
   verified: boolean;
   memberSince: string;
   eventCount: number;
+  description?: string | null;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  website?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  twitterUrl?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
   events: PublicEventCard[];
 }
 

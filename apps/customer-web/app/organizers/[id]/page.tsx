@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { BadgeCheck, CalendarDays } from 'lucide-react';
+import { BadgeCheck, CalendarDays, Globe, Mail, Phone } from 'lucide-react';
 import { useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { dateOnly } from '@/lib/format';
@@ -58,16 +58,37 @@ export default function OrganizerProfilePage() {
     );
   if (isLoading || !org) return <Skeleton className="h-64 w-full" />;
 
+  const socials = [
+    { href: org.website, label: 'Website', icon: Globe },
+    { href: org.twitterUrl, label: 'X', icon: Globe },
+    { href: org.instagramUrl, label: 'Instagram', icon: Globe },
+    { href: org.facebookUrl, label: 'Facebook', icon: Globe },
+  ].filter((s): s is { href: string; label: string; icon: typeof Globe } => Boolean(s.href));
+
   return (
     <div className="space-y-8">
       {/* Profile header */}
       <div className="overflow-hidden rounded-lg border border-border shadow-sm">
-        <div className="h-28 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle" />
+        {org.coverImageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={org.coverImageUrl} alt="" className="h-40 w-full object-cover" />
+        ) : (
+          <div className="h-28 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle" />
+        )}
         <div className="flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-end gap-4">
-            <div className="-mt-12 flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-background-surface bg-action-primary text-h3 font-bold text-action-primary-foreground shadow-md">
-              {org.name.charAt(0)}
-            </div>
+            {org.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={org.logoUrl}
+                alt={`${org.name} logo`}
+                className="-mt-12 h-20 w-20 rounded-2xl border-4 border-background-surface object-cover shadow-md"
+              />
+            ) : (
+              <div className="-mt-12 flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-background-surface bg-action-primary text-h3 font-bold text-action-primary-foreground shadow-md">
+                {org.name.charAt(0)}
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-h3 font-bold tracking-tight text-text-primary">{org.name}</h1>
@@ -91,6 +112,41 @@ export default function OrganizerProfilePage() {
             {following ? 'Following' : 'Follow'}
           </Button>
         </div>
+        {(org.description || socials.length > 0 || org.contactEmail || org.contactPhone) && (
+          <div className="space-y-3 border-t border-border px-6 py-5">
+            {org.description && (
+              <p className="max-w-2xl whitespace-pre-line text-body text-text-secondary">
+                {org.description}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-caption">
+              {socials.map((s) => (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-action-primary hover:underline"
+                >
+                  <s.icon className="h-3.5 w-3.5" /> {s.label}
+                </a>
+              ))}
+              {org.contactEmail && (
+                <a
+                  href={`mailto:${org.contactEmail}`}
+                  className="inline-flex items-center gap-1.5 text-text-muted hover:text-text-primary"
+                >
+                  <Mail className="h-3.5 w-3.5" /> {org.contactEmail}
+                </a>
+              )}
+              {org.contactPhone && (
+                <span className="inline-flex items-center gap-1.5 text-text-muted">
+                  <Phone className="h-3.5 w-3.5" /> {org.contactPhone}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Their events */}

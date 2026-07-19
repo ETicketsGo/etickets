@@ -52,10 +52,13 @@ export interface OrganizerAnalytics {
   conversion: ConversionMetrics;
   repeatVisitors: RepeatCustomerMetrics;
   topTicketType: { name: string; quantity: number } | null;
+  /** Capacity utilization across all of the org's ticket types. Non-financial. */
+  capacity: { sold: number; capacity: number; utilization: number };
   /** Present only for OWNER/MANAGER + platform admins. */
   revenue?: RevenueMetrics;
   refunds?: RefundMetrics & { refundRate: number };
   coupons?: { redemptions: number; discountMinor: number };
+  topEvents?: { eventId: string; title: string; grossMinor: number; bookings: number }[];
 }
 
 /**
@@ -242,9 +245,11 @@ export class AnalyticsService {
       conversion,
       repeatVisitors,
       topTicketType,
+      inventory,
       revenue,
       refunds,
       couponRedemptions,
+      topEvents,
     ] = await Promise.all([
       this.attendance({
         organizationId,
@@ -253,17 +258,30 @@ export class AnalyticsService {
       this.conversion({ organizationId }),
       this.repeatCustomers({ organizationId }),
       this.topTicketType(organizationId),
+      // Capacity across all of the org's ticket types (nested relation filter).
+      this.prisma.ticketInventory.aggregate({
+        where: { ticketType: { eventSession: { event: { organizationId } } } },
+        _sum: { quantityTotal: true, quantitySold: true },
+      }),
       showFinancials ? this.revenue({ organizationId }) : Promise.resolve(null),
       showFinancials ? this.refundStats({ organizationId }) : Promise.resolve(null),
       showFinancials ? this.couponRedemptions({ organizationId }) : Promise.resolve(0),
+      showFinancials ? this.topEvents(organizationId) : Promise.resolve(null),
     ]);
 
+    const capacity = inventory._sum.quantityTotal ?? 0;
+    const sold = inventory._sum.quantitySold ?? 0;
     const result: OrganizerAnalytics = {
       organizationId,
       attendance,
       conversion,
       repeatVisitors,
       topTicketType,
+      capacity: {
+        sold,
+        capacity,
+        utilization: capacity > 0 ? Math.round((sold / capacity) * 100) : 0,
+      },
     };
 
     if (showFinancials && revenue && refunds) {
@@ -272,8 +290,32 @@ export class AnalyticsService {
       result.revenue = { ...revenue, netMinor: revenue.netMinor - refunds.amountMinor };
       result.refunds = { ...refunds, refundRate };
       result.coupons = { redemptions: couponRedemptions, discountMinor: revenue.discountMinor };
+      result.topEvents = topEvents ?? [];
     }
     return result;
+  }
+
+  /** Top events by gross confirmed sales for an organization (financials only). */
+  private async topEvents(organizationId: string) {
+    const groups = await this.prisma.booking.groupBy({
+      by: ['eventId'],
+      where: { organizationId, confirmedAt: { not: null } },
+      _sum: { subtotalMinor: true },
+      _count: { _all: true },
+      orderBy: { _sum: { subtotalMinor: 'desc' } },
+      take: 5,
+    });
+    const events = await this.prisma.event.findMany({
+      where: { id: { in: groups.map((g) => g.eventId) } },
+      select: { id: true, title: true },
+    });
+    const titles = new Map(events.map((e) => [e.id, e.title]));
+    return groups.map((g) => ({
+      eventId: g.eventId,
+      title: titles.get(g.eventId) ?? 'Untitled',
+      grossMinor: g._sum.subtotalMinor ?? 0,
+      bookings: g._count._all,
+    }));
   }
 
   // ─────────────────────────── 2. Venue ───────────────────────────

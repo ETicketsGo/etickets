@@ -29,7 +29,10 @@ export interface DispatchSummary {
   retried: number;
 }
 
-const DEFAULT_CHANNELS = ['email'];
+// Every notification also lands in the in-app inbox (WS8); `in_app` delivery is a
+// no-op persist, so this adds an inbox row without any external send. Per-user
+// preferences can still opt out of either channel.
+const DEFAULT_CHANNELS = ['email', 'in_app'];
 const DEFAULT_LOCALE = 'en';
 
 /**
@@ -175,6 +178,66 @@ export class NotificationService {
   }
 
   /** Resolves the effective channel keys for an input, applying preferences. */
+  /**
+   * In-app notification inbox for a user (WS8): the persisted `in_app` rows,
+   * newest first, each rendered to a subject/body via the template service.
+   * `before` (a createdAt cursor) pages backwards; `limit` is capped at 50.
+   */
+  async inbox(userId: string, opts: { limit?: number; before?: Date } = {}) {
+    const take = Math.min(Math.max(opts.limit ?? 20, 1), 50);
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        userId,
+        channel: 'in_app',
+        status: 'SENT',
+        ...(opts.before ? { createdAt: { lt: opts.before } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    const items = rows.map((row) => {
+      const { subject, body } = this.templates.render(
+        row.type,
+        row.locale,
+        (row.payload as Record<string, unknown>) ?? {},
+      );
+      return {
+        id: row.id,
+        type: row.type,
+        subject,
+        body,
+        readAt: row.readAt,
+        createdAt: row.createdAt,
+      };
+    });
+    return { items, unreadCount: await this.unreadCount(userId) };
+  }
+
+  /** Count of unread in-app notifications for a user. */
+  async unreadCount(userId: string): Promise<number> {
+    return this.prisma.notification.count({
+      where: { userId, channel: 'in_app', status: 'SENT', readAt: null },
+    });
+  }
+
+  /** Mark a single in-app notification read (owner-scoped). Returns true if it changed. */
+  async markRead(userId: string, id: string): Promise<boolean> {
+    const res = await this.prisma.notification.updateMany({
+      where: { id, userId, channel: 'in_app', readAt: null },
+      data: { readAt: new Date() },
+    });
+    return res.count === 1;
+  }
+
+  /** Mark all of a user's unread in-app notifications read. Returns the count updated. */
+  async markAllRead(userId: string): Promise<number> {
+    const res = await this.prisma.notification.updateMany({
+      where: { userId, channel: 'in_app', status: 'SENT', readAt: null },
+      data: { readAt: new Date() },
+    });
+    return res.count;
+  }
+
   private async resolveChannelKeys(input: NotifyInput): Promise<ChannelKey[]> {
     const requested = input.channels ?? DEFAULT_CHANNELS;
     const enabled = await this.preferences.resolveChannels(

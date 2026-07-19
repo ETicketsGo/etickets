@@ -276,6 +276,24 @@ export default function EventDetailPage() {
                 {event.venue.address ? `${event.venue.address}, ` : ''}
                 {event.venue.city}, {event.venue.country}
               </p>
+              {/* Map placeholder — an interactive map is not yet wired to a provider. */}
+              <div
+                aria-hidden
+                className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-border bg-background-subtle text-text-muted"
+              >
+                <MapPin className="mr-1.5 h-4 w-4" />
+                <span className="text-caption">Map preview</span>
+              </div>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  `${event.venue.name}, ${event.venue.address ?? ''} ${event.venue.city} ${event.venue.country}`,
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-caption font-medium text-action-primary hover:underline"
+              >
+                <MapPin className="h-3.5 w-3.5" /> Get directions
+              </a>
             </Card>
             <Card title="Organizer">
               <Link

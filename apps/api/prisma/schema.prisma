@@ -261,6 +261,17 @@ model Organization {
   slug         String             @unique
   status       OrganizationStatus @default(PENDING)
   contactEmail String?
+  // Public organizer profile (v1.2 WS6). All optional; empty = not shown.
+  description   String?
+  logoUrl       String?
+  coverImageUrl String?
+  website       String?
+  contactPhone  String?
+  twitterUrl    String?
+  instagramUrl  String?
+  facebookUrl   String?
+  // Verification badge is a manual/admin placeholder for now (no automated flow).
+  verified     Boolean            @default(false)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -1079,11 +1090,14 @@ model Notification {
   lastError    String?
   sentAt       DateTime?
   cancelledAt  DateTime?
+  // Read state for the in-app notification center (v1.2 WS8); null = unread.
+  readAt       DateTime?
   createdAt    DateTime         @default(now())
 
   @@index([userId])
   @@index([type])
   @@index([status, scheduledFor])
+  @@index([userId, channel, readAt])
 }
 
 // Per-user opt-out for a (type, channel). Absence of a row = enabled.

@@ -1,4 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
 import { EventStatus, Role } from '@eticketsgo/shared-types';
 import type {
@@ -33,7 +35,14 @@ export class EventsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** First configured web origin, trailing slash trimmed (mirrors sharing.service). */
+  private siteBaseUrl(): string {
+    const origins = this.config.get<string>('CORS_ORIGINS') ?? 'http://localhost:3000';
+    return origins.split(',')[0].trim().replace(/\/$/, '');
+  }
 
   private async loadOwnedEvent(user: RequestUser, id: string, roles = ORGANIZER_ROLES) {
     const event = await this.prisma.event.findUnique({ where: { id } });
@@ -74,6 +83,98 @@ export class EventsService {
       entityId: event.id,
     });
     return event;
+  }
+
+  /**
+   * Duplicate an event into a fresh DRAFT: copies the event's settings, its sessions,
+   * and each session's ticket types (with brand-new, empty inventory). Deliberately
+   * excludes orders, attendees, payments, and audit history (those belong to the
+   * original). Coupons are organization-scoped (not event-bound) and images are not
+   * modelled on events, so neither needs copying.
+   */
+  async duplicate(user: RequestUser, eventId: string) {
+    const original = await this.loadOwnedEvent(user, eventId);
+    const sessions = await this.prisma.eventSession.findMany({
+      where: { eventId },
+      orderBy: { startsAt: 'asc' },
+      include: { ticketTypes: true },
+    });
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const copy = await tx.event.create({
+        data: {
+          organizationId: original.organizationId,
+          venueId: original.venueId,
+          experienceType: original.experienceType,
+          movieId: original.movieId,
+          title: `${original.title} (Copy)`,
+          slug: slugify(`${original.title}-copy`),
+          category: original.category,
+          description: original.description,
+          feeMode: original.feeMode,
+          refundPolicy: original.refundPolicy,
+          status: EventStatus.DRAFT,
+        },
+      });
+      for (const s of sessions) {
+        const newSession = await tx.eventSession.create({
+          data: {
+            eventId: copy.id,
+            screenId: s.screenId,
+            startsAt: s.startsAt,
+            endsAt: s.endsAt,
+          },
+        });
+        for (const t of s.ticketTypes) {
+          await tx.ticketType.create({
+            data: {
+              eventSessionId: newSession.id,
+              seatCategoryId: t.seatCategoryId,
+              name: t.name,
+              priceMinor: t.priceMinor,
+              currency: t.currency,
+              quantityTotal: t.quantityTotal,
+              maxPerOrder: t.maxPerOrder,
+              salesStartAt: t.salesStartAt,
+              salesEndAt: t.salesEndAt,
+              status: t.status,
+              // Fresh inventory — none of the original's sales/holds carry over.
+              inventory: { create: { quantityTotal: t.quantityTotal } },
+            },
+          });
+        }
+      }
+      return copy;
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: original.organizationId,
+      action: 'EVENT_DUPLICATED',
+      entityType: 'Event',
+      entityId: created.id,
+      metadata: { sourceEventId: eventId, sessions: sessions.length },
+    });
+    return created;
+  }
+
+  /**
+   * Marketing assets for an event: its public URL plus a QR code (data URL) that
+   * resolves to that page. Reuses the `qrcode` dependency already used for tickets;
+   * the front-end builds share links and posters from these two values.
+   */
+  async promotion(user: RequestUser, eventId: string) {
+    const event = await this.loadOwnedEvent(user, eventId);
+    const publicUrl = `${this.siteBaseUrl()}/events/${event.slug}`;
+    const qrDataUrl = await QRCode.toDataURL(publicUrl, { margin: 1, width: 512 });
+    return {
+      eventId: event.id,
+      title: event.title,
+      slug: event.slug,
+      published: event.status === EventStatus.PUBLISHED,
+      publicUrl,
+      qrDataUrl,
+    };
   }
 
   async update(user: RequestUser, id: string, patch: Partial<CreateEventInput>) {

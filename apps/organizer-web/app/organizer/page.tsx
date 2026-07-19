@@ -60,6 +60,12 @@ export default function OrganizerDashboard() {
 
   const mostPopular = analytics?.topTicketType ?? null;
   const publishedCount = events.filter((e) => e.status === 'PUBLISHED').length;
+  const capacity = analytics?.capacity;
+  const conversion = analytics?.conversion;
+  const repeat = analytics?.repeatVisitors;
+  const coupons = analytics?.coupons;
+  const refundRate = analytics?.refunds?.refundRate ?? 0;
+  const topEvents = analytics?.topEvents ?? [];
 
   if (isError)
     return (
@@ -93,31 +99,80 @@ export default function OrganizerDashboard() {
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <MetricCard label="Gross sales" value={money(sum.gross)} tone="success" />
-          <MetricCard label="Net revenue" value={money(sum.net)} tone="info" />
-          <MetricCard label="Booking fees" value={money(sum.fees)} />
-          <MetricCard
-            label="Refunds"
-            value={money(sum.refunds)}
-            tone={sum.refunds > 0 ? 'warning' : 'neutral'}
-          />
-          <MetricCard label="Tickets sold" value={sum.sold} />
-          <MetricCard
-            label="Check-in rate"
-            value={`${checkinRate}%`}
-            hint={`${sum.checkins} of ${sum.sold} checked in`}
-          />
-          <MetricCard
-            label="Most popular ticket"
-            value={mostPopular?.name ?? '—'}
-            hint={mostPopular ? `${mostPopular.quantity} sold` : 'No sales yet'}
-          />
-          <MetricCard
-            label="Published events"
-            value={publishedCount}
-            hint={`${events.length} total`}
-          />
+        <div className="space-y-5">
+          <div>
+            <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
+              Revenue
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard label="Gross sales" value={money(sum.gross)} tone="success" />
+              <MetricCard label="Net revenue" value={money(sum.net)} tone="info" />
+              <MetricCard label="Booking fees" value={money(sum.fees)} />
+              <MetricCard
+                label="Refunds"
+                value={money(sum.refunds)}
+                hint={`${refundRate}% of gross`}
+                tone={sum.refunds > 0 ? 'warning' : 'neutral'}
+              />
+            </div>
+          </div>
+          <div>
+            <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
+              Sales &amp; attendance
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard label="Tickets sold" value={sum.sold} />
+              <MetricCard
+                label="Capacity used"
+                value={`${capacity?.utilization ?? 0}%`}
+                hint={capacity ? `${capacity.sold} of ${capacity.capacity}` : '—'}
+                tone={
+                  (capacity?.utilization ?? 0) >= 90
+                    ? 'warning'
+                    : (capacity?.utilization ?? 0) >= 50
+                      ? 'success'
+                      : 'neutral'
+                }
+              />
+              <MetricCard
+                label="Conversion"
+                value={`${conversion?.rate ?? 0}%`}
+                hint={conversion ? `${conversion.confirmed} of ${conversion.total} bookings` : '—'}
+              />
+              <MetricCard
+                label="Check-in rate"
+                value={`${checkinRate}%`}
+                hint={`${sum.checkins} of ${sum.sold} checked in`}
+              />
+            </div>
+          </div>
+          <div>
+            <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
+              Engagement
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard
+                label="Repeat customers"
+                value={`${repeat?.rate ?? 0}%`}
+                hint={repeat ? `${repeat.repeatCustomers} of ${repeat.totalCustomers}` : '—'}
+              />
+              <MetricCard
+                label="Coupons redeemed"
+                value={coupons?.redemptions ?? 0}
+                hint={coupons ? `${money(coupons.discountMinor)} discounted` : '—'}
+              />
+              <MetricCard
+                label="Most popular ticket"
+                value={mostPopular?.name ?? '—'}
+                hint={mostPopular ? `${mostPopular.quantity} sold` : 'No sales yet'}
+              />
+              <MetricCard
+                label="Published events"
+                value={publishedCount}
+                hint={`${events.length} total`}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -155,6 +210,31 @@ export default function OrganizerDashboard() {
         </Card>
 
         <div className="space-y-6">
+          {topEvents.length > 0 && (
+            <Card title="Top-performing events">
+              <ol className="space-y-2.5">
+                {topEvents.map((e, i) => (
+                  <li key={e.eventId} className="flex items-center justify-between gap-3">
+                    <Link
+                      href={`/organizer/events/${e.eventId}`}
+                      className="flex min-w-0 items-center gap-2.5"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-action-primary/10 text-caption font-semibold text-action-primary">
+                        {i + 1}
+                      </span>
+                      <span className="truncate text-[0.9375rem] font-medium text-text-primary hover:text-action-primary">
+                        {e.title}
+                      </span>
+                    </Link>
+                    <span className="shrink-0 text-caption font-semibold text-text-secondary">
+                      {money(e.grossMinor)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
+
           <Card title="Quick actions">
             <div className="space-y-2">
               <ButtonLink href="/organizer/events/new" className="w-full">

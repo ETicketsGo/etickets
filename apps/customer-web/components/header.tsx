@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Ticket, Compass, LogOut, Receipt, Film, Sparkles, LifeBuoy } from 'lucide-react';
-import { tokenStore } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { Ticket, Compass, LogOut, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
+import { api, tokenStore } from '@/lib/api';
 import { ButtonLink } from '@/components/ui';
 import { currentUserId } from '@/lib/offline/identity';
 import { purgeUser } from '@/lib/offline/wallet-store';
@@ -19,6 +20,14 @@ export function Header() {
   useEffect(() => {
     setAuthed(!!tokenStore.access);
   }, []);
+
+  const { data: unread } = useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: () => api.notificationsUnreadCount(),
+    enabled: authed,
+    refetchInterval: 60_000,
+  });
+  const unreadCount = unread?.unreadCount ?? 0;
 
   const logout = () => {
     // Shared-device safety: remove this user's cached wallet + QR payloads before
@@ -71,6 +80,21 @@ export function Header() {
               <Link href="/account/tickets" aria-label="My tickets" className={navLink}>
                 <Ticket className="h-4 w-4" />
                 <span className="hidden sm:inline">Tickets</span>
+              </Link>
+              <Link
+                href="/account/notifications"
+                aria-label={
+                  unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
+                }
+                className={`relative ${navLink}`}
+              >
+                <Bell className="h-4 w-4" />
+                <span className="hidden sm:inline">Alerts</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-action-primary px-1 text-[0.625rem] font-semibold text-action-primary-foreground">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </Link>
               <button onClick={logout} aria-label="Sign out" className={navLink}>
                 <LogOut className="h-4 w-4" />

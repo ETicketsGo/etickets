@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Param, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
@@ -7,6 +8,7 @@ import { ReportsService } from './reports.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { AppException, ErrorCodes } from '../common/errors';
 
 @ApiTags('reports')
 @ApiBearerAuth()
@@ -15,8 +17,22 @@ export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
 
   @Get('events/:eventId')
-  @ApiOperation({ summary: 'Organizer sales & operations report for an event.' })
-  eventReport(@CurrentUser() user: RequestUser, @Param('eventId') eventId: string) {
+  @ApiOperation({ summary: 'Organizer sales & operations report for an event (JSON or CSV).' })
+  async eventReport(
+    @CurrentUser() user: RequestUser,
+    @Param('eventId') eventId: string,
+    @Query(new ZodValidationPipe(z.object({ format: z.enum(['json', 'csv']).optional() })))
+    q: { format?: 'json' | 'csv' },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (q.format === 'csv') {
+      const csv = await this.reports.organizerEventReportCsv(user, eventId);
+      if (csv === null)
+        throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="event-report-${eventId}.csv"`);
+      return res.send(csv);
+    }
     return this.reports.organizerEventReport(user, eventId);
   }
 }
