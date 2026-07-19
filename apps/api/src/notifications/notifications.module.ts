@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsController } from './notifications.controller';
 import { NotificationService } from './notification.service';
 import { NotificationTemplateService } from './templates/notification-template.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
@@ -19,6 +20,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
 
 @Global()
 @Module({
+  controllers: [NotificationsController],
   providers: [
     NotificationService,
     NotificationTemplateService,

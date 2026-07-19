@@ -80,7 +80,7 @@ function setup(
 }
 
 describe('NotificationService.send (backward compatibility)', () => {
-  it('default (no channels/locale) persists exactly one email SENT row and delivers once', async () => {
+  it('default (no channels/locale) persists an email + in_app SENT row and delivers to each', async () => {
     const { service, prisma, deliver } = setup();
 
     await service.send({
@@ -90,7 +90,8 @@ describe('NotificationService.send (backward compatibility)', () => {
       payload: { bookingId: 'bk-1', tickets: 2 },
     });
 
-    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    // Default channels are email + in_app (the latter feeds the in-app inbox).
+    expect(prisma.notification.create).toHaveBeenCalledTimes(2);
     expect(prisma.notification.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -102,7 +103,12 @@ describe('NotificationService.send (backward compatibility)', () => {
         }),
       }),
     );
-    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(prisma.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ channel: 'in_app', status: 'SENT' }),
+      }),
+    );
+    expect(deliver).toHaveBeenCalledTimes(2);
   });
 
   it('fans out to each requested channel when channels are given', async () => {

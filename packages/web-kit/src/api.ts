@@ -344,6 +344,15 @@ export const api = {
       }),
   },
 
+  notifications: {
+    inbox: (params: { limit?: number; before?: string } = {}) =>
+      request<NotificationInbox>(`/notifications${qs(params)}`),
+    unreadCount: () => request<{ unreadCount: number }>('/notifications/unread-count'),
+    markRead: (id: string) =>
+      request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
+    markAllRead: () => request<{ updated: number }>('/notifications/read-all', { method: 'POST' }),
+  },
+
   venues: {
     create: (body: {
       organizationId: string;
@@ -1187,6 +1196,18 @@ export interface OrgMember {
   role: string;
   status: string;
   user: { id: string; email: string; fullName: string };
+}
+export interface NotificationItem {
+  id: string;
+  type: string;
+  subject: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+export interface NotificationInbox {
+  items: NotificationItem[];
+  unreadCount: number;
 }
 export interface Venue {
   id: string;
