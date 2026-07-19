@@ -434,6 +434,7 @@ export const api = {
       request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
     duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
+    promotion: (id: string) => request<EventPromotion>(`/events/${id}/promotion`),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
     resume: (id: string) => request<OrgEventDetail>(`/events/${id}/resume`, { method: 'POST' }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
@@ -1409,6 +1410,14 @@ export interface OrgEventRow {
   createdAt: string;
   venue: { name: string; city: string };
   _count: { sessions: number; bookings: number };
+}
+export interface EventPromotion {
+  eventId: string;
+  title: string;
+  slug: string;
+  published: boolean;
+  publicUrl: string;
+  qrDataUrl: string;
 }
 export interface EventSession {
   id: string;

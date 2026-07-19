@@ -14,6 +14,7 @@ const TABS = [
   { label: 'Attendees', seg: '/attendees' },
   { label: 'Check-in', seg: '/checkin' },
   { label: 'Reports', seg: '/reports' },
+  { label: 'Promote', seg: '/promote' },
 ];
 
 export default function EventLayout({ children }: { children: React.ReactNode }) {

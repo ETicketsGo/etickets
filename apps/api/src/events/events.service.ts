@@ -1,4 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
 import { EventStatus, Role } from '@eticketsgo/shared-types';
 import type {
@@ -33,7 +35,14 @@ export class EventsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** First configured web origin, trailing slash trimmed (mirrors sharing.service). */
+  private siteBaseUrl(): string {
+    const origins = this.config.get<string>('CORS_ORIGINS') ?? 'http://localhost:3000';
+    return origins.split(',')[0].trim().replace(/\/$/, '');
+  }
 
   private async loadOwnedEvent(user: RequestUser, id: string, roles = ORGANIZER_ROLES) {
     const event = await this.prisma.event.findUnique({ where: { id } });
@@ -147,6 +156,25 @@ export class EventsService {
       metadata: { sourceEventId: eventId, sessions: sessions.length },
     });
     return created;
+  }
+
+  /**
+   * Marketing assets for an event: its public URL plus a QR code (data URL) that
+   * resolves to that page. Reuses the `qrcode` dependency already used for tickets;
+   * the front-end builds share links and posters from these two values.
+   */
+  async promotion(user: RequestUser, eventId: string) {
+    const event = await this.loadOwnedEvent(user, eventId);
+    const publicUrl = `${this.siteBaseUrl()}/events/${event.slug}`;
+    const qrDataUrl = await QRCode.toDataURL(publicUrl, { margin: 1, width: 512 });
+    return {
+      eventId: event.id,
+      title: event.title,
+      slug: event.slug,
+      published: event.status === EventStatus.PUBLISHED,
+      publicUrl,
+      qrDataUrl,
+    };
   }
 
   async update(user: RequestUser, id: string, patch: Partial<CreateEventInput>) {
