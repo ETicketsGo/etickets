@@ -10,6 +10,7 @@ import { AppException } from '../common/errors';
 import type { PaymentEvent } from './provider/payment-provider.interface';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
+import { AddOnInventoryService } from '../commerce/addon-inventory.service';
 
 const SUCCEEDED_EVENT: PaymentEvent = {
   type: 'payment.succeeded',
@@ -88,6 +89,7 @@ function setup(opts: {
     audit as never,
     notifications as never,
     inventory as never,
+    new AddOnInventoryService(),
     new MetricsService(),
     new BookingReferenceService(),
   );

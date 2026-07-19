@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { AddOnInventoryService } from '../commerce/addon-inventory.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
 import {
   PAYMENT_PROVIDER,
@@ -40,6 +41,7 @@ export class PaymentsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
+    private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
     private readonly bookingReference: BookingReferenceService,
   ) {}
@@ -198,7 +200,11 @@ export class PaymentsService {
     }
 
     const strategy = this.inventory.forExperienceType(booking.event.experienceType);
-    const expectedUnits = booking.items.reduce((s, i) => s + i.quantity, 0);
+    // Only ticket-bearing lines issue tickets & settle ticket stock; add-on lines
+    // (v1.3) settle their own inventory and never mint tickets.
+    const ticketItems = booking.items.filter((i) => i.ticketTypeId);
+    const addOnItems = booking.items.filter((i) => i.addOnId);
+    const expectedUnits = ticketItems.reduce((s, i) => s + i.quantity, 0);
     let alreadyConfirmed = false;
 
     await this.prisma.$transaction(async (tx) => {
@@ -228,7 +234,10 @@ export class PaymentsService {
         eventSessionId: booking.eventSessionId,
         bookingId: booking.id,
         holdExpiresAt: booking.holdExpiresAt,
-        lines: booking.items.map((i) => ({ ticketTypeId: i.ticketTypeId, quantity: i.quantity })),
+        lines: ticketItems.map((i) => ({
+          ticketTypeId: i.ticketTypeId as string,
+          quantity: i.quantity,
+        })),
       });
       // Guard the "charged but hold expired → zero tickets" case: if the strategy
       // could not settle every booked unit, roll the whole confirm back.
@@ -256,6 +265,13 @@ export class PaymentsService {
             holderEmail: booking.buyerEmail,
           },
         });
+      }
+      // Settle add-on stock (held → sold) for this booking's add-on lines (v1.3).
+      if (addOnItems.length > 0) {
+        await this.addOnInventory.confirm(
+          tx,
+          addOnItems.map((i) => ({ addOnId: i.addOnId as string, quantity: i.quantity })),
+        );
       }
       await tx.payment.update({
         where: { bookingId: booking.id },

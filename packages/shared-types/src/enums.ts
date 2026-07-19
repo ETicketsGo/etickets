@@ -117,6 +117,39 @@ export const PaymentStatus = {
 } as const;
 export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus];
 
+// Experience Commerce (v1.3).
+export const AddOnType = {
+  MERCHANDISE: 'MERCHANDISE',
+  PARKING: 'PARKING',
+  FOOD_BEVERAGE: 'FOOD_BEVERAGE',
+  VIP_UPGRADE: 'VIP_UPGRADE',
+  MEET_GREET: 'MEET_GREET',
+  DONATION: 'DONATION',
+  DIGITAL: 'DIGITAL',
+} as const;
+export type AddOnType = (typeof AddOnType)[keyof typeof AddOnType];
+
+export const BundleType = {
+  VIP: 'VIP',
+  FAMILY: 'FAMILY',
+  COMBO: 'COMBO',
+  EARLY_BIRD: 'EARLY_BIRD',
+} as const;
+export type BundleType = (typeof BundleType)[keyof typeof BundleType];
+
+export const BundlePricingKind = {
+  FIXED: 'FIXED',
+  PERCENT_DISCOUNT: 'PERCENT_DISCOUNT',
+} as const;
+export type BundlePricingKind = (typeof BundlePricingKind)[keyof typeof BundlePricingKind];
+
+export const BookingItemKind = {
+  TICKET: 'TICKET',
+  ADDON: 'ADDON',
+  BUNDLE: 'BUNDLE',
+} as const;
+export type BookingItemKind = (typeof BookingItemKind)[keyof typeof BookingItemKind];
+
 export const PaymentAttemptStatus = {
   CREATED: 'CREATED',
   SUCCEEDED: 'SUCCEEDED',

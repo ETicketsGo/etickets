@@ -13,13 +13,32 @@ export const bookingItemSchema = z
     path: ['seatIds'],
   });
 
-export const createBookingSchema = z.object({
-  eventSessionId: z.string().cuid(),
-  items: z.array(bookingItemSchema).min(1, 'Select at least one ticket.'),
-  couponCode: z.string().trim().max(40).optional(),
-  buyerName: z.string().trim().min(2).max(120),
-  buyerEmail: z.string().email(),
+// Experience Commerce lines (v1.3). Add-ons and bundles are optional; a booking
+// still needs at least one line overall (ticket, add-on, or bundle).
+export const addOnItemSchema = z.object({
+  addOnId: z.string().cuid(),
+  quantity: z.number().int().min(1).max(50),
 });
+
+export const bundleItemInputSchema = z.object({
+  bundleId: z.string().cuid(),
+  quantity: z.number().int().min(1).max(20),
+});
+
+export const createBookingSchema = z
+  .object({
+    eventSessionId: z.string().cuid(),
+    items: z.array(bookingItemSchema).max(50).default([]),
+    addOns: z.array(addOnItemSchema).max(50).optional(),
+    bundles: z.array(bundleItemInputSchema).max(20).optional(),
+    couponCode: z.string().trim().max(40).optional(),
+    buyerName: z.string().trim().min(2).max(120),
+    buyerEmail: z.string().email(),
+  })
+  .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
+    message: 'Add at least one item to your cart.',
+    path: ['items'],
+  });
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
 export const createPaymentSchema = z.object({

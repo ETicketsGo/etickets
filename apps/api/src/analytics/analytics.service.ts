@@ -194,18 +194,23 @@ export class AnalyticsService {
   ): Promise<{ name: string; quantity: number } | null> {
     const grouped = await this.prisma.bookingItem.groupBy({
       by: ['ticketTypeId'],
-      where: { booking: { organizationId, confirmedAt: { not: null } } },
+      // Ticket lines only — add-on lines (v1.3) have a null ticketTypeId.
+      where: {
+        ticketTypeId: { not: null },
+        booking: { organizationId, confirmedAt: { not: null } },
+      },
       _sum: { quantity: true },
       orderBy: { _sum: { quantity: 'desc' } },
       take: 1,
     });
-    if (grouped.length === 0) return null;
+    if (grouped.length === 0 || !grouped[0].ticketTypeId) return null;
     const top = grouped[0];
+    const ticketTypeId = top.ticketTypeId as string;
     const ticketType = await this.prisma.ticketType.findUnique({
-      where: { id: top.ticketTypeId },
+      where: { id: ticketTypeId },
       select: { name: true },
     });
-    return { name: ticketType?.name ?? top.ticketTypeId, quantity: top._sum.quantity ?? 0 };
+    return { name: ticketType?.name ?? ticketTypeId, quantity: top._sum.quantity ?? 0 };
   }
 
   /** Confirmed bookings that redeemed a coupon (one count). */

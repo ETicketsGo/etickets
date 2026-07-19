@@ -4,4 +4,5 @@ export * from './features';
 export * from './offline-checkin';
 export * from './offline-queue';
 export * from './event-insights';
+export * from './commerce';
 export * from './wallet-pass';

@@ -148,6 +148,41 @@ enum CouponType {
   FIXED
 }
 
+// Experience Commerce (v1.3). Configurable non-ticket products sold alongside
+// tickets. DONATION and DIGITAL are unlimited-stock by default; the rest track
+// inventory like ticket types.
+enum AddOnType {
+  MERCHANDISE
+  PARKING
+  FOOD_BEVERAGE
+  VIP_UPGRADE
+  MEET_GREET
+  DONATION
+  DIGITAL
+}
+
+// Marketing category for a bundle; purely descriptive (pricing lives on the rule).
+enum BundleType {
+  VIP
+  FAMILY
+  COMBO
+  EARLY_BIRD
+}
+
+// How a bundle is priced: a fixed all-in price, or a percentage off the sum of
+// its components' list prices.
+enum BundlePricingKind {
+  FIXED
+  PERCENT_DISCOUNT
+}
+
+// Kind of a booking line: a ticket, a standalone add-on, or a bundle component.
+enum BookingItemKind {
+  TICKET
+  ADDON
+  BUNDLE
+}
+
 enum NotificationType {
   BOOKING_CONFIRMED
   PAYMENT_FAILED
@@ -224,16 +259,16 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  refreshTokens RefreshToken[]
-  memberships   OrganizationMember[]
-  bookings      Booking[]
-  assignedTickets Ticket[]           @relation("TicketAttendee")
-  notifications Notification[]
+  refreshTokens           RefreshToken[]
+  memberships             OrganizationMember[]
+  bookings                Booking[]
+  assignedTickets         Ticket[]                 @relation("TicketAttendee")
+  notifications           Notification[]
   notificationPreferences NotificationPreference[]
   feedback                Feedback[]
-  checkIns      CheckIn[]            @relation("CheckInActor")
-  auditLogs     AuditLog[]
-  reviews       Review[]
+  checkIns                CheckIn[]                @relation("CheckInActor")
+  auditLogs               AuditLog[]
+  reviews                 Review[]
 
   @@index([status])
 }
@@ -256,11 +291,11 @@ model RefreshToken {
 // ─────────────────────────── Tenancy ───────────────────────────
 
 model Organization {
-  id           String             @id @default(cuid())
-  name         String
-  slug         String             @unique
-  status       OrganizationStatus @default(PENDING)
-  contactEmail String?
+  id            String             @id @default(cuid())
+  name          String
+  slug          String             @unique
+  status        OrganizationStatus @default(PENDING)
+  contactEmail  String?
   // Public organizer profile (v1.2 WS6). All optional; empty = not shown.
   description   String?
   logoUrl       String?
@@ -271,17 +306,17 @@ model Organization {
   instagramUrl  String?
   facebookUrl   String?
   // Verification badge is a manual/admin placeholder for now (no automated flow).
-  verified     Boolean            @default(false)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  verified      Boolean            @default(false)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
-  members OrganizationMember[]
-  venues  Venue[]
-  events  Event[]
-  payouts Payout[]
-  refunds Refund[]
-  movies  Movie[]
-  cinemas Cinema[]
+  members             OrganizationMember[]
+  venues              Venue[]
+  events              Event[]
+  payouts             Payout[]
+  refunds             Refund[]
+  movies              Movie[]
+  cinemas             Cinema[]
   merchantOnboardings MerchantOnboarding[]
 
   @@index([status])
@@ -433,13 +468,13 @@ model SeatMap {
 }
 
 model SeatCategory {
-  id             String       @id @default(cuid())
+  id             String  @id @default(cuid())
   seatMapId      String
-  seatMap        SeatMap      @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  seatMap        SeatMap @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
   name           String // Recliner, Premium, Normal
   colorHex       String?
   basePriceMinor Int
-  sortOrder      Int          @default(0)
+  sortOrder      Int     @default(0)
 
   seats       Seat[]
   ticketTypes TicketType[]
@@ -448,11 +483,11 @@ model SeatCategory {
 }
 
 model SeatSection {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   seatMapId String
-  seatMap   SeatMap  @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  seatMap   SeatMap @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
   name      String
-  sortOrder Int      @default(0)
+  sortOrder Int     @default(0)
 
   rows SeatRow[]
 
@@ -509,31 +544,33 @@ model ShowSeat {
 }
 
 model Event {
-  id               String      @id @default(cuid())
+  id               String         @id @default(cuid())
   organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   venueId          String
-  venue            Venue       @relation(fields: [venueId], references: [id])
+  venue            Venue          @relation(fields: [venueId], references: [id])
   experienceType   ExperienceType @default(EVENT)
   // Set only for MOVIE experiences: the film this bookable listing screens.
   movieId          String?
-  movie            Movie?      @relation(fields: [movieId], references: [id])
+  movie            Movie?         @relation(fields: [movieId], references: [id])
   title            String
-  slug             String      @unique
+  slug             String         @unique
   category         String
   description      String?
-  status           EventStatus @default(DRAFT)
-  feeMode          FeeMode     @default(CUSTOMER_PAYS)
+  status           EventStatus    @default(DRAFT)
+  feeMode          FeeMode        @default(CUSTOMER_PAYS)
   refundPolicy     String?
   publishedAt      DateTime?
   reviewedByUserId String?
   reviewNote       String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   sessions EventSession[]
   bookings Booking[]
   reviews  Review[]
+  addOns   AddOn[]
+  bundles  Bundle[]
 
   @@index([organizationId])
   @@index([status])
@@ -604,6 +641,7 @@ model TicketType {
   inventory    TicketInventory?
   bookingItems BookingItem[]
   tickets      Ticket[]
+  bundleItems  BundleItem[]
 
   @@index([eventSessionId])
   @@index([seatCategoryId])
@@ -641,16 +679,16 @@ model Coupon {
 }
 
 model Booking {
-  id             String        @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   eventId        String
-  event          Event         @relation(fields: [eventId], references: [id])
+  event          Event        @relation(fields: [eventId], references: [id])
   eventSessionId String
-  eventSession   EventSession  @relation(fields: [eventSessionId], references: [id])
+  eventSession   EventSession @relation(fields: [eventSessionId], references: [id])
   userId         String?
-  user           User?         @relation(fields: [userId], references: [id])
+  user           User?        @relation(fields: [userId], references: [id])
   couponId       String?
-  coupon         Coupon?       @relation(fields: [couponId], references: [id])
+  coupon         Coupon?      @relation(fields: [couponId], references: [id])
 
   // Human-readable, globally-unique, immutable public reference assigned once at
   // confirmation, e.g. "ETG-IND-2026-000001" (brand-country-year-sequence). Null
@@ -672,10 +710,10 @@ model Booking {
   organizerFeeMinor Int @default(0)
   totalMinor        Int
 
-  holdExpiresAt DateTime
-  confirmedAt   DateTime?
-  cancelledAt   DateTime?
-  idempotencyKey String?  @unique
+  holdExpiresAt  DateTime
+  confirmedAt    DateTime?
+  cancelledAt    DateTime?
+  idempotencyKey String?   @unique
 
   heldSeats ShowSeat[]
 
@@ -697,57 +735,151 @@ model Booking {
 }
 
 model BookingItem {
-  id            String     @id @default(cuid())
-  bookingId     String
-  booking       Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  ticketTypeId  String
-  ticketType    TicketType @relation(fields: [ticketTypeId], references: [id])
-  quantity      Int
+  id             String          @id @default(cuid())
+  bookingId      String
+  booking        Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // Experience Commerce (v1.3): a line is a ticket, an add-on, or a bundle
+  // component. ticketTypeId is now nullable (add-on lines have addOnId instead);
+  // existing ticket lines keep ticketTypeId set and default kind TICKET.
+  kind           BookingItemKind @default(TICKET)
+  ticketTypeId   String?
+  ticketType     TicketType?     @relation(fields: [ticketTypeId], references: [id])
+  addOnId        String?
+  addOn          AddOn?          @relation(fields: [addOnId], references: [id])
+  // Set when this line came from a bundle (groups the expanded components).
+  bundleId       String?
+  bundle         Bundle?         @relation(fields: [bundleId], references: [id])
+  // Snapshot label for display (add-on/bundle name at purchase time).
+  label          String?
+  quantity       Int
   unitPriceMinor Int
   lineTotalMinor Int
-  createdAt     DateTime   @default(now())
+  createdAt      DateTime        @default(now())
 
   @@index([bookingId])
+  @@index([addOnId])
+  @@index([bundleId])
+}
+
+// A configurable non-ticket product an organizer sells for an event (v1.3 WS1/WS4).
+model AddOn {
+  id           String    @id @default(cuid())
+  eventId      String
+  event        Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  type         AddOnType
+  name         String
+  description  String?
+  priceMinor   Int
+  currency     String    @default("INR")
+  imageUrl     String?
+  // Max units of this add-on per order (donations ignore this; see service).
+  maxPerOrder  Int       @default(10)
+  // Availability window; null = always on sale while enabled.
+  salesStartAt DateTime?
+  salesEndAt   DateTime?
+  enabled      Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  inventory    AddOnInventory?
+  bookingItems BookingItem[]
+  bundleItems  BundleItem[]
+
+  @@index([eventId])
+  @@index([eventId, enabled])
+}
+
+// Stock for an add-on. quantityTotal null = unlimited (donations/digital).
+model AddOnInventory {
+  id            String   @id @default(cuid())
+  addOnId       String   @unique
+  addOn         AddOn    @relation(fields: [addOnId], references: [id], onDelete: Cascade)
+  quantityTotal Int?
+  quantitySold  Int      @default(0)
+  quantityHeld  Int      @default(0)
+  version       Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+// A pre-priced package of ticket types and/or add-ons (v1.3 WS3).
+model Bundle {
+  id              String            @id @default(cuid())
+  eventId         String
+  event           Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  type            BundleType
+  name            String
+  description     String?
+  currency        String            @default("INR")
+  pricingKind     BundlePricingKind @default(FIXED)
+  // FIXED → the all-in bundle price (minor units). PERCENT_DISCOUNT → percent off.
+  priceMinor      Int?
+  discountPercent Int?
+  maxPerOrder     Int               @default(5)
+  salesStartAt    DateTime?
+  salesEndAt      DateTime?
+  enabled         Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  items        BundleItem[]
+  bookingItems BookingItem[]
+
+  @@index([eventId])
+  @@index([eventId, enabled])
+}
+
+// One component (a ticket type or an add-on) inside a bundle, with a quantity.
+model BundleItem {
+  id           String      @id @default(cuid())
+  bundleId     String
+  bundle       Bundle      @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  ticketTypeId String?
+  ticketType   TicketType? @relation(fields: [ticketTypeId], references: [id])
+  addOnId      String?
+  addOn        AddOn?      @relation(fields: [addOnId], references: [id])
+  quantity     Int         @default(1)
+
+  @@index([bundleId])
 }
 
 model Ticket {
-  id             String       @id @default(cuid())
-  bookingId      String
-  booking        Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  ticketTypeId   String
-  ticketType     TicketType   @relation(fields: [ticketTypeId], references: [id])
-  eventSessionId String
-  eventSession   EventSession @relation(fields: [eventSessionId], references: [id])
-  organizationId String
-  serial         String       @unique
-  nonce          String
-  qrVersion      Int          @default(1)
-  status         TicketStatus @default(ACTIVE)
+  id                   String                   @id @default(cuid())
+  bookingId            String
+  booking              Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  ticketTypeId         String
+  ticketType           TicketType               @relation(fields: [ticketTypeId], references: [id])
+  eventSessionId       String
+  eventSession         EventSession             @relation(fields: [eventSessionId], references: [id])
+  organizationId       String
+  serial               String                   @unique
+  nonce                String
+  qrVersion            Int                      @default(1)
+  status               TicketStatus             @default(ACTIVE)
   // Set for seat-based (movie) tickets: the specific seat this ticket admits.
-  seatId         String?
-  seat           Seat?        @relation(fields: [seatId], references: [id])
-  seatLabel      String?
+  seatId               String?
+  seat                 Seat?                    @relation(fields: [seatId], references: [id])
+  seatLabel            String?
   // ── Attendee identity (ADR-031). holderName/holderEmail are the attendee's
   //    name/email; the fields below enrich the profile. assignmentStatus is the
   //    identity lifecycle, orthogonal to `status` (gate/refund). attendeeUserId
   //    links a claimed ticket to the attendee's account. Additive + optional, so
   //    existing tickets keep working unchanged.
-  holderName     String?
-  holderEmail    String?
-  assignmentStatus AttendeeAssignmentStatus @default(UNASSIGNED)
-  attendeeUserId String?
-  attendeeUser   User?        @relation("TicketAttendee", fields: [attendeeUserId], references: [id])
-  attendeePhone       String?
-  attendeeCountry     String?
-  attendeeCompany     String?
-  attendeeDesignation String?
-  attendeeStudentId   String?
-  attendeeMemberId    String?
+  holderName           String?
+  holderEmail          String?
+  assignmentStatus     AttendeeAssignmentStatus @default(UNASSIGNED)
+  attendeeUserId       String?
+  attendeeUser         User?                    @relation("TicketAttendee", fields: [attendeeUserId], references: [id])
+  attendeePhone        String?
+  attendeeCountry      String?
+  attendeeCompany      String?
+  attendeeDesignation  String?
+  attendeeStudentId    String?
+  attendeeMemberId     String?
   // Per-experience custom attendee fields (configurable), stored as { key: value }.
   attendeeCustomFields Json?
-  issuedAt       DateTime     @default(now())
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  issuedAt             DateTime                 @default(now())
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
 
   checkIns CheckIn[]
   invites  TicketInvite[]
@@ -765,32 +897,32 @@ model Ticket {
 // links. Accepting rotates the ticket's QR nonce so any previously-shared QR
 // stops working — there is only ever one valid QR per ticket.
 model TicketInvite {
-  id             String             @id @default(cuid())
-  ticketId       String
-  ticket         Ticket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  organizationId String
-  kind           TicketInviteKind   @default(INVITE)
-  status         TicketInviteStatus @default(PENDING)
+  id                 String             @id @default(cuid())
+  ticketId           String
+  ticket             Ticket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  organizationId     String
+  kind               TicketInviteKind   @default(INVITE)
+  status             TicketInviteStatus @default(PENDING)
   // Secure Experience Sharing (ADR-032). permission drives what the link grants;
   // resourceType keeps the ledger generic for future wallet items; open counters
   // + limits enforce single/multi-use policy. Existing rows are TRANSFER/TICKET.
-  permission     SharePermission    @default(TRANSFER)
-  resourceType   ResourceType       @default(TICKET)
-  maxOpens       Int?
-  openCount      Int                @default(0)
-  lastOpenedAt   DateTime?
+  permission         SharePermission    @default(TRANSFER)
+  resourceType       ResourceType       @default(TICKET)
+  maxOpens           Int?
+  openCount          Int                @default(0)
+  lastOpenedAt       DateTime?
   lastOpenedByUserId String?
-  label          String?
+  label              String?
   // Intended recipient (for delivery + display); the accepting account may differ.
-  email          String?
-  phone          String?
-  tokenHash      String             @unique
-  expiresAt      DateTime
-  createdByUserId String?
-  acceptedByUserId String?
-  resolvedAt     DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  email              String?
+  phone              String?
+  tokenHash          String             @unique
+  expiresAt          DateTime
+  createdByUserId    String?
+  acceptedByUserId   String?
+  resolvedAt         DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([ticketId])
   @@index([status])
@@ -798,16 +930,16 @@ model TicketInvite {
 }
 
 model Payment {
-  id         String        @id @default(cuid())
-  bookingId  String        @unique
-  booking    Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  provider   String        @default("mock")
-  status     PaymentStatus @default(REQUIRES_PAYMENT)
+  id          String        @id @default(cuid())
+  bookingId   String        @unique
+  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  provider    String        @default("mock")
+  status      PaymentStatus @default(REQUIRES_PAYMENT)
   amountMinor Int
-  currency   String        @default("INR")
+  currency    String        @default("INR")
   providerRef String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   attempts PaymentAttempt[]
 
@@ -827,20 +959,20 @@ model PaymentAttempt {
 }
 
 model Refund {
-  id               String       @id @default(cuid())
-  bookingId        String
-  booking          Booking      @relation(fields: [bookingId], references: [id])
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id])
-  amountMinor      Int
-  status           RefundStatus @default(REQUESTED)
-  reason           String
-  ticketIds        String[]     @default([])
+  id                String       @id @default(cuid())
+  bookingId         String
+  booking           Booking      @relation(fields: [bookingId], references: [id])
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  amountMinor       Int
+  status            RefundStatus @default(REQUESTED)
+  reason            String
+  ticketIds         String[]     @default([])
   requestedByUserId String?
   processedByUserId String?
-  providerRef      String?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  providerRef       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   @@index([bookingId])
   @@index([status])
@@ -848,23 +980,23 @@ model Refund {
 }
 
 model Payout {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  eventId        String?
-  periodStart    DateTime?
-  periodEnd      DateTime?
-  grossMinor     Int          @default(0)
-  bookingFeeMinor Int         @default(0)
-  paymentFeeMinor Int         @default(0)
-  refundMinor    Int          @default(0)
-  netMinor       Int          @default(0)
-  currency       String       @default("INR")
-  status         PayoutStatus @default(PENDING)
-  scheduledAt    DateTime?
-  paidAt         DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventId         String?
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  grossMinor      Int          @default(0)
+  bookingFeeMinor Int          @default(0)
+  paymentFeeMinor Int          @default(0)
+  refundMinor     Int          @default(0)
+  netMinor        Int          @default(0)
+  currency        String       @default("INR")
+  status          PayoutStatus @default(PENDING)
+  scheduledAt     DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@index([organizationId])
   @@index([status])
@@ -1040,14 +1172,14 @@ model OfflineReconciliationRecord {
 // never suppresses the underlying condition (the alert keeps deriving) or changes the
 // gate. Unique per (session, alertKey) so re-acknowledging is idempotent.
 model OfflineAlertAck {
-  id                 String   @id @default(cuid())
-  organizationId     String
-  eventSessionId     String
-  alertKey           String
-  severityAtAck      String
-  reason             String
+  id                   String   @id @default(cuid())
+  organizationId       String
+  eventSessionId       String
+  alertKey             String
+  severityAtAck        String
+  reason               String
   acknowledgedByUserId String
-  acknowledgedAt     DateTime @default(now())
+  acknowledgedAt       DateTime @default(now())
 
   @@unique([eventSessionId, alertKey])
   @@index([organizationId, eventSessionId])
@@ -1056,19 +1188,19 @@ model OfflineAlertAck {
 // ─────────────────────────── Operations ───────────────────────────
 
 model CheckIn {
-  id             String            @id @default(cuid())
-  ticketId       String
-  ticket         Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  eventSessionId String
-  eventSession   EventSession      @relation(fields: [eventSessionId], references: [id])
-  result         CheckInResultType
-  byUserId       String?
-  by             User?             @relation("CheckInActor", fields: [byUserId], references: [id])
-  deviceInfo     String?
-  reversed       Boolean           @default(false)
+  id               String            @id @default(cuid())
+  ticketId         String
+  ticket           Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  eventSessionId   String
+  eventSession     EventSession      @relation(fields: [eventSessionId], references: [id])
+  result           CheckInResultType
+  byUserId         String?
+  by               User?             @relation("CheckInActor", fields: [byUserId], references: [id])
+  deviceInfo       String?
+  reversed         Boolean           @default(false)
   reversedByUserId String?
-  reversedAt     DateTime?
-  createdAt      DateTime          @default(now())
+  reversedAt       DateTime?
+  createdAt        DateTime          @default(now())
 
   @@index([ticketId])
   @@index([eventSessionId])
@@ -1216,12 +1348,12 @@ model PaymentProviderConfig {
   mode     PaymentProviderMode @default(TEST)
 
   // Non-secret public identifier (publishable key / client id) — safe to store.
-  publicKey String?
+  publicKey        String?
   // Secret REFERENCES only, e.g. 'payments/stripe/test/secret-key'. Never raw.
   secretKeyRef     String?
   webhookSecretRef String?
   // Optional endpoint override (e.g. a sandbox base URL). Not hardcoded in code.
-  apiBaseUrl String?
+  apiBaseUrl       String?
 
   // Operational controls (failover / circuit-breaker / timeouts) consumed by the
   // orchestrator. Editable per env without a deploy.
@@ -1246,18 +1378,18 @@ model PaymentProviderConfig {
 // country and/or currency (null = applies to anything the provider serves). Holds
 // only non-secret identifiers and secret references.
 model MerchantAccount {
-  id       String                @id @default(cuid())
-  configId String
-  config   PaymentProviderConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  label    String
-  country  String? // ISO-3166 alpha-2; null = any
-  currency String? // ISO-4217; null = any
+  id            String                @id @default(cuid())
+  configId      String
+  config        PaymentProviderConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  label         String
+  country       String? // ISO-3166 alpha-2; null = any
+  currency      String? // ISO-4217; null = any
   // Provider-side account identifier (e.g. Stripe connected account id). Reference,
   // not a secret credential.
   merchantIdRef String?
-  active        Boolean @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  active        Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   @@unique([configId, country, currency])
   @@index([configId, active])
@@ -1278,42 +1410,42 @@ enum MerchantOnboardingStatus {
 }
 
 model MerchantOnboarding {
-  id             String                   @id @default(cuid())
-  env            PaymentEnv
-  organizationId String?
-  organization   Organization?            @relation(fields: [organizationId], references: [id])
+  id                    String                   @id @default(cuid())
+  env                   PaymentEnv
+  organizationId        String?
+  organization          Organization?            @relation(fields: [organizationId], references: [id])
   // Business identity.
-  country           String // ISO-3166 alpha-2
-  legalBusinessName String
-  displayName       String
-  merchantType      String   @default("STANDARD") // STANDARD | MARKETPLACE | INDIVIDUAL
-  settlementCurrency String  // ISO-4217
+  country               String // ISO-3166 alpha-2
+  legalBusinessName     String
+  displayName           String
+  merchantType          String                   @default("STANDARD") // STANDARD | MARKETPLACE | INDIVIDUAL
+  settlementCurrency    String // ISO-4217
   // Provider binding.
-  provider          String // stripe | razorpay | paypal | square
-  mode              PaymentProviderMode @default(TEST)
+  provider              String // stripe | razorpay | paypal | square
+  mode                  PaymentProviderMode      @default(TEST)
   // Provider-side account identifier + secret REFERENCES (never raw secrets).
-  accountIdentifier String?
-  secretKeyRef      String?
-  webhookSecretRef  String?
-  publicKey         String?
+  accountIdentifier     String?
+  secretKeyRef          String?
+  webhookSecretRef      String?
+  publicKey             String?
   // Settlement + payout (references only; never bank credentials).
-  settlementSchedule    String  @default("T_PLUS_2") // e.g. T_PLUS_2, WEEKLY
+  settlementSchedule    String                   @default("T_PLUS_2") // e.g. T_PLUS_2, WEEKLY
   payoutDestinationRef  String?
   // Verification + webhook posture.
-  webhookEndpointStatus String  @default("NOT_CONFIGURED") // NOT_CONFIGURED | CONFIGURED | VERIFIED
-  verificationStatus    String  @default("UNVERIFIED") // UNVERIFIED | IN_REVIEW | VERIFIED | FAILED
+  webhookEndpointStatus String                   @default("NOT_CONFIGURED") // NOT_CONFIGURED | CONFIGURED | VERIFIED
+  verificationStatus    String                   @default("UNVERIFIED") // UNVERIFIED | IN_REVIEW | VERIFIED | FAILED
   // Terms + lifecycle.
-  termsAcceptedAt DateTime?
-  termsAcceptedBy String?
-  status          MerchantOnboardingStatus @default(DRAFT)
-  activatedAt     DateTime?
-  suspendedAt     DateTime?
-  rejectedReason  String?
+  termsAcceptedAt       DateTime?
+  termsAcceptedBy       String?
+  status                MerchantOnboardingStatus @default(DRAFT)
+  activatedAt           DateTime?
+  suspendedAt           DateTime?
+  rejectedReason        String?
   // Linked runtime merchant account once activated.
-  merchantAccountId String?
-  createdByUserId   String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  merchantAccountId     String?
+  createdByUserId       String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
 
   @@index([env, status])
   @@index([organizationId])
