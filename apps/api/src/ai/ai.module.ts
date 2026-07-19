@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   MARKETING_ASSISTANT,
   ORGANIZER_COPILOT,
@@ -15,6 +16,11 @@ import {
   NoopReviewModeration,
   NoopSearchRanking,
 } from './ai.noop';
+import { AI_PROVIDER, selectAiProvider } from './provider/ai-provider';
+import { AiConfigService } from './ai-config.service';
+import { AiUsageService } from './ai-usage.service';
+import { PromptRegistry } from './prompts/prompt-registry';
+import { AiGateway } from './ai-gateway.service';
 
 /**
  * Registers the AI extension ports and their default Noop bindings, and EXPORTS
@@ -34,6 +40,12 @@ import {
     { provide: MARKETING_ASSISTANT, useClass: NoopMarketingAssistant },
     { provide: PRICING_ASSISTANT, useClass: NoopPricingAssistant },
     { provide: REVIEW_MODERATION, useClass: NoopReviewModeration },
+    // v2.0 AI foundation: config, telemetry, prompt registry, provider + gateway.
+    { provide: AI_PROVIDER, inject: [ConfigService], useFactory: selectAiProvider },
+    AiConfigService,
+    AiUsageService,
+    PromptRegistry,
+    AiGateway,
   ],
   exports: [
     RECOMMENDATION_ENGINE,
@@ -42,6 +54,10 @@ import {
     MARKETING_ASSISTANT,
     PRICING_ASSISTANT,
     REVIEW_MODERATION,
+    AiConfigService,
+    AiUsageService,
+    PromptRegistry,
+    AiGateway,
   ],
 })
 export class AiModule {}

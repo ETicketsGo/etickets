@@ -40,6 +40,7 @@ import { OpsModule } from './ops/ops.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { SupportModule } from './support/support.module';
 import { AiModule } from './ai/ai.module';
+import { AiGrowthModule } from './ai-growth/ai-growth.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -94,6 +95,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     ReviewsModule,
     SupportModule,
     AiModule,
+    AiGrowthModule,
     DiscoveryModule,
     RecommendationsModule,
   ],

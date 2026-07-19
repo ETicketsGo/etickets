@@ -20,6 +20,7 @@ import {
   Store,
   GitBranch,
   Scale,
+  Sparkles,
 } from 'lucide-react';
 
 const nav: NavItem[] = [
@@ -40,6 +41,7 @@ const nav: NavItem[] = [
   { label: 'Support', href: '/admin/support', icon: LifeBuoy },
   { label: 'Audit', href: '/admin/audit', icon: ScrollText },
   { label: 'Operations', href: '/admin/ops', icon: Activity },
+  { label: 'AI Console', href: '/admin/ai', icon: Sparkles },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 
