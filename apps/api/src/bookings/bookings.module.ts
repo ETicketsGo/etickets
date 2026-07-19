@@ -4,9 +4,10 @@ import { BookingsService } from './bookings.service';
 import { PricingModule } from '../pricing/pricing.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { CommerceModule } from '../commerce/commerce.module';
 
 @Module({
-  imports: [PricingModule, PaymentsModule, InventoryModule],
+  imports: [PricingModule, PaymentsModule, InventoryModule, CommerceModule],
   controllers: [BookingsController, GuestBookingsController],
   providers: [BookingsService],
   exports: [BookingsService],

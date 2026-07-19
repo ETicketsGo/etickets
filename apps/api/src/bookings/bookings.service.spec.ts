@@ -5,6 +5,7 @@ import { GeneralAdmissionInventoryStrategy } from '../inventory/general-admissio
 import { SeatBasedInventoryStrategy } from '../inventory/seat-based.strategy';
 import { ExperienceTypeRegistry } from '../experience/experience-type.registry';
 import { MetricsService } from '../metrics/metrics.service';
+import { AddOnInventoryService } from '../commerce/addon-inventory.service';
 
 /** A real InventoryService wired to the real strategies, so the release path
  *  exercises the actual SQL rather than a stub. */
@@ -48,6 +49,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new AddOnInventoryService(),
       new MetricsService(),
     );
     const released = await service.releaseExpiredHolds();
@@ -71,6 +73,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new AddOnInventoryService(),
       new MetricsService(),
     );
 
@@ -100,6 +103,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       {} as never,
       {} as never,
       realInventory(),
+      new AddOnInventoryService(),
       new MetricsService(),
     );
     await service.releaseExpiredHolds();

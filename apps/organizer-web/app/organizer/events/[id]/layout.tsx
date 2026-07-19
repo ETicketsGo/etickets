@@ -10,6 +10,7 @@ const TABS = [
   { label: 'Edit', seg: '/edit' },
   { label: 'Sessions', seg: '/sessions' },
   { label: 'Tickets', seg: '/tickets' },
+  { label: 'Commerce', seg: '/commerce' },
   { label: 'Orders', seg: '/orders' },
   { label: 'Attendees', seg: '/attendees' },
   { label: 'Check-in', seg: '/checkin' },

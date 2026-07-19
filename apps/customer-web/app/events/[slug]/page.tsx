@@ -86,12 +86,34 @@ export default function EventDetailPage() {
     [event, sessionId],
   );
 
-  const subtotal = useMemo(() => {
+  // Experience Commerce (v1.3): add-ons + bundles for this event.
+  const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
+  const [bundleQty, setBundleQty] = useState<Record<string, number>>({});
+  const addOnsQ = useQuery({
+    queryKey: ['public-addons', event?.id],
+    queryFn: () => api.publicAddOns(event!.id),
+    enabled: !!event,
+  });
+  const bundlesQ = useQuery({
+    queryKey: ['public-bundles', event?.id],
+    queryFn: () => api.publicBundles(event!.id),
+    enabled: !!event,
+  });
+  const addOns = addOnsQ.data ?? [];
+  const bundles = bundlesQ.data ?? [];
+
+  const ticketSubtotal = useMemo(() => {
     if (!session) return 0;
     return session.ticketTypes.reduce((sum, t) => sum + (qty[t.id] ?? 0) * t.priceMinor, 0);
   }, [session, qty]);
+  const addOnSubtotal = addOns.reduce((s, a) => s + (addOnQty[a.id] ?? 0) * a.priceMinor, 0);
+  const bundleSubtotal = bundles.reduce((s, b) => s + (bundleQty[b.id] ?? 0) * b.priceFromMinor, 0);
+  const subtotal = ticketSubtotal + addOnSubtotal + bundleSubtotal;
 
-  const totalQty = Object.values(qty).reduce((a, b) => a + b, 0);
+  const totalQty =
+    Object.values(qty).reduce((a, b) => a + b, 0) +
+    Object.values(addOnQty).reduce((a, b) => a + b, 0) +
+    Object.values(bundleQty).reduce((a, b) => a + b, 0);
 
   // Track for "Recently viewed" and restore any saved ticket selection.
   useEffect(() => {
@@ -149,6 +171,12 @@ export default function EventDetailPage() {
         items: session.ticketTypes
           .filter((t) => (qty[t.id] ?? 0) > 0)
           .map((t) => ({ ticketTypeId: t.id, quantity: qty[t.id] })),
+        addOns: addOns
+          .filter((a) => (addOnQty[a.id] ?? 0) > 0)
+          .map((a) => ({ addOnId: a.id, quantity: addOnQty[a.id] })),
+        bundles: bundles
+          .filter((b) => (bundleQty[b.id] ?? 0) > 0)
+          .map((b) => ({ bundleId: b.id, quantity: bundleQty[b.id] })),
         buyerName: me.fullName,
         buyerEmail: me.email,
       });
@@ -498,6 +526,98 @@ export default function EventDetailPage() {
                 );
               })}
             </div>
+
+            {/* Upsell: add-ons (v1.3) */}
+            {addOns.length > 0 && (
+              <div className="mt-5">
+                <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                  Enhance your experience
+                </p>
+                <div className="space-y-2">
+                  {addOns.map((a) => {
+                    const max =
+                      a.remaining === null ? a.maxPerOrder : Math.min(a.maxPerOrder, a.remaining);
+                    return (
+                      <div
+                        key={a.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-text-primary">{a.name}</p>
+                          <p className="text-caption text-text-muted">
+                            {money(a.priceMinor, a.currency)}
+                            {a.soldOut && <span className="text-status-error"> · Sold out</span>}
+                          </p>
+                        </div>
+                        <select
+                          aria-label={`Quantity of ${a.name}`}
+                          disabled={a.soldOut}
+                          value={addOnQty[a.id] ?? 0}
+                          onChange={(e) =>
+                            setAddOnQty((p) => ({ ...p, [a.id]: Number(e.target.value) }))
+                          }
+                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                        >
+                          {Array.from({ length: Math.max(0, max) + 1 }).map((_, n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Cross-sell: bundles (v1.3) */}
+            {bundles.length > 0 && (
+              <div className="mt-5">
+                <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                  Bundles &amp; deals
+                </p>
+                <div className="space-y-2">
+                  {bundles.map((b) => (
+                    <div key={b.id} className="rounded-md border border-border p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-text-primary">{b.name}</p>
+                          <p className="text-caption text-text-muted">
+                            {money(b.priceFromMinor, b.currency)}
+                            {b.savingsMinor > 0 && (
+                              <span className="text-status-success">
+                                {' '}
+                                · save {money(b.savingsMinor, b.currency)}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <select
+                          aria-label={`Quantity of ${b.name}`}
+                          value={bundleQty[b.id] ?? 0}
+                          onChange={(e) =>
+                            setBundleQty((p) => ({ ...p, [b.id]: Number(e.target.value) }))
+                          }
+                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+                        >
+                          {Array.from({ length: b.maxPerOrder + 1 }).map((_, n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {b.components.length > 0 && (
+                        <p className="mt-1.5 text-caption text-text-muted">
+                          Includes {b.components.map((c) => `${c.quantity}× ${c.label}`).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 border-t border-border pt-4">
               <div className="flex items-center justify-between">

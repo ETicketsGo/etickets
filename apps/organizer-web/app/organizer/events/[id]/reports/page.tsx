@@ -46,6 +46,10 @@ export default function ReportsTab() {
     queryFn: () => api.reports.event(id),
   });
   const eventQ = useQuery({ queryKey: ['event', id], queryFn: () => api.events.get(id) });
+  const commerceQ = useQuery({
+    queryKey: ['commerce-report', id],
+    queryFn: () => api.reports.commerce(id),
+  });
 
   if (isError)
     return (
@@ -161,6 +165,83 @@ export default function ReportsTab() {
           />
         </Card>
       </div>
+
+      {commerceQ.data && (
+        <Card
+          title="Commerce"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                api.reports
+                  .downloadCommerceCsv(id)
+                  .catch((e) => toast.push(errorMessage(e), 'error'))
+              }
+            >
+              Export CSV
+            </Button>
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="Add-on revenue"
+              value={money(commerceQ.data.addOnRevenueMinor)}
+              tone="success"
+            />
+            <MetricCard
+              label="Bundle revenue"
+              value={money(commerceQ.data.bundleRevenueMinor)}
+              tone="info"
+            />
+            <MetricCard label="Donations" value={money(commerceQ.data.donationTotalMinor)} />
+            <MetricCard label="Parking" value={money(commerceQ.data.parkingRevenueMinor)} />
+            <MetricCard label="Merchandise" value={money(commerceQ.data.merchandiseRevenueMinor)} />
+            <MetricCard
+              label="Food & beverage"
+              value={money(commerceQ.data.foodBeverageRevenueMinor)}
+            />
+          </div>
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div>
+              <p className="mb-2 text-caption font-semibold text-text-secondary">Top add-ons</p>
+              <DataTable
+                columns={[
+                  { key: 'n', header: 'Add-on', render: (x: { name: string }) => x.name },
+                  { key: 'q', header: 'Sold', render: (x: { quantity: number }) => x.quantity },
+                  {
+                    key: 'g',
+                    header: 'Gross',
+                    render: (x: { grossMinor: number }) => money(x.grossMinor),
+                  },
+                ]}
+                rows={commerceQ.data.topAddOns}
+                rowKey={(x) => x.name}
+                empty={<p className="p-4 text-sm text-text-muted">No add-on sales yet.</p>}
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-caption font-semibold text-text-secondary">
+                Bundle performance
+              </p>
+              <DataTable
+                columns={[
+                  { key: 'n', header: 'Bundle', render: (x: { name: string }) => x.name },
+                  { key: 'q', header: 'Units', render: (x: { quantity: number }) => x.quantity },
+                  {
+                    key: 'g',
+                    header: 'Gross',
+                    render: (x: { grossMinor: number }) => money(x.grossMinor),
+                  },
+                ]}
+                rows={commerceQ.data.bundles}
+                rowKey={(x) => x.name}
+                empty={<p className="p-4 text-sm text-text-muted">No bundle sales yet.</p>}
+              />
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

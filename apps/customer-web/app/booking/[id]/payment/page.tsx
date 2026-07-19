@@ -147,7 +147,7 @@ export default function PaymentPage() {
           {booking.items.map((i, idx) => (
             <Row
               key={idx}
-              label={`${i.quantity} × ${i.ticketType.name}`}
+              label={`${i.quantity} × ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? 'Item'}`}
               value={money(i.unitPriceMinor * i.quantity)}
             />
           ))}

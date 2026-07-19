@@ -63,7 +63,8 @@ export class ReportsService {
       }),
       this.prisma.bookingItem.groupBy({
         by: ['ticketTypeId'],
-        where: { booking: paidWhere },
+        // Ticket lines only; add-on/bundle lines (v1.3) are reported separately.
+        where: { ticketTypeId: { not: null }, booking: paidWhere },
         _sum: { quantity: true, lineTotalMinor: true },
       }),
       this.prisma.$queryRaw<{ day: Date; count: bigint; gross: bigint }[]>`
@@ -75,7 +76,7 @@ export class ReportsService {
     ]);
 
     const typeNames = await this.prisma.ticketType.findMany({
-      where: { id: { in: salesByType.map((s) => s.ticketTypeId) } },
+      where: { id: { in: salesByType.map((s) => s.ticketTypeId).filter((x): x is string => !!x) } },
       select: { id: true, name: true },
     });
     const nameById = new Map(typeNames.map((t) => [t.id, t.name]));
@@ -99,7 +100,7 @@ export class ReportsService {
       ticketsRemaining: Math.max(0, totalStock - sold),
       checkInCount,
       salesByTicketType: salesByType.map((s) => ({
-        ticketType: nameById.get(s.ticketTypeId) ?? s.ticketTypeId,
+        ticketType: (s.ticketTypeId && nameById.get(s.ticketTypeId)) || s.ticketTypeId || 'Unknown',
         quantity: s._sum.quantity ?? 0,
         grossMinor: s._sum.lineTotalMinor ?? 0,
       })),
@@ -142,6 +143,134 @@ export class ReportsService {
       ]),
     );
     return `Summary\r\n${summary}\r\n\r\nSales by ticket type\r\n${byType}\r\n\r\nSales by day\r\n${byDay}\r\n`;
+  }
+
+  /**
+   * Commerce report for an event (v1.3 WS7): add-on revenue by type, top add-ons,
+   * bundle performance, plus parking / donation / merchandise headlines. Derived
+   * from confirmed-booking line items — standalone add-on lines (kind ADDON) drive
+   * the add-on figures; bundle component lines (kind BUNDLE) drive bundle figures.
+   */
+  async organizerCommerceReport(user: RequestUser, eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) return null;
+    await this.access.assertMember(user, event.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
+
+    const paidBooking = { eventId, confirmedAt: { not: null } };
+    const [addOnLines, bundleLines] = await Promise.all([
+      this.prisma.bookingItem.findMany({
+        where: { kind: 'ADDON', booking: paidBooking },
+        select: {
+          quantity: true,
+          lineTotalMinor: true,
+          addOnId: true,
+          addOn: { select: { name: true, type: true } },
+        },
+      }),
+      this.prisma.bookingItem.findMany({
+        where: { kind: 'BUNDLE', booking: paidBooking },
+        select: {
+          quantity: true,
+          lineTotalMinor: true,
+          bundleId: true,
+          bundle: { select: { name: true, type: true } },
+        },
+      }),
+    ]);
+
+    const byType = new Map<string, { quantity: number; grossMinor: number }>();
+    const byAddOn = new Map<
+      string,
+      { name: string; type: string; quantity: number; grossMinor: number }
+    >();
+    for (const l of addOnLines) {
+      const type = l.addOn?.type ?? 'UNKNOWN';
+      const t = byType.get(type) ?? { quantity: 0, grossMinor: 0 };
+      t.quantity += l.quantity;
+      t.grossMinor += l.lineTotalMinor;
+      byType.set(type, t);
+      if (l.addOnId) {
+        const a = byAddOn.get(l.addOnId) ?? {
+          name: l.addOn?.name ?? 'Add-on',
+          type,
+          quantity: 0,
+          grossMinor: 0,
+        };
+        a.quantity += l.quantity;
+        a.grossMinor += l.lineTotalMinor;
+        byAddOn.set(l.addOnId, a);
+      }
+    }
+
+    const byBundle = new Map<
+      string,
+      { name: string; type: string; quantity: number; grossMinor: number }
+    >();
+    for (const l of bundleLines) {
+      if (!l.bundleId) continue;
+      const b = byBundle.get(l.bundleId) ?? {
+        name: l.bundle?.name ?? 'Bundle',
+        type: l.bundle?.type ?? 'UNKNOWN',
+        quantity: 0,
+        grossMinor: 0,
+      };
+      b.quantity += l.quantity;
+      b.grossMinor += l.lineTotalMinor;
+      byBundle.set(l.bundleId, b);
+    }
+
+    const typeTotal = (type: string) => byType.get(type)?.grossMinor ?? 0;
+    const addOnRevenueMinor = addOnLines.reduce((s, l) => s + l.lineTotalMinor, 0);
+    const bundleRevenueMinor = bundleLines.reduce((s, l) => s + l.lineTotalMinor, 0);
+
+    return {
+      event: { id: event.id, title: event.title },
+      addOnRevenueMinor,
+      bundleRevenueMinor,
+      donationTotalMinor: typeTotal('DONATION'),
+      parkingRevenueMinor: typeTotal('PARKING'),
+      merchandiseRevenueMinor: typeTotal('MERCHANDISE'),
+      foodBeverageRevenueMinor: typeTotal('FOOD_BEVERAGE'),
+      byType: [...byType.entries()]
+        .map(([type, v]) => ({ type, ...v }))
+        .sort((a, b) => b.grossMinor - a.grossMinor),
+      topAddOns: [...byAddOn.values()].sort((a, b) => b.grossMinor - a.grossMinor).slice(0, 20),
+      bundles: [...byBundle.values()].sort((a, b) => b.grossMinor - a.grossMinor),
+    };
+  }
+
+  /** CSV form of the commerce report. */
+  async organizerCommerceReportCsv(user: RequestUser, eventId: string): Promise<string | null> {
+    const r = await this.organizerCommerceReport(user, eventId);
+    if (!r) return null;
+    const summary = toCsv(
+      ['metric', 'value'],
+      [
+        ['Event', r.event.title],
+        ['Add-on revenue (minor)', r.addOnRevenueMinor],
+        ['Bundle revenue (minor)', r.bundleRevenueMinor],
+        ['Donations (minor)', r.donationTotalMinor],
+        ['Parking (minor)', r.parkingRevenueMinor],
+        ['Merchandise (minor)', r.merchandiseRevenueMinor],
+        ['Food & beverage (minor)', r.foodBeverageRevenueMinor],
+      ],
+    );
+    const byType = toCsv(
+      ['addOnType', 'quantity', 'grossMinor'],
+      r.byType.map((t) => [t.type, t.quantity, t.grossMinor]),
+    );
+    const addOns = toCsv(
+      ['addOn', 'type', 'quantity', 'grossMinor'],
+      r.topAddOns.map((a) => [a.name, a.type, a.quantity, a.grossMinor]),
+    );
+    const bundles = toCsv(
+      ['bundle', 'type', 'unitsSold', 'grossMinor'],
+      r.bundles.map((b) => [b.name, b.type, b.quantity, b.grossMinor]),
+    );
+    return `Summary\r\n${summary}\r\n\r\nAdd-on revenue by type\r\n${byType}\r\n\r\nTop add-ons\r\n${addOns}\r\n\r\nBundle performance\r\n${bundles}\r\n`;
   }
 
   /** Platform-wide admin dashboard (section 18). */

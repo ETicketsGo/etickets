@@ -128,6 +128,24 @@ function qs(params: Record<string, unknown>): string {
   return s ? `?${s}` : '';
 }
 
+/** Fetch a CSV export (authed) and trigger a browser download. */
+async function downloadCsv(path: string, filename: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
+  });
+  if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
+  const blob = await res.blob();
+  if (typeof window === 'undefined') return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ─────────────────────────── API surface ───────────────────────────
 
 /**
@@ -599,22 +617,42 @@ export const api = {
 
   reports: {
     event: (eventId: string) => request<EventReport>(`/reports/events/${eventId}`),
-    downloadEventCsv: async (eventId: string) => {
-      const res = await fetch(`${API_URL}/reports/events/${eventId}?format=csv`, {
-        headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
-      });
-      if (!res.ok) throw new ApiRequestError('CSV_EXPORT_FAILED', 'Could not export CSV.');
-      const blob = await res.blob();
-      if (typeof window === 'undefined') return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `event-report-${eventId}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    },
+    commerce: (eventId: string) => request<CommerceReport>(`/reports/events/${eventId}/commerce`),
+    downloadEventCsv: (eventId: string) =>
+      downloadCsv(`/reports/events/${eventId}?format=csv`, `event-report-${eventId}.csv`),
+    downloadCommerceCsv: (eventId: string) =>
+      downloadCsv(
+        `/reports/events/${eventId}/commerce?format=csv`,
+        `commerce-report-${eventId}.csv`,
+      ),
+  },
+
+  // Experience Commerce (v1.3): organizer add-on / bundle catalog + public reads.
+  commerce: {
+    listAddOns: (eventId: string) => request<OrgAddOn[]>(`/events/${eventId}/addons`),
+    createAddOn: (eventId: string, body: AddOnInput) =>
+      request<OrgAddOn>(`/events/${eventId}/addons`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    updateAddOn: (id: string, body: Partial<AddOnInput>) =>
+      request<OrgAddOn>(`/addons/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteAddOn: (id: string) =>
+      request<{ deleted: boolean }>(`/addons/${id}`, { method: 'DELETE' }),
+    listBundles: (eventId: string) => request<OrgBundle[]>(`/events/${eventId}/bundles`),
+    createBundle: (eventId: string, body: BundleInput) =>
+      request<OrgBundle>(`/events/${eventId}/bundles`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    updateBundle: (id: string, body: Partial<BundleInput>) =>
+      request<OrgBundle>(`/bundles/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteBundle: (id: string) =>
+      request<{ deleted: boolean }>(`/bundles/${id}`, { method: 'DELETE' }),
+    publicAddOns: (eventId: string) =>
+      request<PublicAddOn[]>(`/public/events/${eventId}/addons`, { auth: false }),
+    publicBundles: (eventId: string) =>
+      request<PublicBundle[]>(`/public/events/${eventId}/bundles`, { auth: false }),
   },
 
   analytics: {
@@ -962,6 +1000,8 @@ export interface PublicEvent {
 export interface BookingRequest {
   eventSessionId: string;
   items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+  addOns?: { addOnId: string; quantity: number }[];
+  bundles?: { bundleId: string; quantity: number }[];
   buyerName: string;
   buyerEmail: string;
   couponCode?: string;
@@ -996,7 +1036,15 @@ export interface BookingDetail {
   buyerEmail: string;
   event: { title: string; slug: string };
   eventSession: { startsAt: string };
-  items: { quantity: number; unitPriceMinor: number; ticketType: { name: string } }[];
+  items: {
+    kind?: string;
+    quantity: number;
+    unitPriceMinor: number;
+    label?: string | null;
+    ticketType?: { name: string } | null;
+    addOn?: { name: string; type: string } | null;
+    bundle?: { name: string; type: string } | null;
+  }[];
   tickets: { id: string; status: string }[];
   payment: { status: string } | null;
 }
@@ -1857,6 +1905,118 @@ export interface EventReport {
   checkInCount: number;
   salesByTicketType: { ticketType: string; quantity: number; grossMinor: number }[];
   salesByDay: { day: string; bookings: number; grossMinor: number }[];
+}
+
+// ─── Experience Commerce (v1.3) ───
+export type AddOnType =
+  | 'MERCHANDISE'
+  | 'PARKING'
+  | 'FOOD_BEVERAGE'
+  | 'VIP_UPGRADE'
+  | 'MEET_GREET'
+  | 'DONATION'
+  | 'DIGITAL';
+export type BundleType = 'VIP' | 'FAMILY' | 'COMBO' | 'EARLY_BIRD';
+export type BundlePricingKind = 'FIXED' | 'PERCENT_DISCOUNT';
+
+export interface AddOnInventory {
+  quantityTotal: number | null;
+  quantitySold: number;
+  quantityHeld: number;
+}
+export interface OrgAddOn {
+  id: string;
+  eventId: string;
+  type: AddOnType;
+  name: string;
+  description: string | null;
+  priceMinor: number;
+  currency: string;
+  imageUrl: string | null;
+  maxPerOrder: number;
+  salesStartAt: string | null;
+  salesEndAt: string | null;
+  enabled: boolean;
+  inventory: AddOnInventory | null;
+}
+export interface AddOnInput {
+  type: AddOnType;
+  name: string;
+  description?: string;
+  priceMinor: number;
+  imageUrl?: string;
+  maxPerOrder?: number;
+  quantityTotal?: number | null;
+  salesStartAt?: string | null;
+  salesEndAt?: string | null;
+  enabled?: boolean;
+}
+export interface PublicAddOn {
+  id: string;
+  type: AddOnType;
+  name: string;
+  description: string | null;
+  priceMinor: number;
+  currency: string;
+  imageUrl: string | null;
+  maxPerOrder: number;
+  remaining: number | null;
+  soldOut: boolean;
+}
+
+export interface BundleComponentInput {
+  ticketTypeId?: string;
+  addOnId?: string;
+  quantity: number;
+}
+export interface OrgBundle {
+  id: string;
+  type: BundleType;
+  name: string;
+  description: string | null;
+  currency: string;
+  pricingKind: BundlePricingKind;
+  priceMinor: number | null;
+  discountPercent: number | null;
+  maxPerOrder: number;
+  enabled: boolean;
+  priceFromMinor: number;
+  listTotalMinor: number;
+  savingsMinor: number;
+  components: {
+    refId: string;
+    isTicket: boolean;
+    label: string;
+    quantity: number;
+    listUnitPriceMinor: number;
+  }[];
+}
+export interface BundleInput {
+  type: BundleType;
+  name: string;
+  description?: string;
+  pricingKind: BundlePricingKind;
+  priceMinor?: number | null;
+  discountPercent?: number | null;
+  maxPerOrder?: number;
+  salesStartAt?: string | null;
+  salesEndAt?: string | null;
+  enabled?: boolean;
+  items: BundleComponentInput[];
+}
+export type PublicBundle = OrgBundle;
+
+export interface CommerceReport {
+  event: { id: string; title: string };
+  addOnRevenueMinor: number;
+  bundleRevenueMinor: number;
+  donationTotalMinor: number;
+  parkingRevenueMinor: number;
+  merchandiseRevenueMinor: number;
+  foodBeverageRevenueMinor: number;
+  byType: { type: string; quantity: number; grossMinor: number }[];
+  topAddOns: { name: string; type: string; quantity: number; grossMinor: number }[];
+  bundles: { name: string; type: string; quantity: number; grossMinor: number }[];
 }
 
 export interface AnalyticsRevenue {

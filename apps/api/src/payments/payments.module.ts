@@ -27,9 +27,16 @@ import { WebhookRouter } from './webhooks/webhook-router.service';
 import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
+import { CommerceModule } from '../commerce/commerce.module';
 
 @Module({
-  imports: [InventoryModule, PaymentConfigModule, OpsModule, BookingReferenceModule],
+  imports: [
+    InventoryModule,
+    PaymentConfigModule,
+    OpsModule,
+    BookingReferenceModule,
+    CommerceModule,
+  ],
   controllers: [
     PaymentsController,
     PaymentAdminController,

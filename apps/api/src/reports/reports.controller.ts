@@ -35,6 +35,28 @@ export class ReportsController {
     }
     return this.reports.organizerEventReport(user, eventId);
   }
+
+  @Get('events/:eventId/commerce')
+  @ApiOperation({
+    summary: 'Commerce report for an event: add-ons, bundles, donations (JSON or CSV).',
+  })
+  async commerceReport(
+    @CurrentUser() user: RequestUser,
+    @Param('eventId') eventId: string,
+    @Query(new ZodValidationPipe(z.object({ format: z.enum(['json', 'csv']).optional() })))
+    q: { format?: 'json' | 'csv' },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    if (q.format === 'csv') {
+      const csv = await this.reports.organizerCommerceReportCsv(user, eventId);
+      if (csv === null)
+        throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="commerce-report-${eventId}.csv"`);
+      return res.send(csv);
+    }
+    return this.reports.organizerCommerceReport(user, eventId);
+  }
 }
 
 @ApiTags('admin')

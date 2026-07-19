@@ -1,12 +1,14 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  BookingItemKind,
   BookingStatus,
   EventStatus,
   ExperienceType,
   FeeMode,
   PaymentStatus,
   SessionStatus,
+  priceBundle,
 } from '@eticketsgo/shared-types';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput } from '@eticketsgo/validation';
@@ -16,9 +18,19 @@ import { PricingStrategiesService } from '../pricing/pricing-strategies.service'
 import { computeCouponDiscountMinor } from '../pricing/coupon-pricing';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
+import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+
+/** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
+interface CommerceResolution {
+  itemCreates: Prisma.BookingItemCreateWithoutBookingInput[];
+  subtotalMinor: number;
+  addOnHolds: AddOnLine[];
+  ticketHolds: InventoryLine[];
+}
 
 const HOLD_MINUTES = 10;
 
@@ -32,6 +44,7 @@ export class BookingsService {
     private readonly pricingStrategies: PricingStrategiesService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
   ) {}
 
@@ -162,7 +175,10 @@ export class BookingsService {
         };
       }),
     });
-    const subtotal = priceQuote.subtotalMinor;
+    // Experience Commerce (v1.3): resolve add-on + bundle lines and fold their
+    // totals into the subtotal so the existing fee/coupon math applies unchanged.
+    const commerce = await this.resolveCommerceLines(session, input, now, isSeatBased);
+    const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
     const feeMode = session.event.feeMode as FeeMode;
@@ -175,7 +191,7 @@ export class BookingsService {
     // engine changing. See ADR-010.
     const strategy = this.inventory.forExperienceType(session.event.experienceType);
 
-    const lines: InventoryLine[] = input.items.map((i) => ({
+    const ticketLines: InventoryLine[] = input.items.map((i) => ({
       ticketTypeId: i.ticketTypeId,
       quantity: i.quantity,
       seatIds: i.seatIds,
@@ -206,12 +222,16 @@ export class BookingsService {
           holdExpiresAt,
           idempotencyKey: idempotencyKey ?? null,
           items: {
-            create: priceQuote.lines.map((pl) => ({
-              ticketTypeId: pl.ticketTypeId,
-              quantity: pl.quantity,
-              unitPriceMinor: pl.unitPriceMinor,
-              lineTotalMinor: pl.lineTotalMinor,
-            })),
+            create: [
+              ...priceQuote.lines.map((pl) => ({
+                kind: BookingItemKind.TICKET,
+                ticketTypeId: pl.ticketTypeId,
+                quantity: pl.quantity,
+                unitPriceMinor: pl.unitPriceMinor,
+                lineTotalMinor: pl.lineTotalMinor,
+              })),
+              ...commerce.itemCreates,
+            ],
           },
           payment: {
             create: {
@@ -224,12 +244,17 @@ export class BookingsService {
         include: { items: true, payment: true },
       });
 
+      // Hold ticket stock (direct ticket lines + any bundle ticket components) and
+      // add-on stock in the same transaction; a failure rolls the whole order back.
       await strategy.reserve(tx, {
         eventSessionId: session.id,
         bookingId: created.id,
         holdExpiresAt,
-        lines,
+        lines: [...ticketLines, ...commerce.ticketHolds],
       });
+      if (commerce.addOnHolds.length > 0) {
+        await this.addOnInventory.reserve(tx, commerce.addOnHolds);
+      }
       return created;
     });
 
@@ -286,6 +311,179 @@ export class BookingsService {
     return { discountMinor, couponId: coupon.id };
   }
 
+  /**
+   * Resolve add-on and bundle cart lines (v1.3) into BookingItem create rows plus
+   * the ticket/add-on holds they require. Add-ons are event-scoped; a bundle is
+   * expanded into its component lines with bundle pricing applied per unit. Not
+   * supported for seat-based (movie) sessions — those keep the ticket-only flow.
+   */
+  private async resolveCommerceLines(
+    session: { id: string; eventId: string },
+    input: CreateBookingInput,
+    now: Date,
+    isSeatBased: boolean,
+  ): Promise<CommerceResolution> {
+    const wantsAddOns = (input.addOns?.length ?? 0) > 0;
+    const wantsBundles = (input.bundles?.length ?? 0) > 0;
+    if (!wantsAddOns && !wantsBundles) {
+      return { itemCreates: [], subtotalMinor: 0, addOnHolds: [], ticketHolds: [] };
+    }
+    if (isSeatBased) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Add-ons and bundles are not available for seat-based sessions.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const res: CommerceResolution = {
+      itemCreates: [],
+      subtotalMinor: 0,
+      addOnHolds: [],
+      ticketHolds: [],
+    };
+
+    // ── Add-ons ──
+    if (wantsAddOns) {
+      const ids = input.addOns!.map((a) => a.addOnId);
+      const addOns = await this.prisma.addOn.findMany({
+        where: { id: { in: ids }, eventId: session.eventId },
+      });
+      const byId = new Map(addOns.map((a) => [a.id, a]));
+      for (const line of input.addOns!) {
+        const addOn = byId.get(line.addOnId);
+        if (!addOn || !addOn.enabled || !onSale(addOn.salesStartAt, addOn.salesEndAt, now)) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            'An add-on in your cart is no longer available.',
+            HttpStatus.CONFLICT,
+            { addOnId: line.addOnId },
+          );
+        }
+        if (line.quantity > addOn.maxPerOrder) {
+          throw new AppException(
+            ErrorCodes.VALIDATION_FAILED,
+            `You can add at most ${addOn.maxPerOrder} of ${addOn.name} per order.`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        const lineTotal = addOn.priceMinor * line.quantity;
+        res.subtotalMinor += lineTotal;
+        res.addOnHolds.push({ addOnId: addOn.id, quantity: line.quantity });
+        res.itemCreates.push({
+          kind: BookingItemKind.ADDON,
+          addOn: { connect: { id: addOn.id } },
+          label: addOn.name,
+          quantity: line.quantity,
+          unitPriceMinor: addOn.priceMinor,
+          lineTotalMinor: lineTotal,
+        });
+      }
+    }
+
+    // ── Bundles ──
+    if (wantsBundles) {
+      const ids = input.bundles!.map((b) => b.bundleId);
+      const bundles = await this.prisma.bundle.findMany({
+        where: { id: { in: ids }, eventId: session.eventId },
+        include: { items: true },
+      });
+      const byId = new Map(bundles.map((b) => [b.id, b]));
+      for (const line of input.bundles!) {
+        const bundle = byId.get(line.bundleId);
+        if (!bundle || !bundle.enabled || !onSale(bundle.salesStartAt, bundle.salesEndAt, now)) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            'A bundle in your cart is no longer available.',
+            HttpStatus.CONFLICT,
+            { bundleId: line.bundleId },
+          );
+        }
+        if (line.quantity > bundle.maxPerOrder) {
+          throw new AppException(
+            ErrorCodes.VALIDATION_FAILED,
+            `You can add at most ${bundle.maxPerOrder} of ${bundle.name} per order.`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        // Load component list prices. Ticket components must belong to THIS session.
+        const ttIds = bundle.items.map((i) => i.ticketTypeId).filter(Boolean) as string[];
+        const addOnIds = bundle.items.map((i) => i.addOnId).filter(Boolean) as string[];
+        const [tts, addOns] = await Promise.all([
+          ttIds.length
+            ? this.prisma.ticketType.findMany({
+                where: { id: { in: ttIds }, eventSessionId: session.id },
+                select: { id: true, name: true, priceMinor: true },
+              })
+            : Promise.resolve([]),
+          addOnIds.length
+            ? this.prisma.addOn.findMany({
+                where: { id: { in: addOnIds }, eventId: session.eventId, enabled: true },
+                select: { id: true, name: true, priceMinor: true },
+              })
+            : Promise.resolve([]),
+        ]);
+        const ttById = new Map(tts.map((t) => [t.id, t]));
+        const addOnById = new Map(addOns.map((a) => [a.id, a]));
+        if (tts.length !== new Set(ttIds).size || addOns.length !== new Set(addOnIds).size) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            `${bundle.name} isn't available for this session.`,
+            HttpStatus.CONFLICT,
+            { bundleId: bundle.id },
+          );
+        }
+
+        const components = bundle.items.map((i) => {
+          const meta = i.ticketTypeId ? ttById.get(i.ticketTypeId)! : addOnById.get(i.addOnId!)!;
+          return {
+            refId: i.ticketTypeId ?? i.addOnId!,
+            isTicket: Boolean(i.ticketTypeId),
+            listUnitPriceMinor: meta.priceMinor,
+            quantity: i.quantity,
+          };
+        });
+        const pricing = priceBundle({
+          pricingKind: bundle.pricingKind as 'FIXED' | 'PERCENT_DISCOUNT',
+          fixedPriceMinor: bundle.priceMinor,
+          discountPercent: bundle.discountPercent,
+          components,
+          bundleQuantity: line.quantity,
+        });
+        res.subtotalMinor += pricing.totalMinor;
+
+        for (const c of pricing.components) {
+          if (c.isTicket) {
+            res.ticketHolds.push({ ticketTypeId: c.refId, quantity: c.quantity });
+            res.itemCreates.push({
+              kind: BookingItemKind.BUNDLE,
+              bundle: { connect: { id: bundle.id } },
+              ticketType: { connect: { id: c.refId } },
+              label: `${bundle.name} · ${ttById.get(c.refId)!.name}`,
+              quantity: c.quantity,
+              unitPriceMinor: c.unitPriceMinor,
+              lineTotalMinor: c.lineTotalMinor,
+            });
+          } else {
+            res.addOnHolds.push({ addOnId: c.refId, quantity: c.quantity });
+            res.itemCreates.push({
+              kind: BookingItemKind.BUNDLE,
+              bundle: { connect: { id: bundle.id } },
+              addOn: { connect: { id: c.refId } },
+              label: `${bundle.name} · ${addOnById.get(c.refId)!.name}`,
+              quantity: c.quantity,
+              unitPriceMinor: c.unitPriceMinor,
+              lineTotalMinor: c.lineTotalMinor,
+            });
+          }
+        }
+      }
+    }
+
+    return res;
+  }
+
   /** Expire stale holds for a session (lazy expiry path). */
   async releaseExpiredHolds(eventSessionId?: string): Promise<number> {
     // Bounded per sweep so a flash on-sale that abandons tens of thousands of holds
@@ -304,13 +502,25 @@ export class BookingsService {
 
     for (const booking of stale) {
       const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+      // Ticket holds (direct + bundle ticket components) vs add-on holds (v1.3).
+      const ticketLines = booking.items
+        .filter((i) => i.ticketTypeId)
+        .map((i) => ({ ticketTypeId: i.ticketTypeId as string, quantity: i.quantity }));
+      const addOnLines = booking.items
+        .filter((i) => i.addOnId)
+        .map((i) => ({ addOnId: i.addOnId as string, quantity: i.quantity }));
       await this.prisma.$transaction(async (tx) => {
-        await strategy.release(tx, {
-          eventSessionId: booking.eventSessionId,
-          bookingId: booking.id,
-          holdExpiresAt: booking.holdExpiresAt,
-          lines: booking.items.map((i) => ({ ticketTypeId: i.ticketTypeId, quantity: i.quantity })),
-        });
+        if (ticketLines.length > 0) {
+          await strategy.release(tx, {
+            eventSessionId: booking.eventSessionId,
+            bookingId: booking.id,
+            holdExpiresAt: booking.holdExpiresAt,
+            lines: ticketLines,
+          });
+        }
+        if (addOnLines.length > 0) {
+          await this.addOnInventory.release(tx, addOnLines);
+        }
         await tx.booking.update({
           where: { id: booking.id },
           data: { status: BookingStatus.EXPIRED, cancelledAt: new Date() },
@@ -329,7 +539,13 @@ export class BookingsService {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
-        items: { include: { ticketType: { select: { name: true } } } },
+        items: {
+          include: {
+            ticketType: { select: { name: true } },
+            addOn: { select: { name: true, type: true } },
+            bundle: { select: { name: true, type: true } },
+          },
+        },
         payment: true,
         tickets: true,
         event: { select: { title: true, slug: true } },
