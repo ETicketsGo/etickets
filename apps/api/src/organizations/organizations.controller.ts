@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { OrganizationStatus, Role } from '@eticketsgo/shared-types';
@@ -7,9 +7,11 @@ import {
   inviteMemberSchema,
   paginationSchema,
   reviewDecisionSchema,
+  updateOrganizationProfileSchema,
   type CreateOrganizationInput,
   type InviteMemberInput,
   type ReviewDecisionInput,
+  type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
 import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
@@ -40,6 +42,17 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Get an organization the user can access.' })
   get(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.orgs.get(user, id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update the public organizer profile.' })
+  updateProfile(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateOrganizationProfileSchema))
+    body: UpdateOrganizationProfileInput,
+  ) {
+    return this.orgs.updateProfile(user, id, body);
   }
 
   @Get(':id/members')

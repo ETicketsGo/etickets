@@ -6,6 +6,7 @@ import type {
   CreateOrganizationInput,
   InviteMemberInput,
   ReviewDecisionInput,
+  UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -75,6 +76,34 @@ export class OrganizationsService {
     if (!org)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
     return org;
+  }
+
+  /**
+   * Update the public organizer profile (WS6). Only owners/managers may edit.
+   * Empty-string fields clear (set to null); omitted fields are left unchanged.
+   * `verified` is intentionally not editable here — it is an admin-set badge.
+   */
+  async updateProfile(user: RequestUser, id: string, input: UpdateOrganizationProfileInput) {
+    await this.access.assertMember(user, id, [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER]);
+    const data: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
+      if (value === undefined) continue;
+      data[key] = value === '' ? null : value;
+    }
+    const updated = await this.prisma.organization.update({
+      where: { id },
+      data,
+      include: { _count: { select: { members: true, events: true, venues: true } } },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: id,
+      action: 'ORGANIZATION_PROFILE_UPDATED',
+      entityType: 'Organization',
+      entityId: id,
+      metadata: { fields: Object.keys(data) },
+    });
+    return updated;
   }
 
   async listMembers(user: RequestUser, orgId: string) {

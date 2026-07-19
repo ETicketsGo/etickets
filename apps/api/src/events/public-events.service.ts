@@ -170,7 +170,22 @@ export class PublicEventsService {
   async organizer(id: string) {
     const org = await this.prisma.organization.findUnique({
       where: { id },
-      select: { id: true, name: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        createdAt: true,
+        description: true,
+        logoUrl: true,
+        coverImageUrl: true,
+        website: true,
+        contactEmail: true,
+        contactPhone: true,
+        twitterUrl: true,
+        instagramUrl: true,
+        facebookUrl: true,
+        verified: true,
+      },
     });
     if (!org) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organizer not found.', HttpStatus.NOT_FOUND);
@@ -191,9 +206,18 @@ export class PublicEventsService {
     return {
       id: org.id,
       name: org.name,
-      verified: org.status === 'APPROVED',
+      verified: org.verified,
       memberSince: org.createdAt,
       eventCount: events.length,
+      description: org.description,
+      logoUrl: org.logoUrl,
+      coverImageUrl: org.coverImageUrl,
+      website: org.website,
+      contactEmail: org.contactEmail,
+      contactPhone: org.contactPhone,
+      twitterUrl: org.twitterUrl,
+      instagramUrl: org.instagramUrl,
+      facebookUrl: org.facebookUrl,
       events: events.map((e) => ({
         id: e.id,
         title: e.title,

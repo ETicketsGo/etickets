@@ -7,14 +7,31 @@ import {
   Button,
   Card,
   Input,
+  Textarea,
   Skeleton,
   ErrorState,
   PageHeader,
   StatusBadge,
   useToast,
   errorMessage,
+  type OrganizationProfileInput,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+
+const PROFILE_FIELDS: {
+  key: keyof OrganizationProfileInput;
+  label: string;
+  placeholder?: string;
+}[] = [
+  { key: 'website', label: 'Website', placeholder: 'https://example.com' },
+  { key: 'contactEmail', label: 'Public contact email', placeholder: 'hello@example.com' },
+  { key: 'contactPhone', label: 'Public contact phone', placeholder: '+91 98765 43210' },
+  { key: 'logoUrl', label: 'Logo URL', placeholder: 'https://…/logo.png' },
+  { key: 'coverImageUrl', label: 'Cover image URL', placeholder: 'https://…/cover.jpg' },
+  { key: 'twitterUrl', label: 'X / Twitter', placeholder: 'https://x.com/…' },
+  { key: 'instagramUrl', label: 'Instagram', placeholder: 'https://instagram.com/…' },
+  { key: 'facebookUrl', label: 'Facebook', placeholder: 'https://facebook.com/…' },
+];
 
 export default function SettingsPage() {
   const { activeOrg } = useOrg();
@@ -27,6 +44,33 @@ export default function SettingsPage() {
     refetch,
   } = useQuery({ queryKey: ['profile'], queryFn: () => api.users.profile() });
   const [fullName, setFullName] = useState('');
+
+  // Public organizer profile form, seeded from the active org.
+  const [form, setForm] = useState<OrganizationProfileInput>({});
+  useEffect(() => {
+    setForm({
+      description: activeOrg.description ?? '',
+      website: activeOrg.website ?? '',
+      contactEmail: activeOrg.contactEmail ?? '',
+      contactPhone: activeOrg.contactPhone ?? '',
+      logoUrl: activeOrg.logoUrl ?? '',
+      coverImageUrl: activeOrg.coverImageUrl ?? '',
+      twitterUrl: activeOrg.twitterUrl ?? '',
+      instagramUrl: activeOrg.instagramUrl ?? '',
+      facebookUrl: activeOrg.facebookUrl ?? '',
+    });
+  }, [activeOrg]);
+  const setField = (key: keyof OrganizationProfileInput, value: string) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  const saveOrg = useMutation({
+    mutationFn: () => api.organizations.updateProfile(activeOrg.id, form),
+    onSuccess: () => {
+      toast.push('Organizer profile updated.', 'success');
+      qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
 
   useEffect(() => {
     if (profile) setFullName(profile.fullName);
@@ -91,6 +135,38 @@ export default function SettingsPage() {
           )}
         </Card>
       </div>
+
+      <Card title="Public organizer profile">
+        <p className="-mt-2 mb-4 text-caption text-text-secondary">
+          Shown on your organizer page and event listings. Leave a field blank to hide it.
+        </p>
+        <div className="space-y-4">
+          <Textarea
+            id="org-description"
+            label="About"
+            rows={4}
+            maxLength={2000}
+            placeholder="Tell attendees who you are and what you host."
+            value={form.description ?? ''}
+            onChange={(e) => setField('description', e.target.value)}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {PROFILE_FIELDS.map((f) => (
+              <Input
+                key={f.key}
+                id={`org-${f.key}`}
+                label={f.label}
+                placeholder={f.placeholder}
+                value={(form[f.key] as string) ?? ''}
+                onChange={(e) => setField(f.key, e.target.value)}
+              />
+            ))}
+          </div>
+          <Button loading={saveOrg.isPending} onClick={() => saveOrg.mutate()}>
+            Save organizer profile
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }

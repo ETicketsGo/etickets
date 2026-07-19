@@ -331,6 +331,11 @@ export const api = {
       request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
     listMine: () => request<Organization[]>('/organizations'),
     get: (id: string) => request<Organization>(`/organizations/${id}`),
+    updateProfile: (id: string, body: OrganizationProfileInput) =>
+      request<Organization>(`/organizations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<OrgMember>(`/organizations/${id}/members`, {
@@ -1154,7 +1159,28 @@ export interface Organization {
   status: string;
   contactEmail: string | null;
   createdAt: string;
+  // Public organizer profile (v1.2 WS6).
+  description?: string | null;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  website?: string | null;
+  contactPhone?: string | null;
+  twitterUrl?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  verified?: boolean;
   _count?: { members: number; events: number; venues?: number };
+}
+export interface OrganizationProfileInput {
+  description?: string;
+  logoUrl?: string;
+  coverImageUrl?: string;
+  website?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  twitterUrl?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
 }
 export interface OrgMember {
   id: string;
@@ -2267,6 +2293,15 @@ export interface OrganizerProfile {
   verified: boolean;
   memberSince: string;
   eventCount: number;
+  description?: string | null;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  website?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  twitterUrl?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
   events: PublicEventCard[];
 }
 
