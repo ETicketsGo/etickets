@@ -10,6 +10,12 @@ function bookingGroupBy(args: { by: string[] }) {
       { status: 'EXPIRED', _count: { _all: 4 } },
     ]);
   }
+  if (args.by[0] === 'eventId') {
+    // top-events rows
+    return Promise.resolve([
+      { eventId: 'e1', _sum: { subtotalMinor: 50000 }, _count: { _all: 3 } },
+    ]);
+  }
   // by userId → repeat-visitor rows (one per customer)
   return Promise.resolve([
     { userId: 'c1', _count: { _all: 2 } },
@@ -68,7 +74,10 @@ function makeService(
         .fn()
         .mockResolvedValue({ id: 'v1', name: 'Hall', city: 'BLR', organizationId: 'o1' }),
     },
-    event: { count: jest.fn().mockResolvedValue(3) },
+    event: {
+      count: jest.fn().mockResolvedValue(3),
+      findMany: jest.fn().mockResolvedValue([{ id: 'e1', title: 'Concert' }]),
+    },
     eventSession: { count: jest.fn().mockResolvedValue(5) },
     showSeat: {
       groupBy: jest.fn().mockResolvedValue([

@@ -1802,10 +1802,12 @@ export interface OrganizerAnalytics {
   conversion: { total: number; confirmed: number; rate: number };
   repeatVisitors: { totalCustomers: number; repeatCustomers: number; rate: number };
   topTicketType: { name: string; quantity: number } | null;
+  capacity: { sold: number; capacity: number; utilization: number };
   /** Present only for OWNER/MANAGER + platform admins. */
   revenue?: AnalyticsRevenue;
   refunds?: { count: number; amountMinor: number; refundRate: number };
   coupons?: { redemptions: number; discountMinor: number };
+  topEvents?: { eventId: string; title: string; grossMinor: number; bookings: number }[];
 }
 export interface VenueAnalytics {
   venue: { id: string; name: string; city: string };
