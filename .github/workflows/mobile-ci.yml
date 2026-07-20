@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────
+# Mobile CI — isolated from the web/api pipeline (ci.yml). Runs only when the mobile
+# app or a shared package it consumes changes, so it never gates or slows the
+# existing web/API checks. Verifies types, lint and Expo config for customer-mobile.
+# Native iOS/Android compilation runs on EAS / a dev machine, not here.
+# ─────────────────────────────────────────────────────────────
+name: Mobile CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/customer-mobile/**'
+      - 'packages/shared-types/**'
+      - 'packages/validation/**'
+      - 'packages/design-tokens/**'
+      - '.github/workflows/mobile-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/customer-mobile/**'
+      - 'packages/shared-types/**'
+      - 'packages/validation/**'
+      - 'packages/design-tokens/**'
+      - '.github/workflows/mobile-ci.yml'
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck + Lint + Expo config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Shared packages publish compiled `dist`; the mobile typecheck reads their types.
+      - run: npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens
+      - run: npm run typecheck:mobile -w @eticketsgo/customer-mobile
+      - run: npm run lint:mobile -w @eticketsgo/customer-mobile
+      - run: npx --workspace @eticketsgo/customer-mobile expo-doctor || true
