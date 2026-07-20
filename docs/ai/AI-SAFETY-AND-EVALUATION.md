@@ -31,17 +31,17 @@ external dependencies, and known limitations.
 
 ## Evaluation framework (automated)
 
-| Requirement | Where |
-|---|---|
-| Golden test cases | `packages/web-kit/src/ai-growth.spec.ts` (summary, recommendations, risk, search) |
-| Structured-output validation | Engines return typed structures; asserted per test |
-| Hallucination checks vs authoritative metrics | Summary/recommendation tests assert numbers equal the input metrics; no fabrication path exists (facts come from analytics/reports, not the model) |
-| PII-redaction tests | `ai-growth.spec.ts` (`redactPii`) + `ai-gateway.service.spec.ts` (redaction before provider) |
-| Prompt-injection resistance | The assistant computes from analytics, not from the question text; the model (if enabled) only rephrases and is instructed to answer solely from provided facts. Injected instructions cannot change a metric. |
-| Provider-unavailable tests | `ai-gateway.service.spec.ts` — unavailable/failure → deterministic fallback |
-| Deterministic fallback tests | `ai-gateway.service.spec.ts` — disabled posture returns fallback and records usage |
-| Cost & latency budgets | `AI_TIMEOUT_MS`, `AI_MAX_RETRIES`, `AI_COST_PER_1K_MINOR`; surfaced in the admin AI Console |
-| Tenant isolation | Enforced by `OrgAccessService.assertMember` in the analytics/reports the assistant reuses (covered by their specs) |
+| Requirement                                   | Where                                                                                                                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Golden test cases                             | `packages/web-kit/src/ai-growth.spec.ts` (summary, recommendations, risk, search)                                                                                                                              |
+| Structured-output validation                  | Engines return typed structures; asserted per test                                                                                                                                                             |
+| Hallucination checks vs authoritative metrics | Summary/recommendation tests assert numbers equal the input metrics; no fabrication path exists (facts come from analytics/reports, not the model)                                                             |
+| PII-redaction tests                           | `ai-growth.spec.ts` (`redactPii`) + `ai-gateway.service.spec.ts` (redaction before provider)                                                                                                                   |
+| Prompt-injection resistance                   | The assistant computes from analytics, not from the question text; the model (if enabled) only rephrases and is instructed to answer solely from provided facts. Injected instructions cannot change a metric. |
+| Provider-unavailable tests                    | `ai-gateway.service.spec.ts` — unavailable/failure → deterministic fallback                                                                                                                                    |
+| Deterministic fallback tests                  | `ai-gateway.service.spec.ts` — disabled posture returns fallback and records usage                                                                                                                             |
+| Cost & latency budgets                        | `AI_TIMEOUT_MS`, `AI_MAX_RETRIES`, `AI_COST_PER_1K_MINOR`; surfaced in the admin AI Console                                                                                                                    |
+| Tenant isolation                              | Enforced by `OrgAccessService.assertMember` in the analytics/reports the assistant reuses (covered by their specs)                                                                                             |
 
 ## External dependencies
 
