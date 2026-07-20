@@ -82,6 +82,7 @@ function AddOnsSection({ eventId }: { eventId: string }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<OrgAddOn | null>(null);
+  const [confirmDel, setConfirmDel] = useState<OrgAddOn | null>(null);
   const [form, setForm] = useState({ ...emptyAddOn });
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -139,6 +140,7 @@ function AddOnsSection({ eventId }: { eventId: string }) {
     mutationFn: (a: OrgAddOn) => api.commerce.deleteAddOn(a.id),
     onSuccess: () => {
       toast.push('Add-on deleted.', 'success');
+      setConfirmDel(null);
       invalidate();
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -186,7 +188,7 @@ function AddOnsSection({ eventId }: { eventId: string }) {
             variant="ghost"
             size="sm"
             loading={del.isPending && del.variables?.id === a.id}
-            onClick={() => del.mutate(a)}
+            onClick={() => setConfirmDel(a)}
             aria-label={`Delete ${a.name}`}
           >
             <Trash2 className="h-4 w-4" />
@@ -305,6 +307,31 @@ function AddOnsSection({ eventId }: { eventId: string }) {
           </label>
         </div>
       </Dialog>
+
+      <Dialog
+        open={!!confirmDel}
+        onClose={() => setConfirmDel(null)}
+        title="Delete add-on?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDel(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={del.isPending}
+              onClick={() => confirmDel && del.mutate(confirmDel)}
+            >
+              Delete
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-[0.9375rem] text-text-secondary">
+          Delete <span className="font-medium text-text-primary">{confirmDel?.name}</span>? This
+          can&rsquo;t be undone. Add-ons with sales can&rsquo;t be deleted — disable them instead.
+        </p>
+      </Dialog>
     </Card>
   );
 }
@@ -316,6 +343,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<OrgBundle | null>(null);
+  const [confirmDel, setConfirmDel] = useState<OrgBundle | null>(null);
   const [form, setForm] = useState({
     type: 'COMBO' as BundleType,
     name: '',
@@ -430,6 +458,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
     mutationFn: (b: OrgBundle) => api.commerce.deleteBundle(b.id),
     onSuccess: () => {
       toast.push('Bundle deleted.', 'success');
+      setConfirmDel(null);
       invalidate();
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -484,7 +513,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
             variant="ghost"
             size="sm"
             loading={del.isPending && del.variables?.id === b.id}
-            onClick={() => del.mutate(b)}
+            onClick={() => setConfirmDel(b)}
             aria-label={`Delete ${b.name}`}
           >
             <Trash2 className="h-4 w-4" />
@@ -645,6 +674,31 @@ function BundlesSection({ eventId }: { eventId: string }) {
             Enabled (available for purchase)
           </label>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={!!confirmDel}
+        onClose={() => setConfirmDel(null)}
+        title="Delete bundle?"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmDel(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={del.isPending}
+              onClick={() => confirmDel && del.mutate(confirmDel)}
+            >
+              Delete
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-[0.9375rem] text-text-secondary">
+          Delete <span className="font-medium text-text-primary">{confirmDel?.name}</span>? This
+          can&rsquo;t be undone. Bundles with sales can&rsquo;t be deleted — disable them instead.
+        </p>
       </Dialog>
     </Card>
   );

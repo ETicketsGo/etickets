@@ -81,6 +81,7 @@ export default function AssistantTab() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             id="ai-question"
+            aria-label="Ask about this organization"
             className="flex-1"
             placeholder="e.g. How are ticket sales performing?"
             value={question}

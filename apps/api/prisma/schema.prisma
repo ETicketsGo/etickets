@@ -779,6 +779,8 @@ model Booking {
   @@index([userId])
   @@index([eventSessionId, status])
   @@index([confirmedAt])
+  // Serves the platform-wide createdAt-window scan in the risk service (v2.1 audit).
+  @@index([createdAt])
 }
 
 model BookingItem {
@@ -974,6 +976,8 @@ model TicketInvite {
   @@index([ticketId])
   @@index([status])
   @@index([organizationId])
+  // Serves the transfer-velocity window scan in the risk service (v2.1 audit).
+  @@index([kind, createdAt])
 }
 
 model Payment {
@@ -1003,6 +1007,8 @@ model PaymentAttempt {
   createdAt   DateTime             @default(now())
 
   @@index([paymentId])
+  // Serves the payment-failure window scan in the risk service (v2.1 audit).
+  @@index([createdAt])
 }
 
 model Refund {
@@ -1022,7 +1028,9 @@ model Refund {
   updatedAt         DateTime     @updatedAt
 
   @@index([bookingId])
-  @@index([status])
+  // Composite serves both status-only reads and the risk service's
+  // status+createdAt window scan (leftmost prefix covers status alone). (v2.1 audit)
+  @@index([status, createdAt])
   @@index([organizationId])
 }
 
@@ -1277,6 +1285,9 @@ model Notification {
   @@index([type])
   @@index([status, scheduledFor])
   @@index([userId, channel, readAt])
+  // Serves the inbox cursor + `ORDER BY createdAt DESC` (v2.1 audit); the readAt
+  // composite above only serves the unread-count/mark-all path.
+  @@index([userId, channel, createdAt])
 }
 
 // Per-user opt-out for a (type, channel). Absence of a row = enabled.
