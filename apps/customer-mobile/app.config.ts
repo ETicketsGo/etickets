@@ -55,7 +55,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // SDK 56: splash is configured via the expo-splash-screen plugin (top-level `splash` removed).
     [
       'expo-splash-screen',
-      { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#0B0E15', imageWidth: 200 },
+      {
+        image: './assets/splash.png',
+        resizeMode: 'contain',
+        backgroundColor: '#0B0E15',
+        imageWidth: 200,
+      },
     ],
     ['expo-camera', { cameraPermission: 'Scan QR codes to check in to your events.' }],
     ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],

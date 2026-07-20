@@ -7,3 +7,7 @@ playwright-report
 test-results
 package-lock.json
 apps/api/prisma/migrations
+
+# Expo-generated (regenerated on build; not hand-edited)
+apps/customer-mobile/.expo
+apps/customer-mobile/expo-env.d.ts

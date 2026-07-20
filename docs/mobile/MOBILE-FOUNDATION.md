@@ -117,13 +117,13 @@ toolchain** (verified: `turbo typecheck lint` stays 16/16):
 - **Single React in the bundle** is forced by Metro (`metro.config.js` →
   `resolver.extraNodeModules` pins `react`/`react-dom` to the app's React 19) and mirrored for
   Jest (`moduleNameMapper` maps `^react(/.*)?$` → the app's React 19). The successful web
-  export (static-renders 8 routes server-side; a duplicate React would throw *Invalid hook
-  call*) is the proof.
+  export (static-renders 8 routes server-side; a duplicate React would throw _Invalid hook
+  call_) is the proof.
 - **`@types/react` stays 18 at the root** (pinned) for the web apps; the mobile app nests
   `@types/react` 19. Because `react-native` is hoisted to the root it would otherwise pick up
   React-18 types, so **`tsconfig.typecheck.json`** aliases `react` types to the app's 19 for
   `tsc` only. The alias is kept out of `tsconfig.json` on purpose — Expo Metro and jest-expo
-  read `tsconfig.json`'s `paths` and would remap the *runtime* `react` import to types-only
+  read `tsconfig.json`'s `paths` and would remap the _runtime_ `react` import to types-only
   `@types/react`, breaking bundling/tests.
 - **ESLint**: the root pins ESLint 8 (Next 14 `next lint`); mobile needs ESLint 9. The
   mobile `eslint.config.js` therefore bridges Expo's **legacy** config via `FlatCompat`
@@ -140,18 +140,18 @@ separate, larger change.
 
 **Executed and passing (this verification pass, real toolchain — Node 24, npm 11.11.0, Windows):**
 
-| Check | Result |
-| --- | --- |
-| Clean install — `rm -rf node_modules && npm ci` | ✅ exit 0 (620+ pkgs) |
-| `expo install --check` / `--fix` alignment | ✅ SDK 56 matrix corrected (RN 0.85.3 …) |
-| `typecheck:mobile` (`tsc -p tsconfig.typecheck.json`) | ✅ 0 errors |
-| `lint:mobile` (ESLint 9 + Expo ruleset) | ✅ 0 errors |
-| `test:mobile` (jest-expo, auth-store spec) | ✅ **5/5** |
-| `expo export --platform web` (Metro) | ✅ 2816+2683 modules, **8 static routes**, single React proven |
-| Metro dev-server startup (`expo start`) | ✅ boots, "Waiting on http://localhost:8099" |
-| `expo-doctor` | ⚠️ **19/21** — only the intentional react/react-dom split + minor version advisories (screens 4.25↔4.26, TS 5.9↔6.0) |
-| Web + API regression — `turbo typecheck lint` | ✅ **16/16** (mobile skipped by design) |
-| web-kit vitest (shared security helpers) | ✅ 127/127 |
+| Check                                                 | Result                                                                                                               |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Clean install — `rm -rf node_modules && npm ci`       | ✅ exit 0 (620+ pkgs)                                                                                                |
+| `expo install --check` / `--fix` alignment            | ✅ SDK 56 matrix corrected (RN 0.85.3 …)                                                                             |
+| `typecheck:mobile` (`tsc -p tsconfig.typecheck.json`) | ✅ 0 errors                                                                                                          |
+| `lint:mobile` (ESLint 9 + Expo ruleset)               | ✅ 0 errors                                                                                                          |
+| `test:mobile` (jest-expo, auth-store spec)            | ✅ **5/5**                                                                                                           |
+| `expo export --platform web` (Metro)                  | ✅ 2816+2683 modules, **8 static routes**, single React proven                                                       |
+| Metro dev-server startup (`expo start`)               | ✅ boots, "Waiting on http://localhost:8099"                                                                         |
+| `expo-doctor`                                         | ⚠️ **19/21** — only the intentional react/react-dom split + minor version advisories (screens 4.25↔4.26, TS 5.9↔6.0) |
+| Web + API regression — `turbo typecheck lint`         | ✅ **16/16** (mobile skipped by design)                                                                              |
+| web-kit vitest (shared security helpers)              | ✅ 127/127                                                                                                           |
 
 **NOT executed — genuinely impossible in this headless CI-less environment (no Apple/Google
 accounts, no devices, no EAS project, no CI secret). Documented with exact blockers in the
@@ -165,7 +165,7 @@ Executed & green: supported Expo SDK (56 ✅) · `npm ci` ✅ · existing monore
 · `typecheck:mobile` ✅ · `lint:mobile` ✅ · `test:mobile` ✅ · `expo-doctor` (19/21; residual
 is the intended React split ✅) · `expo export --platform web` ✅ · Metro startup ✅ · shared
 auth contracts de-duplicated ✅ · no secrets committed ✅ · no **new** critical/high dep issues
-(mobile adds only *moderate* Expo-toolchain advisories; the repo's pre-existing high/critical
+(mobile adds only _moderate_ Expo-toolchain advisories; the repo's pre-existing high/critical
 live in `multer`/`vite`/`next`/`@nestjs/cli` and are unchanged by this PR) ✅ · docs reflect
 verified results ✅.
 
