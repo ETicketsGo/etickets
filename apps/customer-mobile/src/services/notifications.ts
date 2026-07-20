@@ -10,7 +10,10 @@ import { apiClient } from './api-client';
  */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    // SDK 56 split the foreground presentation flags: shouldShowAlert is deprecated in
+    // favour of shouldShowBanner + shouldShowList (both required by NotificationBehavior).
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),

@@ -19,13 +19,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: '0.1.0',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic', // light + dark
-  newArchEnabled: true,
+  // New Architecture is the default in SDK 56; the field was removed from ExpoConfig.
   icon: './assets/icon.png',
-  splash: {
-    image: './assets/splash.png',
-    resizeMode: 'contain',
-    backgroundColor: '#0B0E15',
-  },
   assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
@@ -57,6 +52,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     'expo-router',
     'expo-secure-store',
     'expo-font',
+    // SDK 56: splash is configured via the expo-splash-screen plugin (top-level `splash` removed).
+    [
+      'expo-splash-screen',
+      { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#0B0E15', imageWidth: 200 },
+    ],
     ['expo-camera', { cameraPermission: 'Scan QR codes to check in to your events.' }],
     ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],
     [

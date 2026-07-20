@@ -1,0 +1,18 @@
+{
+  // Typecheck-only config. react-native is hoisted to the monorepo root (required so the
+  // Expo/Metro build tooling — react-native-css-interop, @react-native/jest-preset — can
+  // resolve it), where it otherwise picks up the web apps' @types/react 18. This alias forces
+  // tsc to resolve React's types from THIS app's @types/react 19 for the whole program,
+  // including react-native's own .d.ts, so there is a single React 19 type surface.
+  //
+  // It lives in a SEPARATE config (not tsconfig.json) on purpose: Expo Metro and jest-expo
+  // both read tsconfig.json's `paths` and would map the RUNTIME `react` import to the
+  // types-only @types/react (breaking bundling/tests). Only `tsc` uses this file.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "react": ["./node_modules/@types/react"]
+    }
+  }
+}

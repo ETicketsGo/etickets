@@ -1,7 +1,8 @@
 # App assets
 
-These are **1×1 placeholder PNGs** so Expo builds. Replace with real branded art before
-any store build:
+These are **flat solid-colour placeholder PNGs** (brand blue, generated at the correct
+dimensions so the Expo asset pipeline / `expo export` processes them). They carry no logo or
+artwork. Replace with real branded art before any store build:
 
 | File                    | Purpose                           | Recommended size                              |
 | ----------------------- | --------------------------------- | --------------------------------------------- |
@@ -15,8 +16,8 @@ Brand: premium, minimal, blue `#2563EB` on `#0B0E15` (dark) / white (light).
 
 ## 🚫 BLOCKING GATE — placeholder assets must be replaced before any external release
 
-The 1×1 placeholders are acceptable **only** for engineering compilation/CI. They MUST be
-replaced with real branded artwork before:
+The flat-colour placeholders are acceptable **only** for engineering compilation/CI. They MUST
+be replaced with real branded artwork before:
 
 - [ ] iOS **TestFlight**
 - [ ] Google Play **internal testing**

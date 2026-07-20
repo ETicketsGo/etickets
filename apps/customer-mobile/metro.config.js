@@ -20,4 +20,13 @@ config.resolver.nodeModulesPaths = [
 // Prefer the packages' compiled entry (they publish CJS `dist`).
 config.resolver.disableHierarchicalLookup = false;
 
+// CRITICAL (monorepo React isolation): the web apps use React 18 and are hoisted to the
+// root, while this app needs React 19.2.x for RN 0.86. Force EVERY module — including the
+// root-hoisted react-native — to resolve react/react-dom from THIS app's node_modules, so
+// exactly one React runtime is bundled (prevents Invalid Hook Call / duplicate React).
+config.resolver.extraNodeModules = {
+  react: path.resolve(projectRoot, 'node_modules/react'),
+  'react-dom': path.resolve(projectRoot, 'node_modules/react-dom'),
+};
+
 module.exports = withNativeWind(config, { input: './global.css' });
