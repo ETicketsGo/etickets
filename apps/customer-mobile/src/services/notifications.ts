@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import type { PushRegistration } from '@eticketsgo/shared-types';
 import { apiClient } from './api-client';
 
 /**
@@ -32,14 +33,14 @@ export async function registerForPush(): Promise<string | null> {
     }
 
     const token = (await Notifications.getExpoPushTokenAsync()).data;
-    // Reuse the existing push subscription endpoint (device-token variant).
-    await apiClient
-      .post('/push/subscribe', {
-        endpoint: token,
-        keys: { p256dh: 'expo', auth: 'expo' },
-        userAgent: `expo/${Platform.OS}`,
-      })
-      .catch(() => undefined);
+    // Reuse the existing push subscription endpoint (device-token variant); body typed
+    // with the shared PushRegistration contract — no duplicated DTO.
+    const body: PushRegistration = {
+      endpoint: token,
+      keys: { p256dh: 'expo', auth: 'expo' },
+      userAgent: `expo/${Platform.OS}`,
+    };
+    await apiClient.post('/push/subscribe', body).catch(() => undefined);
     return token;
   } catch {
     return null;

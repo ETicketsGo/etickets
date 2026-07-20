@@ -47,6 +47,11 @@ async function refreshTokens(): Promise<AuthTokens | null> {
   }
 }
 
+// Endpoints that must never trigger a refresh retry (they ARE the auth flow) —
+// prevents any recursive refresh loop.
+const AUTH_PATHS = ['/auth/login', '/auth/refresh', '/auth/register', '/auth/logout'];
+const isAuthPath = (url?: string) => !!url && AUTH_PATHS.some((p) => url.includes(p));
+
 apiClient.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
@@ -54,7 +59,7 @@ apiClient.interceptors.response.use(
       (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
     const status = error.response?.status;
 
-    if (status === 401 && original && !original._retried) {
+    if (status === 401 && original && !original._retried && !isAuthPath(original.url)) {
       original._retried = true;
       refreshing = refreshing ?? refreshTokens();
       const rotated = await refreshing;

@@ -5,9 +5,15 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  * so the same binary can point at dev/staging/prod. Deep linking scheme: `etickets://`
  * plus the universal-link host from EXPO_PUBLIC_WEB_HOST.
  */
+const APP_ENV = process.env.EXPO_PUBLIC_ENV ?? 'development';
+// Distinct app identifiers per environment so dev/preview/prod can coexist on a device.
+const idSuffix = APP_ENV === 'production' ? '' : APP_ENV === 'staging' ? '.preview' : '.dev';
+const nameSuffix = APP_ENV === 'production' ? '' : APP_ENV === 'staging' ? ' (Preview)' : ' (Dev)';
+const bundleId = `com.eticketsgo.customer${idSuffix}`;
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'ETicketsGo',
+  name: `ETicketsGo${nameSuffix}`,
   slug: 'eticketsgo-customer',
   scheme: 'etickets',
   version: '0.1.0',
@@ -23,7 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   assetBundlePatterns: ['**/*'],
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.eticketsgo.customer',
+    bundleIdentifier: bundleId,
     associatedDomains: process.env.EXPO_PUBLIC_WEB_HOST
       ? [`applinks:${process.env.EXPO_PUBLIC_WEB_HOST}`]
       : [],
@@ -32,7 +38,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    package: 'com.eticketsgo.customer',
+    package: bundleId,
     adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#0B0E15' },
     permissions: ['CAMERA', 'POST_NOTIFICATIONS'],
     intentFilters: process.env.EXPO_PUBLIC_WEB_HOST

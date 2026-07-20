@@ -4,9 +4,25 @@
 NestJS API — no new backend, no duplicated business logic. It reuses the repo's shared
 packages and follows Clean Architecture.
 
+## Expo SDK decision (PR #20 hardening)
+
+**Selected: Expo SDK 56** — RN **0.86.0**, React **19.2.3**, Expo Router **~56.2.15**,
+NativeWind **4.2.6**, Reanimated **4.5.2**, react-native-web **0.21.x**, Sentry RN **8.19.x**.
+
+Rationale: I evaluated SDK 57 (latest, released 2026-06-30) first. I could not run
+`npx expo install --fix` / `expo-doctor` in the headless authoring environment to confirm
+SDK 57's full dependency alignment (NativeWind 4 + Reanimated 4 + expo-router in a
+monorepo), and SDK 57 being ~3 weeks old carries early-adopter library-compat risk — the
+exact "unresolved monorepo/library issues" case that warrants 56. SDK 56 is current and
+supported, and its exact mutually-compatible versions were taken from Expo's canonical
+`bundledNativeModules.json`, so the alignment is real, not guessed. Verified: the whole
+dependency tree **resolves** and the monorepo nests mobile React 19.2.3 **isolated** from
+the web apps' React 18.3.1. Temporary constraint: final `expo install --fix`/`expo-doctor`
+alignment and any SDK-57 re-evaluation should run on a networked dev machine.
+
 ## What Sprint 1 delivers (foundation only, not feature screens)
 
-Expo SDK 52 + Expo Router (typed routes, deep linking `etickets://` + universal links),
+Expo SDK 56 + Expo Router (typed routes, deep linking `etickets://` + universal links),
 NativeWind theme (light/dark from the shared design tokens), Axios API client with
 single-flight token refresh, Expo Secure Store token storage, TanStack Query, Zustand
 auth store, React Hook Form + the shared Zod `loginSchema`, Sentry, Expo Notifications
@@ -69,13 +85,47 @@ npm install                     # from repo root: installs the workspace
 npm run start                   # then press i / a / w for iOS / Android / Web
 ```
 
-## Verification status (honest)
+## Hardening (PR #20 review)
 
-- Verified in this environment: file/config correctness; the existing web + API projects
-  are **unaffected** (their Turbo gate does not run mobile; lockfile kept in sync).
-- **Requires a dev machine with the Expo toolchain** (this environment has no iOS/Android
-  simulators or Metro runtime): `npm run typecheck:mobile`, `npm run start`, and native
-  iOS/Android/Web(Expo) compilation. `mobile-ci.yml` runs the typecheck/lint in CI.
+- **Shared API contracts** — `AuthUser`, `AuthResponse`, `RefreshResponse`, `PushRegistration`,
+  `SessionDevice` now live once in `@eticketsgo/shared-types`; web-kit aliases `AuthUser` to
+  the shared type and mobile consumes them. No mirrored DTOs remain.
+- **Auth security** — refresh tokens live **only** in Expo SecureStore (never AsyncStorage);
+  single-flight refresh (concurrent 401s → one `/auth/refresh`); auth endpoints
+  (`/auth/login|refresh|register|logout`) never trigger a refresh (no loop); failed refresh
+  clears the session once and routes to login; logout revokes the server session;
+  `redactSecretKeys` strips tokens/OTPs/auth headers from Sentry (shared + unit-tested);
+  production builds **throw** if the API URL is missing or local (`isLocalApiUrl`, tested).
+- **EAS** — `eas.json` with development/preview/production profiles + per-env app identifiers
+  (`com.eticketsgo.customer[.dev|.preview]`). Secrets (EXPO_TOKEN, store creds) are NOT in
+  source control.
+
+## Verification status (honest — no result is claimed unless it actually ran)
+
+**Executed here (passing):**
+
+- Shared security helpers + contracts — `web-kit` vitest **127/127** (incl. the new
+  `client-security.spec.ts`: redaction + local-URL guard).
+- Existing web + API gate **unaffected** — `turbo typecheck` **13/13**, `turbo lint` **3/3**
+  (mobile is skipped by the root pipeline by design).
+- SDK 56 dependency tree **resolves**; root lockfile regenerated cleanly; mobile React 19 is
+  nested and isolated from web React 18.
+
+**NOT executed here — requires a dev machine with the Expo toolchain / an EAS account
+(this environment has no iOS/Android simulators, no Metro runtime, no EAS):** these are
+scripted + wired into `mobile-ci.yml` and must run before merge —
+`npm ci` (full native install) · `typecheck:mobile` · `lint:mobile` · `test:mobile`
+(the auth-store spec) · `expo-doctor` · `expo export --platform web` · Metro startup ·
+**Android + iOS EAS development builds** · on-device push + deep-link testing.
+
+## Definition of Done (merge gate for PR #20)
+
+All must be **actually executed** and green (see the brief's merge gates): supported Expo SDK
+(56 ✅) · `npm ci` · existing monorepo checks · `typecheck:mobile` · `lint:mobile` ·
+`test:mobile` · `expo-doctor` · `expo export --platform web` · Android EAS dev build · iOS
+EAS dev build (or an exact Apple-credential limitation documented, not misrepresented) ·
+shared auth contracts de-duplicated (✅) · no secrets committed (✅) · no critical/high dep
+issues · docs reflect verified results (✅).
 
 ## Next sprints (map to the brief's phases)
 

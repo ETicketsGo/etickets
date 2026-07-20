@@ -1,27 +1,26 @@
 # ─────────────────────────────────────────────────────────────
-# Mobile CI — isolated from the web/api pipeline (ci.yml). Runs only when the mobile
-# app or a shared package it consumes changes, so it never gates or slows the
-# existing web/API checks. Verifies types, lint and Expo config for customer-mobile.
-# Native iOS/Android compilation runs on EAS / a dev machine, not here.
+# Mobile CI — isolated from the web/api pipeline (ci.yml). Runs when the mobile app OR
+# any shared package/config it depends on changes (shared packages can break mobile
+# even with no mobile-file change), but never gates unrelated web-only changes.
+# Native iOS/Android compilation runs on EAS (see the eas-build job note), not here.
 # ─────────────────────────────────────────────────────────────
 name: Mobile CI
 
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - 'apps/customer-mobile/**'
       - 'packages/shared-types/**'
       - 'packages/validation/**'
       - 'packages/design-tokens/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'turbo.json'
+      - '.npmrc'
       - '.github/workflows/mobile-ci.yml'
   pull_request:
-    paths:
-      - 'apps/customer-mobile/**'
-      - 'packages/shared-types/**'
-      - 'packages/validation/**'
-      - 'packages/design-tokens/**'
-      - '.github/workflows/mobile-ci.yml'
+    paths: *paths
 
 concurrency:
   group: mobile-ci-${{ github.ref }}
@@ -29,7 +28,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck + Lint + Expo config
+    name: Doctor + Typecheck + Lint + Test + Web export
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +39,45 @@ jobs:
       - run: npm ci
       # Shared packages publish compiled `dist`; the mobile typecheck reads their types.
       - run: npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens
-      - run: npm run typecheck:mobile -w @eticketsgo/customer-mobile
-      - run: npm run lint:mobile -w @eticketsgo/customer-mobile
-      - run: npx --workspace @eticketsgo/customer-mobile expo-doctor || true
+      - name: expo-doctor
+        run: npx --workspace @eticketsgo/customer-mobile expo-doctor
+      - name: Typecheck
+        run: npm run typecheck:mobile -w @eticketsgo/customer-mobile
+      - name: Lint
+        run: npm run lint:mobile -w @eticketsgo/customer-mobile
+      - name: Unit tests
+        run: npm run test:mobile -w @eticketsgo/customer-mobile
+      - name: Expo web export (Metro bundle — no native toolchain needed)
+        run: npm run export:web -w @eticketsgo/customer-mobile
+
+  # Native EAS development builds. Requires an Expo account token in repo secrets
+  # (EXPO_TOKEN). Skipped automatically when the secret is absent so the workflow never
+  # fails for forks/contributors without EAS access. Configure to gate before release.
+  eas-build:
+    name: EAS dev build (Android + iOS)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Guard — EXPO_TOKEN present
+        id: guard
+        run: echo "has_token=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.guard.outputs.has_token == 'true'
+        run: npm ci
+      - if: steps.guard.outputs.has_token == 'true'
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - if: steps.guard.outputs.has_token == 'true'
+        working-directory: apps/customer-mobile
+        run: |
+          eas build --platform android --profile development --non-interactive --no-wait
+          eas build --platform ios --profile development --non-interactive --no-wait
+      - if: steps.guard.outputs.has_token != 'true'
+        run: echo "EXPO_TOKEN not configured — skipping EAS builds (configure to enable)."

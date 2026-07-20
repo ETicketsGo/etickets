@@ -1,17 +1,16 @@
 import * as SecureStore from 'expo-secure-store';
+import type { AuthTokens } from '@eticketsgo/shared-types';
 
 /**
  * Token storage in the device keychain/keystore (Expo Secure Store). The mobile
- * equivalent of the web client's localStorage token store — same token contract,
- * hardware-backed. Never store anything but the auth tokens here.
+ * equivalent of the web client's localStorage token store — same token contract
+ * (reused from shared-types), hardware-backed. Only the refresh + access token pair
+ * is stored here; nothing else. Refresh tokens are NEVER placed in AsyncStorage.
  */
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
 
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-}
+export type { AuthTokens };
 
 export const tokenStore = {
   async get(): Promise<AuthTokens | null> {

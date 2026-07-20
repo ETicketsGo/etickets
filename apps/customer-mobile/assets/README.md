@@ -12,3 +12,18 @@ any store build:
 | `notification-icon.png` | Android notification (monochrome) | 96×96                                         |
 
 Brand: premium, minimal, blue `#2563EB` on `#0B0E15` (dark) / white (light).
+
+## 🚫 BLOCKING GATE — placeholder assets must be replaced before any external release
+
+The 1×1 placeholders are acceptable **only** for engineering compilation/CI. They MUST be
+replaced with real branded artwork before:
+
+- [ ] iOS **TestFlight**
+- [ ] Google Play **internal testing**
+- [ ] any **pilot** demonstration
+- [ ] any **preview/production** EAS build
+- [ ] **App Store / Play Store** submission
+
+Required real assets: iOS app icon · Android adaptive icon (foreground + background) ·
+splash artwork · notification icon · web favicon. A release build with placeholder assets
+is a launch blocker, not a warning.
