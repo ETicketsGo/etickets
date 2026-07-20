@@ -30,6 +30,31 @@ export interface AuthenticatedUser {
   organizationId?: string | null;
 }
 
+/** The current user as returned by GET /auth/me and login. Canonical alias. */
+export type AuthUser = AuthenticatedUser;
+
+/** Response of POST /auth/login (and register): token pair, optionally the user. */
+export interface AuthResponse extends AuthTokens {
+  user?: AuthenticatedUser;
+}
+
+/** Response of POST /auth/refresh — a rotated token pair. */
+export type RefreshResponse = AuthTokens;
+
+/** Body for registering a push subscription (browser Web Push or a device token). */
+export interface PushRegistration {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
+/** Non-secret device/session metadata a client may report on auth. */
+export interface SessionDevice {
+  userAgent?: string;
+  platform?: 'ios' | 'android' | 'web';
+  appVersion?: string;
+}
+
 export interface FeeBreakdown {
   currency: string;
   /** Sum of ticket face values, in minor units (paise). */

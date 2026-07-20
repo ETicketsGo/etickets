@@ -1,6 +1,7 @@
 import type {
   ApiError,
   AuthTokens,
+  AuthenticatedUser,
   ManifestEntry,
   ManifestMeta,
   QueuedCheckIn,
@@ -979,12 +980,8 @@ export interface Paged<T> {
   meta: { page: number; pageSize: number; total: number; totalPages: number };
 }
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  fullName: string;
-  roles: string[];
-}
+// Canonical auth user now lives in @eticketsgo/shared-types (shared by web + mobile).
+export type AuthUser = AuthenticatedUser;
 export interface UserProfile extends AuthUser {
   status: string;
   createdAt: string;
