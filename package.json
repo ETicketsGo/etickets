@@ -38,6 +38,12 @@
     "typescript": "^5.6.3",
     "wait-on": "^8.0.1"
   },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.62.2",
+    "@esbuild/linux-x64": "0.21.5",
+    "@next/swc-linux-x64-gnu": "14.2.33",
+    "@msgpackr-extract/msgpackr-extract-linux-x64": "3.0.4"
+  },
   "engines": {
     "node": ">=20"
   },
