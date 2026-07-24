@@ -175,6 +175,55 @@ export const PayoutStatus = {
 } as const;
 export type PayoutStatus = (typeof PayoutStatus)[keyof typeof PayoutStatus];
 
+// ─── Stripe Connect marketplace (US) ───
+
+export const ConnectOnboardingStatus = {
+  NOT_STARTED: 'NOT_STARTED',
+  ONBOARDING: 'ONBOARDING',
+  PENDING_VERIFICATION: 'PENDING_VERIFICATION',
+  ENABLED: 'ENABLED',
+  RESTRICTED: 'RESTRICTED',
+  DISABLED: 'DISABLED',
+  REJECTED: 'REJECTED',
+} as const;
+export type ConnectOnboardingStatus =
+  (typeof ConnectOnboardingStatus)[keyof typeof ConnectOnboardingStatus];
+
+export const SettlementStatus = {
+  PENDING: 'PENDING',
+  HELD: 'HELD',
+  ELIGIBLE: 'ELIGIBLE',
+  APPROVED: 'APPROVED',
+  TRANSFER_PROCESSING: 'TRANSFER_PROCESSING',
+  TRANSFERRED: 'TRANSFERRED',
+  PARTIALLY_REFUNDED: 'PARTIALLY_REFUNDED',
+  BLOCKED: 'BLOCKED',
+  FAILED: 'FAILED',
+  REVERSED: 'REVERSED',
+} as const;
+export type SettlementStatus = (typeof SettlementStatus)[keyof typeof SettlementStatus];
+
+export const WebhookProcessingStatus = {
+  RECEIVED: 'RECEIVED',
+  PROCESSING: 'PROCESSING',
+  PROCESSED: 'PROCESSED',
+  FAILED: 'FAILED',
+  DEAD_LETTER: 'DEAD_LETTER',
+  IGNORED: 'IGNORED',
+} as const;
+export type WebhookProcessingStatus =
+  (typeof WebhookProcessingStatus)[keyof typeof WebhookProcessingStatus];
+
+export const DisputeStatus = {
+  NEEDS_RESPONSE: 'NEEDS_RESPONSE',
+  UNDER_REVIEW: 'UNDER_REVIEW',
+  WON: 'WON',
+  LOST: 'LOST',
+  WARNING_CLOSED: 'WARNING_CLOSED',
+  CLOSED: 'CLOSED',
+} as const;
+export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
+
 export const SessionStatus = {
   SCHEDULED: 'SCHEDULED',
   CANCELLED: 'CANCELLED',
@@ -211,6 +260,11 @@ export const NotificationType = {
   SHARE_CREATED: 'SHARE_CREATED',
   SHARE_VIEWED: 'SHARE_VIEWED',
   SHARE_REVOKED: 'SHARE_REVOKED',
+  PAYOUT_ACCOUNT_UPDATED: 'PAYOUT_ACCOUNT_UPDATED',
+  SETTLEMENT_RELEASED: 'SETTLEMENT_RELEASED',
+  PAYMENT_DISPUTE_OPENED: 'PAYMENT_DISPUTE_OPENED',
+  PAYMENT_DISPUTE_CLOSED: 'PAYMENT_DISPUTE_CLOSED',
+  TRANSFER_FAILED: 'TRANSFER_FAILED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

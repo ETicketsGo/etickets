@@ -100,12 +100,36 @@ const envSchema = z.object({
   // --- Stripe (global). Sandbox vs production is purely test vs live keys. ---
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Publishable (public) key — safe to return to approved clients. NEVER a secret.
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  // Pin the Stripe API version so upgrades are deliberate. Optional: when unset the
+  // installed SDK's pinned default is used. Set to the exact dashboard API version.
+  STRIPE_API_VERSION: z.string().optional(),
   // Where Stripe Checkout redirects the buyer after success/cancel. {CHECKOUT_SESSION_ID}
   // is substituted by Stripe. Optional with sane localhost defaults.
   STRIPE_SUCCESS_URL: z
     .string()
     .default('http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}'),
   STRIPE_CANCEL_URL: z.string().default('http://localhost:3000/checkout/cancel'),
+
+  // ─── Stripe Connect (US marketplace) ───
+  // Connect OAuth client id (only used for the OAuth/Standard flow; Express/Custom
+  // accounts created via the API do not require it). Non-secret identifier.
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  // Connected-account type for organizer onboarding. `express` = Stripe-hosted
+  // onboarding + an Express dashboard (login links supported). `standard` = the
+  // organizer's own full Stripe account. Default express for a hosted marketplace.
+  STRIPE_CONNECT_ACCOUNT_TYPE: z.enum(['express', 'standard', 'custom']).default('express'),
+  // Where Stripe returns / refreshes the organizer during hosted onboarding.
+  STRIPE_CONNECT_RETURN_URL: z
+    .string()
+    .default('http://localhost:3001/organizer/payouts?onboarding=return'),
+  STRIPE_CONNECT_REFRESH_URL: z
+    .string()
+    .default('http://localhost:3001/organizer/payouts?onboarding=refresh'),
+  // Settlement reserve withheld from each organizer transfer, in basis points
+  // (100 = 1%). Configurable per deployment; 0 = no reserve. NEVER hardcoded.
+  STRIPE_SETTLEMENT_RESERVE_BPS: z.coerce.number().int().min(0).max(10000).default(0),
 
   STORAGE_DRIVER: z.string().default('local'),
   STORAGE_LOCAL_DIR: z.string().default('.storage'),

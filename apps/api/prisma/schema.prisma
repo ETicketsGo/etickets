@@ -143,6 +143,55 @@ enum PayoutStatus {
   FAILED
 }
 
+// ─────────── Stripe Connect marketplace (US) ───────────
+
+// An organizer's connected-account onboarding state, synchronised from Stripe's
+// account.updated webhook (charges_enabled / payouts_enabled / requirements).
+enum ConnectOnboardingStatus {
+  NOT_STARTED // no connected account created yet
+  ONBOARDING // account created, hosted onboarding not finished
+  PENDING_VERIFICATION // details submitted, Stripe still verifying
+  ENABLED // charges + payouts enabled
+  RESTRICTED // enabled but has currently-due requirements / partial capability
+  DISABLED // disabled_reason set by Stripe
+  REJECTED // rejected by Stripe or platform
+}
+
+// Explicit settlement lifecycle. Organizer funds are HELD until the event completes
+// and are only moved by an authorised release (Separate Charges & Transfers).
+enum SettlementStatus {
+  PENDING // created from payments, event not yet complete
+  HELD // event window active / conditions not yet met
+  ELIGIBLE // event complete + conditions pass, awaiting approval
+  APPROVED // finance-approved, ready to release
+  TRANSFER_PROCESSING // transfer submitted to Stripe
+  TRANSFERRED // funds moved to the connected account
+  PARTIALLY_REFUNDED // some proceeds refunded/reversed
+  BLOCKED // blocked by ops (dispute, fraud, review)
+  FAILED // transfer failed
+  REVERSED // transfer reversed (e.g. post-transfer refund/dispute loss)
+}
+
+// Provider-level webhook processing state (idempotency + dead-lettering).
+enum WebhookProcessingStatus {
+  RECEIVED // persisted, not yet processed
+  PROCESSING // handler running
+  PROCESSED // handled successfully
+  FAILED // handler errored, will retry
+  DEAD_LETTER // exceeded retries; flagged for ops review
+  IGNORED // event type we deliberately do not act on
+}
+
+// Chargeback/dispute lifecycle mirrored from Stripe (platform is merchant of record).
+enum DisputeStatus {
+  NEEDS_RESPONSE
+  UNDER_REVIEW
+  WON
+  LOST
+  WARNING_CLOSED
+  CLOSED
+}
+
 enum CouponType {
   PERCENT
   FIXED
@@ -197,6 +246,12 @@ enum NotificationType {
   SHARE_CREATED
   SHARE_VIEWED
   SHARE_REVOKED
+  // Marketplace / Stripe ops (admin + organizer directed).
+  PAYOUT_ACCOUNT_UPDATED
+  SETTLEMENT_RELEASED
+  PAYMENT_DISPUTE_OPENED
+  PAYMENT_DISPUTE_CLOSED
+  TRANSFER_FAILED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -357,14 +412,17 @@ model Organization {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
-  members             OrganizationMember[]
-  venues              Venue[]
-  events              Event[]
-  payouts             Payout[]
-  refunds             Refund[]
-  movies              Movie[]
-  cinemas             Cinema[]
-  merchantOnboardings MerchantOnboarding[]
+  members                 OrganizationMember[]
+  venues                  Venue[]
+  events                  Event[]
+  payouts                 Payout[]
+  refunds                 Refund[]
+  movies                  Movie[]
+  cinemas                 Cinema[]
+  merchantOnboardings     MerchantOnboarding[]
+  organizerPaymentAccount OrganizerPaymentAccount[]
+  settlements             Settlement[]
+  disputes                Dispute[]
 
   @@index([status])
 }
@@ -613,11 +671,12 @@ model Event {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  sessions EventSession[]
-  bookings Booking[]
-  reviews  Review[]
-  addOns   AddOn[]
-  bundles  Bundle[]
+  sessions    EventSession[]
+  bookings    Booking[]
+  reviews     Review[]
+  addOns      AddOn[]
+  bundles     Bundle[]
+  settlements Settlement[]
 
   @@index([organizationId])
   @@index([status])
@@ -988,13 +1047,48 @@ model Payment {
   status      PaymentStatus @default(REQUIRES_PAYMENT)
   amountMinor Int
   currency    String        @default("INR")
+  // Generic provider reference (kept for back-compat: holds the PaymentIntent id or
+  // Checkout Session id). The typed fields below are populated for Stripe.
   providerRef String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+
+  // ─── Stripe / marketplace fields (nullable so existing rows/other providers are unaffected) ───
+  providerPaymentIntentId   String?
+  providerCheckoutSessionId String?
+  // The organizer's connected account this payment will settle to (Separate Charges
+  // & Transfers: the charge lands on the PLATFORM; funds move here later via a transfer).
+  connectedAccountId        String?
+  // Money split (integer minor units), snapshotted from the booking at checkout.
+  subtotalMinor             Int       @default(0)
+  taxMinor                  Int       @default(0)
+  // ETicketsGo's retained platform/convenience fee (gross margin before Stripe's fee).
+  platformFeeMinor          Int       @default(0)
+  // Stripe's processing fee, when captured from the balance transaction.
+  processingFeeMinor        Int?
+  // What the organizer is eligible to receive (the transfer base, before reserve).
+  organizerNetMinor         Int       @default(0)
+  // Cumulative amount refunded so far (guards refunds against exceeding the capture).
+  refundedMinor             Int       @default(0)
+  // Server-generated idempotency key (== bookingId today) so retries never double-charge.
+  idempotencyKey            String?   @unique
+  failureCode               String?
+  failureMessage            String?
+  paidAt                    DateTime?
+  metadata                  Json?
+
+  // Which settlement batch this payment's organizer proceeds belong to (set on success).
+  settlementId String?
+  settlement   Settlement? @relation(fields: [settlementId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   attempts PaymentAttempt[]
+  disputes Dispute[]
 
   @@index([status])
+  @@index([providerPaymentIntentId])
+  @@index([connectedAccountId])
+  @@index([settlementId])
 }
 
 model PaymentAttempt {
@@ -1632,4 +1726,125 @@ model PaymentRoute {
 
   @@unique([env, country, currency, method])
   @@index([env, active])
+}
+
+// ─────────── Stripe Connect marketplace models (US) ───────────
+
+// A per-organizer connected account (distinct from the platform-level MerchantAccount,
+// which models ETicketsGo's OWN provider accounts). Holds only non-secret Stripe
+// identifiers + capability flags synced from account.updated. One per org per provider.
+model OrganizerPaymentAccount {
+  id                String                  @id @default(cuid())
+  organizationId    String
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider          String                  @default("stripe")
+  // Stripe connected account id (acct_...). A non-secret reference, never a credential.
+  providerAccountId String?
+  accountType       String                  @default("express") // express | standard | custom
+  onboardingStatus  ConnectOnboardingStatus @default(NOT_STARTED)
+  detailsSubmitted  Boolean                 @default(false)
+  chargesEnabled    Boolean                 @default(false)
+  payoutsEnabled    Boolean                 @default(false)
+  // Stripe requirements.currently_due (field names only, never PII).
+  requirementsDue   String[]                @default([])
+  disabledReason    String?
+  country           String                  @default("US")
+  defaultCurrency   String                  @default("usd")
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  settlements Settlement[]
+
+  @@unique([organizationId, provider])
+  @@index([providerAccountId])
+}
+
+// Event-scoped settlement batch: the organizer's held proceeds and their release
+// lifecycle. Funds only leave the platform via an authorised transfer after the event.
+model Settlement {
+  id                 String                   @id @default(cuid())
+  organizationId     String
+  organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventId            String
+  event              Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  accountId          String?
+  account            OrganizerPaymentAccount? @relation(fields: [accountId], references: [id])
+  provider           String                   @default("stripe")
+  currency           String                   @default("usd")
+  // Ledger (integer minor units), recomputed immediately before release.
+  grossSalesMinor    Int                      @default(0)
+  refundsMinor       Int                      @default(0)
+  disputesMinor      Int                      @default(0)
+  platformFeesMinor  Int                      @default(0)
+  reserveMinor       Int                      @default(0)
+  payableMinor       Int                      @default(0)
+  transferredMinor   Int                      @default(0)
+  // Stripe transfer id (tr_...) once released, and the destination connected account.
+  providerTransferId String?
+  connectedAccountId String?
+  status             SettlementStatus         @default(PENDING)
+  approvedByUserId   String?
+  blockedReason      String?
+  failureMessage     String?
+  releasedAt         DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  payments Payment[]
+
+  @@unique([eventId, currency])
+  @@index([organizationId, status])
+  @@index([status])
+  @@index([providerTransferId])
+}
+
+// Provider webhook idempotency + dead-letter store, keyed on the provider event id.
+model WebhookEvent {
+  id               String                  @id @default(cuid())
+  provider         String                  @default("stripe")
+  providerEventId  String
+  eventType        String
+  // SHA-256 of the raw payload (tamper-evidence); the parsed event is kept in `payload`.
+  payloadHash      String?
+  payload          Json?
+  processingStatus WebhookProcessingStatus @default(RECEIVED)
+  attempts         Int                     @default(0)
+  processedAt      DateTime?
+  errorMessage     String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  // Provider event ids are globally unique — the idempotency guarantee.
+  @@unique([provider, providerEventId])
+  @@index([processingStatus])
+  @@index([provider, eventType])
+}
+
+// Chargeback/dispute mirrored from Stripe. The platform is the merchant of record
+// (Separate Charges & Transfers), so disputes settle against the platform account.
+model Dispute {
+  id                String        @id @default(cuid())
+  provider          String        @default("stripe")
+  providerDisputeId String
+  paymentId         String?
+  payment           Payment?      @relation(fields: [paymentId], references: [id])
+  bookingId         String?
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id])
+  eventId           String?
+  amountMinor       Int
+  currency          String        @default("usd")
+  reason            String?
+  status            DisputeStatus @default(NEEDS_RESPONSE)
+  // Raw Stripe dispute.status for audit (e.g. warning_needs_response, won, lost).
+  stripeStatus      String?
+  evidenceDueBy     DateTime?
+  resolvedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([provider, providerDisputeId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([paymentId])
 }
