@@ -32,6 +32,7 @@ import { StripeWebhookService } from './webhooks/stripe/stripe-webhook.service';
 import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.processor';
 import { SettlementController } from './settlement/settlement.controller';
 import { SettlementService } from './settlement/settlement.service';
+import { DisputeService } from './dispute/dispute.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -98,6 +99,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     StripeWebhookProcessor,
     // Marketplace settlement lifecycle + transfers.
     SettlementService,
+    // Dispute (chargeback) synchronisation.
+    DisputeService,
   ],
   exports: [
     PaymentsService,

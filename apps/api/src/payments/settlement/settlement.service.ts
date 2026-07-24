@@ -359,6 +359,146 @@ export class SettlementService {
     }
   }
 
+  // ─── Refund / dispute deductions (driven by webhooks, M6) ───
+
+  /**
+   * Deduct an organizer's share of a refund from their settlement. If the settlement
+   * has already been transferred, claw the amount back with a transfer reversal.
+   * Idempotent per (settlement, providerRefundId) via the metadata guard in the caller.
+   */
+  async applyRefund(eventId: string, currency: string, organizerShareMinor: number): Promise<void> {
+    if (organizerShareMinor <= 0) return;
+    const settlement = await this.prisma.settlement.findUnique({
+      where: { eventId_currency: { eventId, currency: currency.toLowerCase() } },
+    });
+    if (!settlement) return;
+
+    await this.prisma.settlement.update({
+      where: { id: settlement.id },
+      data: { refundsMinor: { increment: organizerShareMinor } },
+    });
+
+    // Funds already with the organizer → reverse the proportional amount.
+    if (
+      settlement.status === 'TRANSFERRED' &&
+      settlement.providerTransferId &&
+      this.provider.reverseTransfer
+    ) {
+      const reverseMinor = Math.min(organizerShareMinor, settlement.transferredMinor);
+      if (reverseMinor > 0) {
+        try {
+          await this.provider.reverseTransfer({
+            transferId: settlement.providerTransferId,
+            amountMinor: reverseMinor,
+            idempotencyKey: `reverse_${settlement.id}_${settlement.refundsMinor}`,
+          });
+          const fullyReversed = reverseMinor >= settlement.transferredMinor;
+          await this.prisma.settlement.update({
+            where: { id: settlement.id },
+            data: {
+              status: fullyReversed ? 'REVERSED' : 'PARTIALLY_REFUNDED',
+              transferredMinor: { decrement: reverseMinor },
+            },
+          });
+          await this.audit.record({
+            organizationId: settlement.organizationId,
+            action: 'SETTLEMENT_TRANSFER_REVERSED',
+            entityType: 'Settlement',
+            entityId: settlement.id,
+            metadata: { reverseMinor, reason: 'refund' },
+          });
+        } catch (err) {
+          this.logger.error(
+            `Transfer reversal failed for settlement ${settlement.id}: ${err instanceof Error ? err.message : err}`,
+          );
+          await this.notifyAdmins({
+            type: NotificationType.TRANSFER_FAILED,
+            settlementId: settlement.id,
+            error: 'reversal-failed',
+          });
+        }
+      }
+    }
+  }
+
+  /** Block a settlement while a dispute is open (funds not yet moved), or record the loss. */
+  async applyDispute(
+    eventId: string,
+    currency: string,
+    opts: { amountMinor: number; open: boolean; lost: boolean },
+  ): Promise<void> {
+    const settlement = await this.prisma.settlement.findUnique({
+      where: { eventId_currency: { eventId, currency: currency.toLowerCase() } },
+    });
+    if (!settlement) return;
+
+    if (opts.open && canTransitionSettlement(settlement.status as SettlementStatus, 'BLOCKED')) {
+      await this.prisma.settlement.update({
+        where: { id: settlement.id },
+        data: { status: 'BLOCKED', blockedReason: 'Open payment dispute' },
+      });
+      await this.audit.record({
+        organizationId: settlement.organizationId,
+        action: 'SETTLEMENT_BLOCKED',
+        entityType: 'Settlement',
+        entityId: settlement.id,
+        metadata: { reason: 'dispute' },
+      });
+    }
+    // A lost dispute is a real loss: record it and reverse if already transferred.
+    if (opts.lost) {
+      await this.prisma.settlement.update({
+        where: { id: settlement.id },
+        data: { disputesMinor: { increment: opts.amountMinor } },
+      });
+      if (settlement.status === 'TRANSFERRED') {
+        await this.applyRefund(
+          eventId,
+          currency,
+          Math.min(opts.amountMinor, settlement.transferredMinor),
+        );
+      }
+    }
+  }
+
+  /** Backstop: a transfer.failed webhook marks the settlement FAILED for ops retry. */
+  async onTransferFailed(providerTransferId: string): Promise<void> {
+    const settlement = await this.prisma.settlement.findFirst({ where: { providerTransferId } });
+    if (!settlement || settlement.status === 'FAILED') return;
+    await this.prisma.settlement.update({
+      where: { id: settlement.id },
+      data: { status: 'FAILED', failureMessage: 'Stripe reported transfer.failed' },
+    });
+    await this.audit.record({
+      organizationId: settlement.organizationId,
+      action: 'SETTLEMENT_TRANSFER_FAILED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      metadata: { source: 'webhook' },
+    });
+    await this.notifyAdmins({
+      type: NotificationType.TRANSFER_FAILED,
+      settlementId: settlement.id,
+    });
+  }
+
+  /** A transfer.reversed webhook confirms/records a reversal (we usually initiate it). */
+  async onTransferReversed(providerTransferId: string): Promise<void> {
+    const settlement = await this.prisma.settlement.findFirst({ where: { providerTransferId } });
+    if (!settlement || settlement.status === 'REVERSED') return;
+    await this.prisma.settlement.update({
+      where: { id: settlement.id },
+      data: { status: 'REVERSED' },
+    });
+    await this.audit.record({
+      organizationId: settlement.organizationId,
+      action: 'SETTLEMENT_TRANSFER_REVERSED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      metadata: { source: 'webhook' },
+    });
+  }
+
   // ─── Notifications (best-effort) ───
 
   private async notifyOrganizer(

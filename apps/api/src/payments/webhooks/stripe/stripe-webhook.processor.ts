@@ -4,6 +4,9 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditService } from '../../../audit/audit.service';
 import { PaymentsService } from '../../payments.service';
 import { OrganizerConnectService } from '../../connect/organizer-connect.service';
+import { SettlementService } from '../../settlement/settlement.service';
+import { DisputeService, type StripeDisputeLike } from '../../dispute/dispute.service';
+import { PaymentStatus } from '@eticketsgo/shared-types';
 import type { PaymentEvent } from '../../provider/payment-provider.interface';
 
 /** Max processing attempts before an event is dead-lettered for ops review. */
@@ -33,6 +36,15 @@ interface AccountLike {
   default_currency?: string | null;
   country?: string | null;
 }
+interface ChargeLike {
+  id: string;
+  payment_intent?: string | null;
+  amount_refunded?: number | null;
+  currency?: string | null;
+}
+interface TransferLike {
+  id: string;
+}
 interface StoredPayload {
   account?: string | null;
   object: unknown;
@@ -58,6 +70,8 @@ export class StripeWebhookProcessor {
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
     private readonly connect: OrganizerConnectService,
+    private readonly settlements: SettlementService,
+    private readonly disputes: DisputeService,
     private readonly audit: AuditService,
   ) {}
 
@@ -172,11 +186,79 @@ export class StripeWebhookProcessor {
         );
       case 'account.updated':
         return this.handleAccountUpdated(payload.object as AccountLike);
+      case 'charge.refunded':
+        return this.handleChargeRefunded(payload.object as ChargeLike);
+      case 'charge.dispute.created':
+      case 'charge.dispute.updated':
+      case 'charge.dispute.closed':
+        await this.disputes.syncFromWebhook(payload.object as StripeDisputeLike);
+        return 'processed';
+      case 'transfer.failed':
+        await this.settlements.onTransferFailed((payload.object as TransferLike).id);
+        return 'processed';
+      case 'transfer.reversed':
+        await this.settlements.onTransferReversed((payload.object as TransferLike).id);
+        return 'processed';
+      case 'transfer.created':
+      case 'transfer.updated':
+      case 'payout.paid':
+      case 'payout.failed':
+        // Informational (our transfers are recorded synchronously on release; payouts
+        // are the connected account's own bank payouts). Acknowledge without action.
+        return 'processed';
       default:
-        // Received but not acted upon (handlers added in later milestones). Recorded
-        // as IGNORED so ops can see exactly which event types are inert.
+        // Received but not acted upon. Recorded as IGNORED so ops can see exactly which
+        // event types are inert (nothing is silently dropped).
         return 'ignored';
     }
+  }
+
+  /**
+   * A charge.refunded reflects a Stripe-side refund (issued by our RefundsService or via
+   * the dashboard). Deduct the organizer's proportional share from their settlement — and
+   * reverse the transfer if funds already moved. Idempotent via Payment.refundedMinor.
+   */
+  private async handleChargeRefunded(charge: ChargeLike): Promise<DispatchResult> {
+    if (!charge.payment_intent) return 'ignored';
+    const payment = await this.prisma.payment.findFirst({
+      where: { providerPaymentIntentId: charge.payment_intent },
+      select: {
+        id: true,
+        amountMinor: true,
+        organizerNetMinor: true,
+        refundedMinor: true,
+        currency: true,
+        booking: { select: { eventId: true } },
+      },
+    });
+    if (!payment?.booking?.eventId) return 'ignored';
+
+    const totalRefunded = charge.amount_refunded ?? 0;
+    const delta = totalRefunded - payment.refundedMinor;
+    if (delta <= 0) return 'processed'; // already accounted for (idempotent)
+
+    // Organizer's proportional share of this incremental refund.
+    const organizerShare =
+      payment.amountMinor > 0
+        ? Math.round((delta * payment.organizerNetMinor) / payment.amountMinor)
+        : 0;
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        refundedMinor: totalRefunded,
+        status:
+          totalRefunded >= payment.amountMinor
+            ? PaymentStatus.REFUNDED
+            : PaymentStatus.PARTIALLY_REFUNDED,
+      },
+    });
+    await this.settlements.applyRefund(
+      payment.booking.eventId,
+      charge.currency ?? 'usd',
+      organizerShare,
+    );
+    return 'processed';
   }
 
   private async handlePayment(event: PaymentEvent | null): Promise<DispatchResult> {
