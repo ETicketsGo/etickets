@@ -27,6 +27,9 @@ import { WebhookRouter } from './webhooks/webhook-router.service';
 import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
 import { OrganizerConnectController } from './connect/organizer-connect.controller';
 import { OrganizerConnectService } from './connect/organizer-connect.service';
+import { StripeWebhookController } from './webhooks/stripe/stripe-webhook.controller';
+import { StripeWebhookService } from './webhooks/stripe/stripe-webhook.service';
+import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.processor';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -47,6 +50,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     FinanceReconciliationController,
     PaymentOutageController,
     OrganizerConnectController,
+    StripeWebhookController,
   ],
   providers: [
     PaymentsService,
@@ -86,6 +90,9 @@ import { CommerceModule } from '../commerce/commerce.module';
     PaymentReconciliationService,
     // Organizer Stripe Connect onboarding (marketplace, US).
     OrganizerConnectService,
+    // Durable, idempotent Stripe webhook pipeline (ingest + async processor).
+    StripeWebhookService,
+    StripeWebhookProcessor,
   ],
   exports: [
     PaymentsService,
@@ -93,6 +100,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     PaymentProviderRegistry,
     FinanceReconciliationService,
     OrganizerConnectService,
+    // Exported so the worker's sweep job can drive processPending().
+    StripeWebhookProcessor,
   ],
 })
 export class PaymentsModule {}

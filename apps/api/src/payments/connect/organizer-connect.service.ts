@@ -264,6 +264,30 @@ export class OrganizerConnectService {
     return this.prisma.organizerPaymentAccount.findFirst({ where: { providerAccountId } });
   }
 
+  /**
+   * Sync a connected account from an account.updated webhook snapshot. Returns false
+   * when we have no matching account row (event for an account we do not track).
+   */
+  async syncByProviderAccountId(
+    providerAccountId: string,
+    snapshot: ConnectedAccountSnapshot,
+  ): Promise<boolean> {
+    const row = await this.findByProviderAccountId(providerAccountId);
+    if (!row) return false;
+    const before = row.onboardingStatus;
+    const updated = await this.applySnapshot(row.id, snapshot);
+    if (updated.onboardingStatus !== before) {
+      await this.audit.record({
+        organizationId: row.organizationId,
+        action: 'CONNECT_ACCOUNT_STATUS_CHANGED',
+        entityType: 'OrganizerPaymentAccount',
+        entityId: row.id,
+        metadata: { from: before, to: updated.onboardingStatus },
+      });
+    }
+    return true;
+  }
+
   private emptyStatus(organizationId: string): OrganizerPaymentStatus {
     return {
       organizationId,

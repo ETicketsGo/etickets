@@ -7,3 +7,4 @@ export { PrismaService } from './prisma/prisma.service';
 export { NotificationService } from './notifications/notification.service';
 export { AuthService } from './auth/auth.service';
 export { FinanceReconciliationService } from './payments/finance/finance-reconciliation.service';
+export { StripeWebhookProcessor } from './payments/webhooks/stripe/stripe-webhook.processor';

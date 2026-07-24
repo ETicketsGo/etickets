@@ -20,6 +20,7 @@ import type {
   TransferResult,
   TransferReversalInput,
   TransferReversalResult,
+  WebhookEnvelope,
   WebhookInput,
 } from './payment-provider.interface';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
@@ -172,6 +173,36 @@ export class StripePaymentProvider implements PaymentProvider {
           HttpStatus.BAD_REQUEST,
         );
     }
+  }
+
+  /**
+   * Verify a Stripe webhook signature and normalize it for the durable webhook
+   * pipeline. Unlike verifyWebhook (which only understands succeeded/failed), this
+   * returns the full event so refunds, disputes, transfers, payouts and
+   * account.updated can be dispatched.
+   */
+  verifySignedEnvelope(input: WebhookInput): WebhookEnvelope {
+    let event: Stripe.Event;
+    try {
+      event = this.client.webhooks.constructEvent(
+        input.rawBody,
+        input.signature,
+        this.webhookSecret,
+      );
+    } catch {
+      throw new AppException(
+        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        'Invalid webhook signature.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return {
+      id: event.id,
+      type: event.type,
+      createdAt: event.created,
+      account: event.account ?? null,
+      object: event.data.object,
+    };
   }
 
   async refund(input: RefundInput): Promise<RefundResult> {

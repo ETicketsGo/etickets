@@ -50,6 +50,20 @@ export interface PaymentEvent {
   amountMinor: number;
 }
 
+/**
+ * A signature-verified provider webhook, normalized so the (provider-neutral)
+ * webhook pipeline can persist + dispatch it without importing provider SDK types.
+ * `object` is the event's primary object; consumers cast it per `type`.
+ */
+export interface WebhookEnvelope {
+  id: string;
+  type: string;
+  createdAt: number;
+  /** Connect events carry the connected-account id here. */
+  account?: string | null;
+  object: unknown;
+}
+
 export interface RefundInput {
   providerRef: string;
   amountMinor: number;
@@ -210,6 +224,11 @@ export interface PaymentProvider {
   getRefund?(refundRef: string): Promise<RefundResult>;
   /** Parse an already-verified webhook body (verifyWebhook does both by default). */
   parseWebhook?(rawBody: string): PaymentEvent;
+  /**
+   * Verify a webhook signature and return a normalized envelope (id/type/object) for
+   * the full range of provider events — used by the durable, async webhook pipeline.
+   */
+  verifySignedEnvelope?(input: WebhookInput): WebhookEnvelope;
   healthCheck?(): Promise<HealthCheckResult>;
   reconcile?(input: ReconcileInput): Promise<ReconcileResult>;
 
