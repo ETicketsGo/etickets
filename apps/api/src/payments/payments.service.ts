@@ -1,4 +1,5 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import {
   BookingStatus,
@@ -6,6 +7,7 @@ import {
   PaymentAttemptStatus,
   PaymentStatus,
   TicketStatus,
+  computeMarketplaceSplit,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -44,7 +46,13 @@ export class PaymentsService {
     private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
     private readonly bookingReference: BookingReferenceService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
+  private get isMarketplaceProvider(): boolean {
+    return typeof this.provider.createTransfer === 'function';
+  }
 
   /**
    * Issue a provider refund for a captured payment. Routed through the orchestrator
@@ -71,8 +79,8 @@ export class PaymentsService {
       where: { id: bookingId },
       include: {
         payment: true,
-        // Country feeds the multi-country payment routing dimension (see webhook path).
-        event: { select: { venue: { select: { country: true } } } },
+        // organizationId → connected account; country feeds payment routing.
+        event: { select: { organizationId: true, venue: { select: { country: true } } } },
       },
     });
     if (!booking)
@@ -105,6 +113,44 @@ export class PaymentsService {
       );
     }
 
+    // Marketplace split (integer minor units) from the booking's snapshot. The customer
+    // pays booking.totalMinor; the organizer's proceeds and ETicketsGo's platform fee are
+    // recorded now and settled after the event (Separate Charges & Transfers).
+    const split = computeMarketplaceSplit({
+      subtotalMinor: booking.subtotalMinor,
+      organizerFeeMinor: booking.organizerFeeMinor,
+      discountMinor: booking.discountMinor,
+      totalMinor: booking.totalMinor,
+    });
+    const organizationId = booking.event?.organizationId;
+
+    // For a Connect provider (Stripe) a paid booking requires the organizer to have a
+    // charges-enabled connected account — otherwise there is nowhere to settle proceeds.
+    // Non-Connect providers (mock/dev) skip this gate, preserving the existing flow.
+    let connectedAccountId: string | undefined;
+    if (this.isMarketplaceProvider && booking.totalMinor > 0 && organizationId) {
+      const account = await this.prisma.organizerPaymentAccount.findUnique({
+        where: { organizationId_provider: { organizationId, provider: this.provider.name } },
+      });
+      if (!account?.providerAccountId || !account.chargesEnabled) {
+        throw new AppException(
+          ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+          'This organizer has not finished payment setup yet and cannot accept payments.',
+          HttpStatus.CONFLICT,
+          { organizationId },
+        );
+      }
+      connectedAccountId = account.providerAccountId;
+    }
+
+    // Safe, non-sensitive metadata only.
+    const metadata: Record<string, string> = {
+      eventId: booking.eventId,
+      organizerId: organizationId ?? '',
+      customerId: booking.userId ?? 'guest',
+      environment: this.config.get<string>('APP_ENV') ?? 'LOCAL',
+    };
+
     // Route through the orchestrator: it resolves the configured provider chain for
     // this currency and fails over across constructed adapters. In local/dev (dummy
     // only) it resolves to the mock, preserving the existing flow exactly.
@@ -116,6 +162,16 @@ export class PaymentsService {
         currency: booking.currency,
         buyerEmail: booking.buyerEmail,
         idempotencyKey: booking.id,
+        // Marketplace (ignored by non-Connect providers). The charge stays on the
+        // platform; transferGroup links it to the post-event settlement transfer.
+        ...(connectedAccountId
+          ? {
+              connectedAccountId,
+              platformFeeAmountMinor: split.platformFeeMinor,
+              transferGroup: `etg_event_${booking.eventId}`,
+            }
+          : {}),
+        metadata,
       },
     );
     await this.prisma.payment.update({
@@ -125,6 +181,15 @@ export class PaymentsService {
         providerRef: intent.providerRef,
         // Record which gateway actually handled the intent (default 'mock').
         ...(provider ? { provider } : {}),
+        // Snapshot the split + Connect linkage for reconciliation and settlement.
+        providerPaymentIntentId: intent.providerRef,
+        connectedAccountId: connectedAccountId ?? null,
+        idempotencyKey: booking.id,
+        subtotalMinor: split.subtotalMinor,
+        taxMinor: split.taxMinor,
+        platformFeeMinor: split.platformFeeMinor,
+        organizerNetMinor: split.organizerNetMinor,
+        metadata,
       },
     });
     return intent;
@@ -196,6 +261,29 @@ export class PaymentsService {
         ErrorCodes.BOOKING_NOT_PAYABLE,
         `Booking cannot be confirmed from status ${booking.status}.`,
         HttpStatus.CONFLICT,
+      );
+    }
+
+    // Security: the browser redirect is never trusted, and even a signed webhook must
+    // pay the exact booked amount. If the provider-reported amount does not match the
+    // server-side total, refuse to issue tickets and flag it for reconciliation.
+    if (event.amountMinor !== booking.totalMinor) {
+      await this.audit.record({
+        organizationId: booking.organizationId,
+        action: 'PAYMENT_AMOUNT_MISMATCH',
+        entityType: 'Booking',
+        entityId: booking.id,
+        metadata: {
+          expectedMinor: booking.totalMinor,
+          receivedMinor: event.amountMinor,
+          providerRef: event.providerRef,
+        },
+      });
+      throw new AppException(
+        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        `Paid amount ${event.amountMinor} does not match booking total ${booking.totalMinor}.`,
+        HttpStatus.CONFLICT,
+        { bookingId: booking.id },
       );
     }
 
@@ -275,7 +363,12 @@ export class PaymentsService {
       }
       await tx.payment.update({
         where: { bookingId: booking.id },
-        data: { status: PaymentStatus.SUCCEEDED, providerRef: event.providerRef },
+        data: {
+          status: PaymentStatus.SUCCEEDED,
+          providerRef: event.providerRef,
+          providerPaymentIntentId: event.providerRef,
+          paidAt: new Date(),
+        },
       });
       await tx.paymentAttempt.create({
         data: {

@@ -29,6 +29,7 @@ interface BookingShape {
   userId: string | null;
   holdExpiresAt: Date;
   couponId?: string | null;
+  totalMinor: number;
   items: Array<{ ticketTypeId: string; quantity: number }>;
   event: { experienceType: string; venue: { country: string } | null };
 }
@@ -80,6 +81,7 @@ function setup(opts: {
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
+  const config = { get: jest.fn().mockReturnValue('LOCAL') };
 
   const service = new PaymentsService(
     prisma as never,
@@ -92,6 +94,7 @@ function setup(opts: {
     new AddOnInventoryService(),
     new MetricsService(),
     new BookingReferenceService(),
+    config as never,
   );
   return { service, prisma, tx, strategy, provider, audit, notifications, inventory };
 }
@@ -106,6 +109,7 @@ const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
   userId: 'u1',
   holdExpiresAt: new Date(Date.now() + 60_000),
   couponId: null,
+  totalMinor: 5000,
   items: [{ ticketTypeId: 't1', quantity: 2 }],
   event: { experienceType: ExperienceType.EVENT, venue: { country: 'India' } },
   ...over,
