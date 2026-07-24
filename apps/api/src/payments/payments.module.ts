@@ -25,6 +25,8 @@ import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
 import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
+import { OrganizerConnectController } from './connect/organizer-connect.controller';
+import { OrganizerConnectService } from './connect/organizer-connect.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -44,6 +46,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     PromotionController,
     FinanceReconciliationController,
     PaymentOutageController,
+    OrganizerConnectController,
   ],
   providers: [
     PaymentsService,
@@ -81,12 +84,15 @@ import { CommerceModule } from '../commerce/commerce.module';
     // Multi-provider webhook routing + reconciliation/settlement.
     WebhookRouter,
     PaymentReconciliationService,
+    // Organizer Stripe Connect onboarding (marketplace, US).
+    OrganizerConnectService,
   ],
   exports: [
     PaymentsService,
     PaymentProviderFactory,
     PaymentProviderRegistry,
     FinanceReconciliationService,
+    OrganizerConnectService,
   ],
 })
 export class PaymentsModule {}

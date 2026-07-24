@@ -14,6 +14,20 @@ export interface CreatePaymentInput {
   buyerEmail: string;
   /** Idempotency key so retries never double-charge. */
   idempotencyKey: string;
+  /**
+   * Marketplace fields (Stripe Connect, Separate Charges & Transfers). Optional so
+   * non-marketplace providers ignore them. When present the charge lands on the
+   * PLATFORM and is tagged with `transferGroup` so a later transfer can move
+   * `amountMinor − platformFeeAmountMinor` to `connectedAccountId`. The transfer is
+   * NOT created here — settlement happens after the event.
+   */
+  connectedAccountId?: string;
+  platformFeeAmountMinor?: number;
+  transferGroup?: string;
+  /** Extra non-sensitive metadata (eventId/organizerId/customerId/environment). */
+  metadata?: Record<string, string>;
+  /** Human-readable line-item label for the hosted checkout. */
+  description?: string;
 }
 
 export interface PaymentIntent {
@@ -96,6 +110,76 @@ export interface ReconcileResult {
   mismatches: { providerRef: string; issue: string }[];
 }
 
+// ─── Connect (marketplace) operations ───
+
+export interface CreateConnectedAccountInput {
+  organizationId: string;
+  /** ISO-3166 alpha-2 country of the organizer's business. */
+  country: string;
+  email?: string;
+}
+
+export interface CreateConnectedAccountResult {
+  accountId: string;
+}
+
+/** Provider-agnostic snapshot of a connected account's capability state. */
+export interface ConnectedAccountSnapshot {
+  accountId: string;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  /** Field names only (never PII). */
+  requirementsCurrentlyDue: string[];
+  disabledReason?: string | null;
+  defaultCurrency?: string | null;
+  country?: string | null;
+}
+
+export interface OnboardingLinkInput {
+  accountId: string;
+  refreshUrl: string;
+  returnUrl: string;
+}
+
+export interface OnboardingLinkResult {
+  url: string;
+  /** Unix seconds when the link expires (provider-defined). */
+  expiresAt?: number;
+}
+
+export interface DashboardLinkResult {
+  url: string;
+}
+
+// ─── Transfers & reversals (settlement money movement) ───
+
+export interface TransferInput {
+  amountMinor: number;
+  currency: string;
+  destinationAccountId: string;
+  transferGroup?: string;
+  /** Idempotency key so a re-run never creates a duplicate transfer. */
+  idempotencyKey: string;
+  metadata?: Record<string, string>;
+}
+
+export interface TransferResult {
+  transferId: string;
+  status: 'COMPLETED' | 'FAILED';
+}
+
+export interface TransferReversalInput {
+  transferId: string;
+  amountMinor?: number;
+  idempotencyKey: string;
+}
+
+export interface TransferReversalResult {
+  reversalId: string;
+  status: 'COMPLETED' | 'FAILED';
+}
+
 /**
  * The provider contract. `createPayment`/`verifyWebhook`/`refund` and
  * `capabilities` are required; everything else is OPTIONAL and adapters implement
@@ -128,6 +212,20 @@ export interface PaymentProvider {
   parseWebhook?(rawBody: string): PaymentEvent;
   healthCheck?(): Promise<HealthCheckResult>;
   reconcile?(input: ReconcileInput): Promise<ReconcileResult>;
+
+  // Optional Connect (marketplace) operations — implemented when the provider
+  // supports connected accounts (capabilities.supportsConnectedAccounts).
+  createConnectedAccount?(
+    input: CreateConnectedAccountInput,
+  ): Promise<CreateConnectedAccountResult>;
+  getConnectedAccount?(accountId: string): Promise<ConnectedAccountSnapshot>;
+  createOnboardingLink?(input: OnboardingLinkInput): Promise<OnboardingLinkResult>;
+  /** Login/dashboard link — only for account types that support it (e.g. Express). */
+  createDashboardLink?(accountId: string): Promise<DashboardLinkResult>;
+  /** Move funds to a connected account (settlement). */
+  createTransfer?(input: TransferInput): Promise<TransferResult>;
+  /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
+  reverseTransfer?(input: TransferReversalInput): Promise<TransferReversalResult>;
 }
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');

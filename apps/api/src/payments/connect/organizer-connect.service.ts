@@ -1,0 +1,315 @@
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  Role,
+  mapStripeAccountToOnboardingStatus,
+  type ConnectOnboardingStatus,
+} from '@eticketsgo/shared-types';
+import type { CreateConnectAccountInput } from '@eticketsgo/validation';
+import { PrismaService } from '../../prisma/prisma.service';
+import { OrgAccessService } from '../../tenancy/org-access.service';
+import { AuditService } from '../../audit/audit.service';
+import { AppException, ErrorCodes } from '../../common/errors';
+import type { RequestUser } from '../../common/decorators';
+import {
+  PAYMENT_PROVIDER,
+  type ConnectedAccountSnapshot,
+  type PaymentProvider,
+} from '../provider/payment-provider.interface';
+
+/** Client-safe onboarding status (never exposes sensitive Stripe data). */
+export interface OrganizerPaymentStatus {
+  organizationId: string;
+  provider: string;
+  hasAccount: boolean;
+  accountType: string;
+  onboardingStatus: ConnectOnboardingStatus;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  disabledReason: string | null;
+  /** Derived: may this organizer sell paid tickets / receive settlements? */
+  canSellPaidTickets: boolean;
+  country: string;
+  currency: string;
+}
+
+// Owner + manager may view; account/link creation is owner-only (payout setup).
+const VIEW_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+const MANAGE_ROLES = [Role.ORGANIZER_OWNER];
+
+/** A provider that implements the required Connect operations (Stripe). */
+type ConnectCapableProvider = PaymentProvider &
+  Required<
+    Pick<PaymentProvider, 'createConnectedAccount' | 'getConnectedAccount' | 'createOnboardingLink'>
+  >;
+
+/**
+ * Organizer-facing Stripe Connect onboarding. Reuses the active PAYMENT_PROVIDER
+ * (Stripe for the US marketplace). Stores only non-secret account identifiers +
+ * capability flags on OrganizerPaymentAccount, synced from Stripe.
+ */
+@Injectable()
+export class OrganizerConnectService {
+  private readonly logger = new Logger(OrganizerConnectService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: OrgAccessService,
+    private readonly config: ConfigService,
+    private readonly audit: AuditService,
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+  ) {}
+
+  /** The active provider must support connected accounts (Stripe does). */
+  private connectProvider(): ConnectCapableProvider {
+    if (
+      !this.provider.createConnectedAccount ||
+      !this.provider.getConnectedAccount ||
+      !this.provider.createOnboardingLink
+    ) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        `The active payment provider (${this.provider.name}) does not support connected accounts.`,
+        HttpStatus.NOT_IMPLEMENTED,
+      );
+    }
+    return this.provider as ConnectCapableProvider;
+  }
+
+  private async requireOrganization(
+    organizationId: string,
+  ): Promise<{ contactEmail: string | null }> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true, contactEmail: true },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+    return org;
+  }
+
+  /**
+   * Create (or return the existing) connected account for the organizer. Never
+   * creates a duplicate: if a providerAccountId is already stored, it is returned.
+   */
+  async createOrGetAccount(
+    user: RequestUser,
+    organizationId: string,
+    input: CreateConnectAccountInput,
+  ): Promise<OrganizerPaymentStatus> {
+    await this.access.assertMember(user, organizationId, MANAGE_ROLES);
+    const provider = this.connectProvider();
+
+    const existing = await this.prisma.organizerPaymentAccount.findUnique({
+      where: { organizationId_provider: { organizationId, provider: provider.name } },
+    });
+    if (existing?.providerAccountId) {
+      return this.toStatus(existing);
+    }
+
+    const org = await this.requireOrganization(organizationId);
+    const created = await provider.createConnectedAccount({
+      organizationId,
+      country: input.country,
+      email: input.email ?? org.contactEmail ?? undefined,
+    });
+
+    const accountType = this.config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express';
+    const account = await this.prisma.organizerPaymentAccount.upsert({
+      where: { organizationId_provider: { organizationId, provider: provider.name } },
+      create: {
+        organizationId,
+        provider: provider.name,
+        providerAccountId: created.accountId,
+        accountType,
+        onboardingStatus: 'ONBOARDING',
+        country: input.country,
+      },
+      update: { providerAccountId: created.accountId, accountType, onboardingStatus: 'ONBOARDING' },
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId,
+      action: 'CONNECT_ACCOUNT_CREATED',
+      entityType: 'OrganizerPaymentAccount',
+      entityId: account.id,
+      metadata: { provider: provider.name, accountType },
+    });
+
+    return this.toStatus(account);
+  }
+
+  /** Create a hosted onboarding link, ensuring the account exists first. */
+  async createOnboardingLink(
+    user: RequestUser,
+    organizationId: string,
+  ): Promise<{ url: string; expiresAt?: number }> {
+    await this.access.assertMember(user, organizationId, MANAGE_ROLES);
+    const provider = this.connectProvider();
+
+    // Ensure an account exists (idempotent) before generating the link.
+    const status = await this.createOrGetAccount(user, organizationId, { country: 'US' });
+    const account = await this.prisma.organizerPaymentAccount.findUniqueOrThrow({
+      where: { organizationId_provider: { organizationId, provider: provider.name } },
+    });
+    if (!account.providerAccountId) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        'The connected account could not be created.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    void status;
+
+    const link = await provider.createOnboardingLink({
+      accountId: account.providerAccountId,
+      returnUrl: this.config.getOrThrow<string>('STRIPE_CONNECT_RETURN_URL'),
+      refreshUrl: this.config.getOrThrow<string>('STRIPE_CONNECT_REFRESH_URL'),
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId,
+      action: 'CONNECT_ONBOARDING_LINK_CREATED',
+      entityType: 'OrganizerPaymentAccount',
+      entityId: account.id,
+    });
+    return link;
+  }
+
+  /**
+   * Return the organizer's safe onboarding status, refreshed live from the provider
+   * so requirements/capabilities are current even before the account.updated webhook.
+   */
+  async getStatus(user: RequestUser, organizationId: string): Promise<OrganizerPaymentStatus> {
+    await this.access.assertMember(user, organizationId, VIEW_ROLES);
+    const account = await this.prisma.organizerPaymentAccount.findUnique({
+      where: { organizationId_provider: { organizationId, provider: this.provider.name } },
+    });
+    if (!account?.providerAccountId) {
+      return this.emptyStatus(organizationId);
+    }
+    try {
+      const snapshot = await this.connectProvider().getConnectedAccount(account.providerAccountId);
+      const synced = await this.applySnapshot(account.id, snapshot);
+      return this.toStatus(synced);
+    } catch (err) {
+      // A provider outage must not break the organizer's dashboard — fall back to the
+      // last-synced DB state (kept fresh by the account.updated webhook).
+      this.logger.warn(
+        `Stripe account refresh failed for org ${organizationId}: ${err instanceof Error ? err.message : err}`,
+      );
+      return this.toStatus(account);
+    }
+  }
+
+  /** Create a Stripe Express dashboard login link (only for supported account types). */
+  async createDashboardLink(user: RequestUser, organizationId: string): Promise<{ url: string }> {
+    await this.access.assertMember(user, organizationId, MANAGE_ROLES);
+    const provider = this.connectProvider();
+    const account = await this.prisma.organizerPaymentAccount.findUnique({
+      where: { organizationId_provider: { organizationId, provider: provider.name } },
+    });
+    if (!account?.providerAccountId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'No connected account exists yet. Complete payout setup first.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!provider.createDashboardLink) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        'Dashboard links are not supported by the active provider.',
+        HttpStatus.NOT_IMPLEMENTED,
+      );
+    }
+    return provider.createDashboardLink(account.providerAccountId);
+  }
+
+  /**
+   * Sync an OrganizerPaymentAccount from a provider snapshot. Shared by getStatus and
+   * the account.updated webhook (M4) so both paths converge on the same mapping.
+   */
+  async applySnapshot(accountRowId: string, snapshot: ConnectedAccountSnapshot) {
+    const onboardingStatus = mapStripeAccountToOnboardingStatus({
+      hasAccount: true,
+      detailsSubmitted: snapshot.detailsSubmitted,
+      chargesEnabled: snapshot.chargesEnabled,
+      payoutsEnabled: snapshot.payoutsEnabled,
+      requirementsCurrentlyDue: snapshot.requirementsCurrentlyDue,
+      disabledReason: snapshot.disabledReason,
+    });
+    return this.prisma.organizerPaymentAccount.update({
+      where: { id: accountRowId },
+      data: {
+        detailsSubmitted: snapshot.detailsSubmitted,
+        chargesEnabled: snapshot.chargesEnabled,
+        payoutsEnabled: snapshot.payoutsEnabled,
+        requirementsDue: snapshot.requirementsCurrentlyDue,
+        disabledReason: snapshot.disabledReason ?? null,
+        onboardingStatus,
+        ...(snapshot.defaultCurrency ? { defaultCurrency: snapshot.defaultCurrency } : {}),
+        ...(snapshot.country ? { country: snapshot.country } : {}),
+      },
+    });
+  }
+
+  /** Resolve the account row for a Stripe connected-account id (webhook path). */
+  findByProviderAccountId(providerAccountId: string) {
+    return this.prisma.organizerPaymentAccount.findFirst({ where: { providerAccountId } });
+  }
+
+  private emptyStatus(organizationId: string): OrganizerPaymentStatus {
+    return {
+      organizationId,
+      provider: this.provider.name,
+      hasAccount: false,
+      accountType: this.config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express',
+      onboardingStatus: 'NOT_STARTED',
+      detailsSubmitted: false,
+      chargesEnabled: false,
+      payoutsEnabled: false,
+      requirementsDue: [],
+      disabledReason: null,
+      canSellPaidTickets: false,
+      country: 'US',
+      currency: 'usd',
+    };
+  }
+
+  private toStatus(a: {
+    organizationId: string;
+    provider: string;
+    providerAccountId: string | null;
+    accountType: string;
+    onboardingStatus: ConnectOnboardingStatus;
+    detailsSubmitted: boolean;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+    requirementsDue: string[];
+    disabledReason: string | null;
+    country: string;
+    defaultCurrency: string;
+  }): OrganizerPaymentStatus {
+    return {
+      organizationId: a.organizationId,
+      provider: a.provider,
+      hasAccount: Boolean(a.providerAccountId),
+      accountType: a.accountType,
+      onboardingStatus: a.onboardingStatus,
+      detailsSubmitted: a.detailsSubmitted,
+      chargesEnabled: a.chargesEnabled,
+      payoutsEnabled: a.payoutsEnabled,
+      requirementsDue: a.requirementsDue,
+      disabledReason: a.disabledReason,
+      canSellPaidTickets: a.chargesEnabled,
+      country: a.country,
+      currency: a.defaultCurrency,
+    };
+  }
+}
