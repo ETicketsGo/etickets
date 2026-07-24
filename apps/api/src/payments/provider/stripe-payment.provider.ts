@@ -117,8 +117,10 @@ export class StripePaymentProvider implements PaymentProvider {
             },
           },
         ],
-        success_url: this.successUrl,
-        cancel_url: this.cancelUrl,
+        // Carry the booking id back so the success page can poll our status (the
+        // redirect itself is NEVER treated as proof of payment — the webhook is).
+        success_url: appendParam(this.successUrl, 'booking', input.bookingId),
+        cancel_url: appendParam(this.cancelUrl, 'booking', input.bookingId),
       },
       // Idempotency: retries with the same bookingId never create a second Session.
       { idempotencyKey: input.idempotencyKey },
@@ -338,6 +340,13 @@ export class StripePaymentProvider implements PaymentProvider {
       HttpStatus.BAD_REQUEST,
     );
   }
+}
+
+/** Append a query param to a URL string, preserving any existing query (incl. Stripe's
+ * {CHECKOUT_SESSION_ID} placeholder). */
+function appendParam(url: string, key: string, value: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}${key}=${encodeURIComponent(value)}`;
 }
 
 function requireKey(config: ConfigService, key: string): string {

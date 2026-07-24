@@ -22,6 +22,24 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
+/**
+ * True only for an absolute http(s) URL on a *different* host than this app —
+ * i.e. a real hosted Stripe Checkout page. The local/dev mock returns a
+ * same-origin relative path, which resolves to our own host and is NOT external.
+ */
+function isExternalUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      parsed.host !== window.location.host
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Live mm:ss countdown to the hold expiry. */
 function useCountdown(expiresAt: string | undefined) {
   const [remaining, setRemaining] = useState<number>(() =>
@@ -60,11 +78,21 @@ export default function PaymentPage() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      await api.createPaymentIntent(id);
-      // A real gateway calls our signed webhook; the mock endpoint stands in.
-      return api.mockPay(id, 'succeeded');
+      const { clientActionUrl } = await api.payBooking(id);
+      if (isExternalUrl(clientActionUrl)) {
+        // Real Stripe: hand off to the hosted Checkout page. Confirmation happens
+        // only via the signed webhook after Stripe processes the payment — landing
+        // back on our success_url is NEVER treated as proof of payment.
+        window.location.href = clientActionUrl;
+        return { redirected: true as const };
+      }
+      // Local/dev mock (same-origin URL, no hosted page): stand in with mock-pay.
+      // A real gateway would instead call our signed webhook.
+      await api.mockPay(id, 'succeeded');
+      return { redirected: false as const };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.redirected) return; // Navigating away to Stripe — keep the button busy.
       qc.invalidateQueries({ queryKey: ['booking', id] });
       router.push(`/booking/${id}/confirmation`);
     },
@@ -183,7 +211,7 @@ export default function PaymentPage() {
       ) : (
         <>
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)} (mock)`}
+            {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)}`}
           </Button>
 
           {/* Booking confidence */}
@@ -204,7 +232,8 @@ export default function PaymentPage() {
           </div>
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
-            Mock payment — confirmation happens via a signed webhook, not this button.
+            Payments are processed securely — confirmation happens via a signed webhook, not this
+            button.
           </p>
         </>
       )}

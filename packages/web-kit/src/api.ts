@@ -699,6 +699,26 @@ export const api = {
       }),
   },
 
+  // ─── Organizer Stripe Connect (payout setup) ───
+  organizerPayments: {
+    status: (organizerId: string) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/status`),
+    createAccount: (organizerId: string, body?: { country?: string; email?: string }) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/stripe/account`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    onboardingLink: (organizerId: string) =>
+      request<{ url: string; expiresAt?: number }>(
+        `/organizers/${organizerId}/payments/stripe/onboarding-link`,
+        { method: 'POST' },
+      ),
+    dashboardLink: (organizerId: string) =>
+      request<{ url: string }>(`/organizers/${organizerId}/payments/stripe/dashboard-link`, {
+        method: 'POST',
+      }),
+  },
+
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
@@ -737,6 +757,26 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+
+    // ─── Marketplace settlements (admin/finance) ───
+    settlements: {
+      list: (
+        params?: PageParams & { status?: string; organizationId?: string; eventId?: string },
+      ) => request<Paged<SettlementRow>>(`/admin/settlements${qs(params ?? {})}`),
+      get: (id: string) => request<SettlementDetail>(`/admin/settlements/${id}`),
+      approve: (id: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/approve`, { method: 'POST' }),
+      release: (id: string, note?: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/release`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        }),
+      block: (id: string, reason: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/block`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
 
     // ─── Runtime payment configuration (admin) ───
     paymentConfig: {
@@ -1930,6 +1970,48 @@ export interface Payout {
   paidAt: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+// ─── Stripe Connect marketplace (client-safe views) ───
+export interface OrganizerPaymentStatus {
+  organizationId: string;
+  provider: string;
+  hasAccount: boolean;
+  accountType: string;
+  onboardingStatus: string;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  disabledReason: string | null;
+  canSellPaidTickets: boolean;
+  country: string;
+  currency: string;
+}
+
+export interface SettlementRow {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  currency: string;
+  grossSalesMinor: number;
+  refundsMinor: number;
+  disputesMinor: number;
+  platformFeesMinor: number;
+  reserveMinor: number;
+  payableMinor: number;
+  transferredMinor: number;
+  providerTransferId: string | null;
+  connectedAccountId: string | null;
+  status: string;
+  releasedAt: string | null;
+  createdAt: string;
+  event?: { title: string; status?: string };
+  organization?: { name: string };
+}
+
+export interface SettlementDetail extends SettlementRow {
+  payments: Array<{ id: string; amountMinor: number; organizerNetMinor: number; status: string }>;
 }
 
 export interface EventReport {

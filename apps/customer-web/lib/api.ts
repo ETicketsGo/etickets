@@ -62,6 +62,10 @@ export const api = {
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
+  // Alias for the pay call — returns { providerRef, clientActionUrl }. For real
+  // Stripe the URL is an external hosted Checkout page; the local mock returns a
+  // same-origin path handled by mockPay.
+  payBooking: wk.bookings.pay,
   mockPay: wk.payments.mockPay,
   wallet: wk.tickets.wallet,
   getTicket: wk.tickets.get,
