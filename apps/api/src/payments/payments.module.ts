@@ -30,6 +30,8 @@ import { OrganizerConnectService } from './connect/organizer-connect.service';
 import { StripeWebhookController } from './webhooks/stripe/stripe-webhook.controller';
 import { StripeWebhookService } from './webhooks/stripe/stripe-webhook.service';
 import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.processor';
+import { SettlementController } from './settlement/settlement.controller';
+import { SettlementService } from './settlement/settlement.service';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -51,6 +53,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     PaymentOutageController,
     OrganizerConnectController,
     StripeWebhookController,
+    SettlementController,
   ],
   providers: [
     PaymentsService,
@@ -93,6 +96,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     // Durable, idempotent Stripe webhook pipeline (ingest + async processor).
     StripeWebhookService,
     StripeWebhookProcessor,
+    // Marketplace settlement lifecycle + transfers.
+    SettlementService,
   ],
   exports: [
     PaymentsService,
@@ -102,6 +107,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     OrganizerConnectService,
     // Exported so the worker's sweep job can drive processPending().
     StripeWebhookProcessor,
+    // Exported so the worker can promote completed-event settlements to ELIGIBLE.
+    SettlementService,
   ],
 })
 export class PaymentsModule {}

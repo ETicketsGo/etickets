@@ -82,6 +82,7 @@ function setup(opts: {
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
   const config = { get: jest.fn().mockReturnValue('LOCAL') };
+  const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
 
   const service = new PaymentsService(
     prisma as never,
@@ -95,6 +96,7 @@ function setup(opts: {
     new MetricsService(),
     new BookingReferenceService(),
     config as never,
+    settlements as never,
   );
   return { service, prisma, tx, strategy, provider, audit, notifications, inventory };
 }

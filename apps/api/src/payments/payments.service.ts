@@ -26,6 +26,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
+import { SettlementService } from './settlement/settlement.service';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -47,6 +48,7 @@ export class PaymentsService {
     private readonly metrics: MetricsService,
     private readonly bookingReference: BookingReferenceService,
     private readonly config: ConfigService,
+    private readonly settlements: SettlementService,
   ) {}
 
   /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
@@ -407,6 +409,9 @@ export class PaymentsService {
     this.metrics.recordBookingConfirmed();
     this.metrics.recordPaymentSucceeded();
     this.metrics.recordGmv(booking.totalMinor);
+    // Accrue the organizer's proceeds into the event's settlement ledger (best-effort;
+    // the event-completion sweep and admin view both re-sync).
+    void this.settlements.onPaymentSucceeded(booking.eventId);
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
   }
 

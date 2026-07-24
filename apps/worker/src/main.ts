@@ -12,6 +12,7 @@ import {
   FinanceReconciliationService,
   NotificationService,
   PrismaService,
+  SettlementService,
   StripeWebhookProcessor,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
+  const settlements = app.get(SettlementService);
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
     Number.isFinite(RAW_WEBHOOK_MS) && RAW_WEBHOOK_MS > 0 ? RAW_WEBHOOK_MS : 15_000;
@@ -194,7 +196,10 @@ async function main(): Promise<void> {
       if (released > 0) log('info', 'released expired holds', { released });
       const completed = await events.completePastEvents();
       if (completed > 0) log('info', 'completed past events', { completed });
-      return { released, completed };
+      // Promote settlements whose event has just completed to ELIGIBLE (awaiting approval).
+      const { promoted } = await settlements.promoteCompletedEvents();
+      if (promoted > 0) log('info', 'promoted settlements to eligible', { promoted });
+      return { released, completed, promoted };
     },
     { connection: redisConnection },
   );
