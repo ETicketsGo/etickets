@@ -12,6 +12,7 @@ import {
   FinanceReconciliationService,
   NotificationService,
   PrismaService,
+  RazorpayWebhookProcessor,
   SettlementService,
   StripeWebhookProcessor,
 } from '@eticketsgo/api';
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
+  const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
@@ -187,9 +189,15 @@ async function main(): Promise<void> {
         return summary;
       }
       if (job.name === 'process-webhooks') {
-        const summary = await stripeWebhooks.processPending();
-        if (summary.processed > 0) log('info', 'processed stripe webhooks', { ...summary });
-        return summary;
+        const stripe = await stripeWebhooks.processPending();
+        const razorpay = await razorpayWebhooks.processPending();
+        const processed = stripe.processed + razorpay.processed;
+        if (processed > 0)
+          log('info', 'processed provider webhooks', {
+            stripe: stripe.processed,
+            razorpay: razorpay.processed,
+          });
+        return { processed };
       }
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();

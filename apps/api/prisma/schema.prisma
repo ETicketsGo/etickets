@@ -1054,6 +1054,10 @@ model Payment {
   // ─── Stripe / marketplace fields (nullable so existing rows/other providers are unaffected) ───
   providerPaymentIntentId   String?
   providerCheckoutSessionId String?
+  // Provider order id (Razorpay order_id; provider-neutral pre-payment reference).
+  providerOrderId           String?
+  // Raw provider-reported status (e.g. Razorpay 'captured'/'authorized') for reconciliation.
+  providerStatus            String?
   // The organizer's connected account this payment will settle to (Separate Charges
   // & Transfers: the charge lands on the PLATFORM; funds move here later via a transfer).
   connectedAccountId        String?

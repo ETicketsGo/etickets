@@ -31,12 +31,14 @@ function makeDeps(overrides: {
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const config = { get: jest.fn().mockReturnValue(overrides.reserveBps ?? 0) };
+  // SettlementService now resolves the transfer adapter by provider name.
+  const resolver = { get: jest.fn().mockReturnValue(provider) };
   const service = new SettlementService(
     prisma as never,
     audit as never,
     notifications as never,
     config as never,
-    provider as never,
+    resolver as never,
   );
   return { service, prisma, provider, audit, updated };
 }

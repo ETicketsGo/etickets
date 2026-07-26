@@ -23,6 +23,15 @@ export const stripeCheckoutSchema = z.object({
 });
 export type StripeCheckoutInput = z.infer<typeof stripeCheckoutSchema>;
 
+// ─── Razorpay Checkout verification (India) ───
+
+export const razorpayVerifySchema = z.object({
+  razorpay_order_id: z.string().trim().min(1),
+  razorpay_payment_id: z.string().trim().min(1),
+  razorpay_signature: z.string().trim().min(1),
+});
+export type RazorpayVerifyInput = z.infer<typeof razorpayVerifySchema>;
+
 // ─── Admin settlement actions ───
 
 // Approve carries no body beyond the id path param.

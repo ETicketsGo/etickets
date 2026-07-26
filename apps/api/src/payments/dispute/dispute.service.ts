@@ -17,11 +17,12 @@ export interface StripeDisputeLike {
   evidence_details?: { due_by?: number | null } | null;
 }
 
-/** Map Stripe dispute.status → our lifecycle. */
-export function mapDisputeStatus(stripeStatus: string): DisputeStatus {
-  switch (stripeStatus) {
+/** Map a provider dispute status (Stripe or Razorpay) → our lifecycle. */
+export function mapDisputeStatus(providerStatus: string): DisputeStatus {
+  switch (providerStatus) {
     case 'warning_needs_response':
     case 'needs_response':
+    case 'open': // Razorpay
       return 'NEEDS_RESPONSE';
     case 'warning_under_review':
     case 'under_review':
@@ -54,7 +55,7 @@ export class DisputeService {
     private readonly settlements: SettlementService,
   ) {}
 
-  async syncFromWebhook(dispute: StripeDisputeLike): Promise<void> {
+  async syncFromWebhook(dispute: StripeDisputeLike, provider = 'stripe'): Promise<void> {
     const status = mapDisputeStatus(dispute.status);
     const open = OPEN_STATUSES.includes(status);
     const lost = status === 'LOST';
@@ -72,9 +73,9 @@ export class DisputeService {
     const currency = dispute.currency.toLowerCase();
 
     await this.prisma.dispute.upsert({
-      where: { provider_providerDisputeId: { provider: 'stripe', providerDisputeId: dispute.id } },
+      where: { provider_providerDisputeId: { provider, providerDisputeId: dispute.id } },
       create: {
-        provider: 'stripe',
+        provider,
         providerDisputeId: dispute.id,
         paymentId: payment?.id ?? null,
         bookingId: booking?.id ?? null,

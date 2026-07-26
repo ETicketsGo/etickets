@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   NotificationType,
@@ -13,7 +13,8 @@ import { AuditService } from '../../audit/audit.service';
 import { NotificationService } from '../../notifications/notification.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
-import { PAYMENT_PROVIDER, type PaymentProvider } from '../provider/payment-provider.interface';
+import type { PaymentProvider } from '../provider/payment-provider.interface';
+import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 
 const DEFAULT_CURRENCY = 'usd';
 
@@ -33,9 +34,15 @@ export class SettlementService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly config: ConfigService,
-    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly resolver: PaymentProviderResolver,
   ) {}
 
+  /** The transfer-capable adapter for a settlement's provider (Stripe or Razorpay). */
+  private adapterFor(provider: string): PaymentProvider {
+    return this.resolver.get(provider);
+  }
+
+  /** Reserve basis points, per provider (Stripe uses its own key; Razorpay reuses it). */
   private reserveBps(): number {
     return this.config.get<number>('STRIPE_SETTLEMENT_RESERVE_BPS') ?? 0;
   }
@@ -55,15 +62,23 @@ export class SettlementService {
     // Aggregate the organizer's eligible proceeds + platform fees from paid payments.
     const paid = await this.prisma.payment.findMany({
       where: { status: PaymentStatus.SUCCEEDED, booking: { eventId } },
-      select: { id: true, organizerNetMinor: true, platformFeeMinor: true, currency: true },
+      select: {
+        id: true,
+        organizerNetMinor: true,
+        platformFeeMinor: true,
+        currency: true,
+        provider: true,
+      },
     });
     const grossSalesMinor = paid.reduce((s, p) => s + p.organizerNetMinor, 0);
     const platformFeesMinor = paid.reduce((s, p) => s + p.platformFeeMinor, 0);
     const currency = (paid[0]?.currency ?? DEFAULT_CURRENCY).toLowerCase();
+    // Provider is derived from the actual payments (INR→razorpay, USD→stripe).
+    const providerName = paid[0]?.provider ?? 'stripe';
 
     const account = await this.prisma.organizerPaymentAccount.findUnique({
       where: {
-        organizationId_provider: { organizationId: event.organizationId, provider: 'stripe' },
+        organizationId_provider: { organizationId: event.organizationId, provider: providerName },
       },
       select: { id: true, providerAccountId: true },
     });
@@ -86,6 +101,7 @@ export class SettlementService {
       create: {
         organizationId: event.organizationId,
         eventId,
+        provider: providerName,
         currency,
         accountId: account?.id ?? null,
         connectedAccountId: account?.providerAccountId ?? null,
@@ -94,6 +110,7 @@ export class SettlementService {
         status: nextStatus,
       },
       update: {
+        provider: providerName,
         grossSalesMinor,
         platformFeesMinor,
         accountId: account?.id ?? null,
@@ -210,6 +227,31 @@ export class SettlementService {
     return updated;
   }
 
+  /**
+   * Revert a release that was claimed (TRANSFER_PROCESSING) but cannot proceed (e.g.
+   * Razorpay Route disabled / no linked account) → BLOCKED with a clear reason. No fake
+   * transfer, no FAILED (this is a policy hold, not a transfer failure).
+   */
+  private async blockClaimed(
+    actor: RequestUser,
+    settlement: { id: string; organizationId: string },
+    reason: string,
+  ): Promise<never> {
+    await this.prisma.settlement.update({
+      where: { id: settlement.id },
+      data: { status: 'BLOCKED', blockedReason: reason },
+    });
+    await this.audit.record({
+      actorUserId: actor.id,
+      organizationId: settlement.organizationId,
+      action: 'SETTLEMENT_BLOCKED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      metadata: { reason },
+    });
+    throw new AppException(ErrorCodes.CONFLICT, reason, HttpStatus.CONFLICT);
+  }
+
   approve(actor: RequestUser, id: string) {
     return this.transition(id, 'APPROVED', actor, { approvedByUserId: actor.id });
   }
@@ -249,6 +291,28 @@ export class SettlementService {
       return current!;
     }
 
+    // Provider-specific pre-checks. For Razorpay, Route must be enabled AND a linked
+    // account must exist — otherwise the settlement is BLOCKED with a clear reason
+    // (never a fake transfer). Stripe has no such gate here.
+    if (settlement.provider === 'razorpay') {
+      const routeEnabled = this.config.get<boolean>('RAZORPAY_ROUTE_ENABLED') ?? false;
+      if (!routeEnabled) {
+        return this.blockClaimed(
+          actor,
+          settlement,
+          'Razorpay Route is not enabled; organizer payout is on hold.',
+        );
+      }
+      if (!settlement.connectedAccountId) {
+        return this.blockClaimed(
+          actor,
+          settlement,
+          'No active Razorpay linked account for this organizer.',
+        );
+      }
+    }
+    const adapter = this.adapterFor(settlement.provider);
+
     // Recompute payable immediately before transfer (deduct refunds/disputes/prior/reserve).
     const payable = computeSettlementPayable({
       grossOrganizerNetMinor: settlement.grossSalesMinor,
@@ -280,7 +344,7 @@ export class SettlementService {
       return done;
     }
 
-    if (!settlement.connectedAccountId || !this.provider.createTransfer) {
+    if (!settlement.connectedAccountId || !adapter.createTransfer) {
       // Cannot transfer without a destination — revert to FAILED for ops.
       await this.prisma.settlement.update({
         where: { id },
@@ -297,7 +361,7 @@ export class SettlementService {
     }
 
     try {
-      const transfer = await this.provider.createTransfer({
+      const transfer = await adapter.createTransfer!({
         amountMinor: payable.payableMinor,
         currency: settlement.currency,
         destinationAccountId: settlement.connectedAccountId,
@@ -378,16 +442,18 @@ export class SettlementService {
       data: { refundsMinor: { increment: organizerShareMinor } },
     });
 
-    // Funds already with the organizer → reverse the proportional amount.
+    // Funds already with the organizer → reverse the proportional amount via the
+    // settlement's own provider (Stripe or Razorpay Route).
+    const adapter = this.adapterFor(settlement.provider);
     if (
       settlement.status === 'TRANSFERRED' &&
       settlement.providerTransferId &&
-      this.provider.reverseTransfer
+      adapter.reverseTransfer
     ) {
       const reverseMinor = Math.min(organizerShareMinor, settlement.transferredMinor);
       if (reverseMinor > 0) {
         try {
-          await this.provider.reverseTransfer({
+          await adapter.reverseTransfer({
             transferId: settlement.providerTransferId,
             amountMinor: reverseMinor,
             idempotencyKey: `reverse_${settlement.id}_${settlement.refundsMinor}`,

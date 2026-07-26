@@ -8,6 +8,7 @@ import {
   PaymentStatus,
   TicketStatus,
   computeMarketplaceSplit,
+  routeProviderForBooking,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -27,6 +28,7 @@ import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { SettlementService } from './settlement/settlement.service';
+import { RazorpayOrderService } from './razorpay/razorpay-order.service';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -49,6 +51,7 @@ export class PaymentsService {
     private readonly bookingReference: BookingReferenceService,
     private readonly config: ConfigService,
     private readonly settlements: SettlementService,
+    private readonly razorpayOrders: RazorpayOrderService,
   ) {}
 
   /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
@@ -126,6 +129,40 @@ export class PaymentsService {
     });
     const organizationId = booking.event?.organizationId;
 
+    // Safe, non-sensitive metadata only.
+    const metadata: Record<string, string> = {
+      eventId: booking.eventId,
+      organizerId: organizationId ?? '',
+      customerId: booking.userId ?? 'guest',
+      environment: this.config.get<string>('APP_ENV') ?? 'LOCAL',
+    };
+
+    // ─── India (Razorpay) branch ───
+    // Route by TRUSTED business data (currency), never a client-supplied provider. When
+    // INR is routed to Razorpay AND Razorpay is configured, delegate to the Order flow
+    // (client-side Checkout). The Stripe/mock path below is left EXACTLY as-is otherwise,
+    // so dev/e2e (INR + mock, no Razorpay keys) and the US Stripe flow are unaffected.
+    if (
+      routeProviderForBooking({
+        currency: booking.currency,
+        country: booking.event?.venue?.country,
+      }) === 'razorpay' &&
+      this.config.get<string>('RAZORPAY_KEY_ID')
+    ) {
+      return this.razorpayOrders.createOrder(
+        {
+          id: booking.id,
+          currency: booking.currency,
+          totalMinor: booking.totalMinor,
+          buyerName: booking.buyerName,
+          buyerEmail: booking.buyerEmail,
+          userId: booking.userId,
+        },
+        split,
+        metadata,
+      );
+    }
+
     // For a Connect provider (Stripe) a paid booking requires the organizer to have a
     // charges-enabled connected account — otherwise there is nowhere to settle proceeds.
     // Non-Connect providers (mock/dev) skip this gate, preserving the existing flow.
@@ -144,14 +181,6 @@ export class PaymentsService {
       }
       connectedAccountId = account.providerAccountId;
     }
-
-    // Safe, non-sensitive metadata only.
-    const metadata: Record<string, string> = {
-      eventId: booking.eventId,
-      organizerId: organizationId ?? '',
-      customerId: booking.userId ?? 'guest',
-      environment: this.config.get<string>('APP_ENV') ?? 'LOCAL',
-    };
 
     // Route through the orchestrator: it resolves the configured provider chain for
     // this currency and fails over across constructed adapters. In local/dev (dummy
