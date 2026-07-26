@@ -39,6 +39,8 @@ import { RazorpayPaymentController } from './razorpay/razorpay-payment.controlle
 import { RazorpayWebhookService } from './razorpay/razorpay-webhook.service';
 import { RazorpayWebhookProcessor } from './razorpay/razorpay-webhook.processor';
 import { RazorpayWebhookController } from './razorpay/razorpay-webhook.controller';
+import { RazorpayConnectService } from './razorpay/razorpay-connect.service';
+import { RazorpayConnectController } from './razorpay/razorpay-connect.controller';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -63,6 +65,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     SettlementController,
     RazorpayPaymentController,
     RazorpayWebhookController,
+    RazorpayConnectController,
   ],
   providers: [
     PaymentsService,
@@ -115,6 +118,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     RazorpayOrderService,
     RazorpayWebhookService,
     RazorpayWebhookProcessor,
+    // Organizer India (Razorpay Route) payout account onboarding.
+    RazorpayConnectService,
   ],
   exports: [
     PaymentsService,

@@ -32,6 +32,12 @@ export const razorpayVerifySchema = z.object({
 });
 export type RazorpayVerifyInput = z.infer<typeof razorpayVerifySchema>;
 
+// Link an organizer's Razorpay Linked Account (created via the Razorpay dashboard).
+export const razorpayLinkAccountSchema = z.object({
+  linkedAccountId: z.string().trim().min(1),
+});
+export type RazorpayLinkAccountInput = z.infer<typeof razorpayLinkAccountSchema>;
+
 // ─── Admin settlement actions ───
 
 // Approve carries no body beyond the id path param.

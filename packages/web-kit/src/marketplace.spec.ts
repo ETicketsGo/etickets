@@ -7,7 +7,28 @@ import {
   mapStripeAccountToOnboardingStatus,
   canReceiveSettlements,
   canSellPaidTickets,
+  routeProviderForBooking,
+  isCountryConsistent,
 } from '@eticketsgo/shared-types';
+
+describe('routeProviderForBooking (server-side provider selection)', () => {
+  it('routes USD → stripe, INR → razorpay', () => {
+    expect(routeProviderForBooking({ currency: 'USD', country: 'US' })).toBe('stripe');
+    expect(routeProviderForBooking({ currency: 'usd' })).toBe('stripe');
+    expect(routeProviderForBooking({ currency: 'INR', country: 'India' })).toBe('razorpay');
+    expect(routeProviderForBooking({ currency: 'inr' })).toBe('razorpay');
+  });
+  it('returns null for an unsupported currency (caller rejects)', () => {
+    expect(routeProviderForBooking({ currency: 'EUR' })).toBeNull();
+    expect(routeProviderForBooking({ currency: 'GBP', country: 'GB' })).toBeNull();
+  });
+  it('flags a country/currency mismatch (e.g. Razorpay+US, Stripe+India)', () => {
+    expect(isCountryConsistent('razorpay', 'IN')).toBe(true);
+    expect(isCountryConsistent('razorpay', 'US')).toBe(false);
+    expect(isCountryConsistent('stripe', 'India')).toBe(false);
+    expect(isCountryConsistent('stripe', '')).toBe(true); // unknown country → currency authoritative
+  });
+});
 
 describe('computeMarketplaceSplit', () => {
   it('splits a customer-pays charge into organizer net + platform fee', () => {
