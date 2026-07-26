@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle, Banknote, CheckCircle2, ExternalLink, XCircle } from 'lucide-react';
+import { AlertTriangle, Banknote, CheckCircle2, ExternalLink, Link2, XCircle } from 'lucide-react';
 import {
   api,
   Badge,
@@ -11,6 +11,7 @@ import {
   Card,
   DataTable,
   Dialog,
+  Input,
   Skeleton,
   StatusBadge,
   ErrorState,
@@ -72,10 +73,11 @@ function PayoutsInner() {
     <div className="space-y-6">
       <PageHeader
         title="Payouts"
-        description="Connect your Stripe account and review settlement records for your organization."
+        description="Connect your payout account and review settlement records for your organization."
       />
 
       <StripePayoutSetup orgId={activeOrg.id} />
+      <RazorpayPayoutSetup orgId={activeOrg.id} />
 
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -262,6 +264,152 @@ function StripePayoutSetup({ orgId }: { orgId: string }) {
         <p className="text-caption text-text-muted">
           Payouts are handled by Stripe ({status.country?.toUpperCase()} ·{' '}
           {status.currency?.toUpperCase()}). ETicketsGo never stores your bank details.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * India payout setup via Razorpay Route. The organizer's Linked Account is
+ * created + KYC-verified in the Razorpay dashboard; here they only paste its
+ * (non-secret) account id so the platform can settle to it. No API secret is
+ * ever shown or requested.
+ */
+function RazorpayPayoutSetup({ orgId }: { orgId: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [linkedAccountId, setLinkedAccountId] = useState('');
+
+  const {
+    data: status,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ['org-payments-razorpay-status', orgId],
+    queryFn: () => api.organizerPayments.razorpayStatus(orgId),
+  });
+
+  const link = useMutation({
+    mutationFn: () => api.organizerPayments.razorpayLink(orgId, linkedAccountId.trim()),
+    onSuccess: () => {
+      toast.push('Razorpay linked account connected.', 'success');
+      qc.invalidateQueries({ queryKey: ['org-payments-razorpay-status', orgId] });
+      setLinkedAccountId('');
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  if (isLoading) {
+    return (
+      <Card title="Payouts (Razorpay · India)">
+        <Skeleton className="h-28" />
+      </Card>
+    );
+  }
+  if (isError || !status) {
+    return (
+      <Card title="Payouts (Razorpay · India)">
+        <ErrorState
+          message="We couldn't load your Razorpay payout status. Please try again."
+          onRetry={() => refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const canLink = status.routeEnabled && !status.hasAccount;
+
+  return (
+    <Card
+      title="Payouts (Razorpay · India)"
+      action={
+        <Badge tone={status.payoutReady ? 'success' : 'neutral'}>
+          {status.payoutReady ? (
+            <CheckCircle2 className="h-3.5 w-3.5" />
+          ) : (
+            <XCircle className="h-3.5 w-3.5" />
+          )}
+          {status.payoutReady ? 'Payout ready' : 'Payout not ready'}
+        </Badge>
+      }
+    >
+      <div className="space-y-4">
+        {!status.routeEnabled && (
+          <div className="flex items-start gap-2 rounded-md border border-status-warning/30 bg-status-warning/8 px-4 py-3 text-sm text-status-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Razorpay Route is not yet enabled for this platform — payouts are held; contact
+              support to enable Route settlements.
+            </span>
+          </div>
+        )}
+
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-caption text-text-muted">Onboarding status</dt>
+            <dd className="mt-1">
+              <StatusBadge status={status.onboardingStatus} />
+            </dd>
+          </div>
+          <div>
+            <dt className="text-caption text-text-muted">Account</dt>
+            <dd className="mt-1 flex flex-wrap gap-2">
+              <EnabledBadge label="Charges" on={status.chargesEnabled} />
+              <EnabledBadge label="Payouts" on={status.payoutsEnabled} />
+              <EnabledBadge label="Route" on={status.routeEnabled} />
+            </dd>
+          </div>
+        </dl>
+
+        {status.linkedAccountId && (
+          <p className="text-caption text-text-muted">
+            Linked account:{' '}
+            <span className="font-mono text-text-secondary">{status.linkedAccountId}</span>
+          </p>
+        )}
+
+        {status.requirementsDue.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-caption font-medium text-text-muted">
+              Information still required
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5 text-sm text-text-secondary">
+              {status.requirementsDue.map((req) => (
+                <li key={req}>{titleCase(req.replaceAll('.', ' ').replaceAll('_', ' '))}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {canLink && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (linkedAccountId.trim()) link.mutate();
+            }}
+            className="space-y-3 border-t border-border pt-4"
+          >
+            <Input
+              id="razorpay-linked-account"
+              label="Razorpay Linked Account ID"
+              placeholder="acc_XXXXXXXXXXXXXX"
+              autoComplete="off"
+              value={linkedAccountId}
+              onChange={(e) => setLinkedAccountId(e.target.value)}
+              hint="Create and KYC-verify the Linked Account in your Razorpay dashboard first, then paste its account id here. We never ask for API secrets."
+            />
+            <Button type="submit" loading={link.isPending} disabled={!linkedAccountId.trim()}>
+              <Link2 className="h-4 w-4" /> Link Razorpay account
+            </Button>
+          </form>
+        )}
+
+        <p className="text-caption text-text-muted">
+          Payouts are settled via Razorpay Route ({status.country?.toUpperCase()} ·{' '}
+          {status.currency?.toUpperCase()}). ETicketsGo never stores your bank details or API
+          secrets.
         </p>
       </div>
     </Card>

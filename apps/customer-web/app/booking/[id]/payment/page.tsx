@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { Stepper } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
+import { loadRazorpay } from '@/lib/razorpay';
 import { money, dateTime } from '@/lib/format';
 import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
 
@@ -78,12 +79,53 @@ export default function PaymentPage() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      const { clientActionUrl } = await api.payBooking(id);
+      const payResult = await api.payBooking(id);
+      const { clientActionUrl } = payResult;
       if (isExternalUrl(clientActionUrl)) {
         // Real Stripe: hand off to the hosted Checkout page. Confirmation happens
         // only via the signed webhook after Stripe processes the payment — landing
         // back on our success_url is NEVER treated as proof of payment.
         window.location.href = clientActionUrl;
+        return { redirected: true as const };
+      }
+      // India (Razorpay): open Standard Checkout in a modal. The Checkout handler
+      // and signature verification are NEVER treated as proof of payment — the
+      // signed webhook confirms the booking, which the confirmation page polls for.
+      if (payResult.provider === 'razorpay' && payResult.razorpay) {
+        const rzp = payResult.razorpay;
+        const Razorpay = await loadRazorpay();
+        const checkout = new Razorpay({
+          key: rzp.keyId,
+          order_id: rzp.orderId,
+          amount: rzp.amountMinor,
+          currency: rzp.currency,
+          name: rzp.name,
+          description: rzp.description,
+          prefill: rzp.prefill,
+          handler: (resp) => {
+            void (async () => {
+              try {
+                await api.razorpayVerify(id, {
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature,
+                });
+                // Verified signature only — the confirmation page keeps polling
+                // until the signed webhook actually confirms the booking.
+                qc.invalidateQueries({ queryKey: ['booking', id] });
+                router.push(`/booking/${id}/confirmation`);
+              } catch {
+                setError(
+                  'We couldn’t verify your payment. If you were charged, it will be confirmed shortly — check “My bookings”.',
+                );
+              }
+            })();
+          },
+          modal: {
+            ondismiss: () => setError('Payment was cancelled. You can try again.'),
+          },
+        });
+        checkout.open();
         return { redirected: true as const };
       }
       // Local/dev mock (same-origin URL, no hosted page): stand in with mock-pay.

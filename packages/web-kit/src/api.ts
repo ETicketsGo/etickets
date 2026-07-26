@@ -250,10 +250,7 @@ export const api = {
       }),
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
-    pay: (id: string) =>
-      request<{ providerRef: string; clientActionUrl: string }>(`/bookings/${id}/pay`, {
-        method: 'POST',
-      }),
+    pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
   },
 
   payments: {
@@ -263,6 +260,16 @@ export const api = {
         body: JSON.stringify({ outcome }),
         auth: false,
       }),
+    // India (Razorpay): verify the Checkout signature after the modal returns. Never proof
+    // of payment (the webhook confirms) — surfaces a 'processing'/'confirmed' status.
+    razorpayVerify: (
+      bookingId: string,
+      body: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
+    ) =>
+      request<{ status: 'processing' | 'confirmed'; bookingId: string }>(
+        `/bookings/${bookingId}/payments/razorpay/verify`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
   },
 
   tickets: {
@@ -716,6 +723,14 @@ export const api = {
     dashboardLink: (organizerId: string) =>
       request<{ url: string }>(`/organizers/${organizerId}/payments/stripe/dashboard-link`, {
         method: 'POST',
+      }),
+    // India (Razorpay Route) payout account.
+    razorpayStatus: (organizerId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/status`),
+    razorpayLink: (organizerId: string, linkedAccountId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/account`, {
+        method: 'POST',
+        body: JSON.stringify({ linkedAccountId }),
       }),
   },
 
@@ -1970,6 +1985,42 @@ export interface Payout {
   paidAt: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+// ─── Payment start (provider-aware) ───
+/** Razorpay Standard Checkout options (public — no secret). */
+export interface RazorpayCheckout {
+  keyId: string;
+  orderId: string;
+  amountMinor: number;
+  currency: string;
+  name: string;
+  description: string;
+  prefill: { name: string; email: string };
+  callbackUrl: string;
+}
+export interface PayResult {
+  providerRef: string;
+  clientActionUrl: string;
+  /** 'razorpay' when India routing applies; absent/other for the Stripe/mock path. */
+  provider?: string;
+  razorpay?: RazorpayCheckout;
+}
+
+/** India (Razorpay Route) payout account status (client-safe). */
+export interface RazorpayAccountStatus {
+  organizationId: string;
+  provider: 'razorpay';
+  hasAccount: boolean;
+  linkedAccountId: string | null;
+  onboardingStatus: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  routeEnabled: boolean;
+  payoutReady: boolean;
+  country: string;
+  currency: string;
 }
 
 // ─── Stripe Connect marketplace (client-safe views) ───
