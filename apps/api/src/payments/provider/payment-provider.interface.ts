@@ -43,6 +43,13 @@ export interface WebhookInput {
   signature: string;
 }
 
+/** Razorpay Checkout success payload the client returns for synchronous verification. */
+export interface CheckoutVerifyInput {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}
+
 export interface PaymentEvent {
   type: 'payment.succeeded' | 'payment.failed';
   providerRef: string;
@@ -245,6 +252,8 @@ export interface PaymentProvider {
   createTransfer?(input: TransferInput): Promise<TransferResult>;
   /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
   reverseTransfer?(input: TransferReversalInput): Promise<TransferReversalResult>;
+  /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */
+  verifyCheckoutSignature?(input: CheckoutVerifyInput): boolean;
 }
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');

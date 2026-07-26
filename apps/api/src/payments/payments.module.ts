@@ -33,6 +33,7 @@ import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.process
 import { SettlementController } from './settlement/settlement.controller';
 import { SettlementService } from './settlement/settlement.service';
 import { DisputeService } from './dispute/dispute.service';
+import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -101,6 +102,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     SettlementService,
     // Dispute (chargeback) synchronisation.
     DisputeService,
+    // Multi-provider resolver (US→Stripe, IN→Razorpay; lazy construct + register).
+    PaymentProviderResolver,
   ],
   exports: [
     PaymentsService,

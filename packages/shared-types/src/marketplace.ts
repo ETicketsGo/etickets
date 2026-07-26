@@ -181,3 +181,47 @@ export function canReceiveSettlements(status: ConnectOnboardingStatus): boolean 
 export function canSellPaidTickets(chargesEnabled: boolean): boolean {
   return chargesEnabled === true;
 }
+
+// ─── Provider routing (server-side, currency-authoritative) ───
+
+export type MarketplaceProvider = 'stripe' | 'razorpay';
+
+export interface ProviderRouteContext {
+  /** ISO-4217 (authoritative for provider choice). */
+  currency: string;
+  /** ISO-3166 alpha-2 or a display name; used only for a consistency check. */
+  country?: string | null;
+}
+
+/**
+ * Choose the payment provider from TRUSTED business data (never a client-supplied name).
+ * Currency is authoritative because stored country strings are inconsistent
+ * (e.g. "India" vs "IN"). USD → Stripe (US marketplace), INR → Razorpay (India).
+ * Returns null for an unsupported currency so the caller can reject explicitly.
+ */
+export function routeProviderForBooking(ctx: ProviderRouteContext): MarketplaceProvider | null {
+  const currency = ctx.currency.toUpperCase();
+  if (currency === 'USD') return 'stripe';
+  if (currency === 'INR') return 'razorpay';
+  return null;
+}
+
+/** Country tokens we accept as consistent with each provider's currency. */
+const PROVIDER_COUNTRIES: Record<MarketplaceProvider, string[]> = {
+  stripe: ['US', 'USA', 'UNITED STATES'],
+  razorpay: ['IN', 'IND', 'INDIA'],
+};
+
+/**
+ * True when the country (if given) is consistent with the provider. An empty/unknown
+ * country passes (currency remains authoritative); a clearly mismatched country fails
+ * so combinations like Razorpay+US-only or Stripe+India-only can be rejected.
+ */
+export function isCountryConsistent(
+  provider: MarketplaceProvider,
+  country?: string | null,
+): boolean {
+  const c = (country ?? '').trim().toUpperCase();
+  if (!c) return true;
+  return PROVIDER_COUNTRIES[provider].includes(c);
+}

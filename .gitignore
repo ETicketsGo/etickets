@@ -39,3 +39,9 @@ Thumbs.db
 
 # typescript build cache
 *.tsbuildinfo
+
+# Secrets / downloaded key files — never commit (Razorpay/Stripe key CSVs, etc.)
+*.csv
+razorpay_*api*key*
+*api*keys*.csv
+!apps/e2e/**/*.csv
