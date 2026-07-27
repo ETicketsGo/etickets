@@ -12,3 +12,5 @@ export { RazorpayWebhookProcessor } from './payments/razorpay/razorpay-webhook.p
 export { SettlementService } from './payments/settlement/settlement.service';
 export { SyncEventProcessor } from './inventory/sync/sync-event.processor';
 export { SyncPollingService } from './inventory/sync/sync-polling.service';
+export { OutboxDispatcher } from './common/domain-events/outbox/outbox-dispatcher.service';
+export { OutboxRetentionService } from './common/domain-events/outbox/outbox-retention.service';

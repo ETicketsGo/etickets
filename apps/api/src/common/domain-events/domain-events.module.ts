@@ -4,6 +4,7 @@ import { InProcessDomainEventBus, domainEventBusProvider } from './in-process-do
 import { TransactionalEventPublisher } from './transactional-event-publisher';
 import { BookingEventRecorder } from './handlers/booking-event.recorder';
 import { DomainEventType } from './catalogue/event-types';
+import { OutboxModule } from './outbox/outbox.module';
 
 /**
  * The domain event bus platform module (ADR-038). @Global so any domain module can
@@ -17,13 +18,14 @@ import { DomainEventType } from './catalogue/event-types';
  */
 @Global()
 @Module({
+  imports: [OutboxModule],
   providers: [
     InProcessDomainEventBus,
     domainEventBusProvider,
     TransactionalEventPublisher,
     BookingEventRecorder,
   ],
-  exports: [DOMAIN_EVENT_BUS, TransactionalEventPublisher, InProcessDomainEventBus],
+  exports: [DOMAIN_EVENT_BUS, TransactionalEventPublisher, InProcessDomainEventBus, OutboxModule],
 })
 export class DomainEventsModule implements OnModuleInit {
   constructor(

@@ -6,9 +6,22 @@ export * from './domain-event-bus';
 export * from './domain-event.errors';
 export * from './domain-event.factory';
 export * from './idempotency';
-export { DomainEventCollector, TransactionalEventPublisher } from './transactional-event-publisher';
+export {
+  DomainEventCollector,
+  TransactionalEventPublisher,
+  type DomainEventDeliveryMode,
+} from './transactional-event-publisher';
 export { InProcessDomainEventBus } from './in-process-domain-event-bus';
 export { DomainEventsModule } from './domain-events.module';
+
+// Transactional outbox (ADR-041)
+export { OutboxModule } from './outbox/outbox.module';
+export { OutboxRecorder } from './outbox/outbox-recorder';
+export { OutboxDispatcher } from './outbox/outbox-dispatcher.service';
+export { OutboxHealthService } from './outbox/outbox-health.service';
+export { OutboxRetentionService } from './outbox/outbox-retention.service';
+export { ProcessedEventStore } from './outbox/processed-event.store';
+export * from './outbox/outbox.errors';
 
 // Catalogue
 export * from './catalogue/event-types';
