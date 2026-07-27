@@ -41,6 +41,26 @@ const envSchema = z.object({
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
 
+  // Inventory sourcing seam (ADR-037). OFF by default: the provider registry still
+  // constructs Direct/Manual adapters, but the booking engine keeps its existing
+  // direct path until a show is explicitly routed through the resolver. No behaviour
+  // change while OFF.
+  INVENTORY_SOURCING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // External aggregator adapters (ADR-037). OFF by default; the AggregatorProvider is
+  // a placeholder that fails closed (never fabricates inventory) until a real vendor
+  // integration lands behind this flag.
+  INVENTORY_AGGREGATOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Comma-separated provider priority order for the InventoryResolver (most-preferred
+  // first, e.g. "direct,manual,aggregator"). Unset ⇒ a safe default that always
+  // prefers LOCAL authoritative stock before any external source.
+  INVENTORY_PROVIDER_PRIORITY: z.string().optional(),
+
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 
