@@ -42,4 +42,26 @@ export class CacheService {
 
     return value;
   }
+
+  /**
+   * Targeted, best-effort invalidation of cache keys matching a glob (e.g. after a
+   * sync commit, ADR-040). Bounded SCAN (never a blocking KEYS), fail-open — a failure
+   * is logged and returned as `-1` so the caller can record reconciliation/retry work
+   * without ever rolling back a committed change. Returns the number of keys removed.
+   */
+  async invalidateByPattern(pattern: string): Promise<number> {
+    try {
+      let cursor = '0';
+      let removed = 0;
+      do {
+        const [next, keys] = await this.redis.client.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+        cursor = next;
+        if (keys.length > 0) removed += await this.redis.client.del(...keys);
+      } while (cursor !== '0');
+      return removed;
+    } catch (err) {
+      this.logger.warn(`cache invalidation failed for "${pattern}": ${String(err)}`);
+      return -1;
+    }
+  }
 }

@@ -16,3 +16,4 @@ export * from './catalogue/booking-events';
 export * from './catalogue/inventory-events';
 export * from './catalogue/refund-events';
 export * from './catalogue/ticket-events';
+export * from './catalogue/sync-events';

@@ -33,6 +33,13 @@ export class MetricsService {
   private readonly inventoryLockLatency: Histogram<'op'>;
   private readonly inventoryLockContention: Counter<'inventory_type' | 'scope'>;
   private readonly inventoryLockReconcile: Counter<'result'>;
+  private readonly syncIngest: Counter<'provider' | 'outcome'>;
+  private readonly syncApply: Counter<'provider' | 'outcome'>;
+  private readonly syncProcess: Counter<'provider' | 'outcome'>;
+  private readonly syncProcessingDuration: Histogram;
+  private readonly syncPoll: Counter<'provider' | 'outcome'>;
+  private readonly syncReconcile: Counter<'outcome'>;
+  private readonly providerHealth: Counter<'provider' | 'state'>;
 
   constructor() {
     this.registry = new Registry();
@@ -159,6 +166,51 @@ export class MetricsService {
       name: 'etg_inventory_lock_reconcile_total',
       help: 'Reconciliation outcomes: mismatch | repaired | manual_review.',
       labelNames: ['result'],
+      registers: [this.registry],
+    });
+
+    // External inventory sync (ADR-040). Labels are LOW-CARDINALITY: provider code +
+    // bounded outcome/state — never external/event/seat/customer ids.
+    this.syncIngest = new Counter({
+      name: 'etg_inventory_sync_ingest_total',
+      help: 'Webhook ingestion outcomes (accepted|duplicate|too_large|verify_*) by provider.',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.syncApply = new Counter({
+      name: 'etg_inventory_sync_apply_total',
+      help: 'Canonical-change apply outcomes (applied|stale|ordering_conflict|local_authoritative_ignored|cache_invalidation_failed).',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.syncProcess = new Counter({
+      name: 'etg_inventory_sync_process_total',
+      help: 'Async processing outcomes (processed|fail_*) by provider.',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.syncProcessingDuration = new Histogram({
+      name: 'etg_inventory_sync_processing_duration_seconds',
+      help: 'Async sync-event processing duration in seconds.',
+      buckets: [0.005, 0.025, 0.1, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+    this.syncPoll = new Counter({
+      name: 'etg_inventory_sync_poll_total',
+      help: 'Polling outcomes (ok|skipped_lease|rate_limited|circuit_open|error) by provider.',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.syncReconcile = new Counter({
+      name: 'etg_inventory_sync_reconcile_total',
+      help: 'Sync reconciliation outcomes (in_sync|mismatch|auto_repaired|manual_review).',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+    this.providerHealth = new Counter({
+      name: 'etg_inventory_sync_provider_health_total',
+      help: 'Provider health-state transitions by provider and state.',
+      labelNames: ['provider', 'state'],
       registers: [this.registry],
     });
   }
@@ -289,6 +341,31 @@ export class MetricsService {
     this.safe(() => {
       if (count > 0) this.inventoryLockReconcile.inc({ result }, count);
     });
+  }
+
+  // ─── External inventory sync (ADR-040) — all labels PII-free + low-cardinality ───
+  recordSyncIngest(provider: string, outcome: string): void {
+    this.safe(() => this.syncIngest.inc({ provider, outcome }));
+  }
+  recordSyncApply(provider: string, outcome: string): void {
+    this.safe(() => this.syncApply.inc({ provider, outcome }));
+  }
+  recordSyncProcess(provider: string, outcome: string): void {
+    this.safe(() => this.syncProcess.inc({ provider, outcome }));
+  }
+  observeSyncProcessing(durationSeconds: number): void {
+    this.safe(() => this.syncProcessingDuration.observe(durationSeconds));
+  }
+  recordSyncPoll(provider: string, outcome: string): void {
+    this.safe(() => this.syncPoll.inc({ provider, outcome }));
+  }
+  recordSyncReconcile(outcome: string, count = 1): void {
+    this.safe(() => {
+      if (count > 0) this.syncReconcile.inc({ outcome }, count);
+    });
+  }
+  recordProviderHealth(provider: string, state: string): void {
+    this.safe(() => this.providerHealth.inc({ provider, state }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

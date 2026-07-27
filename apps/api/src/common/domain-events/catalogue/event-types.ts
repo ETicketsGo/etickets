@@ -23,8 +23,16 @@ export const DomainEventType = {
   NotificationRequested: 'notification.requested',
   ProviderHealthChanged: 'provider.health_changed',
   InventorySyncRequested: 'inventory.sync_requested',
+  InventorySyncStarted: 'inventory.sync_started',
   InventorySyncCompleted: 'inventory.sync_completed',
   InventorySyncFailed: 'inventory.sync_failed',
+  ExperienceUpdated: 'experience.updated',
+  SessionUpdated: 'session.updated',
+  SessionCancelled: 'session.cancelled',
+  PricingUpdated: 'pricing.updated',
+  SeatAvailabilityUpdated: 'seat_availability.updated',
+  QuantityAvailabilityUpdated: 'quantity_availability.updated',
+  ProviderMappingReviewRequired: 'provider.mapping_review_required',
 } as const;
 
 export type DomainEventTypeName = (typeof DomainEventType)[keyof typeof DomainEventType];
@@ -45,8 +53,16 @@ export const DomainEventVersion: Record<DomainEventTypeName, number> = {
   [DomainEventType.NotificationRequested]: 1,
   [DomainEventType.ProviderHealthChanged]: 1,
   [DomainEventType.InventorySyncRequested]: 1,
+  [DomainEventType.InventorySyncStarted]: 1,
   [DomainEventType.InventorySyncCompleted]: 1,
   [DomainEventType.InventorySyncFailed]: 1,
+  [DomainEventType.ExperienceUpdated]: 1,
+  [DomainEventType.SessionUpdated]: 1,
+  [DomainEventType.SessionCancelled]: 1,
+  [DomainEventType.PricingUpdated]: 1,
+  [DomainEventType.SeatAvailabilityUpdated]: 1,
+  [DomainEventType.QuantityAvailabilityUpdated]: 1,
+  [DomainEventType.ProviderMappingReviewRequired]: 1,
 };
 
 /** Envelope fields a producer may attach to any catalogue event (all optional). */
