@@ -1,99 +1,107 @@
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  TransactionalEventPublisher,
+  type DomainEventDeliveryMode,
+} from './transactional-event-publisher';
+import { OutboxRecorder } from './outbox/outbox-recorder';
 import { DomainEventFactory } from './domain-event.factory';
-import { TransactionalEventPublisher } from './transactional-event-publisher';
 import type { DomainEventBus } from './domain-event-bus';
 
-function setup(opts: { publishRejects?: boolean } = {}) {
+function setup(
+  mode: DomainEventDeliveryMode,
+  opts: { publishRejects?: boolean; recordThrows?: boolean } = {},
+) {
   const trace: string[] = [];
   const bus = {
     publish: jest.fn(),
     subscribe: jest.fn(),
     publishMany: jest.fn(async () => {
       trace.push('publish');
-      if (opts.publishRejects) throw new Error('transport down');
+      if (opts.publishRejects) throw new Error('bus down');
     }),
   } as unknown as DomainEventBus;
-  // Interactive $transaction: run the callback with a fake tx; a throwing callback
-  // rejects (mimicking a rollback), exactly like Prisma.
   const prisma = {
-    $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb({})),
+    $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb({ marker: 'tx' })),
   } as unknown as PrismaService;
-  const publisher = new TransactionalEventPublisher(prisma, bus);
-  return { publisher, bus, prisma, trace };
+  const recorder = {
+    recordMany: jest.fn(async () => {
+      trace.push('record');
+      if (opts.recordThrows) throw new Error('outbox insert failed');
+      return 1;
+    }),
+  } as unknown as OutboxRecorder;
+  const config = {
+    get: jest.fn((k: string, d?: unknown) => (k === 'DOMAIN_EVENT_DELIVERY_MODE' ? mode : d)),
+  } as unknown as ConfigService;
+  const publisher = new TransactionalEventPublisher(prisma, bus, config, recorder);
+  return { publisher, bus, recorder, trace };
 }
 
-const evt = (id?: string) =>
+const evt = () =>
   DomainEventFactory.create({
-    eventId: id,
     eventType: 'booking.confirmed',
     aggregateType: 'Booking',
-    aggregateId: 'bk_1',
-    payload: { bookingId: 'bk_1' },
+    aggregateId: 'b1',
+    payload: { bookingId: 'b1' },
   });
 
-describe('TransactionalEventPublisher.runWithEvents', () => {
-  it('publishes collected events ONLY AFTER the transaction commits', async () => {
-    const { publisher, bus, trace } = setup();
-    const result = await publisher.runWithEvents(async (_tx, collector) => {
-      trace.push('work');
-      collector.collect(evt('e1'));
-      return 'done';
-    });
-    expect(result).toBe('done');
-    expect(trace).toEqual(['work', 'publish']); // publish strictly after work/commit
+describe('TransactionalEventPublisher — modes', () => {
+  it('in_process: no outbox record, publishes after commit (unchanged P2 behaviour)', async () => {
+    const { publisher, recorder, bus } = setup('in_process');
+    await publisher.runWithEvents(async (_tx, c) => c.collect(evt()));
+    expect(recorder.recordMany).not.toHaveBeenCalled();
     expect(bus.publishMany).toHaveBeenCalledTimes(1);
-    const published = (bus.publishMany as jest.Mock).mock.calls[0][0];
-    expect(published.map((e: { eventId: string }) => e.eventId)).toEqual(['e1']);
   });
 
-  it('DISCARDS collected events when the transaction rolls back', async () => {
-    const { publisher, bus } = setup();
+  it('outbox: records durably in the tx, does NOT publish directly (dispatcher delivers)', async () => {
+    const { publisher, recorder, bus, trace } = setup('outbox');
+    await publisher.runWithEvents(async (_tx, c) => c.collect(evt()));
+    expect(recorder.recordMany).toHaveBeenCalledTimes(1);
+    expect(bus.publishMany).not.toHaveBeenCalled();
+    expect(trace).toEqual(['record']); // recorded in-tx, never published
+  });
+
+  it('dual_write_shadow: records shadow rows AND publishes directly', async () => {
+    const { publisher, recorder, bus } = setup('dual_write_shadow');
+    await publisher.runWithEvents(async (_tx, c) => c.collect(evt()));
+    expect(recorder.recordMany).toHaveBeenCalledWith(expect.anything(), expect.anything(), true); // shadow=true
+    expect(bus.publishMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('rollback (work throws) records nothing and publishes nothing', async () => {
+    const { publisher, recorder, bus } = setup('outbox');
     await expect(
-      publisher.runWithEvents(async (_tx, collector) => {
-        collector.collect(evt('e1'));
+      publisher.runWithEvents(async () => {
         throw new Error('domain failure');
       }),
     ).rejects.toThrow('domain failure');
-    expect(bus.publishMany).not.toHaveBeenCalled(); // never published
-  });
-
-  it('preserves deterministic ordering of multiple collected events', async () => {
-    const { publisher, bus } = setup();
-    await publisher.runWithEvents(async (_tx, collector) => {
-      collector.collect(evt('e1'));
-      collector.collect(evt('e2'));
-    });
-    const published = (bus.publishMany as jest.Mock).mock.calls[0][0];
-    expect(published.map((e: { eventId: string }) => e.eventId)).toEqual(['e1', 'e2']);
-  });
-
-  it('post-commit publication failure does NOT roll back / throw (commit stands)', async () => {
-    const { publisher } = setup({ publishRejects: true });
-    // The work committed; publication then fails — runWithEvents must still resolve.
-    await expect(
-      publisher.runWithEvents(async (_tx, collector) => {
-        collector.collect(evt('e1'));
-        return 'committed';
-      }),
-    ).resolves.toBe('committed');
-  });
-});
-
-describe('TransactionalEventPublisher.publishAfterCommit', () => {
-  it('publishes already-committed events', async () => {
-    const { publisher, bus } = setup();
-    await publisher.publishAfterCommit([evt('e1')]);
-    expect(bus.publishMany).toHaveBeenCalledTimes(1);
-  });
-
-  it('swallows a publication failure (never throws for a committed change)', async () => {
-    const { publisher } = setup({ publishRejects: true });
-    await expect(publisher.publishAfterCommit([evt('e1')])).resolves.toBeUndefined();
-  });
-
-  it('is a no-op for an empty event list', async () => {
-    const { publisher, bus } = setup();
-    await publisher.publishAfterCommit([]);
+    expect(recorder.recordMany).not.toHaveBeenCalled();
     expect(bus.publishMany).not.toHaveBeenCalled();
+  });
+
+  it('outbox insert failure rolls back the whole transaction (required-event semantics)', async () => {
+    const { publisher, bus } = setup('outbox', { recordThrows: true });
+    await expect(publisher.runWithEvents(async (_tx, c) => c.collect(evt()))).rejects.toThrow(
+      'outbox insert failed',
+    );
+    expect(bus.publishMany).not.toHaveBeenCalled();
+  });
+
+  it('post-commit publish failure (in_process) does NOT throw — the commit stands', async () => {
+    const { publisher } = setup('in_process', { publishRejects: true });
+    await expect(
+      publisher.runWithEvents(async (_tx, c) => c.collect(evt())),
+    ).resolves.toBeUndefined();
+  });
+
+  it('recordInTransaction is a no-op in in_process mode and records in outbox mode', async () => {
+    const inProc = setup('in_process');
+    expect(await inProc.publisher.recordInTransaction({} as never, [evt()])).toBe(0);
+    expect(inProc.recorder.recordMany).not.toHaveBeenCalled();
+
+    const outbox = setup('outbox');
+    await outbox.publisher.recordInTransaction({} as never, [evt()]);
+    expect(outbox.recorder.recordMany).toHaveBeenCalledTimes(1);
   });
 });

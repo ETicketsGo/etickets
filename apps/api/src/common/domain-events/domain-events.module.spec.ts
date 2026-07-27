@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
+import { AuditService } from '../../audit/audit.service';
 import { DomainEventsModule } from './domain-events.module';
 import { DOMAIN_EVENT_BUS, type DomainEventBus } from './domain-event-bus';
 import { TransactionalEventPublisher } from './transactional-event-publisher';
@@ -11,10 +12,15 @@ import { bookingConfirmedEvent } from './catalogue/booking-events';
 
 // Stand in for the app's @Global Prisma + Metrics modules so the bus/publisher
 // resolve their dependencies exactly as at runtime.
+// Stand in for the app's @Global modules the domain-events + outbox modules depend on.
 @Global()
 @Module({
-  providers: [{ provide: PrismaService, useValue: {} as PrismaService }, MetricsService],
-  exports: [PrismaService, MetricsService],
+  providers: [
+    { provide: PrismaService, useValue: {} as PrismaService },
+    { provide: AuditService, useValue: { record: jest.fn() } },
+    MetricsService,
+  ],
+  exports: [PrismaService, AuditService, MetricsService],
 })
 class GlobalDepsModule {}
 
