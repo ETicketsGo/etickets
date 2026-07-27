@@ -27,6 +27,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 037 | Inventory sourcing providers |
 | 038 | Domain event bus and transaction-aware publication |
 | 039 | Distributed inventory locking with Redis and PostgreSQL |
+| 040 | External inventory synchronization platform |
 
 ## Referenced in code/docs but not yet written up (024–035)
 These numbers appear in source comments (e.g. `configuration.ts` cites ADR-024/028/035;
