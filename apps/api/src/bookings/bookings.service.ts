@@ -23,6 +23,7 @@ import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -46,6 +47,9 @@ export class BookingsService {
     private readonly inventory: InventoryService,
     private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
+    // Shadow-mode distributed lock observer (ADR-039). No-op unless
+    // INVENTORY_LOCKS_ENABLED + mode=shadow; never affects booking correctness.
+    private readonly lockShadow: InventoryLockShadowService,
   ) {}
 
   /**
@@ -267,6 +271,26 @@ export class BookingsService {
       metadata: { totalMinor: booking.totalMinor },
     });
     this.metrics.recordBookingCreated();
+
+    // Shadow-mode distributed lock observation (ADR-039). PostgreSQL already holds
+    // authoritatively above; this only MEASURES what the Redis lock layer would have
+    // decided and never changes the outcome. Fully isolated + no-op when disabled.
+    try {
+      const seatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      const quantity = input.items.reduce((s, i) => s + i.quantity, 0);
+      await this.lockShadow.observe({
+        inventoryType: isSeatBased ? 'SEAT' : 'QUANTITY',
+        inventoryKey: `session:${session.id}`,
+        seatIds: isSeatBased ? seatIds : undefined,
+        quantity: isSeatBased ? undefined : quantity,
+        capacity: quantity,
+        holdId: booking.id,
+        bookingId: booking.id,
+        owner: user?.id ? { ownerId: user.id } : { anonymousSessionId: booking.id },
+      });
+    } catch {
+      /* shadow observation must never affect booking creation */
+    }
 
     const result = {
       id: booking.id,

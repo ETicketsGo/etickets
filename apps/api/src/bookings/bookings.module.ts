@@ -5,9 +5,10 @@ import { PricingModule } from '../pricing/pricing.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { CommerceModule } from '../commerce/commerce.module';
+import { InventoryLockingModule } from '../inventory/locking/inventory-locking.module';
 
 @Module({
-  imports: [PricingModule, PaymentsModule, InventoryModule, CommerceModule],
+  imports: [PricingModule, PaymentsModule, InventoryModule, CommerceModule, InventoryLockingModule],
   controllers: [BookingsController, GuestBookingsController],
   providers: [BookingsService],
   exports: [BookingsService],
