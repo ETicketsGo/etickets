@@ -24,6 +24,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
+import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -50,6 +51,9 @@ export class BookingsService {
     // Shadow-mode distributed lock observer (ADR-039). No-op unless
     // INVENTORY_LOCKS_ENABLED + mode=shadow; never affects booking correctness.
     private readonly lockShadow: InventoryLockShadowService,
+    // Shadow-mode booking orchestration observer (ADR-042). No-op unless
+    // BOOKING_ORCHESTRATOR_ENABLED + mode=shadow; never affects booking correctness.
+    private readonly bookingShadow: BookingShadowObserver,
   ) {}
 
   /**
@@ -287,6 +291,21 @@ export class BookingsService {
         holdId: booking.id,
         bookingId: booking.id,
         owner: user?.id ? { ownerId: user.id } : { anonymousSessionId: booking.id },
+      });
+    } catch {
+      /* shadow observation must never affect booking creation */
+    }
+
+    // Booking-orchestration shadow observation (ADR-042). Observes what the orchestrator
+    // would decide (provider resolution + workflow expectation) alongside this legacy
+    // hold. Fully isolated + no-op unless BOOKING_ORCHESTRATOR_ENABLED + mode=shadow.
+    try {
+      await this.bookingShadow.observe({
+        bookingId: booking.id,
+        eventSessionId: session.id,
+        experienceType: session.event.experienceType,
+        seatCount: input.items.flatMap((i) => i.seatIds ?? []).length,
+        quantity: input.items.reduce((s, i) => s + i.quantity, 0),
       });
     } catch {
       /* shadow observation must never affect booking creation */

@@ -52,6 +52,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       new AddOnInventoryService(),
       new MetricsService(),
       { observe: async () => undefined } as never,
+      { observe: async () => undefined } as never,
     );
     const released = await service.releaseExpiredHolds();
     expect(released).toBe(0);
@@ -76,6 +77,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       realInventory(),
       new AddOnInventoryService(),
       new MetricsService(),
+      { observe: async () => undefined } as never,
       { observe: async () => undefined } as never,
     );
 
@@ -107,6 +109,7 @@ describe('BookingsService.releaseExpiredHolds', () => {
       realInventory(),
       new AddOnInventoryService(),
       new MetricsService(),
+      { observe: async () => undefined } as never,
       { observe: async () => undefined } as never,
     );
     await service.releaseExpiredHolds();
