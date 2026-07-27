@@ -72,6 +72,35 @@ const envSchema = z.object({
   // this is abandoned as a failure (isolated + logged), never blocking other handlers.
   DOMAIN_EVENT_HANDLER_TIMEOUT_MS: z.coerce.number().default(5000),
 
+  // Transactional outbox (ADR-041). DEFAULTS PRESERVE P2 in-process behaviour. Mode
+  // `in_process` = current P2. `outbox` = record durably in the business tx + dispatch
+  // from the outbox (no direct post-commit publish). `dual_write_shadow` = record
+  // shadow rows for comparison AND keep direct delivery (dispatcher never delivers
+  // shadow rows). The dispatcher only runs when DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED.
+  DOMAIN_EVENT_DELIVERY_MODE: z
+    .enum(['in_process', 'outbox', 'dual_write_shadow'])
+    .default('in_process'),
+  DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  DOMAIN_EVENT_OUTBOX_BATCH_SIZE: z.coerce.number().default(100),
+  DOMAIN_EVENT_OUTBOX_POLL_INTERVAL_MS: z.coerce.number().default(1000),
+  DOMAIN_EVENT_OUTBOX_LEASE_SECONDS: z.coerce.number().default(60),
+  DOMAIN_EVENT_OUTBOX_MAX_ATTEMPTS: z.coerce.number().default(12),
+  DOMAIN_EVENT_OUTBOX_BASE_RETRY_SECONDS: z.coerce.number().default(5),
+  DOMAIN_EVENT_OUTBOX_MAX_RETRY_SECONDS: z.coerce.number().default(3600),
+  DOMAIN_EVENT_OUTBOX_RETENTION_DAYS: z.coerce.number().default(30),
+  DOMAIN_EVENT_OUTBOX_DEAD_LETTER_RETENTION_DAYS: z.coerce.number().default(90),
+  DOMAIN_EVENT_OUTBOX_MAX_PAYLOAD_BYTES: z.coerce.number().default(262144),
+  // Optional stable worker id; unset ⇒ a per-process id is generated.
+  DOMAIN_EVENT_OUTBOX_WORKER_ID: z.string().optional(),
+  // Retention purge (delivered/dead-letter). OFF by default.
+  DOMAIN_EVENT_OUTBOX_RETENTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
   // Distributed Redis seat-lock engine (ADR-039). OFF by default: the legacy
   // PostgreSQL hold path is unchanged and no Redis dependency is added to it. When
   // enabled, `shadow` observes/measures Redis locks without changing booking outcome
