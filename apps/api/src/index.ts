@@ -10,3 +10,5 @@ export { FinanceReconciliationService } from './payments/finance/finance-reconci
 export { StripeWebhookProcessor } from './payments/webhooks/stripe/stripe-webhook.processor';
 export { RazorpayWebhookProcessor } from './payments/razorpay/razorpay-webhook.processor';
 export { SettlementService } from './payments/settlement/settlement.service';
+export { SyncEventProcessor } from './inventory/sync/sync-event.processor';
+export { SyncPollingService } from './inventory/sync/sync-polling.service';

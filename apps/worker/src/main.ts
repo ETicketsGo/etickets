@@ -15,6 +15,8 @@ import {
   RazorpayWebhookProcessor,
   SettlementService,
   StripeWebhookProcessor,
+  SyncEventProcessor,
+  SyncPollingService,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
@@ -77,6 +79,9 @@ async function main(): Promise<void> {
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
+  const syncProcessor = app.get(SyncEventProcessor);
+  const syncPolling = app.get(SyncPollingService);
+  const SYNC_SWEEP_MS = Number(process.env.INVENTORY_SYNC_SWEEP_INTERVAL_MS ?? 30_000);
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
     Number.isFinite(RAW_WEBHOOK_MS) && RAW_WEBHOOK_MS > 0 ? RAW_WEBHOOK_MS : 15_000;
@@ -138,6 +143,23 @@ async function main(): Promise<void> {
     },
   );
 
+  // Frequent sweep for external inventory sync (retry/dead-letter safety net + polling).
+  // No-ops unless INVENTORY_SYNC_* flags are enabled.
+  await queue.add(
+    'inventory-sync-sweep',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(SYNC_SWEEP_MS) && SYNC_SWEEP_MS > 0 ? SYNC_SWEEP_MS : 30_000,
+      },
+      jobId: 'inventory-sync-sweep',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
   // Daily finance reconciliation — detects discrepancies into the triage queue.
   // Idempotent: detection dedupes open discrepancies for the same (env,type,ref).
   await queue.add(
@@ -188,6 +210,14 @@ async function main(): Promise<void> {
         }
         return summary;
       }
+      if (job.name === 'inventory-sync-sweep') {
+        // Safety-net sweep for durably-accepted sync events (retry/dead-letter) +
+        // pull-based polling. No-ops unless the INVENTORY_SYNC_* flags are enabled.
+        const swept = await syncProcessor.sweep();
+        const polled = await syncPolling.pollAll();
+        if (swept + polled > 0) log('info', 'inventory sync sweep', { swept, polled });
+        return { swept, polled };
+      }
       if (job.name === 'process-webhooks') {
         const stripe = await stripeWebhooks.processPending();
         const razorpay = await razorpayWebhooks.processPending();
@@ -211,6 +241,22 @@ async function main(): Promise<void> {
     },
     { connection: redisConnection },
   );
+
+  // Dedicated Worker for the durable inventory-sync queue. Jobs carry only a
+  // rawEventId; the processor reloads the event from PostgreSQL and claims it
+  // atomically. Idempotent + no-op when processing is disabled.
+  const syncWorker = new Worker(
+    'inventory-sync-events',
+    async (job) => {
+      const rawEventId = (job.data as { rawEventId?: string })?.rawEventId;
+      if (rawEventId) await syncProcessor.process(rawEventId);
+    },
+    { connection: redisConnection, concurrency: 8 },
+  );
+  syncWorker.on('failed', (job, err) => {
+    log('error', 'inventory-sync job failed', { jobId: job?.id, error: err.message });
+    capture(err, { jobId: job?.id ?? '-', jobName: 'inventory-sync' });
+  });
 
   worker.on('failed', (job, err) => {
     log('error', 'job failed', { jobId: job?.id, error: err.message });
@@ -283,6 +329,7 @@ async function main(): Promise<void> {
     log('info', 'shutting down', { signal });
     clearInterval(metricsTimer);
     await worker.close();
+    await syncWorker.close();
     await queue.close();
     await connection.quit().catch(() => undefined);
     health.close();
