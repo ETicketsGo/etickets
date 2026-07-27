@@ -475,11 +475,17 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
     );
   }
 
-  // Active distributed locking is not yet wired into the booking path (P5). Enabling it
-  // in production now has no safe effect and is rejected to avoid split-brain confusion.
-  if (isProdLike && cfg.INVENTORY_LOCKS_ENABLED && cfg.INVENTORY_LOCKS_MODE === 'active') {
+  // Active booking orchestration (ADR-042) needs inventory sourcing to resolve a provider.
+  if (cfg.BOOKING_ORCHESTRATOR_ENABLED && cfg.BOOKING_ORCHESTRATOR_MODE === 'active') {
+    if (!cfg.INVENTORY_SOURCING_ENABLED) {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active requires INVENTORY_SOURCING_ENABLED (the resolver selects the provider).',
+      );
+    }
+  } else if (isProdLike && cfg.INVENTORY_LOCKS_ENABLED && cfg.INVENTORY_LOCKS_MODE === 'active') {
+    // Active locking is only meaningful once active orchestration wires it in.
     errors.push(
-      '  - INVENTORY_LOCKS_MODE=active is not production-wired yet (P5); use shadow until active booking orchestration lands.',
+      '  - INVENTORY_LOCKS_MODE=active requires BOOKING_ORCHESTRATOR_MODE=active (booking path is not otherwise lock-wired).',
     );
   }
 

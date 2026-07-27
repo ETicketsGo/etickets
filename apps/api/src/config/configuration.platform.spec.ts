@@ -100,9 +100,21 @@ describe('platform config — unsafe combinations fail fast', () => {
     ).toThrow(/active/i);
   });
 
-  it('allows active-mode config in LOCAL for testing', () => {
+  it('allows active-mode config in LOCAL when the orchestrator is active', () => {
     expect(
-      withEnv(LOCAL_BASE, { INVENTORY_LOCKS_ENABLED: 'true', INVENTORY_LOCKS_MODE: 'active' }),
+      withEnv(LOCAL_BASE, {
+        BOOKING_ORCHESTRATOR_ENABLED: 'true',
+        BOOKING_ORCHESTRATOR_MODE: 'active',
+        INVENTORY_SOURCING_ENABLED: 'true',
+        INVENTORY_LOCKS_ENABLED: 'true',
+        INVENTORY_LOCKS_MODE: 'active',
+      }),
     ).not.toThrow();
+  });
+
+  it('rejects active booking orchestration without inventory sourcing enabled', () => {
+    expect(
+      withEnv(LOCAL_BASE, { BOOKING_ORCHESTRATOR_ENABLED: 'true', BOOKING_ORCHESTRATOR_MODE: 'active' }),
+    ).toThrow(/SOURCING/i);
   });
 });
