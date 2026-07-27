@@ -43,6 +43,7 @@ import { AiModule } from './ai/ai.module';
 import { AiGrowthModule } from './ai-growth/ai-growth.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
+import { InventorySourcingModule } from './inventory/sourcing/inventory-sourcing.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -98,6 +99,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     AiGrowthModule,
     DiscoveryModule,
     RecommendationsModule,
+    InventorySourcingModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
