@@ -17,6 +17,8 @@ import {
   StripeWebhookProcessor,
   SyncEventProcessor,
   SyncPollingService,
+  OutboxDispatcher,
+  OutboxRetentionService,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
@@ -81,6 +83,10 @@ async function main(): Promise<void> {
   const settlements = app.get(SettlementService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
+  const outboxDispatcher = app.get(OutboxDispatcher);
+  const outboxRetention = app.get(OutboxRetentionService);
+  const OUTBOX_POLL_MS = Number(process.env.DOMAIN_EVENT_OUTBOX_POLL_INTERVAL_MS ?? 1000);
+  const OUTBOX_MAINT_MS = Number(process.env.OUTBOX_MAINTENANCE_INTERVAL_MS ?? 60_000);
   const SYNC_SWEEP_MS = Number(process.env.INVENTORY_SYNC_SWEEP_INTERVAL_MS ?? 30_000);
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
@@ -160,6 +166,36 @@ async function main(): Promise<void> {
     },
   );
 
+  // Transactional-outbox dispatch (ADR-041). Claims + delivers durable domain events.
+  // No-op unless DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED. Also periodically recovers stale
+  // leases + runs (disabled-by-default) retention.
+  await queue.add(
+    'outbox-dispatch',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(OUTBOX_POLL_MS) && OUTBOX_POLL_MS > 0 ? OUTBOX_POLL_MS : 1000,
+      },
+      jobId: 'outbox-dispatch',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 1,
+    },
+  );
+  await queue.add(
+    'outbox-maintenance',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(OUTBOX_MAINT_MS) && OUTBOX_MAINT_MS > 0 ? OUTBOX_MAINT_MS : 60_000,
+      },
+      jobId: 'outbox-maintenance',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 1,
+    },
+  );
+
   // Daily finance reconciliation — detects discrepancies into the triage queue.
   // Idempotent: detection dedupes open discrepancies for the same (env,type,ref).
   await queue.add(
@@ -209,6 +245,19 @@ async function main(): Promise<void> {
           log('info', 'dispatched scheduled notifications', { ...summary });
         }
         return summary;
+      }
+      if (job.name === 'outbox-dispatch') {
+        const r = await outboxDispatcher.dispatchBatch();
+        if (r.claimed > 0) log('info', 'outbox dispatch', { ...r });
+        return r;
+      }
+      if (job.name === 'outbox-maintenance') {
+        const recovered = await outboxDispatcher.recoverStaleLeases();
+        const purged = await outboxRetention.purge();
+        if (recovered > 0 || purged.deliveredPurged + purged.deadLetterPurged > 0) {
+          log('info', 'outbox maintenance', { recovered, ...purged });
+        }
+        return { recovered, ...purged };
       }
       if (job.name === 'inventory-sync-sweep') {
         // Safety-net sweep for durably-accepted sync events (retry/dead-letter) +
