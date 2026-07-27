@@ -1992,3 +1992,86 @@ model ProviderInventoryState {
   @@unique([providerCode, providerTenantId, externalSessionId])
   @@index([externalSessionId])
 }
+
+// ─── Transactional outbox + durable domain-event delivery (ADR-041, P2.1) ───
+
+enum OutboxStatus {
+  PENDING // recorded in the business tx; awaiting dispatch
+  PROCESSING // claimed by a dispatcher (leased)
+  DELIVERED // all required handlers completed
+  RETRYABLE_FAILURE // transient failure; will retry after availableAt
+  DEAD_LETTERED // exceeded max attempts — terminal, ops review
+  MANUAL_REVIEW // ambiguous/permanent-review — needs a human
+  CANCELLED // operator-cancelled (never delivered)
+}
+
+/// Durable outbox row written in the SAME PostgreSQL transaction as the business
+/// mutation (ADR-041). The dispatcher later claims and delivers it via the P2
+/// DomainEventBus with at-least-once semantics. Preserves the P2 DomainEvent envelope
+/// exactly. No secrets, card data, provider credentials, or unnecessary PII.
+model OutboxEvent {
+  id            String       @id @default(cuid())
+  eventId       String       @unique
+  eventType     String
+  eventVersion  Int
+  aggregateType String
+  aggregateId   String
+  occurredAt    DateTime
+  correlationId String?
+  causationId   String?
+  actorId       String?
+  tenantId      String?
+  payloadJson   Json
+  metadataJson  Json?
+  payloadHash   String
+  status        OutboxStatus @default(PENDING)
+  priority      Int          @default(0)
+  /// Shadow rows (dual_write_shadow mode) are recorded for comparison and NEVER
+  /// delivered to production handlers by the dispatcher.
+  shadow        Boolean      @default(false)
+  availableAt   DateTime     @default(now())
+  attemptCount  Int          @default(0)
+  maxAttempts   Int          @default(12)
+  lockedAt      DateTime?
+  lockedBy      String?
+  lockExpiresAt DateTime?
+  lastAttemptAt DateTime?
+  deliveredAt   DateTime?
+  failedAt      DateTime?
+  lastErrorCode String?
+  lastErrorMessage String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  // Claim ordering + stale-lease recovery + aggregate/correlation lookups.
+  @@index([status, availableAt, priority, createdAt])
+  @@index([aggregateType, aggregateId])
+  @@index([correlationId])
+  @@index([status, lockExpiresAt])
+}
+
+enum HandlerDeliveryStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// Durable per-handler idempotency (ADR-041). At-least-once delivery means a handler
+/// may be invoked more than once for the same eventId; the unique (eventId, handlerName)
+/// row makes the side effect run once. A COMPLETED row short-circuits redelivery; a
+/// FAILED row may be re-claimed for retry. Handler identity must be stable across
+/// deploys (renaming a handler is a migration concern).
+model ProcessedDomainEvent {
+  id           String                @id @default(cuid())
+  eventId      String
+  handlerName  String
+  status       HandlerDeliveryStatus @default(PROCESSING)
+  attemptCount Int                   @default(1)
+  processedAt  DateTime?
+  lastErrorCode String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@unique([eventId, handlerName])
+  @@index([eventId])
+}
