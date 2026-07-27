@@ -2075,3 +2075,65 @@ model ProcessedDomainEvent {
   @@unique([eventId, handlerName])
   @@index([eventId])
 }
+
+// ─── Provider-neutral booking orchestration (ADR-042, P5) ───
+
+enum BookingWorkflowState {
+  DRAFT
+  INVENTORY_RESOLVED
+  LOCK_PENDING
+  LOCKED
+  PAYMENT_PENDING
+  PAYMENT_AUTHORIZED
+  PROVIDER_CONFIRM_PENDING
+  PROVIDER_CONFIRMED
+  CONFIRMING
+  CONFIRMED
+  TICKET_PENDING
+  TICKET_ISSUED
+  CANCELLATION_PENDING
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+  EXPIRING
+  EXPIRED
+  COMPENSATION_PENDING
+  COMPENSATED
+  MANUAL_REVIEW
+  FAILED
+}
+
+/// Durable orchestration workflow for one booking (ADR-042). The orchestrator is the ONLY
+/// writer; every advance uses optimistic concurrency (`version`) so two workers/callbacks
+/// cannot advance the same workflow inconsistently. Holds durable lock identity (lockId +
+/// fencingToken) for full bidirectional reconciliation, the selected provider + ownership
+/// mode, and provider/payment references. No secrets or raw provider payloads.
+model BookingWorkflow {
+  id                   String               @id @default(cuid())
+  bookingId            String               @unique
+  workflowType         String               @default("BOOKING")
+  state                BookingWorkflowState @default(DRAFT)
+  version              Int                  @default(0)
+  selectedProviderCode String?
+  inventoryOwnershipMode InventoryOwnershipMode @default(LOCAL_AUTHORITATIVE)
+  lockId               String?
+  fencingToken         Int?
+  paymentProvider      String?
+  providerReservationId String?
+  providerBookingId    String?
+  providerStatus       String?
+  attemptCount         Int                  @default(0)
+  nextActionAt         DateTime?
+  lastErrorCode        String?
+  manualReviewReason   String?
+  correlationId        String?
+  /// Idempotency key from the initiating request (same key ⇒ same workflow/booking).
+  idempotencyKey       String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@unique([workflowType, idempotencyKey])
+  @@index([state, nextActionAt])
+  @@index([selectedProviderCode])
+  @@index([correlationId])
+}
