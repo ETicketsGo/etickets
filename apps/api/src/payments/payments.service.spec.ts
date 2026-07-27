@@ -84,10 +84,9 @@ function setup(opts: {
   const config = { get: jest.fn().mockReturnValue('LOCAL') };
   const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
   const razorpayOrders = { createOrder: jest.fn(), verify: jest.fn() };
-  const events = {
-    publish: jest.fn().mockResolvedValue(undefined),
-    publishMany: jest.fn(),
-    subscribe: jest.fn(),
+  const eventPublisher = {
+    recordInTransaction: jest.fn().mockResolvedValue(0),
+    deliverAfterCommit: jest.fn().mockResolvedValue(undefined),
   };
 
   const service = new PaymentsService(
@@ -104,9 +103,19 @@ function setup(opts: {
     config as never,
     settlements as never,
     razorpayOrders as never,
-    events as never,
+    eventPublisher as never,
   );
-  return { service, prisma, tx, strategy, provider, audit, notifications, inventory, events };
+  return {
+    service,
+    prisma,
+    tx,
+    strategy,
+    provider,
+    audit,
+    notifications,
+    inventory,
+    eventPublisher,
+  };
 }
 
 const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
@@ -129,7 +138,7 @@ const webhook = { rawBody: '{}', signature: 'sig' };
 
 describe('PaymentsService.confirm (via handleWebhook)', () => {
   it('confirms a pending booking: issues N tickets, marks SUCCEEDED, records attempt', async () => {
-    const { service, tx, prisma, notifications, audit, events } = setup({
+    const { service, tx, prisma, notifications, audit, eventPublisher } = setup({
       booking: pendingBooking(),
       claimCount: 1,
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -177,17 +186,19 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(notifications.send).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledTimes(1);
-    // ADR-038 proof slice: the BookingConfirmed domain fact is published exactly once,
-    // after commit, with a PII-free payload.
-    expect(events.publish).toHaveBeenCalledTimes(1);
-    const published = (events.publish as jest.Mock).mock.calls[0][0];
-    expect(published).toMatchObject({
+    // ADR-041 proof slice: the BookingConfirmed fact is recorded IN the confirm tx
+    // (durable in outbox mode; no-op in_process) and delivered exactly once after commit,
+    // with a PII-free payload.
+    expect(eventPublisher.recordInTransaction).toHaveBeenCalledTimes(1);
+    expect(eventPublisher.deliverAfterCommit).toHaveBeenCalledTimes(1);
+    const recorded = (eventPublisher.recordInTransaction as jest.Mock).mock.calls[0][1][0];
+    expect(recorded).toMatchObject({
       eventType: 'booking.confirmed',
       aggregateType: 'Booking',
       aggregateId: 'b1',
       payload: expect.objectContaining({ bookingId: 'b1', ticketCount: 2 }),
     });
-    expect(published.payload).not.toHaveProperty('buyerEmail');
+    expect(recorded.payload).not.toHaveProperty('buyerEmail');
   });
 
   it('increments the coupon redemption count when the booking used a coupon', async () => {
@@ -206,7 +217,7 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
   });
 
   it('is idempotent: a concurrent re-delivery (claim count 0) issues no tickets', async () => {
-    const { service, tx, events } = setup({
+    const { service, tx, eventPublisher } = setup({
       booking: pendingBooking(),
       claimCount: 0, // another delivery already flipped it
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -218,8 +229,9 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(tx.ticket.create).not.toHaveBeenCalled();
     expect(tx.payment.update).not.toHaveBeenCalled();
     expect(tx.paymentAttempt.create).not.toHaveBeenCalled();
-    // No real confirm happened → no BookingConfirmed event (published exactly once).
-    expect(events.publish).not.toHaveBeenCalled();
+    // No real confirm happened → no outbox record + no delivery (recorded/delivered once).
+    expect(eventPublisher.recordInTransaction).not.toHaveBeenCalled();
+    expect(eventPublisher.deliverAfterCommit).not.toHaveBeenCalled();
   });
 
   it('returns already_confirmed for a pre-claim CONFIRMED booking without opening a tx', async () => {
