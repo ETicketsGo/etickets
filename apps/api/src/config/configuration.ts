@@ -408,6 +408,62 @@ function assertRazorpayConsistency(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Platform-foundation safety (ADR-037/039/040/041). Fails fast on unsafe feature-flag
+ * combinations so no deployment can half-activate a dangerous path. Runs in every
+ * environment for env-independent hazards; production-only for the rest.
+ */
+function assertPlatformConfigConsistency(cfg: AppConfig): void {
+  const isProdLike =
+    cfg.NODE_ENV === 'production' || ['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV);
+  const errors: string[] = [];
+
+  // The dev/test-only mock aggregator must NEVER run in production.
+  if (isProdLike && cfg.INVENTORY_SYNC_MOCK_PROVIDER_ENABLED) {
+    errors.push(
+      '  - INVENTORY_SYNC_MOCK_PROVIDER_ENABLED must be false in production (dev/test only).',
+    );
+  }
+
+  // Enabling inventory sync ingress/processing with no allowlist accepts nothing and is
+  // always a misconfiguration (every env).
+  const syncActive =
+    cfg.INVENTORY_SYNC_ENABLED &&
+    (cfg.INVENTORY_SYNC_WEBHOOKS_ENABLED ||
+      cfg.INVENTORY_SYNC_POLLING_ENABLED ||
+      cfg.INVENTORY_SYNC_PROCESSING_ENABLED);
+  const allowlistEmpty = !(cfg.INVENTORY_SYNC_PROVIDER_ALLOWLIST ?? '').trim();
+  if (syncActive && allowlistEmpty) {
+    errors.push(
+      '  - INVENTORY_SYNC_* is enabled but INVENTORY_SYNC_PROVIDER_ALLOWLIST is empty — no provider can be accepted.',
+    );
+  }
+
+  // outbox mode with the dispatcher off silently accrues undelivered events in prod.
+  // (Lower envs may record-only for rollout testing; dual_write_shadow is preferred.)
+  if (
+    isProdLike &&
+    cfg.DOMAIN_EVENT_DELIVERY_MODE === 'outbox' &&
+    !cfg.DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED
+  ) {
+    errors.push(
+      '  - DOMAIN_EVENT_DELIVERY_MODE=outbox requires DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED in production (else events never deliver).',
+    );
+  }
+
+  // Active distributed locking is not yet wired into the booking path (P5). Enabling it
+  // in production now has no safe effect and is rejected to avoid split-brain confusion.
+  if (isProdLike && cfg.INVENTORY_LOCKS_ENABLED && cfg.INVENTORY_LOCKS_MODE === 'active') {
+    errors.push(
+      '  - INVENTORY_LOCKS_MODE=active is not production-wired yet (P5); use shadow until active booking orchestration lands.',
+    );
+  }
+
+  if (errors.length) {
+    throw new Error(`Unsafe platform configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -418,5 +474,6 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertRazorpayConsistency(parsed.data);
+  assertPlatformConfigConsistency(parsed.data);
   return parsed.data;
 }
