@@ -101,6 +101,30 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
 
+  // Provider-neutral booking orchestrator (ADR-042, P5). OFF by default: the legacy
+  // BookingsService/PaymentsService path is authoritative and unchanged. `shadow`
+  // records a durable BookingWorkflow alongside the legacy path WITHOUT any duplicate
+  // payment/inventory/provider side effect; `active` (later) routes booking decisions
+  // through the orchestrator. Provider-confirmation / compensation / reconciliation are
+  // separately gated so no single flag half-activates an unsafe path.
+  BOOKING_ORCHESTRATOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_ORCHESTRATOR_MODE: z.enum(['shadow', 'active']).default('shadow'),
+  BOOKING_PROVIDER_CONFIRMATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
   // Distributed Redis seat-lock engine (ADR-039). OFF by default: the legacy
   // PostgreSQL hold path is unchanged and no Redis dependency is added to it. When
   // enabled, `shadow` observes/measures Redis locks without changing booking outcome
