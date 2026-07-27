@@ -27,6 +27,8 @@ export class MetricsService {
   private readonly slowQueries: Counter;
   private readonly paymentWebhooks: Counter<'provider' | 'result'>;
   private readonly paymentReconciliations: Counter<'result'>;
+  private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
+  private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
 
   constructor() {
     this.registry = new Registry();
@@ -115,6 +117,20 @@ export class MetricsService {
       help: 'Total Prisma queries whose duration exceeded SLOW_QUERY_MS.',
       registers: [this.registry],
     });
+
+    this.domainEventsPublished = new Counter({
+      name: 'etg_domain_events_published_total',
+      help: 'Domain events published, by event type and outcome (ADR-038).',
+      labelNames: ['event_type', 'result'],
+      registers: [this.registry],
+    });
+    this.domainEventHandlerDuration = new Histogram({
+      name: 'etg_domain_event_handler_duration_seconds',
+      help: 'Domain event handler execution duration in seconds, by event type, handler and result.',
+      labelNames: ['event_type', 'handler', 'result'],
+      buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -198,6 +214,29 @@ export class MetricsService {
       this.httpRequests.inc(labels);
       this.httpDuration.observe(labels, durationSeconds);
     });
+  }
+
+  /**
+   * Record a domain event publication outcome (ADR-038). `result` is one of
+   * ok | no_handler | disabled | invalid — never any event payload/PII.
+   */
+  recordDomainEventPublished(eventType: string, result: string): void {
+    this.safe(() => this.domainEventsPublished.inc({ event_type: eventType, result }));
+  }
+
+  /** Record one domain event handler run: duration (seconds) + result (ok|error|skipped). */
+  recordDomainEventHandler(
+    eventType: string,
+    handler: string,
+    result: string,
+    durationSeconds: number,
+  ): void {
+    this.safe(() =>
+      this.domainEventHandlerDuration.observe(
+        { event_type: eventType, handler, result },
+        durationSeconds,
+      ),
+    );
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

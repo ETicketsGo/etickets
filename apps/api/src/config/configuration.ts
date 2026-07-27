@@ -61,6 +61,17 @@ const envSchema = z.object({
   // prefers LOCAL authoritative stock before any external source.
   INVENTORY_PROVIDER_PRIORITY: z.string().optional(),
 
+  // Domain event bus (ADR-038). OFF by default: the bus + handlers are wired via DI,
+  // but publish() is a no-op until enabled, so no handler runs and core booking
+  // correctness is unaffected. Turning it on only activates observers of facts.
+  DOMAIN_EVENTS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Per-handler execution timeout (ms) for the in-process bus. A handler exceeding
+  // this is abandoned as a failure (isolated + logged), never blocking other handlers.
+  DOMAIN_EVENT_HANDLER_TIMEOUT_MS: z.coerce.number().default(5000),
+
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 
