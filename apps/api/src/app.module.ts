@@ -47,6 +47,7 @@ import { InventorySourcingModule } from './inventory/sourcing/inventory-sourcing
 import { DomainEventsModule } from './common/domain-events/domain-events.module';
 import { InventoryLockingModule } from './inventory/locking/inventory-locking.module';
 import { InventorySyncModule } from './inventory/sync/inventory-sync.module';
+import { BookingOrchestrationModule } from './bookings/orchestration/booking-orchestration.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -106,6 +107,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     DomainEventsModule,
     InventoryLockingModule,
     InventorySyncModule,
+    BookingOrchestrationModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
