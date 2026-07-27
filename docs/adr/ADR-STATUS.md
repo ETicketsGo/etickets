@@ -24,6 +24,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 022 | Recommendation strategy |
 | 023 | Analytics platform |
 | 036 | Asymmetric QR signing |
+| 037 | Inventory sourcing providers |
 
 ## Referenced in code/docs but not yet written up (024–035)
 These numbers appear in source comments (e.g. `configuration.ts` cites ADR-024/028/035;
