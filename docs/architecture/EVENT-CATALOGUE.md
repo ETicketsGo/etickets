@@ -56,3 +56,20 @@ correlation and sets causation.
 At-least-once ⇒ handlers with external side effects must dedupe by
 `eventId + handlerName` (`idempotencyKey()` + `ProcessedEventStore`). A durable store
 arrives with the P2.1 outbox.
+
+## Durable delivery classification (ADR-041)
+
+When `DOMAIN_EVENT_DELIVERY_MODE=outbox`, events are recorded transactionally and
+delivered by the dispatcher at-least-once. Handlers must be idempotent.
+
+| Event               | Durable delivery                                        | Handler(s)           | Handler idempotent?                       | Handler identity                 | Retry class                | Max latency             | PII                              | Ordering                                  |
+| ------------------- | ------------------------------------------------------- | -------------------- | ----------------------------------------- | -------------------------------- | -------------------------- | ----------------------- | -------------------------------- | ----------------------------------------- |
+| `booking.confirmed` | Yes (proof slice)                                       | BookingEventRecorder | Yes (durable `(eventId, handlerName)`)    | `domain-events.booking-recorder` | retryable → dead-letter@12 | seconds (poll interval) | None (ids/counts/amount-strings) | per-aggregate (Booking) in creation order |
+| all other events    | Not yet routed durably (in-process only until migrated) | —                    | must be idempotent before durable routing | stable class name                | retryable default          | —                       | none in payloads                 | per-aggregate                             |
+
+**Rules:** delivery is at-least-once — every durable handler MUST deduplicate by
+`eventId + handlerName` (enforced by `ProcessedDomainEvent`). Handler identity must be
+stable across deploys (renaming a handler is a migration). Same-aggregate events deliver
+in creation order; different aggregates are concurrent. Payloads never carry secrets/PII.
+Only `booking.confirmed` is migrated to durable delivery in P2.1; others stay in-process
+until individually verified idempotent (rollout phases in ADR-041).

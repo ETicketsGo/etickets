@@ -5,6 +5,7 @@
 - **Deciders:** Principal Architect
 - **Relates to:** ADR-009 (Experience Platform), ADR-010 (Inventory Strategy), ADR-037 (Inventory Sourcing Providers)
 - **Scope:** P2 of the Enterprise Inventory Platform evolution — the domain event bus foundation only
+- **Extended by:** [ADR-041](ADR-041-transactional-outbox.md) adds the durable transactional outbox (`DOMAIN_EVENT_DELIVERY_MODE=outbox`) that closes the post-commit crash window described below as a P2.1 limitation. The in-process path here remains the default.
 
 ## Context (repository findings)
 
