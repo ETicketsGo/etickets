@@ -93,6 +93,43 @@ export class InProcessDomainEventBus implements DomainEventBus {
     this.record(event, 'ok');
   }
 
+  /** Stable handler identities registered for an event type (for durable delivery). */
+  handlersFor(eventType: string): string[] {
+    return (this.registrations.get(eventType) ?? []).map((r) => r.name);
+  }
+
+  /**
+   * Execute ONE named handler for an event with the same version gate + timeout +
+   * observation as the in-process path, returning a durable result (ADR-041). The
+   * outbox durable-delivery adapter uses this to run each handler under per-handler
+   * idempotency; unlike `publish`, this surfaces success/failure to the caller.
+   */
+  async executeHandler(
+    eventType: string,
+    handlerName: string,
+    event: DomainEvent,
+  ): Promise<{ ok: boolean; skipped: boolean; errorMessage?: string }> {
+    const reg = (this.registrations.get(eventType) ?? []).find((r) => r.name === handlerName);
+    if (!reg) return { ok: false, skipped: true, errorMessage: 'handler_not_registered' };
+    if (reg.versions && !reg.versions.includes(event.eventVersion)) {
+      this.metrics.recordDomainEventHandler(eventType, handlerName, 'skipped', 0);
+      return { ok: true, skipped: true };
+    }
+    const startedAt = Date.now();
+    try {
+      await this.withTimeout(reg.handler.handle(event), reg.name, event);
+      this.observe(event, reg.name, 'ok', startedAt);
+      return { ok: true, skipped: false };
+    } catch (err) {
+      this.observe(event, reg.name, 'error', startedAt);
+      return {
+        ok: false,
+        skipped: false,
+        errorMessage: err instanceof Error ? err.message : 'unknown',
+      };
+    }
+  }
+
   private async runHandler(event: DomainEvent, reg: Registration): Promise<void> {
     // Version gate: a handler that declared supported versions never receives an
     // unknown version — it is skipped visibly (warn + metric), never silently.
