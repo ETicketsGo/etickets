@@ -72,6 +72,33 @@ const envSchema = z.object({
   // this is abandoned as a failure (isolated + logged), never blocking other handlers.
   DOMAIN_EVENT_HANDLER_TIMEOUT_MS: z.coerce.number().default(5000),
 
+  // Distributed Redis seat-lock engine (ADR-039). OFF by default: the legacy
+  // PostgreSQL hold path is unchanged and no Redis dependency is added to it. When
+  // enabled, `shadow` observes/measures Redis locks without changing booking outcome
+  // (PostgreSQL stays authoritative); `active` would gate acquisition (not the P3
+  // proof path). PostgreSQL is ALWAYS the final source of truth.
+  INVENTORY_LOCKS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_LOCKS_MODE: z.enum(['shadow', 'active']).default('shadow'),
+  // TTL for a fresh lock (fast Redis expiration of temporary ownership).
+  INVENTORY_LOCK_TTL_SECONDS: z.coerce.number().default(300),
+  // Renewal is only permitted once the remaining TTL is within this window.
+  INVENTORY_LOCK_RENEWAL_WINDOW_SECONDS: z.coerce.number().default(120),
+  // Hard cap on total lock lifetime from first acquisition — locks are never
+  // renewable forever (abuse control).
+  INVENTORY_LOCK_MAX_LIFETIME_SECONDS: z.coerce.number().default(900),
+  // Reconciliation sweep (Redis↔PostgreSQL mismatch detection). OFF by default.
+  INVENTORY_LOCK_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Abuse controls: max units per acquisition and max concurrent active locks/owner.
+  INVENTORY_LOCK_MAX_SEATS: z.coerce.number().default(10),
+  INVENTORY_LOCK_MAX_QUANTITY: z.coerce.number().default(20),
+  INVENTORY_LOCK_MAX_ACTIVE_PER_OWNER: z.coerce.number().default(20),
+
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 

@@ -29,6 +29,10 @@ export class MetricsService {
   private readonly paymentReconciliations: Counter<'result'>;
   private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
   private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
+  private readonly inventoryLockOps: Counter<'op' | 'outcome'>;
+  private readonly inventoryLockLatency: Histogram<'op'>;
+  private readonly inventoryLockContention: Counter<'inventory_type' | 'scope'>;
+  private readonly inventoryLockReconcile: Counter<'result'>;
 
   constructor() {
     this.registry = new Registry();
@@ -129,6 +133,32 @@ export class MetricsService {
       help: 'Domain event handler execution duration in seconds, by event type, handler and result.',
       labelNames: ['event_type', 'handler', 'result'],
       buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      registers: [this.registry],
+    });
+
+    this.inventoryLockOps = new Counter({
+      name: 'etg_inventory_lock_ops_total',
+      help: 'Inventory-lock operations by op (acquire|renew|release|confirm|validate|reconcile|redis) and outcome (ADR-039).',
+      labelNames: ['op', 'outcome'],
+      registers: [this.registry],
+    });
+    this.inventoryLockLatency = new Histogram({
+      name: 'etg_inventory_lock_op_duration_seconds',
+      help: 'Inventory-lock operation duration in seconds, by op.',
+      labelNames: ['op'],
+      buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
+      registers: [this.registry],
+    });
+    this.inventoryLockContention = new Counter({
+      name: 'etg_inventory_lock_contention_total',
+      help: 'Seat/quantity lock contention (conflict/capacity) by inventory type and safe scope id.',
+      labelNames: ['inventory_type', 'scope'],
+      registers: [this.registry],
+    });
+    this.inventoryLockReconcile = new Counter({
+      name: 'etg_inventory_lock_reconcile_total',
+      help: 'Reconciliation outcomes: mismatch | repaired | manual_review.',
+      labelNames: ['result'],
       registers: [this.registry],
     });
   }
@@ -237,6 +267,28 @@ export class MetricsService {
         durationSeconds,
       ),
     );
+  }
+
+  /** Record one inventory-lock operation outcome (ADR-039). Labels are PII-free. */
+  recordInventoryLockOp(op: string, outcome: string): void {
+    this.safe(() => this.inventoryLockOps.inc({ op, outcome }));
+  }
+
+  /** Record inventory-lock operation latency (seconds), by op. */
+  observeInventoryLockLatency(op: string, durationSeconds: number): void {
+    this.safe(() => this.inventoryLockLatency.observe({ op }, durationSeconds));
+  }
+
+  /** Record lock contention (conflict/capacity) for a safe inventory scope id. */
+  recordInventoryLockContention(inventoryType: string, scope: string): void {
+    this.safe(() => this.inventoryLockContention.inc({ inventory_type: inventoryType, scope }));
+  }
+
+  /** Record a reconciliation outcome: mismatch | repaired | manual_review. */
+  recordInventoryLockReconcile(result: string, count = 1): void {
+    this.safe(() => {
+      if (count > 0) this.inventoryLockReconcile.inc({ result }, count);
+    });
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
