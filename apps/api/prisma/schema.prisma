@@ -2129,6 +2129,7 @@ model BookingWorkflow {
   correlationId        String?
   /// Idempotency key from the initiating request (same key ⇒ same workflow/booking).
   idempotencyKey       String?
+  requestFingerprint   String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
