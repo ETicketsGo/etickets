@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import {
@@ -29,6 +29,11 @@ import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { SettlementService } from './settlement/settlement.service';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
+import {
+  DOMAIN_EVENT_BUS,
+  type DomainEventBus,
+  bookingConfirmedEvent,
+} from '../common/domain-events';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -52,7 +57,12 @@ export class PaymentsService {
     private readonly config: ConfigService,
     private readonly settlements: SettlementService,
     private readonly razorpayOrders: RazorpayOrderService,
+    // Provider-neutral domain event bus (ADR-038). Publishes the BookingConfirmed
+    // fact AFTER commit; publication is a no-op unless DOMAIN_EVENTS_ENABLED.
+    @Inject(DOMAIN_EVENT_BUS) private readonly events: DomainEventBus,
   ) {}
+
+  private readonly logger = new Logger(PaymentsService.name);
 
   /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
   private get isMarketplaceProvider(): boolean {
@@ -441,6 +451,27 @@ export class PaymentsService {
     // Accrue the organizer's proceeds into the event's settlement ledger (best-effort;
     // the event-completion sweep and admin view both re-sync).
     void this.settlements.onPaymentSucceeded(booking.eventId);
+
+    // Publish the BookingConfirmed domain fact AFTER commit (ADR-038 proof slice).
+    // Only the first delivery reaches here (alreadyConfirmed guard above), so it is
+    // published exactly once. Fully isolated: a domain-event fault must never affect
+    // booking confirmation, and the bus no-ops unless DOMAIN_EVENTS_ENABLED.
+    try {
+      await this.events.publish(
+        bookingConfirmedEvent({
+          bookingId: booking.id,
+          userId: booking.userId ?? 'guest',
+          experienceId: booking.eventId,
+          showId: booking.eventSessionId,
+          amount: String(booking.totalMinor),
+          currency: booking.currency,
+          ticketCount,
+          confirmedAt: new Date().toISOString(),
+        }),
+      );
+    } catch {
+      this.logger.error(`BookingConfirmed domain event publish failed for ${booking.id}`);
+    }
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
   }
 
