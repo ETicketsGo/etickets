@@ -1852,3 +1852,143 @@ model Dispute {
   @@index([status])
   @@index([paymentId])
 }
+
+// ─── External inventory synchronization platform (ADR-040, P4) ───
+
+enum SyncEventStatus {
+  RECEIVED // persisted, not yet verified/processed
+  VERIFIED // signature verified
+  REJECTED // failed security (signature/replay/size) — terminal
+  QUEUED // enqueued for async processing
+  PROCESSING // worker running
+  PROCESSED // applied successfully
+  RETRYABLE_FAILURE // transient failure; will retry
+  PERMANENT_FAILURE // unrecoverable schema/permanent error — terminal
+  DEAD_LETTERED // exceeded max attempts — terminal, ops review
+  MANUAL_REVIEW // ambiguous/ordering/mapping — needs a human
+  DUPLICATE // a re-delivery of an already-seen event
+}
+
+enum ProviderMappingStatus {
+  ACTIVE
+  UNMAPPED
+  AMBIGUOUS
+  DISABLED
+  DELETED
+  MANUAL_REVIEW
+}
+
+enum InventoryOwnershipMode {
+  LOCAL_AUTHORITATIVE
+  PROVIDER_AUTHORITATIVE
+  ALLOCATED
+}
+
+/// Durable, reprocessable raw external inventory event (ADR-040). Stores enough of the
+/// original event to reprocess, investigate, verify signatures, and reconcile. Raw
+/// payloads are never exposed to customers. Identity = (providerCode, providerTenantId,
+/// externalEventId); when the provider has no stable id, a deterministic idempotency key
+/// derived from normalized fields + payload hash is used (never the receipt timestamp).
+model RawProviderEvent {
+  id               String          @id @default(cuid())
+  providerCode     String
+  providerTenantId String          @default("")
+  externalEventId  String
+  eventType        String
+  eventVersion     Int?
+  externalEntityId String?
+  receivedAt       DateTime        @default(now())
+  providerOccurredAt DateTime?
+  signatureStatus  String          @default("UNVERIFIED")
+  processingStatus SyncEventStatus @default(RECEIVED)
+  attemptCount     Int             @default(0)
+  payloadHash      String
+  payloadJson      Json?
+  headersMetadata  Json?
+  correlationId    String?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  processedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([providerCode, providerTenantId, externalEventId])
+  @@index([processingStatus])
+  @@index([providerCode, eventType])
+  @@index([receivedAt])
+}
+
+/// Durable mapping of a provider entity to an ETicketsGo entity (ADR-040). A single
+/// provider external id maps to at most one internal record within a provider scope
+/// (the unique constraint). Ambiguity is never guessed — it is recorded as AMBIGUOUS /
+/// MANUAL_REVIEW and fails safe. `externalVersion` guards against stale/out-of-order
+/// updates. `ownershipMode` selects the sync rules that apply.
+model ProviderMapping {
+  id                 String                 @id @default(cuid())
+  providerCode       String
+  providerTenantId   String                 @default("")
+  externalEntityType String
+  externalEntityId   String
+  internalEntityType String?
+  internalEntityId   String?
+  externalVersion    Int?
+  ownershipMode      InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
+  lastProviderUpdatedAt DateTime?
+  lastSyncedAt       DateTime?
+  status             ProviderMappingStatus  @default(UNMAPPED)
+  mappingMetadata    Json?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@unique([providerCode, providerTenantId, externalEntityType, externalEntityId])
+  @@index([status])
+  @@index([internalEntityType, internalEntityId])
+}
+
+/// Durable polling checkpoint per (provider, tenant, resource). The cursor/watermark is
+/// only advanced AFTER all records in a page are durably accepted. A lease column
+/// records the current owner + expiry so only one node polls a resource at a time.
+model ProviderSyncCheckpoint {
+  id               String    @id @default(cuid())
+  providerCode     String
+  providerTenantId String    @default("")
+  resource         String
+  cursor           String?
+  watermark        DateTime?
+  lastSuccessfulPollAt DateTime?
+  nextPollAt       DateTime?
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  failureCount     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([providerCode, providerTenantId, resource])
+  @@index([nextPollAt])
+}
+
+/// Provider-imported ADVISORY inventory state for a mapped session (ADR-040 §14–16).
+/// This is an imported VIEW of provider-owned stock — it NEVER overwrites authoritative
+/// local inventory (ShowSeat / TicketInventory). `version` enforces monotonic ordering.
+model ProviderInventoryState {
+  id               String   @id @default(cuid())
+  providerCode     String
+  providerTenantId String   @default("")
+  externalSessionId String
+  ownershipMode    InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
+  /// Per-seat advisory state keyed by stable external seat id.
+  seatStates       Json?
+  layoutVersion    String?
+  providerRemaining Int?
+  providerCapacity  Int?
+  /// pending local provider-confirmations tracked separately from provider availability.
+  pendingLocal     Int      @default(0)
+  safetyBuffer     Int      @default(0)
+  version          Int      @default(0)
+  providerUpdatedAt DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([providerCode, providerTenantId, externalSessionId])
+  @@index([externalSessionId])
+}
