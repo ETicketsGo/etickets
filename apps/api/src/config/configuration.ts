@@ -99,6 +99,47 @@ const envSchema = z.object({
   INVENTORY_LOCK_MAX_QUANTITY: z.coerce.number().default(20),
   INVENTORY_LOCK_MAX_ACTIVE_PER_OWNER: z.coerce.number().default(20),
 
+  // External inventory synchronization platform (ADR-040). ALL default OFF; no sync
+  // path activates by default and existing behaviour is unchanged. Flags are granular
+  // so no single flag can half-activate an unsafe processing path.
+  INVENTORY_SYNC_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_WEBHOOKS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_POLLING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_PROCESSING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_AUTO_REPAIR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Comma-separated provider codes allowed to ingest (empty ⇒ none accepted).
+  INVENTORY_SYNC_PROVIDER_ALLOWLIST: z.string().optional(),
+  INVENTORY_SYNC_MAX_PAYLOAD_BYTES: z.coerce.number().default(262144),
+  INVENTORY_SYNC_EVENT_RETENTION_DAYS: z.coerce.number().default(30),
+  INVENTORY_SYNC_MAX_ATTEMPTS: z.coerce.number().default(6),
+  INVENTORY_SYNC_POLL_INTERVAL_SECONDS: z.coerce.number().default(300),
+  // Replay-window tolerance (seconds) for signed webhook timestamps.
+  INVENTORY_SYNC_REPLAY_WINDOW_SECONDS: z.coerce.number().default(300),
+  // Enables the feature-flagged, dev/test-only mock aggregator adapter.
+  INVENTORY_SYNC_MOCK_PROVIDER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 
