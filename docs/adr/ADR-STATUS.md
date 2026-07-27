@@ -25,6 +25,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 023 | Analytics platform |
 | 036 | Asymmetric QR signing |
 | 037 | Inventory sourcing providers |
+| 038 | Domain event bus and transaction-aware publication |
 
 ## Referenced in code/docs but not yet written up (024–035)
 These numbers appear in source comments (e.g. `configuration.ts` cites ADR-024/028/035;
