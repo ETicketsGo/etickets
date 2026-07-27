@@ -46,6 +46,10 @@ export class MetricsService {
   private readonly outboxDeliveryLatency: Histogram;
   private readonly outboxPollDuration: Histogram;
   private readonly outboxOps: Counter<'op'>;
+  private readonly bookingOrchestration: Counter<'op' | 'outcome'>;
+  private readonly bookingOrchestrationDuration: Histogram<'op'>;
+  private readonly bookingShadow: Counter<'outcome' | 'provider'>;
+  private readonly bookingShadowMismatch: Counter<'category'>;
 
   constructor() {
     this.registry = new Registry();
@@ -258,6 +262,34 @@ export class MetricsService {
       labelNames: ['op'],
       registers: [this.registry],
     });
+
+    // Booking orchestration (ADR-042). Bounded labels only — op + outcome + safe provider
+    // code + mismatch category; never booking/user/lock/payment ids.
+    this.bookingOrchestration = new Counter({
+      name: 'etg_booking_orchestration_total',
+      help: 'Booking orchestration operations by op (initiate|begin_payment|confirm|cancel|expire|retry|reconcile) and outcome.',
+      labelNames: ['op', 'outcome'],
+      registers: [this.registry],
+    });
+    this.bookingOrchestrationDuration = new Histogram({
+      name: 'etg_booking_orchestration_duration_seconds',
+      help: 'Booking orchestration op duration in seconds, by op.',
+      labelNames: ['op'],
+      buckets: [0.005, 0.025, 0.1, 0.5, 1, 2.5, 5],
+      registers: [this.registry],
+    });
+    this.bookingShadow = new Counter({
+      name: 'etg_booking_shadow_total',
+      help: 'Shadow booking observations by outcome and selected provider code.',
+      labelNames: ['outcome', 'provider'],
+      registers: [this.registry],
+    });
+    this.bookingShadowMismatch = new Counter({
+      name: 'etg_booking_shadow_mismatch_total',
+      help: 'Shadow booking divergences by category (ADR-042).',
+      labelNames: ['category'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -446,6 +478,20 @@ export class MetricsService {
   }
   recordOutboxOp(op: string, count = 1): void {
     this.safe(() => count > 0 && this.outboxOps.inc({ op }, count));
+  }
+
+  // ─── Booking orchestration (ADR-042) ───
+  recordBookingOrchestration(op: string, outcome: string): void {
+    this.safe(() => this.bookingOrchestration.inc({ op, outcome }));
+  }
+  observeBookingOrchestration(op: string, seconds: number): void {
+    this.safe(() => this.bookingOrchestrationDuration.observe({ op }, seconds));
+  }
+  recordBookingShadow(outcome: string, provider: string): void {
+    this.safe(() => this.bookingShadow.inc({ outcome, provider }));
+  }
+  recordBookingShadowMismatch(category: string): void {
+    this.safe(() => this.bookingShadowMismatch.inc({ category }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
