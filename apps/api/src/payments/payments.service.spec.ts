@@ -84,6 +84,11 @@ function setup(opts: {
   const config = { get: jest.fn().mockReturnValue('LOCAL') };
   const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
   const razorpayOrders = { createOrder: jest.fn(), verify: jest.fn() };
+  const events = {
+    publish: jest.fn().mockResolvedValue(undefined),
+    publishMany: jest.fn(),
+    subscribe: jest.fn(),
+  };
 
   const service = new PaymentsService(
     prisma as never,
@@ -99,8 +104,9 @@ function setup(opts: {
     config as never,
     settlements as never,
     razorpayOrders as never,
+    events as never,
   );
-  return { service, prisma, tx, strategy, provider, audit, notifications, inventory };
+  return { service, prisma, tx, strategy, provider, audit, notifications, inventory, events };
 }
 
 const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
@@ -123,7 +129,7 @@ const webhook = { rawBody: '{}', signature: 'sig' };
 
 describe('PaymentsService.confirm (via handleWebhook)', () => {
   it('confirms a pending booking: issues N tickets, marks SUCCEEDED, records attempt', async () => {
-    const { service, tx, prisma, notifications, audit } = setup({
+    const { service, tx, prisma, notifications, audit, events } = setup({
       booking: pendingBooking(),
       claimCount: 1,
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -171,6 +177,17 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(notifications.send).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledTimes(1);
+    // ADR-038 proof slice: the BookingConfirmed domain fact is published exactly once,
+    // after commit, with a PII-free payload.
+    expect(events.publish).toHaveBeenCalledTimes(1);
+    const published = (events.publish as jest.Mock).mock.calls[0][0];
+    expect(published).toMatchObject({
+      eventType: 'booking.confirmed',
+      aggregateType: 'Booking',
+      aggregateId: 'b1',
+      payload: expect.objectContaining({ bookingId: 'b1', ticketCount: 2 }),
+    });
+    expect(published.payload).not.toHaveProperty('buyerEmail');
   });
 
   it('increments the coupon redemption count when the booking used a coupon', async () => {
@@ -189,7 +206,7 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
   });
 
   it('is idempotent: a concurrent re-delivery (claim count 0) issues no tickets', async () => {
-    const { service, tx } = setup({
+    const { service, tx, events } = setup({
       booking: pendingBooking(),
       claimCount: 0, // another delivery already flipped it
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -201,6 +218,8 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(tx.ticket.create).not.toHaveBeenCalled();
     expect(tx.payment.update).not.toHaveBeenCalled();
     expect(tx.paymentAttempt.create).not.toHaveBeenCalled();
+    // No real confirm happened → no BookingConfirmed event (published exactly once).
+    expect(events.publish).not.toHaveBeenCalled();
   });
 
   it('returns already_confirmed for a pre-claim CONFIRMED booking without opening a tx', async () => {
