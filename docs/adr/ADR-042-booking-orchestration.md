@@ -1,6 +1,6 @@
 # ADR-042: Provider-Neutral Booking Orchestration
 
-- **Status:** Proposed (foundation shipped; full orchestrator in progress)
+- **Status:** Accepted (P5.1 local-authoritative orchestrator + shadow shipped; provider-authoritative/allocated/compensation in progress)
 - **Date:** 2026-07-27
 - **Deciders:** Principal Architect
 - **Builds on:** ADR-037 (sourcing), ADR-038 (events), ADR-039 (locking), ADR-040 (sync), ADR-041 (outbox)
@@ -114,12 +114,47 @@ detection; dynamic pricing; recommendation/loyalty; settlement redesign; general
 engine; Kafka/SNS/SQS/EventBridge; multi-region consensus; microservice extraction; full
 notification migration.
 
+## P5.1 — concrete local-authoritative orchestrator + shadow (shipped)
+
+`LocalBookingOrchestrator` implements the contract for **LOCAL_AUTHORITATIVE** inventory by
+COMPOSING existing seams (no duplicated logic): `InventoryResolver` (server-side provider
+selection; non-LOCAL → clear unsupported error, no fake success), `InventoryLockService`
+(active mode: acquire before the hold, release on hold failure, finalize after commit),
+`BookingsService.create` (the PostgreSQL hold), `PaymentsService.createIntent`
+(idempotent payment), `PaymentsService.processVerifiedEvent` (the existing atomic
+confirm + inventory + outbox `BookingConfirmed`, `alreadyConfirmed` preserved). A
+`BookingWorkflowRepository` drives every transition with optimistic concurrency (guarded
+`UPDATE … WHERE id+version+state`; lost race → idempotent replay or typed conflict) and
+idempotency (unique `(workflowType, idempotencyKey)` + request fingerprint → conflict on
+reuse-with-different-request). Local path: `DRAFT→INVENTORY_RESOLVED→LOCK_PENDING→LOCKED`
+(initiate) → `PAYMENT_PENDING` (beginPayment) → `PAYMENT_AUTHORIZED→CONFIRMING→CONFIRMED`
+(confirmPayment). `expire`/`cancel`/`retry`/`reconcile` coordinate the local workflow
+safely (unpaid cancel releases; paid cancel → refund-pending; confirmed never expired;
+reconciliation classifies local drift, never auto-refunds). **Shadow mode**
+(`BookingShadowObserver`, wired into `BookingsService.create`) observes provider
+resolution + workflow expectation with ZERO side effects and classifies mismatches; the
+P3 seat-lock shadow already covers lock observation. Startup validation: active
+orchestration requires `INVENTORY_SOURCING_ENABLED`; active locking requires active
+orchestration. Metrics `etg_booking_orchestration_*` + `etg_booking_shadow_*` (bounded
+labels, no ids).
+
+**Transaction boundaries:** the Redis lock is acquired/released OUTSIDE the PostgreSQL tx
+(compensation releases it if the hold tx fails); confirmation reuses the existing atomic
+`confirm` (inventory + booking + outbox in one tx — an outbox insert failure rolls the
+confirmation back); Redis finalize is post-commit and a cleanup failure is reconcilable,
+never a rollback.
+
+## Deferred to P5.2+
+
+Provider-authoritative + allocated flows; a mock provider-authoritative confirmation
+adapter; the full automated compensation matrix; full refund orchestration; the active
+booking API controller wiring + durable owner check; end-to-end active-mode integration/
+concurrency against real DB/Redis.
+
 ## Status / verification
 
-**Shipped in this increment (foundation):** state machine + transition engine + matrix
-(9 tests), typed contract + errors, `BookingWorkflow` model + migration
-`20260727204643`, feature flags + startup validation (11 config tests). tsc + prettier
-clean; migration applied. **In progress (next increments):** the orchestrator
-implementation (resolver/lock/payment/provider-confirm composition), the three flows,
-compensation, expiration/cancellation/refund coordination, reconciliation, health/metrics,
-shadow wiring, integration/concurrency tests, and the operational runbook.
+Foundation (9 transition tests) + P5.1 (repository optimistic-concurrency/idempotency,
+orchestrator initiate/beginPayment/confirmPayment + unsupported + compensation, shadow
+observer, config matrix — +31 tests). Full API suite **138 suites / 943 tests**; tsc +
+prettier clean; worker typecheck green; migrations `20260727204643` +
+`booking_workflow_fingerprint` applied.
