@@ -40,6 +40,12 @@ export class MetricsService {
   private readonly syncPoll: Counter<'provider' | 'outcome'>;
   private readonly syncReconcile: Counter<'outcome'>;
   private readonly providerHealth: Counter<'provider' | 'state'>;
+  private readonly outboxCreated: Counter<'outcome'>;
+  private readonly outboxDelivery: Counter<'event_type' | 'outcome'>;
+  private readonly outboxHandlerReplay: Counter<'event_type' | 'handler'>;
+  private readonly outboxDeliveryLatency: Histogram;
+  private readonly outboxPollDuration: Histogram;
+  private readonly outboxOps: Counter<'op'>;
 
   constructor() {
     this.registry = new Registry();
@@ -213,6 +219,45 @@ export class MetricsService {
       labelNames: ['provider', 'state'],
       registers: [this.registry],
     });
+
+    // Transactional outbox (ADR-041). Low-cardinality labels only (bounded event
+    // catalogue + handler registry + outcome) — never event/aggregate/booking/user ids.
+    this.outboxCreated = new Counter({
+      name: 'etg_outbox_created_total',
+      help: 'Outbox rows created (outcome: created | duplicate).',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+    this.outboxDelivery = new Counter({
+      name: 'etg_outbox_delivery_total',
+      help: 'Outbox delivery outcomes by event type (delivered|retryable_failure|dead_lettered|manual_review|claimed|stale_recovered|no_work).',
+      labelNames: ['event_type', 'outcome'],
+      registers: [this.registry],
+    });
+    this.outboxHandlerReplay = new Counter({
+      name: 'etg_outbox_handler_replay_total',
+      help: 'Idempotent handler replays skipped by durable idempotency, by event type + handler.',
+      labelNames: ['event_type', 'handler'],
+      registers: [this.registry],
+    });
+    this.outboxDeliveryLatency = new Histogram({
+      name: 'etg_outbox_delivery_latency_seconds',
+      help: 'Outbox event delivery latency in seconds.',
+      buckets: [0.005, 0.025, 0.1, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+    this.outboxPollDuration = new Histogram({
+      name: 'etg_outbox_poll_duration_seconds',
+      help: 'Outbox dispatcher poll+batch duration in seconds.',
+      buckets: [0.001, 0.01, 0.05, 0.25, 1, 5],
+      registers: [this.registry],
+    });
+    this.outboxOps = new Counter({
+      name: 'etg_outbox_ops_total',
+      help: 'Outbox operational events (op: stale_recovery | retry | cancel | manual_review | purge).',
+      labelNames: ['op'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -366,6 +411,41 @@ export class MetricsService {
   }
   recordProviderHealth(provider: string, state: string): void {
     this.safe(() => this.providerHealth.inc({ provider, state }));
+  }
+
+  // ─── Transactional outbox (ADR-041) ───
+  recordOutboxCreated(count: number): void {
+    this.safe(() => count > 0 && this.outboxCreated.inc({ outcome: 'created' }, count));
+  }
+  recordOutboxDuplicateInsert(count: number): void {
+    this.safe(() => count > 0 && this.outboxCreated.inc({ outcome: 'duplicate' }, count));
+  }
+  recordOutboxClaimed(count: number): void {
+    this.safe(
+      () =>
+        count > 0 && this.outboxDelivery.inc({ event_type: '_batch', outcome: 'claimed' }, count),
+    );
+  }
+  recordOutboxDelivery(eventType: string, outcome: string): void {
+    this.safe(() => this.outboxDelivery.inc({ event_type: eventType, outcome }));
+  }
+  recordOutboxHandlerReplay(eventType: string, handler: string): void {
+    this.safe(() => this.outboxHandlerReplay.inc({ event_type: eventType, handler }));
+  }
+  observeOutboxDeliveryLatency(seconds: number): void {
+    this.safe(() => this.outboxDeliveryLatency.observe(seconds));
+  }
+  observeOutboxPoll(seconds: number): void {
+    this.safe(() => this.outboxPollDuration.observe(seconds));
+  }
+  recordOutboxNoWorkPoll(): void {
+    this.safe(() => this.outboxDelivery.inc({ event_type: '_batch', outcome: 'no_work' }));
+  }
+  recordOutboxStaleRecovery(count: number): void {
+    this.safe(() => count > 0 && this.outboxOps.inc({ op: 'stale_recovery' }, count));
+  }
+  recordOutboxOp(op: string, count = 1): void {
+    this.safe(() => count > 0 && this.outboxOps.inc({ op }, count));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
