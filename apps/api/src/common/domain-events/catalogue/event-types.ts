@@ -33,6 +33,31 @@ export const DomainEventType = {
   SeatAvailabilityUpdated: 'seat_availability.updated',
   QuantityAvailabilityUpdated: 'quantity_availability.updated',
   ProviderMappingReviewRequired: 'provider.mapping_review_required',
+
+  // ── Provider-authoritative booking lifecycle (ADR-042 P5.3A) ──
+  BookingProviderReservationCreated: 'booking.provider_reservation_created',
+  BookingProviderReservationRejected: 'booking.provider_reservation_rejected',
+  BookingProviderReservationExpired: 'booking.provider_reservation_expired',
+  BookingProviderConfirmed: 'booking.provider_confirmed',
+  BookingProviderConfirmationAmbiguous: 'booking.provider_confirmation_ambiguous',
+  BookingProviderStatusRecovered: 'booking.provider_status_recovered',
+  BookingProviderCancelled: 'booking.provider_cancelled',
+  // ── Allocated inventory lifecycle (ADR-042 P5.3A) ──
+  BookingAllocationValidated: 'booking.allocation_validated',
+  BookingAllocationRejected: 'booking.allocation_rejected',
+  BookingAllocationConsumptionHeld: 'booking.allocation_consumption_held',
+  BookingAllocationConsumptionConfirmed: 'booking.allocation_consumption_confirmed',
+  BookingAllocationConsumptionReleased: 'booking.allocation_consumption_released',
+  BookingAllocationReconciliationRequired: 'booking.allocation_reconciliation_required',
+  // ── Compensation lifecycle (ADR-043 P5.3A) ──
+  BookingCompensationRequired: 'booking.compensation_required',
+  BookingCompensationPlanned: 'booking.compensation_planned',
+  BookingCompensationStarted: 'booking.compensation_started',
+  BookingCompensationCompleted: 'booking.compensation_completed',
+  BookingCompensationRetryScheduled: 'booking.compensation_retry_scheduled',
+  BookingCompensationFailed: 'booking.compensation_failed',
+  BookingCompensationDeadLettered: 'booking.compensation_dead_lettered',
+  BookingManualReviewRequired: 'booking.manual_review_required',
 } as const;
 
 export type DomainEventTypeName = (typeof DomainEventType)[keyof typeof DomainEventType];
@@ -63,6 +88,27 @@ export const DomainEventVersion: Record<DomainEventTypeName, number> = {
   [DomainEventType.SeatAvailabilityUpdated]: 1,
   [DomainEventType.QuantityAvailabilityUpdated]: 1,
   [DomainEventType.ProviderMappingReviewRequired]: 1,
+  [DomainEventType.BookingProviderReservationCreated]: 1,
+  [DomainEventType.BookingProviderReservationRejected]: 1,
+  [DomainEventType.BookingProviderReservationExpired]: 1,
+  [DomainEventType.BookingProviderConfirmed]: 1,
+  [DomainEventType.BookingProviderConfirmationAmbiguous]: 1,
+  [DomainEventType.BookingProviderStatusRecovered]: 1,
+  [DomainEventType.BookingProviderCancelled]: 1,
+  [DomainEventType.BookingAllocationValidated]: 1,
+  [DomainEventType.BookingAllocationRejected]: 1,
+  [DomainEventType.BookingAllocationConsumptionHeld]: 1,
+  [DomainEventType.BookingAllocationConsumptionConfirmed]: 1,
+  [DomainEventType.BookingAllocationConsumptionReleased]: 1,
+  [DomainEventType.BookingAllocationReconciliationRequired]: 1,
+  [DomainEventType.BookingCompensationRequired]: 1,
+  [DomainEventType.BookingCompensationPlanned]: 1,
+  [DomainEventType.BookingCompensationStarted]: 1,
+  [DomainEventType.BookingCompensationCompleted]: 1,
+  [DomainEventType.BookingCompensationRetryScheduled]: 1,
+  [DomainEventType.BookingCompensationFailed]: 1,
+  [DomainEventType.BookingCompensationDeadLettered]: 1,
+  [DomainEventType.BookingManualReviewRequired]: 1,
 };
 
 /** Envelope fields a producer may attach to any catalogue event (all optional). */
