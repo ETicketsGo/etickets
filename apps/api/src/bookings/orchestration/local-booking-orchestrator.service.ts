@@ -351,6 +351,54 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     return { bookingId: request.bookingId, workflowState: w.state as WS };
   }
 
+  /**
+   * Reconcile booking workflows to EXPIRED after the durable hold-expiration sweep has
+   * ALREADY released inventory authoritatively (ADR-042 §4/§19, P5.2B). Runs in an explicit
+   * INTERNAL context — never a customer path — and is idempotent: it only advances workflows
+   * whose booking is already EXPIRED, never touches CONFIRMED bookings, releases a surviving
+   * Redis lock, and tolerates concurrent sweeps (guarded transitions). A workflow-transition
+   * failure is observable (metric) and left for the next sweep/reconciliation — it never
+   * re-releases inventory. No-op when there are no active-mode workflows.
+   */
+  async sweepExpiredWorkflows(limit = 200): Promise<{ scanned: number; expired: number }> {
+    const ctx = this.owners.internal('hold-expiry-worker');
+    const activePre: WS[] = [
+      WS.DRAFT,
+      WS.INVENTORY_RESOLVED,
+      WS.LOCK_PENDING,
+      WS.LOCKED,
+      WS.PAYMENT_PENDING,
+      WS.PAYMENT_AUTHORIZED,
+    ];
+    const candidates = await this.prisma.bookingWorkflow.findMany({
+      where: { state: { in: activePre }, NOT: { bookingId: { startsWith: 'pending-' } } },
+      orderBy: { updatedAt: 'asc' },
+      take: Math.min(limit, 500),
+      select: { bookingId: true },
+    });
+    let expired = 0;
+    for (const wf of candidates) {
+      const booking = await this.prisma.booking
+        .findUnique({ where: { id: wf.bookingId }, select: { status: true } })
+        .catch(() => null);
+      // Only follow the AUTHORITATIVE PostgreSQL decision; never expire a booking the sweep
+      // did not already expire, and never a confirmed one.
+      if (booking?.status !== 'EXPIRED') continue;
+      try {
+        const res = await this.expire({ bookingId: wf.bookingId });
+        if (oneOf(res.workflowState, [WS.EXPIRED, WS.EXPIRING])) expired++;
+      } catch {
+        this.metrics.recordBookingOrchestration('expire_sweep', 'transition_failed');
+        // Left for the next sweep — inventory is already released authoritatively.
+      }
+    }
+    if (candidates.length > 0) {
+      this.metrics.recordBookingOrchestration('expire_sweep', 'ok');
+      this.logger.log(`expiry sweep by ${ctx.actor}: scanned=${candidates.length} expired=${expired}`);
+    }
+    return { scanned: candidates.length, expired };
+  }
+
   async retry(request: RetryBookingWorkflowRequest): Promise<BookingOrchestrationResult> {
     const workflow = await this.requireWorkflow(request.bookingId);
     // Only explicitly-retryable local steps advance; terminal/ambiguous states are returned as-is.

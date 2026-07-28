@@ -8,6 +8,7 @@ import {
   AppModule,
   AuthService,
   BookingsService,
+  LocalBookingOrchestrator,
   EventsService,
   FinanceReconciliationService,
   NotificationService,
@@ -73,6 +74,7 @@ function log(
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const bookings = app.get(BookingsService);
+  const bookingOrchestrator = app.get(LocalBookingOrchestrator);
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
@@ -281,6 +283,18 @@ async function main(): Promise<void> {
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();
       if (released > 0) log('info', 'released expired holds', { released });
+      // ADR-042 §4/§19 (P5.2B): AFTER the authoritative PostgreSQL release, reconcile any
+      // booking workflows to EXPIRED (active mode only; idempotent; never re-releases
+      // inventory, never expires a confirmed booking). Isolated so a workflow lag never
+      // undoes the release.
+      try {
+        const swept = await bookingOrchestrator.sweepExpiredWorkflows();
+        if (swept.expired > 0) log('info', 'expired booking workflows', swept);
+      } catch (err) {
+        log('warn', 'workflow expiry sweep failed (reconcilable)', {
+          error: (err as Error).message,
+        });
+      }
       const completed = await events.completePastEvents();
       if (completed > 0) log('info', 'completed past events', { completed });
       // Promote settlements whose event has just completed to ELIGIBLE (awaiting approval).

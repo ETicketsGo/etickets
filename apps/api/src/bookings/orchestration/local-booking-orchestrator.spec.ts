@@ -97,7 +97,7 @@ function make(
     owners,
     bridge,
   );
-  return { orch, resolver, locks, bookings, payments, workflows, store };
+  return { orch, resolver, locks, bookings, payments, workflows, prisma, store };
 }
 
 const initReq = {
@@ -187,7 +187,7 @@ describe('LocalBookingOrchestrator durable ownership', () => {
     expect(payments.createIntent).not.toHaveBeenCalled();
   });
 
-  it('cancel rejects a foreign anonymous session', async () => {
+  it('cancel rejects a foreign anonymous session (before use)', async () => {
     const { orch, store } = make();
     store.state = WS.LOCKED;
     store.ownerType = 'ANONYMOUS_SESSION';
@@ -199,5 +199,45 @@ describe('LocalBookingOrchestrator durable ownership', () => {
         requestOwner: { ownerType: 'ANONYMOUS_SESSION', ownerId: 'sessionHashB' },
       }),
     ).rejects.toBeInstanceOf(AppException);
+  });
+});
+
+describe('LocalBookingOrchestrator.sweepExpiredWorkflows (worker expiration, P5.2B)', () => {
+  it('advances only workflows whose booking PostgreSQL status is already EXPIRED', async () => {
+    const { orch, prisma } = make();
+    (prisma.bookingWorkflow.findMany as jest.Mock).mockResolvedValue([{ bookingId: 'b1' }]);
+    (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ status: 'EXPIRED' });
+    const spy = jest
+      .spyOn(orch, 'expire')
+      .mockResolvedValue({ bookingId: 'b1', workflowState: WS.EXPIRED });
+    const res = await orch.sweepExpiredWorkflows();
+    expect(res).toEqual({ scanned: 1, expired: 1 });
+    expect(spy).toHaveBeenCalledWith({ bookingId: 'b1' });
+  });
+
+  it('never expires a booking the authoritative sweep did not expire (e.g. still confirmed/pending)', async () => {
+    const { orch, prisma } = make();
+    (prisma.bookingWorkflow.findMany as jest.Mock).mockResolvedValue([{ bookingId: 'b1' }]);
+    (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ status: 'CONFIRMED' });
+    const spy = jest.spyOn(orch, 'expire');
+    const res = await orch.sweepExpiredWorkflows();
+    expect(res).toEqual({ scanned: 1, expired: 0 });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when there are no active-mode workflows', async () => {
+    const { orch, prisma } = make();
+    (prisma.bookingWorkflow.findMany as jest.Mock).mockResolvedValue([]);
+    const res = await orch.sweepExpiredWorkflows();
+    expect(res).toEqual({ scanned: 0, expired: 0 });
+  });
+
+  it('a per-workflow transition failure is swallowed and left reconcilable', async () => {
+    const { orch, prisma } = make();
+    (prisma.bookingWorkflow.findMany as jest.Mock).mockResolvedValue([{ bookingId: 'b1' }]);
+    (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ status: 'EXPIRED' });
+    jest.spyOn(orch, 'expire').mockRejectedValue(new Error('workflow conflict'));
+    const res = await orch.sweepExpiredWorkflows();
+    expect(res).toEqual({ scanned: 1, expired: 0 });
   });
 });
