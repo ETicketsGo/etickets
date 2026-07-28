@@ -140,6 +140,33 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  // Booking compensation foundation (ADR-043, P5.3A). ALL default OFF. Planning creates durable
+  // records; execution runs only SAFE non-financial actions; money-moving auto flags are
+  // additionally gated and rejected in production by startup validation.
+  BOOKING_COMPENSATION_PLANNING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_EXECUTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_VOID_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(5),
+  BOOKING_COMPENSATION_LEASE_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
+  BOOKING_COMPENSATION_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  BOOKING_COMPENSATION_MANUAL_REVIEW_THRESHOLD: z.coerce.number().int().min(1).max(50).default(3),
   BOOKING_RECONCILIATION_ENABLED: z
     .string()
     .optional()
@@ -555,6 +582,32 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
   if (cfg.BOOKING_ALLOCATED_INVENTORY_ENABLED && !cfg.INVENTORY_SOURCING_ENABLED) {
     errors.push(
       '  - BOOKING_ALLOCATED_INVENTORY_ENABLED requires INVENTORY_SOURCING_ENABLED (allocation resolution).',
+    );
+  }
+
+  // Compensation foundation (ADR-043 §21, P5.3A). No half-activated or unsafe money movement.
+  if (cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED && !cfg.BOOKING_COMPENSATION_PLANNING_ENABLED) {
+    errors.push(
+      '  - BOOKING_COMPENSATION_EXECUTION_ENABLED requires BOOKING_COMPENSATION_PLANNING_ENABLED.',
+    );
+  }
+  if (cfg.BOOKING_COMPENSATION_PLANNING_ENABLED && !cfg.BOOKING_COMPENSATION_ENABLED) {
+    errors.push('  - BOOKING_COMPENSATION_PLANNING_ENABLED requires BOOKING_COMPENSATION_ENABLED.');
+  }
+  const anyAutoMoney =
+    cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED ||
+    cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED ||
+    cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED;
+  if (anyAutoMoney && !cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED) {
+    errors.push(
+      '  - Automatic refund/void/provider-cancel requires BOOKING_COMPENSATION_EXECUTION_ENABLED.',
+    );
+  }
+  // P5.3A: automatic money movement + confirmed-booking cancellation are NOT permitted in
+  // production (deferred to P5.3B after policy + staging + idempotency proof).
+  if (isProdLike && anyAutoMoney) {
+    errors.push(
+      '  - Automatic refund/void/provider-cancel is not permitted in production in P5.3A (deferred to P5.3B).',
     );
   }
 

@@ -56,6 +56,8 @@ export class MetricsService {
   private readonly providerBooking: Counter<'op' | 'outcome' | 'provider'>;
   private readonly providerBookingDuration: Histogram<'op' | 'provider'>;
   private readonly allocationValidation: Counter<'outcome' | 'inventory_type'>;
+  private readonly compensationPlans: Counter<'classification' | 'disposition'>;
+  private readonly compensationOperations: Counter<'type' | 'outcome'>;
 
   constructor() {
     this.registry = new Registry();
@@ -337,6 +339,20 @@ export class MetricsService {
       labelNames: ['outcome', 'inventory_type'],
       registers: [this.registry],
     });
+    // Booking compensation (ADR-043). Bounded labels — classification/type/outcome only,
+    // never booking/payment/reservation/user ids.
+    this.compensationPlans = new Counter({
+      name: 'etg_booking_compensation_plans_total',
+      help: 'Compensation plans produced, by classification and disposition (auto|review).',
+      labelNames: ['classification', 'disposition'],
+      registers: [this.registry],
+    });
+    this.compensationOperations = new Counter({
+      name: 'etg_booking_compensation_operations_total',
+      help: 'Compensation action executions by type and outcome.',
+      labelNames: ['type', 'outcome'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -557,6 +573,12 @@ export class MetricsService {
   }
   recordAllocationValidation(outcome: string, inventoryType: string): void {
     this.safe(() => this.allocationValidation.inc({ outcome, inventory_type: inventoryType }));
+  }
+  recordCompensationPlan(classification: string, disposition: string): void {
+    this.safe(() => this.compensationPlans.inc({ classification, disposition }));
+  }
+  recordCompensationOperation(type: string, outcome: string): void {
+    this.safe(() => this.compensationOperations.inc({ type, outcome }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

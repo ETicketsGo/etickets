@@ -197,4 +197,51 @@ describe('platform config — unsafe combinations fail fast', () => {
       }),
     ).not.toThrow();
   });
+
+  // ── P5.3A: compensation foundation ──
+  it('rejects compensation execution without planning', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+      }),
+    ).toThrow(/PLANNING_ENABLED/i);
+  });
+
+  it('rejects planning without the master compensation flag', () => {
+    expect(withEnv(LOCAL_BASE, { BOOKING_COMPENSATION_PLANNING_ENABLED: 'true' })).toThrow(
+      /BOOKING_COMPENSATION_ENABLED/i,
+    );
+  });
+
+  it('rejects auto-refund without execution', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+      }),
+    ).toThrow(/EXECUTION_ENABLED/i);
+  });
+
+  it('rejects automatic money movement in production (P5.3A)', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+      }),
+    ).toThrow(/not permitted in production/i);
+  });
+
+  it('allows planning + safe execution (no money movement) in LOCAL', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+      }),
+    ).not.toThrow();
+  });
 });
