@@ -3,15 +3,15 @@
 Day-2 operations for the India payment path. Grounded in the implementation; see
 `RAZORPAY-ARCHITECTURE.md` for the full design and diagrams.
 
-| Area                    | Source                                                                    |
-| ----------------------- | ------------------------------------------------------------------------- |
-| Routing + money math    | `packages/shared-types/src/marketplace.ts`                                |
-| Adapter                 | `apps/api/src/payments/provider/razorpay-payment.provider.ts`             |
-| Order / Checkout / verify | `apps/api/src/payments/razorpay/razorpay-order.service.ts`              |
-| Webhook pipeline        | `apps/api/src/payments/razorpay/razorpay-webhook.{controller,service,processor}.ts` |
-| Linked Account onboarding | `apps/api/src/payments/razorpay/razorpay-connect.service.ts`            |
-| Settlement / refunds    | `apps/api/src/payments/settlement/settlement.service.ts`                  |
-| Config / boot guards    | `apps/api/src/config/configuration.ts`                                    |
+| Area                      | Source                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| Routing + money math      | `packages/shared-types/src/marketplace.ts`                                          |
+| Adapter                   | `apps/api/src/payments/provider/razorpay-payment.provider.ts`                       |
+| Order / Checkout / verify | `apps/api/src/payments/razorpay/razorpay-order.service.ts`                          |
+| Webhook pipeline          | `apps/api/src/payments/razorpay/razorpay-webhook.{controller,service,processor}.ts` |
+| Linked Account onboarding | `apps/api/src/payments/razorpay/razorpay-connect.service.ts`                        |
+| Settlement / refunds      | `apps/api/src/payments/settlement/settlement.service.ts`                            |
+| Config / boot guards      | `apps/api/src/config/configuration.ts`                                              |
 
 ---
 
@@ -70,15 +70,15 @@ the first delivery issues tickets. Idempotent across re-deliveries.
 
 - Settlements are one per `(eventId, currency)`; `provider` derives from the payments
   (INR → razorpay). Lifecycle `PENDING → HELD → ELIGIBLE → APPROVED →
-  TRANSFER_PROCESSING → TRANSFERRED` (+ `PARTIALLY_REFUNDED/BLOCKED/FAILED/REVERSED`).
+TRANSFER_PROCESSING → TRANSFERRED` (+ `PARTIALLY_REFUNDED/BLOCKED/FAILED/REVERSED`).
 - Release recomputes payable immediately before transfer (− refunds, disputes, prior
   transfers, reserve `STRIPE_SETTLEMENT_RESERVE_BPS`), then `transfers.create` to the
   organizer's Linked Account (INR), atomic single-release claim, deterministic idempotency
   key.
 - **Route gate:** if `RAZORPAY_ROUTE_ENABLED=false` → settlement **BLOCKED**
-  *"Razorpay Route is not enabled; organizer payout is on hold."* If enabled but no
-  `connectedAccountId` → **BLOCKED** *"No active Razorpay linked account for this
-  organizer."* No fake transfer, no FAILED (this is a policy hold).
+  _"Razorpay Route is not enabled; organizer payout is on hold."_ If enabled but no
+  `connectedAccountId` → **BLOCKED** _"No active Razorpay linked account for this
+  organizer."_ No fake transfer, no FAILED (this is a policy hold).
 - **Onboarding:** Linked Account creation + KYC happen in the Razorpay dashboard; the
   organizer links the id via `POST /organizers/:id/payments/razorpay/account` and the API
   syncs status (`created`→onboarding, `needs_clarification`→restricted, `activated`→enabled,

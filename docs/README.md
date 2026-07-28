@@ -3,6 +3,7 @@
 A map of the `docs/` tree. Start here.
 
 ## Product guides (`guides/`)
+
 - **Users:** [USER-GUIDE](guides/USER-GUIDE.md) · [ORGANIZER-GUIDE](guides/ORGANIZER-GUIDE.md) · [ADMINISTRATOR-GUIDE](guides/ADMINISTRATOR-GUIDE.md)
 - **Platform:** [ARCHITECTURE](guides/ARCHITECTURE.md) · [API](guides/API.md) · [TROUBLESHOOTING](guides/TROUBLESHOOTING.md) · [INTERNATIONAL-READINESS](guides/INTERNATIONAL-READINESS.md)
 - **Payments:** [PAYMENT-PLATFORM](guides/PAYMENT-PLATFORM.md) · [PAYMENT-INTEGRATION](guides/PAYMENT-INTEGRATION.md) · [PAYMENT-SECURITY-CHECKLIST](guides/PAYMENT-SECURITY-CHECKLIST.md) · [MERCHANT-ONBOARDING](guides/MERCHANT-ONBOARDING.md) · [PROVIDER-OUTAGE-RUNBOOK](guides/PROVIDER-OUTAGE-RUNBOOK.md) · [RECONCILIATION-OPERATIONS](guides/RECONCILIATION-OPERATIONS.md) · [SANDBOX-CERTIFICATION](guides/SANDBOX-CERTIFICATION.md) · [PRODUCTION-ACTIVATION](guides/PRODUCTION-ACTIVATION.md)
@@ -12,19 +13,24 @@ A map of the `docs/` tree. Start here.
 - **Ops:** [DEPLOYMENT](guides/DEPLOYMENT.md) · [MONITORING](guides/MONITORING.md) · [ENVIRONMENT-PROMOTION](guides/ENVIRONMENT-PROMOTION.md) · [NOTIFICATION-INTEGRATION](guides/NOTIFICATION-INTEGRATION.md)
 
 ## Release (`release/`)
+
 [RC1-RELEASE-NOTES](release/RC1-RELEASE-NOTES.md) · [RC-READINESS-REPORT](release/RC-READINESS-REPORT.md) · [DEPLOYMENT-CHECKLIST](release/DEPLOYMENT-CHECKLIST.md) · [ROLLBACK-CHECKLIST](release/ROLLBACK-CHECKLIST.md) · [OPERATIONS-CHECKLIST](release/OPERATIONS-CHECKLIST.md) · [KNOWN-LIMITATIONS](release/KNOWN-LIMITATIONS.md) · [EXTERNAL-DEPENDENCIES](release/EXTERNAL-DEPENDENCIES.md)
 
 ## Commercial (`commercial/`)
+
 [PLATFORM-FEES](commercial/PLATFORM-FEES.md) · [DEMO-ACCOUNTS](commercial/DEMO-ACCOUNTS.md) · [FAQ](commercial/FAQ.md) · [SUPPORT-WORKFLOWS](commercial/SUPPORT-WORKFLOWS.md) · [LAUNCH-CHECKLIST](commercial/LAUNCH-CHECKLIST.md) · legal drafts (require counsel review): [TERMS-AND-CONDITIONS](commercial/TERMS-AND-CONDITIONS.md) · [PRIVACY-POLICY](commercial/PRIVACY-POLICY.md) · [REFUND-POLICY](commercial/REFUND-POLICY.md) · [ORGANIZER-AGREEMENT](commercial/ORGANIZER-AGREEMENT.md)
 
 ## Launch (`launch/`)
+
 [PILOT-EXECUTION-PLAN](launch/PILOT-EXECUTION-PLAN.md) · [SUCCESS-METRICS](launch/SUCCESS-METRICS.md) · [INCIDENT-RESPONSE](launch/INCIDENT-RESPONSE.md) · [SUPPORT-PLAN](launch/SUPPORT-PLAN.md) · [LAUNCH-COMMUNICATIONS](launch/LAUNCH-COMMUNICATIONS.md) · [POST-LAUNCH-REVIEW-TEMPLATE](launch/POST-LAUNCH-REVIEW-TEMPLATE.md)
 
 ## Architecture decisions (`adr/`)
+
 Numbered architecture decision records. See [ADR-STATUS](adr/ADR-STATUS.md) for the full
 list and the numbering gap. Other deep-dives live in `handbooks/`, and program/strategy
 material in `reports/`, `exec/`, `gtm/`, `strategy/`, `pilot/`.
 
 ---
-*New to the codebase? Read the root [README](../README.md) → [ARCHITECTURE](guides/ARCHITECTURE.md)
-→ the relevant role guide. Contributors: run `npm run verify` for the local quality gate.*
+
+_New to the codebase? Read the root [README](../README.md) → [ARCHITECTURE](guides/ARCHITECTURE.md)
+→ the relevant role guide. Contributors: run `npm run verify` for the local quality gate._

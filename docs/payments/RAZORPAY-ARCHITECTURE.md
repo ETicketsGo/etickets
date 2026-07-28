@@ -7,18 +7,18 @@ integration; the two paths never touch each other.
 
 This document is grounded in the actual implementation:
 
-| Concern                                                        | Source                                                                      |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Provider routing (currency-authoritative) + money math        | `packages/shared-types/src/marketplace.ts`                                  |
-| Adapter resolution (US + IN run at once)                      | `apps/api/src/payments/provider/payment-provider.resolver.ts`               |
-| Razorpay adapter (Order, Checkout/webhook verify, refund, Route) | `apps/api/src/payments/provider/razorpay-payment.provider.ts`            |
-| Order + Checkout + verify flow                                 | `apps/api/src/payments/razorpay/razorpay-order.service.ts`                  |
-| Checkout intent branch + authoritative ticket issuance        | `apps/api/src/payments/payments.service.ts`                                 |
-| Webhook pipeline (controller / ingest / processor)            | `apps/api/src/payments/razorpay/razorpay-webhook.{controller,service,processor}.ts` |
-| Organizer Linked Account (Route) onboarding                   | `apps/api/src/payments/razorpay/razorpay-connect.{service,controller}.ts`   |
-| Settlement lifecycle (shared with Stripe)                     | `apps/api/src/payments/settlement/settlement.service.ts`                    |
-| Dispute sync (shared)                                          | `apps/api/src/payments/dispute/dispute.service.ts`                          |
-| Config + boot validation                                      | `apps/api/src/config/configuration.ts`, `.env.example`                      |
+| Concern                                                          | Source                                                                              |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Provider routing (currency-authoritative) + money math           | `packages/shared-types/src/marketplace.ts`                                          |
+| Adapter resolution (US + IN run at once)                         | `apps/api/src/payments/provider/payment-provider.resolver.ts`                       |
+| Razorpay adapter (Order, Checkout/webhook verify, refund, Route) | `apps/api/src/payments/provider/razorpay-payment.provider.ts`                       |
+| Order + Checkout + verify flow                                   | `apps/api/src/payments/razorpay/razorpay-order.service.ts`                          |
+| Checkout intent branch + authoritative ticket issuance           | `apps/api/src/payments/payments.service.ts`                                         |
+| Webhook pipeline (controller / ingest / processor)               | `apps/api/src/payments/razorpay/razorpay-webhook.{controller,service,processor}.ts` |
+| Organizer Linked Account (Route) onboarding                      | `apps/api/src/payments/razorpay/razorpay-connect.{service,controller}.ts`           |
+| Settlement lifecycle (shared with Stripe)                        | `apps/api/src/payments/settlement/settlement.service.ts`                            |
+| Dispute sync (shared)                                            | `apps/api/src/payments/dispute/dispute.service.ts`                                  |
+| Config + boot validation                                         | `apps/api/src/config/configuration.ts`, `.env.example`                              |
 
 ---
 
@@ -50,7 +50,7 @@ name (`routeProviderForBooking` in `marketplace.ts`):
 - `currency === 'USD'` → **stripe**
 - `currency === 'INR'` → **razorpay**
 - anything else → `null` → the caller rejects with a 400 (`No payment provider supports
-  currency …`).
+currency …`).
 
 Currency is authoritative because stored country strings are inconsistent (`"India"` vs
 `"IN"`). Country is used only for a **consistency guard** (`isCountryConsistent`): an
@@ -99,9 +99,9 @@ Route is **OFF by default** (`RAZORPAY_ROUTE_ENABLED=false`). When a Razorpay se
 released:
 
 1. If Route is **not enabled** → settlement is set **BLOCKED** with reason
-   *"Razorpay Route is not enabled; organizer payout is on hold."*
+   _"Razorpay Route is not enabled; organizer payout is on hold."_
 2. If Route is enabled but there is **no linked account** → **BLOCKED** with
-   *"No active Razorpay linked account for this organizer."*
+   _"No active Razorpay linked account for this organizer."_
 
 There is **never a fake transfer**. Until Route is activated and enabled, Indian organizer
 payouts are held with a documented manual policy (see the production checklist).
@@ -167,12 +167,12 @@ Tickets are issued **only** by the webhook path, shared with Stripe
 
 All under the global prefix `api`:
 
-| Method + path                                                  | Purpose                                                        |
-| -------------------------------------------------------------- | ------------------------------------------------------------- |
-| `POST /api/bookings/:bookingId/payments/razorpay/verify`       | Verify Checkout signature (integrity only; no issuance).      |
-| `POST /api/payments/webhooks/razorpay`                         | Signed webhook (public, HMAC-verified, durable, idempotent).  |
-| `POST /api/organizers/:organizerId/payments/razorpay/account`  | Link a dashboard-created Linked Account id.                   |
-| `GET  /api/organizers/:organizerId/payments/razorpay/status`   | Route/KYC readiness for the organizer.                        |
+| Method + path                                                 | Purpose                                                      |
+| ------------------------------------------------------------- | ------------------------------------------------------------ |
+| `POST /api/bookings/:bookingId/payments/razorpay/verify`      | Verify Checkout signature (integrity only; no issuance).     |
+| `POST /api/payments/webhooks/razorpay`                        | Signed webhook (public, HMAC-verified, durable, idempotent). |
+| `POST /api/organizers/:organizerId/payments/razorpay/account` | Link a dashboard-created Linked Account id.                  |
+| `GET  /api/organizers/:organizerId/payments/razorpay/status`  | Route/KYC readiness for the organizer.                       |
 
 ---
 

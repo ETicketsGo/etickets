@@ -6,14 +6,14 @@ these are for non-production environments only.
 
 Shared password for all seeded accounts: **`Password123!`**
 
-| Role | Email | Use in a demo |
-| --- | --- | --- |
-| **Demo organizer (owner)** | `owner@eticketsgo.test` | Full organizer journey: create events, pricing, inventory, dashboard, finance, offline ops. |
-| Organizer manager | `manager@eticketsgo.test` | Manager-scoped organizer actions. |
-| Check-in staff | `checkin@eticketsgo.test` | Gate check-in (online + offline pilot). |
-| **Demo customer** | `customer1@eticketsgo.test` | Full buyer journey: browse, book, pay (mock), wallet, tickets. |
-| Second customer | `customer2@eticketsgo.test` | Sharing/transfer and multi-user scenarios. |
-| Platform admin | `admin@eticketsgo.test` | Admin console: reports, ops, payments config, audit. |
+| Role                       | Email                       | Use in a demo                                                                               |
+| -------------------------- | --------------------------- | ------------------------------------------------------------------------------------------- |
+| **Demo organizer (owner)** | `owner@eticketsgo.test`     | Full organizer journey: create events, pricing, inventory, dashboard, finance, offline ops. |
+| Organizer manager          | `manager@eticketsgo.test`   | Manager-scoped organizer actions.                                                           |
+| Check-in staff             | `checkin@eticketsgo.test`   | Gate check-in (online + offline pilot).                                                     |
+| **Demo customer**          | `customer1@eticketsgo.test` | Full buyer journey: browse, book, pay (mock), wallet, tickets.                              |
+| Second customer            | `customer2@eticketsgo.test` | Sharing/transfer and multi-user scenarios.                                                  |
+| Platform admin             | `admin@eticketsgo.test`     | Admin console: reports, ops, payments config, audit.                                        |
 
 The seed also creates a demo organization, venues, published events with sessions and
 ticket types, bookings, tickets, and a movies catalogue — enough to demonstrate discovery,
