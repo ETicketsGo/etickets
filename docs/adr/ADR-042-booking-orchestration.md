@@ -247,16 +247,75 @@ review backlog). Rate limiting reuses the global `ThrottlerGuard`.
   `BOOKING_PROVIDER_CONFIRM_TIMEOUT_MS`. Startup rejects mock-in-prod, confirmation-without-
   mock, confirmation-in-prod (no real adapter yet), and allocated-without-sourcing.
 
-**Slices 3–4 — NOT YET IMPLEMENTED (remaining P5.2B).** The provider-authoritative flow
-(reservation → payment → provider confirmation → local confirmation → outbox) and the
-allocated-inventory flow (locally authoritative within a bounded allocation) are NOT yet wired
-into the orchestrator's `initiate`/`confirmPayment` hot paths; provider-authoritative
-inventory still returns the clear unsupported error from P5.1. Ambiguous-status recovery,
-allocation-boundary validation, the provider reconciliation classifications, and the
-provider-flow transaction/integration/concurrency test matrix remain. The seam, mock,
-capabilities, durable references, flags, and validation above are the foundation those slices
-build on. Planned provider-authoritative sequence and transaction boundaries are specified in
-§11/§19 of the increment brief and will land with those slices.
+## P5.2B — Slices 3–4: provider-authoritative + allocated flows (shipped, flag-off)
+
+**Strategy dispatch.** The persisted `inventoryOwnershipMode` selects the flow; the client
+never chooses it and a workflow never changes strategy mid-flow. `LocalBookingOrchestrator`
+dispatches: LOCAL → the P5.1 local path; PROVIDER_AUTHORITATIVE → `ProviderAuthoritativeStrategy`
+(only when `BOOKING_PROVIDER_CONFIRMATION_ENABLED`, else the clear unsupported error);
+ALLOCATED → local path guarded by `AllocatedInventoryStrategy` boundary validation (only when
+`BOOKING_ALLOCATED_INVENTORY_ENABLED`). There is **no mid-flow fallback** between strategies.
+
+**Provider-authoritative flow.** The external provider owns inventory truth; the local
+PostgreSQL hold is coordination-only and never counts as provider confirmation. Sequence:
+`DRAFT→INVENTORY_RESOLVED→LOCK_PENDING→LOCKED→PROVIDER_RESERVATION_PENDING→PROVIDER_RESERVED`
+(initiate: resolve provider via P4 `ProviderMapping` → capability `selectProviderSequence` →
+Redis lock → local hold → idempotent `createReservation`, TTL persisted) → `PAYMENT_PENDING`
+(beginPayment: TTL-safety window + server-authoritative price/currency check — never charge a
+near-expired reservation or a changed price) → `PAYMENT_AUTHORIZED→PROVIDER_CONFIRM_PENDING→
+PROVIDER_CONFIRMED→CONFIRMING→CONFIRMED` (on verified payment: provider confirm BEFORE the
+atomic local confirm, via the bridge pre-confirm hook). Sold-out/rejected reservation releases
+the lock+hold and fails safely; an **ambiguous** reserve/confirm is never read as
+success/failure — it flags `providerReconciliationRequired` and stays pending.
+
+**Ambiguous recovery.** `recoverStatus()` (gated by `BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED`)
+queries `getBookingStatus` by reservation ref: CONFIRMED → complete the local confirm the
+callback would have (confirmed-response-lost recovers without a double confirm); REJECTED/
+EXPIRED → compensation-required; UNKNOWN → manual review. Idempotent; bounded.
+
+**Local hold role for provider inventory.** Advisory P4 availability is never authoritative;
+local inventory is not marked sold until provider confirmation; the local hold only prevents
+duplicate ETicketsGo checkout attempts for the same mapped units.
+
+**Allocated flow.** Locally authoritative within a bounded provider allocation — the normal
+local path (Redis lock + PostgreSQL hold + local confirm) plus boundary validation from P4
+`ProviderMapping` + `ProviderInventoryState`: active status, effective window, seat membership
+(reserved), and `localConsumed + requested ≤ capacity` (GA). No per-booking provider call; a
+provider outage does not block a valid allocation. Confirmed bookings are never auto-invalidated.
+
+**Model decision.** No new allocation model — P4 `ProviderMapping` (ownershipMode=ALLOCATED,
+`mappingMetadata` for status/window) + `ProviderInventoryState` (`providerCapacity`,
+`seatStates`, `pendingLocal`) already represent every required allocation fact.
+
+**Transaction boundaries.** The provider reservation/confirmation calls cannot be atomic with
+PostgreSQL: the request idempotency key is persisted before the call so an ambiguous/lost
+response is recoverable by key; the reservation result is persisted before continuing. The
+final confirmation reuses the existing single atomic tx (local inventory + booking + workflow
+
+- outbox). If it rolls back after provider confirmation, provider-confirmed evidence is kept
+  and the workflow goes to MANUAL_REVIEW — the customer is never told confirmed until the local
+  commit succeeds.
+
+**Limited cleanup (P5.2B).** Release lock/hold on definitive reserve failure; flag
+compensation-required when payment succeeded but the provider rejected; flag manual-review
+when the provider confirmed but local confirmation failed; finalize/reconcile Redis after
+commit. **No automatic refund/void** — that is P5.3.
+
+**Reconciliation.** `classifyProvider` adds PROVIDER_CONFIRMATION_AMBIGUOUS,
+PAYMENT_SUCCEEDED_PROVIDER_REJECTED, PROVIDER_RESERVATION_EXPIRED_PAYMENT_PENDING,
+COMPENSATION_REQUIRED, PROVIDER_STATUS_STALE; the allocated classifier adds
+ALLOCATION_CAPACITY_MISMATCH / _EXPIRED_WITH_ACTIVE_HOLDS / _SUSPENDED_WITH_ACTIVE_BOOKINGS /
+_MAPPING_MISSING. Never auto-cancels a confirmed booking.
+
+**Public status.** New states map via `toPublicBookingStatus` to PENDING (reservation/
+confirm steps) — the customer never sees CONFIRMED until the local commit; MANUAL_REVIEW /
+COMPENSATION_* → ACTION_REQUIRED.
+
+**Verification.** Full API suite **144 suites / 1016 tests**; tsc + build + worker + prettier
+clean; migration `20260728090000` applied. All provider/allocated flows OFF by default. Proof
+is unit + strategy-level against the in-process mock provider (network-like idempotency +
+ambiguity); DB-integration + concurrency against real Postgres/Redis + the full staging matrix
+remain staging-required (see the staging guide) and were NOT executed here.
 
 ## Deferred to P5.2B+
 

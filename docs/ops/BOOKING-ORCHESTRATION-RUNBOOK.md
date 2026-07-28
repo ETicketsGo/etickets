@@ -163,6 +163,41 @@ rejected in production. When Slices 3–4 land: investigate reservations via the
 provider outcomes enter status-recovery (never a false confirm); a failed external provider
 must not block unrelated local or allocated bookings.
 
+## Provider-authoritative bookings (P5.2B S3)
+
+- **Inspect a reservation:** `SELECT state, "selectedProviderCode", "providerReservationId",
+"providerReservationExpiresAt", "providerStatus", "providerReconciliationRequired",
+"providerLastErrorCode" FROM "BookingWorkflow" WHERE "bookingId"=$1;`
+- **Provider timeout on reserve/confirm:** the outcome is AMBIGUOUS →
+  `providerReconciliationRequired=true`, workflow stays PROVIDER_RESERVATION_PENDING /
+  PROVIDER_CONFIRM_PENDING. Do NOT retry a non-idempotent confirm blindly — run status
+  recovery.
+- **Recover confirmed-response-lost:** call `recoverStatus(bookingId)` (needs
+  `BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED`) — a provider status of CONFIRMED completes the
+  local confirm; REJECTED/EXPIRED → compensation-required; UNKNOWN → manual review.
+- **Retry local confirmation (provider confirmed, local pending):** re-deliver the verified
+  payment event → the provider confirm replays idempotently and the local confirm re-runs
+  (`alreadyConfirmed` guards duplicates).
+- **Provider sold-out / price change:** initiate returns `BOOKING_INVENTORY_UNAVAILABLE` /
+  `BOOKING_PRICE_CHANGED`; no charge occurs and the lock+hold are released.
+- **Expired reservation:** before payment the workflow may expire safely; after payment,
+  it is compensation-required (payment evidence preserved, no ticket).
+- **Disable one provider / provider outage:** unregister/disable the provider — its
+  provider-authoritative inventory fails safe (`BOOKING_PROVIDER_UNAVAILABLE`); LOCAL and
+  valid ALLOCATED inventory keep booking.
+- **Move to manual review:** an operator uses the audited MANUAL_REVIEW transitions.
+
+## Allocated inventory (P5.2B S4)
+
+- **Investigate drift:** compare `ProviderInventoryState.providerCapacity` / `pendingLocal`
+  to local held+confirmed; the reconciler classifies `ALLOCATION_CAPACITY_MISMATCH`,
+  `ALLOCATION_EXPIRED_WITH_ACTIVE_HOLDS`, `ALLOCATION_SUSPENDED_WITH_ACTIVE_BOOKINGS`.
+- **Block an allocation:** set the mapping's `mappingMetadata.allocationStatus` to
+  `SUSPENDED`/`EXPIRED` — new bookings are rejected; existing confirmed bookings are never
+  auto-cancelled.
+- **Provider outage with a valid allocation:** bookings continue (locally authoritative);
+  advisory provider availability never overrides locally sold inventory.
+
 ## Verify no double booking / no duplicate charge
 
 - Seat oversell is structurally impossible (ADR-039 checks + `ShowSeat` unique + the hold

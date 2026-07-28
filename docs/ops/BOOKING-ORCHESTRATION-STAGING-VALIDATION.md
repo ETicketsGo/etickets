@@ -64,13 +64,38 @@ Slice 1 (shipped) adds two staging checks:
       and the workflow follows (`sweepExpiredWorkflows`); a confirmed booking is never expired;
       re-running the sweep is a no-op.
 
-Provider-authoritative + allocated scenarios (Slices 3–4) are **not yet implementable** — the
-flows are not wired. When they land, add: mock provider-authoritative reserved-seat/GA reserve→
-pay→confirm; provider sold-out; reservation/confirmation timeout → status recovery (confirmed /
-rejected); local failure after provider reservation; local failure after provider confirmation;
-allocated reserved-seat/GA; allocation exhausted/expired; and the provider concurrency proofs
-(one reservation per key, one confirmation per callback, confirmation vs expiration, allocation
-never exceeded).
+### Provider-authoritative (Slice 3 — flows shipped; execute against the mock in staging)
+
+Enable `BOOKING_PROVIDER_CONFIRMATION_ENABLED` + `BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED`
+(non-prod) and seed a P4 `ProviderMapping` (status ACTIVE) for the event.
+
+- [ ] Reserved-seat reserve→pay→confirm→ticket; workflow `PROVIDER_RESERVED`→…→`CONFIRMED`.
+- [ ] GA quantity reserve→pay→confirm.
+- [ ] Provider sold-out (`#soldout` ref) → `BOOKING_INVENTORY_UNAVAILABLE`, lock/hold released.
+- [ ] Reservation expiry before payment → safe expire; no charge.
+- [ ] Near-expired reservation → payment refused (TTL safety).
+- [ ] Payment callback replay → one provider confirmation, one ticket set.
+- [ ] Confirmation timeout / confirmed-response-lost → pending, then `recoverStatus` → confirmed.
+- [ ] Status recovery → rejected → compensation-required (no refund in P5.2B).
+- [ ] Local transaction failure after provider confirmation → MANUAL_REVIEW, evidence kept.
+- [ ] Cancellation before payment → provider reservation cancelled + lock/hold released.
+- [ ] Two API instances / two workers: one reservation per key; two workers cannot resolve one
+      ambiguous outcome incompatibly (optimistic version guard).
+
+### Allocated (Slice 4)
+
+Enable `BOOKING_ALLOCATED_INVENTORY_ENABLED`; seed a `ProviderMapping`
+(ownershipMode=ALLOCATED) + `ProviderInventoryState`.
+
+- [ ] Seat inside allocation books; seat outside → `BOOKING_ALLOCATION_UNAVAILABLE`.
+- [ ] GA within capacity books; exhausted → rejected; concurrent contention cannot exceed
+      capacity (PostgreSQL authoritative).
+- [ ] Allocation expiry/suspension blocks new bookings; confirmed bookings unaffected.
+- [ ] Provider outage with a valid allocation still books.
+- [ ] Two reconciliation workers compete → consistent classification, no double action.
+
+These flows are proven at unit + mock-strategy level in the API suite; the checks above are the
+**staging-required** DB/Redis/concurrency validation and are NOT yet executed.
 
 ## Sign-off
 
