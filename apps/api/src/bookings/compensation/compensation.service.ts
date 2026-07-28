@@ -5,6 +5,7 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingConfirmationBridge } from '../orchestration/booking-confirmation-bridge';
 import { PaymentVoidExecutor } from './payment-void.executor';
+import { PaymentRefundExecutor } from './payment-refund.executor';
 import { CompensationPlanner, type CompensationContext } from './compensation-planner';
 import { CompensationRepository, type PlanCompensationInput } from './compensation.repository';
 import { CompensationState } from './compensation-state';
@@ -36,6 +37,7 @@ export class CompensationService {
     private readonly metrics: MetricsService,
     private readonly bridge: BookingConfirmationBridge,
     private readonly voidExecutor: PaymentVoidExecutor,
+    private readonly refundExecutor: PaymentRefundExecutor,
   ) {}
 
   private get autoProviderCancel(): boolean {
@@ -43,6 +45,9 @@ export class CompensationService {
   }
   private get autoVoid(): boolean {
     return this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_VOID_ENABLED') === true;
+  }
+  private get autoRefund(): boolean {
+    return this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_REFUND_ENABLED') === true;
   }
 
   get planningEnabled(): boolean {
@@ -194,7 +199,45 @@ export class CompensationService {
         }
         continue;
       }
-      // Money movement (refund) + confirmed-provider-booking cancellation are never auto-executed.
+      // Phase 6 (ADR-043 P5.3B): FULL payment refund — versioned policy + full-idempotent
+      // provider only, gated by its own flag (off; production-forbidden). Manual-only policy or
+      // any uncertainty → manual review. No partial refunds; captured amount is authoritative.
+      if (type === CompensationType.PAYMENT_REFUND) {
+        if (!this.autoRefund) {
+          await this.repo
+            .advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: 'AUTO_REFUND_DISABLED',
+            })
+            .catch(() => undefined);
+          continue;
+        }
+        try {
+          const outcome = await this.refundExecutor.execute(comp);
+          if (outcome === 'REFUNDED') {
+            await this.repo.advance(comp, CompensationState.COMPLETED, { completedAt: new Date() });
+            this.metrics.recordCompensationOperation(type, 'completed');
+            completed++;
+          } else if (outcome === 'PENDING' || outcome === 'RETRYABLE') {
+            await this.repo.scheduleRetryOrDeadLetter(
+              comp,
+              this.backoff(comp.attemptCount),
+              outcome === 'PENDING' ? 'REFUND_PENDING' : 'REFUND_RETRYABLE',
+            );
+            this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+          } else {
+            await this.repo.advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: outcome,
+            });
+            this.metrics.recordCompensationOperation(type, 'manual_review');
+          }
+        } catch (err) {
+          const code = (err as { code?: string }).code ?? 'UNKNOWN';
+          await this.repo.scheduleRetryOrDeadLetter(comp, this.backoff(comp.attemptCount), code);
+          this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+        }
+        continue;
+      }
+      // Confirmed-provider-booking cancellation is never auto-executed here.
       if (FINANCIAL_ACTIONS.has(type) || !SAFE_NON_FINANCIAL_ACTIONS.has(type)) {
         await this.repo
           .advance(comp, CompensationState.MANUAL_REVIEW, {

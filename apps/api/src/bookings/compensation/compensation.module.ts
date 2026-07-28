@@ -5,6 +5,8 @@ import { CompensationPlanner } from './compensation-planner';
 import { CompensationRepository } from './compensation.repository';
 import { CompensationService } from './compensation.service';
 import { PaymentVoidExecutor } from './payment-void.executor';
+import { PaymentRefundExecutor } from './payment-refund.executor';
+import { DefaultBookingRefundPolicy } from './booking-refund-policy';
 import { CompensationAdminService } from './compensation-admin.service';
 import { CompensationHealthService } from './compensation-health.service';
 import {
@@ -27,6 +29,8 @@ import {
     CompensationAdminService,
     CompensationHealthService,
     PaymentVoidExecutor,
+    PaymentRefundExecutor,
+    DefaultBookingRefundPolicy,
   ],
   exports: [CompensationPlanner, CompensationRepository, CompensationService],
 })

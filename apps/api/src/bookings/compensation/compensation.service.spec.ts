@@ -13,6 +13,7 @@ function make(
     flags?: Record<string, boolean>;
     cancelOutcome?: string;
     voidOutcome?: string;
+    refundOutcome?: string;
     compType?: CompensationType;
   } = {},
 ) {
@@ -22,6 +23,7 @@ function make(
     BOOKING_COMPENSATION_EXECUTION_ENABLED: true,
     BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: true,
     BOOKING_COMPENSATION_AUTO_VOID_ENABLED: true,
+    BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: true,
     ...(opts.flags ?? {}),
   };
   const comp = {
@@ -50,6 +52,9 @@ function make(
   const voidExecutor = {
     execute: jest.fn().mockResolvedValue(opts.voidOutcome ?? 'VOIDED'),
   } as never;
+  const refundExecutor = {
+    execute: jest.fn().mockResolvedValue(opts.refundOutcome ?? 'REFUNDED'),
+  } as never;
   const svc = new CompensationService(
     new CompensationPlanner(),
     repo,
@@ -58,8 +63,9 @@ function make(
     new MetricsService(),
     bridge,
     voidExecutor,
+    refundExecutor,
   );
-  return { svc, bridge, advance, scheduleRetryOrDeadLetter, voidExecutor };
+  return { svc, bridge, advance, scheduleRetryOrDeadLetter, voidExecutor, refundExecutor };
 }
 
 describe('CompensationService — Phase 4 provider reservation cancellation dispatch', () => {
@@ -165,6 +171,61 @@ describe('CompensationService — Phase 5 payment void dispatch', () => {
       expect.anything(),
       CompensationState.MANUAL_REVIEW,
       expect.objectContaining({ manualReviewReason: 'AUTO_VOID_DISABLED' }),
+    );
+  });
+});
+
+describe('CompensationService — Phase 6 payment refund dispatch', () => {
+  it('executes a refund and completes on REFUNDED', async () => {
+    const { svc, refundExecutor, advance } = make({
+      compType: CompensationType.PAYMENT_REFUND,
+      refundOutcome: 'REFUNDED',
+    });
+    const res = await svc.processReady('w1');
+    expect((refundExecutor as never as { execute: jest.Mock }).execute).toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.COMPLETED,
+      expect.anything(),
+    );
+    expect(res.completed).toBe(1);
+  });
+
+  it('schedules a retry when the refund is PENDING or RETRYABLE', async () => {
+    for (const outcome of ['PENDING', 'RETRYABLE']) {
+      const { svc, scheduleRetryOrDeadLetter } = make({
+        compType: CompensationType.PAYMENT_REFUND,
+        refundOutcome: outcome,
+      });
+      await svc.processReady('w1');
+      expect(scheduleRetryOrDeadLetter).toHaveBeenCalled();
+    }
+  });
+
+  it('moves to MANUAL_REVIEW on an uncertain refund outcome', async () => {
+    const { svc, advance } = make({
+      compType: CompensationType.PAYMENT_REFUND,
+      refundOutcome: 'MANUAL_REVIEW',
+    });
+    await svc.processReady('w1');
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.MANUAL_REVIEW,
+      expect.anything(),
+    );
+  });
+
+  it('does NOT execute a refund when auto-refund is off (→ manual review, executor untouched)', async () => {
+    const { svc, refundExecutor, advance } = make({
+      compType: CompensationType.PAYMENT_REFUND,
+      flags: { BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: false },
+    });
+    await svc.processReady('w1');
+    expect((refundExecutor as never as { execute: jest.Mock }).execute).not.toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.MANUAL_REVIEW,
+      expect.objectContaining({ manualReviewReason: 'AUTO_REFUND_DISABLED' }),
     );
   });
 });
