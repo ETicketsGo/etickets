@@ -34,6 +34,7 @@ import {
   bookingConfirmedEvent,
   TransactionalEventPublisher,
 } from '../common/domain-events';
+import { BookingConfirmationBridge } from '../bookings/orchestration/booking-confirmation-bridge';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -61,6 +62,10 @@ export class PaymentsService {
     // BookingConfirmed fact durably inside the confirm transaction; in in_process mode
     // it delivers post-commit. This is the single domain-event path for confirmation.
     private readonly eventPublisher: TransactionalEventPublisher,
+    // One-way bridge to the booking orchestrator (ADR-042 P5.2A). After a confirmed
+    // webhook commits, advances the durable BookingWorkflow. No-op unless a workflow
+    // exists (active mode); never affects the confirmation result.
+    private readonly bookingBridge: BookingConfirmationBridge,
   ) {}
 
   private readonly logger = new Logger(PaymentsService.name);
@@ -276,9 +281,17 @@ export class PaymentsService {
    * Used by the multi-provider webhook router after a provider-specific adapter
    * has verified the signature.
    */
-  processVerifiedEvent(event: PaymentEvent) {
+  async processVerifiedEvent(event: PaymentEvent) {
     if (event.type === 'payment.succeeded') {
-      return this.confirm(event);
+      const result = await this.confirm(event);
+      // ADR-042 P5.2A: reconcile the durable booking workflow to CONFIRMED (active mode
+      // only — no-op when no workflow exists). Runs AFTER the atomic confirm commits and
+      // never changes the confirmation result.
+      const status = (result as { status?: string }).status;
+      if (status === 'confirmed' || status === 'already_confirmed') {
+        await this.bookingBridge.onConfirmed(event.bookingId);
+      }
+      return result;
     }
     return this.fail(event);
   }

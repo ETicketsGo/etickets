@@ -9,6 +9,7 @@ import { InventoryResolver } from '../../inventory/sourcing/inventory.resolver';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingsService } from '../bookings.service';
 import { PaymentsService } from '../../payments/payments.service';
+import { AnonymousSessionService, BookingOwnerResolver } from './booking-owner';
 
 function make(
   opts: {
@@ -82,6 +83,8 @@ function make(
           : undefined,
     ),
   } as unknown as ConfigService;
+  const owners = new BookingOwnerResolver(new AnonymousSessionService());
+  const bridge = { register: () => undefined, onConfirmed: async () => undefined } as never;
   const orch = new LocalBookingOrchestrator(
     resolver,
     locks,
@@ -91,6 +94,8 @@ function make(
     prisma,
     config,
     new MetricsService(),
+    owners,
+    bridge,
   );
   return { orch, resolver, locks, bookings, payments, workflows, store };
 }
@@ -162,5 +167,37 @@ describe('LocalBookingOrchestrator.beginPayment / confirmPayment', () => {
     );
     expect(res.confirmed).toBe(true);
     expect(res.workflowState).toBe(WS.CONFIRMED);
+  });
+});
+
+describe('LocalBookingOrchestrator durable ownership', () => {
+  it('beginPayment rejects a different owner even with a valid bookingId', async () => {
+    const { orch, store, payments } = make();
+    store.state = WS.LOCKED;
+    store.ownerType = 'USER';
+    store.ownerId = 'ownerA';
+    await expect(
+      orch.beginPayment({
+        bookingId: 'b1',
+        owner: { ownerId: 'ownerB' },
+        requestOwner: { ownerType: 'USER', ownerId: 'ownerB' },
+        idempotencyKey: 'b1',
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(payments.createIntent).not.toHaveBeenCalled();
+  });
+
+  it('cancel rejects a foreign anonymous session', async () => {
+    const { orch, store } = make();
+    store.state = WS.LOCKED;
+    store.ownerType = 'ANONYMOUS_SESSION';
+    store.ownerId = 'sessionHashA';
+    await expect(
+      orch.cancel({
+        bookingId: 'b1',
+        owner: { anonymousSessionId: 'sessionHashB' },
+        requestOwner: { ownerType: 'ANONYMOUS_SESSION', ownerId: 'sessionHashB' },
+      }),
+    ).rejects.toBeInstanceOf(AppException);
   });
 });

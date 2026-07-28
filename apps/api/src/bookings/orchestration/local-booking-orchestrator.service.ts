@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { MetricsService } from '../../metrics/metrics.service';
@@ -9,6 +9,8 @@ import { PaymentsService } from '../../payments/payments.service';
 import { InventoryResolver } from '../../inventory/sourcing/inventory.resolver';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingWorkflowRepository } from './booking-workflow.repository';
+import { BookingOwnerResolver } from './booking-owner';
+import { BookingConfirmationBridge } from './booking-confirmation-bridge';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
 
 /** Bounded membership test that keeps TS from narrowing the array to a literal tuple. */
@@ -41,7 +43,7 @@ import type { InventoryOwnershipMode } from '../../inventory/sync/contracts/cano
  * path unchanged.
  */
 @Injectable()
-export class LocalBookingOrchestrator implements BookingOrchestrator {
+export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleInit {
   private readonly logger = new Logger('BookingOrchestrator');
 
   constructor(
@@ -53,7 +55,16 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly metrics: MetricsService,
+    private readonly owners: BookingOwnerResolver,
+    private readonly confirmationBridge: BookingConfirmationBridge,
   ) {}
+
+  onModuleInit(): void {
+    // Post-commit payment confirmation reconciles the durable workflow through here
+    // (no-op unless a workflow exists — i.e. active mode). Keeps the orchestrator the
+    // single workflow decision point without a PaymentsService→Orchestrator DI cycle.
+    this.confirmationBridge.register((bookingId) => this.syncWorkflowConfirmed(bookingId));
+  }
 
   private get activeLocks(): boolean {
     return (
@@ -66,7 +77,10 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
     const started = Date.now();
     const session = await this.prisma.eventSession.findUnique({
       where: { id: request.eventSessionId },
-      select: { id: true, event: { select: { experienceType: true } } },
+      select: {
+        id: true,
+        event: { select: { experienceType: true, organizationId: true } },
+      },
     });
     if (!session)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
@@ -102,7 +116,14 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
       correlationId: request.correlationId,
       inventoryOwnershipMode: ownershipMode,
       selectedProviderCode: provider.name,
+      // Durable server-decided ownership persisted at creation (ADR-042 §4).
+      ownerType: request.requestOwner?.ownerType,
+      ownerId: request.requestOwner?.ownerId,
+      tenantId: request.tenantId ?? session.event.organizationId,
+      organizerId: request.organizerId ?? session.event.organizationId,
     });
+    // A replayed idempotency key must not let a different owner adopt an existing workflow.
+    if (!created && request.requestOwner) this.owners.assertOwner(workflow, request.requestOwner);
 
     // Idempotent replay: a workflow already bound to a real booking returns it unchanged.
     if (!created && !workflow.bookingId.startsWith('pending-')) {
@@ -184,7 +205,7 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
 
   async beginPayment(request: BeginBookingPaymentRequest): Promise<BookingPaymentResult> {
     const workflow = await this.requireWorkflow(request.bookingId);
-    this.assertOwner(workflow, request.owner);
+    if (request.requestOwner) this.owners.assertOwner(workflow, request.requestOwner);
     if (workflow.state !== WS.LOCKED && workflow.state !== WS.PAYMENT_PENDING) {
       throw new AppException(
         BookingOrchestratorErrorCodes.INVALID_TRANSITION,
@@ -223,27 +244,7 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
       amountMinor: request.amountMinor,
     });
     const confirmed = result.status === 'confirmed' || result.status === 'already_confirmed';
-    if (confirmed && workflow.state !== WS.CONFIRMED && workflow.state !== WS.TICKET_ISSUED) {
-      // Drive the workflow to CONFIRMED (idempotent: re-delivery replays).
-      let w = workflow;
-      if (w.state === WS.PAYMENT_PENDING)
-        w = (await this.workflows.advance(w, WS.PAYMENT_AUTHORIZED)).workflow;
-      if (w.state === WS.PAYMENT_AUTHORIZED)
-        w = (await this.workflows.advance(w, WS.CONFIRMING)).workflow;
-      if (w.state === WS.CONFIRMING) w = (await this.workflows.advance(w, WS.CONFIRMED)).workflow;
-      // Finalize the Redis lock after commit; a cleanup failure is reconcilable, never a rollback.
-      if (w.lockId) {
-        const raw = await this.locks.getRaw(w.lockId).catch(() => null);
-        if (raw) {
-          await this.locks.markInternal(raw, 'CONFIRMED').catch(() => {
-            this.metrics.recordBookingOrchestration('confirm', 'redis_cleanup_failed');
-            this.logger.error(
-              `Redis finalize failed after confirm for booking=${request.bookingId}; reconcile`,
-            );
-          });
-        }
-      }
-    }
+    if (confirmed) await this.advanceToConfirmed(workflow, request.bookingId);
     this.metrics.recordBookingOrchestration('confirm', confirmed ? 'ok' : 'not_confirmed');
     this.metrics.observeBookingOrchestration('confirm', (Date.now() - started) / 1000);
     const after = (await this.workflows.get(workflow.id))!;
@@ -255,9 +256,52 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
     };
   }
 
+  /**
+   * Advance the durable workflow to CONFIRMED for a booking the payment layer has ALREADY
+   * atomically confirmed (via the webhook path's processVerifiedEvent). This performs NO
+   * re-confirmation — it only reconciles the workflow + finalizes the Redis lock — so the
+   * single decision point stays the orchestrator without recursing through the payment
+   * service. No-op if there is no workflow or it is already confirmed. Never throws into
+   * the confirmation path.
+   */
+  async syncWorkflowConfirmed(bookingId: string): Promise<void> {
+    const workflow = await this.workflows.getByBookingId(bookingId).catch(() => null);
+    if (!workflow) return;
+    await this.advanceToConfirmed(workflow, bookingId).catch(() => {
+      this.metrics.recordBookingOrchestration('confirm_sync', 'failed');
+      this.logger.error(`workflow confirm-sync failed for booking=${bookingId}; reconcile`);
+    });
+  }
+
+  private async advanceToConfirmed(
+    workflow: { id: string; state: string; lockId: string | null },
+    bookingId: string,
+  ): Promise<void> {
+    if (oneOf(workflow.state as WS, [WS.CONFIRMED, WS.TICKET_PENDING, WS.TICKET_ISSUED])) return;
+    // Drive the workflow to CONFIRMED (idempotent: re-delivery replays).
+    let w = (await this.workflows.get(workflow.id))!;
+    if (w.state === WS.PAYMENT_PENDING)
+      w = (await this.workflows.advance(w, WS.PAYMENT_AUTHORIZED)).workflow;
+    if (w.state === WS.PAYMENT_AUTHORIZED)
+      w = (await this.workflows.advance(w, WS.CONFIRMING)).workflow;
+    if (w.state === WS.CONFIRMING) w = (await this.workflows.advance(w, WS.CONFIRMED)).workflow;
+    // Finalize the Redis lock after commit; a cleanup failure is reconcilable, never a rollback.
+    if (w.lockId) {
+      const raw = await this.locks.getRaw(w.lockId).catch(() => null);
+      if (raw) {
+        await this.locks.markInternal(raw, 'CONFIRMED').catch(() => {
+          this.metrics.recordBookingOrchestration('confirm', 'redis_cleanup_failed');
+          this.logger.error(
+            `Redis finalize failed after confirm for booking=${bookingId}; reconcile`,
+          );
+        });
+      }
+    }
+  }
+
   async cancel(request: CancelBookingRequest): Promise<BookingCancellationResult> {
     const workflow = await this.requireWorkflow(request.bookingId);
-    this.assertOwner(workflow, request.owner);
+    if (request.requestOwner) this.owners.assertOwner(workflow, request.requestOwner);
     // Unpaid held booking: release hold + lock, go CANCELLED. Paid → refund path (deferred impl).
     const paid = oneOf(workflow.state as WS, [WS.CONFIRMED, WS.TICKET_PENDING, WS.TICKET_ISSUED]);
     if (paid) {
@@ -375,17 +419,6 @@ export class LocalBookingOrchestrator implements BookingOrchestrator {
       );
     }
     return wf;
-  }
-
-  private assertOwner(
-    wf: { bookingId: string },
-    owner: { ownerId?: string; anonymousSessionId?: string },
-  ): void {
-    // Ownership is enforced by the underlying BookingsService/PaymentsService against the
-    // booking's userId; the workflow carries no independent owner claim in P5.1. This guard
-    // is a placeholder for the durable owner check wired with the active booking API (P5.2).
-    void wf;
-    void owner;
   }
 
   private result(

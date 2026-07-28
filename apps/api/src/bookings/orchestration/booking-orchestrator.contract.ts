@@ -1,5 +1,6 @@
 import type { InventoryOwnershipMode } from '../../inventory/sync/contracts/canonical-change';
 import type { BookingWorkflowState } from './booking-workflow-state';
+import type { ResolvedOwner } from './booking-owner';
 
 /**
  * The single provider-neutral booking orchestration contract (ADR-042). Controllers and
@@ -17,6 +18,11 @@ export interface InitiateBookingRequest {
   eventSessionId: string;
   items: Array<{ ticketTypeId: string; quantity: number; seatIds?: string[] }>;
   owner: LockOwnerRef;
+  /** Server-decided durable owner (ADR-042 §4). Persisted on the workflow at creation. */
+  requestOwner?: ResolvedOwner;
+  /** Tenant/organizer scope captured for isolation checks. */
+  tenantId?: string;
+  organizerId?: string;
   buyerName?: string;
   buyerEmail?: string;
   couponCode?: string;
@@ -28,6 +34,8 @@ export interface InitiateBookingRequest {
 export interface BeginBookingPaymentRequest {
   bookingId: string;
   owner: LockOwnerRef;
+  /** Server-decided owner validated against the workflow's durable owner. */
+  requestOwner?: ResolvedOwner;
   idempotencyKey: string;
   correlationId?: string;
 }
@@ -43,6 +51,8 @@ export interface ConfirmBookingPaymentRequest {
 export interface CancelBookingRequest {
   bookingId: string;
   owner: LockOwnerRef;
+  /** Server-decided owner validated against the workflow's durable owner. */
+  requestOwner?: ResolvedOwner;
   reason?: string;
   correlationId?: string;
 }

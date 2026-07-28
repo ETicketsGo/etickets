@@ -104,6 +104,7 @@ function setup(opts: {
     settlements as never,
     razorpayOrders as never,
     eventPublisher as never,
+    { onConfirmed: async () => undefined } as never,
   );
   return {
     service,
