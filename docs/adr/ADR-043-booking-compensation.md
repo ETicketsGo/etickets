@@ -96,6 +96,22 @@ secrets/PII in events, logs, metrics, or admin responses.
 planning-without-master, auto-money-without-execution, and ANY automatic money movement in
 production in P5.3A.
 
+## Admin operations + health (P5.3A shipped)
+
+**Admin (`/admin/compensations`, RBAC ADMIN/SUPER_ADMIN, audited, never public):** list,
+inspect, booking history + correlation chain, dry-run planner (read-only), approve, retry,
+mark-manual-review, release-lease. **Tenant isolation on every query and mutation** — a
+non-super-admin is narrowed to its tenant and cross-tenant access returns not-found; a missing
+tenant fails closed. **Strictly non-financial in P5.3A:** approve/retry accept ONLY safe
+non-financial actions; refund/void/confirmed-provider cancellation raise a typed FORBIDDEN.
+No endpoint edits amount, compensation type, payment/provider references, or booking binding.
+
+**Health (`GET /health/compensation`, public, counts-only — no ids/PII):** planning/execution
+mode, per-state backlog (planned/ready/processing/retryable/dead-letter/manual-review/
+completed), oldest-ready age, stale-lease count, last successful safe compensation,
+provider-pending backlog, status-recovery backlog, allocation-drift count. Bounded gauges
+`etg_booking_compensation_backlog{state}` + `_oldest_ready_age_seconds`.
+
 ## Rollout plan
 
 Phase 0 disabled → 1 observe (classifications/metrics) → 2 plan (records, no execution) → 3
@@ -112,8 +128,12 @@ commercial provider, general saga engine.
 ## Status / verification
 
 Model + migration + state machine + planner (A–H) + payment capability + repository
-(idempotency/lease/retry/dead-letter) + safe processor + flags/validation + metrics. Unit-
-verified (planner A–H, state machine, capability, repository idempotency/guard, config matrix).
-Full API suite **148 suites / 1048 tests**; tsc + build + worker + prettier clean; migration
-`20260728100000` applied. All compensation behaviour OFF by default; no money movement executes.
-Real-infra multi-instance execution + full transactional accounting wiring (Slices A/C) remain.
+(idempotency/lease/retry/dead-letter) + safe processor + flags/validation + metrics + **admin
+ops + health surfaces (P5.3A)**. Plus the P5.3A.1 follow-through: **transactional allocation
+accounting** (oversell-proof held guard, real-Postgres proven), **transactional provider event
+emission** (in-tx, exactly-once), and a **provider-authoritative real-Postgres HA harness**
+(concurrent confirmation / confirmation-vs-expiration-vs-cancellation / idempotency /
+two-worker claims). Full API suite **153 suites / 1079 tests**; tsc + build + worker + prettier
+clean; migrations through `20260728110000` applied. **All compensation behaviour OFF by
+default; no money movement executes.** P5.3A is closed; P5.3B (controlled payment void/refund +
+provider-cancellation execution) is the next increment.
