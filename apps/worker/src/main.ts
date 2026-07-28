@@ -20,6 +20,7 @@ import {
   SyncPollingService,
   OutboxDispatcher,
   OutboxRetentionService,
+  bullPrefix,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
@@ -105,7 +106,10 @@ async function main(): Promise<void> {
     maxRetriesPerRequest: null as null,
   };
   const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
-  const queue = new Queue(QUEUE_NAME, { connection: redisConnection });
+  // Env-scoped BullMQ prefix (P6.2): MUST match the API producers' prefix so staging/production
+  // never share a queue keyspace on a shared Redis. Both derive it from APP_ENV.
+  const BULL_PREFIX = bullPrefix(process.env.APP_ENV);
+  const queue = new Queue(QUEUE_NAME, { connection: redisConnection, prefix: BULL_PREFIX });
 
   // Idempotent, retryable repeatable job — releasing an already-released hold is a no-op.
   await queue.add(
@@ -302,7 +306,7 @@ async function main(): Promise<void> {
       if (promoted > 0) log('info', 'promoted settlements to eligible', { promoted });
       return { released, completed, promoted };
     },
-    { connection: redisConnection },
+    { connection: redisConnection, prefix: BULL_PREFIX },
   );
 
   // Dedicated Worker for the durable inventory-sync queue. Jobs carry only a
@@ -314,7 +318,7 @@ async function main(): Promise<void> {
       const rawEventId = (job.data as { rawEventId?: string })?.rawEventId;
       if (rawEventId) await syncProcessor.process(rawEventId);
     },
-    { connection: redisConnection, concurrency: 8 },
+    { connection: redisConnection, prefix: BULL_PREFIX, concurrency: 8 },
   );
   syncWorker.on('failed', (job, err) => {
     log('error', 'inventory-sync job failed', { jobId: job?.id, error: err.message });

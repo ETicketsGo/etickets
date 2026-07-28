@@ -1,6 +1,7 @@
 import { Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
+import { bullPrefix } from '../common/redis-namespace';
 
 /** DI token for the read/manage-only BullMQ client for the worker's `holds` queue. */
 export const HOLDS_QUEUE = 'HOLDS_QUEUE';
@@ -27,7 +28,8 @@ export const holdsQueueProvider: Provider = {
       port: Number(url.port) || 6379,
       maxRetriesPerRequest: null as null,
     };
-    return new Queue(HOLDS_QUEUE_NAME, { connection });
+    // Env-scoped prefix so staging/production never share the `holds` queue keyspace (P6.2).
+    return new Queue(HOLDS_QUEUE_NAME, { connection, prefix: bullPrefix(config.get('APP_ENV')) });
   },
   inject: [ConfigService],
 };
