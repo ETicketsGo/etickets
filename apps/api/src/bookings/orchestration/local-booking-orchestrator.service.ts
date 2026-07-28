@@ -517,10 +517,15 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
         ? null
         : await this.prisma.booking.findUnique({
             where: { id: wf.bookingId },
-            select: { status: true },
+            select: { status: true, payment: { select: { status: true } } },
           });
+      const paymentCaptured = ['CAPTURED', 'SUCCEEDED', 'PAID'].includes(
+        booking?.payment?.status ?? '',
+      );
       const cls =
-        this.classifyProvider(wf) ?? this.classify(wf.state as WS, booking?.status ?? null);
+        this.classifyCancellation(wf, booking?.status ?? null, paymentCaptured) ??
+        this.classifyProvider(wf) ??
+        this.classify(wf.state as WS, booking?.status ?? null);
       if (cls !== 'IN_SYNC') {
         mismatches.push({
           bookingId: wf.bookingId,
@@ -547,6 +552,37 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     }
     if (state === WS.MANUAL_REVIEW) return 'MANUAL_REVIEW_REQUIRED';
     return 'IN_SYNC';
+  }
+
+  /**
+   * Financial reconciliation for provider RESERVATION cancellation (ADR-043 §24, P5.3B Phase 4).
+   * Surfaces the two Phase-4 discrepancies WITHOUT ever auto-moving money:
+   *   - a provider reservation cancelled while a captured payment is present (a refund may be
+   *     owed — MANUAL_REVIEW, never an automatic refund);
+   *   - a provider reservation still ACTIVE while the local booking is already expired/cancelled
+   *     (an orphaned external reservation that should be cancelled).
+   */
+  private classifyCancellation(
+    wf: {
+      inventoryOwnershipMode: string;
+      providerCancelledAt: Date | null;
+      providerStatus: string | null;
+    },
+    bookingStatus: string | null,
+    paymentCaptured: boolean,
+  ): string | null {
+    if (wf.inventoryOwnershipMode !== 'PROVIDER_AUTHORITATIVE') return null;
+    if (wf.providerCancelledAt && paymentCaptured) {
+      return 'RESERVATION_CANCELLED_PAYMENT_PRESENT';
+    }
+    if (
+      wf.providerStatus === 'RESERVED' &&
+      !wf.providerCancelledAt &&
+      (bookingStatus === 'EXPIRED' || bookingStatus === 'CANCELLED')
+    ) {
+      return 'RESERVATION_ACTIVE_LOCAL_RELEASED';
+    }
+    return null;
   }
 
   /**

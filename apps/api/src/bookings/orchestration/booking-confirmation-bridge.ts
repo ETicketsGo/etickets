@@ -32,6 +32,7 @@ export class BookingConfirmationBridge {
   private readonly logger = new Logger('BookingConfirmationBridge');
   private handler?: (bookingId: string) => Promise<void>;
   private preConfirmHandler?: (fact: VerifiedPaymentFact) => Promise<PreConfirmResult>;
+  private providerCancelHandler?: (bookingId: string) => Promise<string>;
 
   register(handler: (bookingId: string) => Promise<void>): void {
     this.handler = handler;
@@ -75,6 +76,21 @@ export class BookingConfirmationBridge {
         err as Error,
       );
     }
+  }
+
+  /**
+   * Register the Phase-4 provider RESERVATION cancellation handler (ADR-043, P5.3B). The
+   * provider strategy owns the eligibility + idempotent provider call + event emission; the
+   * compensation worker invokes it. Only the provider strategy registers this.
+   */
+  registerProviderCancel(handler: (bookingId: string) => Promise<string>): void {
+    this.providerCancelHandler = handler;
+  }
+
+  /** Invoke the provider reservation cancellation handler; 'NO_HANDLER' if unwired. */
+  async cancelProviderReservation(bookingId: string): Promise<string> {
+    if (!this.providerCancelHandler) return 'NO_HANDLER';
+    return this.providerCancelHandler(bookingId);
   }
 }
 

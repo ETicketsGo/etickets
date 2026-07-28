@@ -14,6 +14,8 @@ import {
   bookingProviderConfirmationAmbiguousEvent,
   bookingProviderStatusRecoveryRequestedEvent,
   bookingProviderStatusRecoveredEvent,
+  bookingProviderCancellationRequestedEvent,
+  bookingProviderCancelledEvent,
 } from '../../common/domain-events/catalogue/provider-compensation-events';
 import {
   bookingCompensationRequiredEvent,
@@ -130,6 +132,130 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
   onModuleInit(): void {
     // Own confirmation for provider-authoritative bookings (provider-confirm before local).
     this.bridge.registerPreConfirm((fact) => this.handlePaymentConfirmed(fact));
+    // Own Phase-4 provider RESERVATION cancellation (ADR-043 P5.3B).
+    this.bridge.registerProviderCancel((bookingId) => this.cancelReservation(bookingId));
+  }
+
+  /**
+   * Phase-4 provider RESERVATION cancellation (ADR-043 §22, P5.3B). Cancels ONLY an UNPAID,
+   * UNCONFIRMED external reservation on a provider that advertises idempotent cancellation.
+   * Persists the intent (BookingProviderCancellationRequested) BEFORE the call; uses a stable
+   * server-generated idempotency key; on a definitive outcome persists it exactly once
+   * (BookingProviderCancelled) and releases the Redis coordination lock. An ambiguous/timeout
+   * outcome is NEVER assumed cancelled — it queries provider status first, then retries or
+   * escalates. Provider cancellation is never treated as a customer refund. Returns a
+   * classification consumed by the compensation worker:
+   *   CANCELLED | RETRYABLE | MANUAL_REVIEW | NOT_ELIGIBLE
+   */
+  async cancelReservation(bookingId: string): Promise<string> {
+    const wf = await this.workflows.getByBookingId(bookingId).catch(() => null);
+    if (
+      !wf ||
+      wf.inventoryOwnershipMode !== 'PROVIDER_AUTHORITATIVE' ||
+      !wf.providerReservationId
+    ) {
+      return 'NOT_ELIGIBLE';
+    }
+    // Already cancelled → idempotent success.
+    if (wf.providerCancelledAt) return 'CANCELLED';
+    // UNCONFIRMED only: never cancel a provider-confirmed / locally-confirmed reservation here.
+    if (
+      wf.providerConfirmedAt ||
+      oneOf(wf.state as WS, [
+        WS.PROVIDER_CONFIRMED,
+        WS.CONFIRMING,
+        WS.CONFIRMED,
+        WS.TICKET_PENDING,
+        WS.TICKET_ISSUED,
+      ])
+    ) {
+      return 'NOT_ELIGIBLE';
+    }
+    // UNPAID only: a captured/confirmed payment is out of Phase-4 scope (that is refund territory).
+    const booking = await this.prisma.booking
+      .findUnique({ where: { id: bookingId }, include: { payment: true } })
+      .catch(() => null);
+    if (!booking || booking.status === 'CONFIRMED') return 'NOT_ELIGIBLE';
+    const paid =
+      booking.payment && ['CAPTURED', 'SUCCEEDED', 'PAID'].includes(booking.payment.status);
+    if (paid) return 'NOT_ELIGIBLE';
+    // Provider must support idempotent cancellation.
+    const provider = this.registry.get(wf.selectedProviderCode ?? '');
+    if (!provider) return 'MANUAL_REVIEW';
+    const caps = provider.capabilities();
+    if (!caps.supportsCancel || !caps.idempotentCancellation) return 'NOT_ELIGIBLE';
+
+    const cancelKey = `wf:${wf.id}:cancel`;
+    // Persist the intent BEFORE the call so an ambiguous/lost response is recoverable by key.
+    await this.emitFact(
+      bookingProviderCancellationRequestedEvent(this.eventBase(wf, 'REQUESTED')),
+    ).catch(() => undefined);
+    const res = await provider.cancelReservation({
+      providerReservationId: wf.providerReservationId,
+      idempotencyKey: cancelKey,
+      correlationId: wf.correlationId ?? undefined,
+    });
+    this.metrics.recordProviderBooking(
+      'cancel',
+      res.outcome.toLowerCase(),
+      wf.selectedProviderCode ?? 'unknown',
+    );
+
+    // OK or NOT_FOUND (idempotent provider ⇒ already cancelled) are BOTH definitive.
+    if (res.outcome === 'OK' || res.outcome === 'NOT_FOUND') {
+      await this.finalizeCancelled(wf, bookingId);
+      return 'CANCELLED';
+    }
+    if (res.outcome === 'AMBIGUOUS' || res.outcome === 'RETRYABLE') {
+      // Never assume cancelled — query status before any retry.
+      const status = await provider
+        .getBookingStatus({
+          providerReservationId: wf.providerReservationId,
+          idempotencyKey: `${cancelKey}:status`,
+          correlationId: wf.correlationId ?? undefined,
+        })
+        .catch(() => ({ status: 'UNKNOWN' as const }));
+      if (status.status === 'CANCELLED' || status.status === 'EXPIRED') {
+        await this.finalizeCancelled(wf, bookingId);
+        return 'CANCELLED';
+      }
+      if (status.status === 'RESERVED') return 'RETRYABLE'; // still active — retry later
+      return 'MANUAL_REVIEW'; // unknown / conflicting
+    }
+    return 'MANUAL_REVIEW'; // REJECTED / CONFLICT
+  }
+
+  /**
+   * Persist a DEFINITIVE cancellation exactly once (guarded on providerCancelledAt IS NULL) and
+   * emit BookingProviderCancelled in the same tx, then release the Redis coordination lock. The
+   * local PostgreSQL hold is left to the durable unpaid-hold expiry sweep (documented safe
+   * policy — the booking is unpaid, so no money is involved and no second authoritative
+   * mutation races the sweep); a separate LOCAL_HOLD_RELEASE compensation may also cover it.
+   */
+  private async finalizeCancelled(wf: BookingWorkflow, bookingId: string): Promise<void> {
+    let emitted: DomainEvent | null = null;
+    await this.prisma
+      .$transaction(async (tx) => {
+        const claim = await tx.bookingWorkflow.updateMany({
+          where: { id: wf.id, providerCancelledAt: null },
+          data: { providerCancelledAt: new Date(), providerStatus: 'CANCELLED' },
+        });
+        if (claim.count === 1) {
+          const fresh = (await tx.bookingWorkflow.findUnique({ where: { id: wf.id } }))!;
+          const evt = bookingProviderCancelledEvent(this.eventBase(fresh, 'CANCELLED'));
+          await this.publisher.recordInTransaction(tx, [evt]);
+          emitted = evt;
+        }
+      })
+      .catch((err) =>
+        this.logger.error(`finalizeCancelled failed for booking=${bookingId}`, err as Error),
+      );
+    if (emitted) await this.publisher.deliverAfterCommit([emitted]);
+    // Release the Redis coordination lock (definitive; idempotent).
+    if (wf.lockId) {
+      const raw = await this.locks.getRaw(wf.lockId).catch(() => null);
+      if (raw) await this.locks.markInternal(raw, 'RELEASED').catch(() => undefined);
+    }
   }
 
   get enabled(): boolean {

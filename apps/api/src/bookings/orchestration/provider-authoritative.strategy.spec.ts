@@ -15,6 +15,11 @@ function make(
     inventoryRef?: string;
     ttlSafety?: number;
     recovery?: boolean;
+    cancel?: { outcome: string };
+    supportsCancel?: boolean;
+    idempotentCancellation?: boolean;
+    bookingPaymentStatus?: string;
+    bookingStatus?: string;
   } = {},
 ) {
   const provider = {
@@ -23,8 +28,11 @@ function make(
       supportsConfirm: true,
       supportsTemporaryReservation: true,
       requiresPaymentBeforeReservation: false,
+      supportsCancel: opts.supportsCancel ?? true,
+      idempotentCancellation: opts.idempotentCancellation ?? true,
     }),
     health: jest.fn().mockResolvedValue({ healthy: true }),
+    cancelReservation: jest.fn().mockResolvedValue(opts.cancel ?? { outcome: 'OK' }),
     createReservation: jest.fn().mockResolvedValue(
       opts.reserve ?? {
         outcome: 'OK',
@@ -102,7 +110,14 @@ function make(
         providerTenantId: '',
       }),
     },
-    booking: { findUnique: jest.fn().mockResolvedValue({ totalMinor: 5000, currency: 'USD' }) },
+    booking: {
+      findUnique: jest.fn().mockResolvedValue({
+        totalMinor: 5000,
+        currency: 'USD',
+        status: opts.bookingStatus ?? 'PENDING_PAYMENT',
+        payment: { status: opts.bookingPaymentStatus ?? 'REQUIRES_PAYMENT' },
+      }),
+    },
     // The event-emitting advance runs advance(tx) + recordInTransaction(tx) in one tx.
     $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(txClient)),
   } as unknown as PrismaService;
@@ -338,5 +353,82 @@ describe('ProviderAuthoritativeStrategy transactional event emission', () => {
     expect(types).toContain('booking.provider_confirmed');
     expect(payments.confirmVerifiedLocal).toHaveBeenCalledTimes(1); // confirmed exactly once
     expect(provider.confirmReservation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ProviderAuthoritativeStrategy.cancelReservation (P5.3B Phase 4)', () => {
+  const setReserved = (store: Record<string, unknown>) => {
+    store.state = WS.PROVIDER_RESERVED;
+    store.providerReservationId = 'mockres_1';
+    store.providerConfirmedAt = null;
+    store.providerCancelledAt = null;
+  };
+
+  it('cancels an unpaid, unconfirmed reservation definitively and emits Requested + Cancelled', async () => {
+    const { strat, provider, publisher, store } = make();
+    setReserved(store);
+    const outcome = await strat.cancelReservation('b1');
+    expect(outcome).toBe('CANCELLED');
+    expect(provider.cancelReservation).toHaveBeenCalledTimes(1);
+    const types = (
+      publisher as never as { recordInTransaction: jest.Mock }
+    ).recordInTransaction.mock.calls.flatMap((c) =>
+      (c[1] as Array<{ eventType: string }>).map((e) => e.eventType),
+    );
+    expect(types).toContain('booking.provider_cancellation_requested');
+    expect(types).toContain('booking.provider_cancelled');
+    expect(store.providerCancelledAt).toBeTruthy();
+  });
+
+  it('is NOT eligible when the payment is captured (refund territory, not Phase 4)', async () => {
+    const { strat, provider, store } = make({ bookingPaymentStatus: 'CAPTURED' });
+    setReserved(store);
+    expect(await strat.cancelReservation('b1')).toBe('NOT_ELIGIBLE');
+    expect(provider.cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it('is NOT eligible for a confirmed reservation', async () => {
+    const { strat, provider, store } = make();
+    setReserved(store);
+    store.providerConfirmedAt = new Date();
+    store.state = WS.CONFIRMED;
+    expect(await strat.cancelReservation('b1')).toBe('NOT_ELIGIBLE');
+    expect(provider.cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it('is NOT eligible when the provider lacks idempotent cancellation', async () => {
+    const { strat, provider, store } = make({ idempotentCancellation: false });
+    setReserved(store);
+    expect(await strat.cancelReservation('b1')).toBe('NOT_ELIGIBLE');
+    expect(provider.cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it('ambiguous cancel → queries provider status; RESERVED → RETRYABLE, never assumed cancelled', async () => {
+    const { strat, provider, store } = make({
+      cancel: { outcome: 'AMBIGUOUS' },
+      status: { outcome: 'OK', status: 'RESERVED' },
+    });
+    setReserved(store);
+    expect(await strat.cancelReservation('b1')).toBe('RETRYABLE');
+    expect(provider.getBookingStatus).toHaveBeenCalled();
+    expect(store.providerCancelledAt).toBeFalsy();
+  });
+
+  it('ambiguous cancel → status CANCELLED → definitive CANCELLED', async () => {
+    const { strat, store } = make({
+      cancel: { outcome: 'AMBIGUOUS' },
+      status: { outcome: 'OK', status: 'CANCELLED' },
+    });
+    setReserved(store);
+    expect(await strat.cancelReservation('b1')).toBe('CANCELLED');
+    expect(store.providerCancelledAt).toBeTruthy();
+  });
+
+  it('an already-cancelled reservation is an idempotent no-op (no second provider call)', async () => {
+    const { strat, provider, store } = make();
+    setReserved(store);
+    store.providerCancelledAt = new Date();
+    expect(await strat.cancelReservation('b1')).toBe('CANCELLED');
+    expect(provider.cancelReservation).not.toHaveBeenCalled();
   });
 });

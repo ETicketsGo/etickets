@@ -594,20 +594,30 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
   if (cfg.BOOKING_COMPENSATION_PLANNING_ENABLED && !cfg.BOOKING_COMPENSATION_ENABLED) {
     errors.push('  - BOOKING_COMPENSATION_PLANNING_ENABLED requires BOOKING_COMPENSATION_ENABLED.');
   }
+  // Money movement (refund/void) — Phase 5/6, still off + production-forbidden in this
+  // increment. Provider RESERVATION cancellation (Phase 4) is NOT money movement and is
+  // handled separately below.
   const anyAutoMoney =
-    cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED ||
-    cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED ||
-    cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED;
-  if (anyAutoMoney && !cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED) {
+    cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED || cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED;
+  const anyAuto = anyAutoMoney || cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED;
+  if (anyAuto && !cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED) {
     errors.push(
       '  - Automatic refund/void/provider-cancel requires BOOKING_COMPENSATION_EXECUTION_ENABLED.',
     );
   }
-  // P5.3A: automatic money movement + confirmed-booking cancellation are NOT permitted in
-  // production (deferred to P5.3B after policy + staging + idempotency proof).
   if (isProdLike && anyAutoMoney) {
     errors.push(
-      '  - Automatic refund/void/provider-cancel is not permitted in production in P5.3A (deferred to P5.3B).',
+      '  - Automatic refund/void is not permitted in production yet (P5.3B Phase 5/6 — needs policy + staging + idempotency proof).',
+    );
+  }
+  // Phase 4: automatic provider RESERVATION cancellation needs a registered capable provider —
+  // today that requires provider confirmation enabled (which registers the external adapter).
+  if (
+    cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED &&
+    !cfg.BOOKING_PROVIDER_CONFIRMATION_ENABLED
+  ) {
+    errors.push(
+      '  - BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED requires BOOKING_PROVIDER_CONFIRMATION_ENABLED (a registered capable provider).',
     );
   }
 

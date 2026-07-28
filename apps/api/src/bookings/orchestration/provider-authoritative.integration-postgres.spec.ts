@@ -184,6 +184,29 @@ describe('integration-real-postgres: provider-authoritative HA concurrency', () 
     await prisma!.bookingCompensation.deleteMany({ where: { bookingId } }).catch(() => undefined);
   }, 30_000);
 
+  it('concurrent provider cancellation marks cancelled exactly once (Phase 4)', async () => {
+    if (!available) return;
+    const { id } = await seedWorkflow(WS.PROVIDER_RESERVED);
+    await prisma!.bookingWorkflow.update({
+      where: { id },
+      data: { providerReservationId: 'res-cancel', providerStatus: 'RESERVED' },
+    });
+    // The definitive-cancel marker is a guarded UPDATE on providerCancelledAt IS NULL; N
+    // concurrent finalizers (duplicate workers / retries) can set it only once.
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () =>
+        prisma!.bookingWorkflow.updateMany({
+          where: { id, providerCancelledAt: null },
+          data: { providerCancelledAt: new Date(), providerStatus: 'CANCELLED' },
+        }),
+      ),
+    );
+    const applied = results.filter((r) => r.status === 'fulfilled' && r.value.count === 1);
+    expect(applied).toHaveLength(1); // cancelled exactly once
+    const row = await prisma!.bookingWorkflow.findUnique({ where: { id } });
+    expect(row?.providerStatus).toBe('CANCELLED');
+  }, 30_000);
+
   it('stale compensation leases recover to READY exactly once', async () => {
     if (!available) return;
     const bookingId = `${tag}-stale`;
