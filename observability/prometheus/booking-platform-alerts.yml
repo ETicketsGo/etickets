@@ -1,0 +1,95 @@
+# P6.6 — Booking-platform alert rules (P5/P6 engine signals). Complements the infra alerts in
+# alerts.yml. Every expression references a metric the app actually exposes
+# (apps/api/src/metrics/metrics.service.ts). Thresholds are STARTING points — tune from the P6.4/6.5
+# soak/load baselines. Rules that assume a node/redis/postgres exporter are marked EXPORTER.
+groups:
+  - name: booking-platform-money
+    rules:
+      - alert: RefundRejectionsHigh
+        expr: sum(rate(etg_booking_payment_refund_total{outcome=~"rejected|review.*"}[10m])) > 0
+        for: 10m
+        labels: { severity: page, area: payments }
+        annotations:
+          summary: 'Refunds landing in rejected/manual-review'
+          description: 'A refund outcome is rejected or forced to manual review — investigate before it backs up.'
+
+      - alert: VoidRejectionsHigh
+        expr: sum(rate(etg_booking_payment_void_total{outcome=~"review.*|retryable"}[10m])) > 0
+        for: 10m
+        labels: { severity: warn, area: payments }
+        annotations:
+          summary: 'Payment voids failing/uncertain'
+
+      - alert: RefundStatusRecoveryStuck
+        expr: sum(rate(etg_booking_refund_status_recovery_total{status=~"unknown|not_found"}[15m])) > 0
+        for: 15m
+        labels: { severity: page, area: payments }
+        annotations:
+          summary: 'Refund status recovery cannot resolve — possible ambiguous refund'
+
+  - name: booking-platform-compensation
+    rules:
+      - alert: CompensationDeadLetters
+        expr: etg_booking_compensation_backlog{state="DEAD_LETTERED"} > 0
+        for: 5m
+        labels: { severity: page, area: compensation }
+        annotations:
+          summary: 'Compensation dead-letters present'
+          description: 'A compensation exhausted retries — manual intervention required.'
+
+      - alert: CompensationBacklogAgeHigh
+        expr: etg_booking_compensation_oldest_ready_age_seconds > 900
+        for: 15m
+        labels: { severity: warn, area: compensation }
+        annotations:
+          summary: 'Oldest ready compensation > 15m old — worker not keeping up'
+
+      - alert: CompensationManualReviewGrowing
+        expr: etg_booking_compensation_backlog{state="MANUAL_REVIEW"} > 25
+        for: 30m
+        labels: { severity: warn, area: compensation }
+        annotations:
+          summary: 'Manual-review compensation backlog growing'
+
+  - name: booking-platform-booking
+    rules:
+      - alert: BookingConfirmStalled
+        expr: rate(etg_bookings_created_total[15m]) > 0 and rate(etg_bookings_confirmed_total[15m]) == 0
+        for: 15m
+        labels: { severity: page, area: booking }
+        annotations:
+          summary: 'Bookings are being created but none are confirming'
+
+      - alert: ShadowMismatchHigh
+        expr: sum(rate(etg_booking_shadow_mismatch_total[15m])) / clamp_min(sum(rate(etg_booking_shadow_total[15m])), 1) > 0.01
+        for: 15m
+        labels: { severity: warn, area: booking }
+        annotations:
+          summary: 'Orchestrator shadow-mode mismatch rate > 1% — do not promote from shadow'
+
+      - alert: LockContentionHigh
+        expr: sum(rate(etg_inventory_lock_contention_total[5m])) > 50
+        for: 10m
+        labels: { severity: warn, area: inventory }
+        annotations:
+          summary: 'High seat/GA lock contention — hot show or capacity pressure'
+
+  - name: booking-platform-infra
+    rules:
+      - alert: RedisDown # EXPORTER: requires redis_exporter (redis_up)
+        expr: redis_up == 0
+        for: 1m
+        labels: { severity: page, area: infra }
+        annotations: { summary: 'Redis unavailable — active booking fails closed' }
+
+      - alert: PostgresDown # EXPORTER: requires postgres_exporter (pg_up)
+        expr: pg_up == 0
+        for: 1m
+        labels: { severity: page, area: infra }
+        annotations: { summary: 'PostgreSQL unavailable — writes fail closed' }
+
+      - alert: DbQueryLatencyP95High
+        expr: histogram_quantile(0.95, sum(rate(etg_db_query_duration_seconds_bucket[5m])) by (le)) > 0.25
+        for: 10m
+        labels: { severity: warn, area: infra }
+        annotations: { summary: 'DB p95 query latency > 250ms' }

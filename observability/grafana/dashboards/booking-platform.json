@@ -1,0 +1,147 @@
+{
+  "uid": "etg-booking-platform",
+  "title": "ETicketsGo — Booking Platform (P5/P6)",
+  "tags": ["eticketsgo", "booking", "p6"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Bookings created vs confirmed (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "${datasource}",
+      "targets": [
+        { "expr": "sum(rate(etg_bookings_created_total[5m]))", "legendFormat": "created" },
+        { "expr": "sum(rate(etg_bookings_confirmed_total[5m]))", "legendFormat": "confirmed" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Orchestration outcome mix",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "${datasource}",
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(etg_booking_orchestration_total[5m]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Compensation backlog by state",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "${datasource}",
+      "targets": [{ "expr": "etg_booking_compensation_backlog", "legendFormat": "{{state}}" }]
+    },
+    {
+      "id": 4,
+      "title": "Oldest ready compensation age (s)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "datasource": "${datasource}",
+      "targets": [{ "expr": "etg_booking_compensation_oldest_ready_age_seconds" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Dead-lettered compensations",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "datasource": "${datasource}",
+      "targets": [{ "expr": "sum(etg_booking_compensation_backlog{state=\"DEAD_LETTERED\"})" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Refund outcomes (rate/10m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": "${datasource}",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(etg_booking_payment_refund_total[10m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Void outcomes (rate/10m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": "${datasource}",
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(etg_booking_payment_void_total[10m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Seat/GA lock contention (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": "${datasource}",
+      "targets": [
+        {
+          "expr": "sum(rate(etg_inventory_lock_contention_total[5m]))",
+          "legendFormat": "contention"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "HTTP p95 / p99 latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": "${datasource}",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(etg_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(etg_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    }
+  ]
+}

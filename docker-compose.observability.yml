@@ -25,6 +25,7 @@ services:
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./observability/prometheus/booking-platform-alerts.yml:/etc/prometheus/booking-platform-alerts.yml:ro
       - prometheus-data:/prometheus
     extra_hosts:
       # Lets the container reach host-bound services (API/worker) on Linux.
@@ -46,6 +47,18 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+
+  # Alertmanager routes firing alerts (severity=page → pager, warn → ops). Receivers are set via
+  # env at deploy — the committed config uses no-op placeholders. Optional locally.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: eticketsgo-alertmanager
+    restart: unless-stopped
+    command: ['--config.file=/etc/alertmanager/alertmanager.yml']
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
 
 volumes:
   prometheus-data:
