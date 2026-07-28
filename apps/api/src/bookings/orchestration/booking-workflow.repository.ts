@@ -17,6 +17,11 @@ export interface CreateWorkflowInput {
   correlationId?: string;
   inventoryOwnershipMode: InventoryOwnershipMode;
   selectedProviderCode: string;
+  /** Durable server-decided ownership (ADR-042 §4). */
+  ownerType?: 'USER' | 'ANONYMOUS_SESSION' | 'INTERNAL';
+  ownerId?: string;
+  tenantId?: string;
+  organizerId?: string;
 }
 
 /** The result of a guarded transition: applied, or an idempotent replay of the target state. */
@@ -69,6 +74,10 @@ export class BookingWorkflowRepository {
           correlationId: input.correlationId ?? null,
           inventoryOwnershipMode: input.inventoryOwnershipMode,
           selectedProviderCode: input.selectedProviderCode,
+          ownerType: input.ownerType ?? null,
+          ownerId: input.ownerId ?? null,
+          tenantId: input.tenantId ?? null,
+          organizerId: input.organizerId ?? null,
           state: BookingWorkflowState.DRAFT,
         },
       });

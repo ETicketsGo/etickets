@@ -2103,6 +2103,16 @@ enum BookingWorkflowState {
   FAILED
 }
 
+/// Durable booking-workflow ownership (ADR-042, P5.2A). Decided SERVER-SIDE — the client
+/// never selects the owner type. USER = authenticated principal; ANONYMOUS_SESSION = a
+/// server-issued, cryptographically-strong guest session (persisted only as a hash);
+/// INTERNAL = a trusted system/worker identity for privileged operations.
+enum BookingOwnerType {
+  USER
+  ANONYMOUS_SESSION
+  INTERNAL
+}
+
 /// Durable orchestration workflow for one booking (ADR-042). The orchestrator is the ONLY
 /// writer; every advance uses optimistic concurrency (`version`) so two workers/callbacks
 /// cannot advance the same workflow inconsistently. Holds durable lock identity (lockId +
@@ -2116,6 +2126,15 @@ model BookingWorkflow {
   version              Int                  @default(0)
   selectedProviderCode String?
   inventoryOwnershipMode InventoryOwnershipMode @default(LOCAL_AUTHORITATIVE)
+  /// Durable server-decided ownership (ADR-042 P5.2A). ownerId is the user id for USER,
+  /// the SHA-256 hash of the anonymous session token for ANONYMOUS_SESSION (never the raw
+  /// token), or a trusted service identity for INTERNAL. Every customer operation validates
+  /// the request owner against these fields — a valid bookingId alone never suffices.
+  ownerType            BookingOwnerType?
+  ownerId              String?
+  /// Tenant (organization) + organizer scope captured at initiation for isolation checks.
+  tenantId             String?
+  organizerId          String?
   lockId               String?
   fencingToken         Int?
   paymentProvider      String?
@@ -2137,4 +2156,6 @@ model BookingWorkflow {
   @@index([state, nextActionAt])
   @@index([selectedProviderCode])
   @@index([correlationId])
+  @@index([ownerType, ownerId])
+  @@index([tenantId])
 }
