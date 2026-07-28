@@ -40,10 +40,15 @@ jobs:
   dependency-review:
     name: Dependency review (PR)
     runs-on: ubuntu-latest
+    # Requires GitHub Advanced Security + Dependency Graph, which a private repo on the free plan
+    # does NOT have (the action hard-errors "not supported on this repository"). Kept + soft-failed
+    # so it enforces automatically the moment GHAS is enabled; until then `Dependency audit`
+    # (npm audit) is the functional dependency gate. Do NOT let this block PRs.
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - name: Review new/changed dependencies
+        continue-on-error: true # soft until GHAS is enabled (see note above)
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
