@@ -57,16 +57,28 @@ export const bookingProviderReservationExpiredEvent = (
   p: BookingProviderEventBase,
   t: EventTracing = {},
 ) => providerEvent(DomainEventType.BookingProviderReservationExpired, p, t);
+export const bookingProviderConfirmationRequestedEvent = (
+  p: BookingProviderEventBase,
+  t: EventTracing = {},
+) => providerEvent(DomainEventType.BookingProviderConfirmationRequested, p, t);
 export const bookingProviderConfirmedEvent = (p: BookingProviderEventBase, t: EventTracing = {}) =>
   providerEvent(DomainEventType.BookingProviderConfirmed, p, t);
 export const bookingProviderConfirmationAmbiguousEvent = (
   p: BookingProviderEventBase,
   t: EventTracing = {},
 ) => providerEvent(DomainEventType.BookingProviderConfirmationAmbiguous, p, t);
+export const bookingProviderStatusRecoveryRequestedEvent = (
+  p: BookingProviderEventBase,
+  t: EventTracing = {},
+) => providerEvent(DomainEventType.BookingProviderStatusRecoveryRequested, p, t);
 export const bookingProviderStatusRecoveredEvent = (
   p: BookingProviderEventBase,
   t: EventTracing = {},
 ) => providerEvent(DomainEventType.BookingProviderStatusRecovered, p, t);
+export const bookingProviderCancellationRequestedEvent = (
+  p: BookingProviderEventBase,
+  t: EventTracing = {},
+) => providerEvent(DomainEventType.BookingProviderCancellationRequested, p, t);
 export const bookingProviderCancelledEvent = (p: BookingProviderEventBase, t: EventTracing = {}) =>
   providerEvent(DomainEventType.BookingProviderCancelled, p, t);
 
