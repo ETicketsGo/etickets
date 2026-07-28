@@ -54,6 +54,24 @@ If step 3 prerequisites are missing, boot must **fail fast** — verify that too
 - [ ] Payment confirmation vs cancellation → single terminal outcome.
 - [ ] Two owners cannot claim one workflow (durable owner check + optimistic version bump).
 
+## P5.2B additions
+
+Slice 1 (shipped) adds two staging checks:
+
+- [ ] **Guest payment initiation** — `POST /bookings/guest/:id/pay` with the guest's
+      `x-anon-session` returns one intent; a wrong/missing token → 401; an authed caller → 403.
+- [ ] **Worker expiration sweep** — after a hold lapses, the worker marks the booking `EXPIRED`
+      and the workflow follows (`sweepExpiredWorkflows`); a confirmed booking is never expired;
+      re-running the sweep is a no-op.
+
+Provider-authoritative + allocated scenarios (Slices 3–4) are **not yet implementable** — the
+flows are not wired. When they land, add: mock provider-authoritative reserved-seat/GA reserve→
+pay→confirm; provider sold-out; reservation/confirmation timeout → status recovery (confirmed /
+rejected); local failure after provider reservation; local failure after provider confirmation;
+allocated reserved-seat/GA; allocation exhausted/expired; and the provider concurrency proofs
+(one reservation per key, one confirmation per callback, confirmation vs expiration, allocation
+never exceeded).
+
 ## Sign-off
 
 Record, per step: operator, timestamp, result, and the metric/DB evidence. Do not enable

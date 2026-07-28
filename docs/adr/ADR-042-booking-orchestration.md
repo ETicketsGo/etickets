@@ -205,18 +205,73 @@ bounded, no ids); active operations are audited (`BOOKING_*_ACTIVE`) with safe m
 `GET /health/booking-orchestration` reports mode + drift counts (stuck workflows, manual-
 review backlog). Rate limiting reuses the global `ThrottlerGuard`.
 
+## P5.2B — local-flow closure + provider booking abstraction (Slices 1–2 shipped)
+
+**Slice 1 — local-flow closure (shipped).**
+
+- _Guest payment initiation:_ `POST /bookings/guest/:id/pay` (public) requires a well-formed
+  `x-anon-session` token in every mode (missing/malformed → 401), rejects an authenticated
+  caller on the guest route (403), and routes through the single router → `beginPayment`
+  (durable owner check in active mode). Server routes provider/amount/currency; the client
+  supplies none; repeats return the same intent.
+- _Worker expiration:_ after the authoritative `releaseExpiredHolds()` (unchanged PostgreSQL
+  release), the hold-expiry job calls `orchestrator.sweepExpiredWorkflows()` in an explicit
+  INTERNAL context. It is idempotent, advances only workflows whose booking is already
+  `EXPIRED`, never a confirmed one, releases a surviving Redis lock, and runs AFTER release
+  (not in the release tx) so a workflow-transition failure is reconcilable and never
+  re-releases inventory.
+
+**Slice 2 — provider booking abstraction (shipped, flag-off).**
+
+- `ExternalBookingProvider` is a provider-neutral remote-booking-lifecycle seam
+  (availability/reserve/confirm/cancel/status/refund), deliberately SEPARATE from the P1
+  `InventoryProvider`, the P4 `InventorySyncProvider`, and payment providers. Every call is
+  capability-gated and idempotency-keyed; results are summarized and PII/secret-free.
+- `ExternalBookingProviderCapabilities` models provider differences explicitly;
+  `selectProviderSequence()` picks the safe `RESERVE_PAY_CONFIRM` strategy and fails
+  unsupported combinations BEFORE payment.
+- `MockExternalBookingProvider` (dev/test only, not named after a real vendor) behaves as an
+  external boundary with deterministic sold-out / reject / ambiguous-timeout / expiry /
+  price-change / confirmed-response-lost fixtures and idempotent reserve/confirm/cancel. It is
+  registered only behind `BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED` (startup forbids it in
+  production).
+- Durable provider references on `BookingWorkflow` (migration `20260727230000`): idempotency
+  key, reservation expiry, version, attempt/error/response-category, confirmed/cancelled
+  timestamps, reconciliation flag, provider-scoped unique reservation/booking refs, and
+  pending-confirm / expired-reservation / reconciliation indexes.
+- Typed failure classifications (§21) with safe customer mapping — ambiguous / post-payment /
+  compensation cases surface as `BOOKING_PENDING_REVIEW`, never a false confirm or refund.
+- New flags (all off): `BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED`,
+  `BOOKING_ALLOCATED_INVENTORY_ENABLED`, `BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED`,
+  `BOOKING_PROVIDER_RESERVATION_TTL_SAFETY_SECONDS`, `BOOKING_PROVIDER_MAX_ATTEMPTS`,
+  `BOOKING_PROVIDER_CONFIRM_TIMEOUT_MS`. Startup rejects mock-in-prod, confirmation-without-
+  mock, confirmation-in-prod (no real adapter yet), and allocated-without-sourcing.
+
+**Slices 3–4 — NOT YET IMPLEMENTED (remaining P5.2B).** The provider-authoritative flow
+(reservation → payment → provider confirmation → local confirmation → outbox) and the
+allocated-inventory flow (locally authoritative within a bounded allocation) are NOT yet wired
+into the orchestrator's `initiate`/`confirmPayment` hot paths; provider-authoritative
+inventory still returns the clear unsupported error from P5.1. Ambiguous-status recovery,
+allocation-boundary validation, the provider reconciliation classifications, and the
+provider-flow transaction/integration/concurrency test matrix remain. The seam, mock,
+capabilities, durable references, flags, and validation above are the foundation those slices
+build on. Planned provider-authoritative sequence and transaction boundaries are specified in
+§11/§19 of the increment brief and will land with those slices.
+
 ## Deferred to P5.2B+
 
 Provider-authoritative + allocated flows; a mock provider-authoritative confirmation
-adapter; the full automated compensation matrix; full refund orchestration; a public guest
-payment-initiation endpoint; worker/expiration `expire()` wiring into the durable sweep;
-end-to-end active-mode integration/concurrency executed against real DB/Redis in staging.
+adapter; the full automated compensation/refund matrix; cross-provider failover; real
+commercial provider integration; end-to-end active-mode integration/concurrency executed
+against real DB/Redis in staging. **Remaining within P5.2B:** provider-authoritative +
+allocated flow wiring (Slices 3–4) and their transaction/integration/concurrency tests.
 
 ## Status / verification
 
-Foundation (9 transition tests) + P5.1 (+31) + P5.2A (owner/anon-session security, router
-mode-routing, public status mapping, active config matrix — +27). Full API suite **141
-suites / 970 tests**; tsc + prettier + api build + worker typecheck clean; migrations
-`20260727204643`, `booking_workflow_fingerprint`, `20260727213500_booking_workflow_ownership`
-applied. Active mode remains OFF by default; real-infra active-mode e2e is staging-only and
-NOT yet executed.
+Foundation (9 transition tests) + P5.1 (+31) + P5.2A (+27) + P5.2B Slices 1–2 (guest-pay
+security, worker expiry sweep, mock provider / registry / sequence / failure mapping, provider
+config matrix — +24). Full API suite **142 suites / 994 tests**; tsc + prettier + api build +
+worker typecheck clean; migrations through `20260727230000_booking_workflow_provider_refs`
+applied. Active mode + all provider flags remain OFF by default; real-infra active-mode e2e is
+staging-only and NOT yet executed; provider-authoritative/allocated flows (Slices 3–4) are NOT
+yet wired.

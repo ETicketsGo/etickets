@@ -136,6 +136,33 @@ Internal → public (`toPublicBookingStatus`):
 The authoritative customer status remains `Booking.status`; active mode does not change its
 meaning. Internal states are never leaked to the public API.
 
+## Guest payment (P5.2B)
+
+`POST /bookings/guest/:id/pay` requires the `x-anon-session` token in every mode. Missing/
+malformed → 401; an authenticated caller on this route → 403. `etg_booking_owner_rejection_total
+{op="begin_payment",reason}` tracks rejections (`missing_anonymous_token`,
+`user_on_guest_route`). The server routes provider/amount/currency; none is client-supplied.
+
+## Worker expiration sweep (P5.2B)
+
+The hold-expiry job runs `releaseExpiredHolds()` (authoritative) then
+`orchestrator.sweepExpiredWorkflows()` (INTERNAL context). The sweep only advances workflows
+whose booking is already `EXPIRED`, never confirmed ones, and releases a surviving Redis lock.
+It runs AFTER release, so a transition failure (`etg_booking_orchestration_total
+{op="expire_sweep",outcome="transition_failed"}`) is reconcilable and never re-releases
+inventory. Repeated sweeps + worker restarts are idempotent.
+
+## External booking providers (P5.2B — Slice 2 foundation)
+
+The `ExternalBookingProvider` seam + `MockExternalBookingProvider` are wired but the
+provider-authoritative and allocated FLOWS are not yet routed through the orchestrator
+(Slices 3–4). Flags `BOOKING_PROVIDER_CONFIRMATION_*`, `BOOKING_ALLOCATED_INVENTORY_ENABLED`,
+`BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED` are OFF by default; the mock is dev/test-only and
+rejected in production. When Slices 3–4 land: investigate reservations via the
+`providerReservationId`/`providerStatus`/`providerReservationExpiresAt` columns; ambiguous
+provider outcomes enter status-recovery (never a false confirm); a failed external provider
+must not block unrelated local or allocated bookings.
+
 ## Verify no double booking / no duplicate charge
 
 - Seat oversell is structurally impossible (ADR-039 checks + `ShowSeat` unique + the hold
