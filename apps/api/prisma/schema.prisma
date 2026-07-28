@@ -2271,7 +2271,10 @@ model BookingCompensation {
 
   /// Idempotency: one action per (booking, type, target, generation). A concurrent planner
   /// loses the unique race and re-reads the existing record.
-  @@unique([bookingId, compensationType, targetReference, generation])
+  // Explicit constraint name pinned to what PostgreSQL actually stored: the migration wrote a
+  // 76-char index name which Postgres truncated to 63 chars. Without this map, Prisma derives a
+  // different 63-char truncation (`..._targetRefere_key`) → schema/DB drift (P6.3 migration gate).
+  @@unique([bookingId, compensationType, targetReference, generation], map: "BookingCompensation_bookingId_compensationType_targetReference_")
   @@unique([idempotencyKey])
   @@index([state, availableAt])
   @@index([bookingId])

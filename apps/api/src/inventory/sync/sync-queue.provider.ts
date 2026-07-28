@@ -1,6 +1,7 @@
 import { Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
+import { bullPrefix } from '../../common/redis-namespace';
 
 /** DI token for the enqueue-only BullMQ client for the inventory-sync queue. */
 export const INVENTORY_SYNC_QUEUE = 'INVENTORY_SYNC_QUEUE';
@@ -34,6 +35,7 @@ export const inventorySyncQueueProvider: Provider = {
     const maxAttempts = Number(config.get<string>('INVENTORY_SYNC_MAX_ATTEMPTS') ?? 6);
     return new Queue<InventorySyncJob>(INVENTORY_SYNC_QUEUE_NAME, {
       connection,
+      prefix: bullPrefix(config.get('APP_ENV')), // env-scoped keyspace (P6.2)
       defaultJobOptions: {
         attempts: maxAttempts,
         backoff: { type: 'exponential', delay: 5000 },

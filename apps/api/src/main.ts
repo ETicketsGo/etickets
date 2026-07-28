@@ -18,6 +18,12 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix(prefix);
   app.use(helmet());
 
+  // Behind a managed load balancer / reverse proxy (Railway, ALB, nginx) the real client IP is in
+  // X-Forwarded-For. Trust the first proxy hop so the rate limiter (ThrottlerGuard) and request
+  // logs key on the actual client, not the proxy (P6.5). Safe in local dev (no proxy → no-op).
+  const trustProxyHops = Number(config.get<string>('TRUST_PROXY_HOPS', '1'));
+  app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
+
   const origins = config
     .get<string>('CORS_ORIGINS', 'http://localhost:3000')
     .split(',')

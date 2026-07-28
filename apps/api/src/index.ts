@@ -15,3 +15,4 @@ export { SyncEventProcessor } from './inventory/sync/sync-event.processor';
 export { SyncPollingService } from './inventory/sync/sync-polling.service';
 export { OutboxDispatcher } from './common/domain-events/outbox/outbox-dispatcher.service';
 export { OutboxRetentionService } from './common/domain-events/outbox/outbox-retention.service';
+export { bullPrefix, cacheKeyPrefix, redisEnvRoot } from './common/redis-namespace';

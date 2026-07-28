@@ -107,7 +107,9 @@ function stats(samplesMs) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function coolDown(label) {
   if (COOLDOWN_MS <= 0) return;
-  console.log(`\n  …cooling down ${Math.round(COOLDOWN_MS / 1000)}s to reset the throttle window before ${label}…`);
+  console.log(
+    `\n  …cooling down ${Math.round(COOLDOWN_MS / 1000)}s to reset the throttle window before ${label}…`,
+  );
   await sleep(COOLDOWN_MS);
 }
 
@@ -241,12 +243,12 @@ async function runGaSection() {
     buyerName: 'Load Test',
     buyerEmail: OWNER.email,
   };
-  console.log(`  firing ${racers} concurrent quantity-1 bookings (stock ${stock} + ${GA_OVERSHOOT} overshoot)`);
+  console.log(
+    `  firing ${racers} concurrent quantity-1 bookings (stock ${stock} + ${GA_OVERSHOOT} overshoot)`,
+  );
 
   const wall0 = now();
-  const results = await Promise.all(
-    Array.from({ length: racers }, () => book(token, payload)),
-  );
+  const results = await Promise.all(Array.from({ length: racers }, () => book(token, payload)));
   const wallMs = now() - wall0;
 
   const wins = results.filter((r) => r.status === 201 && r.body?.id);
@@ -326,7 +328,11 @@ async function measureReads(label, path, seqN, concN) {
     throttled429: throttled,
   };
   summary.reads.push(rec);
-  assert(`${label}: all responses served 2xx (no throttling)`, throttled === 0, `429s=${throttled}`);
+  assert(
+    `${label}: all responses served 2xx (no throttling)`,
+    throttled === 0,
+    `429s=${throttled}`,
+  );
 }
 
 async function runReadSection() {
@@ -343,7 +349,9 @@ async function main() {
   console.log(`ETicketsGo concurrency harness — ${new Date().toISOString()}`);
   console.log(`API_BASE=${API_BASE}\n`);
 
-  const health = await fetch(`${API_BASE}/health`).then((r) => r.status).catch(() => 0);
+  const health = await fetch(`${API_BASE}/health`)
+    .then((r) => r.status)
+    .catch(() => 0);
   if (health !== 200) throw new Error(`API health check failed (status ${health}) at ${API_BASE}`);
 
   // Start each phase in a fresh throttle window (a prior run/probe may have
