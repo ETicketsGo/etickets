@@ -1983,6 +1983,11 @@ model ProviderInventoryState {
   providerCapacity  Int?
   /// pending local provider-confirmations tracked separately from provider availability.
   pendingLocal     Int      @default(0)
+  /// Authoritative ALLOCATED-inventory consumption (ADR-042 P5.3A.1). Maintained
+  /// transactionally: held on initiate (guarded so heldLocal+confirmedLocal never exceeds
+  /// providerCapacity), moved held→confirmed on confirmation, released on expire/unpaid-cancel.
+  heldLocal        Int      @default(0)
+  confirmedLocal   Int      @default(0)
   safetyBuffer     Int      @default(0)
   version          Int      @default(0)
   providerUpdatedAt DateTime?
@@ -2156,6 +2161,13 @@ model BookingWorkflow {
   providerConfirmedAt           DateTime?
   providerCancelledAt           DateTime?
   providerReconciliationRequired Boolean @default(false)
+  /// ALLOCATED-inventory accounting linkage + exactly-once marker (ADR-042 P5.3A.1). The
+  /// marker guards the held→confirmed move and the held release so each happens exactly once
+  /// per booking even under duplicate callbacks / repeated sweeps.
+  allocationProviderCode        String?
+  allocationExternalRef         String?
+  allocationHeldQty             Int?
+  allocationAccountingState     String   @default("NONE") // NONE | HELD | CONFIRMED | RELEASED
   attemptCount         Int                  @default(0)
   nextActionAt         DateTime?
   lastErrorCode        String?
