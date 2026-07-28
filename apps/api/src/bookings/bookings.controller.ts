@@ -93,6 +93,26 @@ export class GuestBookingsController {
   }
 
   @Public()
+  @Post('guest/:id/pay')
+  @ApiOperation({ summary: 'Create a payment intent for a guest booking (requires the guest session).' })
+  payGuest(
+    @Param('id') id: string,
+    @Headers('x-anon-session') anonymousToken?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    // Owner-safe guest payment: the anonymous session token is mandatory and validated
+    // against the durable workflow owner (active mode). Server routes provider/amount/
+    // currency — none is accepted from the client.
+    return this.router.beginPayment({
+      user: null,
+      bookingId: id,
+      anonymousToken,
+      correlationId,
+      requireAnonymousToken: true,
+    });
+  }
+
+  @Public()
   @Post('guest/:id/cancel')
   @ApiOperation({ summary: 'Cancel an unpaid guest booking (requires the guest session).' })
   cancelGuest(

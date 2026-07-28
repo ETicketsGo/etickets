@@ -31,6 +31,8 @@ export interface InitiateContext extends RequestPrincipal {
 
 export interface PaymentContext extends RequestPrincipal {
   bookingId: string;
+  /** Guest payment route: a well-formed anonymous session token is mandatory (every mode). */
+  requireAnonymousToken?: boolean;
 }
 
 export interface StatusContext extends RequestPrincipal {
@@ -138,6 +140,26 @@ export class BookingExecutionRouter {
   async beginPayment(ctx: PaymentContext): Promise<unknown> {
     const mode = this.mode();
     this.metrics.recordBookingApi('begin_payment', mode, this.ownerTypeLabel(ctx.user));
+    // Guest payment route: a valid anonymous session token is mandatory in EVERY mode, and
+    // an authenticated caller may not use the guest route to adopt a guest booking.
+    if (ctx.requireAnonymousToken) {
+      if (ctx.user) {
+        this.metrics.recordBookingOwnerRejection('begin_payment', 'user_on_guest_route');
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          'Use the account payment route when signed in.',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+      if (!this.anon.isWellFormed(ctx.anonymousToken)) {
+        this.metrics.recordBookingOwnerRejection('begin_payment', 'missing_anonymous_token');
+        throw new AppException(
+          ErrorCodes.UNAUTHORIZED,
+          'A valid guest checkout session is required.',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+    }
     if (mode !== 'active') {
       return this.payments.createIntent(ctx.bookingId, ctx.user ?? undefined);
     }

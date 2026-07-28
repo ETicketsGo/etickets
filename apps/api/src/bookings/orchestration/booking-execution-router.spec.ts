@@ -147,6 +147,47 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
     expect(res.status).toBe('CANCELLED');
   });
 
+  it('guest pay requires a well-formed anonymous token in every mode', async () => {
+    for (const mode of ['disabled', 'shadow', 'active'] as const) {
+      const { router, payments } = make(mode);
+      await expect(
+        router.beginPayment({ user: null, bookingId: 'b1', requireAnonymousToken: true }),
+      ).rejects.toBeInstanceOf(AppException);
+      await expect(
+        router.beginPayment({
+          user: null,
+          bookingId: 'b1',
+          anonymousToken: 'garbage',
+          requireAnonymousToken: true,
+        }),
+      ).rejects.toBeInstanceOf(AppException);
+      expect(payments.createIntent).not.toHaveBeenCalled();
+    }
+  });
+
+  it('guest pay rejects an authenticated caller using the guest route', async () => {
+    const { router, anon } = make('active');
+    await expect(
+      router.beginPayment({
+        user,
+        bookingId: 'b1',
+        anonymousToken: anon.issueToken(),
+        requireAnonymousToken: true,
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+  });
+
+  it('guest pay with a valid token routes through the legacy path in disabled mode', async () => {
+    const { router, payments, anon } = make('disabled');
+    await router.beginPayment({
+      user: null,
+      bookingId: 'b1',
+      anonymousToken: anon.issueToken(),
+      requireAnonymousToken: true,
+    });
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined);
+  });
+
   it('status requires an authenticated principal and preserves the owner-checked contract', async () => {
     const { router, bookings } = make('active');
     await expect(router.getStatus({ user: null, bookingId: 'b1' })).rejects.toBeInstanceOf(
