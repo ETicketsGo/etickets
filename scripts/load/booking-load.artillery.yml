@@ -1,0 +1,46 @@
+# P6.7 — Artillery load suite (complements scripts/load/booking-load.js for k6). Read-heavy +
+# booking-heavy flows, staged to a flash-sale spike. Requires Artillery (npx artillery) + a running
+# staging API. NOT executed here (no staging stack) — this is the runnable reference. Capacity is
+# reported from a real run against staging, never extrapolated from a laptop.
+#
+#   TARGET=https://staging.eticketsgo... npx artillery run scripts/load/booking-load.artillery.yml
+config:
+  target: '{{ $processEnvironment.TARGET }}'
+  http:
+    timeout: 10
+  phases:
+    - { name: warm-up, duration: 60, arrivalRate: 5 }
+    - { name: normal, duration: 180, arrivalRate: 20 }
+    - { name: ramp, duration: 120, arrivalRate: 20, rampTo: 100 }
+    - { name: flash-sale-spike, duration: 60, arrivalRate: 300 }
+    - { name: sustained-peak, duration: 180, arrivalRate: 300 }
+    - { name: recovery, duration: 120, arrivalRate: 300, rampTo: 20 }
+  ensure:
+    # SLOs — tune from the P6.4/6.5 baseline. p95 < 800ms, <2% errors.
+    thresholds:
+      - http.response_time.p95: 800
+      - http.response_time.p99: 2000
+    conditions:
+      - expression: 'http.codes.500 == 0'
+
+scenarios:
+  - name: read-heavy
+    weight: 8
+    flow:
+      - get: { url: '/api/events' }
+      - get: { url: '/api/events?category=movie' }
+      - think: 1
+      - get: { url: '/api/venues' }
+
+  - name: booking-heavy
+    weight: 2
+    flow:
+      - post:
+          url: '/api/bookings/initiate'
+          json: { eventSessionId: '{{ $processEnvironment.SESSION_ID }}', quantity: 1 }
+          capture: { json: '$.bookingId', as: 'bookingId' }
+          # Booking must never 5xx even under saturation — it fails closed (4xx) instead.
+          expect:
+            - statusCode: [200, 201, 400, 409, 429]
+      - think: 2
+      - get: { url: '/api/bookings/{{ bookingId }}/status', ifTrue: 'bookingId' }
