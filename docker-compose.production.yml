@@ -1,0 +1,87 @@
+# ETicketsGo — PRODUCTION hardening overlay (P6.1). Layers on docker-compose.prod.yml.
+#
+# Adds production-grade concerns the base compose leaves to the operator: multi-replica API/worker,
+# resource limits + reservations, APP_ENV=PRODUCTION (activates startup validation that FORBIDS
+# money automation + mock providers in prod), log rotation, and a strict restart policy.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.production.yml \
+#     --env-file .env.production up -d --scale api=2 --scale worker=2
+#
+# Real deployments pull CI-built images (REGISTRY/IMAGE_TAG) rather than building here.
+# TLS terminates at an upstream LB/reverse proxy — never expose the API directly.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '20m'
+    max-file: '5'
+
+services:
+  db:
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+        reservations: { cpus: '0.5', memory: 512M }
+
+  redis:
+    logging: *default-logging
+    # Persistence for BullMQ + locks; maxmemory policy protects the box under pressure.
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--maxmemory',
+        '512mb',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 640M }
+
+  migrate:
+    environment:
+      APP_ENV: PRODUCTION
+    logging: *default-logging
+
+  api:
+    environment:
+      APP_ENV: PRODUCTION
+      NODE_ENV: production
+      API_PORT: 4000
+      # Safe production defaults — startup validation REJECTS any attempt to enable these in prod.
+      BOOKING_ORCHESTRATOR_MODE: shadow
+      BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'false'
+      BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'false'
+      BOOKING_REFUND_POLICY_MODE: MANUAL_ONLY
+    logging: *default-logging
+    deploy:
+      replicas: 2
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+        reservations: { cpus: '0.25', memory: 256M }
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  worker:
+    environment:
+      APP_ENV: PRODUCTION
+      NODE_ENV: production
+      WORKER_PORT: 4100
+      DOMAIN_EVENT_DELIVERY_MODE: outbox
+    logging: *default-logging
+    deploy:
+      replicas: 2
+      resources:
+        limits: { cpus: '1.0', memory: 768M }
+        reservations: { cpus: '0.25', memory: 256M }
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  customer-web: { logging: *default-logging }
+  organizer-web: { logging: *default-logging }
+  admin-web: { logging: *default-logging }

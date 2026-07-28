@@ -5,13 +5,12 @@
 # automation stays OFF (startup validation forbids it here).
 #
 # ISOLATION (verified against the code, not assumed):
-#   - Redis INVENTORY LOCK keys ARE env-scoped by APP_ENV (InventoryLockKeys → "STAGING:lock:*").
+#   - Redis INVENTORY LOCK keys are env-scoped by APP_ENV (InventoryLockKeys → "etg:staging:invlock:*").
+#   - BullMQ queues are env-scoped by APP_ENV (bullPrefix → "etg:staging:bull") — API + worker agree.
+#   - CacheService keys are env-scoped by APP_ENV (cacheKeyPrefix → "etg:staging:cache:*").
 #   - Payment env is APP_ENV-scoped (mock/test cannot promote to a live charge).
-#   - BUT BullMQ queue names ("holds", "inventory-sync-events") and CacheService keys are NOT
-#     env-namespaced (P6 backlog item). Therefore staging MUST run its OWN Redis instance,
-#     never a Redis shared with production. This stack spins a dedicated `redis` service, so it is
-#     isolated by construction. Do NOT point staging at a production Redis until queue/cache keys
-#     are env-prefixed.
+#   Net: environments cannot collide on a shared Redis (P6.2 fix). A DEDICATED Redis per environment
+#   is still the recommended default (this stack provides one) — namespacing is defence-in-depth.
 #
 #   docker compose -f docker-compose.prod.yml -f docker-compose.staging.yml up -d --scale api=2 --scale worker=2
 #
