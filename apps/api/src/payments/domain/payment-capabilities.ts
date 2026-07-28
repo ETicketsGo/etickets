@@ -39,6 +39,17 @@ export interface PaymentProviderCapabilities {
   supportsVoid: boolean;
   supportsIdempotentVoid: boolean;
   supportsPaymentStatusQuery: boolean;
+  /**
+   * Full-refund support (ADR-043 P5.3B Phase 6). `supportsIdempotentRefund` gates AUTOMATIC
+   * refund execution — if the adapter cannot prove idempotent refunds, auto-refund stays
+   * unavailable for that provider. `supportsRefundStatusQuery` enables status recovery;
+   * `refundMayBeAsynchronous` marks providers whose refund completes later (e.g. Razorpay).
+   * Defaults false — set true only where the adapter genuinely behaves this way.
+   */
+  supportsFullRefund: boolean;
+  supportsIdempotentRefund: boolean;
+  supportsRefundStatusQuery: boolean;
+  refundMayBeAsynchronous: boolean;
   supportsConnectedAccounts: boolean;
   supportsApplePay: boolean;
   supportsGooglePay: boolean;
