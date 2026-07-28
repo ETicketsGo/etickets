@@ -91,6 +91,11 @@ function make(
   } as never;
   const providerStrategy = { enabled: false } as never;
   const allocated = { enabled: false } as never;
+  const accounting = {
+    holdInTx: async () => undefined,
+    confirmMove: async () => false,
+    releaseHeld: async () => false,
+  } as never;
   const orch = new LocalBookingOrchestrator(
     resolver,
     locks,
@@ -104,6 +109,7 @@ function make(
     bridge,
     providerStrategy,
     allocated,
+    accounting,
   );
   return { orch, resolver, locks, bookings, payments, workflows, prisma, store };
 }
