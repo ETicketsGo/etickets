@@ -80,12 +80,18 @@ performs **no refund**. Refund/void (Phase 5/6) remain off + production-forbidde
 
 ## Investigate a provider reservation cancellation
 
-`SELECT state, "providerReservationId", "providerStatus", "providerCancelledAt" FROM
-"BookingWorkflow" WHERE "bookingId"=$1;` A cancelled reservation has `providerStatus='CANCELLED'`
+Inspect the workflow:
 
-- `providerCancelledAt` set. Events: `booking.provider_cancellation_requested` (intent, before
-  the call) then `booking.provider_cancelled` (definitive, once). Ambiguous cancels emit only the
-  requested fact and the record sits RETRYABLE/MANUAL_REVIEW until status recovery resolves it.
+```
+SELECT state, "providerReservationId", "providerStatus", "providerCancelledAt"
+FROM "BookingWorkflow" WHERE "bookingId" = $1;
+```
+
+A cancelled reservation shows `providerStatus = 'CANCELLED'` with `providerCancelledAt` set.
+Events: `booking.provider_cancellation_requested` (intent, emitted before the call) then
+`booking.provider_cancelled` (definitive, exactly once). An ambiguous cancel emits only the
+requested fact, and the compensation record sits RETRYABLE / MANUAL_REVIEW until status
+recovery resolves it.
 
 ## Reconciliation: reservation vs payment/local drift
 
