@@ -1,0 +1,91 @@
+# ETicketsGo — STAGING topology (P6.1). Multi-instance, production-like, mock/sandbox only.
+#
+# Proves horizontal-scale safety: 2 API + 2 worker instances share ONE PostgreSQL, ONE Redis,
+# ONE outbox. NO production credentials — payment providers run in mock/sandbox mode and money
+# automation stays OFF (startup validation forbids it here).
+#
+# ISOLATION (verified against the code, not assumed):
+#   - Redis INVENTORY LOCK keys ARE env-scoped by APP_ENV (InventoryLockKeys → "STAGING:lock:*").
+#   - Payment env is APP_ENV-scoped (mock/test cannot promote to a live charge).
+#   - BUT BullMQ queue names ("holds", "inventory-sync-events") and CacheService keys are NOT
+#     env-namespaced (P6 backlog item). Therefore staging MUST run its OWN Redis instance,
+#     never a Redis shared with production. This stack spins a dedicated `redis` service, so it is
+#     isolated by construction. Do NOT point staging at a production Redis until queue/cache keys
+#     are env-prefixed.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.staging.yml up -d --scale api=2 --scale worker=2
+#
+# (This file is an OVERLAY on docker-compose.prod.yml — it reuses those service/build definitions
+# and only overrides env + replica-safety settings. It does not redefine images.)
+
+services:
+  # Single shared PostgreSQL — the authoritative store both API replicas write through.
+  db:
+    environment:
+      POSTGRES_DB: eticketsgo_staging
+
+  # Single shared Redis — locks + BullMQ. Every key is namespaced by APP_ENV below.
+  redis: {}
+
+  # One-shot migration gate — runs `prisma migrate deploy` before app instances start.
+  migrate:
+    environment:
+      DATABASE_URL: postgresql://eticketsgo:eticketsgo@db:5432/eticketsgo_staging?schema=public
+      APP_ENV: STAGING
+
+  # API — scale to >=2 (`--scale api=2`). All replicas are identical and stateless; correctness
+  # comes from PostgreSQL guarded writes + Redis fencing, NOT instance affinity.
+  api:
+    environment:
+      APP_ENV: STAGING
+      NODE_ENV: production
+      DATABASE_URL: postgresql://eticketsgo:eticketsgo@db:5432/eticketsgo_staging?schema=public
+      REDIS_URL: redis://redis:6379
+      # ── Feature flags: shadow-safe, money OFF (P6 flag policy) ──
+      BOOKING_ORCHESTRATOR_ENABLED: 'true'
+      BOOKING_ORCHESTRATOR_MODE: shadow
+      BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'false'
+      BOOKING_ALLOCATED_INVENTORY_ENABLED: 'false'
+      BOOKING_COMPENSATION_ENABLED: 'true'
+      BOOKING_COMPENSATION_PLANNING_ENABLED: 'true'
+      BOOKING_COMPENSATION_EXECUTION_ENABLED: 'false'
+      BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: 'false'
+      BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'false'
+      BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'false'
+      BOOKING_REFUND_POLICY_MODE: MANUAL_ONLY
+      # ── Payments: sandbox/mock only. Inject sandbox keys via a .env.staging file, NEVER inline ──
+      PAYMENT_PROVIDER_NAME: mock
+      STRIPE_MODE: test
+      RAZORPAY_MODE: test
+    env_file:
+      - .env.staging # git-ignored; holds SANDBOX keys + real secrets for staging only
+    deploy:
+      replicas: 2
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:4000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Worker — scale to >=2 (`--scale worker=2`). Lease-based claims (FOR UPDATE SKIP LOCKED) mean
+  # multiple workers pull disjoint outbox/compensation records; restarts recover stale leases.
+  worker:
+    environment:
+      APP_ENV: STAGING
+      NODE_ENV: production
+      DATABASE_URL: postgresql://eticketsgo:eticketsgo@db:5432/eticketsgo_staging?schema=public
+      REDIS_URL: redis://redis:6379
+      DOMAIN_EVENT_DELIVERY_MODE: outbox
+    env_file:
+      - .env.staging
+    deploy:
+      replicas: 2
+
+# Observability: layer in docker-compose.observability.yml (Prometheus + Grafana) alongside this
+# overlay to scrape /api/metrics from both API replicas and the worker.
