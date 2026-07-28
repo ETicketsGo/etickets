@@ -3,6 +3,12 @@ import { InventoryLockingModule } from '../../inventory/locking/inventory-lockin
 import { CompensationPlanner } from './compensation-planner';
 import { CompensationRepository } from './compensation.repository';
 import { CompensationService } from './compensation.service';
+import { CompensationAdminService } from './compensation-admin.service';
+import { CompensationHealthService } from './compensation-health.service';
+import {
+  CompensationAdminController,
+  CompensationHealthController,
+} from './compensation-admin.controller';
 
 /**
  * Booking compensation foundation (ADR-043, P5.3A). Provides the deterministic planner, the
@@ -11,7 +17,14 @@ import { CompensationService } from './compensation.service';
  */
 @Module({
   imports: [InventoryLockingModule],
-  providers: [CompensationPlanner, CompensationRepository, CompensationService],
+  controllers: [CompensationAdminController, CompensationHealthController],
+  providers: [
+    CompensationPlanner,
+    CompensationRepository,
+    CompensationService,
+    CompensationAdminService,
+    CompensationHealthService,
+  ],
   exports: [CompensationPlanner, CompensationRepository, CompensationService],
 })
 export class CompensationModule {}

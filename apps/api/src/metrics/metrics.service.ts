@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { collectDefaultMetrics, Counter, Histogram, Registry } from 'prom-client';
+import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 
 /**
  * Owns a private Prometheus registry (default process metrics + ETicketsGo
@@ -58,6 +58,8 @@ export class MetricsService {
   private readonly allocationValidation: Counter<'outcome' | 'inventory_type'>;
   private readonly compensationPlans: Counter<'classification' | 'disposition'>;
   private readonly compensationOperations: Counter<'type' | 'outcome'>;
+  private readonly compensationBacklog: Gauge<'state'>;
+  private readonly compensationOldestReadyAge: Gauge<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -353,6 +355,17 @@ export class MetricsService {
       labelNames: ['type', 'outcome'],
       registers: [this.registry],
     });
+    this.compensationBacklog = new Gauge({
+      name: 'etg_booking_compensation_backlog',
+      help: 'Compensation records by state (bounded label; no ids).',
+      labelNames: ['state'],
+      registers: [this.registry],
+    });
+    this.compensationOldestReadyAge = new Gauge({
+      name: 'etg_booking_compensation_oldest_ready_age_seconds',
+      help: 'Age of the oldest READY compensation, in seconds.',
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -579,6 +592,12 @@ export class MetricsService {
   }
   recordCompensationOperation(type: string, outcome: string): void {
     this.safe(() => this.compensationOperations.inc({ type, outcome }));
+  }
+  setCompensationBacklog(state: string, n: number): void {
+    this.safe(() => this.compensationBacklog.set({ state }, n));
+  }
+  setCompensationOldestReadyAge(seconds: number): void {
+    this.safe(() => this.compensationOldestReadyAge.set(seconds));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
