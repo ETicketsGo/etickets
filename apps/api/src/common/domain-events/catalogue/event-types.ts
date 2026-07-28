@@ -68,6 +68,14 @@ export const DomainEventType = {
   BookingPaymentVoidRejected: 'booking.payment_void_rejected',
   BookingPaymentStatusRecoveryRequested: 'booking.payment_status_recovery_requested',
   BookingPaymentStatusRecovered: 'booking.payment_status_recovered',
+  // ── Payment refund lifecycle (ADR-043 P5.3B Phase 6) ──
+  BookingPaymentRefundRequested: 'booking.payment_refund_requested',
+  BookingPaymentRefunded: 'booking.payment_refunded',
+  BookingPaymentRefundPending: 'booking.payment_refund_pending',
+  BookingPaymentRefundAmbiguous: 'booking.payment_refund_ambiguous',
+  BookingPaymentRefundRejected: 'booking.payment_refund_rejected',
+  BookingRefundStatusRecoveryRequested: 'booking.refund_status_recovery_requested',
+  BookingRefundStatusRecovered: 'booking.refund_status_recovered',
 } as const;
 
 export type DomainEventTypeName = (typeof DomainEventType)[keyof typeof DomainEventType];
@@ -128,6 +136,13 @@ export const DomainEventVersion: Record<DomainEventTypeName, number> = {
   [DomainEventType.BookingPaymentVoidRejected]: 1,
   [DomainEventType.BookingPaymentStatusRecoveryRequested]: 1,
   [DomainEventType.BookingPaymentStatusRecovered]: 1,
+  [DomainEventType.BookingPaymentRefundRequested]: 1,
+  [DomainEventType.BookingPaymentRefunded]: 1,
+  [DomainEventType.BookingPaymentRefundPending]: 1,
+  [DomainEventType.BookingPaymentRefundAmbiguous]: 1,
+  [DomainEventType.BookingPaymentRefundRejected]: 1,
+  [DomainEventType.BookingRefundStatusRecoveryRequested]: 1,
+  [DomainEventType.BookingRefundStatusRecovered]: 1,
 };
 
 /** Envelope fields a producer may attach to any catalogue event (all optional). */

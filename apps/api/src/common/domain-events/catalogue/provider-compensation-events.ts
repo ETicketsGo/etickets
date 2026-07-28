@@ -197,3 +197,33 @@ export const bookingPaymentStatusRecoveredEvent = (
   p: BookingCompensationEventPayload,
   t: EventTracing = {},
 ) => compEvent(DomainEventType.BookingPaymentStatusRecovered, p, t);
+
+// ── Payment refund lifecycle (ADR-043 P5.3B Phase 6) ──
+export const bookingPaymentRefundRequestedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentRefundRequested, p, t);
+export const bookingPaymentRefundedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentRefunded, p, t);
+export const bookingPaymentRefundPendingEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentRefundPending, p, t);
+export const bookingPaymentRefundAmbiguousEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentRefundAmbiguous, p, t);
+export const bookingPaymentRefundRejectedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentRefundRejected, p, t);
+export const bookingRefundStatusRecoveryRequestedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingRefundStatusRecoveryRequested, p, t);
+export const bookingRefundStatusRecoveredEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingRefundStatusRecovered, p, t);
