@@ -114,7 +114,44 @@ describe('platform config — unsafe combinations fail fast', () => {
 
   it('rejects active booking orchestration without inventory sourcing enabled', () => {
     expect(
-      withEnv(LOCAL_BASE, { BOOKING_ORCHESTRATOR_ENABLED: 'true', BOOKING_ORCHESTRATOR_MODE: 'active' }),
+      withEnv(LOCAL_BASE, {
+        BOOKING_ORCHESTRATOR_ENABLED: 'true',
+        BOOKING_ORCHESTRATOR_MODE: 'active',
+      }),
     ).toThrow(/SOURCING/i);
+  });
+
+  it('rejects active booking orchestration on the mock payment provider in production', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_ORCHESTRATOR_ENABLED: 'true',
+        BOOKING_ORCHESTRATOR_MODE: 'active',
+        INVENTORY_SOURCING_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/PAYMENT_PROVIDER_NAME/i);
+  });
+
+  it('rejects active orchestration with outbox delivery but no dispatcher in production', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_ORCHESTRATOR_ENABLED: 'true',
+        BOOKING_ORCHESTRATOR_MODE: 'active',
+        INVENTORY_SOURCING_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'stripe',
+        DOMAIN_EVENT_DELIVERY_MODE: 'outbox',
+      }),
+    ).toThrow(/DISPATCH/i);
+  });
+
+  it('allows a fully-safe active production configuration', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_ORCHESTRATOR_ENABLED: 'true',
+        BOOKING_ORCHESTRATOR_MODE: 'active',
+        INVENTORY_SOURCING_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'stripe',
+      }),
+    ).not.toThrow();
   });
 });

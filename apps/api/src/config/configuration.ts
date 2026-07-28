@@ -475,11 +475,31 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
     );
   }
 
-  // Active booking orchestration (ADR-042) needs inventory sourcing to resolve a provider.
-  if (cfg.BOOKING_ORCHESTRATOR_ENABLED && cfg.BOOKING_ORCHESTRATOR_MODE === 'active') {
+  // Active booking orchestration (ADR-042). Fail startup rather than allowing a partially
+  // active platform (ADR-042 §18, P5.2A).
+  const orchestratorActive =
+    cfg.BOOKING_ORCHESTRATOR_ENABLED && cfg.BOOKING_ORCHESTRATOR_MODE === 'active';
+  if (orchestratorActive) {
+    // The resolver selects the provider — sourcing must be on (every env).
     if (!cfg.INVENTORY_SOURCING_ENABLED) {
       errors.push(
         '  - BOOKING_ORCHESTRATOR_MODE=active requires INVENTORY_SOURCING_ENABLED (the resolver selects the provider).',
+      );
+    }
+    // Real deployments cannot run active bookings on the mock gateway, and confirmation
+    // events must actually deliver (the atomic confirm records the outbox fact).
+    if (isProdLike && cfg.PAYMENT_PROVIDER_NAME === 'mock') {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active requires a real PAYMENT_PROVIDER_NAME in production (mock cannot take live payments).',
+      );
+    }
+    if (
+      isProdLike &&
+      cfg.DOMAIN_EVENT_DELIVERY_MODE === 'outbox' &&
+      !cfg.DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED
+    ) {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active with DOMAIN_EVENT_DELIVERY_MODE=outbox requires DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED (confirmation events must deliver).',
       );
     }
   } else if (isProdLike && cfg.INVENTORY_LOCKS_ENABLED && cfg.INVENTORY_LOCKS_MODE === 'active') {
