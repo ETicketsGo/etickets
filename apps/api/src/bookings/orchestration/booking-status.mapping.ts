@@ -45,11 +45,15 @@ export function toPublicBookingStatus(state: WS): PublicBookingStatus {
     case WS.COMPENSATED:
     case WS.FAILED:
       return 'ACTION_REQUIRED';
-    // Everything still in flight toward a decision is simply pending to the customer.
+    // Everything still in flight toward a decision is simply pending to the customer —
+    // including every provider-authoritative reservation/confirmation step. The customer
+    // never sees CONFIRMED until the local confirmation transaction commits.
     case WS.DRAFT:
     case WS.INVENTORY_RESOLVED:
     case WS.LOCK_PENDING:
     case WS.LOCKED:
+    case WS.PROVIDER_RESERVATION_PENDING:
+    case WS.PROVIDER_RESERVED:
     case WS.PAYMENT_PENDING:
     case WS.PAYMENT_AUTHORIZED:
     case WS.PROVIDER_CONFIRM_PENDING:

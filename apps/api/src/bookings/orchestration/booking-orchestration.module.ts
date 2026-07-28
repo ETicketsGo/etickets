@@ -5,9 +5,12 @@ import { BookingOrchestrationHealthController } from './booking-orchestration-he
 import { PaymentsModule } from '../../payments/payments.module';
 import { InventorySourcingModule } from '../../inventory/sourcing/inventory-sourcing.module';
 import { InventoryLockingModule } from '../../inventory/locking/inventory-locking.module';
+import { BookingProvidersModule } from '../providers/booking-providers.module';
 import { BookingWorkflowRepository } from './booking-workflow.repository';
 import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { BookingExecutionRouter } from './booking-execution-router.service';
+import { ProviderAuthoritativeStrategy } from './provider-authoritative.strategy';
+import { AllocatedInventoryStrategy } from './allocated-inventory.strategy';
 import { AnonymousSessionService, BookingOwnerResolver } from './booking-owner';
 import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
 
@@ -22,12 +25,20 @@ import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
  * legacy path authoritative.
  */
 @Module({
-  imports: [BookingsModule, PaymentsModule, InventorySourcingModule, InventoryLockingModule],
+  imports: [
+    BookingsModule,
+    PaymentsModule,
+    InventorySourcingModule,
+    InventoryLockingModule,
+    BookingProvidersModule,
+  ],
   controllers: [BookingsController, GuestBookingsController, BookingOrchestrationHealthController],
   providers: [
     BookingWorkflowRepository,
     LocalBookingOrchestrator,
     BookingExecutionRouter,
+    ProviderAuthoritativeStrategy,
+    AllocatedInventoryStrategy,
     BookingOwnerResolver,
     AnonymousSessionService,
     { provide: BOOKING_ORCHESTRATOR, useExisting: LocalBookingOrchestrator },

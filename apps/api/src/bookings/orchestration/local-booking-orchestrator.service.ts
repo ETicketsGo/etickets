@@ -11,6 +11,8 @@ import { InventoryLockService } from '../../inventory/locking/inventory-lock.ser
 import { BookingWorkflowRepository } from './booking-workflow.repository';
 import { BookingOwnerResolver } from './booking-owner';
 import { BookingConfirmationBridge } from './booking-confirmation-bridge';
+import { ProviderAuthoritativeStrategy } from './provider-authoritative.strategy';
+import { AllocatedInventoryStrategy } from './allocated-inventory.strategy';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
 
 /** Bounded membership test that keeps TS from narrowing the array to a literal tuple. */
@@ -57,6 +59,8 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     private readonly metrics: MetricsService,
     private readonly owners: BookingOwnerResolver,
     private readonly confirmationBridge: BookingConfirmationBridge,
+    private readonly providerStrategy: ProviderAuthoritativeStrategy,
+    private readonly allocated: AllocatedInventoryStrategy,
   ) {}
 
   onModuleInit(): void {
@@ -79,29 +83,56 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       where: { id: request.eventSessionId },
       select: {
         id: true,
+        eventId: true,
         event: { select: { experienceType: true, organizationId: true } },
       },
     });
     if (!session)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
 
-    // Server-side provider resolution + LOCAL_AUTHORITATIVE requirement.
+    // Server-side provider resolution. Inventory ownership mode selects the workflow strategy;
+    // clients never choose it, and a workflow cannot change strategy after initiation.
     const provider = await this.resolver.resolve({
       experienceType: session.event.experienceType,
       eventSessionId: request.eventSessionId,
     });
-    const ownershipMode: InventoryOwnershipMode =
-      provider.capabilities.authority === 'LOCAL'
-        ? 'LOCAL_AUTHORITATIVE'
-        : 'PROVIDER_AUTHORITATIVE';
-    if (ownershipMode !== 'LOCAL_AUTHORITATIVE') {
-      this.metrics.recordBookingOrchestration('initiate', 'unsupported_ownership');
-      throw new AppException(
-        BookingOrchestratorErrorCodes.MANUAL_REVIEW_REQUIRED,
-        'Provider-authoritative inventory is not supported in this booking path yet.',
-        HttpStatus.NOT_IMPLEMENTED,
-        { providerCode: provider.name },
-      );
+
+    // PROVIDER_AUTHORITATIVE → the external provider owns inventory truth (P5.2B S3).
+    if (provider.capabilities.authority !== 'LOCAL') {
+      if (!this.providerStrategy.enabled) {
+        this.metrics.recordBookingOrchestration('initiate', 'unsupported_ownership');
+        throw new AppException(
+          BookingOrchestratorErrorCodes.MANUAL_REVIEW_REQUIRED,
+          'Provider-authoritative inventory is not supported in this booking path yet.',
+          HttpStatus.NOT_IMPLEMENTED,
+          { providerCode: provider.name },
+        );
+      }
+      return this.providerStrategy.initiate(request, {
+        id: session.id,
+        eventId: session.eventId,
+        organizationId: session.event.organizationId,
+      });
+    }
+
+    // LOCAL authority. It may be ALLOCATED (locally authoritative within a provider
+    // allocation) — validate the allocation boundary before the local hold (P5.2B S4).
+    let ownershipMode: InventoryOwnershipMode = 'LOCAL_AUTHORITATIVE';
+    if (this.allocated.enabled) {
+      const alloc = await this.allocated.resolve(session.eventId).catch(() => null);
+      if (alloc) {
+        ownershipMode = 'ALLOCATED';
+        const seatRefs = request.items.flatMap((i) => i.seatIds ?? []);
+        this.allocated.validate(
+          alloc,
+          seatRefs.length > 0
+            ? { inventoryType: 'SEAT', seatRefs }
+            : {
+                inventoryType: 'QUANTITY',
+                quantity: request.items.reduce((s, i) => s + i.quantity, 0),
+              },
+        );
+      }
     }
 
     const fingerprint = BookingWorkflowRepository.fingerprint([
@@ -205,6 +236,10 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
 
   async beginPayment(request: BeginBookingPaymentRequest): Promise<BookingPaymentResult> {
     const workflow = await this.requireWorkflow(request.bookingId);
+    // Dispatch by the PERSISTED ownership mode — a workflow never changes strategy mid-flow.
+    if (workflow.inventoryOwnershipMode === 'PROVIDER_AUTHORITATIVE') {
+      return this.providerStrategy.beginPayment(request, workflow);
+    }
     if (request.requestOwner) this.owners.assertOwner(workflow, request.requestOwner);
     if (workflow.state !== WS.LOCKED && workflow.state !== WS.PAYMENT_PENDING) {
       throw new AppException(
@@ -243,7 +278,8 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       bookingId: request.bookingId,
       amountMinor: request.amountMinor,
     });
-    const confirmed = result.status === 'confirmed' || result.status === 'already_confirmed';
+    const status = (result as { status?: string }).status;
+    const confirmed = status === 'confirmed' || status === 'already_confirmed';
     if (confirmed) await this.advanceToConfirmed(workflow, request.bookingId);
     this.metrics.recordBookingOrchestration('confirm', confirmed ? 'ok' : 'not_confirmed');
     this.metrics.observeBookingOrchestration('confirm', (Date.now() - started) / 1000);
@@ -430,7 +466,8 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
             where: { id: wf.bookingId },
             select: { status: true },
           });
-      const cls = this.classify(wf.state as WS, booking?.status ?? null);
+      const cls =
+        this.classifyProvider(wf) ?? this.classify(wf.state as WS, booking?.status ?? null);
       if (cls !== 'IN_SYNC') {
         mismatches.push({
           bookingId: wf.bookingId,
@@ -457,6 +494,39 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     }
     if (state === WS.MANUAL_REVIEW) return 'MANUAL_REVIEW_REQUIRED';
     return 'IN_SYNC';
+  }
+
+  /**
+   * Provider-authoritative reconciliation drift (ADR-042 §23, P5.2B). Returns a specific
+   * classification when the durable provider fields indicate a mismatch, else null so the
+   * base local classifier runs. Never proposes auto-cancelling a confirmed booking.
+   */
+  private classifyProvider(wf: {
+    state: string;
+    inventoryOwnershipMode: string;
+    providerReconciliationRequired: boolean;
+    providerReservationExpiresAt: Date | null;
+    providerLastErrorCode: string | null;
+  }): string | null {
+    if (wf.inventoryOwnershipMode !== 'PROVIDER_AUTHORITATIVE') return null;
+    const state = wf.state as WS;
+    if (state === WS.PROVIDER_CONFIRM_PENDING && wf.providerReconciliationRequired) {
+      return 'PROVIDER_CONFIRMATION_AMBIGUOUS';
+    }
+    if (state === WS.COMPENSATION_PENDING) {
+      return wf.providerLastErrorCode === 'PROVIDER_CONFIRMATION_REJECTED'
+        ? 'PAYMENT_SUCCEEDED_PROVIDER_REJECTED'
+        : 'COMPENSATION_REQUIRED';
+    }
+    if (
+      oneOf(state, [WS.PROVIDER_RESERVED, WS.PAYMENT_PENDING]) &&
+      wf.providerReservationExpiresAt &&
+      wf.providerReservationExpiresAt.getTime() < Date.now()
+    ) {
+      return 'PROVIDER_RESERVATION_EXPIRED_PAYMENT_PENDING';
+    }
+    if (wf.providerReconciliationRequired) return 'PROVIDER_STATUS_STALE';
+    return null;
   }
 
   private async requireWorkflow(bookingId: string) {

@@ -53,6 +53,9 @@ export class MetricsService {
   private readonly bookingApi: Counter<'op' | 'mode' | 'owner_type'>;
   private readonly bookingOwnerRejection: Counter<'op' | 'reason'>;
   private readonly bookingLegacyFallback: Counter<'op'>;
+  private readonly providerBooking: Counter<'op' | 'outcome' | 'provider'>;
+  private readonly providerBookingDuration: Histogram<'op' | 'provider'>;
+  private readonly allocationValidation: Counter<'outcome' | 'inventory_type'>;
 
   constructor() {
     this.registry = new Registry();
@@ -313,6 +316,27 @@ export class MetricsService {
       labelNames: ['op'],
       registers: [this.registry],
     });
+    // Provider-authoritative booking (ADR-042 P5.2B). Bounded labels: op, normalized outcome,
+    // and provider code from the registry — never reservation/booking/user/seat ids.
+    this.providerBooking = new Counter({
+      name: 'etg_provider_booking_total',
+      help: 'Provider-authoritative booking ops (reserve|confirm|status_recovery|begin_payment|...) by outcome and provider.',
+      labelNames: ['op', 'outcome', 'provider'],
+      registers: [this.registry],
+    });
+    this.providerBookingDuration = new Histogram({
+      name: 'etg_provider_booking_duration_seconds',
+      help: 'Provider-authoritative booking op latency, by op and provider.',
+      labelNames: ['op', 'provider'],
+      buckets: [0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+    this.allocationValidation = new Counter({
+      name: 'etg_booking_allocation_validation_total',
+      help: 'Allocated-inventory boundary validations by outcome and inventory type.',
+      labelNames: ['outcome', 'inventory_type'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -524,6 +548,15 @@ export class MetricsService {
   }
   recordBookingLegacyFallback(op: string): void {
     this.safe(() => this.bookingLegacyFallback.inc({ op }));
+  }
+  recordProviderBooking(op: string, outcome: string, provider: string): void {
+    this.safe(() => this.providerBooking.inc({ op, outcome, provider }));
+  }
+  observeProviderBooking(op: string, seconds: number, provider: string): void {
+    this.safe(() => this.providerBookingDuration.observe({ op, provider }, seconds));
+  }
+  recordAllocationValidation(outcome: string, inventoryType: string): void {
+    this.safe(() => this.allocationValidation.inc({ outcome, inventory_type: inventoryType }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

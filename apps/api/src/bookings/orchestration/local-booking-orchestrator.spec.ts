@@ -84,7 +84,13 @@ function make(
     ),
   } as unknown as ConfigService;
   const owners = new BookingOwnerResolver(new AnonymousSessionService());
-  const bridge = { register: () => undefined, onConfirmed: async () => undefined } as never;
+  const bridge = {
+    register: () => undefined,
+    registerPreConfirm: () => undefined,
+    onConfirmed: async () => undefined,
+  } as never;
+  const providerStrategy = { enabled: false } as never;
+  const allocated = { enabled: false } as never;
   const orch = new LocalBookingOrchestrator(
     resolver,
     locks,
@@ -96,6 +102,8 @@ function make(
     new MetricsService(),
     owners,
     bridge,
+    providerStrategy,
+    allocated,
   );
   return { orch, resolver, locks, bookings, payments, workflows, prisma, store };
 }
