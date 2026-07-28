@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import {
@@ -29,6 +29,12 @@ import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { SettlementService } from './settlement/settlement.service';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
+import {
+  type DomainEvent,
+  bookingConfirmedEvent,
+  TransactionalEventPublisher,
+} from '../common/domain-events';
+import { BookingConfirmationBridge } from '../bookings/orchestration/booking-confirmation-bridge';
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -52,7 +58,17 @@ export class PaymentsService {
     private readonly config: ConfigService,
     private readonly settlements: SettlementService,
     private readonly razorpayOrders: RazorpayOrderService,
+    // Transaction-aware publisher (ADR-038/041). In outbox mode it records the
+    // BookingConfirmed fact durably inside the confirm transaction; in in_process mode
+    // it delivers post-commit. This is the single domain-event path for confirmation.
+    private readonly eventPublisher: TransactionalEventPublisher,
+    // One-way bridge to the booking orchestrator (ADR-042 P5.2A). After a confirmed
+    // webhook commits, advances the durable BookingWorkflow. No-op unless a workflow
+    // exists (active mode); never affects the confirmation result.
+    private readonly bookingBridge: BookingConfirmationBridge,
   ) {}
+
+  private readonly logger = new Logger(PaymentsService.name);
 
   /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
   private get isMarketplaceProvider(): boolean {
@@ -265,11 +281,40 @@ export class PaymentsService {
    * Used by the multi-provider webhook router after a provider-specific adapter
    * has verified the signature.
    */
-  processVerifiedEvent(event: PaymentEvent) {
+  async processVerifiedEvent(event: PaymentEvent) {
     if (event.type === 'payment.succeeded') {
-      return this.confirm(event);
+      // ADR-042 §10 (P5.2B S3): give a PROVIDER_AUTHORITATIVE workflow the chance to own
+      // confirmation (provider-confirm BEFORE local-confirm). If it handles the event, the
+      // default local confirm below is skipped. Local/allocated bookings decline and proceed
+      // unchanged. Flag-off ⇒ no handler ⇒ unchanged behaviour.
+      const pre = await this.bookingBridge.preConfirm({
+        bookingId: event.bookingId,
+        providerRef: event.providerRef,
+        amountMinor: event.amountMinor,
+      });
+      if (pre.handled) return pre.result;
+
+      const result = await this.confirm(event);
+      // ADR-042 P5.2A: reconcile the durable booking workflow to CONFIRMED (active mode
+      // only — no-op when no workflow exists). Runs AFTER the atomic confirm commits and
+      // never changes the confirmation result.
+      const status = (result as { status?: string }).status;
+      if (status === 'confirmed' || status === 'already_confirmed') {
+        await this.bookingBridge.onConfirmed(event.bookingId);
+      }
+      return result;
     }
     return this.fail(event);
+  }
+
+  /**
+   * The atomic local confirmation (inventory settle + booking confirm + outbox), reused by
+   * the provider-authoritative flow AFTER external provider confirmation succeeds (ADR-042
+   * §10). Identical semantics + `alreadyConfirmed` idempotency to the webhook path; it does
+   * NOT re-run the provider pre-confirm hook, so there is no recursion.
+   */
+  confirmVerifiedLocal(event: PaymentEvent) {
+    return this.confirm(event);
   }
 
   private async confirm(event: PaymentEvent) {
@@ -324,7 +369,10 @@ export class PaymentsService {
     const ticketItems = booking.items.filter((i) => i.ticketTypeId);
     const addOnItems = booking.items.filter((i) => i.addOnId);
     const expectedUnits = ticketItems.reduce((s, i) => s + i.quantity, 0);
+    const ticketCount = booking.items.reduce((s, i) => s + i.quantity, 0);
     let alreadyConfirmed = false;
+    // The BookingConfirmed fact, built + durably recorded inside the confirm tx (ADR-041).
+    let confirmedEvent: DomainEvent | null = null;
 
     await this.prisma.$transaction(async (tx) => {
       // Atomic idempotency guard: only the delivery that flips PENDING_PAYMENT →
@@ -415,13 +463,29 @@ export class PaymentsService {
           data: { redemptions: { increment: 1 } },
         });
       }
+
+      // ADR-041 proof slice: build the BookingConfirmed fact and record it DURABLY in
+      // the SAME transaction (outbox modes). Only the first delivery reaches here, so
+      // exactly one outbox row is ever written. In in_process mode this is a no-op and
+      // delivery stays post-commit (unchanged P2 behaviour). If the outbox insert fails
+      // the whole confirm transaction rolls back (required-event semantics).
+      confirmedEvent = bookingConfirmedEvent({
+        bookingId: booking.id,
+        userId: booking.userId ?? 'guest',
+        experienceId: booking.eventId,
+        showId: booking.eventSessionId,
+        amount: String(booking.totalMinor),
+        currency: booking.currency,
+        ticketCount,
+        confirmedAt: new Date().toISOString(),
+      });
+      await this.eventPublisher.recordInTransaction(tx, [confirmedEvent]);
     });
 
     if (alreadyConfirmed) {
       return { status: 'already_confirmed', bookingId: booking.id };
     }
 
-    const ticketCount = booking.items.reduce((s, i) => s + i.quantity, 0);
     await this.notifications.send({
       type: NotificationType.BOOKING_CONFIRMED,
       userId: booking.userId,
@@ -441,6 +505,18 @@ export class PaymentsService {
     // Accrue the organizer's proceeds into the event's settlement ledger (best-effort;
     // the event-completion sweep and admin view both re-sync).
     void this.settlements.onPaymentSucceeded(booking.eventId);
+
+    // Deliver the BookingConfirmed fact AFTER commit (ADR-041). Mode-aware: in_process
+    // and dual_write_shadow publish directly (unchanged P2 behaviour); outbox mode is a
+    // no-op here because the durable row recorded in-tx is delivered by the dispatcher —
+    // exactly one production delivery path. Fully isolated from booking correctness.
+    if (confirmedEvent) {
+      try {
+        await this.eventPublisher.deliverAfterCommit([confirmedEvent]);
+      } catch {
+        this.logger.error(`BookingConfirmed domain event delivery failed for ${booking.id}`);
+      }
+    }
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
   }
 

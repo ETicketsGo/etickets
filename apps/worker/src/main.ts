@@ -8,6 +8,7 @@ import {
   AppModule,
   AuthService,
   BookingsService,
+  LocalBookingOrchestrator,
   EventsService,
   FinanceReconciliationService,
   NotificationService,
@@ -15,6 +16,10 @@ import {
   RazorpayWebhookProcessor,
   SettlementService,
   StripeWebhookProcessor,
+  SyncEventProcessor,
+  SyncPollingService,
+  OutboxDispatcher,
+  OutboxRetentionService,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
@@ -69,6 +74,7 @@ function log(
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const bookings = app.get(BookingsService);
+  const bookingOrchestrator = app.get(LocalBookingOrchestrator);
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
@@ -77,6 +83,13 @@ async function main(): Promise<void> {
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
+  const syncProcessor = app.get(SyncEventProcessor);
+  const syncPolling = app.get(SyncPollingService);
+  const outboxDispatcher = app.get(OutboxDispatcher);
+  const outboxRetention = app.get(OutboxRetentionService);
+  const OUTBOX_POLL_MS = Number(process.env.DOMAIN_EVENT_OUTBOX_POLL_INTERVAL_MS ?? 1000);
+  const OUTBOX_MAINT_MS = Number(process.env.OUTBOX_MAINTENANCE_INTERVAL_MS ?? 60_000);
+  const SYNC_SWEEP_MS = Number(process.env.INVENTORY_SYNC_SWEEP_INTERVAL_MS ?? 30_000);
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
     Number.isFinite(RAW_WEBHOOK_MS) && RAW_WEBHOOK_MS > 0 ? RAW_WEBHOOK_MS : 15_000;
@@ -138,6 +151,53 @@ async function main(): Promise<void> {
     },
   );
 
+  // Frequent sweep for external inventory sync (retry/dead-letter safety net + polling).
+  // No-ops unless INVENTORY_SYNC_* flags are enabled.
+  await queue.add(
+    'inventory-sync-sweep',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(SYNC_SWEEP_MS) && SYNC_SWEEP_MS > 0 ? SYNC_SWEEP_MS : 30_000,
+      },
+      jobId: 'inventory-sync-sweep',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Transactional-outbox dispatch (ADR-041). Claims + delivers durable domain events.
+  // No-op unless DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED. Also periodically recovers stale
+  // leases + runs (disabled-by-default) retention.
+  await queue.add(
+    'outbox-dispatch',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(OUTBOX_POLL_MS) && OUTBOX_POLL_MS > 0 ? OUTBOX_POLL_MS : 1000,
+      },
+      jobId: 'outbox-dispatch',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 1,
+    },
+  );
+  await queue.add(
+    'outbox-maintenance',
+    {},
+    {
+      repeat: {
+        every: Number.isFinite(OUTBOX_MAINT_MS) && OUTBOX_MAINT_MS > 0 ? OUTBOX_MAINT_MS : 60_000,
+      },
+      jobId: 'outbox-maintenance',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 1,
+    },
+  );
+
   // Daily finance reconciliation — detects discrepancies into the triage queue.
   // Idempotent: detection dedupes open discrepancies for the same (env,type,ref).
   await queue.add(
@@ -188,6 +248,27 @@ async function main(): Promise<void> {
         }
         return summary;
       }
+      if (job.name === 'outbox-dispatch') {
+        const r = await outboxDispatcher.dispatchBatch();
+        if (r.claimed > 0) log('info', 'outbox dispatch', { ...r });
+        return r;
+      }
+      if (job.name === 'outbox-maintenance') {
+        const recovered = await outboxDispatcher.recoverStaleLeases();
+        const purged = await outboxRetention.purge();
+        if (recovered > 0 || purged.deliveredPurged + purged.deadLetterPurged > 0) {
+          log('info', 'outbox maintenance', { recovered, ...purged });
+        }
+        return { recovered, ...purged };
+      }
+      if (job.name === 'inventory-sync-sweep') {
+        // Safety-net sweep for durably-accepted sync events (retry/dead-letter) +
+        // pull-based polling. No-ops unless the INVENTORY_SYNC_* flags are enabled.
+        const swept = await syncProcessor.sweep();
+        const polled = await syncPolling.pollAll();
+        if (swept + polled > 0) log('info', 'inventory sync sweep', { swept, polled });
+        return { swept, polled };
+      }
       if (job.name === 'process-webhooks') {
         const stripe = await stripeWebhooks.processPending();
         const razorpay = await razorpayWebhooks.processPending();
@@ -202,6 +283,18 @@ async function main(): Promise<void> {
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();
       if (released > 0) log('info', 'released expired holds', { released });
+      // ADR-042 §4/§19 (P5.2B): AFTER the authoritative PostgreSQL release, reconcile any
+      // booking workflows to EXPIRED (active mode only; idempotent; never re-releases
+      // inventory, never expires a confirmed booking). Isolated so a workflow lag never
+      // undoes the release.
+      try {
+        const swept = await bookingOrchestrator.sweepExpiredWorkflows();
+        if (swept.expired > 0) log('info', 'expired booking workflows', swept);
+      } catch (err) {
+        log('warn', 'workflow expiry sweep failed (reconcilable)', {
+          error: (err as Error).message,
+        });
+      }
       const completed = await events.completePastEvents();
       if (completed > 0) log('info', 'completed past events', { completed });
       // Promote settlements whose event has just completed to ELIGIBLE (awaiting approval).
@@ -211,6 +304,22 @@ async function main(): Promise<void> {
     },
     { connection: redisConnection },
   );
+
+  // Dedicated Worker for the durable inventory-sync queue. Jobs carry only a
+  // rawEventId; the processor reloads the event from PostgreSQL and claims it
+  // atomically. Idempotent + no-op when processing is disabled.
+  const syncWorker = new Worker(
+    'inventory-sync-events',
+    async (job) => {
+      const rawEventId = (job.data as { rawEventId?: string })?.rawEventId;
+      if (rawEventId) await syncProcessor.process(rawEventId);
+    },
+    { connection: redisConnection, concurrency: 8 },
+  );
+  syncWorker.on('failed', (job, err) => {
+    log('error', 'inventory-sync job failed', { jobId: job?.id, error: err.message });
+    capture(err, { jobId: job?.id ?? '-', jobName: 'inventory-sync' });
+  });
 
   worker.on('failed', (job, err) => {
     log('error', 'job failed', { jobId: job?.id, error: err.message });
@@ -283,6 +392,7 @@ async function main(): Promise<void> {
     log('info', 'shutting down', { signal });
     clearInterval(metricsTimer);
     await worker.close();
+    await syncWorker.close();
     await queue.close();
     await connection.quit().catch(() => undefined);
     health.close();

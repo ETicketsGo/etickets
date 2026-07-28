@@ -43,6 +43,14 @@ import { AiModule } from './ai/ai.module';
 import { AiGrowthModule } from './ai-growth/ai-growth.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
+import { InventorySourcingModule } from './inventory/sourcing/inventory-sourcing.module';
+import { DomainEventsModule } from './common/domain-events/domain-events.module';
+import { InventoryLockingModule } from './inventory/locking/inventory-locking.module';
+import { InventorySyncModule } from './inventory/sync/inventory-sync.module';
+import { BookingOrchestrationModule } from './bookings/orchestration/booking-orchestration.module';
+import { BookingConfirmationBridgeModule } from './bookings/orchestration/booking-confirmation-bridge';
+import { BookingProvidersModule } from './bookings/providers/booking-providers.module';
+import { CompensationModule } from './bookings/compensation/compensation.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -98,6 +106,14 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     AiGrowthModule,
     DiscoveryModule,
     RecommendationsModule,
+    InventorySourcingModule,
+    DomainEventsModule,
+    InventoryLockingModule,
+    InventorySyncModule,
+    BookingConfirmationBridgeModule,
+    BookingProvidersModule,
+    BookingOrchestrationModule,
+    CompensationModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

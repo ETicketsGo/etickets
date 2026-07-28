@@ -7,24 +7,30 @@ decisions were made and implemented; only the formal ADR document is outstanding
 
 ## Written (files present)
 
-| ADR | Title                   |
-| --- | ----------------------- |
-| 009 | Experience platform     |
-| 010 | Inventory strategy      |
-| 011 | Movie domain            |
-| 012 | Venue platform          |
-| 013 | Seat reservation        |
-| 014 | Experience discovery    |
-| 015 | Organizer CRM           |
-| 016 | Community               |
-| 017 | Sponsor management      |
-| 018 | AI foundations          |
-| 019 | Pricing strategy        |
-| 020 | Notification strategy   |
-| 021 | Discovery strategy      |
-| 022 | Recommendation strategy |
-| 023 | Analytics platform      |
-| 036 | Asymmetric QR signing   |
+| ADR | Title                                                   |
+| --- | ------------------------------------------------------- |
+| 009 | Experience platform                                     |
+| 010 | Inventory strategy                                      |
+| 011 | Movie domain                                            |
+| 012 | Venue platform                                          |
+| 013 | Seat reservation                                        |
+| 014 | Experience discovery                                    |
+| 015 | Organizer CRM                                           |
+| 016 | Community                                               |
+| 017 | Sponsor management                                      |
+| 018 | AI foundations                                          |
+| 019 | Pricing strategy                                        |
+| 020 | Notification strategy                                   |
+| 021 | Discovery strategy                                      |
+| 022 | Recommendation strategy                                 |
+| 023 | Analytics platform                                      |
+| 036 | Asymmetric QR signing                                   |
+| 037 | Inventory sourcing providers                            |
+| 038 | Domain event bus and transaction-aware publication      |
+| 039 | Distributed inventory locking with Redis and PostgreSQL |
+| 040 | External inventory synchronization platform             |
+| 041 | Transactional outbox and durable domain-event delivery  |
+| 042 | Provider-neutral booking orchestration (foundation)     |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

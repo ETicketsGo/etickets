@@ -41,6 +41,226 @@ const envSchema = z.object({
     .transform((v) => v === 'true' || v === '1'),
   MANIFEST_SIGNING_SECRET: z.string().optional(),
 
+  // Inventory sourcing seam (ADR-037). OFF by default: the provider registry still
+  // constructs Direct/Manual adapters, but the booking engine keeps its existing
+  // direct path until a show is explicitly routed through the resolver. No behaviour
+  // change while OFF.
+  INVENTORY_SOURCING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // External aggregator adapters (ADR-037). OFF by default; the AggregatorProvider is
+  // a placeholder that fails closed (never fabricates inventory) until a real vendor
+  // integration lands behind this flag.
+  INVENTORY_AGGREGATOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Comma-separated provider priority order for the InventoryResolver (most-preferred
+  // first, e.g. "direct,manual,aggregator"). Unset ⇒ a safe default that always
+  // prefers LOCAL authoritative stock before any external source.
+  INVENTORY_PROVIDER_PRIORITY: z.string().optional(),
+
+  // Domain event bus (ADR-038). OFF by default: the bus + handlers are wired via DI,
+  // but publish() is a no-op until enabled, so no handler runs and core booking
+  // correctness is unaffected. Turning it on only activates observers of facts.
+  DOMAIN_EVENTS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Per-handler execution timeout (ms) for the in-process bus. A handler exceeding
+  // this is abandoned as a failure (isolated + logged), never blocking other handlers.
+  DOMAIN_EVENT_HANDLER_TIMEOUT_MS: z.coerce.number().default(5000),
+
+  // Transactional outbox (ADR-041). DEFAULTS PRESERVE P2 in-process behaviour. Mode
+  // `in_process` = current P2. `outbox` = record durably in the business tx + dispatch
+  // from the outbox (no direct post-commit publish). `dual_write_shadow` = record
+  // shadow rows for comparison AND keep direct delivery (dispatcher never delivers
+  // shadow rows). The dispatcher only runs when DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED.
+  DOMAIN_EVENT_DELIVERY_MODE: z
+    .enum(['in_process', 'outbox', 'dual_write_shadow'])
+    .default('in_process'),
+  DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  DOMAIN_EVENT_OUTBOX_BATCH_SIZE: z.coerce.number().default(100),
+  DOMAIN_EVENT_OUTBOX_POLL_INTERVAL_MS: z.coerce.number().default(1000),
+  DOMAIN_EVENT_OUTBOX_LEASE_SECONDS: z.coerce.number().default(60),
+  DOMAIN_EVENT_OUTBOX_MAX_ATTEMPTS: z.coerce.number().default(12),
+  DOMAIN_EVENT_OUTBOX_BASE_RETRY_SECONDS: z.coerce.number().default(5),
+  DOMAIN_EVENT_OUTBOX_MAX_RETRY_SECONDS: z.coerce.number().default(3600),
+  DOMAIN_EVENT_OUTBOX_RETENTION_DAYS: z.coerce.number().default(30),
+  DOMAIN_EVENT_OUTBOX_DEAD_LETTER_RETENTION_DAYS: z.coerce.number().default(90),
+  DOMAIN_EVENT_OUTBOX_MAX_PAYLOAD_BYTES: z.coerce.number().default(262144),
+  // Optional stable worker id; unset ⇒ a per-process id is generated.
+  DOMAIN_EVENT_OUTBOX_WORKER_ID: z.string().optional(),
+  // Retention purge (delivered/dead-letter). OFF by default.
+  DOMAIN_EVENT_OUTBOX_RETENTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
+  // Provider-neutral booking orchestrator (ADR-042, P5). OFF by default: the legacy
+  // BookingsService/PaymentsService path is authoritative and unchanged. `shadow`
+  // records a durable BookingWorkflow alongside the legacy path WITHOUT any duplicate
+  // payment/inventory/provider side effect; `active` (later) routes booking decisions
+  // through the orchestrator. Provider-confirmation / compensation / reconciliation are
+  // separately gated so no single flag half-activates an unsafe path.
+  BOOKING_ORCHESTRATOR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_ORCHESTRATOR_MODE: z.enum(['shadow', 'active']).default('shadow'),
+  BOOKING_PROVIDER_CONFIRMATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // External provider booking (ADR-042 P5.2B). ALL default OFF. The mock external booking
+  // provider is dev/test-only and rejected in production. Allocated inventory + status
+  // recovery are separately gated so no single flag half-activates an unsafe remote path.
+  BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_ALLOCATED_INVENTORY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Safety margin: refuse to collect payment against a provider reservation with less than
+  // this much TTL remaining.
+  BOOKING_PROVIDER_RESERVATION_TTL_SAFETY_SECONDS: z.coerce.number().int().min(1).default(60),
+  BOOKING_PROVIDER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_PROVIDER_CONFIRM_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
+  BOOKING_COMPENSATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Booking compensation foundation (ADR-043, P5.3A). ALL default OFF. Planning creates durable
+  // records; execution runs only SAFE non-financial actions; money-moving auto flags are
+  // additionally gated and rejected in production by startup validation.
+  BOOKING_COMPENSATION_PLANNING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_EXECUTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_VOID_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_COMPENSATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(5),
+  // Payment void (ADR-043 Phase 5). Status recovery for ambiguous void outcomes; bounded
+  // void attempts + timeout. All off/default; auto-void stays production-forbidden.
+  BOOKING_PAYMENT_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_PAYMENT_VOID_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_PAYMENT_VOID_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
+  // Controlled refunds (ADR-043 Phase 6). Policy defaults to MANUAL_ONLY (nothing auto-refunds);
+  // auto-refund + non-manual policy stay off + production-forbidden. No partial-refund mode.
+  BOOKING_REFUND_POLICY_MODE: z
+    .enum(['MANUAL_ONLY', 'FULL_GROSS', 'TICKET_ONLY', 'EVENT_CANCELLATION_FULL'])
+    .default('MANUAL_ONLY'),
+  BOOKING_REFUND_POLICY_VERSION: z.string().optional(),
+  BOOKING_REFUND_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_REFUND_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_REFUND_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
+  BOOKING_REFUND_STATUS_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
+  BOOKING_COMPENSATION_LEASE_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
+  BOOKING_COMPENSATION_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
+  BOOKING_COMPENSATION_MANUAL_REVIEW_THRESHOLD: z.coerce.number().int().min(1).max(50).default(3),
+  BOOKING_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
+  // Distributed Redis seat-lock engine (ADR-039). OFF by default: the legacy
+  // PostgreSQL hold path is unchanged and no Redis dependency is added to it. When
+  // enabled, `shadow` observes/measures Redis locks without changing booking outcome
+  // (PostgreSQL stays authoritative); `active` would gate acquisition (not the P3
+  // proof path). PostgreSQL is ALWAYS the final source of truth.
+  INVENTORY_LOCKS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_LOCKS_MODE: z.enum(['shadow', 'active']).default('shadow'),
+  // TTL for a fresh lock (fast Redis expiration of temporary ownership).
+  INVENTORY_LOCK_TTL_SECONDS: z.coerce.number().default(300),
+  // Renewal is only permitted once the remaining TTL is within this window.
+  INVENTORY_LOCK_RENEWAL_WINDOW_SECONDS: z.coerce.number().default(120),
+  // Hard cap on total lock lifetime from first acquisition — locks are never
+  // renewable forever (abuse control).
+  INVENTORY_LOCK_MAX_LIFETIME_SECONDS: z.coerce.number().default(900),
+  // Reconciliation sweep (Redis↔PostgreSQL mismatch detection). OFF by default.
+  INVENTORY_LOCK_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Abuse controls: max units per acquisition and max concurrent active locks/owner.
+  INVENTORY_LOCK_MAX_SEATS: z.coerce.number().default(10),
+  INVENTORY_LOCK_MAX_QUANTITY: z.coerce.number().default(20),
+  INVENTORY_LOCK_MAX_ACTIVE_PER_OWNER: z.coerce.number().default(20),
+
+  // External inventory synchronization platform (ADR-040). ALL default OFF; no sync
+  // path activates by default and existing behaviour is unchanged. Flags are granular
+  // so no single flag can half-activate an unsafe processing path.
+  INVENTORY_SYNC_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_WEBHOOKS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_POLLING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_PROCESSING_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_RECONCILIATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  INVENTORY_SYNC_AUTO_REPAIR_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Comma-separated provider codes allowed to ingest (empty ⇒ none accepted).
+  INVENTORY_SYNC_PROVIDER_ALLOWLIST: z.string().optional(),
+  INVENTORY_SYNC_MAX_PAYLOAD_BYTES: z.coerce.number().default(262144),
+  INVENTORY_SYNC_EVENT_RETENTION_DAYS: z.coerce.number().default(30),
+  INVENTORY_SYNC_MAX_ATTEMPTS: z.coerce.number().default(6),
+  INVENTORY_SYNC_POLL_INTERVAL_SECONDS: z.coerce.number().default(300),
+  // Replay-window tolerance (seconds) for signed webhook timestamps.
+  INVENTORY_SYNC_REPLAY_WINDOW_SECONDS: z.coerce.number().default(300),
+  // Enables the feature-flagged, dev/test-only mock aggregator adapter.
+  INVENTORY_SYNC_MOCK_PROVIDER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
   PAYMENT_PROVIDER: z.string().default('mock'),
   PAYMENT_WEBHOOK_SECRET: z.string().min(1),
 
@@ -280,6 +500,181 @@ function assertRazorpayConsistency(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Platform-foundation safety (ADR-037/039/040/041). Fails fast on unsafe feature-flag
+ * combinations so no deployment can half-activate a dangerous path. Runs in every
+ * environment for env-independent hazards; production-only for the rest.
+ */
+function assertPlatformConfigConsistency(cfg: AppConfig): void {
+  const isProdLike =
+    cfg.NODE_ENV === 'production' || ['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV);
+  const errors: string[] = [];
+
+  // The dev/test-only mock aggregator must NEVER run in production.
+  if (isProdLike && cfg.INVENTORY_SYNC_MOCK_PROVIDER_ENABLED) {
+    errors.push(
+      '  - INVENTORY_SYNC_MOCK_PROVIDER_ENABLED must be false in production (dev/test only).',
+    );
+  }
+
+  // Enabling inventory sync ingress/processing with no allowlist accepts nothing and is
+  // always a misconfiguration (every env).
+  const syncActive =
+    cfg.INVENTORY_SYNC_ENABLED &&
+    (cfg.INVENTORY_SYNC_WEBHOOKS_ENABLED ||
+      cfg.INVENTORY_SYNC_POLLING_ENABLED ||
+      cfg.INVENTORY_SYNC_PROCESSING_ENABLED);
+  const allowlistEmpty = !(cfg.INVENTORY_SYNC_PROVIDER_ALLOWLIST ?? '').trim();
+  if (syncActive && allowlistEmpty) {
+    errors.push(
+      '  - INVENTORY_SYNC_* is enabled but INVENTORY_SYNC_PROVIDER_ALLOWLIST is empty — no provider can be accepted.',
+    );
+  }
+
+  // outbox mode with the dispatcher off silently accrues undelivered events in prod.
+  // (Lower envs may record-only for rollout testing; dual_write_shadow is preferred.)
+  if (
+    isProdLike &&
+    cfg.DOMAIN_EVENT_DELIVERY_MODE === 'outbox' &&
+    !cfg.DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED
+  ) {
+    errors.push(
+      '  - DOMAIN_EVENT_DELIVERY_MODE=outbox requires DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED in production (else events never deliver).',
+    );
+  }
+
+  // Active booking orchestration (ADR-042). Fail startup rather than allowing a partially
+  // active platform (ADR-042 §18, P5.2A).
+  const orchestratorActive =
+    cfg.BOOKING_ORCHESTRATOR_ENABLED && cfg.BOOKING_ORCHESTRATOR_MODE === 'active';
+  if (orchestratorActive) {
+    // The resolver selects the provider — sourcing must be on (every env).
+    if (!cfg.INVENTORY_SOURCING_ENABLED) {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active requires INVENTORY_SOURCING_ENABLED (the resolver selects the provider).',
+      );
+    }
+    // Real deployments cannot run active bookings on the mock gateway, and confirmation
+    // events must actually deliver (the atomic confirm records the outbox fact).
+    if (isProdLike && cfg.PAYMENT_PROVIDER_NAME === 'mock') {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active requires a real PAYMENT_PROVIDER_NAME in production (mock cannot take live payments).',
+      );
+    }
+    if (
+      isProdLike &&
+      cfg.DOMAIN_EVENT_DELIVERY_MODE === 'outbox' &&
+      !cfg.DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED
+    ) {
+      errors.push(
+        '  - BOOKING_ORCHESTRATOR_MODE=active with DOMAIN_EVENT_DELIVERY_MODE=outbox requires DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED (confirmation events must deliver).',
+      );
+    }
+  } else if (isProdLike && cfg.INVENTORY_LOCKS_ENABLED && cfg.INVENTORY_LOCKS_MODE === 'active') {
+    // Active locking is only meaningful once active orchestration wires it in.
+    errors.push(
+      '  - INVENTORY_LOCKS_MODE=active requires BOOKING_ORCHESTRATOR_MODE=active (booking path is not otherwise lock-wired).',
+    );
+  }
+
+  // External provider booking (ADR-042 §25, P5.2B). Keep unsafe remote combinations from
+  // booting.
+  if (isProdLike && cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED) {
+    errors.push(
+      '  - BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED must be false in production (dev/test only).',
+    );
+  }
+  // Provider confirmation needs a provider adapter. The only adapter today is the mock, so
+  // enabling confirmation requires the mock in non-prod, and is unsupported in prod (no real
+  // adapter exists yet — fail rather than silently do nothing).
+  if (cfg.BOOKING_PROVIDER_CONFIRMATION_ENABLED) {
+    if (isProdLike) {
+      errors.push(
+        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED is not supported in production yet (no real external booking provider is integrated).',
+      );
+    } else if (!cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED) {
+      errors.push(
+        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED requires BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED (the only external booking provider today is the mock).',
+      );
+    }
+  }
+  // Allocated inventory is locally authoritative within a provider allocation — it needs the
+  // sourcing resolver and P4 sync data to validate allocation boundaries.
+  if (cfg.BOOKING_ALLOCATED_INVENTORY_ENABLED && !cfg.INVENTORY_SOURCING_ENABLED) {
+    errors.push(
+      '  - BOOKING_ALLOCATED_INVENTORY_ENABLED requires INVENTORY_SOURCING_ENABLED (allocation resolution).',
+    );
+  }
+
+  // Compensation foundation (ADR-043 §21, P5.3A). No half-activated or unsafe money movement.
+  if (cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED && !cfg.BOOKING_COMPENSATION_PLANNING_ENABLED) {
+    errors.push(
+      '  - BOOKING_COMPENSATION_EXECUTION_ENABLED requires BOOKING_COMPENSATION_PLANNING_ENABLED.',
+    );
+  }
+  if (cfg.BOOKING_COMPENSATION_PLANNING_ENABLED && !cfg.BOOKING_COMPENSATION_ENABLED) {
+    errors.push('  - BOOKING_COMPENSATION_PLANNING_ENABLED requires BOOKING_COMPENSATION_ENABLED.');
+  }
+  // Money movement (refund/void) — Phase 5/6, still off + production-forbidden in this
+  // increment. Provider RESERVATION cancellation (Phase 4) is NOT money movement and is
+  // handled separately below.
+  const anyAutoMoney =
+    cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED || cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED;
+  const anyAuto = anyAutoMoney || cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED;
+  if (anyAuto && !cfg.BOOKING_COMPENSATION_EXECUTION_ENABLED) {
+    errors.push(
+      '  - Automatic refund/void/provider-cancel requires BOOKING_COMPENSATION_EXECUTION_ENABLED.',
+    );
+  }
+  if (isProdLike && anyAutoMoney) {
+    errors.push(
+      '  - Automatic refund/void is not permitted in production yet (P5.3B Phase 5/6 — needs policy + staging + idempotency proof).',
+    );
+  }
+  // Auto-void (Phase 5) requires a void-capable ACTIVE payment provider. Today only the mock
+  // adapter genuinely supports idempotent void (Stripe/PayPal/Square are not void-wired in the
+  // booking flow; Razorpay is immediate-capture), so auto-void is a dev/test-only path.
+  if (cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED && cfg.PAYMENT_PROVIDER_NAME !== 'mock') {
+    errors.push(
+      '  - BOOKING_COMPENSATION_AUTO_VOID_ENABLED requires a void-capable active payment provider (only the mock supports idempotent void today).',
+    );
+  }
+  // Auto-refund (Phase 6) — fail-closed. Off by default; MANUAL_ONLY policy means nothing
+  // auto-refunds; only a provider with proven idempotent full refund (the mock today) qualifies;
+  // production is forbidden until policy + staging + monitoring are approved.
+  if (cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED) {
+    if (cfg.BOOKING_REFUND_POLICY_MODE === 'MANUAL_ONLY') {
+      errors.push(
+        '  - BOOKING_COMPENSATION_AUTO_REFUND_ENABLED cannot run with BOOKING_REFUND_POLICY_MODE=MANUAL_ONLY (set an explicit approved policy).',
+      );
+    }
+    if (cfg.BOOKING_REFUND_POLICY_MODE === 'TICKET_ONLY') {
+      errors.push(
+        '  - BOOKING_REFUND_POLICY_MODE=TICKET_ONLY is not approved for automatic refunds (component split needs finance sign-off).',
+      );
+    }
+    if (cfg.PAYMENT_PROVIDER_NAME !== 'mock') {
+      errors.push(
+        '  - BOOKING_COMPENSATION_AUTO_REFUND_ENABLED requires a provider with proven idempotent full refund (only the mock qualifies today).',
+      );
+    }
+  }
+  // Phase 4: automatic provider RESERVATION cancellation needs a registered capable provider —
+  // today that requires provider confirmation enabled (which registers the external adapter).
+  if (
+    cfg.BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED &&
+    !cfg.BOOKING_PROVIDER_CONFIRMATION_ENABLED
+  ) {
+    errors.push(
+      '  - BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED requires BOOKING_PROVIDER_CONFIRMATION_ENABLED (a registered capable provider).',
+    );
+  }
+
+  if (errors.length) {
+    throw new Error(`Unsafe platform configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -290,5 +685,6 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertRazorpayConsistency(parsed.data);
+  assertPlatformConfigConsistency(parsed.data);
   return parsed.data;
 }
