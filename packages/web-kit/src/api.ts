@@ -250,10 +250,7 @@ export const api = {
       }),
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
-    pay: (id: string) =>
-      request<{ providerRef: string; clientActionUrl: string }>(`/bookings/${id}/pay`, {
-        method: 'POST',
-      }),
+    pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
   },
 
   payments: {
@@ -263,6 +260,16 @@ export const api = {
         body: JSON.stringify({ outcome }),
         auth: false,
       }),
+    // India (Razorpay): verify the Checkout signature after the modal returns. Never proof
+    // of payment (the webhook confirms) — surfaces a 'processing'/'confirmed' status.
+    razorpayVerify: (
+      bookingId: string,
+      body: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
+    ) =>
+      request<{ status: 'processing' | 'confirmed'; bookingId: string }>(
+        `/bookings/${bookingId}/payments/razorpay/verify`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
   },
 
   tickets: {
@@ -699,6 +706,34 @@ export const api = {
       }),
   },
 
+  // ─── Organizer Stripe Connect (payout setup) ───
+  organizerPayments: {
+    status: (organizerId: string) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/status`),
+    createAccount: (organizerId: string, body?: { country?: string; email?: string }) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/stripe/account`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    onboardingLink: (organizerId: string) =>
+      request<{ url: string; expiresAt?: number }>(
+        `/organizers/${organizerId}/payments/stripe/onboarding-link`,
+        { method: 'POST' },
+      ),
+    dashboardLink: (organizerId: string) =>
+      request<{ url: string }>(`/organizers/${organizerId}/payments/stripe/dashboard-link`, {
+        method: 'POST',
+      }),
+    // India (Razorpay Route) payout account.
+    razorpayStatus: (organizerId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/status`),
+    razorpayLink: (organizerId: string, linkedAccountId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/account`, {
+        method: 'POST',
+        body: JSON.stringify({ linkedAccountId }),
+      }),
+  },
+
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
@@ -737,6 +772,26 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+
+    // ─── Marketplace settlements (admin/finance) ───
+    settlements: {
+      list: (
+        params?: PageParams & { status?: string; organizationId?: string; eventId?: string },
+      ) => request<Paged<SettlementRow>>(`/admin/settlements${qs(params ?? {})}`),
+      get: (id: string) => request<SettlementDetail>(`/admin/settlements/${id}`),
+      approve: (id: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/approve`, { method: 'POST' }),
+      release: (id: string, note?: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/release`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        }),
+      block: (id: string, reason: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/block`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
 
     // ─── Runtime payment configuration (admin) ───
     paymentConfig: {
@@ -1930,6 +1985,84 @@ export interface Payout {
   paidAt: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+// ─── Payment start (provider-aware) ───
+/** Razorpay Standard Checkout options (public — no secret). */
+export interface RazorpayCheckout {
+  keyId: string;
+  orderId: string;
+  amountMinor: number;
+  currency: string;
+  name: string;
+  description: string;
+  prefill: { name: string; email: string };
+  callbackUrl: string;
+}
+export interface PayResult {
+  providerRef: string;
+  clientActionUrl: string;
+  /** 'razorpay' when India routing applies; absent/other for the Stripe/mock path. */
+  provider?: string;
+  razorpay?: RazorpayCheckout;
+}
+
+/** India (Razorpay Route) payout account status (client-safe). */
+export interface RazorpayAccountStatus {
+  organizationId: string;
+  provider: 'razorpay';
+  hasAccount: boolean;
+  linkedAccountId: string | null;
+  onboardingStatus: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  routeEnabled: boolean;
+  payoutReady: boolean;
+  country: string;
+  currency: string;
+}
+
+// ─── Stripe Connect marketplace (client-safe views) ───
+export interface OrganizerPaymentStatus {
+  organizationId: string;
+  provider: string;
+  hasAccount: boolean;
+  accountType: string;
+  onboardingStatus: string;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  disabledReason: string | null;
+  canSellPaidTickets: boolean;
+  country: string;
+  currency: string;
+}
+
+export interface SettlementRow {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  currency: string;
+  grossSalesMinor: number;
+  refundsMinor: number;
+  disputesMinor: number;
+  platformFeesMinor: number;
+  reserveMinor: number;
+  payableMinor: number;
+  transferredMinor: number;
+  providerTransferId: string | null;
+  connectedAccountId: string | null;
+  status: string;
+  releasedAt: string | null;
+  createdAt: string;
+  event?: { title: string; status?: string };
+  organization?: { name: string };
+}
+
+export interface SettlementDetail extends SettlementRow {
+  payments: Array<{ id: string; amountMinor: number; organizerNetMinor: number; status: string }>;
 }
 
 export interface EventReport {

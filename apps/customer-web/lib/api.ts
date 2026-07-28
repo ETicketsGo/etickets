@@ -62,7 +62,18 @@ export const api = {
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
+  // Alias for the pay call — returns { providerRef, clientActionUrl }. For real
+  // Stripe the URL is an external hosted Checkout page; the local mock returns a
+  // same-origin path handled by mockPay.
+  payBooking: wk.bookings.pay,
   mockPay: wk.payments.mockPay,
+  // India (Razorpay): verify the Checkout signature after the modal returns. Never
+  // proof of payment — the confirmation page polls the backend, which is confirmed
+  // by the signed webhook.
+  razorpayVerify: (
+    bookingId: string,
+    body: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
+  ) => wk.payments.razorpayVerify(bookingId, body),
   wallet: wk.tickets.wallet,
   getTicket: wk.tickets.get,
   // Wallet-pass sandbox (Apple/Google) — projections of an existing valid ticket.

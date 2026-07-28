@@ -25,6 +25,22 @@ import { PaymentAdminController } from './admin/payment-admin.controller';
 import { PaymentAdminService } from './admin/payment-admin.service';
 import { WebhookRouter } from './webhooks/webhook-router.service';
 import { PaymentReconciliationService } from './reconciliation/payment-reconciliation.service';
+import { OrganizerConnectController } from './connect/organizer-connect.controller';
+import { OrganizerConnectService } from './connect/organizer-connect.service';
+import { StripeWebhookController } from './webhooks/stripe/stripe-webhook.controller';
+import { StripeWebhookService } from './webhooks/stripe/stripe-webhook.service';
+import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.processor';
+import { SettlementController } from './settlement/settlement.controller';
+import { SettlementService } from './settlement/settlement.service';
+import { DisputeService } from './dispute/dispute.service';
+import { PaymentProviderResolver } from './provider/payment-provider.resolver';
+import { RazorpayOrderService } from './razorpay/razorpay-order.service';
+import { RazorpayPaymentController } from './razorpay/razorpay-payment.controller';
+import { RazorpayWebhookService } from './razorpay/razorpay-webhook.service';
+import { RazorpayWebhookProcessor } from './razorpay/razorpay-webhook.processor';
+import { RazorpayWebhookController } from './razorpay/razorpay-webhook.controller';
+import { RazorpayConnectService } from './razorpay/razorpay-connect.service';
+import { RazorpayConnectController } from './razorpay/razorpay-connect.controller';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -44,6 +60,12 @@ import { CommerceModule } from '../commerce/commerce.module';
     PromotionController,
     FinanceReconciliationController,
     PaymentOutageController,
+    OrganizerConnectController,
+    StripeWebhookController,
+    SettlementController,
+    RazorpayPaymentController,
+    RazorpayWebhookController,
+    RazorpayConnectController,
   ],
   providers: [
     PaymentsService,
@@ -81,12 +103,36 @@ import { CommerceModule } from '../commerce/commerce.module';
     // Multi-provider webhook routing + reconciliation/settlement.
     WebhookRouter,
     PaymentReconciliationService,
+    // Organizer Stripe Connect onboarding (marketplace, US).
+    OrganizerConnectService,
+    // Durable, idempotent Stripe webhook pipeline (ingest + async processor).
+    StripeWebhookService,
+    StripeWebhookProcessor,
+    // Marketplace settlement lifecycle + transfers.
+    SettlementService,
+    // Dispute (chargeback) synchronisation.
+    DisputeService,
+    // Multi-provider resolver (US→Stripe, IN→Razorpay; lazy construct + register).
+    PaymentProviderResolver,
+    // India (Razorpay) order/verify flow + durable webhook pipeline.
+    RazorpayOrderService,
+    RazorpayWebhookService,
+    RazorpayWebhookProcessor,
+    // Organizer India (Razorpay Route) payout account onboarding.
+    RazorpayConnectService,
   ],
   exports: [
     PaymentsService,
     PaymentProviderFactory,
     PaymentProviderRegistry,
     FinanceReconciliationService,
+    OrganizerConnectService,
+    // Exported so the worker's sweep job can drive processPending().
+    StripeWebhookProcessor,
+    // Exported so the worker can promote completed-event settlements to ELIGIBLE.
+    SettlementService,
+    // Exported so the worker's sweep also drains Razorpay webhooks.
+    RazorpayWebhookProcessor,
   ],
 })
 export class PaymentsModule {}

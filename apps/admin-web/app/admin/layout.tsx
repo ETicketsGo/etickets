@@ -20,6 +20,7 @@ import {
   Store,
   GitBranch,
   Scale,
+  Landmark,
   Sparkles,
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ const nav: NavItem[] = [
   { label: 'Finance Recon', href: '/admin/finance-reconciliation', icon: Scale },
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
+  { label: 'Settlements', href: '/admin/settlements', icon: Landmark },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Support', href: '/admin/support', icon: LifeBuoy },

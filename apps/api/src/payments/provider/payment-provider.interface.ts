@@ -14,6 +14,20 @@ export interface CreatePaymentInput {
   buyerEmail: string;
   /** Idempotency key so retries never double-charge. */
   idempotencyKey: string;
+  /**
+   * Marketplace fields (Stripe Connect, Separate Charges & Transfers). Optional so
+   * non-marketplace providers ignore them. When present the charge lands on the
+   * PLATFORM and is tagged with `transferGroup` so a later transfer can move
+   * `amountMinor − platformFeeAmountMinor` to `connectedAccountId`. The transfer is
+   * NOT created here — settlement happens after the event.
+   */
+  connectedAccountId?: string;
+  platformFeeAmountMinor?: number;
+  transferGroup?: string;
+  /** Extra non-sensitive metadata (eventId/organizerId/customerId/environment). */
+  metadata?: Record<string, string>;
+  /** Human-readable line-item label for the hosted checkout. */
+  description?: string;
 }
 
 export interface PaymentIntent {
@@ -29,11 +43,32 @@ export interface WebhookInput {
   signature: string;
 }
 
+/** Razorpay Checkout success payload the client returns for synchronous verification. */
+export interface CheckoutVerifyInput {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}
+
 export interface PaymentEvent {
   type: 'payment.succeeded' | 'payment.failed';
   providerRef: string;
   bookingId: string;
   amountMinor: number;
+}
+
+/**
+ * A signature-verified provider webhook, normalized so the (provider-neutral)
+ * webhook pipeline can persist + dispatch it without importing provider SDK types.
+ * `object` is the event's primary object; consumers cast it per `type`.
+ */
+export interface WebhookEnvelope {
+  id: string;
+  type: string;
+  createdAt: number;
+  /** Connect events carry the connected-account id here. */
+  account?: string | null;
+  object: unknown;
 }
 
 export interface RefundInput {
@@ -96,6 +131,76 @@ export interface ReconcileResult {
   mismatches: { providerRef: string; issue: string }[];
 }
 
+// ─── Connect (marketplace) operations ───
+
+export interface CreateConnectedAccountInput {
+  organizationId: string;
+  /** ISO-3166 alpha-2 country of the organizer's business. */
+  country: string;
+  email?: string;
+}
+
+export interface CreateConnectedAccountResult {
+  accountId: string;
+}
+
+/** Provider-agnostic snapshot of a connected account's capability state. */
+export interface ConnectedAccountSnapshot {
+  accountId: string;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  /** Field names only (never PII). */
+  requirementsCurrentlyDue: string[];
+  disabledReason?: string | null;
+  defaultCurrency?: string | null;
+  country?: string | null;
+}
+
+export interface OnboardingLinkInput {
+  accountId: string;
+  refreshUrl: string;
+  returnUrl: string;
+}
+
+export interface OnboardingLinkResult {
+  url: string;
+  /** Unix seconds when the link expires (provider-defined). */
+  expiresAt?: number;
+}
+
+export interface DashboardLinkResult {
+  url: string;
+}
+
+// ─── Transfers & reversals (settlement money movement) ───
+
+export interface TransferInput {
+  amountMinor: number;
+  currency: string;
+  destinationAccountId: string;
+  transferGroup?: string;
+  /** Idempotency key so a re-run never creates a duplicate transfer. */
+  idempotencyKey: string;
+  metadata?: Record<string, string>;
+}
+
+export interface TransferResult {
+  transferId: string;
+  status: 'COMPLETED' | 'FAILED';
+}
+
+export interface TransferReversalInput {
+  transferId: string;
+  amountMinor?: number;
+  idempotencyKey: string;
+}
+
+export interface TransferReversalResult {
+  reversalId: string;
+  status: 'COMPLETED' | 'FAILED';
+}
+
 /**
  * The provider contract. `createPayment`/`verifyWebhook`/`refund` and
  * `capabilities` are required; everything else is OPTIONAL and adapters implement
@@ -126,8 +231,29 @@ export interface PaymentProvider {
   getRefund?(refundRef: string): Promise<RefundResult>;
   /** Parse an already-verified webhook body (verifyWebhook does both by default). */
   parseWebhook?(rawBody: string): PaymentEvent;
+  /**
+   * Verify a webhook signature and return a normalized envelope (id/type/object) for
+   * the full range of provider events — used by the durable, async webhook pipeline.
+   */
+  verifySignedEnvelope?(input: WebhookInput): WebhookEnvelope;
   healthCheck?(): Promise<HealthCheckResult>;
   reconcile?(input: ReconcileInput): Promise<ReconcileResult>;
+
+  // Optional Connect (marketplace) operations — implemented when the provider
+  // supports connected accounts (capabilities.supportsConnectedAccounts).
+  createConnectedAccount?(
+    input: CreateConnectedAccountInput,
+  ): Promise<CreateConnectedAccountResult>;
+  getConnectedAccount?(accountId: string): Promise<ConnectedAccountSnapshot>;
+  createOnboardingLink?(input: OnboardingLinkInput): Promise<OnboardingLinkResult>;
+  /** Login/dashboard link — only for account types that support it (e.g. Express). */
+  createDashboardLink?(accountId: string): Promise<DashboardLinkResult>;
+  /** Move funds to a connected account (settlement). */
+  createTransfer?(input: TransferInput): Promise<TransferResult>;
+  /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
+  reverseTransfer?(input: TransferReversalInput): Promise<TransferReversalResult>;
+  /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */
+  verifyCheckoutSignature?(input: CheckoutVerifyInput): boolean;
 }
 
 export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');

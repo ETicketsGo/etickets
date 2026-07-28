@@ -12,6 +12,9 @@ import {
   FinanceReconciliationService,
   NotificationService,
   PrismaService,
+  RazorpayWebhookProcessor,
+  SettlementService,
+  StripeWebhookProcessor,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
@@ -71,6 +74,12 @@ async function main(): Promise<void> {
   const notifications = app.get(NotificationService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
+  const stripeWebhooks = app.get(StripeWebhookProcessor);
+  const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
+  const settlements = app.get(SettlementService);
+  const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
+  const WEBHOOK_SWEEP_MS =
+    Number.isFinite(RAW_WEBHOOK_MS) && RAW_WEBHOOK_MS > 0 ? RAW_WEBHOOK_MS : 15_000;
   const RECONCILE_EVERY_MS = Number(process.env.RECONCILE_INTERVAL_MS ?? 24 * 3600 * 1000);
   const TOKEN_PRUNE_EVERY_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? 24 * 3600 * 1000);
 
@@ -110,6 +119,21 @@ async function main(): Promise<void> {
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Frequent sweep that processes durably-accepted Stripe webhook events (retry +
+  // dead-letter). Idempotent: only RECEIVED/FAILED (past backoff) events are claimed.
+  await queue.add(
+    'process-webhooks',
+    {},
+    {
+      repeat: { every: WEBHOOK_SWEEP_MS },
+      jobId: 'process-webhooks',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 2,
       backoff: { type: 'exponential', delay: 5_000 },
     },
   );
@@ -164,12 +188,26 @@ async function main(): Promise<void> {
         }
         return summary;
       }
+      if (job.name === 'process-webhooks') {
+        const stripe = await stripeWebhooks.processPending();
+        const razorpay = await razorpayWebhooks.processPending();
+        const processed = stripe.processed + razorpay.processed;
+        if (processed > 0)
+          log('info', 'processed provider webhooks', {
+            stripe: stripe.processed,
+            razorpay: razorpay.processed,
+          });
+        return { processed };
+      }
       if (job.name !== 'expire-holds') return;
       const released = await bookings.releaseExpiredHolds();
       if (released > 0) log('info', 'released expired holds', { released });
       const completed = await events.completePastEvents();
       if (completed > 0) log('info', 'completed past events', { completed });
-      return { released, completed };
+      // Promote settlements whose event has just completed to ELIGIBLE (awaiting approval).
+      const { promoted } = await settlements.promoteCompletedEvents();
+      if (promoted > 0) log('info', 'promoted settlements to eligible', { promoted });
+      return { released, completed, promoted };
     },
     { connection: redisConnection },
   );

@@ -5,17 +5,20 @@ How to detect, triage, mitigate, and learn from production incidents. Pairs with
 and [DISASTER-RECOVERY.md](../reports/DISASTER-RECOVERY.md).
 
 ## Severity
-| Sev | Definition | Examples | Response |
-| --- | --- | --- | --- |
+
+| Sev      | Definition                                            | Examples                                                                                    | Response                            |
+| -------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------- |
 | **SEV1** | Platform-wide outage or money/entry integrity at risk | API down, payments failing broadly, gate can't check in at a live event, data-integrity bug | Page on-call immediately; all-hands |
-| **SEV2** | Major feature broken, workaround exists | Checkout failing for one provider, dashboard down | On-call within 30 min |
-| **SEV3** | Minor/degraded | Slow queries, cosmetic bug | Next business day |
+| **SEV2** | Major feature broken, workaround exists               | Checkout failing for one provider, dashboard down                                           | On-call within 30 min               |
+| **SEV3** | Minor/degraded                                        | Slow queries, cosmetic bug                                                                  | Next business day                   |
 
 ## Roles
+
 Incident Commander (coordinates) · Engineering on-call (mitigates) · Comms (status updates) ·
 Support (customer/organizer messaging).
 
 ## Flow
+
 1. **Detect** — alert (Sentry/metrics), support report, or organizer call.
 2. **Declare** — assign severity + Incident Commander; open an incident channel/log.
 3. **Mitigate first, diagnose second:**
@@ -31,10 +34,12 @@ Support (customer/organizer messaging).
    add a regression test.
 
 ## Tooling
+
 Logs are correlation-ID traceable; the audit trail records who did what; ops console shows
 health, queue depth, and failed jobs. Keep the on-call runbook + contacts current.
 
 ## Communication templates
-- *Investigating:* "We're investigating an issue affecting [scope]. Next update in [X] min."
-- *Identified/mitigating:* "We've identified the cause and are applying a fix."
-- *Resolved:* "The issue is resolved as of [time]. A post-incident review will follow."
+
+- _Investigating:_ "We're investigating an issue affecting [scope]. Next update in [X] min."
+- _Identified/mitigating:_ "We've identified the cause and are applying a fix."
+- _Resolved:_ "The issue is resolved as of [time]. A post-incident review will follow."

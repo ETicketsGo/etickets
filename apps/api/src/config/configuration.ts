@@ -77,9 +77,27 @@ const envSchema = z.object({
   PAYMENT_PROVIDER_NAME: z.enum(['mock', 'razorpay', 'stripe', 'paypal', 'square']).default('mock'),
 
   // --- Razorpay (India). Sandbox vs production is purely test vs live keys. ---
+  // KEY_ID is public (may be sent to approved clients). KEY_SECRET + WEBHOOK_SECRET are
+  // server-side only. The webhook secret is DISTINCT from the API key secret.
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  // Declared mode; cross-checked against the key prefix so test and live cannot be mixed.
+  RAZORPAY_MODE: z.enum(['test', 'live']).default('test'),
+  RAZORPAY_CURRENCY: z.string().default('INR'),
+  // Razorpay Route (organizer payouts via Linked Accounts). OFF by default — no organizer
+  // transfer executes and settlements stay HELD/BLOCKED until Route is activated + enabled.
+  RAZORPAY_ROUTE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Platform account number (required by some Route transfer flows). Reference, not a secret.
+  RAZORPAY_ACCOUNT_NUMBER: z.string().optional(),
+  // Where Checkout returns the buyer (the redirect is NEVER treated as proof of payment).
+  RAZORPAY_CALLBACK_URL: z.string().default('http://localhost:3000/checkout/razorpay/callback'),
+  // Public Checkout branding.
+  RAZORPAY_CHECKOUT_NAME: z.string().default('ETicketsGo'),
+  RAZORPAY_CHECKOUT_DESCRIPTION: z.string().default('Event ticket purchase'),
 
   // --- PayPal (global, Orders v2 REST). Endpoint configurable; defaults to sandbox. ---
   PAYPAL_CLIENT_ID: z.string().optional(),
@@ -100,12 +118,36 @@ const envSchema = z.object({
   // --- Stripe (global). Sandbox vs production is purely test vs live keys. ---
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Publishable (public) key — safe to return to approved clients. NEVER a secret.
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  // Pin the Stripe API version so upgrades are deliberate. Optional: when unset the
+  // installed SDK's pinned default is used. Set to the exact dashboard API version.
+  STRIPE_API_VERSION: z.string().optional(),
   // Where Stripe Checkout redirects the buyer after success/cancel. {CHECKOUT_SESSION_ID}
   // is substituted by Stripe. Optional with sane localhost defaults.
   STRIPE_SUCCESS_URL: z
     .string()
     .default('http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}'),
   STRIPE_CANCEL_URL: z.string().default('http://localhost:3000/checkout/cancel'),
+
+  // ─── Stripe Connect (US marketplace) ───
+  // Connect OAuth client id (only used for the OAuth/Standard flow; Express/Custom
+  // accounts created via the API do not require it). Non-secret identifier.
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  // Connected-account type for organizer onboarding. `express` = Stripe-hosted
+  // onboarding + an Express dashboard (login links supported). `standard` = the
+  // organizer's own full Stripe account. Default express for a hosted marketplace.
+  STRIPE_CONNECT_ACCOUNT_TYPE: z.enum(['express', 'standard', 'custom']).default('express'),
+  // Where Stripe returns / refreshes the organizer during hosted onboarding.
+  STRIPE_CONNECT_RETURN_URL: z
+    .string()
+    .default('http://localhost:3001/organizer/payouts?onboarding=return'),
+  STRIPE_CONNECT_REFRESH_URL: z
+    .string()
+    .default('http://localhost:3001/organizer/payouts?onboarding=refresh'),
+  // Settlement reserve withheld from each organizer transfer, in basis points
+  // (100 = 1%). Configurable per deployment; 0 = no reserve. NEVER hardcoded.
+  STRIPE_SETTLEMENT_RESERVE_BPS: z.coerce.number().int().min(0).max(10000).default(0),
 
   STORAGE_DRIVER: z.string().default('local'),
   STORAGE_LOCAL_DIR: z.string().default('.storage'),
@@ -209,6 +251,35 @@ function assertProductionHardening(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Razorpay test/live isolation (enforced in EVERY environment — mixing is dangerous
+ * anywhere). The declared RAZORPAY_MODE must match the key prefix, and the webhook
+ * secret must be distinct from the API key secret.
+ */
+function assertRazorpayConsistency(cfg: AppConfig): void {
+  const keyId = cfg.RAZORPAY_KEY_ID;
+  if (!keyId) return; // Razorpay not configured — the adapter fails fast if selected.
+  const errors: string[] = [];
+  const isTestKey = keyId.startsWith('rzp_test_');
+  const isLiveKey = keyId.startsWith('rzp_live_');
+  if (isTestKey && cfg.RAZORPAY_MODE !== 'test') {
+    errors.push('  - RAZORPAY_MODE=live but RAZORPAY_KEY_ID is a test key (rzp_test_).');
+  }
+  if (isLiveKey && cfg.RAZORPAY_MODE !== 'live') {
+    errors.push('  - RAZORPAY_MODE=test but RAZORPAY_KEY_ID is a live key (rzp_live_).');
+  }
+  if (
+    cfg.RAZORPAY_KEY_SECRET &&
+    cfg.RAZORPAY_WEBHOOK_SECRET &&
+    cfg.RAZORPAY_KEY_SECRET === cfg.RAZORPAY_WEBHOOK_SECRET
+  ) {
+    errors.push('  - RAZORPAY_WEBHOOK_SECRET must be DISTINCT from RAZORPAY_KEY_SECRET.');
+  }
+  if (errors.length) {
+    throw new Error(`Invalid Razorpay configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -218,5 +289,6 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
   assertProductionHardening(parsed.data);
+  assertRazorpayConsistency(parsed.data);
   return parsed.data;
 }
