@@ -63,6 +63,10 @@ export class MetricsService {
   private readonly paymentVoid: Counter<'provider' | 'outcome'>;
   private readonly paymentVoidDuration: Histogram<'provider'>;
   private readonly paymentStatusRecovery: Counter<'provider' | 'status'>;
+  private readonly paymentRefund: Counter<'provider' | 'outcome'>;
+  private readonly paymentRefundDuration: Histogram<'provider'>;
+  private readonly refundStatusRecovery: Counter<'provider' | 'status'>;
+  private readonly refundPolicyDecision: Counter<'mode' | 'reason'>;
 
   constructor() {
     this.registry = new Registry();
@@ -390,6 +394,32 @@ export class MetricsService {
       labelNames: ['provider', 'status'],
       registers: [this.registry],
     });
+    // Payment refund (ADR-043 Phase 6). Bounded labels — provider/outcome/status/policy mode.
+    this.paymentRefund = new Counter({
+      name: 'etg_booking_payment_refund_total',
+      help: 'Payment refund executions by provider and outcome.',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.paymentRefundDuration = new Histogram({
+      name: 'etg_booking_payment_refund_duration_seconds',
+      help: 'Payment refund execution latency, by provider.',
+      labelNames: ['provider'],
+      buckets: [0.05, 0.1, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+    this.refundStatusRecovery = new Counter({
+      name: 'etg_booking_refund_status_recovery_total',
+      help: 'Refund status-query recoveries by provider and normalized status.',
+      labelNames: ['provider', 'status'],
+      registers: [this.registry],
+    });
+    this.refundPolicyDecision = new Counter({
+      name: 'etg_booking_refund_policy_decision_total',
+      help: 'Refund policy decisions by mode and reason code.',
+      labelNames: ['mode', 'reason'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -631,6 +661,18 @@ export class MetricsService {
   }
   recordPaymentStatusRecovery(provider: string, status: string): void {
     this.safe(() => this.paymentStatusRecovery.inc({ provider, status }));
+  }
+  recordPaymentRefund(provider: string, outcome: string): void {
+    this.safe(() => this.paymentRefund.inc({ provider, outcome }));
+  }
+  observePaymentRefund(provider: string, seconds: number): void {
+    this.safe(() => this.paymentRefundDuration.observe({ provider }, seconds));
+  }
+  recordRefundStatusRecovery(provider: string, status: string): void {
+    this.safe(() => this.refundStatusRecovery.inc({ provider, status }));
+  }
+  recordRefundPolicyDecision(mode: string, reason: string): void {
+    this.safe(() => this.refundPolicyDecision.inc({ mode, reason }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
