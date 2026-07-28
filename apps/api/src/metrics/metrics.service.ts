@@ -50,6 +50,9 @@ export class MetricsService {
   private readonly bookingOrchestrationDuration: Histogram<'op'>;
   private readonly bookingShadow: Counter<'outcome' | 'provider'>;
   private readonly bookingShadowMismatch: Counter<'category'>;
+  private readonly bookingApi: Counter<'op' | 'mode' | 'owner_type'>;
+  private readonly bookingOwnerRejection: Counter<'op' | 'reason'>;
+  private readonly bookingLegacyFallback: Counter<'op'>;
 
   constructor() {
     this.registry = new Registry();
@@ -290,6 +293,26 @@ export class MetricsService {
       labelNames: ['category'],
       registers: [this.registry],
     });
+    // Booking API routing (ADR-042 P5.2A). Bounded labels: op, orchestration mode, and a
+    // coarse owner type (user|anonymous) — never any id.
+    this.bookingApi = new Counter({
+      name: 'etg_booking_api_total',
+      help: 'Booking API calls by op (initiate|begin_payment|status|cancel), orchestration mode, and owner type.',
+      labelNames: ['op', 'mode', 'owner_type'],
+      registers: [this.registry],
+    });
+    this.bookingOwnerRejection = new Counter({
+      name: 'etg_booking_owner_rejection_total',
+      help: 'Rejected booking operations by op and reason (ownership/idempotency).',
+      labelNames: ['op', 'reason'],
+      registers: [this.registry],
+    });
+    this.bookingLegacyFallback = new Counter({
+      name: 'etg_booking_legacy_fallback_total',
+      help: 'Legacy path selections before any active workflow began, by op (never a mid-flow fallback).',
+      labelNames: ['op'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -492,6 +515,15 @@ export class MetricsService {
   }
   recordBookingShadowMismatch(category: string): void {
     this.safe(() => this.bookingShadowMismatch.inc({ category }));
+  }
+  recordBookingApi(op: string, mode: string, ownerType: string): void {
+    this.safe(() => this.bookingApi.inc({ op, mode, owner_type: ownerType }));
+  }
+  recordBookingOwnerRejection(op: string, reason: string): void {
+    this.safe(() => this.bookingOwnerRejection.inc({ op, reason }));
+  }
+  recordBookingLegacyFallback(op: string): void {
+    this.safe(() => this.bookingLegacyFallback.inc({ op }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */
