@@ -144,17 +144,79 @@ labels, no ids).
 confirmation back); Redis finalize is post-commit and a cleanup failure is reconcilable,
 never a rollback.
 
-## Deferred to P5.2+
+## P5.2A — active API wiring, durable ownership, local end-to-end (shipped)
+
+The P5.1 orchestrator is now reachable through the existing booking APIs in **active** mode
+while disabled/shadow stay byte-for-byte unchanged.
+
+**One routing decision point.** `BookingExecutionRouter` is the ONLY place that reads the
+mode flags. Controllers call it and nothing else re-checks the mode. Per operation it picks
+exactly one path: `disabled`/`shadow` → legacy `BookingsService`/`PaymentsService` (shadow
+observation still happens inside `create()`), `active` → `LocalBookingOrchestrator` for
+LOCAL_AUTHORITATIVE inventory. There is **no silent mid-flow fallback** — once an active
+workflow begins, a dependency failure surfaces a typed error; the legacy path is only chosen
+before any workflow starts and only when the orchestrator is globally disabled. The booking
+controllers were moved into `BookingOrchestrationModule` so they can inject the router
+without a DI cycle (that module imports Bookings + Payments one-directionally).
+
+**Durable, server-decided ownership.** New `BookingOwnerType` enum + `ownerType`/`ownerId`/
+`tenantId`/`organizerId` on `BookingWorkflow` (migration `20260727213500`, all nullable).
+`BookingOwnerResolver` derives the owner from the trusted principal (USER), a server-issued
+anonymous session (ANONYMOUS_SESSION), or an explicit INTERNAL context — never from the
+request body/query. Every customer operation (`beginPayment`/`cancel`, and replayed
+`initiate`) validates the request owner against the durable owner in constant time; a valid
+booking id alone never authorizes access, and cross-user / cross-session / cross-type access
+is rejected. Legacy pre-ownership rows (null owner) fall back to the underlying service check
+and are never falsely rejected.
+
+**Anonymous checkout identity.** ETicketsGo had no anonymous-session scheme, so guest
+ownership is a dedicated opaque token (`AnonymousSessionService`): 256 bits of entropy,
+`anon_`-prefixed, minted server-side, carried in the `x-anon-session` header, compared in
+constant time, and persisted ONLY as a SHA-256 hash (the raw token never touches the DB or
+logs). It is not derived from email/phone/IP/device/UA and cannot be supplied as an arbitrary
+owner id. A brand-new guest checkout is issued one and it is returned once as an additive
+`anonymousSessionToken` field (active mode only).
+
+**Confirmation routing without recursion.** The payment webhook stays authoritative and
+atomic (`processVerifiedEvent` → `confirm`). After it commits, a one-way
+`BookingConfirmationBridge` (global; both sides depend on it, not on each other) advances the
+durable workflow to CONFIRMED via `orchestrator.syncWorkflowConfirmed` — no re-confirmation,
+no PaymentsService↔Orchestrator cycle, no-op unless a workflow exists (active mode).
+`alreadyConfirmed` idempotency and single-issue guarantees are unchanged.
+
+**Public compatibility.** Route paths, methods, auth, request/response schemas, and error
+conventions are preserved. Active `initiate` rebuilds the exact legacy create-response shape
+from durable data; internal workflow state is never exposed. Public status uses the existing
+customer vocabulary via `toPublicBookingStatus` (COMPENSATION_PENDING / PROVIDER_CONFIRM_*/
+MANUAL_REVIEW → `ACTION_REQUIRED`, never `CONFIRMED`). A new additive `POST /bookings/:id/
+cancel` (+ guest variant) coordinates unpaid cancellation; paid → refund-pending.
+
+**Startup validation (extended).** Active orchestration fails boot unless
+`INVENTORY_SOURCING_ENABLED`; in production it additionally requires a real
+`PAYMENT_PROVIDER_NAME` (not mock) and, under `outbox` delivery, a running dispatcher.
+
+**Internal workers.** `BookingOwnerResolver.internal(actor)` yields an explicit INTERNAL
+context; the confirm bridge + reconciliation use privileged, non-customer paths — no
+`skipAuthorization` flag exists.
+
+**Observability.** `etg_booking_api_total{op,mode,owner_type}`,
+`etg_booking_owner_rejection_total{op,reason}`, `etg_booking_legacy_fallback_total{op}` (all
+bounded, no ids); active operations are audited (`BOOKING_*_ACTIVE`) with safe metadata only.
+`GET /health/booking-orchestration` reports mode + drift counts (stuck workflows, manual-
+review backlog). Rate limiting reuses the global `ThrottlerGuard`.
+
+## Deferred to P5.2B+
 
 Provider-authoritative + allocated flows; a mock provider-authoritative confirmation
-adapter; the full automated compensation matrix; full refund orchestration; the active
-booking API controller wiring + durable owner check; end-to-end active-mode integration/
-concurrency against real DB/Redis.
+adapter; the full automated compensation matrix; full refund orchestration; a public guest
+payment-initiation endpoint; worker/expiration `expire()` wiring into the durable sweep;
+end-to-end active-mode integration/concurrency executed against real DB/Redis in staging.
 
 ## Status / verification
 
-Foundation (9 transition tests) + P5.1 (repository optimistic-concurrency/idempotency,
-orchestrator initiate/beginPayment/confirmPayment + unsupported + compensation, shadow
-observer, config matrix — +31 tests). Full API suite **138 suites / 943 tests**; tsc +
-prettier clean; worker typecheck green; migrations `20260727204643` +
-`booking_workflow_fingerprint` applied.
+Foundation (9 transition tests) + P5.1 (+31) + P5.2A (owner/anon-session security, router
+mode-routing, public status mapping, active config matrix — +27). Full API suite **141
+suites / 970 tests**; tsc + prettier + api build + worker typecheck clean; migrations
+`20260727204643`, `booking_workflow_fingerprint`, `20260727213500_booking_workflow_ownership`
+applied. Active mode remains OFF by default; real-infra active-mode e2e is staging-only and
+NOT yet executed.

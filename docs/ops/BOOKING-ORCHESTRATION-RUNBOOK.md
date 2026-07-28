@@ -82,6 +82,60 @@ Set `BOOKING_ORCHESTRATOR_ENABLED=false` (or `MODE=shadow`) and redeploy. In-fli
 orchestrated workflows are inspectable; new bookings use the legacy path. No data
 migration; `BookingWorkflow` rows remain for audit.
 
+## Enable shadow mode, then active mode (P5.2A)
+
+1. **Shadow:** `BOOKING_ORCHESTRATOR_ENABLED=true`, `BOOKING_ORCHESTRATOR_MODE=shadow`. The
+   legacy path stays authoritative; the router returns the legacy response and observation
+   runs with zero side effects. Watch `etg_booking_shadow_mismatch_total{category}` for a
+   soak period.
+2. **Active prerequisites (enforced at startup):** `INVENTORY_SOURCING_ENABLED=true`; in
+   production a real `PAYMENT_PROVIDER_NAME` (not `mock`); under
+   `DOMAIN_EVENT_DELIVERY_MODE=outbox`, `DOMAIN_EVENT_OUTBOX_DISPATCH_ENABLED=true`. Boot
+   fails fast otherwise — that is intended, not a bug.
+3. **Active:** `BOOKING_ORCHESTRATOR_MODE=active`. New bookings route through the
+   orchestrator; `GET /health/booking-orchestration` shows `mode:"active"`,
+   `ready:true`. Roll back instantly with `MODE=shadow` or `ENABLED=false`.
+
+## Test ownership (active mode)
+
+- **Authenticated:** a booking created by user A returns 403 (`FORBIDDEN`) on
+  `POST /bookings/:id/pay` or `/cancel` for user B — the durable `ownerType=USER,ownerId`
+  is checked, not just the id.
+- **Anonymous:** a guest `POST /bookings/guest` returns a one-time `anonymousSessionToken`.
+  Subsequent `x-anon-session` must present that exact token; a different/absent token is
+  rejected. Only the SHA-256 hash is stored (`SELECT "ownerType","ownerId"` shows a hex
+  hash, never the raw token).
+
+## Test payment callbacks (active mode)
+
+Deliver a verified sandbox `payment.succeeded` webhook. The atomic confirm commits, then the
+confirmation bridge advances the workflow to `CONFIRMED` (`SELECT state`). Re-deliver the
+same callback: `alreadyConfirmed` short-circuits and the workflow replays to `CONFIRMED` with
+no duplicate tickets/outbox/settlement. `etg_booking_orchestration_total{op="confirm_sync"}`
+tracks bridge activity.
+
+## Investigate idempotency conflicts
+
+`etg_booking_owner_rejection_total{reason}` + `BOOKING_IDEMPOTENCY_CONFLICT` errors mean the
+same scoped key was reused with a different normalized request. Scope is
+`tenant:owner:operation:key`. Inspect the workflow's `requestFingerprint`; a legitimate retry
+must send the identical request.
+
+## Public status mapping reference
+
+Internal → public (`toPublicBookingStatus`):
+
+- `CONFIRMED` / `TICKET_PENDING` / `TICKET_ISSUED` → `CONFIRMED`
+- `DRAFT` … `CONFIRMING` (incl. `PROVIDER_CONFIRM_PENDING` / `PROVIDER_CONFIRMED`) → `PENDING`
+- `CANCELLATION_PENDING` / `CANCELLED` → `CANCELLED`
+- `EXPIRING` / `EXPIRED` → `EXPIRED`
+- `REFUND_PENDING` → `REFUND_PENDING`; `REFUNDED` → `REFUNDED`
+- `MANUAL_REVIEW` / `COMPENSATION_PENDING` / `COMPENSATED` / `FAILED` → `ACTION_REQUIRED`
+  (never `CONFIRMED`)
+
+The authoritative customer status remains `Booking.status`; active mode does not change its
+meaning. Internal states are never leaked to the public API.
+
 ## Verify no double booking / no duplicate charge
 
 - Seat oversell is structurally impossible (ADR-039 checks + `ShowSeat` unique + the hold
