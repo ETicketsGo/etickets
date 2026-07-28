@@ -7,7 +7,7 @@ import { CompensationPlanner } from './compensation-planner';
 import { CompensationState } from './compensation-state';
 import { CompensationType } from './compensation-types';
 
-function make(record: Record<string, unknown> | null) {
+function make(record: Record<string, unknown> | null, flags: Record<string, unknown> = {}) {
   const findUnique = jest.fn().mockResolvedValue(record);
   const findMany = jest.fn().mockResolvedValue([]);
   const advance = jest.fn(async (r: Record<string, unknown>, state: string, patch = {}) => ({
@@ -24,7 +24,7 @@ function make(record: Record<string, unknown> | null) {
   } as unknown as PrismaService;
   const repo = { advance } as unknown as CompensationRepository;
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
-  const config = { get: jest.fn(() => false) } as never; // auto-void off by default in tests
+  const config = { get: jest.fn((k: string) => flags[k] ?? false) } as never; // auto-money off by default
   const svc = new CompensationAdminService(prisma, repo, new CompensationPlanner(), audit, config);
   return { svc, findUnique, findMany, advance, audit };
 }
@@ -87,6 +87,30 @@ describe('CompensationAdminService — non-financial safety', () => {
     const patch = advance.mock.calls[0][2];
     expect(patch).toBeUndefined();
     expect(out.compensationType).toBe(CompensationType.REDIS_LOCK_RELEASE);
+  });
+
+  it('refuses to approve a refund when auto-refund is off (fail closed)', async () => {
+    const { svc } = make(rec({ compensationType: CompensationType.PAYMENT_REFUND }));
+    await expect(svc.approve(tenantAdmin, 'c1')).rejects.toBeInstanceOf(AppException);
+  });
+
+  it('refuses to approve a refund while the policy is MANUAL_ONLY even with auto-refund on', async () => {
+    const { svc } = make(rec({ compensationType: CompensationType.PAYMENT_REFUND }), {
+      BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: true,
+      BOOKING_REFUND_POLICY_MODE: 'MANUAL_ONLY',
+    });
+    await expect(svc.approve(tenantAdmin, 'c1')).rejects.toBeInstanceOf(AppException);
+  });
+
+  it('approves a refund to READY when auto-refund is on with an approved policy (executor re-validates)', async () => {
+    const { svc, advance } = make(rec({ compensationType: CompensationType.PAYMENT_REFUND }), {
+      BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: true,
+      BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+    });
+    const out = await svc.approve(tenantAdmin, 'c1');
+    expect(out.state).toBe(CompensationState.READY);
+    // approval never edits the amount
+    expect(advance.mock.calls[0][2]).toBeUndefined();
   });
 
   it('refuses to retry a financial action', async () => {

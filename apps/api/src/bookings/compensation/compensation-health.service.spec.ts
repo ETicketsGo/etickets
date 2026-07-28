@@ -20,7 +20,8 @@ function make(flags: Record<string, boolean> = {}) {
     bookingWorkflow: { count: jest.fn().mockResolvedValue(4) },
     $queryRaw: jest.fn().mockResolvedValue([{ n: BigInt(0) }]),
   } as unknown as PrismaService;
-  const config = { get: jest.fn((k: string) => flags[k] ?? false) } as unknown as ConfigService;
+  // Mirror the real ConfigService: an unknown key returns undefined (not false).
+  const config = { get: jest.fn((k: string) => flags[k]) } as unknown as ConfigService;
   const svc = new CompensationHealthService(prisma, config, new MetricsService());
   return { svc };
 }
@@ -48,5 +49,18 @@ describe('CompensationHealthService', () => {
     const { svc } = make({ BOOKING_COMPENSATION_ENABLED: true });
     const snap = (await svc.snapshot()) as Record<string, unknown>;
     expect(snap.healthy).toBe(false); // 1 dead-letter seeded above
+  });
+
+  it('exposes a refund block: auto disabled + MANUAL_ONLY by default (fail closed)', async () => {
+    const { svc } = make({
+      BOOKING_COMPENSATION_ENABLED: true,
+      BOOKING_COMPENSATION_PLANNING_ENABLED: true,
+    });
+    const snap = (await svc.snapshot()) as Record<string, unknown>;
+    const refund = snap.refund as Record<string, unknown>;
+    expect(refund.autoEnabled).toBe(false);
+    expect(refund.policyMode).toBe('MANUAL_ONLY');
+    expect(refund).toHaveProperty('manualReview');
+    expect(refund).toHaveProperty('completed');
   });
 });
