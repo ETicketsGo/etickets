@@ -3,20 +3,22 @@
 Operational support process for launch. Adapt channels/SLAs to your team.
 
 ## Contact channels
-| Channel | Audience | Notes |
-| --- | --- | --- |
-| Help center / FAQ | All | Self-serve first line — see [FAQ.md](FAQ.md). |
-| Support email `[support@…]` | Customers + organizers | Primary async channel; ticketed. |
-| In-app contact form | Logged-in users | Pre-fills account + booking context. |
-| Organizer escalation `[organizers@…]` | Organizers | Payout/onboarding/finance issues. |
-| Urgent/event-day hotline `[phone]` | Organizers at live events | Gate/check-in incidents. |
+
+| Channel                               | Audience                  | Notes                                         |
+| ------------------------------------- | ------------------------- | --------------------------------------------- |
+| Help center / FAQ                     | All                       | Self-serve first line — see [FAQ.md](FAQ.md). |
+| Support email `[support@…]`           | Customers + organizers    | Primary async channel; ticketed.              |
+| In-app contact form                   | Logged-in users           | Pre-fills account + booking context.          |
+| Organizer escalation `[organizers@…]` | Organizers                | Payout/onboarding/finance issues.             |
+| Urgent/event-day hotline `[phone]`    | Organizers at live events | Gate/check-in incidents.                      |
 
 ## Response targets (suggested SLAs)
-| Priority | Example | First response | Resolution target |
-| --- | --- | --- | --- |
-| P1 — event-day blocking | Gate can't check in; payments down | 15 min | Same day |
-| P2 — transactional | Payment charged, no ticket; refund stuck | 4 business hours | 1 business day |
-| P3 — general | How-to, account question | 1 business day | 3 business days |
+
+| Priority                | Example                                  | First response   | Resolution target |
+| ----------------------- | ---------------------------------------- | ---------------- | ----------------- |
+| P1 — event-day blocking | Gate can't check in; payments down       | 15 min           | Same day          |
+| P2 — transactional      | Payment charged, no ticket; refund stuck | 4 business hours | 1 business day    |
+| P3 — general            | How-to, account question                 | 1 business day   | 3 business days   |
 
 ## Common workflows
 
@@ -46,10 +48,12 @@ state and reconciliation (see [MERCHANT-ONBOARDING.md](../guides/MERCHANT-ONBOAR
 use maintenance mode if needed; keep a status update cadence.
 
 ## Tools support agents use
+
 - Admin console: reports, ops health, audit trail, payment config.
 - Booking/payment lookup, reconciliation console, refunds console.
 - Correlation IDs in logs to trace a specific request end to end.
 
 ## Escalation ladder
+
 Tier 1 (support) → Tier 2 (senior support / ops) → Engineering on-call (P1/incidents) →
 Finance (payouts/settlement) / Legal (privacy/disputes).

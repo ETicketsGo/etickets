@@ -50,11 +50,11 @@ HMAC-verified against the raw body.
 ## 3. `RAZORPAY_ROUTE_ENABLED` behaviour
 
 - **`false` (default):** Order + Checkout + verify + webhook issuance all work normally.
-  Organizer settlement **release is BLOCKED** with *"Razorpay Route is not enabled;
-  organizer payout is on hold."* No transfer is attempted — this is the expected local
+  Organizer settlement **release is BLOCKED** with _"Razorpay Route is not enabled;
+  organizer payout is on hold."_ No transfer is attempted — this is the expected local
   state unless you are specifically testing Route.
 - **`true`:** release additionally requires an **active Linked Account** on the organizer;
-  without one it is BLOCKED with *"No active Razorpay linked account for this organizer."*
+  without one it is BLOCKED with _"No active Razorpay linked account for this organizer."_
   Route transfers only succeed against a real activated Test-Mode Linked Account.
 
 ---
@@ -88,6 +88,7 @@ curl -sS -X POST http://localhost:4000/api/payments/webhooks/razorpay \
 ```
 
 Notes:
+
 - `amount` (paise) **must equal** the booking total, or issuance is refused with
   `PAYMENT_AMOUNT_MISMATCH` (by design).
 - `notes.bookingId` (or the Order `receipt`) is how the booking is resolved.

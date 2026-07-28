@@ -104,7 +104,11 @@ export class MockPaymentProvider implements PaymentProvider {
     const scenario = this.scenario(input.providerRef);
     if (scenario === 'refundfail') return { providerRef: input.providerRef, status: 'FAILED' };
     if (scenario === 'refundambiguous') {
-      throw new AppException(ErrorCodes.INTERNAL, 'mock refund ambiguous', HttpStatus.GATEWAY_TIMEOUT);
+      throw new AppException(
+        ErrorCodes.INTERNAL,
+        'mock refund ambiguous',
+        HttpStatus.GATEWAY_TIMEOUT,
+      );
     }
     return { providerRef: `mock_rf_${this.hash(input.providerRef)}`, status: 'COMPLETED' };
   }

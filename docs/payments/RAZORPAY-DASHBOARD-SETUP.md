@@ -38,11 +38,11 @@ These match the adapter's declared capabilities (CARD, UPI, NETBANKING, WALLET).
 
 The integration reads three values (`configuration.ts`):
 
-| Variable                  | Classification         | Notes                                                        |
-| ------------------------- | ---------------------- | ------------------------------------------------------------ |
-| `RAZORPAY_KEY_ID`         | **Public**             | `rzp_test_…` / `rzp_live_…`; may be sent to approved clients. |
-| `RAZORPAY_KEY_SECRET`     | **Server secret**      | Signs the Checkout result. Never to any client/log.          |
-| `RAZORPAY_WEBHOOK_SECRET` | **Server secret**      | Verifies webhooks. **Must differ from the key secret.**      |
+| Variable                  | Classification    | Notes                                                         |
+| ------------------------- | ----------------- | ------------------------------------------------------------- |
+| `RAZORPAY_KEY_ID`         | **Public**        | `rzp_test_…` / `rzp_live_…`; may be sent to approved clients. |
+| `RAZORPAY_KEY_SECRET`     | **Server secret** | Signs the Checkout result. Never to any client/log.           |
+| `RAZORPAY_WEBHOOK_SECRET` | **Server secret** | Verifies webhooks. **Must differ from the key secret.**       |
 
 Also set: `RAZORPAY_MODE=test` (must match the key prefix — boot fails on a mismatch),
 `RAZORPAY_CURRENCY=INR`, and the Checkout branding (`RAZORPAY_CHECKOUT_NAME`,
