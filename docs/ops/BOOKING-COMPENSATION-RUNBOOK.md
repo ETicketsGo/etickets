@@ -1,0 +1,78 @@
+# Operational Runbook — Booking Compensation (ADR-043)
+
+Covers the P5.3A compensation foundation. **No money moves automatically.** Planning and safe
+non-financial execution are flag-gated (all off by default). Financial actions and confirmed-
+provider-booking cancellation are planned but require manual review in P5.3A.
+
+## Modes (default = disabled)
+
+`BOOKING_COMPENSATION_ENABLED=false` (off) · `+ _PLANNING_ENABLED=true` (create durable plans,
+execute nothing) · `+ _EXECUTION_ENABLED=true` (execute SAFE non-financial actions only).
+`_AUTO_REFUND/_AUTO_VOID/_AUTO_PROVIDER_CANCEL` are additionally gated and **rejected in
+production** in P5.3A (startup validation).
+
+## Find compensation-required bookings
+
+```
+SELECT "bookingId", "compensationType", state, "reasonCode", "targetReference", "attemptCount",
+       "manualReviewReason", "createdAt"
+FROM "BookingCompensation" WHERE state IN ('PLANNED','READY','PROCESSING','MANUAL_REVIEW')
+ORDER BY "createdAt";
+```
+
+Also reconcile workflows: `orchestrator.reconcile(...)` classifies provider/allocation drift
+(PROVIDER_CONFIRMATION_AMBIGUOUS, PAYMENT_SUCCEEDED_PROVIDER_REJECTED, …).
+
+## Dry-run planning
+
+Call the planner with the discrepancy context (no persistence) to see the classification +
+actions + `autoExecutable`/`requiresManualReview` before enabling planning. The plan is
+deterministic — the same context always yields the same plan.
+
+## Review payment state before any money action
+
+Confirm captured-vs-authorized and refund status through the payment adapter. The planner
+chooses VOID (authorized-not-captured on an auth/capture provider) vs REFUND (captured); an
+unknown capture state → MANUAL_REVIEW. Never force a refund on an uncertain state.
+
+## Review provider state
+
+Check `providerReservationId`/`providerBookingId`/`providerStatus` on the workflow and query
+the provider's status. Provider cancellation of a reservation ≠ cancellation of a confirmed
+booking ≠ a customer refund.
+
+## Approve a safe plan / retry safe cleanup
+
+Enable `_EXECUTION_ENABLED` (non-prod) — the worker claims READY safe actions with a lease and
+executes them idempotently (Redis lock release wired). `etg_booking_compensation_operations_total
+{type,outcome}` tracks executions. Retry is bounded; poison work dead-letters.
+
+## Investigate a duplicate-refund concern
+
+`idempotencyKey` is unique per (booking, type, target, generation): a second refund plan for the
+same payment+reason cannot be created. Verify no two COMPLETED refund rows share a payment
+reference; the executor uses the server-generated key for provider idempotency.
+
+## Investigate provider-cancelled / payment-captured (or the reverse)
+
+Reconciliation flags `provider-cancelled/payment-captured` and `payment-refunded/provider-active`.
+These are **never** auto-resolved — open a MANUAL_REVIEW record and resolve via an audited admin
+action.
+
+## Recover stale leases / handle dead letters
+
+`recoverStaleLeases()` returns PROCESSING rows whose lease expired to READY. Dead-lettered rows
+(attempts exhausted) require operator inspection; they are never silently retried.
+
+## Move to manual review / disable execution
+
+Advance a record to MANUAL_REVIEW (audited). To halt execution, set `_EXECUTION_ENABLED=false`
+(planning continues) or `_PLANNING_ENABLED=false` / `BOOKING_COMPENSATION_ENABLED=false` to stop
+everything; existing records remain for audit.
+
+## Verify no double refund / no duplicate provider cancellation
+
+- One refund plan per (payment, reason) via the unique constraint.
+- One reservation/booking cancel per reference.
+- Completed compensations never re-execute (terminal state, guarded transitions).
+- The executor's provider/payment idempotency key is server-generated and stable.

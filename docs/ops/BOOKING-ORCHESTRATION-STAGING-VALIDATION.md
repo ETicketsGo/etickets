@@ -97,6 +97,23 @@ Enable `BOOKING_ALLOCATED_INVENTORY_ENABLED`; seed a `ProviderMapping`
 These flows are proven at unit + mock-strategy level in the API suite; the checks above are the
 **staging-required** DB/Redis/concurrency validation and are NOT yet executed.
 
+### Compensation foundation (P5.3A — ADR-043)
+
+Enable `BOOKING_COMPENSATION_ENABLED` + `_PLANNING_ENABLED` (and `_EXECUTION_ENABLED` for safe
+actions; non-prod). No money moves in P5.3A.
+
+- [ ] Plan creation for cases A–H produces the deterministic actions in the compensation matrix.
+- [ ] Duplicate planning creates one record (unique constraint).
+- [ ] Safe execution: Redis lock release completes; unpaid hold release / status recovery /
+      local-confirm retry surface for handling.
+- [ ] Stale-lease recovery returns PROCESSING → READY.
+- [ ] Retry + dead-letter after exhausted attempts.
+- [ ] Manual-review for every financial / confirmed-cancel / ambiguous case.
+- [ ] Execution-disabled leaves plans untouched; rollback to compensation-disabled is clean.
+
+Real-infra multi-instance concurrency (Slice A) + transactional allocation-accounting wiring
+(Slice C) are **not yet implemented/executed** and remain for a follow-up increment.
+
 ## Sign-off
 
 Record, per step: operator, timestamp, result, and the metric/DB evidence. Do not enable
