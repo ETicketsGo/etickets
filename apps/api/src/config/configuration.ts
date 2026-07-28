@@ -116,6 +116,26 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  // External provider booking (ADR-042 P5.2B). ALL default OFF. The mock external booking
+  // provider is dev/test-only and rejected in production. Allocated inventory + status
+  // recovery are separately gated so no single flag half-activates an unsafe remote path.
+  BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_ALLOCATED_INVENTORY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_PROVIDER_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  // Safety margin: refuse to collect payment against a provider reservation with less than
+  // this much TTL remaining.
+  BOOKING_PROVIDER_RESERVATION_TTL_SAFETY_SECONDS: z.coerce.number().int().min(1).default(60),
+  BOOKING_PROVIDER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_PROVIDER_CONFIRM_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
   BOOKING_COMPENSATION_ENABLED: z
     .string()
     .optional()
@@ -506,6 +526,35 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
     // Active locking is only meaningful once active orchestration wires it in.
     errors.push(
       '  - INVENTORY_LOCKS_MODE=active requires BOOKING_ORCHESTRATOR_MODE=active (booking path is not otherwise lock-wired).',
+    );
+  }
+
+  // External provider booking (ADR-042 §25, P5.2B). Keep unsafe remote combinations from
+  // booting.
+  if (isProdLike && cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED) {
+    errors.push(
+      '  - BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED must be false in production (dev/test only).',
+    );
+  }
+  // Provider confirmation needs a provider adapter. The only adapter today is the mock, so
+  // enabling confirmation requires the mock in non-prod, and is unsupported in prod (no real
+  // adapter exists yet — fail rather than silently do nothing).
+  if (cfg.BOOKING_PROVIDER_CONFIRMATION_ENABLED) {
+    if (isProdLike) {
+      errors.push(
+        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED is not supported in production yet (no real external booking provider is integrated).',
+      );
+    } else if (!cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED) {
+      errors.push(
+        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED requires BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED (the only external booking provider today is the mock).',
+      );
+    }
+  }
+  // Allocated inventory is locally authoritative within a provider allocation — it needs the
+  // sourcing resolver and P4 sync data to validate allocation boundaries.
+  if (cfg.BOOKING_ALLOCATED_INVENTORY_ENABLED && !cfg.INVENTORY_SOURCING_ENABLED) {
+    errors.push(
+      '  - BOOKING_ALLOCATED_INVENTORY_ENABLED requires INVENTORY_SOURCING_ENABLED (allocation resolution).',
     );
   }
 

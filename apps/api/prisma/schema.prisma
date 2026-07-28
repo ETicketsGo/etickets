@@ -2141,6 +2141,19 @@ model BookingWorkflow {
   providerReservationId String?
   providerBookingId    String?
   providerStatus       String?
+  /// External booking provider lifecycle (ADR-042 §9, P5.2B). Durable enough to safely
+  /// continue and reconcile a PROVIDER_AUTHORITATIVE workflow across restarts. No provider
+  /// secrets or raw response payloads are stored here — only summarized state.
+  providerRequestIdempotencyKey String?
+  providerReservationExpiresAt  DateTime?
+  providerVersion               Int?
+  providerLastAttemptAt         DateTime?
+  providerAttemptCount          Int      @default(0)
+  providerLastErrorCode         String?
+  providerLastResponseCategory  String?
+  providerConfirmedAt           DateTime?
+  providerCancelledAt           DateTime?
+  providerReconciliationRequired Boolean @default(false)
   attemptCount         Int                  @default(0)
   nextActionAt         DateTime?
   lastErrorCode        String?
@@ -2153,9 +2166,19 @@ model BookingWorkflow {
   updatedAt            DateTime             @updatedAt
 
   @@unique([workflowType, idempotencyKey])
+  /// A provider reservation reference is unique within its provider scope (idempotent reserve).
+  @@unique([selectedProviderCode, providerReservationId])
+  /// A provider booking reference is unique within its provider scope.
+  @@unique([selectedProviderCode, providerBookingId])
   @@index([state, nextActionAt])
   @@index([selectedProviderCode])
   @@index([correlationId])
   @@index([ownerType, ownerId])
   @@index([tenantId])
+  /// Pending provider confirmation (payment done, provider not yet confirmed).
+  @@index([state, providerStatus])
+  /// Expired provider reservations awaiting cleanup.
+  @@index([providerReservationExpiresAt])
+  /// Workflows flagged for reconciliation.
+  @@index([providerReconciliationRequired])
 }

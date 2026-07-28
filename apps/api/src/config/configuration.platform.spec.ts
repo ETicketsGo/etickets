@@ -154,4 +154,47 @@ describe('platform config — unsafe combinations fail fast', () => {
       }),
     ).not.toThrow();
   });
+
+  // ── P5.2B: external provider booking ──
+  it('rejects the mock external booking provider in production', () => {
+    expect(withEnv(PROD_BASE, { BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: 'true' })).toThrow(
+      /mock/i,
+    );
+  });
+
+  it('rejects provider confirmation without the mock provider in LOCAL', () => {
+    expect(withEnv(LOCAL_BASE, { BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'true' })).toThrow(
+      /MOCK_ENABLED/i,
+    );
+  });
+
+  it('rejects provider confirmation in production (no real provider integrated)', () => {
+    expect(withEnv(PROD_BASE, { BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'true' })).toThrow(
+      /not supported in production/i,
+    );
+  });
+
+  it('allows provider confirmation with the mock in LOCAL', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'true',
+        BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: 'true',
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects allocated inventory without inventory sourcing', () => {
+    expect(withEnv(LOCAL_BASE, { BOOKING_ALLOCATED_INVENTORY_ENABLED: 'true' })).toThrow(
+      /SOURCING/i,
+    );
+  });
+
+  it('allows allocated inventory with inventory sourcing', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_ALLOCATED_INVENTORY_ENABLED: 'true',
+        INVENTORY_SOURCING_ENABLED: 'true',
+      }),
+    ).not.toThrow();
+  });
 });
