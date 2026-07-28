@@ -283,6 +283,17 @@ export class PaymentsService {
    */
   async processVerifiedEvent(event: PaymentEvent) {
     if (event.type === 'payment.succeeded') {
+      // ADR-042 §10 (P5.2B S3): give a PROVIDER_AUTHORITATIVE workflow the chance to own
+      // confirmation (provider-confirm BEFORE local-confirm). If it handles the event, the
+      // default local confirm below is skipped. Local/allocated bookings decline and proceed
+      // unchanged. Flag-off ⇒ no handler ⇒ unchanged behaviour.
+      const pre = await this.bookingBridge.preConfirm({
+        bookingId: event.bookingId,
+        providerRef: event.providerRef,
+        amountMinor: event.amountMinor,
+      });
+      if (pre.handled) return pre.result;
+
       const result = await this.confirm(event);
       // ADR-042 P5.2A: reconcile the durable booking workflow to CONFIRMED (active mode
       // only — no-op when no workflow exists). Runs AFTER the atomic confirm commits and
@@ -294,6 +305,16 @@ export class PaymentsService {
       return result;
     }
     return this.fail(event);
+  }
+
+  /**
+   * The atomic local confirmation (inventory settle + booking confirm + outbox), reused by
+   * the provider-authoritative flow AFTER external provider confirmation succeeds (ADR-042
+   * §10). Identical semantics + `alreadyConfirmed` idempotency to the webhook path; it does
+   * NOT re-run the provider pre-confirm hook, so there is no recursion.
+   */
+  confirmVerifiedLocal(event: PaymentEvent) {
+    return this.confirm(event);
   }
 
   private async confirm(event: PaymentEvent) {
