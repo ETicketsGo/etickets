@@ -8,18 +8,26 @@ import { CompensationRepository } from './compensation.repository';
 import { CompensationState } from './compensation-state';
 import { CompensationType } from './compensation-types';
 
-function make(opts: { flags?: Record<string, boolean>; cancelOutcome?: string } = {}) {
+function make(
+  opts: {
+    flags?: Record<string, boolean>;
+    cancelOutcome?: string;
+    voidOutcome?: string;
+    compType?: CompensationType;
+  } = {},
+) {
   const flags = {
     BOOKING_COMPENSATION_ENABLED: true,
     BOOKING_COMPENSATION_PLANNING_ENABLED: true,
     BOOKING_COMPENSATION_EXECUTION_ENABLED: true,
     BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: true,
+    BOOKING_COMPENSATION_AUTO_VOID_ENABLED: true,
     ...(opts.flags ?? {}),
   };
   const comp = {
     id: 'c1',
     bookingId: 'b1',
-    compensationType: CompensationType.PROVIDER_RESERVATION_CANCEL,
+    compensationType: opts.compType ?? CompensationType.PROVIDER_RESERVATION_CANCEL,
     state: CompensationState.READY,
     attemptCount: 1,
     maxAttempts: 5,
@@ -39,6 +47,9 @@ function make(opts: { flags?: Record<string, boolean>; cancelOutcome?: string } 
     cancelProviderReservation: jest.fn().mockResolvedValue(opts.cancelOutcome ?? 'CANCELLED'),
   } as unknown as BookingConfirmationBridge;
   const locks = { getRaw: jest.fn(), markInternal: jest.fn() } as unknown as InventoryLockService;
+  const voidExecutor = {
+    execute: jest.fn().mockResolvedValue(opts.voidOutcome ?? 'VOIDED'),
+  } as never;
   const svc = new CompensationService(
     new CompensationPlanner(),
     repo,
@@ -46,8 +57,9 @@ function make(opts: { flags?: Record<string, boolean>; cancelOutcome?: string } 
     config,
     new MetricsService(),
     bridge,
+    voidExecutor,
   );
-  return { svc, bridge, advance, scheduleRetryOrDeadLetter };
+  return { svc, bridge, advance, scheduleRetryOrDeadLetter, voidExecutor };
 }
 
 describe('CompensationService — Phase 4 provider reservation cancellation dispatch', () => {
@@ -97,5 +109,62 @@ describe('CompensationService — Phase 4 provider reservation cancellation disp
     const res = await svc.processReady('w1');
     expect(res).toEqual({ claimed: 0, completed: 0 });
     expect(bridge.cancelProviderReservation).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompensationService — Phase 5 payment void dispatch', () => {
+  it('executes a void and completes on VOIDED', async () => {
+    const { svc, voidExecutor, advance } = make({
+      compType: CompensationType.PAYMENT_VOID,
+      voidOutcome: 'VOIDED',
+    });
+    const res = await svc.processReady('w1');
+    expect((voidExecutor as never as { execute: jest.Mock }).execute).toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.COMPLETED,
+      expect.anything(),
+    );
+    expect(res.completed).toBe(1);
+  });
+
+  it('supersedes the void (→ CANCELLED) when the payment is captured', async () => {
+    const { svc, advance } = make({
+      compType: CompensationType.PAYMENT_VOID,
+      voidOutcome: 'SUPERSEDED_BY_REFUND',
+    });
+    await svc.processReady('w1');
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.CANCELLED,
+      expect.objectContaining({ manualReviewReason: 'SUPERSEDED_BY_REFUND' }),
+    );
+  });
+
+  it('retries on RETRYABLE and manual-reviews on an uncertain outcome', async () => {
+    const retry = make({ compType: CompensationType.PAYMENT_VOID, voidOutcome: 'RETRYABLE' });
+    await retry.svc.processReady('w1');
+    expect(retry.scheduleRetryOrDeadLetter).toHaveBeenCalled();
+    const review = make({ compType: CompensationType.PAYMENT_VOID, voidOutcome: 'MANUAL_REVIEW' });
+    await review.svc.processReady('w1');
+    expect(review.advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.MANUAL_REVIEW,
+      expect.anything(),
+    );
+  });
+
+  it('does NOT execute void when auto-void is off (→ manual review, executor untouched)', async () => {
+    const { svc, voidExecutor, advance } = make({
+      compType: CompensationType.PAYMENT_VOID,
+      flags: { BOOKING_COMPENSATION_AUTO_VOID_ENABLED: false },
+    });
+    await svc.processReady('w1');
+    expect((voidExecutor as never as { execute: jest.Mock }).execute).not.toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledWith(
+      expect.anything(),
+      CompensationState.MANUAL_REVIEW,
+      expect.objectContaining({ manualReviewReason: 'AUTO_VOID_DISABLED' }),
+    );
   });
 });

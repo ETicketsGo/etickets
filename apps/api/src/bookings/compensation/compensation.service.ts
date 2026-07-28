@@ -4,6 +4,7 @@ import type { BookingCompensation } from '@prisma/client';
 import { MetricsService } from '../../metrics/metrics.service';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingConfirmationBridge } from '../orchestration/booking-confirmation-bridge';
+import { PaymentVoidExecutor } from './payment-void.executor';
 import { CompensationPlanner, type CompensationContext } from './compensation-planner';
 import { CompensationRepository, type PlanCompensationInput } from './compensation.repository';
 import { CompensationState } from './compensation-state';
@@ -34,10 +35,14 @@ export class CompensationService {
     private readonly config: ConfigService,
     private readonly metrics: MetricsService,
     private readonly bridge: BookingConfirmationBridge,
+    private readonly voidExecutor: PaymentVoidExecutor,
   ) {}
 
   private get autoProviderCancel(): boolean {
     return this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED') === true;
+  }
+  private get autoVoid(): boolean {
+    return this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_VOID_ENABLED') === true;
   }
 
   get planningEnabled(): boolean {
@@ -146,7 +151,50 @@ export class CompensationService {
         }
         continue;
       }
-      // Money movement + confirmed-provider-booking cancellation are never auto-executed here.
+      // Phase 5 (ADR-043 P5.3B): payment VOID — authorized-not-captured only, gated by its own
+      // flag. Refunds are NEVER auto-executed here (a captured payment is handed off to a plan).
+      if (type === CompensationType.PAYMENT_VOID) {
+        if (!this.autoVoid) {
+          await this.repo
+            .advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: 'AUTO_VOID_DISABLED',
+            })
+            .catch(() => undefined);
+          continue;
+        }
+        try {
+          const outcome = await this.voidExecutor.execute(comp);
+          if (outcome === 'VOIDED') {
+            await this.repo.advance(comp, CompensationState.COMPLETED, { completedAt: new Date() });
+            this.metrics.recordCompensationOperation(type, 'completed');
+            completed++;
+          } else if (outcome === 'RETRYABLE') {
+            await this.repo.scheduleRetryOrDeadLetter(
+              comp,
+              this.backoff(comp.attemptCount),
+              'PAYMENT_VOID_RETRYABLE',
+            );
+            this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+          } else if (outcome === 'SUPERSEDED_BY_REFUND') {
+            // Captured payment → a refund plan was created; this void is superseded (not executed).
+            await this.repo.advance(comp, CompensationState.CANCELLED, {
+              manualReviewReason: 'SUPERSEDED_BY_REFUND',
+            });
+            this.metrics.recordCompensationOperation(type, 'superseded_by_refund');
+          } else {
+            await this.repo.advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: outcome,
+            });
+            this.metrics.recordCompensationOperation(type, 'manual_review');
+          }
+        } catch (err) {
+          const code = (err as { code?: string }).code ?? 'UNKNOWN';
+          await this.repo.scheduleRetryOrDeadLetter(comp, this.backoff(comp.attemptCount), code);
+          this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+        }
+        continue;
+      }
+      // Money movement (refund) + confirmed-provider-booking cancellation are never auto-executed.
       if (FINANCIAL_ACTIONS.has(type) || !SAFE_NON_FINANCIAL_ACTIONS.has(type)) {
         await this.repo
           .advance(comp, CompensationState.MANUAL_REVIEW, {
