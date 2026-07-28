@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { BookingCompensation } from '@prisma/client';
 import { MetricsService } from '../../metrics/metrics.service';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
+import { BookingConfirmationBridge } from '../orchestration/booking-confirmation-bridge';
 import { CompensationPlanner, type CompensationContext } from './compensation-planner';
 import { CompensationRepository, type PlanCompensationInput } from './compensation.repository';
 import { CompensationState } from './compensation-state';
@@ -32,7 +33,12 @@ export class CompensationService {
     private readonly locks: InventoryLockService,
     private readonly config: ConfigService,
     private readonly metrics: MetricsService,
+    private readonly bridge: BookingConfirmationBridge,
   ) {}
+
+  private get autoProviderCancel(): boolean {
+    return this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED') === true;
+  }
 
   get planningEnabled(): boolean {
     return (
@@ -102,6 +108,45 @@ export class CompensationService {
     let completed = 0;
     for (const comp of claimed) {
       const type = comp.compensationType as CompensationType;
+      // Phase 4 (ADR-043 P5.3B): provider RESERVATION cancellation — unpaid/unconfirmed/
+      // idempotent only, gated by its own flag. NOT money movement. Cancels once (the record
+      // is lease-claimed by a single worker; the provider call is idempotent).
+      if (type === CompensationType.PROVIDER_RESERVATION_CANCEL) {
+        if (!this.autoProviderCancel) {
+          await this.repo
+            .advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: 'AUTO_PROVIDER_CANCEL_DISABLED',
+            })
+            .catch(() => undefined);
+          continue;
+        }
+        try {
+          const outcome = await this.bridge.cancelProviderReservation(comp.bookingId);
+          if (outcome === 'CANCELLED') {
+            await this.repo.advance(comp, CompensationState.COMPLETED, { completedAt: new Date() });
+            this.metrics.recordCompensationOperation(type, 'completed');
+            completed++;
+          } else if (outcome === 'RETRYABLE') {
+            await this.repo.scheduleRetryOrDeadLetter(
+              comp,
+              this.backoff(comp.attemptCount),
+              'PROVIDER_CANCEL_RETRYABLE',
+            );
+            this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+          } else {
+            await this.repo.advance(comp, CompensationState.MANUAL_REVIEW, {
+              manualReviewReason: outcome,
+            });
+            this.metrics.recordCompensationOperation(type, 'manual_review');
+          }
+        } catch (err) {
+          const code = (err as { code?: string }).code ?? 'UNKNOWN';
+          await this.repo.scheduleRetryOrDeadLetter(comp, this.backoff(comp.attemptCount), code);
+          this.metrics.recordCompensationOperation(type, 'retry_or_dead_letter');
+        }
+        continue;
+      }
+      // Money movement + confirmed-provider-booking cancellation are never auto-executed here.
       if (FINANCIAL_ACTIONS.has(type) || !SAFE_NON_FINANCIAL_ACTIONS.has(type)) {
         await this.repo
           .advance(comp, CompensationState.MANUAL_REVIEW, {

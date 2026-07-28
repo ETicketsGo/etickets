@@ -244,4 +244,52 @@ describe('platform config — unsafe combinations fail fast', () => {
       }),
     ).not.toThrow();
   });
+
+  // ── P5.3B Phase 4: provider reservation cancellation ──
+  it('rejects auto-provider-cancel without a registered provider (confirmation disabled)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: 'true',
+      }),
+    ).toThrow(/PROVIDER_CONFIRMATION_ENABLED/i);
+  });
+
+  it('rejects auto-provider-cancel without execution enabled', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: 'true',
+        BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'true',
+        BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: 'true',
+      }),
+    ).toThrow(/EXECUTION_ENABLED/i);
+  });
+
+  it('allows auto-provider-cancel with execution + a registered provider (non-prod)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED: 'true',
+        BOOKING_PROVIDER_CONFIRMATION_ENABLED: 'true',
+        BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED: 'true',
+      }),
+    ).not.toThrow();
+  });
+
+  it('still rejects automatic refund/void in production (Phase 5/6 not yet)', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+      }),
+    ).toThrow(/not permitted in production/i);
+  });
 });
