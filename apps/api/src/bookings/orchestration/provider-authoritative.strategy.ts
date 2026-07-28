@@ -4,6 +4,21 @@ import type { BookingWorkflow } from '@prisma/client';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { MetricsService } from '../../metrics/metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TransactionalEventPublisher, type DomainEvent } from '../../common/domain-events';
+import {
+  bookingProviderReservationCreatedEvent,
+  bookingProviderReservationRejectedEvent,
+  bookingProviderReservationExpiredEvent,
+  bookingProviderConfirmationRequestedEvent,
+  bookingProviderConfirmedEvent,
+  bookingProviderConfirmationAmbiguousEvent,
+  bookingProviderStatusRecoveryRequestedEvent,
+  bookingProviderStatusRecoveredEvent,
+} from '../../common/domain-events/catalogue/provider-compensation-events';
+import {
+  bookingCompensationRequiredEvent,
+  bookingManualReviewRequiredEvent,
+} from '../../common/domain-events/catalogue/provider-compensation-events';
 import type { RequestUser } from '../../common/decorators';
 import { BookingsService } from '../bookings.service';
 import { PaymentsService } from '../../payments/payments.service';
@@ -63,7 +78,54 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     private readonly metrics: MetricsService,
     private readonly owners: BookingOwnerResolver,
     private readonly bridge: BookingConfirmationBridge,
+    private readonly publisher: TransactionalEventPublisher,
   ) {}
+
+  /** Build the safe, bounded, PII-free base payload for a provider event. */
+  private eventBase(wf: BookingWorkflow, category?: string) {
+    return {
+      bookingId: wf.bookingId,
+      workflowId: wf.id,
+      providerCode: wf.selectedProviderCode ?? 'unknown',
+      ownershipMode: 'PROVIDER_AUTHORITATIVE' as const,
+      category,
+      attempt: wf.providerAttemptCount,
+      occurredAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Advance the workflow AND record its provider event in ONE PostgreSQL transaction (ADR-042
+   * P5.3A). The event is emitted ONLY when the guarded advance actually applies (outcome
+   * ADVANCED) — a replay/duplicate produces no event. Same-aggregate ordering is preserved by
+   * `aggregateId = bookingId`. In in_process mode the event is delivered post-commit; in outbox
+   * mode it is recorded durably in the same tx (replayable).
+   */
+  private async advanceEmitting(
+    workflow: BookingWorkflow,
+    nextState: WS,
+    patch: Record<string, unknown>,
+    buildEvent: (wf: BookingWorkflow) => DomainEvent,
+  ): Promise<BookingWorkflow> {
+    let emitted: DomainEvent | null = null;
+    const result = await this.prisma.$transaction(async (tx) => {
+      const res = await this.workflows.advance(workflow, nextState, patch, tx);
+      if (res.outcome === 'ADVANCED') {
+        const evt = buildEvent(res.workflow);
+        await this.publisher.recordInTransaction(tx, [evt]);
+        emitted = evt;
+      }
+      return res.workflow;
+    });
+    if (emitted) await this.publisher.deliverAfterCommit([emitted]);
+    return result;
+  }
+
+  /** Emit a standalone provider fact that has no state transition of its own (e.g. requested). */
+  private async emitFact(event: DomainEvent): Promise<void> {
+    await this.prisma.$transaction((tx) => this.publisher.recordInTransaction(tx, [event]));
+    await this.publisher.deliverAfterCommit([event]);
+  }
 
   onModuleInit(): void {
     // Own confirmation for provider-authoritative bookings (provider-confirm before local).
@@ -240,12 +302,16 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     if (reservation.outcome === 'SOLD_OUT' || reservation.outcome === 'REJECTED') {
       await this.releaseLock(lockId, owner, fencingToken, workflow.id);
       await this.bookings.releaseExpiredHolds(request.eventSessionId).catch(() => undefined);
-      await this.workflows
-        .advance(current, WS.FAILED, {
-          providerStatus: reservation.outcome,
-          providerLastErrorCode: reservation.outcome,
-        })
-        .catch(() => undefined);
+      // Rejected reservation fact, atomic with the FAILED transition.
+      await this.advanceEmitting(
+        current,
+        WS.FAILED,
+        { providerStatus: reservation.outcome, providerLastErrorCode: reservation.outcome },
+        (wf) =>
+          bookingProviderReservationRejectedEvent(this.eventBase(wf, reservation.outcome), {
+            correlationId: request.correlationId,
+          }),
+      ).catch(() => undefined);
       throw new ExternalBookingException(
         reservation.outcome === 'SOLD_OUT'
           ? ExternalBookingFailure.PROVIDER_SOLD_OUT
@@ -253,25 +319,28 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
       );
     }
     if (reservation.outcome === 'AMBIGUOUS' || reservation.outcome === 'RETRYABLE') {
-      // Do NOT fail — reservation state is unknown; flag for recovery and keep the workflow
-      // in PROVIDER_RESERVATION_PENDING. The booking stays pending to the customer.
-      await this.workflows.advance(current, current.state as WS, {
-        providerReconciliationRequired: true,
-        providerLastResponseCategory: reservation.outcome,
-      });
+      // Do NOT fail — reservation state is unknown; flag for recovery + emit an ambiguity fact
+      // (never a false rejected/created) and keep the workflow in PROVIDER_RESERVATION_PENDING.
+      await this.markReconcile(current, `RESERVATION_${reservation.outcome}`);
       this.metrics.recordProviderBooking('reserve', 'ambiguous', providerCode);
       return this.result(booking.id, WS.PROVIDER_RESERVATION_PENDING, providerCode);
     }
 
-    // Reserved.
-    current = (
-      await this.workflows.advance(current, WS.PROVIDER_RESERVED, {
+    // Reserved — emit ReservationCreated atomically with the PROVIDER_RESERVED transition.
+    current = await this.advanceEmitting(
+      current,
+      WS.PROVIDER_RESERVED,
+      {
         providerReservationId: reservation.providerReservationId ?? null,
         providerReservationExpiresAt: reservation.reservationExpiresAt ?? null,
         providerStatus: 'RESERVED',
         providerReconciliationRequired: false,
-      })
-    ).workflow;
+      },
+      (wf) =>
+        bookingProviderReservationCreatedEvent(this.eventBase(wf, 'RESERVED'), {
+          correlationId: request.correlationId,
+        }),
+    );
     this.metrics.observeProviderBooking('reserve', (Date.now() - started) / 1000, providerCode);
     return this.result(booking.id, current.state as WS, providerCode);
   }
@@ -300,6 +369,9 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
           'reservation_expired',
           workflow.selectedProviderCode ?? 'unknown',
         );
+        await this.emitFact(
+          bookingProviderReservationExpiredEvent(this.eventBase(workflow, 'TTL_SAFETY')),
+        ).catch(() => undefined);
         throw new ExternalBookingException(ExternalBookingFailure.PROVIDER_RESERVATION_EXPIRED, {
           remainingSeconds: Math.floor(remainingS),
         });
@@ -343,6 +415,11 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     if (!workflow || workflow.inventoryOwnershipMode !== 'PROVIDER_AUTHORITATIVE') {
       return { handled: false };
     }
+    // Already confirmed → idempotent no-op. A duplicate webhook / recovery re-run must not
+    // re-confirm with the provider or re-emit any confirmation event.
+    if (oneOf(workflow.state as WS, [WS.CONFIRMED, WS.TICKET_PENDING, WS.TICKET_ISSUED])) {
+      return { handled: true, result: { status: 'already_confirmed', bookingId: fact.bookingId } };
+    }
     const providerCode = workflow.selectedProviderCode ?? 'unknown';
     const provider = this.registry.get(providerCode);
     if (!provider || !workflow.providerReservationId) {
@@ -355,8 +432,11 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     let w = workflow;
     if (w.state === WS.PAYMENT_PENDING)
       w = (await this.workflows.advance(w, WS.PAYMENT_AUTHORIZED)).workflow;
+    // ConfirmationRequested fact, atomic with entering PROVIDER_CONFIRM_PENDING (once).
     if (w.state === WS.PAYMENT_AUTHORIZED)
-      w = (await this.workflows.advance(w, WS.PROVIDER_CONFIRM_PENDING)).workflow;
+      w = await this.advanceEmitting(w, WS.PROVIDER_CONFIRM_PENDING, {}, (wf) =>
+        bookingProviderConfirmationRequestedEvent(this.eventBase(wf, 'REQUESTED')),
+      );
 
     const confirmKey = `wf:${w.id}:confirm`;
     const confirmation = await provider.confirmReservation({
@@ -367,14 +447,19 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     this.metrics.recordProviderBooking('confirm', confirmation.outcome.toLowerCase(), providerCode);
 
     if (confirmation.outcome === 'OK') {
-      w = (
-        await this.workflows.advance(w, WS.PROVIDER_CONFIRMED, {
+      // BookingProviderConfirmed fact, atomic with the PROVIDER_CONFIRMED transition. The
+      // subsequent BookingConfirmed commits atomically with the local confirm (its own tx).
+      w = await this.advanceEmitting(
+        w,
+        WS.PROVIDER_CONFIRMED,
+        {
           providerBookingId: confirmation.providerBookingId ?? null,
           providerStatus: 'CONFIRMED',
           providerConfirmedAt: new Date(),
           providerReconciliationRequired: false,
-        })
-      ).workflow;
+        },
+        (wf) => bookingProviderConfirmedEvent(this.eventBase(wf, 'CONFIRMED')),
+      );
       // Provider confirmed → run the SAME atomic local confirm (inventory + booking + outbox).
       const local = await this.payments.confirmVerifiedLocal({
         type: 'payment.succeeded',
@@ -434,6 +519,10 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     const provider = this.registry.get(w.selectedProviderCode ?? '');
     if (!provider || !w.providerReservationId)
       return { classification: 'PROVIDER_MAPPING_MISSING' };
+    // Durable "recovery requested" fact before querying the provider.
+    await this.emitFact(
+      bookingProviderStatusRecoveryRequestedEvent(this.eventBase(w, 'REQUESTED')),
+    ).catch(() => undefined);
     const status = await provider.getBookingStatus({
       providerReservationId: w.providerReservationId,
       providerBookingId: w.providerBookingId ?? undefined,
@@ -446,7 +535,12 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
       w.selectedProviderCode ?? 'unknown',
     );
     if (status.status === 'CONFIRMED') {
-      // Drive the same confirmation completion the callback would have.
+      // Recovered-to-confirmed fact, then drive the same confirmation the callback would have
+      // (confirmed-response-lost recovers WITHOUT a duplicate confirmation — the guarded
+      // advances + confirmVerifiedLocal alreadyConfirmed guard make it idempotent).
+      await this.emitFact(
+        bookingProviderStatusRecoveredEvent(this.eventBase(w, 'CONFIRMED')),
+      ).catch(() => undefined);
       await this.handlePaymentConfirmed({
         bookingId,
         providerRef: `recovered:${w.id}`,
@@ -463,6 +557,9 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
       return { classification: 'PAYMENT_SUCCEEDED_PROVIDER_REJECTED' };
     }
     if (status.status === 'EXPIRED') {
+      await this.emitFact(
+        bookingProviderReservationExpiredEvent(this.eventBase(w, 'PROVIDER_EXPIRED')),
+      ).catch(() => undefined);
       await this.markReconcile(
         w,
         ExternalBookingFailure.PROVIDER_RESERVATION_EXPIRED,
@@ -491,10 +588,45 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
       providerLastErrorCode: code,
       manualReviewReason: code,
     };
+    const buildEvent = (wf: BookingWorkflow): DomainEvent => {
+      const occurredAt = new Date().toISOString();
+      if (nextState === WS.COMPENSATION_PENDING) {
+        return bookingCompensationRequiredEvent(
+          { bookingId: wf.bookingId, workflowId: wf.id, reasonCode: code, occurredAt },
+          { correlationId: wf.correlationId ?? undefined },
+        );
+      }
+      if (nextState === WS.MANUAL_REVIEW) {
+        return bookingManualReviewRequiredEvent(
+          { bookingId: wf.bookingId, workflowId: wf.id, reasonCode: code, occurredAt },
+          { correlationId: wf.correlationId ?? undefined },
+        );
+      }
+      return bookingProviderConfirmationAmbiguousEvent(this.eventBase(wf, code));
+    };
+
     if (nextState && nextState !== (workflow.state as WS)) {
-      await this.workflows.advance(workflow, nextState, patch).catch(() => undefined);
+      // Real transition → emit atomically with it (exactly-once via the guarded advance).
+      await this.advanceEmitting(workflow, nextState, patch, buildEvent).catch(() => undefined);
     } else {
-      await this.workflows.advance(workflow, workflow.state as WS, patch).catch(() => undefined);
+      // Same-state reconcile flag: advance() no-ops on from===to, so persist directly and emit
+      // ONCE (guard on providerReconciliationRequired=false so a duplicate produces no event).
+      let emitted: DomainEvent | null = null;
+      await this.prisma
+        .$transaction(async (tx) => {
+          const upd = await tx.bookingWorkflow.updateMany({
+            where: { id: workflow.id, providerReconciliationRequired: false },
+            data: patch,
+          });
+          if (upd.count === 1) {
+            const wf = (await tx.bookingWorkflow.findUnique({ where: { id: workflow.id } }))!;
+            const evt = buildEvent(wf);
+            await this.publisher.recordInTransaction(tx, [evt]);
+            emitted = evt;
+          }
+        })
+        .catch(() => undefined);
+      if (emitted) await this.publisher.deliverAfterCommit([emitted]);
     }
     this.metrics.recordProviderBooking(
       'reconcile_flag',
