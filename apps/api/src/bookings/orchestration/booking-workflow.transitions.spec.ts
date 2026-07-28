@@ -77,6 +77,20 @@ describe('booking workflow transitions', () => {
     expect(canTransition(S.PAYMENT_AUTHORIZED, S.CANCELLATION_PENDING)).toBe(true);
   });
 
+  it('models the provider-authoritative reservation sequence (P5.2B S3)', () => {
+    expect(canTransition(S.LOCKED, S.PROVIDER_RESERVATION_PENDING)).toBe(true);
+    expect(canTransition(S.PROVIDER_RESERVATION_PENDING, S.PROVIDER_RESERVED)).toBe(true);
+    expect(canTransition(S.PROVIDER_RESERVED, S.PAYMENT_PENDING)).toBe(true);
+    expect(canTransition(S.PAYMENT_AUTHORIZED, S.PROVIDER_CONFIRM_PENDING)).toBe(true);
+    expect(canTransition(S.PROVIDER_CONFIRM_PENDING, S.PROVIDER_CONFIRMED)).toBe(true);
+    expect(canTransition(S.PROVIDER_CONFIRMED, S.CONFIRMING)).toBe(true);
+    // Reservation can expire or be compensated; it cannot jump straight to CONFIRMED.
+    expect(canTransition(S.PROVIDER_RESERVATION_PENDING, S.EXPIRING)).toBe(true);
+    expect(canTransition(S.PROVIDER_CONFIRM_PENDING, S.COMPENSATION_PENDING)).toBe(true);
+    expect(canTransition(S.PROVIDER_RESERVED, S.CONFIRMED)).toBe(false);
+    expect(canTransition(S.PROVIDER_RESERVATION_PENDING, S.CONFIRMED)).toBe(false);
+  });
+
   it('every non-terminal state has at least one outgoing transition (no dead ends)', () => {
     for (const s of Object.values(S)) {
       if (!isTerminal(s)) expect(ALLOWED_TRANSITIONS[s].size).toBeGreaterThan(0);

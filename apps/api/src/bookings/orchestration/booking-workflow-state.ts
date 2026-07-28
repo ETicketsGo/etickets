@@ -12,6 +12,10 @@ export const BookingWorkflowState = {
   INVENTORY_RESOLVED: 'INVENTORY_RESOLVED',
   LOCK_PENDING: 'LOCK_PENDING',
   LOCKED: 'LOCKED',
+  // Provider-authoritative reservation (P5.2B Slice 3): a temporary hold on the external
+  // provider's inventory, created before payment and confirmed after it.
+  PROVIDER_RESERVATION_PENDING: 'PROVIDER_RESERVATION_PENDING',
+  PROVIDER_RESERVED: 'PROVIDER_RESERVED',
   PAYMENT_PENDING: 'PAYMENT_PENDING',
   PAYMENT_AUTHORIZED: 'PAYMENT_AUTHORIZED',
   PROVIDER_CONFIRM_PENDING: 'PROVIDER_CONFIRM_PENDING',
@@ -49,6 +53,8 @@ export const TERMINAL_STATES: ReadonlySet<BookingWorkflowState> = new Set([
 /** States from which compensation may be initiated (money/inventory/provider may be dirty). */
 export const COMPENSATABLE_STATES: ReadonlySet<BookingWorkflowState> = new Set([
   BookingWorkflowState.LOCKED,
+  BookingWorkflowState.PROVIDER_RESERVATION_PENDING,
+  BookingWorkflowState.PROVIDER_RESERVED,
   BookingWorkflowState.PAYMENT_PENDING,
   BookingWorkflowState.PAYMENT_AUTHORIZED,
   BookingWorkflowState.PROVIDER_CONFIRM_PENDING,
