@@ -29,6 +29,16 @@ export interface PaymentProviderCapabilities {
   supportsPartialRefunds: boolean;
   supportsMultiplePartialRefunds: boolean;
   supportsAuthorizeCapture: boolean;
+  /**
+   * Void support (ADR-043 P5.3B Phase 5): cancelling an authorization BEFORE capture. A
+   * provider that only immediate-captures must set this false (its compensation is REFUND, not
+   * VOID). `supportsIdempotentVoid` gates automatic void execution; `supportsPaymentStatusQuery`
+   * enables status recovery for ambiguous outcomes. Defaults false — set true only when the
+   * adapter genuinely wires cancel/getPayment.
+   */
+  supportsVoid: boolean;
+  supportsIdempotentVoid: boolean;
+  supportsPaymentStatusQuery: boolean;
   supportsConnectedAccounts: boolean;
   supportsApplePay: boolean;
   supportsGooglePay: boolean;

@@ -123,6 +123,8 @@ import { CommerceModule } from '../commerce/commerce.module';
   ],
   exports: [
     PaymentsService,
+    // The active provider (ADR-043 Phase 5) — the compensation void executor injects it.
+    PAYMENT_PROVIDER,
     PaymentProviderFactory,
     PaymentProviderRegistry,
     FinanceReconciliationService,

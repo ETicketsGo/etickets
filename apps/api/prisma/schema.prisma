@@ -95,8 +95,12 @@ enum TicketStatus {
 enum PaymentStatus {
   REQUIRES_PAYMENT
   PROCESSING
+  // Authorized but NOT captured (auth/capture providers). Voidable in P5.3B Phase 5.
+  AUTHORIZED
   SUCCEEDED
   FAILED
+  // Authorization cancelled/voided before capture (no funds moved; never a refund).
+  VOIDED
   REFUNDED
   PARTIALLY_REFUNDED
 }

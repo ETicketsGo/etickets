@@ -61,6 +61,13 @@ export const DomainEventType = {
   BookingCompensationFailed: 'booking.compensation_failed',
   BookingCompensationDeadLettered: 'booking.compensation_dead_lettered',
   BookingManualReviewRequired: 'booking.manual_review_required',
+  // ── Payment void lifecycle (ADR-043 P5.3B Phase 5) ──
+  BookingPaymentVoidRequested: 'booking.payment_void_requested',
+  BookingPaymentVoided: 'booking.payment_voided',
+  BookingPaymentVoidAmbiguous: 'booking.payment_void_ambiguous',
+  BookingPaymentVoidRejected: 'booking.payment_void_rejected',
+  BookingPaymentStatusRecoveryRequested: 'booking.payment_status_recovery_requested',
+  BookingPaymentStatusRecovered: 'booking.payment_status_recovered',
 } as const;
 
 export type DomainEventTypeName = (typeof DomainEventType)[keyof typeof DomainEventType];
@@ -115,6 +122,12 @@ export const DomainEventVersion: Record<DomainEventTypeName, number> = {
   [DomainEventType.BookingCompensationFailed]: 1,
   [DomainEventType.BookingCompensationDeadLettered]: 1,
   [DomainEventType.BookingManualReviewRequired]: 1,
+  [DomainEventType.BookingPaymentVoidRequested]: 1,
+  [DomainEventType.BookingPaymentVoided]: 1,
+  [DomainEventType.BookingPaymentVoidAmbiguous]: 1,
+  [DomainEventType.BookingPaymentVoidRejected]: 1,
+  [DomainEventType.BookingPaymentStatusRecoveryRequested]: 1,
+  [DomainEventType.BookingPaymentStatusRecovered]: 1,
 };
 
 /** Envelope fields a producer may attach to any catalogue event (all optional). */

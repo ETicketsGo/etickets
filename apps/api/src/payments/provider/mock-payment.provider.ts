@@ -3,11 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type {
+  CancelInput,
   CreatePaymentInput,
   HealthCheckResult,
   PaymentEvent,
   PaymentIntent,
   PaymentProvider,
+  PaymentStatusResult,
   RefundInput,
   RefundResult,
   WebhookInput,
@@ -38,6 +40,9 @@ export class MockPaymentProvider implements PaymentProvider {
     supportsPartialRefunds: true,
     supportsMultiplePartialRefunds: true,
     supportsAuthorizeCapture: true,
+    supportsVoid: true,
+    supportsIdempotentVoid: true,
+    supportsPaymentStatusQuery: true,
     supportsConnectedAccounts: false,
     supportsApplePay: true,
     supportsGooglePay: true,
@@ -87,5 +92,45 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async refund(_input: RefundInput): Promise<RefundResult> {
     return { providerRef: `mock_rf_${randomBytes(8).toString('hex')}`, status: 'COMPLETED' };
+  }
+
+  /**
+   * Void (cancel) an authorization — DEV/TEST ONLY (ADR-043 P5.3B Phase 5). Deterministic
+   * scenarios encoded in the providerRef via a `#scenario` suffix so tests never rely on
+   * randomness: `#captured` → CAPTURED (not voidable), `#ambiguous`/`#voidfail` → throws (the
+   * executor recovers via getPayment), otherwise CANCELLED (voided). Idempotent: cancelling an
+   * already-cancelled authorization returns CANCELLED again.
+   */
+  async cancel(input: CancelInput): Promise<PaymentStatusResult> {
+    const scenario = this.scenario(input.providerRef);
+    if (scenario === 'captured') {
+      return {
+        providerRef: input.providerRef,
+        status: 'CAPTURED',
+        amountMinor: 0,
+        currency: 'USD',
+      };
+    }
+    if (scenario === 'ambiguous' || scenario === 'voidfail') {
+      throw new AppException(
+        ErrorCodes.INTERNAL,
+        'mock void ambiguous',
+        HttpStatus.GATEWAY_TIMEOUT,
+      );
+    }
+    return { providerRef: input.providerRef, status: 'CANCELLED', amountMinor: 0, currency: 'USD' };
+  }
+
+  /** Payment status query (dev/test). Recovers ambiguous voids as CANCELLED; `#retry` stays AUTHORIZED. */
+  async getPayment(providerRef: string): Promise<PaymentStatusResult> {
+    const scenario = this.scenario(providerRef);
+    const status =
+      scenario === 'captured' ? 'CAPTURED' : scenario === 'retry' ? 'AUTHORIZED' : 'CANCELLED'; // default + ambiguous → recovered as voided
+    return { providerRef, status, amountMinor: 0, currency: 'USD' };
+  }
+
+  private scenario(ref: string): string {
+    const i = ref.indexOf('#');
+    return i >= 0 ? ref.slice(i + 1) : '';
   }
 }

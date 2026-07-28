@@ -124,6 +124,9 @@ export interface BookingCompensationEventPayload {
   amount?: string;
   currency?: string;
   attempt?: number;
+  /** Safe payment-provider code + normalized payment-state category (no raw refs/PII). */
+  paymentProvider?: string;
+  paymentStateCategory?: string;
   occurredAt: string;
 }
 function compEvent(type: DomainEventTypeName, p: BookingCompensationEventPayload, t: EventTracing) {
@@ -168,3 +171,29 @@ export const bookingManualReviewRequiredEvent = (
   p: BookingCompensationEventPayload,
   t: EventTracing = {},
 ) => compEvent(DomainEventType.BookingManualReviewRequired, p, t);
+
+// ── Payment void lifecycle (ADR-043 P5.3B Phase 5) ──
+export const bookingPaymentVoidRequestedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentVoidRequested, p, t);
+export const bookingPaymentVoidedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentVoided, p, t);
+export const bookingPaymentVoidAmbiguousEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentVoidAmbiguous, p, t);
+export const bookingPaymentVoidRejectedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentVoidRejected, p, t);
+export const bookingPaymentStatusRecoveryRequestedEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentStatusRecoveryRequested, p, t);
+export const bookingPaymentStatusRecoveredEvent = (
+  p: BookingCompensationEventPayload,
+  t: EventTracing = {},
+) => compEvent(DomainEventType.BookingPaymentStatusRecovered, p, t);
