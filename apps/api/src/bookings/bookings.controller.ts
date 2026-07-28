@@ -6,7 +6,7 @@ import {
   type CreateBookingInput,
 } from '@eticketsgo/validation';
 import { BookingsService } from './bookings.service';
-import { PaymentsService } from '../payments/payments.service';
+import { BookingExecutionRouter } from './orchestration/booking-execution-router.service';
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -15,8 +15,10 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 @Controller('bookings')
 export class BookingsController {
   constructor(
+    // Legacy read paths (list) stay on the service directly. All mode-sensitive write/read
+    // operations route through the single BookingExecutionRouter (ADR-042 §2).
     private readonly bookings: BookingsService,
-    private readonly payments: PaymentsService,
+    private readonly router: BookingExecutionRouter,
   ) {}
 
   @Post()
@@ -25,8 +27,9 @@ export class BookingsController {
     @CurrentUser() user: RequestUser,
     @Body(new ZodValidationPipe(createBookingSchema)) body: CreateBookingInput,
     @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('x-correlation-id') correlationId?: string,
   ) {
-    return this.bookings.create(user, body, idempotencyKey);
+    return this.router.initiate({ user, body, idempotencyKey, correlationId });
   }
 
   @Get()
@@ -40,26 +43,63 @@ export class BookingsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a booking (owner or admin).' })
-  get(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.bookings.getForUser(user, id);
+  get(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.router.getStatus({ user, bookingId: id, correlationId });
   }
 
   @Post(':id/pay')
   @ApiOperation({ summary: 'Create a payment intent for a booking (owner only).' })
-  pay(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.payments.createIntent(id, user);
+  pay(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Headers('x-anon-session') anonymousToken?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.router.beginPayment({ user, bookingId: id, anonymousToken, correlationId });
+  }
+
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel an unpaid booking (owner only; paid → refund path).' })
+  cancel(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Headers('x-anon-session') anonymousToken?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.router.cancel({ user, bookingId: id, anonymousToken, correlationId });
   }
 }
 
 @ApiTags('bookings')
 @Controller('bookings')
 export class GuestBookingsController {
-  constructor(private readonly bookings: BookingsService) {}
+  constructor(private readonly router: BookingExecutionRouter) {}
 
   @Public()
   @Post('guest')
   @ApiOperation({ summary: 'Create a guest booking (no account required).' })
-  createGuest(@Body(new ZodValidationPipe(createBookingSchema)) body: CreateBookingInput) {
-    return this.bookings.create(null, body);
+  createGuest(
+    @Body(new ZodValidationPipe(createBookingSchema)) body: CreateBookingInput,
+    @Headers('x-anon-session') anonymousToken?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    // Anonymous ownership: in active mode the router issues a server-side session token
+    // when the guest presents none, and returns it once as `anonymousSessionToken`.
+    return this.router.initiate({ user: null, body, anonymousToken, correlationId });
+  }
+
+  @Public()
+  @Post('guest/:id/cancel')
+  @ApiOperation({ summary: 'Cancel an unpaid guest booking (requires the guest session).' })
+  cancelGuest(
+    @Param('id') id: string,
+    @Headers('x-anon-session') anonymousToken?: string,
+    @Headers('x-correlation-id') correlationId?: string,
+  ) {
+    return this.router.cancel({ user: null, bookingId: id, anonymousToken, correlationId });
   }
 }
