@@ -11,6 +11,7 @@ import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { BookingExecutionRouter } from './booking-execution-router.service';
 import { ProviderAuthoritativeStrategy } from './provider-authoritative.strategy';
 import { AllocatedInventoryStrategy } from './allocated-inventory.strategy';
+import { AllocationAccountingService } from './allocation-accounting.service';
 import { AnonymousSessionService, BookingOwnerResolver } from './booking-owner';
 import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
 
@@ -39,6 +40,7 @@ import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
     BookingExecutionRouter,
     ProviderAuthoritativeStrategy,
     AllocatedInventoryStrategy,
+    AllocationAccountingService,
     BookingOwnerResolver,
     AnonymousSessionService,
     { provide: BOOKING_ORCHESTRATOR, useExisting: LocalBookingOrchestrator },

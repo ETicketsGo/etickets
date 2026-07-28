@@ -13,7 +13,9 @@ import { BookingOwnerResolver } from './booking-owner';
 import { BookingConfirmationBridge } from './booking-confirmation-bridge';
 import { ProviderAuthoritativeStrategy } from './provider-authoritative.strategy';
 import { AllocatedInventoryStrategy } from './allocated-inventory.strategy';
+import { AllocationAccountingService } from './allocation-accounting.service';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
+import type { Prisma } from '@prisma/client';
 
 /** Bounded membership test that keeps TS from narrowing the array to a literal tuple. */
 const oneOf = (state: WS, states: readonly WS[]): boolean => states.includes(state);
@@ -61,6 +63,7 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     private readonly confirmationBridge: BookingConfirmationBridge,
     private readonly providerStrategy: ProviderAuthoritativeStrategy,
     private readonly allocated: AllocatedInventoryStrategy,
+    private readonly accounting: AllocationAccountingService,
   ) {}
 
   onModuleInit(): void {
@@ -118,13 +121,14 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     // LOCAL authority. It may be ALLOCATED (locally authoritative within a provider
     // allocation) — validate the allocation boundary before the local hold (P5.2B S4).
     let ownershipMode: InventoryOwnershipMode = 'LOCAL_AUTHORITATIVE';
+    let allocation: Awaited<ReturnType<AllocatedInventoryStrategy['resolve']>> = null;
     if (this.allocated.enabled) {
-      const alloc = await this.allocated.resolve(session.eventId).catch(() => null);
-      if (alloc) {
+      allocation = await this.allocated.resolve(session.eventId).catch(() => null);
+      if (allocation) {
         ownershipMode = 'ALLOCATED';
         const seatRefs = request.items.flatMap((i) => i.seatIds ?? []);
         this.allocated.validate(
-          alloc,
+          allocation,
           seatRefs.length > 0
             ? { inventoryType: 'SEAT', seatRefs }
             : {
@@ -191,6 +195,24 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       fencingToken = lock.lock.fencingToken;
     }
 
+    // ALLOCATED: reserve consumption atomically inside the hold transaction (oversell-proof).
+    const allocQty = request.items.reduce((s, i) => s + i.quantity, 0);
+    const allocInventoryType: 'SEAT' | 'QUANTITY' = seatIds.length > 0 ? 'SEAT' : 'QUANTITY';
+    const holdHook =
+      ownershipMode === 'ALLOCATED' && allocation
+        ? {
+            inHoldTx: (tx: Prisma.TransactionClient, bookingId: string) =>
+              this.accounting.holdInTx(tx, {
+                bookingId,
+                workflowId: workflow.id,
+                providerCode: allocation!.providerCode,
+                externalRef: allocation!.allocationId,
+                qty: allocQty,
+                inventoryType: allocInventoryType,
+                correlationId: request.correlationId,
+              }),
+          }
+        : undefined;
     try {
       const user: RequestUser | null = request.owner.ownerId
         ? ({ id: request.owner.ownerId } as RequestUser)
@@ -205,6 +227,7 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
           couponCode: request.couponCode,
         } as never,
         request.idempotencyKey,
+        holdHook,
       )) as { id: string };
       await this.workflows.attachBooking(current.id, {
         bookingId: booking.id,
@@ -212,6 +235,21 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
         fencingToken,
         paymentProvider: undefined,
       });
+      // Record the allocation accounting marker so confirm/release can move consumption
+      // exactly once. The held counter is already committed atomically with the hold above.
+      if (ownershipMode === 'ALLOCATED' && allocation) {
+        await this.prisma.bookingWorkflow
+          .update({
+            where: { id: current.id },
+            data: {
+              allocationProviderCode: allocation.providerCode,
+              allocationExternalRef: allocation.allocationId,
+              allocationHeldQty: allocQty,
+              allocationAccountingState: 'HELD',
+            },
+          })
+          .catch(() => undefined);
+      }
       const reloaded = (await this.workflows.get(current.id))!;
       current = (await this.workflows.advance(reloaded, WS.LOCKED)).workflow;
       this.metrics.recordBookingOrchestration('initiate', 'ok');
@@ -321,6 +359,13 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     if (w.state === WS.PAYMENT_AUTHORIZED)
       w = (await this.workflows.advance(w, WS.CONFIRMING)).workflow;
     if (w.state === WS.CONFIRMING) w = (await this.workflows.advance(w, WS.CONFIRMED)).workflow;
+    // ALLOCATED: move held→confirmed consumption exactly once (marker-guarded; reconcilable).
+    if (w.inventoryOwnershipMode === 'ALLOCATED') {
+      await this.accounting.confirmMove(w).catch(() => {
+        this.metrics.recordBookingOrchestration('confirm', 'allocation_move_failed');
+        this.logger.error(`allocation confirm-move failed for booking=${bookingId}; reconcile`);
+      });
+    }
     // Finalize the Redis lock after commit; a cleanup failure is reconcilable, never a rollback.
     if (w.lockId) {
       const raw = await this.locks.getRaw(w.lockId).catch(() => null);
@@ -350,6 +395,10 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     }
     // Unpaid: reuse the existing hold-release path (idempotent) + release the lock.
     await this.bookings.releaseExpiredHolds(undefined).catch(() => undefined); // conservative: only affects expired holds
+    // ALLOCATED: release held consumption exactly once (marker-guarded).
+    if (workflow.inventoryOwnershipMode === 'ALLOCATED') {
+      await this.accounting.releaseHeld(workflow, 'UNPAID_CANCELLATION').catch(() => undefined);
+    }
     if (workflow.lockId) {
       const owner = {
         ownerId: workflow.selectedProviderCode ? undefined : undefined,
@@ -383,6 +432,10 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       if (raw) await this.locks.markInternal(raw, 'EXPIRED').catch(() => undefined);
     }
     if (w.state === WS.EXPIRING) w = (await this.workflows.advance(w, WS.EXPIRED)).workflow;
+    // ALLOCATED: release held consumption exactly once (marker-guarded; idempotent sweeps).
+    if (w.inventoryOwnershipMode === 'ALLOCATED') {
+      await this.accounting.releaseHeld(w, 'HOLD_EXPIRED').catch(() => undefined);
+    }
     this.metrics.recordBookingOrchestration('expire', 'ok');
     return { bookingId: request.bookingId, workflowState: w.state as WS };
   }

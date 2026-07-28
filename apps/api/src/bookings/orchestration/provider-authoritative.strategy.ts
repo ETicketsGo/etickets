@@ -86,9 +86,7 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
   }
 
   /** Resolve the external booking provider for a session via its P4 ProviderMapping. */
-  private async resolveProvider(
-    eventId: string,
-  ): Promise<{
+  private async resolveProvider(eventId: string): Promise<{
     provider: ExternalBookingProvider;
     providerInventoryRef: string;
     providerCode: string;

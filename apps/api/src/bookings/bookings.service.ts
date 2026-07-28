@@ -61,7 +61,12 @@ export class BookingsService {
    * hold. Fee amounts are snapshotted onto the booking so later rule changes
    * never alter historical orders.
    */
-  async create(user: RequestUser | null, input: CreateBookingInput, idempotencyKey?: string) {
+  async create(
+    user: RequestUser | null,
+    input: CreateBookingInput,
+    idempotencyKey?: string,
+    hooks?: { inHoldTx?: (tx: Prisma.TransactionClient, bookingId: string) => Promise<void> },
+  ) {
     if (idempotencyKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope: 'booking:create', key: idempotencyKey } },
@@ -263,6 +268,10 @@ export class BookingsService {
       if (commerce.addOnHolds.length > 0) {
         await this.addOnInventory.reserve(tx, commerce.addOnHolds);
       }
+      // In-transaction hook (ADR-042 P5.3A.1): ALLOCATED bookings run the atomic allocation
+      // capacity guard + held-consumption event here, so a guard failure rolls the whole hold
+      // back (oversell-proof) and the allocation ledger commits atomically with the booking.
+      if (hooks?.inHoldTx) await hooks.inHoldTx(tx, created.id);
       return created;
     });
 
