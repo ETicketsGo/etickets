@@ -49,6 +49,7 @@ import { InventoryLockingModule } from './inventory/locking/inventory-locking.mo
 import { InventorySyncModule } from './inventory/sync/inventory-sync.module';
 import { BookingOrchestrationModule } from './bookings/orchestration/booking-orchestration.module';
 import { BookingConfirmationBridgeModule } from './bookings/orchestration/booking-confirmation-bridge';
+import { BookingProvidersModule } from './bookings/providers/booking-providers.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -109,6 +110,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     InventoryLockingModule,
     InventorySyncModule,
     BookingConfirmationBridgeModule,
+    BookingProvidersModule,
     BookingOrchestrationModule,
   ],
   providers: [
