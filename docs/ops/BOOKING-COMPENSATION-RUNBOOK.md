@@ -70,6 +70,30 @@ Advance a record to MANUAL_REVIEW (audited). To halt execution, set `_EXECUTION_
 (planning continues) or `_PLANNING_ENABLED=false` / `BOOKING_COMPENSATION_ENABLED=false` to stop
 everything; existing records remain for audit.
 
+## Enable Phase 4 (provider reservation cancellation)
+
+Set `BOOKING_COMPENSATION_ENABLED` + `_PLANNING_ENABLED` + `_EXECUTION_ENABLED` +
+`_AUTO_PROVIDER_CANCEL_ENABLED`, with `BOOKING_PROVIDER_CONFIRMATION_ENABLED` (a registered
+capable provider). Startup fails fast otherwise. This cancels ONLY unpaid, unconfirmed external
+reservations on providers with idempotent cancellation — it is **not** money movement and
+performs **no refund**. Refund/void (Phase 5/6) remain off + production-forbidden.
+
+## Investigate a provider reservation cancellation
+
+`SELECT state, "providerReservationId", "providerStatus", "providerCancelledAt" FROM
+"BookingWorkflow" WHERE "bookingId"=$1;` A cancelled reservation has `providerStatus='CANCELLED'`
+
+- `providerCancelledAt` set. Events: `booking.provider_cancellation_requested` (intent, before
+  the call) then `booking.provider_cancelled` (definitive, once). Ambiguous cancels emit only the
+  requested fact and the record sits RETRYABLE/MANUAL_REVIEW until status recovery resolves it.
+
+## Reconciliation: reservation vs payment/local drift
+
+- `RESERVATION_CANCELLED_PAYMENT_PRESENT` — a captured payment exists for a cancelled
+  reservation → **manual review** (a refund may be owed; never auto-refunded in Phase 4).
+- `RESERVATION_ACTIVE_LOCAL_RELEASED` — the external reservation is still active while the local
+  booking is expired/cancelled → an orphaned reservation to cancel (plan a `PROVIDER_RESERVATION_CANCEL`).
+
 ## Verify no double refund / no duplicate provider cancellation
 
 - One refund plan per (payment, reason) via the unique constraint.

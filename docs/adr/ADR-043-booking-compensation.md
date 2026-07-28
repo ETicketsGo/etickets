@@ -112,6 +112,33 @@ completed), oldest-ready age, stale-lease count, last successful safe compensati
 provider-pending backlog, status-recovery backlog, allocation-drift count. Bounded gauges
 `etg_booking_compensation_backlog{state}` + `_oldest_ready_age_seconds`.
 
+## Phase 4 — provider reservation cancellation (P5.3B, shipped, off by default)
+
+The first Phase-4 executor: `ProviderAuthoritativeStrategy.cancelReservation`, invoked by the
+compensation worker (via the global bridge) for `PROVIDER_RESERVATION_CANCEL`, gated by
+`BOOKING_COMPENSATION_AUTO_PROVIDER_CANCEL_ENABLED`.
+
+- **Narrow eligibility:** UNPAID (no captured/succeeded payment) + UNCONFIRMED (workflow not
+  provider/locally confirmed, `providerConfirmedAt` null) + provider `supportsCancel` &&
+  `idempotentCancellation`. Anything else → NOT_ELIGIBLE / MANUAL_REVIEW; never a cancellation.
+- **Idempotent + durable:** stable server key `wf:{id}:cancel`; the intent
+  (`BookingProviderCancellationRequested`) is emitted BEFORE the provider call; a definitive
+  OK/NOT_FOUND persists the cancellation exactly once (guarded `providerCancelledAt IS NULL`,
+  `BookingProviderCancelled` recorded in the same tx). Duplicate workers/retries cancel once
+  (lease-claimed record + idempotent provider call) — proven against real PostgreSQL.
+- **Ambiguity-safe:** a timeout/ambiguous outcome is NEVER assumed cancelled — it queries
+  provider status first, then RETRYABLE (still reserved) or MANUAL_REVIEW (unknown).
+- **Never a refund:** provider cancellation performs no payment action.
+- **Hold/lock policy:** on definitive cancellation the Redis coordination lock is released
+  (idempotent); the local PostgreSQL hold is left to the durable unpaid-expiry sweep (the
+  booking is unpaid — no money, and no second authoritative mutation races the sweep). A
+  separate `LOCAL_HOLD_RELEASE` compensation may also cover it.
+- **Financial reconciliation added:** `RESERVATION_CANCELLED_PAYMENT_PRESENT` (a captured
+  payment alongside a cancelled reservation → MANUAL_REVIEW, never an auto refund) and
+  `RESERVATION_ACTIVE_LOCAL_RELEASED` (orphaned external reservation to cancel).
+- **Startup validation:** auto-provider-cancel requires execution + a registered provider
+  (`BOOKING_PROVIDER_CONFIRMATION_ENABLED`); refund/void remain production-forbidden (Phase 5/6).
+
 ## Rollout plan
 
 Phase 0 disabled → 1 observe (classifications/metrics) → 2 plan (records, no execution) → 3
