@@ -2184,3 +2184,81 @@ model BookingWorkflow {
   /// Workflows flagged for reconciliation.
   @@index([providerReconciliationRequired])
 }
+
+/// A single booking-compensation action (ADR-043, P5.3A). Focused durable model — NOT a
+/// generic task table. Each row is one planned recovery action for one booking, with a
+/// stable idempotency identity so duplicate planning/execution can never move money twice or
+/// cancel a provider booking twice. Execution is gated by flags (all off by default); money-
+/// moving actions stay disabled in P5.3A. No secrets or raw provider payloads are stored.
+enum CompensationType {
+  PAYMENT_VOID
+  PAYMENT_REFUND
+  PROVIDER_RESERVATION_CANCEL
+  PROVIDER_BOOKING_CANCEL
+  LOCAL_HOLD_RELEASE
+  REDIS_LOCK_RELEASE
+  LOCAL_CONFIRMATION_RETRY
+  PROVIDER_STATUS_RECOVERY
+  MANUAL_REVIEW
+}
+
+enum CompensationState {
+  PLANNED
+  READY
+  PROCESSING
+  RETRYABLE_FAILURE
+  COMPLETED
+  DEAD_LETTERED
+  MANUAL_REVIEW
+  CANCELLED
+}
+
+model BookingCompensation {
+  id               String            @id @default(cuid())
+  bookingId        String
+  workflowId       String?
+  tenantId         String?
+  compensationType CompensationType
+  state            CompensationState @default(PLANNED)
+  version          Int               @default(0)
+  reasonCode       String
+  /// The concrete target this action operates on (payment ref, reservation id, lock id, …).
+  /// Part of the idempotency identity so one action per target is enforced by the DB.
+  targetReference  String            @default("")
+  /// Bumps only when an authoritative new generation of a booking's recovery is required.
+  generation       Int               @default(1)
+  paymentProvider  String?
+  paymentReference String?
+  externalProviderCode String?
+  providerReservationId String?
+  providerBookingId String?
+  amountMinor      Int?
+  currency         String?
+  /// Server-generated stable key for the executor's provider/payment idempotency.
+  idempotencyKey   String
+  autoExecutable   Boolean           @default(false)
+  attemptCount     Int               @default(0)
+  maxAttempts      Int               @default(5)
+  availableAt      DateTime          @default(now())
+  lockedBy         String?
+  lockedAt         DateTime?
+  lockExpiresAt    DateTime?
+  lastAttemptAt    DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  lastErrorCode    String?
+  lastErrorMessage String?
+  manualReviewReason String?
+  correlationId    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  /// Idempotency: one action per (booking, type, target, generation). A concurrent planner
+  /// loses the unique race and re-reads the existing record.
+  @@unique([bookingId, compensationType, targetReference, generation])
+  @@unique([idempotencyKey])
+  @@index([state, availableAt])
+  @@index([bookingId])
+  @@index([tenantId])
+  @@index([lockExpiresAt])
+}
