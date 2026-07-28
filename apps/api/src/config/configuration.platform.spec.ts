@@ -292,4 +292,50 @@ describe('platform config — unsafe combinations fail fast', () => {
       }),
     ).toThrow(/not permitted in production/i);
   });
+
+  // ── P5.3B Phase 5: payment void ──
+  it('rejects auto-void without execution enabled', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'true',
+      }),
+    ).toThrow(/EXECUTION_ENABLED/i);
+  });
+
+  it('rejects auto-void without a void-capable active provider (non-mock)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'stripe',
+      }),
+    ).toThrow(/void-capable/i);
+  });
+
+  it('rejects auto-void in production', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'true',
+      }),
+    ).toThrow(/not permitted in production/i);
+  });
+
+  it('allows auto-void with the mock provider + execution (non-prod)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_VOID_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).not.toThrow();
+  });
 });

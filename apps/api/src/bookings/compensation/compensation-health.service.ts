@@ -83,6 +83,31 @@ export class CompensationHealthService {
       : 0;
     this.metrics.setCompensationOldestReadyAge(oldestReadyAgeSeconds);
 
+    // Payment-void-specific backlog (ADR-043 Phase 5) + refund-plan handoff backlog.
+    const [voidGrouped, refundPlanBacklog] = await Promise.all([
+      this.prisma.bookingCompensation
+        .groupBy({
+          by: ['state'],
+          where: { compensationType: 'PAYMENT_VOID' as never },
+          _count: { _all: true },
+        })
+        .catch(() => [] as Array<{ state: string; _count: { _all: number } }>),
+      this.prisma.bookingCompensation
+        .count({
+          where: {
+            compensationType: 'PAYMENT_REFUND' as never,
+            state: { in: ['PLANNED', 'READY', 'MANUAL_REVIEW'] as never },
+          },
+        })
+        .catch(() => -1),
+    ]);
+    const voidCounts: Record<string, number> = {};
+    for (const g of voidGrouped) voidCounts[g.state as string] = g._count._all;
+    const voidPlanningEnabled =
+      planningEnabled &&
+      this.config.get<boolean>('BOOKING_COMPENSATION_AUTO_VOID_ENABLED') === true;
+    const voidCapableProvider = this.config.get<string>('PAYMENT_PROVIDER_NAME') === 'mock';
+
     const deadLetters = counts[CompensationState.DEAD_LETTERED] ?? 0;
     const manualReview = counts[CompensationState.MANUAL_REVIEW] ?? 0;
     // Healthy unless money-moving backlogs are piling up or accounting drift is detected.
@@ -105,6 +130,18 @@ export class CompensationHealthService {
       providerPendingBacklog: providerPending,
       statusRecoveryBacklog: statusRecovery,
       allocationDriftCount: allocationDrift,
+      // Payment void (ADR-043 Phase 5) — counts only, no ids/PII.
+      void: {
+        planningEnabled: voidPlanningEnabled,
+        executionEnabled: voidPlanningEnabled,
+        voidCapableProvider,
+        ready: voidCounts[CompensationState.READY] ?? 0,
+        processing: voidCounts[CompensationState.PROCESSING] ?? 0,
+        retryable: voidCounts[CompensationState.RETRYABLE_FAILURE] ?? 0,
+        manualReview: voidCounts[CompensationState.MANUAL_REVIEW] ?? 0,
+        deadLettered: voidCounts[CompensationState.DEAD_LETTERED] ?? 0,
+        capturedRefundPlanBacklog: refundPlanBacklog,
+      },
       healthy,
     };
   }

@@ -24,7 +24,8 @@ function make(record: Record<string, unknown> | null) {
   } as unknown as PrismaService;
   const repo = { advance } as unknown as CompensationRepository;
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
-  const svc = new CompensationAdminService(prisma, repo, new CompensationPlanner(), audit);
+  const config = { get: jest.fn(() => false) } as never; // auto-void off by default in tests
+  const svc = new CompensationAdminService(prisma, repo, new CompensationPlanner(), audit, config);
   return { svc, findUnique, findMany, advance, audit };
 }
 

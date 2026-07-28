@@ -164,6 +164,14 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   BOOKING_COMPENSATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(5),
+  // Payment void (ADR-043 Phase 5). Status recovery for ambiguous void outcomes; bounded
+  // void attempts + timeout. All off/default; auto-void stays production-forbidden.
+  BOOKING_PAYMENT_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_PAYMENT_VOID_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_PAYMENT_VOID_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
   BOOKING_COMPENSATION_LEASE_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
   BOOKING_COMPENSATION_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
   BOOKING_COMPENSATION_MANUAL_REVIEW_THRESHOLD: z.coerce.number().int().min(1).max(50).default(3),
@@ -608,6 +616,14 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
   if (isProdLike && anyAutoMoney) {
     errors.push(
       '  - Automatic refund/void is not permitted in production yet (P5.3B Phase 5/6 — needs policy + staging + idempotency proof).',
+    );
+  }
+  // Auto-void (Phase 5) requires a void-capable ACTIVE payment provider. Today only the mock
+  // adapter genuinely supports idempotent void (Stripe/PayPal/Square are not void-wired in the
+  // booking flow; Razorpay is immediate-capture), so auto-void is a dev/test-only path.
+  if (cfg.BOOKING_COMPENSATION_AUTO_VOID_ENABLED && cfg.PAYMENT_PROVIDER_NAME !== 'mock') {
+    errors.push(
+      '  - BOOKING_COMPENSATION_AUTO_VOID_ENABLED requires a void-capable active payment provider (only the mock supports idempotent void today).',
     );
   }
   // Phase 4: automatic provider RESERVATION cancellation needs a registered capable provider —

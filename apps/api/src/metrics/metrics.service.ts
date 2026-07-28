@@ -60,6 +60,9 @@ export class MetricsService {
   private readonly compensationOperations: Counter<'type' | 'outcome'>;
   private readonly compensationBacklog: Gauge<'state'>;
   private readonly compensationOldestReadyAge: Gauge<string>;
+  private readonly paymentVoid: Counter<'provider' | 'outcome'>;
+  private readonly paymentVoidDuration: Histogram<'provider'>;
+  private readonly paymentStatusRecovery: Counter<'provider' | 'status'>;
 
   constructor() {
     this.registry = new Registry();
@@ -366,6 +369,27 @@ export class MetricsService {
       help: 'Age of the oldest READY compensation, in seconds.',
       registers: [this.registry],
     });
+    // Payment void (ADR-043 Phase 5). Bounded labels — provider code + normalized outcome/status;
+    // never booking/payment/user/idempotency ids.
+    this.paymentVoid = new Counter({
+      name: 'etg_booking_payment_void_total',
+      help: 'Payment void executions by provider and outcome.',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.paymentVoidDuration = new Histogram({
+      name: 'etg_booking_payment_void_duration_seconds',
+      help: 'Payment void execution latency, by provider.',
+      labelNames: ['provider'],
+      buckets: [0.05, 0.1, 0.5, 1, 2.5, 5, 10],
+      registers: [this.registry],
+    });
+    this.paymentStatusRecovery = new Counter({
+      name: 'etg_booking_payment_status_recovery_total',
+      help: 'Payment status-query recoveries by provider and normalized status.',
+      labelNames: ['provider', 'status'],
+      registers: [this.registry],
+    });
   }
 
   /** Prometheus exposition text for the /metrics endpoint. */
@@ -598,6 +622,15 @@ export class MetricsService {
   }
   setCompensationOldestReadyAge(seconds: number): void {
     this.safe(() => this.compensationOldestReadyAge.set(seconds));
+  }
+  recordPaymentVoid(provider: string, outcome: string): void {
+    this.safe(() => this.paymentVoid.inc({ provider, outcome }));
+  }
+  observePaymentVoid(provider: string, seconds: number): void {
+    this.safe(() => this.paymentVoidDuration.observe({ provider }, seconds));
+  }
+  recordPaymentStatusRecovery(provider: string, status: string): void {
+    this.safe(() => this.paymentStatusRecovery.inc({ provider, status }));
   }
 
   /** Metrics must never break a request or a business flow. Swallow everything. */

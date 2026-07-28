@@ -207,6 +207,42 @@ describe('integration-real-postgres: provider-authoritative HA concurrency', () 
     expect(row?.providerStatus).toBe('CANCELLED');
   }, 30_000);
 
+  it('concurrent PAYMENT_VOID planners create exactly one plan; captured handoff creates one refund plan', async () => {
+    if (!available) return;
+    const bookingId = `${tag}-void`;
+    // Concurrent planners for the same (booking, PAYMENT_VOID, target) → one plan (unique key).
+    const voids = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        comp.createOrGet(
+          {
+            compensationType: 'PAYMENT_VOID' as never,
+            reasonCode: 'X',
+            targetReference: 'pay-ref-1',
+            autoExecutable: false,
+          },
+          { bookingId },
+        ),
+      ),
+    );
+    expect(voids.filter((v) => v.created)).toHaveLength(1);
+    // Captured handoff: concurrent PAYMENT_REFUND creates → one plan.
+    const refunds = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        comp.createOrGet(
+          {
+            compensationType: 'PAYMENT_REFUND' as never,
+            reasonCode: 'PAYMENT_CAPTURED_VOID_SUPERSEDED',
+            targetReference: 'pay-ref-1',
+            autoExecutable: false,
+          },
+          { bookingId },
+        ),
+      ),
+    );
+    expect(refunds.filter((r) => r.created)).toHaveLength(1);
+    await prisma!.bookingCompensation.deleteMany({ where: { bookingId } }).catch(() => undefined);
+  }, 30_000);
+
   it('stale compensation leases recover to READY exactly once', async () => {
     if (!available) return;
     const bookingId = `${tag}-stale`;
