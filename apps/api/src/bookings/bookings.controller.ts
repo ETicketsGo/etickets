@@ -94,7 +94,9 @@ export class GuestBookingsController {
 
   @Public()
   @Post('guest/:id/pay')
-  @ApiOperation({ summary: 'Create a payment intent for a guest booking (requires the guest session).' })
+  @ApiOperation({
+    summary: 'Create a payment intent for a guest booking (requires the guest session).',
+  })
   payGuest(
     @Param('id') id: string,
     @Headers('x-anon-session') anonymousToken?: string,

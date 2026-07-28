@@ -394,7 +394,9 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     }
     if (candidates.length > 0) {
       this.metrics.recordBookingOrchestration('expire_sweep', 'ok');
-      this.logger.log(`expiry sweep by ${ctx.actor}: scanned=${candidates.length} expired=${expired}`);
+      this.logger.log(
+        `expiry sweep by ${ctx.actor}: scanned=${candidates.length} expired=${expired}`,
+      );
     }
     return { scanned: candidates.length, expired };
   }
