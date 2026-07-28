@@ -338,4 +338,85 @@ describe('platform config — unsafe combinations fail fast', () => {
       }),
     ).not.toThrow();
   });
+
+  // ── P5.3B Phase 6: controlled full refund ──
+  it('defaults the refund policy to MANUAL_ONLY', () => {
+    expect(withEnv(LOCAL_BASE, {})().BOOKING_REFUND_POLICY_MODE).toBe('MANUAL_ONLY');
+  });
+
+  it('rejects auto-refund without execution enabled', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/EXECUTION_ENABLED/i);
+  });
+
+  it('rejects auto-refund while the policy is the MANUAL_ONLY default', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/MANUAL_ONLY/i);
+  });
+
+  it('rejects auto-refund with the TICKET_ONLY policy (needs finance sign-off)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'TICKET_ONLY',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/TICKET_ONLY/i);
+  });
+
+  it('rejects auto-refund without an idempotent-full-refund-capable provider (non-mock)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+        PAYMENT_PROVIDER_NAME: 'stripe',
+      }),
+    ).toThrow(/idempotent full refund/i);
+  });
+
+  it('rejects auto-refund in production', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/not permitted in production/i);
+  });
+
+  it('allows auto-refund with mock + FULL_GROSS + execution (non-prod)', () => {
+    expect(
+      withEnv(LOCAL_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).not.toThrow();
+  });
 });

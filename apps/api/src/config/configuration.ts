@@ -172,6 +172,19 @@ const envSchema = z.object({
     .transform((v) => v === 'true' || v === '1'),
   BOOKING_PAYMENT_VOID_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
   BOOKING_PAYMENT_VOID_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
+  // Controlled refunds (ADR-043 Phase 6). Policy defaults to MANUAL_ONLY (nothing auto-refunds);
+  // auto-refund + non-manual policy stay off + production-forbidden. No partial-refund mode.
+  BOOKING_REFUND_POLICY_MODE: z
+    .enum(['MANUAL_ONLY', 'FULL_GROSS', 'TICKET_ONLY', 'EVENT_CANCELLATION_FULL'])
+    .default('MANUAL_ONLY'),
+  BOOKING_REFUND_POLICY_VERSION: z.string().optional(),
+  BOOKING_REFUND_STATUS_RECOVERY_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  BOOKING_REFUND_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  BOOKING_REFUND_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(8000),
+  BOOKING_REFUND_STATUS_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(60),
   BOOKING_COMPENSATION_LEASE_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
   BOOKING_COMPENSATION_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(1).max(3600).default(30),
   BOOKING_COMPENSATION_MANUAL_REVIEW_THRESHOLD: z.coerce.number().int().min(1).max(50).default(3),
@@ -625,6 +638,26 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
     errors.push(
       '  - BOOKING_COMPENSATION_AUTO_VOID_ENABLED requires a void-capable active payment provider (only the mock supports idempotent void today).',
     );
+  }
+  // Auto-refund (Phase 6) — fail-closed. Off by default; MANUAL_ONLY policy means nothing
+  // auto-refunds; only a provider with proven idempotent full refund (the mock today) qualifies;
+  // production is forbidden until policy + staging + monitoring are approved.
+  if (cfg.BOOKING_COMPENSATION_AUTO_REFUND_ENABLED) {
+    if (cfg.BOOKING_REFUND_POLICY_MODE === 'MANUAL_ONLY') {
+      errors.push(
+        '  - BOOKING_COMPENSATION_AUTO_REFUND_ENABLED cannot run with BOOKING_REFUND_POLICY_MODE=MANUAL_ONLY (set an explicit approved policy).',
+      );
+    }
+    if (cfg.BOOKING_REFUND_POLICY_MODE === 'TICKET_ONLY') {
+      errors.push(
+        '  - BOOKING_REFUND_POLICY_MODE=TICKET_ONLY is not approved for automatic refunds (component split needs finance sign-off).',
+      );
+    }
+    if (cfg.PAYMENT_PROVIDER_NAME !== 'mock') {
+      errors.push(
+        '  - BOOKING_COMPENSATION_AUTO_REFUND_ENABLED requires a provider with proven idempotent full refund (only the mock qualifies today).',
+      );
+    }
   }
   // Phase 4: automatic provider RESERVATION cancellation needs a registered capable provider —
   // today that requires provider confirmation enabled (which registers the external adapter).
