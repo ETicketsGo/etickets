@@ -53,3 +53,38 @@ Only `REDIS_LOCK_RELEASE`, `LOCAL_HOLD_RELEASE` (unambiguously unpaid), `PROVIDE
 and `LOCAL_CONFIRMATION_RETRY` — and only when `BOOKING_COMPENSATION_EXECUTION_ENABLED`. In this
 increment the wired safe executor is `REDIS_LOCK_RELEASE`; the others are surfaced for handling
 until their booking-seam executors land.
+
+## Controlled FULL refund cases (ADR-043 P5.3B Phase 6)
+
+Full refunds only — **no partial refunds** (no verified partial policy/data model). Automatic
+execution requires `BOOKING_COMPENSATION_AUTO_REFUND_ENABLED` **and** an approved (non-`MANUAL_ONLY`)
+`BOOKING_REFUND_POLICY_MODE` **and** a provider with `supportsFullRefund && supportsIdempotentRefund`
+(only the mock today). Off by default; production-forbidden. Inventory is never auto-restored.
+
+| Payment / context                           | Policy mode             | Provider capability        | Action                        | Auto?  | Recovery               | Customer status |
+| ------------------------------------------- | ----------------------- | -------------------------- | ----------------------------- | ------ | ---------------------- | --------------- |
+| SUCCEEDED (captured), customer cancellation | FULL_GROSS              | full + idempotent          | provider refund → REFUNDED    | Auto¹  | —                      | Refunded        |
+| SUCCEEDED, event cancelled                  | EVENT_CANCELLATION_FULL | full + idempotent          | provider refund → REFUNDED    | Auto¹  | —                      | Refunded        |
+| any captured                                | MANUAL_ONLY (default)   | any                        | NO refund → manual review     | never  | —                      | Action pending  |
+| any                                         | TICKET_ONLY             | any                        | NO refund → manual review     | never  | —                      | Action pending  |
+| not captured (AUTHORIZED/…)                 | any                     | any                        | NOT eligible (void territory) | never  | —                      | Processing      |
+| already REFUNDED                            | any                     | any                        | idempotent success (no call)  | Auto¹  | —                      | Refunded        |
+| checked-in ticket                           | any                     | any                        | NO refund → manual review     | never  | —                      | Confirmed       |
+| settlement uncertain / completed            | any                     | any                        | NO refund → manual review     | never  | —                      | Action pending  |
+| provider-cancellation required, unsupported | any                     | any                        | NO refund → manual review     | never  | —                      | Action pending  |
+| captured, FULL approved                     | FULL_GROSS              | full only (not idempotent) | NO refund → manual review     | never  | —                      | Action pending  |
+| async ack (COMPLETED but async provider)    | approved                | full + idempotent + async  | PENDING → status query        | Auto¹  | getRefund → REFUNDED   | Processing      |
+| provider throws / timeout                   | approved                | + refundStatusQuery        | AMBIGUOUS → status query      | Auto¹  | getRefund; else review | Processing      |
+| provider FAILED                             | approved                | any                        | rejected → manual review      | never² | —                      | Action pending  |
+
+¹ Only under the flag+policy+capability gate above; amount `0 < amount <= captured`, currency
+unchanged, and finalize is exactly-once (guarded `refundedMinor == captured`).
+² The refund attempt was made; a FAILED provider result never retries automatically.
+
+### Refund reconciliation classifications (read-only)
+
+`CONSISTENT_NO_REFUND` / `CONSISTENT_FULL_REFUND` (NONE) · `REFUND_IN_FLIGHT` (NONE) ·
+`INTENT_WITHOUT_OUTCOME` (RETRY_STATUS_QUERY) · `LOCAL_REFUNDED_PROVIDER_MISSING` ·
+`PROVIDER_REFUNDED_LOCAL_MISSING` · `AMOUNT_MISMATCH` · `CURRENCY_MISMATCH` ·
+`PROVIDER_REFUND_FAILED` · `SETTLEMENT_UNKNOWN` · `DUPLICATE_COMPLETED_REFUND` · `OVER_REFUND` ·
+`NEGATIVE_REFUND` (all MANUAL_REVIEW). The classifier moves no money.

@@ -171,6 +171,51 @@ compensation worker (via the global bridge) for `PROVIDER_RESERVATION_CANCEL`, g
 - **Rollout controls.** Off by default; startup rejects auto-void without execution, without a
   void-capable provider, and **in production**. Bounded metrics + counts-only void health.
 
+## Phase 6 — controlled FULL refund (P5.3B, shipped, off + production-forbidden)
+
+Provider-neutral **full-refund** execution of a _captured_ payment, reusing the Phase 5 safety
+discipline end-to-end. **No partial refunds** (the repo has no verified partial policy/data
+model), and **no invented** convenience-fee / tax / GST / processing-fee / settlement /
+cancellation-window / per-ticket rules.
+
+- **Versioned refund policy (`DefaultBookingRefundPolicy`).** A deterministic, server-authoritative
+  decision keyed by `BOOKING_REFUND_POLICY_MODE` (+ `BOOKING_REFUND_POLICY_VERSION`). Modes:
+  `MANUAL_ONLY` (**default — nothing auto-refunds**), `FULL_GROSS`, `TICKET_ONLY` (never
+  auto-approved; needs finance sign-off), `EVENT_CANCELLATION_FULL`. Missing policy ⇒ manual
+  review. Hard blocks (all → manual review): not captured, checked-in, settlement uncertain/done,
+  provider-cancellation-required-but-unsupported. Inventory is **never** auto-restored
+  (`inventoryResellable:false` always).
+- **Capability-honest.** `PaymentProviderCapabilities` gains `supportsFullRefund`,
+  `supportsIdempotentRefund`, `supportsRefundStatusQuery`, `refundMayBeAsynchronous`. Automatic
+  refund requires `supportsFullRefund && supportsIdempotentRefund` — **only the mock qualifies
+  today**; Stripe/PayPal/Square advertise full-refund but not proven-idempotent refund, so they
+  stay manual; Razorpay is async + status-queryable.
+- **Same execution spine (`PaymentRefundExecutor`).** Eligibility revalidation (captured, not
+  already refunded, provider idempotent-full-capable, `0 < amount <= captured`, currency
+  unchanged, provider ref present) → **durable intent before the call** (a `PROCESSING` Refund row
+  keyed by the compensation's stable `idempotencyKey` + `BookingPaymentRefundRequested`) → provider
+  `refund()` with a stable key → classify → **exactly-once finalize** in one tx (guarded
+  `payment SUCCEEDED→REFUNDED` + `refundedMinor = amount` + `booking→REFUNDED` + `Refund→COMPLETED`
+  - `BookingPaymentRefunded`) → async ack / timeout / throw → **status recovery** via `getRefund`,
+    never assumed. Ambiguity resolves to manual review, never a second refund.
+- **Money invariants (proven against real PostgreSQL).** `0 <= refundedMinor <= captured`; a full
+  refund sets `refundedMinor == captured`; concurrent finalizers flip the payment **exactly once**;
+  a late finalize is a guarded no-op.
+- **Read-only financial reconciliation (`classifyRefundReconciliation`).** Deterministic classifier
+  comparing local vs provider refund state + invariants → a bounded classification
+  (`CONSISTENT_*`, `REFUND_IN_FLIGHT`, `INTENT_WITHOUT_OUTCOME`, `LOCAL_REFUNDED_PROVIDER_MISSING`,
+  `PROVIDER_REFUNDED_LOCAL_MISSING`, `AMOUNT_MISMATCH`, `CURRENCY_MISMATCH`, `PROVIDER_REFUND_FAILED`,
+  `SETTLEMENT_UNKNOWN`, `DUPLICATE_COMPLETED_REFUND`, `OVER_REFUND`, `NEGATIVE_REFUND`) + a
+  recommended action (`NONE` / `RETRY_STATUS_QUERY` / `MANUAL_REVIEW`). It moves no money.
+- **Admin + health.** `assertSafeNonFinancial` permits approving/retrying a `PAYMENT_REFUND` **only**
+  when auto-refund is on with an approved (non-`MANUAL_ONLY`) policy; approval never edits amounts
+  and the executor still re-validates every gate. Counts-only refund health block (by state +
+  policy mode + capable-provider flag).
+- **Rollout controls.** `BOOKING_COMPENSATION_AUTO_REFUND_ENABLED=false` +
+  `BOOKING_REFUND_POLICY_MODE=MANUAL_ONLY` + `BOOKING_REFUND_STATUS_RECOVERY_ENABLED=false` by
+  default. Startup **rejects** auto-refund without execution, with `MANUAL_ONLY`, with `TICKET_ONLY`,
+  without an idempotent-full-refund-capable provider (non-mock), and **in production**.
+
 ## Rollout plan
 
 Phase 0 disabled → 1 observe (classifications/metrics) → 2 plan (records, no execution) → 3
@@ -192,10 +237,15 @@ ops + health surfaces (P5.3A)**. Plus the P5.3A.1 follow-through: **transactiona
 accounting** (oversell-proof held guard, real-Postgres proven), **transactional provider event
 emission** (in-tx, exactly-once), and a **provider-authoritative real-Postgres HA harness**
 (concurrent confirmation / confirmation-vs-expiration-vs-cancellation / idempotency /
-two-worker claims). Plus **P5.3B Phase 4** (provider reservation cancellation) and **Phase 5**
+two-worker claims). Plus **P5.3B Phase 4** (provider reservation cancellation), **Phase 5**
 (controlled payment void — authorized-not-captured only, capability-honest, intent-before-call,
-finalize-once, ambiguous→status recovery, captured→one refund plan with no refund executed).
-Full API suite **156 suites / 1120 tests**; tsc + build + worker + prettier clean; migrations
-through `20260728130000` applied. **All compensation behaviour OFF by default; no captured money
-moves.** P5.3A + P5.3B Phases 4–5 shipped; **Phase 6 (controlled refunds) remains** — only after
-staging + policy approval + idempotency proof + monitoring.
+finalize-once, ambiguous→status recovery, captured→one refund plan with no refund executed), and
+**Phase 6** (controlled FULL refund — versioned `MANUAL_ONLY`-default policy, capability-honest
+idempotent-full gate, intent-before-call, exactly-once finalize with the `refundedMinor` money
+invariant proven against real PostgreSQL, ambiguous/async→status recovery, read-only financial
+reconciliation classifier, refund admin approval + counts-only refund health).
+**All compensation behaviour OFF by default; no captured money moves without an explicit approved
+policy + AUTO_REFUND, and production stays forbidden.** P5.3A + P5.3B Phases 4–6 shipped — the
+booking-engine feature scope for P5 is **closed** (see `P5-BOOKING-PLATFORM-COMPLETION-REPORT.md`);
+enabling automatic refunds in production requires the staging + policy-approval + monitoring
+conditions in `P6-PRODUCTION-HARDENING-BACKLOG.md`.

@@ -131,3 +131,40 @@ p."amountMinor" FROM "Booking" b JOIN "Payment" p ON p."bookingId"=b.id WHERE b.
 - One reservation/booking cancel per reference.
 - Completed compensations never re-execute (terminal state, guarded transitions).
 - The executor's provider/payment idempotency key is server-generated and stable.
+
+## Controlled FULL refund (ADR-043 P5.3B Phase 6)
+
+- **Default safe state:** `BOOKING_COMPENSATION_AUTO_REFUND_ENABLED=false`,
+  `BOOKING_REFUND_POLICY_MODE=MANUAL_ONLY`, `BOOKING_REFUND_STATUS_RECOVERY_ENABLED=false`. Nothing
+  auto-refunds; every captured cancellation lands in `MANUAL_REVIEW`. Production is forbidden by
+  startup validation regardless of flags.
+- **Enable in staging only:** set `_EXECUTION_ENABLED=true`, `_AUTO_REFUND_ENABLED=true`,
+  `BOOKING_REFUND_POLICY_MODE=FULL_GROSS` (or `EVENT_CANCELLATION_FULL`), and use the **mock**
+  provider (the only idempotent-full-refund-capable adapter today). Any other combination is
+  rejected at boot — read the error, it names the exact gate.
+- **Check refund eligibility / money invariant:** `SELECT p.status, p."amountMinor",
+p."refundedMinor" FROM "Payment" p WHERE p."bookingId"=$1;` A full refund requires
+  `status='SUCCEEDED'` and `refundedMinor=0`; after finalize `status='REFUNDED'` and
+  `refundedMinor=amountMinor` (invariant `0 <= refundedMinor <= amountMinor`).
+- **Approve a refund (staging):** `POST /admin/compensations/:id/approve` — allowed only when
+  auto-refund is on with an approved policy; it enqueues (→ READY) and never edits the amount. The
+  executor re-validates policy + every eligibility gate before any provider call.
+- **Investigate an ambiguous/async refund:** events `booking.payment_refund_requested` →
+  `booking.payment_refund_pending` / `booking.payment_refund_ambiguous` →
+  `booking.refund_status_recovery_requested` → `booking.refund_status_recovered`; a definitive
+  success emits `booking.payment_refunded`. A timeout is **never** assumed successful.
+- **Reconcile:** run the refund reconciliation classifier; `OVER_REFUND` / `NEGATIVE_REFUND` /
+  `DUPLICATE_COMPLETED_REFUND` are critical invariant breaches — escalate, never auto-resolve.
+  `INTENT_WITHOUT_OUTCOME` → re-query provider; other drift → manual review.
+- **Disable auto-refund:** set `_AUTO_REFUND_ENABLED=false` (or restore `MANUAL_ONLY`) — planning
+  continues; in-flight refunds sit in `MANUAL_REVIEW`. Health `GET /health/compensation` →
+  `refund.*` counts + `policyMode` show the state.
+
+### Refund invariants (never violate)
+
+- `0 <= refundedMinor <= capturedMinor`; sum of COMPLETED refunds <= captured.
+- Currency never changes across a refund.
+- Never auto-restore inventory; never auto-refund after check-in; a provider-confirmed
+  cancellation stays manual; settlement uncertainty blocks the refund.
+- Finalize is exactly-once (guarded `payment SUCCEEDED→REFUNDED`); duplicate workers / recovery
+  replays never double-refund.
