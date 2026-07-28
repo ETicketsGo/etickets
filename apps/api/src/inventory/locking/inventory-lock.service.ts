@@ -28,7 +28,9 @@ import type {
   ReleaseInventoryLockRequest,
   ValidateInventoryLockRequest,
 } from './inventory-lock.types';
-import type { InventoryLockReconciliationService } from './inventory-lock-reconciliation.service';
+// NOT `import type`: this class is a runtime DI dependency (constructor index [3]). A type-only
+// import is erased under emitDecoratorMetadata, leaving Nest unable to resolve it → boot failure.
+import { InventoryLockReconciliationService } from './inventory-lock-reconciliation.service';
 
 /** Constant-time string compare for owner/credential checks (no length leak). */
 function safeEqual(a: string, b: string): boolean {
