@@ -32,6 +32,21 @@ in P5.3A.
 - Unknown payment capture state (planner cannot choose void vs refund).
 - Local-confirmation retries exhausted with no certain provider-cancel outcome.
 
+## Payment void cases (ADR-043 P5.3B Phase 5)
+
+| Payment state           | Booking state | Ticket | Provider capability           | Action                         | Auto? | Retry              | Manual review          | Refund handoff        | Customer status |
+| ----------------------- | ------------- | ------ | ----------------------------- | ------------------------------ | ----- | ------------------ | ---------------------- | --------------------- | --------------- |
+| AUTHORIZED not-captured | not confirmed | none   | supportsVoid + idempotentVoid | provider void → payment VOIDED | Auto¹ | bounded (idempot.) | unknown status         | —                     | Processing      |
+| CAPTURED / SUCCEEDED    | not confirmed | none   | any                           | NO void → create refund plan   | never | —                  | superseded             | one PAYMENT_REFUND    | Action pending  |
+| AUTHORIZED              | CONFIRMED     | —      | any                           | NO void → manual review        | never | —                  | always                 | —                     | Confirmed       |
+| AUTHORIZED              | any           | issued | any                           | NO void → manual review        | never | —                  | always                 | —                     | Processing      |
+| AUTHORIZED              | not confirmed | none   | immediate-capture (no void)   | NOT eligible → refund path     | never | —                  | —                      | PAYMENT_REFUND (plan) | Action pending  |
+| ambiguous/timeout       | not confirmed | none   | supportsPaymentStatusQuery    | status query → re-decide       | Auto¹ | bounded            | unknown after attempts | if captured           | Processing      |
+| already VOIDED          | not confirmed | none   | any                           | idempotent success             | Auto¹ | —                  | —                      | —                     | Processing      |
+
+¹ Only when `BOOKING_COMPENSATION_AUTO_VOID_ENABLED` (off by default; production-forbidden; only
+the mock provider is void-capable today). Amount + currency must match the authoritative payment.
+
 ## Automatic eligibility (P5.3A)
 
 Only `REDIS_LOCK_RELEASE`, `LOCAL_HOLD_RELEASE` (unambiguously unpaid), `PROVIDER_STATUS_RECOVERY`,

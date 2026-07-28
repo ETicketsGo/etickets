@@ -100,6 +100,31 @@ recovery resolves it.
 - `RESERVATION_ACTIVE_LOCAL_RELEASED` — the external reservation is still active while the local
   booking is expired/cancelled → an orphaned reservation to cancel (plan a `PROVIDER_RESERVATION_CANCEL`).
 
+## Payment void (Phase 5)
+
+Enable with `BOOKING_COMPENSATION_ENABLED` + `_PLANNING_ENABLED` + `_EXECUTION_ENABLED` +
+`_AUTO_VOID_ENABLED`, and a **void-capable active provider** (`PAYMENT_PROVIDER_NAME=mock` today;
+startup fails otherwise). Auto-void is **production-forbidden**. Void cancels an
+authorized-not-captured payment only; it is NOT a refund and never touches captured money.
+
+- **Check void eligibility / capture state:** `SELECT b.status, p.status AS payment_status,
+p."amountMinor" FROM "Booking" b JOIN "Payment" p ON p."bookingId"=b.id WHERE b.id=$1;` Void is
+  eligible only when `payment_status='AUTHORIZED'`, the booking is not CONFIRMED, and no ticket is
+  issued. `SUCCEEDED`/`CAPTURED` → refund territory (Phase 6), never voided.
+- **Dry-run:** `POST /admin/compensations/dry-run` with the discrepancy context; a captured
+  payment yields a `PAYMENT_REFUND` action (financial=true, not auto).
+- **Investigate ambiguous void:** events `booking.payment_void_requested` then
+  `booking.payment_void_ambiguous`; the executor queries payment status
+  (`booking.payment_status_recovered`) → VOIDED (finalize), AUTHORIZED (retry), CAPTURED (handoff).
+- **Captured-payment handoff:** a superseded void (`state=CANCELLED`, reason
+  `SUPERSEDED_BY_REFUND`) creates ONE `PAYMENT_REFUND` plan; verify no second refund plan shares
+  the payment target (unique constraint). **No refund is executed in Phase 5.**
+- **Provider-voided / local-pending:** if the provider shows the authorization cancelled but the
+  local `Payment.status` is still AUTHORIZED, re-run the void (idempotent) — the guarded finalize
+  moves it to VOIDED exactly once.
+- **Disable auto-void:** set `_AUTO_VOID_ENABLED=false` — planning continues; in-flight records
+  sit in MANUAL_REVIEW. Health `GET /health/compensation` → `void.*` counts show the backlog.
+
 ## Verify no double refund / no duplicate provider cancellation
 
 - One refund plan per (payment, reason) via the unique constraint.

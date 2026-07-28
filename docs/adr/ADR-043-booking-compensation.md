@@ -139,6 +139,38 @@ compensation worker (via the global bridge) for `PROVIDER_RESERVATION_CANCEL`, g
 - **Startup validation:** auto-provider-cancel requires execution + a registered provider
   (`BOOKING_PROVIDER_CONFIRMATION_ENABLED`); refund/void remain production-forbidden (Phase 5/6).
 
+## Phase 5 — controlled payment void (P5.3B, shipped, off + production-forbidden)
+
+`PaymentVoidExecutor` (invoked by the compensation worker for `PAYMENT_VOID`, gated by
+`BOOKING_COMPENSATION_AUTO_VOID_ENABLED`) cancels an authorization ONLY when it is safe.
+
+- **Honest capability model.** `PaymentProviderCapabilities` gains `supportsVoid` /
+  `supportsIdempotentVoid` / `supportsPaymentStatusQuery`. Audit reality: **only the mock is
+  void-capable** — Stripe/PayPal/Square are auth/capture-capable but not void-wired in the
+  booking flow, and Razorpay is immediate-capture (refund-only). An immediate-capture provider's
+  compensation stays `PAYMENT_REFUND`, never `PAYMENT_VOID`.
+- **Authorized vs captured.** `PaymentStatus` gains `AUTHORIZED` + `VOIDED` (migration
+  `20260728130000`). Void is eligible ONLY for `AUTHORIZED`-not-captured, unconfirmed +
+  unticketed bookings, matching amount + currency, on a void-capable provider. **A captured
+  payment is never voided.**
+- **Idempotency + intent-before-call.** The record's stable server-generated key is reused on
+  every retry/worker/admin-approval. `BookingPaymentVoidRequested` is emitted BEFORE the
+  provider call (durable intent). A definitive success finalizes `payment→VOIDED` exactly once
+  (guarded `updateMany` + `BookingPaymentVoided` in the same tx) — six concurrent finalizers
+  apply once (same guarded pattern proven for reservation-cancel against real PostgreSQL).
+- **Ambiguous-result recovery.** A timeout/ambiguous outcome is NEVER assumed — it queries
+  payment status: `VOIDED/CANCELLED`→finalize once, `AUTHORIZED`→retry the idempotent void,
+  `CAPTURED`→refund handoff, unknown→manual review. Void-response-lost recovers without a second
+  financial action.
+- **Captured-payment refund handoff.** On discovering capture, the executor creates ONE
+  `PAYMENT_REFUND` plan (idempotent via the unique constraint) and supersedes the void
+  (→ CANCELLED). **It executes no refund** (Phase 6). Concurrent workers create one refund plan
+  (proven against real PostgreSQL).
+- **Never money mislabelled.** A void is never marked refunded; a booking is never marked
+  refunded or confirmed by the void path. Safe cleanup (hold/lock) stays with its own actions.
+- **Rollout controls.** Off by default; startup rejects auto-void without execution, without a
+  void-capable provider, and **in production**. Bounded metrics + counts-only void health.
+
 ## Rollout plan
 
 Phase 0 disabled → 1 observe (classifications/metrics) → 2 plan (records, no execution) → 3
@@ -160,7 +192,10 @@ ops + health surfaces (P5.3A)**. Plus the P5.3A.1 follow-through: **transactiona
 accounting** (oversell-proof held guard, real-Postgres proven), **transactional provider event
 emission** (in-tx, exactly-once), and a **provider-authoritative real-Postgres HA harness**
 (concurrent confirmation / confirmation-vs-expiration-vs-cancellation / idempotency /
-two-worker claims). Full API suite **153 suites / 1079 tests**; tsc + build + worker + prettier
-clean; migrations through `20260728110000` applied. **All compensation behaviour OFF by
-default; no money movement executes.** P5.3A is closed; P5.3B (controlled payment void/refund +
-provider-cancellation execution) is the next increment.
+two-worker claims). Plus **P5.3B Phase 4** (provider reservation cancellation) and **Phase 5**
+(controlled payment void — authorized-not-captured only, capability-honest, intent-before-call,
+finalize-once, ambiguous→status recovery, captured→one refund plan with no refund executed).
+Full API suite **156 suites / 1120 tests**; tsc + build + worker + prettier clean; migrations
+through `20260728130000` applied. **All compensation behaviour OFF by default; no captured money
+moves.** P5.3A + P5.3B Phases 4–5 shipped; **Phase 6 (controlled refunds) remains** — only after
+staging + policy approval + idempotency proof + monitoring.
