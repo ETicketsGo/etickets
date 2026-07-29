@@ -30,14 +30,16 @@ Firebase SDK integration and is therefore **not** applied blindly.
 
 **Batch A — runtime majors (highest priority, one PR each, full suite + smoke per bump):**
 
-1. ✅ **DONE — Batch A1** (branch `chore/sec1-nestjs-runtime-remediation`; report
-   `docs/reports/SEC1-NESTJS-UPGRADE-REPORT.md`). `@nestjs/*` 10→11 family + Express 5
-   (`platform-express@11`→express 5.2), `config` 3→4, `swagger` 7→11, `@types/express` 4→5, rxjs
-   singleton override. Code fixes: `forRoutes('{*path}')`, JWT `expiresIn` cast. **Baseline main was
-   GREEN first** (162/1180). **Audit 91→69 (−22): critical unchanged at 2 (next/vitest — NOT NestJS);
-   the family owned 0 critical / 5 high — removed incl the runtime `multer` DoS + cli/tmp/
-   fork-ts-checker/brace-expansion (dev).** Verified: 162/1180, API+worker **boot** (compiled JS),
-   fresh-DB migrate, drift 0, prettier, secret scan. DI import-type audit clean. **GO.**
+1. ⚠️ **Batch A1 — CODE DONE but BLOCKED** (branch `chore/sec1-nestjs-runtime-remediation`, PR #25;
+   report `docs/reports/SEC1-NESTJS-UPGRADE-REPORT.md`). `@nestjs/*` 10→11 family + Express 5, `config`
+   3→4, `swagger` 7→11, `@types/express` 4→5, rxjs singleton. Fixes: `forRoutes('{*path}')`, JWT cast.
+   **Baseline main GREEN first** (162/1180). **Audit 91→69 (−22): critical unchanged at 2 (next/vitest —
+   NOT NestJS); family owned 0 critical / 5 high — removed incl the runtime `multer` DoS.** All API
+   gates pass (1180 tests, API+worker boot, fresh-DB migrate, drift 0). **BLOCKER:** the NestJS major's
+   _required_ lockfile regen relocates web-app `next` (nested→hoisted), regressing one customer-web
+   offline e2e (`offline.spec.ts:22`) — **proven vs a fresh main build, not flaky** (retracts the earlier
+   "flaky" claim on the predecessor branch/PR #24). Not fixable within NestJS-family scope. **NO-GO;
+   recommend combining with the Next.js batch (A2) so the shared lockfile settles the web apps.**
 2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the

@@ -109,6 +109,7 @@ protected). Guards (Maintenance→Throttler→JwtAuth→Roles) and `trust proxy`
 | Real PostgreSQL + Redis concurrency, outbox, compensation, booking, refund, security tests | ✅ (in the 1180)                                                        |
 | Prettier (whole repo)                                                                      | ✅ clean                                                                |
 | Secret scan                                                                                | ✅ clean                                                                |
+| **CI Playwright e2e**                                                                      | ❌ **1 test fails** — `offline.spec.ts:22` (see §12a BLOCKER)           |
 
 ## 10. Security before → after
 
@@ -128,7 +129,44 @@ The rest are dev/build tooling. No new advisory introduced.
 API boot ≈ 5 s to "successfully started"; full API suite ≈ 60 s (unchanged vs baseline); build
 unchanged. No material regression. (Local numbers — not a production claim.)
 
-## 12. Lockfile note
+## 12a. BLOCKER — customer-web offline e2e regression (honest finding)
+
+**One CI e2e test regresses because of this upgrade.** `apps/e2e/tests/offline.spec.ts:22` ("offline
+wallet … without connectivity") fails at line 50 `expect(getByText(/Offline/)).toBeVisible()` — the
+cached page shows "2 tickets" but the `navigator.onLine` "Offline" banner never appears.
+
+**Definitive baseline comparison (this is NOT flaky):**
+
+- On **main** (fresh CI build, PR #23) the test **PASSES** in 3.8 s.
+- On this branch it **FAILS** (15 s timeout) across 4 CI runs.
+
+**Root-cause mechanism:** the NestJS major **requires** a full lockfile regeneration (incremental /
+dedupe / overrides all break NestJS hoisting → dual-package DI boot failures). That regen **relocates
+the web apps' `next` from nested → hoisted**: main splits `next` (root 14.2.15 + nested 14.2.35 per web
+app), the regen unifies it to a single hoisted 14.2.35 (same version, different layout). Building
+`customer-web` fresh from the hoisted layout changes its service-worker/offline runtime enough to
+regress the banner. (main's later CI _re-run_ passed only because it used a turbo-cached bundle built
+from the nested layout — a fresh main build passes; a fresh branch build fails.)
+
+**Why it can't be fixed within NestJS-family scope:** npm workspace hoisting for `next` is not
+controllable via `overrides` (which pin versions, not location), and a surgical NestJS-only lockfile
+is impossible (proven). The perturbation lands in an **unrelated app family** (Next.js web apps),
+which an isolated NestJS batch must not disturb.
+
+**Correction:** an earlier analysis (on the predecessor branch `sec-1/batch-a1-nestjs`, PR #24) claimed
+this test was "flaky / decoupled." **That was wrong** and is retracted — the main-vs-branch fresh-build
+comparison proves the upgrade causes it.
+
+**Resolution options (for the reviewer):**
+
+1. Coordinate the **Next.js batch (A2)** with A1 — both share the lockfile/hoisting, so upgrading Next
+   and NestJS together lets the regen settle the web apps on a hoist-compatible Next version + test them.
+2. Preserve the web-app lockfile subtree at main's nested layout via targeted lockfile handling (keeps
+   the batch truly isolated), then re-run e2e.
+3. Investigate customer-web's SW/`useOnline` sensitivity to Next hoisting and make it hoist-robust
+   (separate customer-web change, not a NestJS dependency change).
+
+## 12b. Lockfile note
 
 A full lockfile regeneration is **required** for a NestJS major in npm workspaces: incremental
 installs / dedupe / targeted `overrides` all leave `@nestjs/*@10` leftovers or split the family
@@ -143,8 +181,17 @@ not an `audit fix --force` sweep.
 `git revert` the upgrade commits (or reset the branch); `npm ci` restores NestJS 10. No migration or
 schema change is involved (dependency-only). Feature flags untouched; money automation still OFF.
 
-## 14. Recommendation: **GO** (for review + merge)
+## 14. Recommendation: **NO-GO (blocked)** — do not merge as-is
 
-Every required correctness/security/boot/migration/public-contract gate passes; the NestJS family is
-on one coherent v11 set; peers satisfied without force flags; API + worker boot; the runtime `multer`
-high is removed. The 2 criticals are out of scope (next/vitest — later batches). **Next batch: Next.js.**
+The **NestJS code upgrade is correct and complete**: coherent v11 family, peers satisfied without force
+flags, API + worker boot, all 1180 unit tests + all API/DB/Redis/security gates pass, runtime `multer`
+high removed, no public-contract change. **However**, the upgrade's _required_ full lockfile regen
+relocates the web apps' `next` (nested → hoisted), which **regresses one customer-web offline e2e**
+(§12a) — proven against a fresh main build, not flaky. Because the failure lands in an unrelated
+(Next.js) app family and npm hoisting can't be controlled within NestJS scope, this **cannot be fixed
+safely inside Batch A1**.
+
+**Per SEC-1 policy ("do not open a misleading green PR; document the blocker"): main is left untouched;
+the PR stays open, honestly marked BLOCKED, pending one of the §12a resolution options.** The strongest
+path is to **fold this into a combined NestJS + Next.js step (A1+A2)** so the shared lockfile settles
+the web apps on a hoist-compatible Next version and the e2e is verified green before merge.
