@@ -13,7 +13,6 @@
 // connectivity changes that happen before a component mounts. No polling loop — reachability is
 // event-driven off the requests the app already makes.
 
-import { useSyncExternalStore } from 'react';
 import type { OfflineSyncState } from './offline-eligibility';
 
 export type ConnectivityState = 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN';
@@ -176,14 +175,10 @@ export function getServerConnectivitySnapshot(): ConnectivitySnapshot {
   return SERVER_SNAPSHOT;
 }
 
-/** Hydration-safe connectivity snapshot. SSR renders UNKNOWN; the client reflects live evidence. */
-export function useConnectivity(): ConnectivitySnapshot {
-  return useSyncExternalStore(
-    subscribeConnectivity,
-    getConnectivitySnapshot,
-    getServerConnectivitySnapshot,
-  );
-}
+// `useConnectivity` (the React hook wrapping this store via useSyncExternalStore) lives in the
+// `'use client'` hooks module — this file stays React-free so the API client (`api.ts`) can import
+// the reachability markers from any environment (including Server Components) without pulling a
+// client-only hook into a server import graph.
 
 /** Test-only: reset the module store to its initial state between tests. */
 export function __resetConnectivityForTests(now: State | null = null): void {
