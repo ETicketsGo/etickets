@@ -30,9 +30,19 @@ Firebase SDK integration and is therefore **not** applied blindly.
 
 **Batch A — runtime majors (highest priority, one PR each, full suite + smoke per bump):**
 
-1. `@nestjs/*` 10→11 family (core, platform-express, config, swagger, testing, cli, schematics) —
-   coordinated (they must move together); run full API suite + e2e.
-2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
+1. ⚠️ **Batch A1 (`@nestjs/*` 10→11) — BLOCKED on a customer-web fix, NOT on Next.js.** All API-level
+   gates pass (162/1180, boot, migrations, audit 91→69; family owns 0 crit / 5 high incl runtime
+   `multer`). **Blocker root cause CORRECTED** (branch `chore/sec1-nestjs-next-workspace-remediation`,
+   report `SEC1-NESTJS-NEXT-WORKSPACE-UPGRADE-REPORT.md`): a controlled local isolation experiment
+   proved the offline e2e regression is caused by **NestJS 11 / Express 5**, **not** `next` hoisting
+   (NestJS 10 + hoisted next → passes; NestJS 11 + hoisted next → fails, matching CI). The prior
+   "hoisting/combine-with-Next" diagnosis (PR #24/#25) is **superseded**. On the offline wallet page
+   under NestJS 11, `navigator.onLine` stays `true` (banner shows "Up to date" not "Offline"); a
+   customer-web offline-detection/hydration fix is required (verified by the offline e2e) — this is a
+   **customer-web change, not a dependency batch**. Also fix `packages/web-kit`'s `next: "14.2.15"`
+   residue (align `^14.2.35`) for a clean workspace layout (safe; unrelated to the regression).
+2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e. **Note: NOT
+   a prerequisite for the NestJS batch** (that was a wrong assumption; see A1).
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the
    patched transitive resolves; verify push-notification + any Google integration paths.
