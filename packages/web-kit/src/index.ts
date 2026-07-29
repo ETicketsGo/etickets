@@ -5,6 +5,7 @@ export * from './event-timing';
 export * from './wallet';
 export * from './offline-eligibility';
 export * from './api';
+export * from './connectivity';
 export * from './components';
 export * from './hooks';
 export * from './shell';
