@@ -30,8 +30,10 @@ Firebase SDK integration and is therefore **not** applied blindly.
 
 **Batch A — runtime majors (highest priority, one PR each, full suite + smoke per bump):**
 
-1. `@nestjs/*` 10→11 family (core, platform-express, config, swagger, testing, cli, schematics) —
-   coordinated (they must move together); run full API suite + e2e.
+1. ✅ **DONE (Batch A1, PR on `sec-1/batch-a1-nestjs`)** — `@nestjs/*` 10→11 family + Express 5
+   (`platform-express@11`→express 5.2, path-to-regexp v8), `@nestjs/config` 3→4, `@types/express`
+   4→5, `rxjs` pinned 7.8.2 (dual-hoist singleton). Fixes: `forRoutes('{*path}')`, JWT `expiresIn`
+   cast. **Cleared 22 advisories (91→69).** Full suite 162/1180 + boot + HTTP smoke green.
 2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the
