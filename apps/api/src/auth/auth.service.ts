@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthTokens } from '@eticketsgo/shared-types';
@@ -168,7 +168,9 @@ export class AuthService {
     const payload: AccessTokenPayload = { sub: userId, email, name: fullName, roles };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s'),
+      // @nestjs/jwt v11 (jsonwebtoken@9) types `expiresIn` as `number | ms.StringValue`; our value
+      // is a validated duration string ('900s'/'30d') TS can't narrow from a dynamic string.
+      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s') as JwtSignOptions['expiresIn'],
     });
 
     const refreshToken = randomBytes(48).toString('hex');
