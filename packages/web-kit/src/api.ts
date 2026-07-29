@@ -10,6 +10,8 @@ import type {
 
 export type { QueuedCheckIn, RevocationDelta } from '@eticketsgo/shared-types';
 
+import { markApiReachable, markApiUnreachable } from './connectivity';
+
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
   'http://localhost:4000/api';
@@ -96,7 +98,18 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
     headers.set('authorization', `Bearer ${tokenStore.access}`);
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  // Reachability signal (ADR-034): a network-level fetch failure means our API origin is
+  // unreachable; any HTTP response — including 4xx/5xx — means it IS reachable (an application
+  // error is not a connectivity problem). This drives the offline indicator independently of the
+  // sometimes-stale `navigator.onLine`.
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  } catch (err) {
+    markApiUnreachable();
+    throw err;
+  }
+  markApiReachable();
 
   // Attempt a single transparent refresh on auth failure.
   if (res.status === 401 && options.auth !== false && !options._retried && tokenStore.refresh) {

@@ -32,6 +32,14 @@ Firebase SDK integration and is therefore **not** applied blindly.
 
 1. `@nestjs/*` 10→11 family (core, platform-express, config, swagger, testing, cli, schematics) —
    coordinated (they must move together); run full API suite + e2e.
+   **BLOCKED → now unblocked (see A1 note below).** A first A1 attempt failed the customer wallet
+   offline E2E: under NestJS 11 / Express 5, response timing shifted enough that Chromium reported
+   `navigator.onLine === true` on an **offline-reloaded** wallet page, so the wallet (which trusted
+   that single boolean) never showed the offline indicator. The correct fix was a **frontend
+   prerequisite**, not a test tweak — shipped separately as `fix/customer-web-offline-detection`
+   (see `CUSTOMER-WEB-OFFLINE-DETECTION-HARDENING.md`). **A combined NestJS + Next.js upgrade in one
+   PR was rejected** — it would have entangled two independent majors and made the offline
+   regression impossible to attribute.
 2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the
@@ -52,8 +60,22 @@ None applied to the lockfile in this pass (the `npm update` churn was reverted).
 dependency-adjacent change on this branch is the `security.yml` scanner. Each Batch A/B upgrade must
 re-run: full API suite (161/1176), web builds, Playwright e2e, `npm audit` delta.
 
+## Batch A1 retry sequence (NestJS 10→11)
+
+The offline regression was a **customer-web** defect exposed by (not caused by) NestJS 11. Sequence:
+
+1. **Prerequisite (this PR):** merge `fix/customer-web-offline-detection` — hardens offline
+   detection so the wallet no longer relies solely on `navigator.onLine`. Proven against **both**
+   Express 4 (NestJS 10) and Express 5 (NestJS 11) locally: 50+ paced offline-E2E reps per backend,
+   0 offline-detection failures. See `CUSTOMER-WEB-OFFLINE-DETECTION-HARDENING.md`.
+2. **After it merges to `main`:** retry **Batch A1 only** (`@nestjs/*` 10→11 family) from the
+   updated `main`. The offline E2E now passes because the UI no longer trusts a stale `navigator.
+onLine`. Do **not** bundle any Next.js change into A1.
+3. **Only after A1 is green + merged:** begin **Batch A2** (`next` 15→16). Never combine A1 and A2.
+
 ## Gate
 
 **PRODUCTION GATE (SEC-1):** Batch A must be completed + verified before production. Batch B before
 or shortly after pilot. The 2 criticals (`next`, `vitest`) are a web-SSR major and a dev test
 runner — neither is in the API money path, but `next` must be upgraded before public web launch.
+**Batch A1 is gated on the customer-web offline-detection fix landing first (above).**

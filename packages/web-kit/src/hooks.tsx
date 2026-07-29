@@ -2,9 +2,15 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { api, tokenStore, type AuthUser } from './api';
 import { Spinner } from './components';
+import {
+  subscribeConnectivity,
+  getConnectivitySnapshot,
+  getServerConnectivitySnapshot,
+  type ConnectivitySnapshot,
+} from './connectivity';
 
 /** Fetches the current user; null when signed out. */
 export function useAuthUser() {
@@ -166,4 +172,18 @@ export function useOnline(): boolean {
     };
   }, []);
   return online;
+}
+
+/**
+ * Hydration-safe connectivity snapshot backed by the `./connectivity` external store. SSR renders a
+ * constant UNKNOWN; the client reflects live evidence (browser hint + API-origin reachability). The
+ * store itself is React-free (so `api.ts` can signal reachability from any environment); this hook
+ * is the client-only binding.
+ */
+export function useConnectivity(): ConnectivitySnapshot {
+  return useSyncExternalStore(
+    subscribeConnectivity,
+    getConnectivitySnapshot,
+    getServerConnectivitySnapshot,
+  );
 }
