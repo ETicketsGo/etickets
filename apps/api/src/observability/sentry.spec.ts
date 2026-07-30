@@ -4,11 +4,13 @@ const captureMock = jest.fn();
 const withScopeMock = jest.fn((cb: (scope: { setTag: jest.Mock }) => void) =>
   cb({ setTag: jest.fn() }),
 );
+const dedupeMock = jest.fn((..._args: unknown[]) => ({ name: 'Dedupe' }));
 
 jest.mock('@sentry/node', () => ({
   init: (...args: unknown[]) => initMock(...args),
   captureException: (...args: unknown[]) => captureMock(...args),
   withScope: (cb: (scope: { setTag: jest.Mock }) => void) => withScopeMock(cb),
+  dedupeIntegration: (...args: unknown[]) => dedupeMock(...args),
 }));
 
 // Fresh module instance per test so the internal `initialised` singleton resets.
@@ -57,6 +59,14 @@ describe('Sentry integration', () => {
       environment: 'staging',
       sendDefaultPii: false,
     });
+    // Hardening: dedupe integration + a beforeSend PII scrubber are wired in.
+    const initArg = initMock.mock.calls[0][0] as {
+      integrations: unknown[];
+      beforeSend: unknown;
+    };
+    expect(dedupeMock).toHaveBeenCalledTimes(1);
+    expect(Array.isArray(initArg.integrations)).toBe(true);
+    expect(typeof initArg.beforeSend).toBe('function');
 
     sentry.captureException(new Error('boom'), { correlationId: 'xyz' });
     expect(captureMock).toHaveBeenCalledTimes(1);
@@ -68,5 +78,61 @@ describe('Sentry integration', () => {
     sentry.initSentry();
     sentry.initSentry();
     expect(initMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('scrubSensitiveData — PII filter (beforeSend)', () => {
+  type ScrubEvent = Parameters<typeof import('./sentry').scrubSensitiveData>[0];
+
+  it('strips request cookies, body, query-string and auth/cookie headers', () => {
+    const { scrubSensitiveData } = loadSentry();
+    const event = {
+      request: {
+        method: 'POST',
+        url: 'https://api.eticketsgo.test/api/bookings/confirm',
+        query_string: 'token=secret123',
+        cookies: { session: 'abc' },
+        data: { password: 'hunter2', card: '4111111111111111' },
+        headers: {
+          Authorization: 'Bearer eyJhbGc.eyJzdWI.sig',
+          Cookie: 'session=abc',
+          'content-type': 'application/json',
+        },
+      },
+    } as unknown as ScrubEvent;
+
+    const out = scrubSensitiveData(event) as unknown as {
+      request: {
+        cookies?: unknown;
+        data?: unknown;
+        query_string?: unknown;
+        headers: Record<string, string>;
+      };
+    };
+    expect(out.request.cookies).toBeUndefined();
+    expect(out.request.data).toBeUndefined();
+    expect(out.request.query_string).toBeUndefined();
+    expect(out.request.headers.Authorization).toBeUndefined();
+    expect(out.request.headers.Cookie).toBeUndefined();
+    // Benign header is preserved.
+    expect(out.request.headers['content-type']).toBe('application/json');
+  });
+
+  it('removes any user identity (email/ip/username)', () => {
+    const { scrubSensitiveData } = loadSentry();
+    const event = {
+      user: { id: 'u1', email: 'victim@example.com', ip_address: '9.9.9.9', username: 'victim' },
+    } as unknown as ScrubEvent;
+    const out = scrubSensitiveData(event) as unknown as { user?: unknown };
+    expect(out.user).toBeUndefined();
+  });
+
+  it('is a safe no-op for an event with no request/user', () => {
+    const { scrubSensitiveData } = loadSentry();
+    const event = {
+      exception: { values: [{ type: 'Error', value: 'boom' }] },
+    } as unknown as ScrubEvent;
+    expect(() => scrubSensitiveData(event)).not.toThrow();
+    expect(scrubSensitiveData(event)).toBe(event);
   });
 });
