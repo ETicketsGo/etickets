@@ -45,6 +45,30 @@ if (SENTRY_ENABLED) {
     release: process.env.SENTRY_RELEASE,
     tracesSampleRate: 0,
     sendDefaultPii: false,
+    // Drop consecutive identical errors client-side (node has no default dedupe).
+    integrations: [Sentry.dedupeIntegration()],
+    // Belt-and-suspenders PII scrub: strip request cookies/body/query, auth/cookie
+    // headers, and any user identity from every outgoing event. Never throws.
+    beforeSend(event) {
+      try {
+        if (event.request) {
+          delete event.request.cookies;
+          delete event.request.data;
+          delete event.request.query_string;
+          const headers = event.request.headers;
+          if (headers)
+            for (const key of Object.keys(headers)) {
+              const k = key.toLowerCase();
+              if (k === 'authorization' || k === 'cookie' || k === 'set-cookie')
+                delete headers[key];
+            }
+        }
+        delete event.user;
+      } catch {
+        /* best-effort */
+      }
+      return event;
+    },
   });
 }
 

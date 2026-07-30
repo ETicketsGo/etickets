@@ -13,7 +13,7 @@
     "@eticketsgo/api": "*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
-    "@sentry/node": "^8.55.2",
+    "@sentry/node": "^10.69.0",
     "bullmq": "^5.13.2",
     "ioredis": "^5.4.1",
     "prom-client": "^15.1.3",
