@@ -43,7 +43,15 @@ Firebase SDK integration and is therefore **not** applied blindly.
    superseded** (their flaky/hoisting diagnoses were obsolete — the real cause was the offline defect).
    **A combined NestJS + Next.js upgrade in one PR was rejected** — it would have entangled two
    independent majors and made the offline regression impossible to attribute.
-2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
+2. `next` 14→15 (customer/organizer/admin web) — **DONE (A3), PR open, not merged.**
+   `chore/sec1-nextjs-runtime-remediation` upgrades all three web apps + web-kit to **`next@15.5.22`**
+   (from 14.2.35, the end of the 14.x line with an unpatched critical). **React 18 and ESLint 8 kept**
+   — Next 16 was rejected because `eslint-config-next@16` requires ESLint 9 (out of scope) and adds no
+   security benefit for the residual transitive advisories. Removes the Next.js middleware
+   authorization-bypass **critical** + all Next.js-framework highs. Only compat change: one async
+   `params` migration (blog route). Backend unchanged (162/1183). Offline PWA + full E2E green. See
+   `SEC1-NEXTJS-UPGRADE-REPORT.md`. Residual `next`-transitive high (`sharp`/`postcss`) is
+   build-time / unreachable (no `next/image` usage) with no stable Next fix.
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the
    patched transitive resolves; verify push-notification + any Google integration paths.
