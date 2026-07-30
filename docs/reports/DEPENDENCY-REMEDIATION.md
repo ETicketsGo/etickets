@@ -32,14 +32,17 @@ Firebase SDK integration and is therefore **not** applied blindly.
 
 1. `@nestjs/*` 10→11 family (core, platform-express, config, swagger, testing, cli, schematics) —
    coordinated (they must move together); run full API suite + e2e.
-   **BLOCKED → now unblocked (see A1 note below).** A first A1 attempt failed the customer wallet
-   offline E2E: under NestJS 11 / Express 5, response timing shifted enough that Chromium reported
-   `navigator.onLine === true` on an **offline-reloaded** wallet page, so the wallet (which trusted
-   that single boolean) never showed the offline indicator. The correct fix was a **frontend
-   prerequisite**, not a test tweak — shipped separately as `fix/customer-web-offline-detection`
-   (see `CUSTOMER-WEB-OFFLINE-DETECTION-HARDENING.md`). **A combined NestJS + Next.js upgrade in one
-   PR was rejected** — it would have entangled two independent majors and made the offline
-   regression impossible to attribute.
+   **DONE (retry v2) — replacement PR open, not merged.** The prerequisite offline-detection fix
+   (`fix/customer-web-offline-detection`, PR #26) is **merged to `main`**, so the wallet no longer
+   trusts a stale `navigator.onLine`. The A1 retry (`chore/sec1-nestjs-runtime-remediation-v2`)
+   upgrades the whole family to v11 from the updated `main` via a **clean lockfile regeneration**
+   (surgical installs split the Nest DI runtime — proven earlier). Compat fixes: `forRoutes('{*path}')`
+   for Express 5, `JwtSignOptions['expiresIn']` typing, single runtime RxJS 7.8.2. Verified: full API
+   suite 162/1180, API+worker compiled boot, all three web builds, and the offline PWA E2E **against
+   NestJS 11** (see `SEC1-NESTJS-UPGRADE-V2-REPORT.md`). Prior attempts **PR #24 / PR #25 are
+   superseded** (their flaky/hoisting diagnoses were obsolete — the real cause was the offline defect).
+   **A combined NestJS + Next.js upgrade in one PR was rejected** — it would have entangled two
+   independent majors and made the offline regression impossible to attribute.
 2. `next` 15→16 (customer/organizer/admin web) — per-app; run web build + Playwright e2e.
 3. `@sentry/node` →10 — verify worker + API instrumentation still initializes.
 4. `google-gax` / `firebase-admin` / `fast-xml-parser` / `gaxios` — bump the SDK parent so the
@@ -64,14 +67,16 @@ re-run: full API suite (161/1176), web builds, Playwright e2e, `npm audit` delta
 
 The offline regression was a **customer-web** defect exposed by (not caused by) NestJS 11. Sequence:
 
-1. **Prerequisite (this PR):** merge `fix/customer-web-offline-detection` — hardens offline
-   detection so the wallet no longer relies solely on `navigator.onLine`. Proven against **both**
-   Express 4 (NestJS 10) and Express 5 (NestJS 11) locally: 50+ paced offline-E2E reps per backend,
-   0 offline-detection failures. See `CUSTOMER-WEB-OFFLINE-DETECTION-HARDENING.md`.
-2. **After it merges to `main`:** retry **Batch A1 only** (`@nestjs/*` 10→11 family) from the
-   updated `main`. The offline E2E now passes because the UI no longer trusts a stale `navigator.
-onLine`. Do **not** bundle any Next.js change into A1.
-3. **Only after A1 is green + merged:** begin **Batch A2** (`next` 15→16). Never combine A1 and A2.
+1. **Prerequisite — DONE:** `fix/customer-web-offline-detection` (PR #26) **merged to `main`**
+   (`1570e6e`) — hardens offline detection so the wallet no longer relies solely on
+   `navigator.onLine`. Proven against **both** Express 4 (NestJS 10) and Express 5 (NestJS 11):
+   54/54 paced offline reps per backend, 0 failures. See `CUSTOMER-WEB-OFFLINE-DETECTION-HARDENING.md`.
+2. **A1 retry — DONE (PR open, not merged):** `chore/sec1-nestjs-runtime-remediation-v2` from updated
+   `main`. `@nestjs/*` 10→11 family only; no Next.js. The offline E2E now passes against NestJS 11.
+   Full details + GO verdict in `SEC1-NESTJS-UPGRADE-V2-REPORT.md`.
+3. **Only after A1 is green + merged:** re-assess the advisory graph and pick the next isolated
+   runtime family by **actual remaining production exposure** (not the old assumed order). Batch A2
+   (`next` 15→16) is a candidate but must be its own PR — never combine A1 and A2.
 
 ## Gate
 

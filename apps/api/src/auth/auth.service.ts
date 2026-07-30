@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthTokens } from '@eticketsgo/shared-types';
@@ -168,7 +168,10 @@ export class AuthService {
     const payload: AccessTokenPayload = { sub: userId, email, name: fullName, roles };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s'),
+      // @nestjs/jwt v11 types expiresIn as ms' `StringValue` template-literal union; a config
+      // string ('900s' default) is valid at runtime but not provably assignable, so cast to the
+      // exact option type. Behaviour and the TTL source are unchanged.
+      expiresIn: this.config.get<string>('JWT_ACCESS_TTL', '900s') as JwtSignOptions['expiresIn'],
     });
 
     const refreshToken = randomBytes(48).toString('hex');

@@ -129,6 +129,9 @@ import { LoggingInterceptor } from './common/logging.interceptor';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    // Express 5 / path-to-regexp v8 require a named wildcard; '*' is no longer a valid path token
+    // (NestJS auto-converts it with a deprecation warning). '{*path}' matches every route exactly
+    // as the old '*' did, so the correlation-ID middleware still runs on all requests.
+    consumer.apply(CorrelationIdMiddleware).forRoutes('{*path}');
   }
 }
