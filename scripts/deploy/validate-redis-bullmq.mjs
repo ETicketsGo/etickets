@@ -26,9 +26,29 @@
  * Redis that genuinely requires a password). Exit 0 = all checks pass.
  */
 
-import { Queue, Worker, QueueEvents } from 'bullmq';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { bullConnectionFromUrl, bullPrefix } from '../../apps/api/dist/common/redis-namespace.js';
+
+// Imported from the COMPILED API so the harness exercises the exact code the container
+// runs, not a re-implementation. That means the API must be built first — fail with a
+// usable instruction rather than an opaque ERR_MODULE_NOT_FOUND.
+const HELPER = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../apps/api/dist/common/redis-namespace.js',
+);
+if (!existsSync(HELPER)) {
+  console.error(
+    `\nCannot find the compiled helper at:\n  ${HELPER}\n\n` +
+      'Build the API first:\n  npm run packages:build && npm run db:generate && npx turbo run build --filter=@eticketsgo/api\n',
+  );
+  process.exit(1);
+}
+// pathToFileURL, not the bare path: a dynamic import of an absolute Windows path
+// ("C:\...") is rejected with ERR_UNSUPPORTED_ESM_URL_SCHEME.
+const { bullConnectionFromUrl, bullPrefix } = await import(pathToFileURL(HELPER).href);
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://:val-redis-pw@127.0.0.1:56379';
 const QUEUE_NAME = 'holds';
