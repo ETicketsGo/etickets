@@ -1,0 +1,206 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ETicketsGo — Railway continuous delivery (QA / UAT / Production).
+#
+# Branch → environment mapping (the only automatic triggers):
+#
+#     develop      → ETicketsGo-QA           (no approval)
+#     release/**   → ETicketsGo-UAT          (no approval)
+#     main         → ETicketsGo-Production   (REQUIRED manual approval)
+#
+# The approval gate is NOT expressed here — it is a property of the GitHub Environment
+# named `production` (Settings → Environments → production → Required reviewers). This
+# job simply declares `environment: production`, and GitHub pauses it until a reviewer
+# approves. Configuring the reviewers is a repository-owner action; see
+# docs/deployment/RAILWAY_DEPLOYMENT_RUNBOOK.md §13.
+#
+# Every deployment runs the full CI gate first (`uses: ./.github/workflows/ci.yml`), so
+# the commit that reaches an environment is exactly the commit that passed lint,
+# type-check, unit tests, migration validation, the deployment-config check, the build,
+# and the Playwright e2e suite.
+#
+# Secrets (repository → Settings → Secrets → Actions, or per GitHub Environment):
+#   RAILWAY_TOKEN_QA / RAILWAY_TOKEN_UAT / RAILWAY_TOKEN_PRODUCTION
+#     Railway PROJECT tokens (Project → Settings → Tokens), one per Railway project.
+#     A project token is scoped to a single project+environment and cannot read or
+#     write the other two — that scoping is what keeps a QA deploy from touching
+#     Production, so do NOT substitute a personal account token here.
+#   Store each one on its matching GitHub Environment, not repo-wide, so the
+#   production token is unusable from a workflow run that has not been approved.
+#
+# Variables (repository → Settings → Variables → Actions, per GitHub Environment):
+#   RAILWAY_SERVICE_API, RAILWAY_SERVICE_WORKER, RAILWAY_SERVICE_CUSTOMER_WEB,
+#   RAILWAY_SERVICE_ORGANIZER_WEB, RAILWAY_SERVICE_ADMIN_WEB — the service NAMES as
+#   created in that Railway project.
+#   DEPLOY_BASE_URL — public API base for the post-deploy smoke test
+#                     (e.g. https://api-qa.eticketsgo.com).
+#
+# Nothing here creates Railway resources. The projects, services, plugins, variables and
+# domains are created once by hand (runbook §1–§11); this workflow only ships code to
+# services that already exist.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy (Railway)
+
+on:
+  push:
+    branches: [develop, 'release/**', main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target Railway environment
+        type: choice
+        options: [qa, uat, production]
+        default: qa
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1) Decide the target environment from the branch (or the manual input) ──
+  resolve:
+    name: Resolve target environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+      app_env: ${{ steps.pick.outputs.app_env }}
+    steps:
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.environment }}" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          else
+            case "${{ github.ref }}" in
+              refs/heads/develop)     ENV=qa ;;
+              refs/heads/release/*)   ENV=uat ;;
+              refs/heads/main)        ENV=production ;;
+              *) echo "::error::${{ github.ref }} does not map to a deploy environment." && exit 1 ;;
+            esac
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "app_env=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')" >> "$GITHUB_OUTPUT"
+          echo "Deploying to $ENV."
+
+  # ── 2) The full verification gate. Nothing deploys without it. ──
+  gate:
+    name: CI gate
+    needs: resolve
+    uses: ./.github/workflows/ci.yml
+
+  # ── 3) Ship to Railway. ──
+  deploy:
+    name: Deploy to ${{ needs.resolve.outputs.environment }}
+    needs: [resolve, gate]
+    runs-on: ubuntu-latest
+    # Binds the job to the GitHub Environment of the same name. For `production` that
+    # environment carries the required-reviewer rule, so this job WAITS for a human.
+    # It also scopes which secrets this job can read.
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+      url: ${{ vars.DEPLOY_BASE_URL }}
+    # Never let two deployments to the SAME environment overlap: concurrent
+    # `prisma migrate deploy` runs and interleaved service restarts are how a
+    # half-migrated environment happens. Queue instead of cancelling, so an
+    # in-flight production deploy is allowed to finish rather than being killed
+    # mid-migration.
+    concurrency:
+      group: railway-deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4
+
+      - name: Select the environment's project token
+        id: token
+        env:
+          QA_TOKEN: ${{ secrets.RAILWAY_TOKEN_QA }}
+          UAT_TOKEN: ${{ secrets.RAILWAY_TOKEN_UAT }}
+          PROD_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+          TARGET: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            qa)         TOKEN="$QA_TOKEN" ;;
+            uat)        TOKEN="$UAT_TOKEN" ;;
+            production) TOKEN="$PROD_TOKEN" ;;
+          esac
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::No Railway token configured for '$TARGET'. Add RAILWAY_TOKEN_$(echo "$TARGET" | tr '[:lower:]' '[:upper:]') to the '$TARGET' GitHub Environment." >&2
+            exit 1
+          fi
+          # Masked so it can never appear in a log line, then handed to later steps
+          # through the (encrypted) step output rather than being re-read from secrets.
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      # Deploy order matters. The API owns migrations (preDeployCommand) and must be
+      # fully healthy before the worker starts consuming against the new schema; the web
+      # tier goes last so a browser never loads a bundle newer than the API serving it.
+      # Migrations in this codebase are additive, which is what makes this order safe.
+      - name: Deploy api (runs migrations via preDeployCommand)
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_API }}" --ci --detach=false
+
+      - name: Deploy worker
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_WORKER }}" --ci --detach=false
+
+      - name: Deploy customer-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_CUSTOMER_WEB }}" --ci --detach=false
+
+      - name: Deploy organizer-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ORGANIZER_WEB }}" --ci --detach=false
+
+      - name: Deploy admin-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ADMIN_WEB }}" --ci --detach=false
+
+  # ── 4) Prove the environment is actually serving before calling it deployed. ──
+  smoke:
+    name: Post-deploy smoke (${{ needs.resolve.outputs.environment }})
+    needs: [resolve, deploy]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - name: Health, readiness, metrics, and environment identity
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+          EXPECTED_ENV: ${{ needs.resolve.outputs.app_env }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::DEPLOY_BASE_URL is not set on the '${{ needs.resolve.outputs.environment }}' GitHub Environment." >&2
+            exit 1
+          fi
+          echo "Smoke-testing $BASE_URL"
+
+          # Liveness: the process is up and serving.
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
+            "$BASE_URL/api/health" | grep -q '"status":"ok"'
+          echo "  health   ok"
+
+          # Readiness: PostgreSQL AND Redis are reachable. A 503 here means the deploy
+          # is up but cannot safely serve traffic — fail the run rather than move on.
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
+            "$BASE_URL/api/ready" | grep -q '"status":"ok"'
+          echo "  ready    ok (database + redis)"
+
+          # Metrics endpoint responds with our namespace (proves the app, not a proxy
+          # error page, answered).
+          curl -fsS "$BASE_URL/api/metrics" | grep -q 'etg_'
+          echo "  metrics  ok"
+
+          echo "Smoke test passed for $EXPECTED_ENV."
