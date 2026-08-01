@@ -138,20 +138,100 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      # Deploy order matters. The API owns migrations (preDeployCommand) and must be
-      # fully healthy before the worker starts consuming against the new schema; the web
-      # tier goes last so a browser never loads a bundle newer than the API serving it.
-      # Migrations in this codebase are additive, which is what makes this order safe.
-      - name: Deploy api (runs migrations via preDeployCommand)
+      # ─────────────────────────────────────────────────────────────────────
+      # Deploy order is a correctness requirement, not a preference:
+      #
+      #   api (migration runs pre-traffic) → API READINESS GATE
+      #     → worker → WORKER READINESS GATE → web tier
+      #
+      # The API owns migrations and must be genuinely serving on the new schema before
+      # the worker starts consuming against it; the web tier goes last so a browser never
+      # loads a bundle newer than the API answering it. Migrations here are additive,
+      # which is what makes a partially-rolled fleet safe in the first place.
+      #
+      # The readiness gates between stages are the part that is easy to omit and costly
+      # to skip. `railway up --detach=false` returns when the deployment is live and
+      # Railway's own health check has passed — but that health check is LIVENESS
+      # (/api/health), which deliberately never touches PostgreSQL or Redis. An API that
+      # booted with an unreachable database passes liveness and fails every request. So
+      # each gate below polls READINESS (/api/ready, which checks both dependencies and
+      # returns 503 when either is down) and fails the release rather than cascading a
+      # broken deploy through the remaining services.
+      # ─────────────────────────────────────────────────────────────────────
+
+      # Step 1 — API. Railway runs `npx prisma migrate deploy` as this service's
+      # preDeployCommand: ONE one-off container per deployment, before any replica takes
+      # traffic, with a non-zero exit failing the deployment and leaving the previous
+      # version serving. That is the single migration executor for the environment — no
+      # other service and no replica runs migrations. A migration failure therefore stops
+      # the release here, and every step below is skipped.
+      - name: Deploy api (migrations run pre-traffic via preDeployCommand)
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
         run: railway up --service "${{ vars.RAILWAY_SERVICE_API }}" --ci --detach=false
 
+      - name: Gate — API readiness (PostgreSQL + Redis)
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::DEPLOY_BASE_URL is not set on this GitHub Environment; cannot gate on readiness." >&2
+            exit 1
+          fi
+          echo "Waiting for $BASE_URL/api/ready ..."
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsS --max-time 10 "$BASE_URL/api/ready" 2>/dev/null || true)"
+            case "$body" in
+              *'"status":"ok"'*)
+                echo "API ready after ${attempt} attempt(s): $body"
+                exit 0
+                ;;
+            esac
+            [ -n "$body" ] && echo "  attempt ${attempt}: not ready — $body" || echo "  attempt ${attempt}: no response"
+            sleep 10
+          done
+          echo "::error::API did not become ready within 5 minutes. Migration applied but the API cannot serve — investigate before the worker is deployed against this schema." >&2
+          exit 1
+
+      # Step 2 — worker. Only now is the schema live and proven serviceable.
       - name: Deploy worker
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
         run: railway up --service "${{ vars.RAILWAY_SERVICE_WORKER }}" --ci --detach=false
 
+      # The worker is internal-only (no public domain by design), so its /ready cannot be
+      # reached from a GitHub runner. Two signals are used instead, and both are real:
+      # Railway's own health check against the worker's /health must pass for the step
+      # above to succeed, and the API's ops endpoint reports the queue the worker owns.
+      # Set OPS_HEALTH_TOKEN on the environment to enable the second check; without it the
+      # gate degrades to the Railway health check alone and says so rather than pretending.
+      - name: Gate — worker readiness
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+          OPS_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Railway health check passed for the worker deployment (/health on its PORT)."
+          if [ -z "${OPS_TOKEN:-}" ]; then
+            echo "::warning::OPS_HEALTH_TOKEN not set — queue-level worker verification skipped."
+            echo "Verify manually: GET $BASE_URL/api/admin/ops/queues should list the repeatable schedule."
+            exit 0
+          fi
+          for attempt in $(seq 1 18); do
+            body="$(curl -fsS --max-time 10 -H "Authorization: Bearer $OPS_TOKEN" \
+                      "$BASE_URL/api/admin/ops/health" 2>/dev/null || true)"
+            case "$body" in
+              *'"queue"'*'"status":"down"'*) echo "  attempt ${attempt}: queue down" ;;
+              *'"queue"'*) echo "Worker queue reachable after ${attempt} attempt(s)."; exit 0 ;;
+              *) echo "  attempt ${attempt}: no response" ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Worker queue did not report healthy within 3 minutes." >&2
+          exit 1
+
+      # Step 3 — web tier last, so no browser gets a bundle newer than the API.
       - name: Deploy customer-web
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
