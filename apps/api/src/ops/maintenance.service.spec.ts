@@ -1,11 +1,13 @@
+import type { ConfigService } from '@nestjs/config';
 import { MaintenanceService } from './maintenance.service';
 import type { RedisService } from '../redis/redis.service';
 
-function makeService(client: { get: jest.Mock; set?: jest.Mock }) {
+function makeService(client: { get: jest.Mock; set?: jest.Mock }, appEnv = 'LOCAL') {
   const clientMock = { set: jest.fn().mockResolvedValue('OK'), ...client };
   const redis = { client: clientMock } as unknown as RedisService;
+  const config = { get: jest.fn(() => appEnv) } as unknown as ConfigService;
   return {
-    service: new MaintenanceService(redis),
+    service: new MaintenanceService(redis, config),
     client: clientMock as { get: jest.Mock; set: jest.Mock },
   };
 }
@@ -34,7 +36,10 @@ describe('MaintenanceService.setState', () => {
     const { service, client } = makeService({ get: jest.fn() });
     const res = await service.setState({ enabled: true, message: '   ' });
     expect(res).toEqual({ enabled: true });
-    expect(client.set).toHaveBeenCalledWith('etg:maintenance', JSON.stringify({ enabled: true }));
+    expect(client.set).toHaveBeenCalledWith(
+      'etg:local:ops:maintenance',
+      JSON.stringify({ enabled: true }),
+    );
   });
 
   it('keeps a real message', async () => {
@@ -42,8 +47,22 @@ describe('MaintenanceService.setState', () => {
     const res = await service.setState({ enabled: true, message: 'Upgrading DB' });
     expect(res).toEqual({ enabled: true, message: 'Upgrading DB' });
     expect(client.set).toHaveBeenCalledWith(
-      'etg:maintenance',
+      'etg:local:ops:maintenance',
       JSON.stringify({ enabled: true, message: 'Upgrading DB' }),
+    );
+  });
+
+  // Cross-environment isolation: two environments sharing one Redis must not share the flag,
+  // or QA enabling maintenance would take production offline.
+  it('scopes the key per APP_ENV so environments cannot share the flag', async () => {
+    const qa = makeService({ get: jest.fn() }, 'QA');
+    const prod = makeService({ get: jest.fn() }, 'PRODUCTION');
+    await qa.service.setState({ enabled: true });
+    await prod.service.setState({ enabled: false });
+    expect(qa.client.set).toHaveBeenCalledWith('etg:qa:ops:maintenance', expect.any(String));
+    expect(prod.client.set).toHaveBeenCalledWith(
+      'etg:production:ops:maintenance',
+      expect.any(String),
     );
   });
 });

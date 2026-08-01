@@ -20,12 +20,20 @@ import {
   SyncPollingService,
   OutboxDispatcher,
   OutboxRetentionService,
+  bullConnectionFromUrl,
   bullPrefix,
 } from '@eticketsgo/api';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const WORKER_PORT = Number(process.env.WORKER_PORT ?? 4100);
+// PaaS platforms (Railway, Heroku, Render…) inject the port to listen on as PORT and probe the
+// health endpoint there. Honour it first so the platform health check reaches us; WORKER_PORT
+// stays supported for compose/k8s deployments that pin :4100, and 4100 remains the default.
+const RAW_WORKER_PORT = Number(process.env.PORT ?? process.env.WORKER_PORT ?? 4100);
+const WORKER_PORT =
+  Number.isInteger(RAW_WORKER_PORT) && RAW_WORKER_PORT >= 0 && RAW_WORKER_PORT <= 65535
+    ? RAW_WORKER_PORT
+    : 4100;
 const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
 // Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
 const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 30_000);
@@ -42,7 +50,9 @@ if (SENTRY_ENABLED) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
-    release: process.env.SENTRY_RELEASE,
+    // Fall back to the commit SHA the platform injects (Railway sets RAILWAY_GIT_COMMIT_SHA)
+    // so worker errors are attributable to a deploy without setting a variable by hand.
+    release: process.env.SENTRY_RELEASE || process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
     tracesSampleRate: 0,
     sendDefaultPii: false,
     // Drop consecutive identical errors client-side (node has no default dedupe).
@@ -122,13 +132,10 @@ async function main(): Promise<void> {
   const TOKEN_PRUNE_EVERY_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? 24 * 3600 * 1000);
 
   // A plain options object avoids a type clash between our ioredis and the one
-  // bundled inside bullmq. The IORedis instance is used only for health pings.
-  const url = new URL(REDIS_URL);
-  const redisConnection = {
-    host: url.hostname,
-    port: Number(url.port) || 6379,
-    maxRetriesPerRequest: null as null,
-  };
+  // bundled inside bullmq. Parsed from the full REDIS_URL (credentials, db index and TLS
+  // included) via the same helper the API's queue producers use, so both sides address the
+  // identical managed Redis. The IORedis instance below is used only for health pings.
+  const redisConnection = bullConnectionFromUrl(REDIS_URL);
   const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
   // Env-scoped BullMQ prefix (P6.2): MUST match the API producers' prefix so staging/production
   // never share a queue keyspace on a shared Redis. Both derive it from APP_ENV.

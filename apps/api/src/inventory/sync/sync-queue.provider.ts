@@ -1,7 +1,7 @@
 import { Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
-import { bullPrefix } from '../../common/redis-namespace';
+import { bullConnectionFromUrl, bullPrefix } from '../../common/redis-namespace';
 
 /** DI token for the enqueue-only BullMQ client for the inventory-sync queue. */
 export const INVENTORY_SYNC_QUEUE = 'INVENTORY_SYNC_QUEUE';
@@ -26,12 +26,8 @@ export const inventorySyncQueueProvider: Provider = {
   provide: INVENTORY_SYNC_QUEUE,
   useFactory: (config: ConfigService): Queue => {
     const redisUrl = config.get<string>('REDIS_URL', 'redis://localhost:6379');
-    const url = new URL(redisUrl);
-    const connection = {
-      host: url.hostname,
-      port: Number(url.port) || 6379,
-      maxRetriesPerRequest: null as null,
-    };
+    // Full URL parse: keeps credentials/db/TLS that managed Redis puts in the URL.
+    const connection = bullConnectionFromUrl(redisUrl);
     const maxAttempts = Number(config.get<string>('INVENTORY_SYNC_MAX_ATTEMPTS') ?? 6);
     return new Queue<InventorySyncJob>(INVENTORY_SYNC_QUEUE_NAME, {
       connection,

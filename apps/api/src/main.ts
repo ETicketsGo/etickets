@@ -47,10 +47,15 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup(`${prefix}/docs`, app, document);
   }
 
-  const port = config.get<number>('API_PORT', 4000);
-  await app.listen(port);
-  logger.log(`ETicketsGo API listening on http://localhost:${port}/${prefix}`);
-  logger.log(`Swagger docs at http://localhost:${port}/${prefix}/docs`);
+  // Managed platforms (Railway, Heroku, Render…) inject the port to bind as PORT and route the
+  // public domain + health check there, so PORT wins when present. API_PORT (4000) remains the
+  // default for compose/k8s/local. Bind 0.0.0.0 explicitly: the container must accept traffic
+  // from outside its network namespace, and a future Node default of ::1/localhost would make
+  // the platform health check fail with no other symptom.
+  const port = config.get<number>('PORT') ?? config.get<number>('API_PORT', 4000);
+  await app.listen(port, '0.0.0.0');
+  logger.log(`ETicketsGo API listening on 0.0.0.0:${port}/${prefix}`);
+  if (swaggerEnabled) logger.log(`Swagger docs at /${prefix}/docs`);
 }
 
 void bootstrap();

@@ -81,6 +81,33 @@ describe('Sentry integration', () => {
   });
 });
 
+describe('resolveSentryRelease — deploy attribution', () => {
+  const OLD_ENV = process.env;
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  it('prefers an explicit SENTRY_RELEASE', () => {
+    const { resolveSentryRelease } = loadSentry();
+    expect(
+      resolveSentryRelease({ SENTRY_RELEASE: 'v1.0.0', RAILWAY_GIT_COMMIT_SHA: 'abc123' }),
+    ).toBe('v1.0.0');
+  });
+
+  // Railway injects the commit SHA on every deployment, so errors are attributable to a
+  // specific deploy even when nobody remembered to set SENTRY_RELEASE.
+  it('falls back to the platform-injected commit SHA', () => {
+    const { resolveSentryRelease } = loadSentry();
+    expect(resolveSentryRelease({ RAILWAY_GIT_COMMIT_SHA: 'abc123' })).toBe('abc123');
+  });
+
+  it('is undefined when neither is set (unchanged prior behaviour)', () => {
+    const { resolveSentryRelease } = loadSentry();
+    expect(resolveSentryRelease({})).toBeUndefined();
+    expect(resolveSentryRelease({ SENTRY_RELEASE: '' })).toBeUndefined();
+  });
+});
+
 describe('scrubSensitiveData — PII filter (beforeSend)', () => {
   type ScrubEvent = Parameters<typeof import('./sentry').scrubSensitiveData>[0];
 
