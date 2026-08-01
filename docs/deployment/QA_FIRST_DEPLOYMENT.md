@@ -71,17 +71,39 @@ git checkout -b develop
 git push -u origin develop
 ```
 
-### 5. Branch protection
+### 5. Branch protection — **NOT AVAILABLE ON THIS PLAN**
 
-GitHub → **Settings → Branches → Add rule**, twice:
-
-| Branch    | Require PR       | Required status check | Force push | Deletions |
-| --------- | ---------------- | --------------------- | ---------- | --------- |
-| `main`    | yes (1 approval) | `CI / verify`         | blocked    | blocked   |
-| `develop` | yes              | `CI / verify`         | blocked    | blocked   |
-
-This is what stops unreviewed code reaching the production approval gate. Note the repo
-currently has **no** branch protection — until this is set, `main` accepts direct pushes.
+> Verified against the live repository, not assumed. Both mechanisms are refused:
+>
+> ```
+> GET /repos/ETicketsGo/etickets/branches/main/protection
+> GET /repos/ETicketsGo/etickets/rulesets
+> → 403 "Upgrade to GitHub Pro or make this repository public to enable this feature."
+> ```
+>
+> Classic branch protection and rulesets are both paid features for private repositories.
+> So on this repository, **right now**:
+>
+> - `main` and `develop` accept **direct pushes** from anyone with write access.
+> - CI **cannot be required** before merge — a red PR can still be merged.
+> - Force-push and branch deletion **cannot be blocked**.
+>
+> This is a real gap in the release process, and it cannot be closed from inside the
+> repository. The intended configuration, for when the plan is upgraded or the repo is made
+> public:
+>
+> | Branch    | Require PR       | Required status check | Force push | Deletions |
+> | --------- | ---------------- | --------------------- | ---------- | --------- |
+> | `main`    | yes (1 approval) | `CI / verify`         | blocked    | blocked   |
+> | `develop` | yes              | `CI / verify`         | blocked    | blocked   |
+>
+> **What protects the pipeline in the meantime.** Deployment safety does _not_ depend on
+> branch protection, because the locks live in the workflow and those work on any plan:
+> production is `workflow_dispatch` only, and every environment additionally requires
+> `DEPLOY_ENABLED_<ENV>=true`. So unreviewed code on `main` cannot reach production by
+> itself — someone still has to dispatch a run deliberately. What is genuinely unenforced
+> is _code review and green CI before merge_; until the plan changes, that is a team
+> convention, and it should be written down as one rather than assumed to be enforced.
 
 ---
 

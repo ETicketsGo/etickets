@@ -423,11 +423,25 @@ For `qa` and `uat`: no reviewers are needed by design — they deploy automatica
 | `RAILWAY_SERVICE_ADMIN_WEB`     | `admin-web`                     | `admin-web`                      | `admin-web`                  |
 | `DEPLOY_BASE_URL`               | `https://api-qa.eticketsgo.com` | `https://api-uat.eticketsgo.com` | `https://api.eticketsgo.com` |
 
-### Branch protection
+### Branch protection — unavailable on this plan
 
-**Settings → Branches** → protect `main` and `develop`: require the `CI` status check, and
-require a PR. Without this, someone can push straight to `main` and reach the production
-approval gate with unreviewed code.
+Classic branch protection and rulesets are both paid features for private repositories, and
+this repository is refused both:
+
+```
+GET /repos/ETicketsGo/etickets/branches/main/protection
+GET /repos/ETicketsGo/etickets/rulesets
+→ 403 "Upgrade to GitHub Pro or make this repository public to enable this feature."
+```
+
+So `main` and `develop` currently accept direct pushes, CI cannot be _required_ before
+merge, and force-push and deletion cannot be blocked. Deployment safety does not rest on
+this — the workflow-level locks in §13 work on any plan — but **code review and green CI
+before merge are unenforced conventions here, not guarantees**. Treat that as a known gap:
+either upgrade the plan, or write the convention down and hold to it.
+
+Intended configuration once available: protect `main` and `develop`, require the
+`CI / verify` status check and a PR, block force pushes and deletions.
 
 ---
 
