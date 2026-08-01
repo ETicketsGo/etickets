@@ -25,6 +25,9 @@
     "deps:check": "madge --circular --extensions ts apps/api/src apps/worker/src",
     "db:pilot": "npm run -w @eticketsgo/api db:pilot",
     "verify:deploy": "node scripts/deploy/validate-railway-config.mjs",
+    "verify:redis": "node scripts/deploy/validate-redis-bullmq.mjs",
+    "qa:stack:up": "docker compose -f deploy/railway/validation/docker-compose.qa-validate.yml up -d",
+    "qa:stack:down": "docker compose -f deploy/railway/validation/docker-compose.qa-validate.yml down -v",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run deps:check && npm run verify:deploy && npm run test && npm run build"
   },
   "devDependencies": {
