@@ -373,10 +373,15 @@ Production projects, which is what makes the isolation structural rather than pr
 
 ### 11. Create the `qa` GitHub Environment
 
-GitHub → **Settings → Environments → New environment** → `qa`.
+Already created — see the deployment record at the bottom of this file.
 
-- **Required reviewers:** none. QA deploys automatically; only Production has the gate.
-- **Deployment branches → Selected branches** → `develop`.
+- **Required reviewers / deployment-branch policy:** not applicable. Environment
+  protection rules are unavailable on this repository's plan (verified: the API returns
+  422 "billing plan supports the wait timer protection rule"). QA needs no gate anyway, and
+  the production gate lives in the workflow instead — see
+  [runbook §13](./RAILWAY_DEPLOYMENT_RUNBOOK.md#13-configuring-github-environments).
+- Environment **secrets and variables** do work on this plan, which is the reason the
+  environment exists: it scopes `RAILWAY_TOKEN_QA` so only a QA-bound run can read it.
 
 **Environment secrets:**
 

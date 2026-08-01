@@ -379,17 +379,38 @@ production token at all.
 GitHub → repo → **Settings → Environments** → **New environment**, three times: `qa`,
 `uat`, `production`.
 
-For **`production` only**:
+> **Environment protection rules are NOT available on this repository's plan.** This was
+> verified against the live repository, not assumed:
+>
+> ```
+> PUT /repos/ETicketsGo/etickets/environments/production  {"wait_timer": 1}
+> → 422 "Please ensure the billing plan supports the wait timer protection rule."
+> ```
+>
+> Required reviewers, wait timers and deployment-branch policies are all part of that same
+> paid feature set for private repositories. The `production` environment already existed
+> (auto-created by an earlier workflow run) with `protection_rules: []` and no branch
+> policy — so `environment: production` paused for nobody, and the only thing preventing a
+> merge to `main` from deploying was an unset `RAILWAY_TOKEN_PRODUCTION`. A missing secret
+> is not an approval gate.
+>
+> **The gate therefore lives in the workflow instead** (`deploy-railway.yml`), as two
+> independent fail-closed locks that work on any plan:
+>
+> 1. `main` is **not** a push trigger. Reaching production requires a human to dispatch the
+>    workflow with `environment=production` — that deliberate act is the approval.
+> 2. The repository variable `DEPLOY_ENABLED_PRODUCTION` must be `true`. Otherwise the run
+>    stops before the CI gate with an explanatory summary.
+>
+> If the plan is upgraded later, add required reviewers as a third lock — but do not remove
+> the two above in favour of it.
 
-1. Tick **Required reviewers** → add the people allowed to approve a production release.
-   _This is the manual approval gate._ The workflow's `environment: production` declaration
-   makes GitHub pause the deploy job until one of them approves.
-2. Tick **Prevent self-review** if your plan supports it.
-3. **Deployment branches → Selected branches** → add `main`. Now even a `workflow_dispatch`
-   run from another branch cannot deploy to production.
+Environment **secrets and variables** work on every plan, so the environments are still
+worth creating: they scope `RAILWAY_TOKEN_<ENV>` so a QA run cannot read the production
+token.
 
-For `qa` and `uat`: no reviewers. Restrict deployment branches to `develop` and `release/*`
-respectively.
+For `qa` and `uat`: no reviewers are needed by design — they deploy automatically from
+`develop` and `release/**`.
 
 ### Environment variables (Settings → Environments → `<env>` → Variables)
 
@@ -483,13 +504,20 @@ git tag -a v1.0.0 -m "Production release"
 git push origin v1.0.0
 ```
 
-Then:
+Pushing `main` runs CI but **deploys nothing** — production is not a push trigger (§13).
+Shipping is a separate, deliberate human action:
 
-1. The workflow runs the full CI gate against the merge commit.
-2. The `deploy` job **pauses**. GitHub notifies the required reviewers.
-3. Actions → the run → **Review deployments** → tick `production` → **Approve and deploy**.
+1. Confirm `DEPLOY_ENABLED_PRODUCTION` is `true` (one-time, after the Railway project,
+   variables and project token all exist):
+   ```bash
+   gh variable set DEPLOY_ENABLED_PRODUCTION --body true
+   ```
+2. Actions → **Deploy (Railway)** → **Run workflow** → branch `main`, environment
+   `production` → **Run**. Dispatching it is the approval.
+3. Watch the run: CI gate → api + migration → API readiness gate → worker → worker gate →
+   web tier → smoke.
 
-**Before approving, confirm:**
+**Before dispatching, confirm:**
 
 - [ ] The same code passed UAT (`git log --oneline main ^release/v1.0.0` is empty)
 - [ ] The go-live checklist is complete for this release

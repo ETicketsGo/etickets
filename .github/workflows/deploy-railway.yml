@@ -1,17 +1,46 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ETicketsGo — Railway continuous delivery (QA / UAT / Production).
 #
-# Branch → environment mapping (the only automatic triggers):
+# Branch → environment mapping:
 #
-#     develop      → ETicketsGo-QA           (no approval)
-#     release/**   → ETicketsGo-UAT          (no approval)
-#     main         → ETicketsGo-Production   (REQUIRED manual approval)
+#     develop      → ETicketsGo-QA           automatic on push
+#     release/**   → ETicketsGo-UAT          automatic on push
+#     main         → ETicketsGo-Production   NOT automatic — workflow_dispatch only
 #
-# The approval gate is NOT expressed here — it is a property of the GitHub Environment
-# named `production` (Settings → Environments → production → Required reviewers). This
-# job simply declares `environment: production`, and GitHub pauses it until a reviewer
-# approves. Configuring the reviewers is a repository-owner action; see
-# docs/deployment/RAILWAY_DEPLOYMENT_RUNBOOK.md §13.
+# ── Why production is dispatch-only, and not gated by a GitHub Environment ──
+#
+# The original design put the production approval on the `production` GitHub Environment
+# (Settings → Environments → Required reviewers), with `main` pushes deploying
+# automatically and GitHub pausing for a reviewer. THAT MECHANISM IS NOT AVAILABLE ON
+# THIS REPOSITORY: it is a private repo whose billing plan rejects environment protection
+# rules outright —
+#
+#     PUT /repos/{o}/{r}/environments/production  {"wait_timer": 1}
+#     → 422 "Please ensure the billing plan supports the wait timer protection rule."
+#
+# The `production` environment already existed (auto-created by an earlier workflow) with
+# `protection_rules: []` and no branch policy. So `environment: production` paused for
+# nobody, and the ONLY thing standing between a merge to `main` and a production deploy
+# was an unset `RAILWAY_TOKEN_PRODUCTION` secret. A missing secret is not an approval
+# gate: the day someone adds that secret before configuring reviewers, every merge to
+# `main` ships to production unreviewed.
+#
+# So the gate is expressed here instead, in two independent locks that work on any plan:
+#
+#   1. `main` is NOT a push trigger. Reaching production requires a human to open the
+#      Actions tab and dispatch this workflow with environment=production. That
+#      deliberate act IS the approval.
+#   2. `DEPLOY_ENABLED_PRODUCTION` must be set to `true` as a repository variable. Absent
+#      or anything else, the run stops before the CI gate with a clear message.
+#
+# Both are fail-closed and both must be satisfied. If the plan is later upgraded, add
+# required reviewers to the `production` environment and this comment should be revisited
+# — belt and braces is fine, but do not remove the locks in favour of a feature whose
+# availability was already wrong once.
+#
+# The same `DEPLOY_ENABLED_<ENV>` lock guards qa and uat, so merging or branching before
+# the corresponding Railway project exists produces a clean skip instead of a failed run
+# and a wasted CI cycle.
 #
 # Every deployment runs the full CI gate first (`uses: ./.github/workflows/ci.yml`), so
 # the commit that reaches an environment is exactly the commit that passed lint,
@@ -42,7 +71,8 @@ name: Deploy (Railway)
 
 on:
   push:
-    branches: [develop, 'release/**', main]
+    # `main` is deliberately absent — production is dispatch-only (see the header).
+    branches: [develop, 'release/**']
   workflow_dispatch:
     inputs:
       environment:
@@ -62,6 +92,7 @@ jobs:
     outputs:
       environment: ${{ steps.pick.outputs.environment }}
       app_env: ${{ steps.pick.outputs.app_env }}
+      enabled: ${{ steps.lock.outputs.enabled }}
     steps:
       - id: pick
         run: |
@@ -72,24 +103,65 @@ jobs:
             case "${{ github.ref }}" in
               refs/heads/develop)     ENV=qa ;;
               refs/heads/release/*)   ENV=uat ;;
-              refs/heads/main)        ENV=production ;;
+              # `main` is not a push trigger; reaching here means the mapping changed
+              # without the header's reasoning being revisited. Fail rather than deploy.
+              refs/heads/main)
+                echo "::error::main must not auto-deploy. Production is workflow_dispatch only — see the workflow header." && exit 1 ;;
               *) echo "::error::${{ github.ref }} does not map to a deploy environment." && exit 1 ;;
             esac
           fi
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
           echo "app_env=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')" >> "$GITHUB_OUTPUT"
-          echo "Deploying to $ENV."
+          echo "Target environment: $ENV"
+
+      # Fail-closed enable lock. An environment deploys only once its Railway project
+      # actually exists and someone has deliberately switched it on. Absent the variable
+      # the run stops HERE — before the CI gate — so a merge or a branch push costs
+      # nothing and produces a clear message instead of a red failed deployment.
+      - id: lock
+        env:
+          ENABLED_QA: ${{ vars.DEPLOY_ENABLED_QA }}
+          ENABLED_UAT: ${{ vars.DEPLOY_ENABLED_UAT }}
+          ENABLED_PRODUCTION: ${{ vars.DEPLOY_ENABLED_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          ENV="${{ steps.pick.outputs.environment }}"
+          case "$ENV" in
+            qa)         FLAG="$ENABLED_QA" ;;
+            uat)        FLAG="$ENABLED_UAT" ;;
+            production) FLAG="$ENABLED_PRODUCTION" ;;
+          esac
+          if [ "${FLAG:-}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Deployment to '$ENV' is ENABLED."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            UPPER="$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
+            {
+              echo "### Deployment skipped — \`$ENV\` is not enabled"
+              echo
+              echo "The repository variable \`DEPLOY_ENABLED_${UPPER}\` is not set to \`true\`, so nothing was deployed and the CI gate was not run."
+              echo
+              echo "Set it only once the Railway project, its services, its variables and its project token all exist:"
+              echo '```'
+              echo "gh variable set DEPLOY_ENABLED_${UPPER} --body true"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Deployment to '$ENV' is NOT enabled — skipping (this is not a failure)."
+          fi
 
   # ── 2) The full verification gate. Nothing deploys without it. ──
   gate:
     name: CI gate
     needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
     uses: ./.github/workflows/ci.yml
 
   # ── 3) Ship to Railway. ──
   deploy:
     name: Deploy to ${{ needs.resolve.outputs.environment }}
     needs: [resolve, gate]
+    if: needs.resolve.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     # Binds the job to the GitHub Environment of the same name. For `production` that
     # environment carries the required-reviewer rule, so this job WAITS for a human.
@@ -251,6 +323,9 @@ jobs:
   smoke:
     name: Post-deploy smoke (${{ needs.resolve.outputs.environment }})
     needs: [resolve, deploy]
+    # Skipped automatically when `deploy` is skipped, but stated explicitly so the
+    # enable lock is visible on every job that could touch a live environment.
+    if: needs.resolve.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     environment:
       name: ${{ needs.resolve.outputs.environment }}
