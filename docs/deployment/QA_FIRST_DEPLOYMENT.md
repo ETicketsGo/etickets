@@ -587,17 +587,69 @@ so a leaked link cannot be indexed.
 
 ## Definition of done for QA
 
-- [ ] PR merged; `develop` created; branch protection on `main` and `develop`
+- [x] PR merged
+- [x] `qa` GitHub Environment created with the five service-name variables
+- [ ] `develop` created
 - [ ] `ETicketsGo-QA` exists with Postgres + Redis + five services
 - [ ] Every service has its config-as-code path set and Root Directory empty
 - [ ] Railway auto-deploy OFF on all five
 - [ ] Variables entered; four QA-unique secrets generated
-- [ ] `qa` GitHub Environment with project token and service-name variables
+- [ ] `RAILWAY_TOKEN_QA` + `DEPLOY_BASE_URL` added to the `qa` environment
+- [ ] `DEPLOY_ENABLED_QA=true` set (the deploy lock)
 - [ ] First deployment green, including both readiness gates
 - [ ] QA seeded
 - [ ] Four domains resolve over HTTPS with Full (strict)
 - [ ] Cloudflare Access protects all four; webhook paths bypassed
+- [ ] Stripe + Razorpay QA webhook endpoints registered (test mode)
 - [ ] `qa-smoke-test.sh` passes
 - [ ] Manual smoke list completed
 - [ ] [Failure drills](./QA_FAILURE_DRILLS.md) executed against QA
 - [ ] **Only then** begin UAT
+
+Branch protection is deliberately absent from this list — it is unavailable on this plan
+(step 5).
+
+---
+
+## Deployment record
+
+What has actually been done, and by what access. Anything not listed here has **not**
+happened.
+
+### Completed with authenticated GitHub access
+
+| Item                         | Evidence                                                                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch pushed                | `origin/chore/railway-multi-env-deployment`                                                                                                   |
+| Pull request                 | [#32](https://github.com/ETicketsGo/etickets/pull/32) into `main`                                                                             |
+| `qa` GitHub Environment      | created                                                                                                                                       |
+| `qa` environment variables   | `RAILWAY_SERVICE_API`, `RAILWAY_SERVICE_WORKER`, `RAILWAY_SERVICE_CUSTOMER_WEB`, `RAILWAY_SERVICE_ORGANIZER_WEB`, `RAILWAY_SERVICE_ADMIN_WEB` |
+| Deploy locks verified absent | no `DEPLOY_ENABLED_*` repository variable exists, so no environment can deploy                                                                |
+| Token scoping verified       | zero repository-level secrets; zero secrets on either environment                                                                             |
+
+### Not done — no credentials were available
+
+Railway, Cloudflare, Stripe and Razorpay access were all unavailable in the session that
+prepared this. Specifically: no Railway CLI or token, no Cloudflare API token, no payment
+provider credentials.
+
+So **none** of the following exist: the `ETicketsGo-QA` project, any service, the
+PostgreSQL or Redis plugin, any Railway domain, the project token, any DNS record, any
+Cloudflare rule, or any provider webhook endpoint. No deployment has run and no smoke test
+or drill has been executed against a live environment.
+
+### Known plan limitations recorded during setup
+
+| Feature                                                                      | Status                | Consequence                                                                  |
+| ---------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------- |
+| Environment protection rules (required reviewers, wait timer, branch policy) | **unavailable** — 422 | production approval is enforced by the workflow instead (§13 of the runbook) |
+| Branch protection / rulesets                                                 | **unavailable** — 403 | code review and green-CI-before-merge are conventions, not enforced (step 5) |
+| Environment secrets and variables                                            | available             | used to scope `RAILWAY_TOKEN_QA`                                             |
+
+### A note on the stray `production` environment
+
+A `production` GitHub Environment exists. It was **not** created deliberately — an earlier
+workflow referenced it and GitHub auto-created it, with no protection rules and no branch
+policy. It holds no secrets and no variables, and the deploy workflow no longer targets it
+automatically. It is harmless as it stands, but do not mistake its existence for
+configuration: adding `RAILWAY_TOKEN_PRODUCTION` to it does **not** create an approval gate.
