@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/organizer-web/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node apps/organizer-web/server.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  },
+  "//": "ETicketsGo organizer web (Next.js standalone). Root Directory stays '/'. NO migrations here. NEXT_PUBLIC_API_URL is a BUILD-TIME variable inlined into the bundle — set it on this service before the first build; changing it requires a rebuild. Also set STRIPE_CONNECT_RETURN_URL / STRIPE_CONNECT_REFRESH_URL on the API service to this app's public hostname so organizer payout onboarding returns to the right environment. /api/health is a static Next route handler."
+}

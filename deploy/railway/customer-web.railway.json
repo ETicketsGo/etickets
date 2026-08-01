@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/customer-web/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node apps/customer-web/server.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  },
+  "//": "ETicketsGo customer web (Next.js standalone). Root Directory stays '/'. NO migrations here — the API service owns them. NEXT_PUBLIC_API_URL is INLINED INTO THE BUNDLE AT BUILD TIME: the Dockerfile declares it as an ARG and Railway passes service variables as Docker build args, so it MUST be set on this service BEFORE the first build and a change to it requires a rebuild+redeploy, not just a restart. That also means the web image is environment-specific by construction (same commit, different public API URL) while the api/worker images are environment-neutral — see docs/deployment/RAILWAY_DEPLOYMENT_RUNBOOK.md 'Promotion'. /api/health is a static Next route handler (no DB/Redis/API calls), which is the correct liveness signal for the web tier. Railway injects PORT; the standalone server reads PORT + HOSTNAME=0.0.0.0 from the image ENV defaults."
+}
