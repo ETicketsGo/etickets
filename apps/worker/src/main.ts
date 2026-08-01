@@ -415,7 +415,9 @@ async function main(): Promise<void> {
     res.writeHead(404);
     res.end();
   });
-  health.listen(WORKER_PORT, () =>
+  // Bind 0.0.0.0 explicitly, for the same reason the API does: the platform health check
+  // reaches the container from outside its network namespace.
+  health.listen(WORKER_PORT, '0.0.0.0', () =>
     log('info', 'worker started', {
       port: WORKER_PORT,
       everyMs: EXPIRY_EVERY_MS,

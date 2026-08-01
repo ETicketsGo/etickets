@@ -47,6 +47,16 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup(`${prefix}/docs`, app, document);
   }
 
+  // Graceful shutdown. Without this, Nest never listens for SIGTERM, so the lifecycle hooks
+  // that exist precisely to clean up — PrismaService.onModuleDestroy, RedisService.onModuleDestroy
+  // — never run, and the process dies on the signal's default action. That matters on every
+  // managed platform: a deploy, a restart, and a scale-down all begin with SIGTERM, so in-flight
+  // requests (a checkout mid-payment among them) were being severed rather than drained, and
+  // database/Redis connections were left for the server to time out. Enabling the hooks makes
+  // `app.close()` stop accepting new connections, finish in-flight ones, then run the module
+  // teardown. The worker has always handled its own SIGTERM/SIGINT; this brings the API level.
+  app.enableShutdownHooks();
+
   // Managed platforms (Railway, Heroku, Render…) inject the port to bind as PORT and route the
   // public domain + health check there, so PORT wins when present. API_PORT (4000) remains the
   // default for compose/k8s/local. Bind 0.0.0.0 explicitly: the container must accept traffic
