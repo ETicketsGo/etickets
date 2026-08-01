@@ -45,12 +45,15 @@ invent one.
 ### Branch → environment flow
 
 ```
-feature/*  ──PR──▶  develop  ──▶  QA          (automatic)
+feature/*  ──PR──▶  develop  ──▶  QA          (automatic on push)
                        │
-                    release/*  ──▶  UAT       (automatic)
+                    release/*  ──▶  UAT       (automatic on push)
                        │
-                      main    ──▶  Production (automatic build, MANUAL APPROVAL to deploy)
+                      main    ──▶  Production (NOT automatic — dispatch only, §13)
 ```
+
+Every environment additionally requires its `DEPLOY_ENABLED_<ENV>` repository variable to
+be `true`, so a branch can exist and build long before it can deploy anywhere.
 
 ---
 
