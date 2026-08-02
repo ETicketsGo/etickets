@@ -9,10 +9,10 @@ import type { RedisService } from '../redis/redis.service';
 /** Guard wired to a real MaintenanceService over a mocked Redis client. */
 function makeGuard(get: jest.Mock) {
   const redis = { client: { get, set: jest.fn() } } as unknown as RedisService;
-  const service = new MaintenanceService(redis);
   const config = {
     get: jest.fn((_k: string, d?: unknown) => d ?? 'api'),
   } as unknown as ConfigService;
+  const service = new MaintenanceService(redis, config);
   return new MaintenanceGuard(service, config);
 }
 

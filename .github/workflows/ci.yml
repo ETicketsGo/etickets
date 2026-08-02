@@ -2,11 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The promotion flow is: feature -> develop (QA) -> release/* (UAT) -> main (Production).
+    # Every branch that can trigger a deployment must run this gate on push, so the commit
+    # that reaches an environment is the commit that was verified.
+    branches: [main, develop, 'release/**']
   pull_request:
-    branches: [main]
-  # Allow the deploy pipeline (.github/workflows/deploy.yml) to reuse this exact
-  # gate via `uses: ./.github/workflows/ci.yml`. Additive — existing push/PR
+    branches: [main, develop, 'release/**']
+  # Allow the deploy pipelines (.github/workflows/deploy.yml, deploy-railway.yml) to reuse
+  # this exact gate via `uses: ./.github/workflows/ci.yml`. Additive — existing push/PR
   # triggers and all jobs below are unchanged.
   workflow_call:
 
@@ -92,6 +95,12 @@ jobs:
 
       - name: Circular dependency check
         run: npm run deps:check
+
+      # Offline gate for the Railway deployment configuration: start commands that resolve
+      # against the image WORKDIR, a single migration executor, no destructive Prisma
+      # command, no credential committed to an environment template. Needs no cloud access.
+      - name: Deployment configuration check
+        run: npm run verify:deploy
 
       - name: Apply migrations & seed
         run: |

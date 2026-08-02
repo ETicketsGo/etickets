@@ -10,12 +10,16 @@ const LOCAL_BASE: Record<string, string> = {
   NODE_ENV: 'test',
 };
 
-// Production base that passes assertProductionHardening (real-looking secrets + CORS).
+// Production base that passes assertProductionHardening (real-looking secrets + CORS) and
+// assertPaymentEnvironmentKeySafety. PAYMENT_PROVIDER_NAME is explicit because its default
+// is `mock`, and the dummy gateway is refused in PRODUCTION — a production baseline must
+// name a real adapter. No gateway key is set, so the test/live classification is skipped.
 const PROD_BASE: Record<string, string> = {
   ...LOCAL_BASE,
   APP_ENV: 'PRODUCTION',
   NODE_ENV: 'production',
   CORS_ORIGINS: 'https://app.eticketsgo.example',
+  PAYMENT_PROVIDER_NAME: 'stripe',
 };
 
 function withEnv(base: Record<string, string>, extra: Record<string, string> = {}) {
@@ -402,9 +406,25 @@ describe('platform config — unsafe combinations fail fast', () => {
         BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
         BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
         BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
-        PAYMENT_PROVIDER_NAME: 'mock',
       }),
     ).toThrow(/not permitted in production/i);
+  });
+
+  // The mock is the only refund-capable provider today, so the previous version of the
+  // test above reached the auto-refund guard by naming it. The dummy gateway is now
+  // refused in PRODUCTION outright — an earlier and strictly stronger guarantee — so that
+  // combination fails on the credential guard instead. Both properties still hold.
+  it('rejects the dummy gateway in production before any money-automation check', () => {
+    expect(
+      withEnv(PROD_BASE, {
+        BOOKING_COMPENSATION_ENABLED: 'true',
+        BOOKING_COMPENSATION_PLANNING_ENABLED: 'true',
+        BOOKING_COMPENSATION_EXECUTION_ENABLED: 'true',
+        BOOKING_COMPENSATION_AUTO_REFUND_ENABLED: 'true',
+        BOOKING_REFUND_POLICY_MODE: 'FULL_GROSS',
+        PAYMENT_PROVIDER_NAME: 'mock',
+      }),
+    ).toThrow(/PAYMENT_PROVIDER_NAME=mock is not permitted in APP_ENV=PRODUCTION/);
   });
 
   it('allows auto-refund with mock + FULL_GROSS + execution (non-prod)', () => {

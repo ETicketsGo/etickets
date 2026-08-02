@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/worker/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node dist/main.js",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "numReplicas": 1
+  },
+  "//": "ETicketsGo background worker (BullMQ hold expiry, notification/webhook/outbox/inventory sweeps + the repeatable scheduled jobs — there is no separate scheduler service; the schedule lives in BullMQ repeatable jobs registered by this process). Root Directory stays '/'. NO preDeployCommand: the API service is the single migration executor, so the worker can never race it. Deploy the worker AFTER the API in a promotion so the schema is already current. Health/readiness are served by the worker's own HTTP listener on PORT (Railway-injected; WORKER_PORT/4100 remain the fallback) — /health is liveness, /ready additionally checks PostgreSQL + Redis, /metrics is the Prometheus endpoint. Railway health checks require the service to listen on PORT; this service is internal-only, so do NOT attach a public domain to it."
+}

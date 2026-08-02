@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
+import { opsKeyPrefix } from '../common/redis-namespace';
 
 export interface MaintenanceState {
   enabled: boolean;
@@ -16,23 +18,33 @@ export interface MaintenanceState {
  */
 @Injectable()
 export class MaintenanceService {
-  private static readonly KEY = 'etg:maintenance';
+  /**
+   * Env-scoped key (P6.2). The flag used to live at a single global `etg:maintenance`, so any
+   * two environments pointed at one Redis shared it — QA switching maintenance on would have
+   * taken production offline. Namespacing it per APP_ENV makes that impossible.
+   */
+  private readonly key: string;
   /** Guard cache lifetime — bounds Redis reads to ~1 per window per instance. */
   private readonly cacheTtlMs = 3000;
   private cache: { value: MaintenanceState; expiresAt: number } | null = null;
 
-  constructor(private readonly redis: RedisService) {}
+  constructor(
+    private readonly redis: RedisService,
+    config: ConfigService,
+  ) {
+    this.key = `${opsKeyPrefix(config.get<string>('APP_ENV'))}:maintenance`;
+  }
 
   /** Fresh read of the persisted flag (admin GET path). May throw if Redis is down. */
   async getState(): Promise<MaintenanceState> {
-    const raw = await this.redis.client.get(MaintenanceService.KEY);
+    const raw = await this.redis.client.get(this.key);
     return MaintenanceService.parse(raw);
   }
 
   /** Persist the flag (admin POST path) and prime the in-memory cache. */
   async setState(input: MaintenanceState): Promise<MaintenanceState> {
     const value = MaintenanceService.normalize(input);
-    await this.redis.client.set(MaintenanceService.KEY, JSON.stringify(value));
+    await this.redis.client.set(this.key, JSON.stringify(value));
     this.cache = { value, expiresAt: Date.now() + this.cacheTtlMs };
     return value;
   }

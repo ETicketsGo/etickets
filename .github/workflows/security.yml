@@ -7,7 +7,9 @@ name: Security & Supply Chain
 
 on:
   pull_request:
-    branches: [main]
+    # Cover every branch in the promotion flow, not just main — a secret or a drifted
+    # migration must be caught on the PR into develop, well before it can reach QA.
+    branches: [main, develop, 'release/**']
   schedule:
     - cron: '0 6 * * 1' # Mondays 06:00 UTC
   workflow_dispatch:
