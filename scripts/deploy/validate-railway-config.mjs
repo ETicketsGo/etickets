@@ -430,6 +430,49 @@ function validateRootConfig() {
   }
 }
 
+/**
+ * Every NEXT_PUBLIC_* an app reads must be declared as an ARG in that app's Dockerfile.
+ *
+ * Next.js inlines these at build time, and Docker SILENTLY DISCARDS a --build-arg that no
+ * ARG declares. So a variable set correctly on the platform, spelled correctly, still never
+ * reaches the build — and nothing errors. The build succeeds, the health check passes, and
+ * the app quietly uses its source-level fallback, which is written for local development.
+ * Observed in QA: the "Open organizer console" button pointed at http://localhost:3001 and
+ * the sitemap advertised the production domain, both while the Railway variables were set.
+ */
+function validateNextPublicBuildArgs() {
+  const apps = ['customer-web', 'organizer-web', 'admin-web'];
+  for (const app of apps) {
+    const where = `apps/${app}/Dockerfile`;
+    const dockerfile = join(ROOT, 'apps', app, 'Dockerfile');
+    if (!existsSync(dockerfile)) continue;
+    const df = readFileSync(dockerfile, 'utf8');
+
+    // Collect NEXT_PUBLIC_* referenced anywhere in this app's source.
+    const used = new Set();
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.next') continue;
+        const p = join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(entry.name)) {
+          for (const m of readFileSync(p, 'utf8').matchAll(/process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g))
+            used.add(m[1]);
+        }
+      }
+    };
+    walk(join(ROOT, 'apps', app));
+
+    for (const name of [...used].sort()) {
+      check(
+        new RegExp(`^ARG\\s+${name}\\b`, 'm').test(df),
+        where,
+        `${name} is read by apps/${app} but is not declared as an ARG — Docker discards undeclared build args, so the value never reaches the build and the source fallback ships instead`,
+      );
+    }
+  }
+}
+
 /** The apps must honour Railway's injected PORT rather than a pinned one. */
 function validatePortBinding() {
   const apiMain = readFileSync(join(ROOT, 'apps/api/src/main.ts'), 'utf8');
@@ -457,6 +500,7 @@ validateNoStrayConfigs();
 validateRootConfig();
 SERVICES.forEach(validateServiceConfig);
 ENV_TEMPLATES.forEach(validateEnvTemplate);
+validateNextPublicBuildArgs();
 validatePortBinding();
 
 for (const w of warnings) console.warn(`  warn  ${w}`);
