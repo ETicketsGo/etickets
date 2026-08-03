@@ -222,8 +222,8 @@ jobs:
       # which is what makes a partially-rolled fleet safe in the first place.
       #
       # The readiness gates between stages are the part that is easy to omit and costly
-      # to skip. `railway up --detach=false` returns when the deployment is live and
-      # Railway's own health check has passed — but that health check is LIVENESS
+      # to skip. `railway up --ci` (without --detach) blocks until the deployment is live
+      # and Railway's own health check has passed — but that health check is LIVENESS
       # (/api/health), which deliberately never touches PostgreSQL or Redis. An API that
       # booted with an unreachable database passes liveness and fails every request. So
       # each gate below polls READINESS (/api/ready, which checks both dependencies and
@@ -240,7 +240,7 @@ jobs:
       - name: Deploy api (migrations run pre-traffic via preDeployCommand)
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
-        run: railway up --service "${{ vars.RAILWAY_SERVICE_API }}" --ci --detach=false
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_API }}" --ci
 
       - name: Gate — API readiness (PostgreSQL + Redis)
         env:
@@ -270,7 +270,7 @@ jobs:
       - name: Deploy worker
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
-        run: railway up --service "${{ vars.RAILWAY_SERVICE_WORKER }}" --ci --detach=false
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_WORKER }}" --ci
 
       # The worker is internal-only (no public domain by design), so its /ready cannot be
       # reached from a GitHub runner. Two signals are used instead, and both are real:
@@ -307,17 +307,17 @@ jobs:
       - name: Deploy customer-web
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
-        run: railway up --service "${{ vars.RAILWAY_SERVICE_CUSTOMER_WEB }}" --ci --detach=false
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_CUSTOMER_WEB }}" --ci
 
       - name: Deploy organizer-web
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
-        run: railway up --service "${{ vars.RAILWAY_SERVICE_ORGANIZER_WEB }}" --ci --detach=false
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ORGANIZER_WEB }}" --ci
 
       - name: Deploy admin-web
         env:
           RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
-        run: railway up --service "${{ vars.RAILWAY_SERVICE_ADMIN_WEB }}" --ci --detach=false
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ADMIN_WEB }}" --ci
 
   # ── 4) Prove the environment is actually serving before calling it deployed. ──
   smoke:

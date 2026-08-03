@@ -19,6 +19,20 @@ export const API_URL =
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
 
+/**
+ * Listeners notified whenever the stored session changes.
+ *
+ * localStorage gives no in-tab change signal: the `storage` event fires only in OTHER tabs.
+ * Without this, a component that read the token once on mount never learns about a later
+ * sign-in — which is exactly how the customer header kept showing "Sign in / Sign up" after
+ * a successful login. Next.js keeps the layout mounted across client-side navigation, so
+ * the header never remounted and never re-read the token.
+ */
+const tokenListeners = new Set<() => void>();
+const notifyTokenChange = (): void => {
+  for (const listener of tokenListeners) listener();
+};
+
 export const tokenStore = {
   get access() {
     return typeof window === 'undefined' ? null : localStorage.getItem(ACCESS_KEY);
@@ -29,12 +43,42 @@ export const tokenStore = {
   set(tokens: AuthTokens) {
     localStorage.setItem(ACCESS_KEY, tokens.accessToken);
     localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+    notifyTokenChange();
   },
   clear() {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    notifyTokenChange();
+  },
+  /**
+   * Subscribe to session changes. Covers both directions:
+   *  - this tab, via the explicit notify in set()/clear()
+   *  - other tabs, via the `storage` event, so signing out on one tab updates the rest
+   * Returns an unsubscribe function, shaped for React's useSyncExternalStore.
+   */
+  subscribe(listener: () => void): () => void {
+    tokenListeners.add(listener);
+    const onStorage = (event: StorageEvent) => {
+      // key === null means the whole store was cleared.
+      if (event.key === null || event.key === ACCESS_KEY || event.key === REFRESH_KEY) listener();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('storage', onStorage);
+    return () => {
+      tokenListeners.delete(listener);
+      if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage);
+    };
   },
 };
+
+/** Snapshot for useSyncExternalStore — a stable primitive, so React can compare it cheaply. */
+export function getAuthSnapshot(): boolean {
+  return typeof window !== 'undefined' && !!localStorage.getItem(ACCESS_KEY);
+}
+
+/** Server render has no localStorage; always start signed-out and let hydration correct it. */
+export function getServerAuthSnapshot(): boolean {
+  return false;
+}
 
 export class ApiRequestError extends Error {
   constructor(
@@ -785,6 +829,19 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    /**
+     * Update one fee rule. `currency` is not editable — the amounts are minor units, so
+     * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;
+     * pass `maxMinor: null` to make a band open-ended ("and above").
+     */
+    updateFeeRule: (
+      id: string,
+      patch: Partial<Pick<FeeRule, 'label' | 'minMinor' | 'maxMinor' | 'feeMinor' | 'active'>>,
+    ) =>
+      request<FeeRule>(`/admin/fee-rules/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
 
     // ─── Marketplace settlements (admin/finance) ───
     settlements: {
