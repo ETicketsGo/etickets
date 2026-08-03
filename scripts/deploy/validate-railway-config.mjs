@@ -92,6 +92,18 @@ const SERVICES = [
     health: '/api/health',
     expectMigrations: false,
   },
+  // One-shot job, not a long-running service: it runs to completion and exits, so it has
+  // no health endpoint and must never restart. `oneShot` relaxes the health-check rule and
+  // adds a restart-policy rule the long-running services do not need.
+  {
+    file: 'db-seed.railway.json',
+    dockerfile: 'apps/api/Dockerfile',
+    workdir: 'apps/api',
+    start: 'npm run db:seed',
+    health: undefined,
+    expectMigrations: false,
+    oneShot: true,
+  },
 ];
 
 /** Prisma commands that drop data or bypass the migration history. Never in a deploy path. */
@@ -137,21 +149,38 @@ function validateServiceConfig(svc) {
     `deploy.startCommand should be "${svc.start}" (resolved against the image WORKDIR /app/${svc.workdir}); got "${deploy.startCommand}"`,
   );
 
-  check(
-    deploy.healthcheckPath === svc.health,
-    where,
-    `deploy.healthcheckPath should be ${svc.health} (got ${deploy.healthcheckPath})`,
-  );
-  check(
-    typeof deploy.healthcheckTimeout === 'number' && deploy.healthcheckTimeout >= 30,
-    where,
-    'deploy.healthcheckTimeout should be >= 30s so a cold start is not mistaken for a failure',
-  );
-  check(
-    deploy.restartPolicyType === 'ON_FAILURE',
-    where,
-    'deploy.restartPolicyType should be ON_FAILURE',
-  );
+  if (svc.oneShot) {
+    // A job that runs to completion serves nothing, so a health check would fail it.
+    check(
+      deploy.healthcheckPath === undefined,
+      where,
+      `a one-shot job must not declare a healthcheckPath (got ${deploy.healthcheckPath})`,
+    );
+    // NEVER is a correctness requirement here, not a preference: prisma/seed.ts calls
+    // reset() and deletes existing data before writing, so any restart re-wipes the
+    // environment. ON_FAILURE would turn one bad run into a repeated data loss.
+    check(
+      deploy.restartPolicyType === 'NEVER',
+      where,
+      `a one-shot seed job must set restartPolicyType NEVER — the seed deletes data before writing, so a restart wipes the environment (got ${deploy.restartPolicyType})`,
+    );
+  } else {
+    check(
+      deploy.healthcheckPath === svc.health,
+      where,
+      `deploy.healthcheckPath should be ${svc.health} (got ${deploy.healthcheckPath})`,
+    );
+    check(
+      typeof deploy.healthcheckTimeout === 'number' && deploy.healthcheckTimeout >= 30,
+      where,
+      'deploy.healthcheckTimeout should be >= 30s so a cold start is not mistaken for a failure',
+    );
+    check(
+      deploy.restartPolicyType === 'ON_FAILURE',
+      where,
+      'deploy.restartPolicyType should be ON_FAILURE',
+    );
+  }
 
   // Migration ownership: exactly one service, via preDeployCommand.
   const pre = deploy.preDeployCommand ?? '';
