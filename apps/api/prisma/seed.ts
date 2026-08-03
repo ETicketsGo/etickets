@@ -28,12 +28,49 @@ const prisma = new PrismaClient();
 
 const SEED_PASSWORD = 'Password123!';
 
-const FEE_TIERS = [
-  { label: '₹0–₹199', minMinor: 0, maxMinor: 19_900, feeMinor: 500 },
-  { label: '₹200–₹499', minMinor: 20_000, maxMinor: 49_900, feeMinor: 1_000 },
-  { label: '₹500–₹999', minMinor: 50_000, maxMinor: 99_900, feeMinor: 1_500 },
-  { label: '₹1000+', minMinor: 100_000, maxMinor: null, feeMinor: 2_000 },
-];
+/**
+ * Booking-fee bands per currency. Amounts are integer MINOR units throughout (paise, cents),
+ * so 500 is ₹5 in INR and $5.00 in USD — the same number meaning very different sums, which
+ * is precisely why PricingService resolves tiers filtered by currency.
+ *
+ * The INR bands are the original India defaults and are unchanged. The USD/CAD/AUD bands
+ * mirror their shape (four tiers, flat fee rising with subtotal, top band open-ended) at
+ * amounts that are sane for those markets rather than a currency conversion of the rupee
+ * figures. They are STARTING POINTS for QA, not commercially agreed pricing — expect finance
+ * to set the real numbers through the admin console before any of these markets goes live.
+ */
+const FEE_TIERS_BY_CURRENCY: Record<
+  string,
+  { label: string; minMinor: number; maxMinor: number | null; feeMinor: number }[]
+> = {
+  INR: [
+    { label: '₹0–₹199', minMinor: 0, maxMinor: 19_900, feeMinor: 500 },
+    { label: '₹200–₹499', minMinor: 20_000, maxMinor: 49_900, feeMinor: 1_000 },
+    { label: '₹500–₹999', minMinor: 50_000, maxMinor: 99_900, feeMinor: 1_500 },
+    { label: '₹1000+', minMinor: 100_000, maxMinor: null, feeMinor: 2_000 },
+  ],
+  USD: [
+    { label: '$0–$9.99', minMinor: 0, maxMinor: 999, feeMinor: 49 },
+    { label: '$10–$24.99', minMinor: 1_000, maxMinor: 2_499, feeMinor: 99 },
+    { label: '$25–$49.99', minMinor: 2_500, maxMinor: 4_999, feeMinor: 149 },
+    { label: '$50+', minMinor: 5_000, maxMinor: null, feeMinor: 199 },
+  ],
+  CAD: [
+    { label: 'C$0–$9.99', minMinor: 0, maxMinor: 999, feeMinor: 59 },
+    { label: 'C$10–$24.99', minMinor: 1_000, maxMinor: 2_499, feeMinor: 119 },
+    { label: 'C$25–$49.99', minMinor: 2_500, maxMinor: 4_999, feeMinor: 179 },
+    { label: 'C$50+', minMinor: 5_000, maxMinor: null, feeMinor: 239 },
+  ],
+  AUD: [
+    { label: 'A$0–$9.99', minMinor: 0, maxMinor: 999, feeMinor: 59 },
+    { label: 'A$10–$24.99', minMinor: 1_000, maxMinor: 2_499, feeMinor: 119 },
+    { label: 'A$25–$49.99', minMinor: 2_500, maxMinor: 4_999, feeMinor: 179 },
+    { label: 'A$50+', minMinor: 5_000, maxMinor: null, feeMinor: 239 },
+  ],
+};
+
+/** The seed's own price maths is INR-only; keep that path pointed at the INR bands. */
+const FEE_TIERS = FEE_TIERS_BY_CURRENCY.INR;
 
 function bookingFee(subtotal: number): number {
   for (const t of FEE_TIERS) {
@@ -216,7 +253,11 @@ async function main() {
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
 
   console.log('Seeding fee rules & coupons...');
-  await prisma.feeRule.createMany({ data: FEE_TIERS });
+  await prisma.feeRule.createMany({
+    data: Object.entries(FEE_TIERS_BY_CURRENCY).flatMap(([currency, tiers]) =>
+      tiers.map((t) => ({ ...t, currency })),
+    ),
+  });
 
   console.log('Seeding payment platform (providers, routes, merchants)...');
   await seedPaymentPlatform();

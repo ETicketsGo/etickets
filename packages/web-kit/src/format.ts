@@ -1,9 +1,18 @@
+/**
+ * Format an integer minor-unit amount as currency.
+ *
+ * Fraction digits are currency-aware. INR keeps whole rupees — the product has always shown
+ * ₹799 rather than ₹799.00 and prices are whole-rupee in practice. Everything else keeps its
+ * sub-unit, because rounding to whole units turns a $9.99 fee band into "$10" and makes
+ * adjacent bands ($9.99 / $10.00) look identical in the admin table.
+ */
 export function money(minor: number | null | undefined, currency = 'INR'): string {
   if (minor == null) return '—';
-  return new Intl.NumberFormat('en-IN', {
+  const wholeUnits = currency === 'INR';
+  return new Intl.NumberFormat(wholeUnits ? 'en-IN' : 'en-US', {
     style: 'currency',
     currency,
-    maximumFractionDigits: 0,
+    ...(wholeUnits ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2 }),
   }).format(minor / 100);
 }
 

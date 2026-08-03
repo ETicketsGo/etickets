@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { api, tokenStore, type AuthUser } from './api';
+import { api, tokenStore, getAuthSnapshot, getServerAuthSnapshot, type AuthUser } from './api';
 import { Spinner } from './components';
 import {
   subscribeConnectivity,
@@ -186,4 +186,19 @@ export function useConnectivity(): ConnectivitySnapshot {
     getConnectivitySnapshot,
     getServerConnectivitySnapshot,
   );
+}
+
+/**
+ * Whether a session token is present, kept live as it changes.
+ *
+ * Use this rather than reading `tokenStore.access` in a mount-only effect. Next.js keeps the
+ * layout mounted across client-side navigation, so a component that reads the token once
+ * never sees a later sign-in — the customer header showed "Sign in / Sign up" to signed-in
+ * users for exactly that reason. Subscribing also picks up sign-out from another tab.
+ *
+ * Returns false during server render and the first paint, then corrects on hydration; that
+ * is deliberate, because the token only exists in the browser.
+ */
+export function useIsAuthenticated(): boolean {
+  return useSyncExternalStore(tokenStore.subscribe, getAuthSnapshot, getServerAuthSnapshot);
 }

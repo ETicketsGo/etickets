@@ -115,8 +115,28 @@ const BACKEND = {
   ENABLE_SWAGGER: 'true',
 };
 
-/** Build-time for the web tier: Next.js inlines it, so changing it needs a rebuild. */
-const WEB = { NEXT_PUBLIC_API_URL: API_URL };
+/**
+ * Build-time for the web tier: Next.js inlines these, so changing one needs a REBUILD.
+ *
+ * Every NEXT_PUBLIC_* the apps read must be listed here. Any that is missing silently falls
+ * back to its hardcoded default, and those defaults are written for local development:
+ *   - NEXT_PUBLIC_ORGANIZER_URL falls back to http://localhost:3001, so the deployed
+ *     "Open organizer console" button pointed at the developer's own machine.
+ *   - NEXT_PUBLIC_SITE_URL falls back to https://eticketsgo.com, so QA's robots.txt,
+ *     sitemap.xml and canonical metadata advertised PRODUCTION URLs.
+ * Neither fails a build or a health check — they just quietly do the wrong thing, which is
+ * why they are enumerated per app rather than left to defaults.
+ */
+const WEB_COMMON = { NEXT_PUBLIC_API_URL: API_URL };
+const WEB_BY_APP = {
+  'customer-web': {
+    ...WEB_COMMON,
+    NEXT_PUBLIC_ORGANIZER_URL: `https://${ORG_HOST}`,
+    NEXT_PUBLIC_SITE_URL: `https://${WEB_HOST}`,
+  },
+  'organizer-web': { ...WEB_COMMON },
+  'admin-web': { ...WEB_COMMON },
+};
 
 async function main() {
   const { projectToken } = await gql('{ projectToken { projectId environmentId } }');
@@ -134,9 +154,9 @@ async function main() {
   const targets = [
     ['api', { ...BACKEND }],
     ['worker', { ...BACKEND }],
-    ['customer-web', { ...WEB }],
-    ['organizer-web', { ...WEB }],
-    ['admin-web', { ...WEB }],
+    ['customer-web', { ...WEB_BY_APP['customer-web'] }],
+    ['organizer-web', { ...WEB_BY_APP['organizer-web'] }],
+    ['admin-web', { ...WEB_BY_APP['admin-web'] }],
   ];
 
   for (const [name, vars] of targets) {
