@@ -65,12 +65,23 @@ const secret = (bytes = 36) => randomBytes(bytes).toString('base64url');
 // back to the repository-root railway.json, which describes the API *including its
 // migration pre-deploy command*. An unset path on the worker silently creates a second
 // migration executor.
+//
+// `sleep` enables Railway's app sleeping: the service scales to zero when idle and wakes on
+// the next request. On a usage-billed plan that is the difference between paying for seven
+// always-on containers and paying for what QA actually uses, which outside working hours is
+// close to nothing.
+//
+// The worker is the one service that must NEVER sleep, and the reason is correctness rather
+// than convenience: it owns the `expire-holds` repeatable job. A sleeping worker does not
+// release expired seat holds, so inventory stays locked and the symptom presents as phantom
+// overselling — the hardest class of bug to diagnose in this system. The few dollars a month
+// that costs is not a trade worth making.
 const APP_SERVICES = [
-  { name: 'api', config: 'deploy/railway/api.railway.json' },
-  { name: 'worker', config: 'deploy/railway/worker.railway.json' },
-  { name: 'customer-web', config: 'deploy/railway/customer-web.railway.json' },
-  { name: 'organizer-web', config: 'deploy/railway/organizer-web.railway.json' },
-  { name: 'admin-web', config: 'deploy/railway/admin-web.railway.json' },
+  { name: 'api', config: 'deploy/railway/api.railway.json', sleep: true },
+  { name: 'worker', config: 'deploy/railway/worker.railway.json', sleep: false },
+  { name: 'customer-web', config: 'deploy/railway/customer-web.railway.json', sleep: true },
+  { name: 'organizer-web', config: 'deploy/railway/organizer-web.railway.json', sleep: true },
+  { name: 'admin-web', config: 'deploy/railway/admin-web.railway.json', sleep: true },
 ];
 
 const REPO = 'ETicketsGo/etickets';
@@ -129,6 +140,19 @@ async function main() {
         { e: environmentId, s: id, in: { railwayConfigFile: svc.config } },
       );
       act(`${svc.name}: config-as-code = ${svc.config}`);
+    }
+
+    // Cost control: sleep when idle, and never more than one replica in QA.
+    if (DRY) {
+      act(`${svc.name}: sleepApplication=${svc.sleep}, numReplicas=1`);
+    } else {
+      await gql(
+        `mutation($e:String!,$s:String!,$in:ServiceInstanceUpdateInput!){ serviceInstanceUpdate(environmentId:$e, serviceId:$s, input:$in) }`,
+        { e: environmentId, s: id, in: { sleepApplication: svc.sleep, numReplicas: 1 } },
+      );
+      act(
+        `${svc.name}: sleep=${svc.sleep}${svc.sleep ? '' : '  <- must stay awake: owns expire-holds'}, replicas=1`,
+      );
     }
 
     // Root directory must stay empty: every Dockerfile builds from the repository root
