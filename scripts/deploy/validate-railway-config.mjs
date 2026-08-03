@@ -99,7 +99,7 @@ const SERVICES = [
     file: 'db-seed.railway.json',
     dockerfile: 'apps/api/Dockerfile',
     workdir: 'apps/api',
-    start: 'npm run db:seed',
+    start: "npx ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/seed.ts",
     health: undefined,
     expectMigrations: false,
     oneShot: true,
