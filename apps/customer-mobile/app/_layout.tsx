@@ -12,6 +12,7 @@ import {
 import { AppProviders } from '@/components/providers';
 import { useAuthStore } from '@/application/auth-store';
 import { initSentry, Sentry } from '@/services/sentry';
+import { useDeepLinks } from '@/hooks/use-deep-links';
 
 initSentry();
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -41,6 +42,7 @@ function RootLayout() {
 
   return (
     <AppProviders>
+      <DeepLinkHandler />
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(tabs)" />
@@ -57,3 +59,12 @@ function RootLayout() {
 
 // Sentry.wrap enriches crashes with routing/native context.
 export default Sentry.wrap(RootLayout);
+
+/**
+ * Renders nothing; exists so the deep-link hook runs INSIDE the provider tree, where
+ * the router and the auth store are available.
+ */
+function DeepLinkHandler() {
+  useDeepLinks();
+  return null;
+}
