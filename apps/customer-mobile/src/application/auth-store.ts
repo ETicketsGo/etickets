@@ -22,17 +22,31 @@ export const useAuthStore = create<AuthState>((set) => ({
   status: 'loading',
   user: null,
 
+  /**
+   * Resolve the session on launch.
+   *
+   * The whole body is guarded, and that is load-bearing rather than defensive habit:
+   * the root layout holds the splash screen until `status` leaves 'loading', so ANY
+   * throw in here means the app never paints. That is not hypothetical — reading the
+   * token threw on web (expo-secure-store has no web build) and the app rendered a
+   * blank page until it was found by running the exported bundle. Whatever goes wrong,
+   * the outcome must be "signed out and running", never "stuck on a splash screen".
+   */
   hydrate: async () => {
-    const tokens = await tokenStore.get();
-    if (!tokens) {
-      set({ status: 'unauthenticated', user: null });
-      return;
-    }
     try {
-      const user = await authRepository.me();
-      set({ status: 'authenticated', user });
+      const tokens = await tokenStore.get();
+      if (!tokens) {
+        set({ status: 'unauthenticated', user: null });
+        return;
+      }
+      try {
+        const user = await authRepository.me();
+        set({ status: 'authenticated', user });
+      } catch {
+        await tokenStore.clear();
+        set({ status: 'unauthenticated', user: null });
+      }
     } catch {
-      await tokenStore.clear();
       set({ status: 'unauthenticated', user: null });
     }
   },

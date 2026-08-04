@@ -35,6 +35,23 @@ config.resolver.extraNodeModules = {
   // types, which is how "className is not a prop" appears at build time and far stranger
   // things appear at runtime. Pinning the resolution here makes Metro bundle exactly one.
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
+  // react-native-css-interop is NativeWind's runtime. It is nested at
+  // node_modules/nativewind/node_modules rather than hoisted, for the same reason as
+  // above — it declares react-native as a `*` peer, so npm installs it a level down to
+  // avoid the React 18/19 conflict at the root.
+  //
+  // Third-party packages import it by bare specifier: react-native-safe-area-context
+  // does `import "react-native-css-interop"` after NativeWind patches it. Metro resolves
+  // that from the importing package's own node_modules chain, which does not include
+  // nativewind's private folder, so the bundle fails outright:
+  //   "Unable to resolve react-native-css-interop from
+  //    react-native-safe-area-context/lib/module/SafeAreaContext.js"
+  // This was found by actually running `expo export`, not by reading the config — the
+  // app builds no bundle at all without it, on web and on device alike.
+  'react-native-css-interop': path.resolve(
+    workspaceRoot,
+    'node_modules/nativewind/node_modules/react-native-css-interop',
+  ),
 };
 
 module.exports = withNativeWind(config, { input: './global.css' });

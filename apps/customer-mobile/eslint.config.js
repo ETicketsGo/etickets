@@ -39,4 +39,21 @@ module.exports = [
       'react-hooks/immutability': 'off',
     },
   },
+  {
+    // Build/test scripts run under Node, not in the app bundle. Expo's config declares
+    // React Native globals, so without this URL, Buffer and AbortSignal read as undefined
+    // here — a false positive, and one that would push someone toward adding globals to
+    // the app's own environment to silence it.
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        AbortSignal: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
 ];
