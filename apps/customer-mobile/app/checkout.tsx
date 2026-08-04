@@ -35,6 +35,8 @@ export default function CheckoutScreen() {
     sessionId?: string;
     slug?: string;
     items?: string;
+    /** Human-readable seat labels ("A1, A2") for reserved-seating checkouts. */
+    seatNames?: string;
   }>();
   const router = useRouter();
   const online = useOnline();
@@ -194,14 +196,26 @@ export default function CheckoutScreen() {
           <Text variant="title3" accessibilityRole="header">
             {event?.title ?? 'Your tickets'}
           </Text>
+          {params.seatNames ? (
+            <Text variant="subhead" tone="muted">
+              Seats {params.seatNames}
+            </Text>
+          ) : null}
           <Card padded={false}>
             {lineItems.map((r, i) => (
               <View key={r.item.ticketTypeId}>
                 {i > 0 ? <Separator /> : null}
                 <View className="flex-row items-center justify-between p-4">
-                  <Text variant="body" className="flex-1">
-                    {r.type?.name} × {r.item.quantity}
-                  </Text>
+                  <View className="flex-1">
+                    <Text variant="body">
+                      {r.type?.name} × {r.item.quantity}
+                    </Text>
+                    {r.item.seatIds?.length ? (
+                      <Text variant="caption" tone="muted">
+                        Reserved seating
+                      </Text>
+                    ) : null}
+                  </View>
                   <Text variant="body" className="font-semibold">
                     {formatMoney((r.type?.priceMinor ?? 0) * r.item.quantity, currency)}
                   </Text>

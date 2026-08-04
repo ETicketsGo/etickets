@@ -44,6 +44,13 @@ export default function EventDetailScreen() {
     [session, quantities],
   );
 
+  /**
+   * MOVIE-type experiences use reserved seating: their sessions have a screen with a
+   * seat map, and the API requires seatIds on the booking line. EVENT-type is general
+   * admission, where a quantity is all the API wants.
+   */
+  const reservedSeating = event?.experienceType === 'MOVIE';
+
   const totalQty = selected.reduce((n, r) => n + r.qty, 0);
   const subtotalMinor = selected.reduce((n, r) => n + r.type.priceMinor * r.qty, 0);
   const currency = session?.ticketTypes[0]?.currency ?? 'INR';
@@ -156,23 +163,64 @@ export default function EventDetailScreen() {
               </View>
             ) : null}
 
-            <View className="gap-3 px-5">
-              <Text variant="title3" accessibilityRole="header">
-                Tickets
-              </Text>
-              <Card padded={false}>
-                {(session?.ticketTypes ?? []).map((t, i) => (
-                  <View key={t.id}>
-                    {i > 0 ? <Separator /> : null}
-                    <TicketTypeRow
-                      ticketType={t}
-                      quantity={quantities[t.id] ?? 0}
-                      onChange={(q) => setQuantities((cur) => ({ ...cur, [t.id]: q }))}
-                    />
+            {reservedSeating && session ? (
+              /**
+               * Reserved seating: the ticket types here are price CATEGORIES, not
+               * quantities to pick. Offering a stepper would let someone choose "3
+               * Premium" without choosing which three, and the API requires seatIds for
+               * a seat-based session — so selection has to happen on the seat map.
+               */
+              <View className="gap-3 px-5">
+                <Text variant="title3" accessibilityRole="header">
+                  Seats
+                </Text>
+                <Card className="gap-3">
+                  <Text variant="subhead" tone="secondary">
+                    This screening has reserved seating. Pick your exact seats from the seat map.
+                  </Text>
+                  <View className="gap-1">
+                    {session.ticketTypes.map((t) => (
+                      <View key={t.id} className="flex-row items-center justify-between">
+                        <Text variant="footnote" tone="muted">
+                          {t.name}
+                        </Text>
+                        <Text variant="footnote" tone="muted">
+                          {formatMoney(t.priceMinor, t.currency)}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </Card>
-            </View>
+                  <Button
+                    label="Choose seats"
+                    icon="grid-outline"
+                    onPress={() =>
+                      router.push({
+                        pathname: '/session/[id]/seats',
+                        params: { id: session.id, slug: event.slug },
+                      })
+                    }
+                  />
+                </Card>
+              </View>
+            ) : (
+              <View className="gap-3 px-5">
+                <Text variant="title3" accessibilityRole="header">
+                  Tickets
+                </Text>
+                <Card padded={false}>
+                  {(session?.ticketTypes ?? []).map((t, i) => (
+                    <View key={t.id}>
+                      {i > 0 ? <Separator /> : null}
+                      <TicketTypeRow
+                        ticketType={t}
+                        quantity={quantities[t.id] ?? 0}
+                        onChange={(q) => setQuantities((cur) => ({ ...cur, [t.id]: q }))}
+                      />
+                    </View>
+                  ))}
+                </Card>
+              </View>
+            )}
 
             {event.refundPolicy ? (
               <View className="gap-1 px-5 pt-6">

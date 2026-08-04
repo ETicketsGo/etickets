@@ -15,6 +15,13 @@ import {
 export interface CartItem {
   ticketTypeId: string;
   quantity: number;
+  /**
+   * Reserved-seating lines only. The API's createBookingSchema enforces
+   * seatIds.length === quantity, and a seat-based session will not accept a line
+   * without them — general-admission lines must omit the field entirely rather than
+   * send an empty array.
+   */
+  seatIds?: string[];
 }
 
 export interface CreateBookingArgs {
