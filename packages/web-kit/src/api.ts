@@ -829,6 +829,9 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    /** Create a band. `currency` is required — a band only means anything within one. */
+    createFeeRule: (input: Omit<FeeRule, 'id'>) =>
+      request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
     /**
      * Update one fee rule. `currency` is not editable — the amounts are minor units, so
      * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;

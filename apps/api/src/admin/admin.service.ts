@@ -98,6 +98,92 @@ export class AdminService {
    * Currency is deliberately immutable: moving a rule between currencies would silently
    * reinterpret its minor-unit amounts (₹5 becoming $5). Create a new rule instead.
    */
+  /**
+   * Create a fee-rule band in an existing currency.
+   *
+   * Shares the band validation with the update path: an inverted band matches nothing (and
+   * falls through to the top tier), and an overlap makes the charge depend on row order,
+   * because resolution is first-match. Both fail silently at booking time, so they are
+   * refused here.
+   */
+  async createFeeRule(
+    actorUserId: string,
+    input: {
+      currency: string;
+      label: string;
+      minMinor: number;
+      maxMinor: number | null;
+      feeMinor: number;
+      active?: boolean;
+    },
+  ) {
+    const active = input.active ?? true;
+    this.assertBandShape(input.minMinor, input.maxMinor);
+    if (active) await this.assertNoOverlap(input.currency, input.minMinor, input.maxMinor, null);
+
+    const created = await this.prisma.feeRule.create({
+      data: {
+        currency: input.currency,
+        label: input.label,
+        minMinor: input.minMinor,
+        maxMinor: input.maxMinor,
+        feeMinor: input.feeMinor,
+        active,
+      },
+    });
+
+    await this.audit.record({
+      actorUserId,
+      action: 'FEE_RULE_CREATED',
+      entityType: 'FeeRule',
+      entityId: created.id,
+      metadata: {
+        currency: created.currency,
+        label: created.label,
+        minMinor: created.minMinor,
+        maxMinor: created.maxMinor,
+        feeMinor: created.feeMinor,
+        active: created.active,
+      },
+    });
+
+    return created;
+  }
+
+  /** An inverted band matches nothing and silently reprices via the fall-through tier. */
+  private assertBandShape(minMinor: number, maxMinor: number | null): void {
+    if (maxMinor !== null && maxMinor <= minMinor) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The upper bound must be greater than the lower bound (use no upper bound for the top band).',
+      );
+    }
+  }
+
+  /** Fees resolve by first match, so overlapping active bands make the charge order-dependent. */
+  private async assertNoOverlap(
+    currency: string,
+    minMinor: number,
+    maxMinor: number | null,
+    excludeId: string | null,
+  ): Promise<void> {
+    const siblings = await this.prisma.feeRule.findMany({
+      where: {
+        currency,
+        active: true,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    const hi = (m: number | null) => (m === null ? Number.MAX_SAFE_INTEGER : m);
+    const clash = siblings.find((s) => minMinor <= hi(s.maxMinor) && s.minMinor <= hi(maxMinor));
+    if (clash) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `This band overlaps the active rule "${clash.label}" in ${currency}. Fees are resolved by first match, so overlapping bands make the charge depend on row order.`,
+      );
+    }
+  }
+
   async updateFeeRule(
     actorUserId: string,
     id: string,
@@ -120,27 +206,11 @@ export class AdminService {
       active: patch.active ?? existing.active,
     };
 
-    if (next.maxMinor !== null && next.maxMinor <= next.minMinor) {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'The upper bound must be greater than the lower bound (use no upper bound for the top band).',
-      );
-    }
-
+    // Same two guards the create path applies — an inverted band silently reprices via the
+    // fall-through tier, and an overlap makes the charge depend on row order.
+    this.assertBandShape(next.minMinor, next.maxMinor);
     if (next.active) {
-      const siblings = await this.prisma.feeRule.findMany({
-        where: { currency: existing.currency, active: true, id: { not: id } },
-      });
-      const hi = (m: number | null) => (m === null ? Number.MAX_SAFE_INTEGER : m);
-      const clash = siblings.find(
-        (s) => next.minMinor <= hi(s.maxMinor) && s.minMinor <= hi(next.maxMinor),
-      );
-      if (clash) {
-        throw new AppException(
-          ErrorCodes.VALIDATION_FAILED,
-          `This band overlaps the active rule "${clash.label}" in ${existing.currency}. Fees are resolved by first match, so overlapping bands make the charge depend on row order.`,
-        );
-      }
+      await this.assertNoOverlap(existing.currency, next.minMinor, next.maxMinor, id);
     }
 
     const updated = await this.prisma.feeRule.update({ where: { id }, data: next });
