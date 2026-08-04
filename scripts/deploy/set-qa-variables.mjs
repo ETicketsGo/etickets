@@ -49,16 +49,48 @@ async function gql(query, variables = {}) {
 /** 48 bytes base64url — comfortably past the 24-char minimum the API enforces in prod-like envs. */
 const secret = () => randomBytes(48).toString('base64url');
 
-// Public QA hostnames. Railway-generated for now; swap for the custom domains once
-// Cloudflare is wired (NEXT_PUBLIC_API_URL requires a REBUILD, not a restart, because
-// Next.js inlines it into the bundle at build time).
-const API_HOST = process.env.QA_API_HOST ?? 'api-qa-f23c.up.railway.app';
+/**
+ * Public QA hostnames.
+ *
+ * Every service has TWO reachable names: the Railway-generated one and the
+ * eticketsgo.com custom domain. Both are kept here on purpose.
+ *
+ * The generated name is what NEXT_PUBLIC_API_URL points at, because it exists the
+ * moment the service does — a custom domain is only reachable once its CNAME is live
+ * and Railway has issued a certificate, and pointing the bundle at a name that does not
+ * resolve yet bricks the app until DNS propagates. (These are inlined at BUILD time, so
+ * repointing them later is a rebuild, not a restart.)
+ *
+ * The custom names must nevertheless be in CORS_ORIGINS, and that is not optional: a
+ * user who opens https://qa.eticketsgo.com gets an Origin the API does not recognise,
+ * so the browser blocks every single XHR. The page renders — server-side HTML is
+ * unaffected — and then nothing works, with the only evidence in the browser console.
+ * Listing both means QA behaves identically whichever hostname someone arrives on.
+ *
+ * NOTE: the generated API hostname is not stable across service re-creation. It was
+ * api-qa-f23c until the api service was rebuilt, after which the old name 404'd at the
+ * Railway edge. Override with QA_API_HOST rather than editing this line.
+ */
+const API_HOST = process.env.QA_API_HOST ?? 'api-qa-f580.up.railway.app';
 const WEB_HOST = process.env.QA_WEB_HOST ?? 'customer-web-qa.up.railway.app';
 const ORG_HOST = process.env.QA_ORG_HOST ?? 'organizer-web-qa.up.railway.app';
 const ADMIN_HOST = process.env.QA_ADMIN_HOST ?? 'admin-web-qa.up.railway.app';
 
+const CUSTOM_WEB_HOST = 'qa.eticketsgo.com';
+const CUSTOM_ORG_HOST = 'organizer-qa.eticketsgo.com';
+const CUSTOM_ADMIN_HOST = 'admin-qa.eticketsgo.com';
+
 const API_URL = `https://${API_HOST}/api`;
-const CORS = [`https://${WEB_HOST}`, `https://${ORG_HOST}`, `https://${ADMIN_HOST}`].join(',');
+const CORS = [
+  WEB_HOST,
+  ORG_HOST,
+  ADMIN_HOST,
+  CUSTOM_WEB_HOST,
+  CUSTOM_ORG_HOST,
+  CUSTOM_ADMIN_HOST,
+]
+  .map((h) => `https://${h}`)
+  .join(',');
 
 /** Variables that are secret: generated once, never rotated implicitly, never printed. */
 const SECRETS = [

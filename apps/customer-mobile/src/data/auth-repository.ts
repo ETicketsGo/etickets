@@ -1,4 +1,4 @@
-import type { LoginInput } from '@eticketsgo/validation';
+import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import type { AuthenticatedUser, AuthResponse } from '@eticketsgo/shared-types';
 import { apiClient } from '@/services/api-client';
 
@@ -14,6 +14,8 @@ export type AuthUser = AuthenticatedUser;
 export const authRepository = {
   login: (input: LoginInput) =>
     apiClient.post<AuthResponse>('/auth/login', input).then((r) => r.data),
+  register: (input: RegisterInput) =>
+    apiClient.post<AuthResponse>('/auth/register', input).then((r) => r.data),
   me: () => apiClient.get<AuthUser>('/auth/me').then((r) => r.data),
   logout: (refreshToken: string) =>
     apiClient.post('/auth/logout', { refreshToken }).then(() => undefined),

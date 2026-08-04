@@ -1,8 +1,14 @@
 import { Redirect } from 'expo-router';
-import { useAuth } from '@/hooks/use-auth';
 
-/** Auth gate: route to the app or the auth flow once the session is resolved. */
+/**
+ * Entry point. Always lands on the tabs.
+ *
+ * It used to send unauthenticated visitors to the welcome/sign-in flow. That is the
+ * wrong first screen for a ticketing app: the API serves discovery publicly and
+ * supports guest checkout, so an account is only needed at the point a booking becomes
+ * attached to a person. The screens that do need one (tickets, account actions) prompt
+ * in place via AuthGate, which keeps the user where they were.
+ */
 export default function Index() {
-  const { isAuthenticated } = useAuth();
-  return <Redirect href={isAuthenticated ? '/(app)' : '/(auth)/welcome'} />;
+  return <Redirect href="/(tabs)" />;
 }

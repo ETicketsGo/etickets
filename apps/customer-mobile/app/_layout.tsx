@@ -43,8 +43,13 @@ function RootLayout() {
     <AppProviders>
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(app)" />
+        <Stack.Screen name="(tabs)" />
+        {/* Auth is a modal presented over whatever the user was doing, so signing in
+            returns them to that screen instead of resetting them to Home. */}
+        <Stack.Screen
+          name="(auth)"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
     </AppProviders>
   );

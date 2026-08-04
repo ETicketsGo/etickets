@@ -64,6 +64,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     ['expo-camera', { cameraPermission: 'Scan QR codes to check in to your events.' }],
     ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],
+    'expo-image',
+    'expo-localization',
+    'expo-web-browser',
     [
       '@sentry/react-native/expo',
       {

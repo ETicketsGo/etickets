@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LoginInput } from '@eticketsgo/validation';
+import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { tokenStore } from '@/services/secure-store';
 import { authRepository, type AuthUser } from '@/data/auth-repository';
 
@@ -11,6 +11,7 @@ interface AuthState {
   /** Hydrate from secure storage on launch; resolve the current user if a token exists. */
   hydrate: () => Promise<void>;
   login: (input: LoginInput) => Promise<void>;
+  register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
   /** Called by the API client when a refresh fails — force logout. */
   expire: () => void;
@@ -37,6 +38,17 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (input) => {
     const result = await authRepository.login(input);
+    await tokenStore.set({ accessToken: result.accessToken, refreshToken: result.refreshToken });
+    const user = result.user ?? (await authRepository.me());
+    set({ status: 'authenticated', user });
+  },
+
+  /**
+   * Register and sign in in one step. The API returns the same token pair as login, so
+   * a newly registered user is not made to type the password they just chose.
+   */
+  register: async (input) => {
+    const result = await authRepository.register(input);
     await tokenStore.set({ accessToken: result.accessToken, refreshToken: result.refreshToken });
     const user = result.user ?? (await authRepository.me());
     set({ status: 'authenticated', user });
