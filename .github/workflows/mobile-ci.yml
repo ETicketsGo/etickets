@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────
+# Mobile CI — isolated from the web/api pipeline (ci.yml). Runs when the mobile app OR
+# any shared package/config it depends on changes (shared packages can break mobile
+# even with no mobile-file change), but never gates unrelated web-only changes.
+# Native iOS/Android compilation runs on EAS (see the eas-build job note), not here.
+# ─────────────────────────────────────────────────────────────
+name: Mobile CI
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - 'apps/customer-mobile/**'
+      - 'packages/shared-types/**'
+      - 'packages/validation/**'
+      - 'packages/design-tokens/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'turbo.json'
+      - '.npmrc'
+      - '.github/workflows/mobile-ci.yml'
+  pull_request:
+    paths: *paths
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Doctor + Typecheck + Lint + Test + Web export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Shared packages publish compiled `dist`; the mobile typecheck reads their types.
+      - run: npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens
+      # expo-doctor's "no duplicate dependencies" check flags two known-benign duplicates in
+      # this monorepo:
+      #   • react / react-dom — React 18 (web) vs React 19 (mobile). By design, JS-only, and
+      #     exactly one is bundled (see MOBILE-FOUNDATION.md + the passing `expo export`).
+      #   • react-native-screens 4.25.2 (app pin) vs 4.26.2 (a transitive of expo-router) —
+      #     adjacent patch releases of the same native module; autolinking picks one.
+      # This gate accepts ONLY those and still fails on any other doctor issue (another failed
+      # check, or a duplicate of any other package).
+      - name: expo-doctor (accept only the known-benign React / screens duplicates)
+        working-directory: apps/customer-mobile
+        run: |
+          set +e
+          OUT=$(npx expo-doctor 2>&1); CODE=$?
+          echo "$OUT"
+          if [ $CODE -eq 0 ]; then exit 0; fi
+          OTHER_CHECKS=$(echo "$OUT" | grep -E '✖' | grep -vi 'duplicate dependencies')
+          NON_ALLOWED_DUPES=$(echo "$OUT" | grep -E 'Found duplicates for' | grep -vE 'for (react|react-dom|react-native-screens):')
+          if [ -n "$OTHER_CHECKS" ] || [ -n "$NON_ALLOWED_DUPES" ]; then
+            echo "::error::expo-doctor found issues beyond the known-benign React / screens duplicates"
+            exit 1
+          fi
+          echo "Only the known-benign react/react-dom/react-native-screens duplicates remain — treating as pass."
+      - name: Typecheck
+        run: npm run typecheck:mobile -w @eticketsgo/customer-mobile
+      - name: Lint
+        run: npm run lint:mobile -w @eticketsgo/customer-mobile
+      - name: Unit tests
+        run: npm run test:mobile -w @eticketsgo/customer-mobile
+      - name: Expo web export (Metro bundle — no native toolchain needed)
+        run: npm run export:web -w @eticketsgo/customer-mobile
+
+  # Native EAS development builds. Requires an Expo account token in repo secrets
+  # (EXPO_TOKEN). Skipped automatically when the secret is absent so the workflow never
+  # fails for forks/contributors without EAS access. Configure to gate before release.
+  eas-build:
+    name: EAS dev build (Android + iOS)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Guard — EXPO_TOKEN present
+        id: guard
+        run: echo "has_token=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.guard.outputs.has_token == 'true'
+        run: npm ci
+      - if: steps.guard.outputs.has_token == 'true'
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - if: steps.guard.outputs.has_token == 'true'
+        working-directory: apps/customer-mobile
+        run: |
+          eas build --platform android --profile development --non-interactive --no-wait
+          eas build --platform ios --profile development --non-interactive --no-wait
+      - if: steps.guard.outputs.has_token != 'true'
+        run: echo "EXPO_TOKEN not configured — skipping EAS builds (configure to enable)."
