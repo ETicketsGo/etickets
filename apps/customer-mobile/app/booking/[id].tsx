@@ -6,8 +6,11 @@ import { EmptyState, ErrorState, LoadingState, OfflineBanner } from '@/component
 import { useOnline } from '@/hooks/use-online';
 import { Badge, Card, IconButton, Separator, Text } from '@/ui';
 import { formatDateTime, formatMoney } from '@/services/locale';
-import { useBookings, useTickets } from '@/features/bookings/api';
-import { bookingTone, type Ticket } from '@/features/bookings/schema';
+import { useBookings } from '@/features/bookings/api';
+import { useOfflineTickets } from '@/features/bookings/use-offline-tickets';
+import { OfflineTicketNotice } from '@/features/bookings/offline-notice';
+import { bookingTone } from '@/features/bookings/schema';
+import type { CachedTicket } from '@/services/ticket-cache';
 import { TicketQr } from '@/features/bookings/ticket-qr';
 
 /**
@@ -24,15 +27,15 @@ export default function BookingScreen() {
   const online = useOnline();
 
   const bookings = useBookings();
-  const tickets = useTickets();
+  const tickets = useOfflineTickets();
 
   const booking = useMemo(() => bookings.data?.data.find((b) => b.id === id), [bookings.data, id]);
   const bookingTickets = useMemo(
-    () => (tickets.data ?? []).filter((t) => t.bookingId === id),
-    [tickets.data, id],
+    () => tickets.tickets.filter((t) => t.bookingId === id),
+    [tickets.tickets, id],
   );
 
-  const loading = bookings.isPending || tickets.isPending;
+  const loading = bookings.isPending || tickets.loading;
 
   return (
     <Screen padded={false} edges={['top']}>
@@ -67,6 +70,9 @@ export default function BookingScreen() {
         />
       ) : (
         <ScrollView contentContainerClassName="gap-5 px-5 pb-8 pt-2">
+          {tickets.fromCache ? (
+            <OfflineTicketNotice syncedAt={tickets.syncedAt} stale={tickets.stale} />
+          ) : null}
           <View className="gap-1">
             <Badge label={booking.status} tone={bookingTone(booking.status)} />
             <Text variant="title2" accessibilityRole="header">
@@ -119,7 +125,7 @@ export default function BookingScreen() {
   );
 }
 
-function TicketCard({ ticket }: { ticket: Ticket }) {
+function TicketCard({ ticket }: { ticket: CachedTicket }) {
   const where = [ticket.venueName, ticket.cinemaName, ticket.screenName]
     .filter(Boolean)
     .join(' · ');

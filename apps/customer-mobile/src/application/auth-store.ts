@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { tokenStore } from '@/services/secure-store';
 import { authRepository, type AuthUser } from '@/data/auth-repository';
+import { clearAllTickets } from '@/services/ticket-cache';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -58,11 +59,18 @@ export const useAuthStore = create<AuthState>((set) => ({
     const tokens = await tokenStore.get();
     if (tokens) await authRepository.logout(tokens.refreshToken).catch(() => undefined);
     await tokenStore.clear();
+    // Every account's cached tickets, not just this one's. Someone signing out of a
+    // shared device should not leave a readable wallet behind for the next person.
+    await clearAllTickets();
     set({ status: 'unauthenticated', user: null });
   },
 
   expire: () => {
     void tokenStore.clear();
+    // A session that expired is not a deliberate sign-out, so the cached tickets are
+    // deliberately KEPT: the common cause is a phone that has been offline for a while,
+    // and that is exactly when someone needs to show a ticket they already downloaded.
+    // They are still namespaced by user id and are wiped on a real logout.
     set({ status: 'unauthenticated', user: null });
   },
 }));

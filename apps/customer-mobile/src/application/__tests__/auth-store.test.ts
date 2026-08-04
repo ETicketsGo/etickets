@@ -1,9 +1,15 @@
-/**
- * Foundation tests for the auth store lifecycle. Prepared for `npm run test:mobile`
- * (jest-expo); run in CI (mobile-ci.yml) and on a dev machine — not executed in the
- * headless environment where this code was authored.
- */
+/** Auth store lifecycle: hydrate, login, logout, and forced expiry. */
 import { useAuthStore } from '@/application/auth-store';
+
+/**
+ * The store now clears cached tickets on logout, which pulls in AsyncStorage — a native
+ * module with no JS implementation under jest. Mocked here rather than in a global
+ * setup file so the dependency stays visible at the point that created it.
+ */
+const mockClearAllTickets = jest.fn(async () => undefined);
+jest.mock('@/services/ticket-cache', () => ({
+  clearAllTickets: () => mockClearAllTickets(),
+}));
 
 const tokenState: { tokens: { accessToken: string; refreshToken: string } | null } = {
   tokens: null,
@@ -68,4 +74,23 @@ describe('auth store', () => {
     expect(useAuthStore.getState().status).toBe('unauthenticated');
     expect(useAuthStore.getState().user).toBeNull();
   });
+});
+
+it('wipes every account’s cached tickets on a deliberate logout', async () => {
+  mockClearAllTickets.mockClear();
+  await useAuthStore.getState().login({ email: 'a@b.com', password: 'x' });
+
+  await useAuthStore.getState().logout();
+
+  expect(mockClearAllTickets).toHaveBeenCalledTimes(1);
+});
+
+it('KEEPS cached tickets when a session merely expires', () => {
+  mockClearAllTickets.mockClear();
+
+  useAuthStore.getState().expire();
+
+  // An expiry is usually a phone that has been offline — precisely when someone needs
+  // the ticket they already downloaded. Only a deliberate sign-out clears the wallet.
+  expect(mockClearAllTickets).not.toHaveBeenCalled();
 });

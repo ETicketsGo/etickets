@@ -3,7 +3,7 @@ import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as Brightness from 'expo-brightness';
 import { Text } from '@/ui';
-import type { Ticket } from './schema';
+import type { CachedTicket } from '@/services/ticket-cache';
 
 /**
  * The scannable code.
@@ -18,7 +18,7 @@ import type { Ticket } from './schema';
  * `qrToken` is never rendered as text, copied, logged or sent anywhere — printing it
  * would put a valid ticket credential on screen in a form anyone nearby can photograph.
  */
-export function TicketQr({ ticket }: { ticket: Ticket }) {
+export function TicketQr({ ticket }: { ticket: CachedTicket }) {
   useMaxBrightnessWhileVisible();
 
   const usable = ticket.qrDataUrl?.startsWith('data:image');
