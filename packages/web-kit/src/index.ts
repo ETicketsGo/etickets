@@ -1,4 +1,5 @@
 export * from './format';
+export * from './locale';
 export * from './utils';
 export * from './tickets';
 export * from './event-timing';

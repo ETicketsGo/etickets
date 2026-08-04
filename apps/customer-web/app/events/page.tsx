@@ -109,7 +109,9 @@ export default function EventsPage() {
         <Input
           id="city"
           label="City"
-          placeholder="Bengaluru"
+          // Neutral placeholder: a city name here reads as "this is where the product
+          // operates", which misleads visitors outside that market.
+          placeholder="Any city"
           value={city}
           onChange={(e) => setCity(e.target.value)}
         />

@@ -46,6 +46,8 @@ export default function AdminSettings() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<FeeRule | null>(null);
+  // Non-null while adding a band; holds the currency the new band belongs to.
+  const [creatingCurrency, setCreatingCurrency] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -73,25 +75,46 @@ export default function AdminSettings() {
       toast.push(err instanceof Error ? err.message : 'Could not update the fee rule.', 'error'),
   });
 
+  const create = useMutation({
+    mutationFn: (input: Parameters<typeof api.admin.createFeeRule>[0]) =>
+      api.admin.createFeeRule(input),
+    onSuccess: () => {
+      toast.push('Fee band added.', 'success');
+      void qc.invalidateQueries({ queryKey: ['admin', 'fee-rules'] });
+      setCreatingCurrency(null);
+      setDraft(null);
+    },
+    onError: (err: unknown) =>
+      toast.push(err instanceof Error ? err.message : 'Could not add the fee band.', 'error'),
+  });
+
+  const openCreator = (currency: string) => {
+    setCreatingCurrency(currency);
+    // Blank draft; the API validates the band against the existing ones in this currency.
+    setDraft({ label: '', minMinor: '', maxMinor: '', feeMinor: '', active: true });
+  };
+
   const openEditor = (rule: FeeRule) => {
     setEditing(rule);
     setDraft(toDraft(rule));
   };
 
   const submit = () => {
-    if (!editing || !draft) return;
+    if (!draft) return;
     const trimmedMax = draft.maxMinor.trim();
-    save.mutate({
-      id: editing.id,
-      patch: {
-        label: draft.label.trim(),
-        minMinor: Number(draft.minMinor),
-        // Empty means "and above" — a real value, distinct from leaving the field alone.
-        maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
-        feeMinor: Number(draft.feeMinor),
-        active: draft.active,
-      },
-    });
+    // Empty means "and above" — a real value, distinct from leaving the field alone.
+    const fields = {
+      label: draft.label.trim(),
+      minMinor: Number(draft.minMinor),
+      maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
+      feeMinor: Number(draft.feeMinor),
+      active: draft.active,
+    };
+    if (creatingCurrency) {
+      create.mutate({ currency: creatingCurrency, ...fields });
+      return;
+    }
+    if (editing) save.mutate({ id: editing.id, patch: fields });
   };
 
   /** Numeric fields are minor units; block a submit that would send NaN to a money endpoint. */
@@ -131,6 +154,11 @@ export default function AdminSettings() {
   }, {});
   const currencies = Object.keys(byCurrency).sort();
 
+  // The dialog serves both modes, so it reads its currency from whichever is active rather
+  // than assuming an existing rule. Amounts are minor units, and the labels/preview must
+  // name the right currency or an admin can enter cents thinking they are paise.
+  const dialogCurrency = creatingCurrency ?? editing?.currency ?? null;
+
   return (
     <div className="space-y-6">
       <PageHeader title="Settings" description="Platform fee configuration." />
@@ -148,6 +176,11 @@ export default function AdminSettings() {
               rows={byCurrency[currency]}
               rowKey={(r) => r.id}
             />
+            <div className="mt-3 flex justify-end">
+              <Button size="sm" variant="secondary" onClick={() => openCreator(currency)}>
+                Add band
+              </Button>
+            </div>
           </Card>
         ))}
 
@@ -180,14 +213,21 @@ export default function AdminSettings() {
       </Card>
 
       <Dialog
-        open={!!editing}
+        open={!!editing || !!creatingCurrency}
         onClose={() => {
           setEditing(null);
+          setCreatingCurrency(null);
           setDraft(null);
         }}
-        title={editing ? `Edit fee rule — ${editing.currency}` : 'Edit fee rule'}
+        title={
+          creatingCurrency
+            ? `Add fee band — ${creatingCurrency}`
+            : editing
+              ? `Edit fee rule — ${editing.currency}`
+              : 'Fee rule'
+        }
       >
-        {draft && editing && (
+        {draft && dialogCurrency && (
           <div className="space-y-3">
             <Input
               label="Label"
@@ -195,7 +235,7 @@ export default function AdminSettings() {
               onChange={(e) => setDraft({ ...draft, label: e.target.value })}
             />
             <Input
-              label={`From (minor units, ${editing.currency})`}
+              label={`From (minor units, ${dialogCurrency})`}
               inputMode="numeric"
               value={draft.minMinor}
               onChange={(e) => setDraft({ ...draft, minMinor: e.target.value })}
@@ -207,7 +247,7 @@ export default function AdminSettings() {
               onChange={(e) => setDraft({ ...draft, maxMinor: e.target.value })}
             />
             <Input
-              label={`Booking fee (minor units, ${editing.currency})`}
+              label={`Booking fee (minor units, ${dialogCurrency})`}
               inputMode="numeric"
               value={draft.feeMinor}
               onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
@@ -222,11 +262,11 @@ export default function AdminSettings() {
             </Select>
 
             <p className="text-xs text-text-muted">
-              Preview: {money(Number(draft.minMinor) || 0, editing.currency)} –{' '}
+              Preview: {money(Number(draft.minMinor) || 0, dialogCurrency)} –{' '}
               {draft.maxMinor.trim() === ''
                 ? 'and above'
-                : money(Number(draft.maxMinor) || 0, editing.currency)}{' '}
-              → fee {money(Number(draft.feeMinor) || 0, editing.currency)}
+                : money(Number(draft.maxMinor) || 0, dialogCurrency)}{' '}
+              → fee {money(Number(draft.feeMinor) || 0, dialogCurrency)}
             </p>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -234,13 +274,18 @@ export default function AdminSettings() {
                 variant="secondary"
                 onClick={() => {
                   setEditing(null);
+                  setCreatingCurrency(null);
                   setDraft(null);
                 }}
               >
                 Cancel
               </Button>
-              <Button onClick={submit} disabled={invalid || save.isPending}>
-                {save.isPending ? 'Saving…' : 'Save changes'}
+              <Button onClick={submit} disabled={invalid || save.isPending || create.isPending}>
+                {save.isPending || create.isPending
+                  ? 'Saving…'
+                  : creatingCurrency
+                    ? 'Add band'
+                    : 'Save changes'}
               </Button>
             </div>
           </div>

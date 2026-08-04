@@ -141,3 +141,54 @@ describe('AdminService.updateFeeRule', () => {
     expect(update).toHaveBeenCalled();
   });
 });
+
+/**
+ * Create shares the band validation with update — same silent failure modes, same guards.
+ */
+describe('AdminService.createFeeRule', () => {
+  function make(siblings: unknown[] = []) {
+    const create = jest.fn().mockImplementation(({ data }) => ({ id: 'new-1', ...data }));
+    const prisma = {
+      feeRule: { findMany: jest.fn().mockResolvedValue(siblings), create },
+    } as unknown as PrismaService;
+    const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
+    return { svc: new AdminService(prisma, audit), create, audit };
+  }
+
+  const NEW = { currency: 'USD', label: '$50+', minMinor: 5_000, maxMinor: null, feeMinor: 199 };
+
+  it('creates a band and audits it', async () => {
+    const { svc, create, audit } = make();
+    await svc.createFeeRule('admin-1', NEW);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ currency: 'USD', active: true }) }),
+    );
+    expect((audit.record as jest.Mock).mock.calls[0][0]).toMatchObject({
+      action: 'FEE_RULE_CREATED',
+    });
+  });
+
+  it('rejects an inverted band', async () => {
+    const { svc } = make();
+    await expect(
+      svc.createFeeRule('admin-1', { ...NEW, minMinor: 5_000, maxMinor: 5_000 }),
+    ).rejects.toThrow(/greater than the lower bound/);
+  });
+
+  it('rejects a band overlapping an existing active one in the same currency', async () => {
+    const { svc } = make([
+      { id: 'x', label: '$25–$49.99', minMinor: 2_500, maxMinor: 4_999, active: true },
+    ]);
+    await expect(
+      svc.createFeeRule('admin-1', { ...NEW, minMinor: 3_000, maxMinor: 6_000 }),
+    ).rejects.toThrow(/overlaps the active rule/);
+  });
+
+  it('allows an inactive band to overlap (it resolves nothing)', async () => {
+    const { svc, create } = make([
+      { id: 'x', label: 'covers all', minMinor: 0, maxMinor: null, active: true },
+    ]);
+    await svc.createFeeRule('admin-1', { ...NEW, active: false });
+    expect(create).toHaveBeenCalled();
+  });
+});
