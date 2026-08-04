@@ -167,9 +167,20 @@ const base = `http://localhost:${PORT}`;
 
 try {
   // 1 — cold launch
+  //
+  // The entry route is a client-side <Redirect> to /(tabs), so `networkidle` resolves
+  // while the page is still the empty pre-redirect shell — asserting immediately reads
+  // 0 characters and reports a working app as broken. Wait for actual rendered content
+  // instead. (Every later goto lands directly on a route and does not need this.)
   await page.goto(base, { waitUntil: 'networkidle', timeout: 60_000 });
-  const bodyText = await page.locator('body').innerText();
-  record('cold launch renders', bodyText.length > 0, `${bodyText.length} chars`);
+  const rendered = await page
+    .waitForFunction(() => (document.body?.innerText ?? '').trim().length > 0, {
+      timeout: 30_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  const bodyText = rendered ? await page.locator('body').innerText() : '';
+  record('cold launch renders', rendered, `${bodyText.length} chars`);
   await shot(page, 'home');
 
   // 2 — discovery loaded from the live QA API
