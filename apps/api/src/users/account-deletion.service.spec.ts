@@ -15,6 +15,7 @@ function makeService(
   const tx = {
     refreshToken: { deleteMany: jest.fn() },
     pushSubscription: { deleteMany: jest.fn() },
+    userDevice: { deleteMany: jest.fn() },
     notificationPreference: { deleteMany: jest.fn() },
     notification: { deleteMany: jest.fn() },
     review: { deleteMany: jest.fn() },
@@ -49,13 +50,14 @@ describe('what is removed', () => {
     expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u_1' } });
   });
 
-  it('removes push subscriptions, notification prefs, notifications and reviews', async () => {
+  it('revokes push devices, subscriptions, prefs, notifications and reviews', async () => {
     const { service, tx } = makeService();
 
     await service.deleteMe('u_1');
 
     for (const model of [
       tx.pushSubscription,
+      tx.userDevice,
       tx.notificationPreference,
       tx.notification,
       tx.review,

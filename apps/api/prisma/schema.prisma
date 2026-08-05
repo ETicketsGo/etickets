@@ -330,6 +330,7 @@ model User {
   notifications           Notification[]
   notificationPreferences NotificationPreference[]
   pushSubscriptions       PushSubscription[]
+  devices                 UserDevice[]
   feedback                Feedback[]
   checkIns                CheckIn[]                @relation("CheckInActor")
   auditLogs               AuditLog[]
@@ -370,6 +371,47 @@ model AiUsage {
 // subscription material (endpoint + p256dh/auth keys) — no secrets. Delivery goes
 // through the pluggable WebPush dispatcher (default: log placeholder; a VAPID
 // transport drops in without schema change). One row per browser/endpoint.
+/// A mobile device registered for push.
+///
+/// Separate from PushSubscription, which is Web Push and carries an endpoint URL plus
+/// p256dh/auth keys. A native token is a single opaque string with different lifecycle
+/// rules; overloading one model would leave half the columns null on every row and put
+/// two unrelated expiry behaviours in one table.
+///
+/// Provider-neutral by design: the provider column records who issued the token, so an
+/// APNs or FCM token can be stored here later without a migration. No provider
+/// credentials live in this repo — see apps/customer-mobile/docs/NOTIFICATIONS.md.
+model UserDevice {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The push token. UNIQUE: one physical device must never appear twice, and a token
+  /// that moves to another account is reassigned rather than duplicated.
+  token String @unique
+
+  /// Issuer of the token: expo | fcm | apns.
+  provider   String  @default("expo")
+  platform   String
+  appVersion String?
+  locale     String?
+  timezone   String?
+
+  /// OS permission state the client last observed: granted | denied | undetermined.
+  permissionStatus String @default("undetermined")
+
+  /// Set when the provider reports the token as invalid. Kept rather than deleted so a
+  /// repeat failure is not mistaken for a brand-new device at the next registration.
+  disabled Boolean @default(false)
+
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, disabled])
+}
+
 model PushSubscription {
   id        String   @id @default(cuid())
   userId    String

@@ -23,6 +23,7 @@ import { AppException, ErrorCodes } from '../common/errors';
  * Hard-deleted (no retention basis, no downstream references):
  *   - refresh tokens        → every session dies immediately
  *   - push subscriptions    → the device stops receiving anything
+ *   - registered devices    → mobile push tokens revoked
  *   - notification preferences
  *   - notification history  → delivered messages contain event and booking detail
  *   - reviews               → public content authored by a person, not a business record
@@ -97,6 +98,10 @@ export class AccountDeletionService {
       // rolls back, but ordering it first means the intent is unambiguous in review.
       await tx.refreshToken.deleteMany({ where: { userId } });
       await tx.pushSubscription.deleteMany({ where: { userId } });
+      // Mobile push devices. The FK cascades, but the row is removed explicitly here so
+      // revocation is part of the same transaction rather than a side effect of a
+      // delete that never happens (the user row is anonymised, not deleted).
+      await tx.userDevice.deleteMany({ where: { userId } });
       await tx.notificationPreference.deleteMany({ where: { userId } });
       await tx.notification.deleteMany({ where: { userId } });
       await tx.review.deleteMany({ where: { userId } });
