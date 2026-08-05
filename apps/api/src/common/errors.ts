@@ -44,6 +44,8 @@ export const ErrorCodes = {
    * guessing slugs.
    */
   MOVIE_NOT_PUBLISHED: 'MOVIE_NOT_PUBLISHED',
+  /** Deletion refused for a reason the user can act on (e.g. sole organization owner). */
+  ACCOUNT_DELETION_BLOCKED: 'ACCOUNT_DELETION_BLOCKED',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   INTERNAL: 'INTERNAL',
 } as const;

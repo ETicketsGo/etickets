@@ -24,6 +24,11 @@ enum Role {
 enum UserStatus {
   ACTIVE
   SUSPENDED
+  /// Self-service account deletion (GDPR / app-store requirement). The row is kept
+  /// because bookings, tickets, settlements and audit entries reference it and are
+  /// retained for tax and dispute purposes; the personal data on it is anonymised.
+  /// A DELETED user can never authenticate again.
+  DELETED
 }
 
 enum OrganizationStatus {
