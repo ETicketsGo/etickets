@@ -1,12 +1,14 @@
 import { Alert, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 import { Screen } from '@/components/screen';
 import { OfflineBanner } from '@/components/states';
 import { useOnline } from '@/hooks/use-online';
 import { useAuth } from '@/hooks/use-auth';
 import { Button, ListGroup, ListRow, Separator, Text } from '@/ui';
 import { deviceLocale } from '@/services/locale';
+import { legalLinks } from '@/services/legal';
 import { env } from '@/services/env';
 
 /**
@@ -64,6 +66,24 @@ export default function ProfileScreen() {
             <ListRow label="Time zone" value={deviceLocale.timeZone} showChevron={false} />
           </Section>
 
+          <Section title="Legal">
+            {legalLinks().map((link, index) => (
+              <View key={link.key}>
+                {index > 0 ? <Separator inset /> : null}
+                <ListRow
+                  label={link.label}
+                  icon="document-text-outline"
+                  accessibilityHint="Opens in your browser"
+                  onPress={() => {
+                    // System browser, not a WebView: a legal document should show the
+                    // real address bar so the reader can see whose terms these are.
+                    void WebBrowser.openBrowserAsync(link.url);
+                  }}
+                />
+              </View>
+            ))}
+          </Section>
+
           <Section title="Support">
             <ListRow
               label="Help & contact"
@@ -75,6 +95,14 @@ export default function ProfileScreen() {
 
           {isAuthenticated ? (
             <Section title="Account">
+              <ListRow
+                label="Delete account"
+                icon="trash-outline"
+                destructive
+                accessibilityHint="Permanently deletes your account"
+                onPress={() => router.push('/account/delete')}
+              />
+              <Separator inset />
               <ListRow
                 label="Sign out"
                 icon="log-out-outline"
