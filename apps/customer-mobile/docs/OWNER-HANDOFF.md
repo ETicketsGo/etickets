@@ -86,28 +86,28 @@ adb install <downloaded>.apk
 Nothing below has ever been executed on hardware. Twenty checks, in order — the first
 failure is the interesting one.
 
-| # | Check | Watch for |
-|---|---|---|
-| 1 | Cold launch | Splash lifts; no blank screen |
-| 2 | Home | Real events load from QA |
-| 3 | Search + category chips | Debounce feels right, results change |
-| 4 | Movie poster → detail | Synopsis, cast, certificate |
-| 5 | Showtimes | Date chips, cinema grouping, prices |
-| 6 | Tap a showtime | Reaches the seat map |
-| 7 | Seat map pinch/zoom/pan | **Untested anywhere — gesture-handler needs a native runtime** |
-| 8 | Select seats | Limit enforced, running total correct |
-| 9 | Seat list view toggle | Row-by-row alternative usable |
-| 10 | Continue → checkout | Fees from the API, not computed locally |
-| 11 | Sign in | Keychain-backed session survives a restart |
-| 12 | Pay (QA mock) | Follows `clientActionUrl`; lands on the booking |
-| 13 | Return from browser | Booking status re-read from the server |
-| 14 | Tickets tab | Booking listed |
-| 15 | QR renders | Screen brightens — **untested** |
-| 16 | Airplane mode → reopen tickets | Cached ticket + "Synced N ago" label |
-| 17 | Deep link `etickets://tickets` | Opens the app |
-| 18 | Kill during payment, reopen | Booking shows its real state |
-| 19 | Android back button | Never traps or exits unexpectedly |
-| 20 | Delete account | Signed out, tickets gone from device, cannot sign back in |
+| #   | Check                          | Watch for                                                      |
+| --- | ------------------------------ | -------------------------------------------------------------- |
+| 1   | Cold launch                    | Splash lifts; no blank screen                                  |
+| 2   | Home                           | Real events load from QA                                       |
+| 3   | Search + category chips        | Debounce feels right, results change                           |
+| 4   | Movie poster → detail          | Synopsis, cast, certificate                                    |
+| 5   | Showtimes                      | Date chips, cinema grouping, prices                            |
+| 6   | Tap a showtime                 | Reaches the seat map                                           |
+| 7   | Seat map pinch/zoom/pan        | **Untested anywhere — gesture-handler needs a native runtime** |
+| 8   | Select seats                   | Limit enforced, running total correct                          |
+| 9   | Seat list view toggle          | Row-by-row alternative usable                                  |
+| 10  | Continue → checkout            | Fees from the API, not computed locally                        |
+| 11  | Sign in                        | Keychain-backed session survives a restart                     |
+| 12  | Pay (QA mock)                  | Follows `clientActionUrl`; lands on the booking                |
+| 13  | Return from browser            | Booking status re-read from the server                         |
+| 14  | Tickets tab                    | Booking listed                                                 |
+| 15  | QR renders                     | Screen brightens — **untested**                                |
+| 16  | Airplane mode → reopen tickets | Cached ticket + "Synced N ago" label                           |
+| 17  | Deep link `etickets://tickets` | Opens the app                                                  |
+| 18  | Kill during payment, reopen    | Booking shows its real state                                   |
+| 19  | Android back button            | Never traps or exits unexpectedly                              |
+| 20  | Delete account                 | Signed out, tickets gone from device, cannot sign back in      |
 
 Capture a screen recording of 6–10 and 20. Those are the two flows with no runtime
 evidence at all.
@@ -123,10 +123,10 @@ npx eas build --profile qa --platform ios
 
 ## Still outstanding, owner-only
 
-| Item | Action |
-|---|---|
-| PR #38 merge | Deploys the three new endpoint groups to QA |
-| 3 DNS CNAMEs | `api-qa` → `ktndx6oh.up.railway.app`, `organizer-qa` → `31by3s2m.up.railway.app`, `admin-qa` → `s8wvm98p.up.railway.app` |
-| APNs key / FCM config | Required before push delivers anything |
-| Association files | `assetlinks.json` and `apple-app-site-association` on the web host — see DEEPLINKING.md |
-| Legal pages | `/legal/terms`, `/legal/privacy`, `/legal/refund-policy` must exist on the web host; the app links to them |
+| Item                  | Action                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| PR #38 merge          | Deploys the three new endpoint groups to QA                                                                              |
+| 3 DNS CNAMEs          | `api-qa` → `ktndx6oh.up.railway.app`, `organizer-qa` → `31by3s2m.up.railway.app`, `admin-qa` → `s8wvm98p.up.railway.app` |
+| APNs key / FCM config | Required before push delivers anything                                                                                   |
+| Association files     | `assetlinks.json` and `apple-app-site-association` on the web host — see DEEPLINKING.md                                  |
+| Legal pages           | `/legal/terms`, `/legal/privacy`, `/legal/refund-policy` must exist on the web host; the app links to them               |
