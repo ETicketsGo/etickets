@@ -60,7 +60,7 @@ export function MarketingLanding() {
                 get a fast, secure, mobile-first booking experience.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <PrimaryLink href="/register">
+                <PrimaryLink href="/register?intent=organizer">
                   Start selling tickets <ArrowRight className="h-4 w-4" />
                 </PrimaryLink>
                 <SecondaryLink href="/events">Browse live events</SecondaryLink>

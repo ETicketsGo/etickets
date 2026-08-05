@@ -36,6 +36,18 @@ export function scrubSensitiveData(event: ErrorEvent, _hint?: EventHint): ErrorE
 }
 
 /**
+ * The release identifier reported to Sentry.
+ *
+ * An explicit SENTRY_RELEASE always wins. Failing that, fall back to the commit SHA the
+ * platform already injects — Railway sets RAILWAY_GIT_COMMIT_SHA on every deployment — so
+ * errors are attributable to a specific deploy without anyone remembering to set a
+ * variable. Undefined when neither is available, which is exactly the previous behaviour.
+ */
+export function resolveSentryRelease(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.SENTRY_RELEASE || env.RAILWAY_GIT_COMMIT_SHA || undefined;
+}
+
+/**
  * Initialise Sentry error tracking — a complete no-op unless SENTRY_DSN is set.
  * Config-gated so default (no DSN) behaviour is unchanged. Safe to call once at
  * bootstrap; a second call is ignored. Never throws.
@@ -47,7 +59,7 @@ export function initSentry(): boolean {
     Sentry.init({
       dsn,
       environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
-      release: process.env.SENTRY_RELEASE,
+      release: resolveSentryRelease(),
       // Error tracking only by default; tracing is opt-in via OpenTelemetry (see tracing.ts).
       tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0),
       // Preserve the no-PII posture of the JSON logs.
