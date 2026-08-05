@@ -28,14 +28,36 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     associatedDomains: process.env.EXPO_PUBLIC_WEB_HOST
       ? [`applinks:${process.env.EXPO_PUBLIC_WEB_HOST}`]
       : [],
-    infoPlist: {
-      NSCameraUsageDescription: 'Scan QR codes to check in to your events.',
-    },
   },
   android: {
     package: bundleId,
     adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#0B0E15' },
-    permissions: ['CAMERA', 'POST_NOTIFICATIONS'],
+    // Only what the customer app actually uses. expo-camera was removed: nothing in
+    // this app scans a QR code — customers DISPLAY one, staff scan it, and that is the
+    // organizer app's job. It was pulling in CAMERA and RECORD_AUDIO.
+    permissions: ['POST_NOTIFICATIONS'],
+    /**
+     * Permissions that libraries add and this app does not use. Verified by generating
+     * the native project and reading the merged manifest — none of these is visible
+     * from JavaScript.
+     *
+     *  WRITE_SETTINGS       expo-brightness adds it for setSystemBrightnessAsync. The
+     *                       ticket screen only calls setBrightnessAsync, which changes
+     *                       this app's own window and needs nothing granted.
+     *  SYSTEM_ALERT_WINDOW  React Native's dev-menu overlay. It lands in the RELEASE
+     *                       manifest, not just debug, and 'draw over other apps' on a
+     *                       ticketing app is an obvious Play review question.
+     *  *_EXTERNAL_STORAGE   Nothing here reads or writes external storage.
+     *
+     * Each one is a scary line on an install prompt and a question at review, for a
+     * capability the app never exercises.
+     */
+    blockedPermissions: [
+      'android.permission.WRITE_SETTINGS',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
     intentFilters: process.env.EXPO_PUBLIC_WEB_HOST
       ? [
           {
@@ -62,7 +84,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         imageWidth: 200,
       },
     ],
-    ['expo-camera', { cameraPermission: 'Scan QR codes to check in to your events.' }],
     ['expo-notifications', { icon: './assets/notification-icon.png', color: '#2563EB' }],
     'expo-image',
     'expo-localization',

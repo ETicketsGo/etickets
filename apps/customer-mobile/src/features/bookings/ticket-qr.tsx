@@ -62,8 +62,21 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
  * the way out. Venue scanners struggle with a dimmed phone, and asking someone to find
  * their brightness slider in a queue is not a plan.
  *
- * Failure is silent by design: brightness needs a runtime permission on Android and is
- * unavailable on web, and none of that should stop a ticket from being shown.
+ * NO PERMISSION IS REQUESTED, and that is the point.
+ *
+ * `setBrightnessAsync` changes the brightness of this app's own window and needs
+ * nothing granted. Only `setSystemBrightnessAsync` — which changes the device-wide
+ * setting and is not what anyone wants a ticket app doing — requires Android's
+ * WRITE_SETTINGS.
+ *
+ * This used to call `Brightness.requestPermissionsAsync()` first, which on Android
+ * requests exactly that: "modify system settings". It would have sent someone standing
+ * in a queue out to a system settings screen to grant an alarming-sounding special
+ * permission, just to brighten a QR code — and the permission was never needed for the
+ * call that follows. Found by generating the native project and reading the manifest.
+ *
+ * Failure stays silent: brightness is unavailable on web and can fail on a device, and
+ * neither should stop a ticket being shown.
  */
 function useMaxBrightnessWhileVisible() {
   const [restore, setRestore] = useState<number | null>(null);
@@ -74,8 +87,6 @@ function useMaxBrightnessWhileVisible() {
     void (async () => {
       try {
         if (Platform.OS === 'web') return;
-        const { granted } = await Brightness.requestPermissionsAsync();
-        if (!granted || cancelled) return;
         const previous = await Brightness.getBrightnessAsync();
         if (cancelled) return;
         setRestore(previous);
