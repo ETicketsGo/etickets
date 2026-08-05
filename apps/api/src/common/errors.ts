@@ -38,6 +38,14 @@ export const ErrorCodes = {
   REFUND_NOT_ELIGIBLE: 'REFUND_NOT_ELIGIBLE',
   REVIEW_NOT_ELIGIBLE: 'REVIEW_NOT_ELIGIBLE',
   EVENT_NOT_PUBLISHED: 'EVENT_NOT_PUBLISHED',
+  /**
+   * A film that is missing, DRAFT or ARCHIVED. Deliberately one code for all three: a
+   * distinct "exists but unpublished" would leak the catalogue pipeline to anyone
+   * guessing slugs.
+   */
+  MOVIE_NOT_PUBLISHED: 'MOVIE_NOT_PUBLISHED',
+  /** Deletion refused for a reason the user can act on (e.g. sole organization owner). */
+  ACCOUNT_DELETION_BLOCKED: 'ACCOUNT_DELETION_BLOCKED',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   INTERNAL: 'INTERNAL',
 } as const;

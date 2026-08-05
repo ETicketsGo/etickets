@@ -30,6 +30,25 @@ export interface AuthenticatedUser {
   organizationId?: string | null;
 }
 
+/**
+ * Response of POST /auth/login and POST /auth/register: a token pair, optionally with the
+ * user. Shared so the mobile client consumes the same shape the API returns rather than
+ * redeclaring it — a redeclaration is how a client silently drifts from the contract.
+ */
+export interface AuthResponse extends AuthTokens {
+  user?: AuthenticatedUser;
+}
+
+/**
+ * Body for registering a push subscription. Covers browser Web Push (endpoint + keys); a
+ * native device token is carried in `endpoint` with the platform in `userAgent`.
+ */
+export interface PushRegistration {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string;
+}
+
 export interface FeeBreakdown {
   currency: string;
   /** Sum of ticket face values, in minor units (paise). */

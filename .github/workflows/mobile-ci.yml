@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────────────────────
+# Mobile CI — isolated from the web/api pipeline (ci.yml). Runs when the mobile app OR
+# any shared package/config it depends on changes (shared packages can break mobile
+# even with no mobile-file change), but never gates unrelated web-only changes.
+# Native iOS/Android compilation runs on EAS (see the eas-build job note), not here.
+# ─────────────────────────────────────────────────────────────
+name: Mobile CI
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - 'apps/customer-mobile/**'
+      - 'packages/shared-types/**'
+      - 'packages/validation/**'
+      - 'packages/design-tokens/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'turbo.json'
+      - '.npmrc'
+      - '.github/workflows/mobile-ci.yml'
+  pull_request:
+    paths: *paths
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Doctor + Typecheck + Lint + Test + Web export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Shared packages publish compiled `dist`; the mobile typecheck reads their types.
+      - run: npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens
+      # expo-doctor fails this project on "duplicate native module dependencies".
+      #
+      # The duplicates are real: nativewind pulls its own react, react-native, reanimated
+      # and worklets into node_modules/nativewind/node_modules, because
+      # react-native-css-interop declares wide-open peers (react-native "*", reanimated
+      # ">=3.6.2") and npm installs fresh copies rather than reusing the app's. npm
+      # `overrides` do not reach auto-installed peers — that was tried and reverted.
+      #
+      # This gate used to be a hardcoded allow-list of duplicate package NAMES. That went
+      # stale the moment the duplicate set changed, which it did, turning the build red for
+      # a condition nobody had re-examined. A name list also answers the wrong question:
+      # what matters is not what sits in node_modules, it is what the AUTOLINKER hands to
+      # Gradle. So the doctor duplicate check is accepted here, and the real condition is
+      # asserted by the step below, which fails if ANY native module would be built from a
+      # nested copy.
+      - name: expo-doctor (duplicate-dependency check deferred to the autolinking gate)
+        working-directory: apps/customer-mobile
+        run: |
+          set +e
+          OUT=$(npx expo-doctor 2>&1); CODE=$?
+          echo "$OUT"
+          if [ $CODE -eq 0 ]; then exit 0; fi
+          OTHER_CHECKS=$(echo "$OUT" | grep -E '✖' | grep -vi 'duplicate dependencies')
+          if [ -n "$OTHER_CHECKS" ]; then
+            echo "::error::expo-doctor failed a check other than duplicate dependencies"
+            exit 1
+          fi
+          echo "Only the duplicate-dependency check failed; the autolinking gate below decides."
+      # The gate that actually protects a native build: every autolinked native module must
+      # resolve to a single app-level copy. Two copies of one native module in one binary is
+      # the failure expo-doctor is warning about, and this proves it cannot happen.
+      - name: Verify no duplicate native module reaches the build
+        working-directory: apps/customer-mobile
+        run: |
+          node scripts/verify-native-autolinking.mjs android
+          node scripts/verify-native-autolinking.mjs ios
+      - name: Typecheck
+        run: npm run typecheck:mobile -w @eticketsgo/customer-mobile
+      - name: Lint
+        run: npm run lint:mobile -w @eticketsgo/customer-mobile
+      - name: Unit tests
+        run: npm run test:mobile -w @eticketsgo/customer-mobile
+      - name: Expo web export (Metro bundle — no native toolchain needed)
+        run: npm run export:web -w @eticketsgo/customer-mobile
+
+  # Native EAS development builds. Requires an Expo account token in repo secrets
+  # (EXPO_TOKEN). Skipped automatically when the secret is absent so the workflow never
+  # fails for forks/contributors without EAS access. Configure to gate before release.
+  eas-build:
+    name: EAS dev build (Android + iOS)
+    runs-on: ubuntu-latest
+    needs: verify
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Guard — EXPO_TOKEN present
+        id: guard
+        run: echo "has_token=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.guard.outputs.has_token == 'true'
+        run: npm ci
+      - if: steps.guard.outputs.has_token == 'true'
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - if: steps.guard.outputs.has_token == 'true'
+        working-directory: apps/customer-mobile
+        run: |
+          eas build --platform android --profile development --non-interactive --no-wait
+          eas build --platform ios --profile development --non-interactive --no-wait
+      - if: steps.guard.outputs.has_token != 'true'
+        run: echo "EXPO_TOKEN not configured — skipping EAS builds (configure to enable)."

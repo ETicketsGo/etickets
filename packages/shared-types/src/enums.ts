@@ -246,6 +246,29 @@ export const OrganizationStatus = {
 } as const;
 export type OrganizationStatus = (typeof OrganizationStatus)[keyof typeof OrganizationStatus];
 
+/**
+ * Account lifecycle. Only ACTIVE may authenticate — see JwtStrategy, which checks this
+ * on every authenticated request.
+ *
+ * DELETED is self-service account deletion: the row is kept because bookings, tickets,
+ * settlements and audit entries reference it and are retained for tax and dispute
+ * purposes, but every personal field on it is anonymised and the account can never sign
+ * in again.
+ */
+export const UserStatus = {
+  ACTIVE: 'ACTIVE',
+  SUSPENDED: 'SUSPENDED',
+  DELETED: 'DELETED',
+} as const;
+export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus];
+
+export const MemberStatus = {
+  INVITED: 'INVITED',
+  ACTIVE: 'ACTIVE',
+  REMOVED: 'REMOVED',
+} as const;
+export type MemberStatus = (typeof MemberStatus)[keyof typeof MemberStatus];
+
 export const NotificationType = {
   BOOKING_CONFIRMED: 'BOOKING_CONFIRMED',
   PAYMENT_FAILED: 'PAYMENT_FAILED',
