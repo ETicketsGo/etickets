@@ -1,0 +1,361 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ETicketsGo — Railway continuous delivery (QA / UAT / Production).
+#
+# Branch → environment mapping:
+#
+#     develop      → ETicketsGo-QA           automatic on push
+#     release/**   → ETicketsGo-UAT          automatic on push
+#     main         → ETicketsGo-Production   NOT automatic — workflow_dispatch only
+#
+# ── Why production is dispatch-only, and not gated by a GitHub Environment ──
+#
+# The original design put the production approval on the `production` GitHub Environment
+# (Settings → Environments → Required reviewers), with `main` pushes deploying
+# automatically and GitHub pausing for a reviewer. THAT MECHANISM IS NOT AVAILABLE ON
+# THIS REPOSITORY: it is a private repo whose billing plan rejects environment protection
+# rules outright —
+#
+#     PUT /repos/{o}/{r}/environments/production  {"wait_timer": 1}
+#     → 422 "Please ensure the billing plan supports the wait timer protection rule."
+#
+# The `production` environment already existed (auto-created by an earlier workflow) with
+# `protection_rules: []` and no branch policy. So `environment: production` paused for
+# nobody, and the ONLY thing standing between a merge to `main` and a production deploy
+# was an unset `RAILWAY_TOKEN_PRODUCTION` secret. A missing secret is not an approval
+# gate: the day someone adds that secret before configuring reviewers, every merge to
+# `main` ships to production unreviewed.
+#
+# So the gate is expressed here instead, in two independent locks that work on any plan:
+#
+#   1. `main` is NOT a push trigger. Reaching production requires a human to open the
+#      Actions tab and dispatch this workflow with environment=production. That
+#      deliberate act IS the approval.
+#   2. `DEPLOY_ENABLED_PRODUCTION` must be set to `true` as a repository variable. Absent
+#      or anything else, the run stops before the CI gate with a clear message.
+#
+# Both are fail-closed and both must be satisfied. If the plan is later upgraded, add
+# required reviewers to the `production` environment and this comment should be revisited
+# — belt and braces is fine, but do not remove the locks in favour of a feature whose
+# availability was already wrong once.
+#
+# The same `DEPLOY_ENABLED_<ENV>` lock guards qa and uat, so merging or branching before
+# the corresponding Railway project exists produces a clean skip instead of a failed run
+# and a wasted CI cycle.
+#
+# Every deployment runs the full CI gate first (`uses: ./.github/workflows/ci.yml`), so
+# the commit that reaches an environment is exactly the commit that passed lint,
+# type-check, unit tests, migration validation, the deployment-config check, the build,
+# and the Playwright e2e suite.
+#
+# Secrets (repository → Settings → Secrets → Actions, or per GitHub Environment):
+#   RAILWAY_TOKEN_QA / RAILWAY_TOKEN_UAT / RAILWAY_TOKEN_PRODUCTION
+#     Railway PROJECT tokens (Project → Settings → Tokens), one per Railway project.
+#     A project token is scoped to a single project+environment and cannot read or
+#     write the other two — that scoping is what keeps a QA deploy from touching
+#     Production, so do NOT substitute a personal account token here.
+#   Store each one on its matching GitHub Environment, not repo-wide, so the
+#   production token is unusable from a workflow run that has not been approved.
+#
+# Variables (repository → Settings → Variables → Actions, per GitHub Environment):
+#   RAILWAY_SERVICE_API, RAILWAY_SERVICE_WORKER, RAILWAY_SERVICE_CUSTOMER_WEB,
+#   RAILWAY_SERVICE_ORGANIZER_WEB, RAILWAY_SERVICE_ADMIN_WEB — the service NAMES as
+#   created in that Railway project.
+#   DEPLOY_BASE_URL — public API base for the post-deploy smoke test
+#                     (e.g. https://api-qa.eticketsgo.com).
+#
+# Nothing here creates Railway resources. The projects, services, plugins, variables and
+# domains are created once by hand (runbook §1–§11); this workflow only ships code to
+# services that already exist.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy (Railway)
+
+on:
+  push:
+    # `main` is deliberately absent — production is dispatch-only (see the header).
+    branches: [develop, 'release/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target Railway environment
+        type: choice
+        options: [qa, uat, production]
+        default: qa
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1) Decide the target environment from the branch (or the manual input) ──
+  resolve:
+    name: Resolve target environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+      app_env: ${{ steps.pick.outputs.app_env }}
+      enabled: ${{ steps.lock.outputs.enabled }}
+    steps:
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.environment }}" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          else
+            case "${{ github.ref }}" in
+              refs/heads/develop)     ENV=qa ;;
+              refs/heads/release/*)   ENV=uat ;;
+              # `main` is not a push trigger; reaching here means the mapping changed
+              # without the header's reasoning being revisited. Fail rather than deploy.
+              refs/heads/main)
+                echo "::error::main must not auto-deploy. Production is workflow_dispatch only — see the workflow header." && exit 1 ;;
+              *) echo "::error::${{ github.ref }} does not map to a deploy environment." && exit 1 ;;
+            esac
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "app_env=$(echo "$ENV" | tr '[:lower:]' '[:upper:]')" >> "$GITHUB_OUTPUT"
+          echo "Target environment: $ENV"
+
+      # Fail-closed enable lock. An environment deploys only once its Railway project
+      # actually exists and someone has deliberately switched it on. Absent the variable
+      # the run stops HERE — before the CI gate — so a merge or a branch push costs
+      # nothing and produces a clear message instead of a red failed deployment.
+      - id: lock
+        env:
+          ENABLED_QA: ${{ vars.DEPLOY_ENABLED_QA }}
+          ENABLED_UAT: ${{ vars.DEPLOY_ENABLED_UAT }}
+          ENABLED_PRODUCTION: ${{ vars.DEPLOY_ENABLED_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          ENV="${{ steps.pick.outputs.environment }}"
+          case "$ENV" in
+            qa)         FLAG="$ENABLED_QA" ;;
+            uat)        FLAG="$ENABLED_UAT" ;;
+            production) FLAG="$ENABLED_PRODUCTION" ;;
+          esac
+          if [ "${FLAG:-}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Deployment to '$ENV' is ENABLED."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            UPPER="$(echo "$ENV" | tr '[:lower:]' '[:upper:]')"
+            {
+              echo "### Deployment skipped — \`$ENV\` is not enabled"
+              echo
+              echo "The repository variable \`DEPLOY_ENABLED_${UPPER}\` is not set to \`true\`, so nothing was deployed and the CI gate was not run."
+              echo
+              echo "Set it only once the Railway project, its services, its variables and its project token all exist:"
+              echo '```'
+              echo "gh variable set DEPLOY_ENABLED_${UPPER} --body true"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Deployment to '$ENV' is NOT enabled — skipping (this is not a failure)."
+          fi
+
+  # ── 2) The full verification gate. Nothing deploys without it. ──
+  gate:
+    name: CI gate
+    needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  # ── 3) Ship to Railway. ──
+  deploy:
+    name: Deploy to ${{ needs.resolve.outputs.environment }}
+    needs: [resolve, gate]
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    # Binds the job to the GitHub Environment of the same name. For `production` that
+    # environment carries the required-reviewer rule, so this job WAITS for a human.
+    # It also scopes which secrets this job can read.
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+      url: ${{ vars.DEPLOY_BASE_URL }}
+    # Never let two deployments to the SAME environment overlap: concurrent
+    # `prisma migrate deploy` runs and interleaved service restarts are how a
+    # half-migrated environment happens. Queue instead of cancelling, so an
+    # in-flight production deploy is allowed to finish rather than being killed
+    # mid-migration.
+    concurrency:
+      group: railway-deploy-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4
+
+      - name: Select the environment's project token
+        id: token
+        env:
+          QA_TOKEN: ${{ secrets.RAILWAY_TOKEN_QA }}
+          UAT_TOKEN: ${{ secrets.RAILWAY_TOKEN_UAT }}
+          PROD_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+          TARGET: ${{ needs.resolve.outputs.environment }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            qa)         TOKEN="$QA_TOKEN" ;;
+            uat)        TOKEN="$UAT_TOKEN" ;;
+            production) TOKEN="$PROD_TOKEN" ;;
+          esac
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::No Railway token configured for '$TARGET'. Add RAILWAY_TOKEN_$(echo "$TARGET" | tr '[:lower:]' '[:upper:]') to the '$TARGET' GitHub Environment." >&2
+            exit 1
+          fi
+          # Masked so it can never appear in a log line, then handed to later steps
+          # through the (encrypted) step output rather than being re-read from secrets.
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Deploy order is a correctness requirement, not a preference:
+      #
+      #   api (migration runs pre-traffic) → API READINESS GATE
+      #     → worker → WORKER READINESS GATE → web tier
+      #
+      # The API owns migrations and must be genuinely serving on the new schema before
+      # the worker starts consuming against it; the web tier goes last so a browser never
+      # loads a bundle newer than the API answering it. Migrations here are additive,
+      # which is what makes a partially-rolled fleet safe in the first place.
+      #
+      # The readiness gates between stages are the part that is easy to omit and costly
+      # to skip. `railway up --ci` (without --detach) blocks until the deployment is live
+      # and Railway's own health check has passed — but that health check is LIVENESS
+      # (/api/health), which deliberately never touches PostgreSQL or Redis. An API that
+      # booted with an unreachable database passes liveness and fails every request. So
+      # each gate below polls READINESS (/api/ready, which checks both dependencies and
+      # returns 503 when either is down) and fails the release rather than cascading a
+      # broken deploy through the remaining services.
+      # ─────────────────────────────────────────────────────────────────────
+
+      # Step 1 — API. Railway runs `npx prisma migrate deploy` as this service's
+      # preDeployCommand: ONE one-off container per deployment, before any replica takes
+      # traffic, with a non-zero exit failing the deployment and leaving the previous
+      # version serving. That is the single migration executor for the environment — no
+      # other service and no replica runs migrations. A migration failure therefore stops
+      # the release here, and every step below is skipped.
+      - name: Deploy api (migrations run pre-traffic via preDeployCommand)
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_API }}" --ci
+
+      - name: Gate — API readiness (PostgreSQL + Redis)
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::DEPLOY_BASE_URL is not set on this GitHub Environment; cannot gate on readiness." >&2
+            exit 1
+          fi
+          echo "Waiting for $BASE_URL/api/ready ..."
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsS --max-time 10 "$BASE_URL/api/ready" 2>/dev/null || true)"
+            case "$body" in
+              *'"status":"ok"'*)
+                echo "API ready after ${attempt} attempt(s): $body"
+                exit 0
+                ;;
+            esac
+            [ -n "$body" ] && echo "  attempt ${attempt}: not ready — $body" || echo "  attempt ${attempt}: no response"
+            sleep 10
+          done
+          echo "::error::API did not become ready within 5 minutes. Migration applied but the API cannot serve — investigate before the worker is deployed against this schema." >&2
+          exit 1
+
+      # Step 2 — worker. Only now is the schema live and proven serviceable.
+      - name: Deploy worker
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_WORKER }}" --ci
+
+      # The worker is internal-only (no public domain by design), so its /ready cannot be
+      # reached from a GitHub runner. Two signals are used instead, and both are real:
+      # Railway's own health check against the worker's /health must pass for the step
+      # above to succeed, and the API's ops endpoint reports the queue the worker owns.
+      # Set OPS_HEALTH_TOKEN on the environment to enable the second check; without it the
+      # gate degrades to the Railway health check alone and says so rather than pretending.
+      - name: Gate — worker readiness
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+          OPS_TOKEN: ${{ secrets.OPS_HEALTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Railway health check passed for the worker deployment (/health on its PORT)."
+          if [ -z "${OPS_TOKEN:-}" ]; then
+            echo "::warning::OPS_HEALTH_TOKEN not set — queue-level worker verification skipped."
+            echo "Verify manually: GET $BASE_URL/api/admin/ops/queues should list the repeatable schedule."
+            exit 0
+          fi
+          for attempt in $(seq 1 18); do
+            body="$(curl -fsS --max-time 10 -H "Authorization: Bearer $OPS_TOKEN" \
+                      "$BASE_URL/api/admin/ops/health" 2>/dev/null || true)"
+            case "$body" in
+              *'"queue"'*'"status":"down"'*) echo "  attempt ${attempt}: queue down" ;;
+              *'"queue"'*) echo "Worker queue reachable after ${attempt} attempt(s)."; exit 0 ;;
+              *) echo "  attempt ${attempt}: no response" ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Worker queue did not report healthy within 3 minutes." >&2
+          exit 1
+
+      # Step 3 — web tier last, so no browser gets a bundle newer than the API.
+      - name: Deploy customer-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_CUSTOMER_WEB }}" --ci
+
+      - name: Deploy organizer-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ORGANIZER_WEB }}" --ci
+
+      - name: Deploy admin-web
+        env:
+          RAILWAY_TOKEN: ${{ steps.token.outputs.token }}
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_ADMIN_WEB }}" --ci
+
+  # ── 4) Prove the environment is actually serving before calling it deployed. ──
+  smoke:
+    name: Post-deploy smoke (${{ needs.resolve.outputs.environment }})
+    needs: [resolve, deploy]
+    # Skipped automatically when `deploy` is skipped, but stated explicitly so the
+    # enable lock is visible on every job that could touch a live environment.
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.resolve.outputs.environment }}
+    steps:
+      - name: Health, readiness, metrics, and environment identity
+        env:
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+          EXPECTED_ENV: ${{ needs.resolve.outputs.app_env }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ]; then
+            echo "::error::DEPLOY_BASE_URL is not set on the '${{ needs.resolve.outputs.environment }}' GitHub Environment." >&2
+            exit 1
+          fi
+          echo "Smoke-testing $BASE_URL"
+
+          # Liveness: the process is up and serving.
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
+            "$BASE_URL/api/health" | grep -q '"status":"ok"'
+          echo "  health   ok"
+
+          # Readiness: PostgreSQL AND Redis are reachable. A 503 here means the deploy
+          # is up but cannot safely serve traffic — fail the run rather than move on.
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
+            "$BASE_URL/api/ready" | grep -q '"status":"ok"'
+          echo "  ready    ok (database + redis)"
+
+          # Metrics endpoint responds with our namespace (proves the app, not a proxy
+          # error page, answered).
+          curl -fsS "$BASE_URL/api/metrics" | grep -q 'etg_'
+          echo "  metrics  ok"
+
+          echo "Smoke test passed for $EXPECTED_ENV."

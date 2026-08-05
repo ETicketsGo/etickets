@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { INVENTORY_SYNC_QUEUE, type InventorySyncJob } from './sync-queue.provider';
@@ -14,7 +14,7 @@ import type { Queue } from 'bullmq';
  * payloads are ever returned. RBAC is enforced at the controller (ADMIN only).
  */
 @Injectable()
-export class SyncOpsService {
+export class SyncOpsService implements OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -23,6 +23,30 @@ export class SyncOpsService {
     private readonly checkpoints: SyncCheckpointService,
     @Inject(INVENTORY_SYNC_QUEUE) private readonly queue: Queue<InventorySyncJob>,
   ) {}
+
+  /**
+   * Close the sync queue's Redis connection on shutdown, mirroring what OpsService does for
+   * the `holds` queue.
+   *
+   * `inventorySyncQueueProvider` builds this Queue with a `useFactory`, and Nest does not
+   * tear down factory-produced objects — so nothing was closing it. An open BullMQ Queue
+   * keeps an ioredis socket alive, and an open socket keeps the Node event loop alive, so
+   * the API process would not exit after `app.close()` even once shutdown hooks were
+   * enabled: SIGTERM was acknowledged, teardown ran, and then the process simply hung until
+   * the platform's grace period expired and it was SIGKILLed (observed as exit 137 after the
+   * full timeout on every deploy and restart). Closing it here is what actually lets the
+   * process exit.
+   */
+  async onModuleDestroy(): Promise<void> {
+    // try/catch, not just .catch(): a synchronous throw here would abort Nest's shutdown
+    // chain before the remaining teardown hooks run — reinstating the very hang this
+    // method exists to prevent. Teardown must never be the thing that blocks teardown.
+    try {
+      await this.queue.close();
+    } catch {
+      /* best-effort: a Redis already gone at shutdown must not delay exit */
+    }
+  }
 
   /** Requeue a raw event for reprocessing (idempotent — the worker re-claims atomically). */
   async reprocess(actorUserId: string | null, rawEventId: string): Promise<{ requeued: boolean }> {

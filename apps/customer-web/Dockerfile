@@ -3,10 +3,18 @@
 # ETicketsGo customer web (Next.js 14, standalone output) — port 3000.
 # Build from the REPOSITORY ROOT (monorepo context):
 #   docker build -f apps/customer-web/Dockerfile -t eticketsgo-customer-web .
-# NEXT_PUBLIC_* are inlined at build time — pass NEXT_PUBLIC_API_URL as a build arg.
+# NEXT_PUBLIC_* are inlined at build time, so EVERY one this app reads must be declared as
+# an ARG here. Docker silently discards a --build-arg that no ARG declares, so an undeclared
+# variable does not error — the build just quietly uses the source-level fallback, which is
+# written for local development. That is how the deployed "Open organizer console" button
+# pointed at http://localhost:3001 and QA's sitemap advertised https://eticketsgo.com even
+# though both variables were correctly set on the Railway service.
+# `npm run verify:deploy` now fails if a NEXT_PUBLIC_* used in the source is missing here.
 # ─────────────────────────────────────────────────────────────
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
+ARG NEXT_PUBLIC_ORGANIZER_URL=http://localhost:3001
+ARG NEXT_PUBLIC_SITE_URL=https://eticketsgo.com
 
 # ---------- Stage 1: deps ----------
 FROM node:20-alpine AS deps
@@ -31,7 +39,11 @@ RUN npm ci
 # ---------- Stage 2: build ----------
 FROM deps AS build
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_ORGANIZER_URL
+ARG NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_ORGANIZER_URL=${NEXT_PUBLIC_ORGANIZER_URL}
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 COPY . .

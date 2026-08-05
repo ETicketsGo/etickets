@@ -109,7 +109,7 @@ export default function OrganizersPage() {
         eyebrow="For organizers"
         title="Run a professional box office"
         lead="From your first event to your busiest on-sale, ETicketsGo gives you the tools to sell, operate, and understand every event."
-        primary={{ href: '/register', label: 'Start selling tickets' }}
+        primary={{ href: '/register?intent=organizer', label: 'Start selling tickets' }}
         secondary={{ href: '/pricing', label: 'See pricing' }}
       />
 

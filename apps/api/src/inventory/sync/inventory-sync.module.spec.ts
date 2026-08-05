@@ -49,7 +49,10 @@ async function boot(mockEnabled: boolean) {
     ],
   })
     .overrideProvider(INVENTORY_SYNC_QUEUE)
-    .useValue({ add: jest.fn() })
+    // `close` is part of the contract, not optional: SyncOpsService closes this queue on
+    // shutdown so the process can actually exit (see sync-ops.shutdown.spec.ts). A stub
+    // without it makes moduleRef.close() throw and hides that path.
+    .useValue({ add: jest.fn(), close: jest.fn().mockResolvedValue(undefined) })
     .compile();
   await moduleRef.init();
   return moduleRef;

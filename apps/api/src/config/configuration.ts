@@ -7,6 +7,10 @@ const envSchema = z.object({
   // which env-scoped provider configs / routes / merchant accounts are used.
   // Defaults to LOCAL so dev/test/mock boot unchanged.
   APP_ENV: z.enum(['LOCAL', 'DEV', 'QA', 'UAT', 'STAGING', 'PRODUCTION']).default('LOCAL'),
+  // PaaS platforms (Railway, Heroku, Render…) inject the port to bind as PORT and route the
+  // public domain + health check there. It takes precedence over API_PORT at bootstrap; leaving
+  // it unset keeps compose/k8s/local behaviour on API_PORT (4000) exactly as before.
+  PORT: z.coerce.number().int().min(0).max(65535).optional(),
   API_PORT: z.coerce.number().default(4000),
   API_GLOBAL_PREFIX: z.string().default('api'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
@@ -500,6 +504,91 @@ function assertRazorpayConsistency(cfg: AppConfig): void {
   }
 }
 
+/** Classify a gateway credential from its issuer-assigned prefix. */
+function classifyKey(value: string | undefined, testPrefix: string, livePrefix: string) {
+  if (!value) return 'absent' as const;
+  if (value.startsWith(livePrefix)) return 'live' as const;
+  if (value.startsWith(testPrefix)) return 'test' as const;
+  return 'unknown' as const; // e.g. a secret-manager reference, resolved after boot.
+}
+
+/**
+ * Environment ↔ payment-credential agreement for the ENV-VAR binding path (the direct
+ * `STRIPE_SECRET_KEY` / `RAZORPAY_KEY_ID` route used by the single-provider adapters).
+ *
+ * The DB-backed factory path already enforces this per merchant config
+ * (`credential-validator.ts`, `payment-config.validator.ts`), but nothing stopped a
+ * *deployment* from booting PRODUCTION with sandbox keys — silently taking orders that never
+ * collect money — or from pointing QA/UAT at live keys and charging real cards during testing.
+ * Both directions are fail-closed here, at boot, before the app serves anything:
+ *
+ *   PRODUCTION  → test keys are REJECTED, always (no override).
+ *   STAGING     → test keys are allowed (sandbox rehearsal) — mode agreement still applies.
+ *   LOCAL/DEV/QA/UAT → live keys are REJECTED unless PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV=true,
+ *                      the same explicit, controlled override the provider factory honours.
+ *
+ * Keys whose prefix we cannot classify (secret-manager references resolved later) are left to
+ * the factory's runtime validation — this check never guesses.
+ */
+function assertPaymentEnvironmentKeySafety(cfg: AppConfig): void {
+  const env = cfg.APP_ENV;
+  const allowLiveInLowerEnv = cfg.PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV === 'true';
+  const lowerEnv = ['LOCAL', 'DEV', 'QA', 'UAT'].includes(env);
+  const errors: string[] = [];
+
+  const credentials = [
+    {
+      name: 'STRIPE_SECRET_KEY',
+      class: classifyKey(cfg.STRIPE_SECRET_KEY, 'sk_test_', 'sk_live_'),
+      testHint: 'sk_test_',
+      liveHint: 'sk_live_',
+    },
+    {
+      name: 'RAZORPAY_KEY_ID',
+      class: classifyKey(cfg.RAZORPAY_KEY_ID, 'rzp_test_', 'rzp_live_'),
+      testHint: 'rzp_test_',
+      liveHint: 'rzp_live_',
+    },
+  ];
+
+  for (const cred of credentials) {
+    if (cred.class === 'absent' || cred.class === 'unknown') continue;
+    if (env === 'PRODUCTION' && cred.class === 'test') {
+      errors.push(
+        `  - ${cred.name} is a TEST key (${cred.testHint}) but APP_ENV=PRODUCTION — production must use live credentials.`,
+      );
+    }
+    if (lowerEnv && cred.class === 'live' && !allowLiveInLowerEnv) {
+      errors.push(
+        `  - ${cred.name} is a LIVE key (${cred.liveHint}) in APP_ENV=${env} — live credentials are refused outside STAGING/PRODUCTION (set PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV=true only for a deliberate, supervised test).`,
+      );
+    }
+  }
+
+  // The simulated gateway must never be the active adapter where real money is expected.
+  if (env === 'PRODUCTION' && cfg.PAYMENT_PROVIDER_NAME === 'mock') {
+    errors.push(
+      '  - PAYMENT_PROVIDER_NAME=mock is not permitted in APP_ENV=PRODUCTION (the dummy gateway cannot take real payments).',
+    );
+  }
+
+  // Webhook secrets are per-environment by construction; a shared value would let a QA webhook
+  // replay be accepted as authentic by production.
+  if (
+    cfg.STRIPE_WEBHOOK_SECRET &&
+    cfg.PAYMENT_WEBHOOK_SECRET &&
+    cfg.STRIPE_WEBHOOK_SECRET === cfg.PAYMENT_WEBHOOK_SECRET
+  ) {
+    errors.push(
+      '  - STRIPE_WEBHOOK_SECRET must be DISTINCT from PAYMENT_WEBHOOK_SECRET (separate signature domains).',
+    );
+  }
+
+  if (errors.length) {
+    throw new Error(`Unsafe payment credentials for this environment:\n${errors.join('\n')}`);
+  }
+}
+
 /**
  * Platform-foundation safety (ADR-037/039/040/041). Fails fast on unsafe feature-flag
  * combinations so no deployment can half-activate a dangerous path. Runs in every
@@ -685,6 +774,7 @@ export function loadConfig(): AppConfig {
   }
   assertProductionHardening(parsed.data);
   assertRazorpayConsistency(parsed.data);
+  assertPaymentEnvironmentKeySafety(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   return parsed.data;
 }

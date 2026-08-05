@@ -7,10 +7,10 @@ import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { getRecent, type RecentEvent } from '@/lib/recent';
+import { visitorCountry } from '@eticketsgo/web-kit';
 import { ButtonLink, EmptyState } from '@/components/ui';
 
 const CATEGORIES = ['Music', 'Tech', 'Comedy', 'Sports', 'Theatre'];
-const CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Hyderabad', 'Pune'];
 
 function Skeletons({ count = 6 }: { count?: number }) {
   return (
@@ -93,6 +93,35 @@ export function DiscoverHome() {
     [featured.data],
   );
 
+  /**
+   * Search suggestions are derived from the events actually on offer, not a fixed list.
+   *
+   * This used to be a hardcoded ['Bengaluru', 'Mumbai', 'Delhi', 'Hyderabad', 'Pune'], which
+   * told every visitor — wherever they were, whatever was listed — that the product is
+   * Indian. Reading the cities out of the loaded events means the suggestions always match
+   * the real catalogue, and the list becomes correct automatically as the platform expands
+   * instead of needing an edit per market.
+   *
+   * Nearest cities first: entries whose country matches the visitor's locale are sorted
+   * ahead of the rest, so a Canadian visitor is offered Toronto before Mumbai.
+   */
+  const citySuggestions = useMemo(() => {
+    const events = featured.data?.data ?? [];
+    const byCity = new Map<string, string>(); // city -> country
+    for (const e of events) {
+      if (e.venue?.city) byCity.set(e.venue.city, e.venue.country ?? '');
+    }
+    const home = visitorCountry();
+    return [...byCity.entries()]
+      .sort(([aCity, aCountry], [bCity, bCountry]) => {
+        const aLocal = home && aCountry === home ? 0 : 1;
+        const bLocal = home && bCountry === home ? 0 : 1;
+        return aLocal - bLocal || aCity.localeCompare(bCity);
+      })
+      .map(([city]) => city)
+      .slice(0, 8);
+  }, [featured.data]);
+
   const search = (e: React.FormEvent) => {
     e.preventDefault();
     router.push(q.trim() ? `/events?q=${encodeURIComponent(q.trim())}` : '/events');
@@ -128,7 +157,7 @@ export function DiscoverHome() {
                 className="w-full rounded-md border border-border bg-background-canvas py-3.5 pl-12 pr-4 text-[0.9375rem] text-text-primary shadow-sm placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
               />
               <datalist id="search-suggestions">
-                {[...CATEGORIES, ...CITIES].map((s) => (
+                {[...CATEGORIES, ...citySuggestions].map((s) => (
                   <option key={s} value={s} />
                 ))}
               </datalist>
