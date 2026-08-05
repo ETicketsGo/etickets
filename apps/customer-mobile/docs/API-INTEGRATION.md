@@ -101,7 +101,35 @@ the app. Both stores require a path to account deletion, so this is a submission
 — see [APP-STORE-READINESS.md](APP-STORE-READINESS.md). Minimal contract:
 `DELETE /users/me` (soft-delete + anonymise), or `POST /users/me/deletion-request`.
 
-### 6. No guest-booking claim endpoint
+### 6. No guest-booking claim endpoint — RE-AUDITED 2026-08-05
 
-Guest checkout exists (`POST /bookings/guest`), but nothing lets a user later attach a
-guest booking to a new account. The app therefore does not offer a claim flow.
+Guest checkout exists (`POST /bookings/guest`), and a **secure proof-of-control
+primitive already exists too**: the API returns an `anonymousSessionToken` once at
+creation and requires it on `POST /bookings/guest/:id/pay` and `/cancel`.
+
+That token is exactly what a claim flow should be built on. Possession of it proves
+control of the booking; a booking id alone proves nothing, and accepting one would let
+anyone enumerate ids and adopt other people's tickets.
+
+What is missing is an endpoint that consumes it for account binding. The attendee-invite
+routes (`/attendee-invites/:token/accept`) are a different mechanism — they let a
+booking OWNER invite someone to a ticket, not an anonymous buyer adopt their own booking.
+
+Smallest additive contract:
+
+```
+POST /bookings/guest/:id/claim          (authenticated)
+  header: x-anon-session: <anonymousSessionToken>
+
+  200 { bookingId, claimed: true }
+  403 when the token does not match the booking
+  409 when the booking already has a userId
+```
+
+Requirements for whoever builds it: idempotent (re-claiming a booking the caller already
+owns returns 200), an existing owner is **never** displaced, the booking's organization
+scopes the lookup so a claim cannot cross tenants, and an audit entry is written.
+
+**No claim flow is built in the app.** Inventing a verification mechanism for something
+this sensitive — the difference between adopting your own booking and taking someone
+else's tickets — is not a client-side decision.

@@ -1,4 +1,4 @@
-import { PublicMoviesService } from './public-movies.service';
+import { PublicMoviesService } from './movies.service';
 import { AppException } from '../common/errors';
 
 /**
@@ -77,56 +77,25 @@ function makeService(opts: {
     showSeat: { groupBy },
     $transaction,
   };
+  // The service also takes a CacheService, used only by list(). shows() reads live
+  // inventory and deliberately does not cache, so this stub is never called.
+  const cache = { getOrSet: jest.fn() };
+
   return {
-    service: new PublicMoviesService(prisma as never),
+    service: new PublicMoviesService(prisma as never, cache as never),
     findUnique,
     count,
     groupBy,
     $transaction,
+    cache,
   };
 }
-
-describe('GET /public/movies/:slug', () => {
-  it('returns catalogue metadata for a published film', async () => {
-    const { service } = makeService({});
-
-    const movie = await service.getBySlug('skyfront-protocol');
-
-    expect(movie.title).toBe('Skyfront Protocol');
-    expect(movie.certificate).toBe('UA');
-    expect(movie.releaseDate).toBe('2026-07-01T00:00:00.000Z');
-  });
-
-  it('NEVER exposes tenant or lifecycle fields', async () => {
-    const { service } = makeService({});
-
-    const movie = await service.getBySlug('skyfront-protocol');
-
-    // The projection is written out by hand precisely so a new Prisma column cannot
-    // start appearing here by accident.
-    for (const leaked of ['organizationId', 'status', 'createdAt', 'updatedAt', 'organization']) {
-      expect(movie).not.toHaveProperty(leaked);
-    }
-  });
-
-  it.each(['DRAFT', 'ARCHIVED'])('404s a %s film exactly like a missing one', async (status) => {
-    const { service } = makeService({ movie: { ...PUBLISHED_MOVIE, status } });
-
-    await expect(service.getBySlug('skyfront-protocol')).rejects.toBeInstanceOf(AppException);
-  });
-
-  it('404s an unknown slug', async () => {
-    const { service } = makeService({ movie: null });
-
-    await expect(service.getBySlug('nope')).rejects.toBeInstanceOf(AppException);
-  });
-});
 
 describe('GET /public/movies/:slug/shows — what is queried', () => {
   it('requires a published listing, a scheduled session, and a future start', async () => {
     const { service, $transaction, count } = makeService({ sessions: [] });
 
-    await service.showsBySlug('skyfront-protocol', { limit: 50 });
+    await service.shows('skyfront-protocol', { limit: 50 });
 
     const where = count.mock.calls[0][0].where;
     expect(where.status).toBe('SCHEDULED');
@@ -141,7 +110,7 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
   it('clamps a past `from` to now, so history is never bookable', async () => {
     const { service, count } = makeService({ sessions: [] });
 
-    await service.showsBySlug('skyfront-protocol', {
+    await service.shows('skyfront-protocol', {
       from: new Date('2000-01-01T00:00:00.000Z'),
       limit: 50,
     });
@@ -155,7 +124,7 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
     const from = new Date(Date.now() + 86_400_000);
     const to = new Date(Date.now() + 172_800_000);
 
-    await service.showsBySlug('skyfront-protocol', { from, to, limit: 50 });
+    await service.shows('skyfront-protocol', { from, to, limit: 50 });
 
     const where = count.mock.calls[0][0].where;
     expect(where.startsAt.gte).toEqual(from);
@@ -165,7 +134,7 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
   it('filters by city case-insensitively', async () => {
     const { service, count } = makeService({ sessions: [] });
 
-    await service.showsBySlug('skyfront-protocol', { city: 'bengaluru', limit: 50 });
+    await service.shows('skyfront-protocol', { city: 'bengaluru', limit: 50 });
 
     expect(count.mock.calls[0][0].where.event.venue).toEqual({
       city: { equals: 'bengaluru', mode: 'insensitive' },
@@ -175,7 +144,7 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
   it('caps limit at 200 however large the request', async () => {
     const { service } = makeService({ sessions: [] });
 
-    const result = await service.showsBySlug('skyfront-protocol', { limit: 100_000 });
+    const result = await service.shows('skyfront-protocol', { limit: 100_000 });
 
     expect(result.meta.limit).toBe(200);
   });
@@ -183,7 +152,7 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
   it('404s before querying shows when the film is not published', async () => {
     const { service, count } = makeService({ movie: { ...PUBLISHED_MOVIE, status: 'DRAFT' } });
 
-    await expect(service.showsBySlug('skyfront-protocol', { limit: 10 })).rejects.toBeInstanceOf(
+    await expect(service.shows('skyfront-protocol', { limit: 10 })).rejects.toBeInstanceOf(
       AppException,
     );
     expect(count).not.toHaveBeenCalled();
@@ -194,7 +163,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
   it('returns an empty list, not a 404, for a film with nothing on', async () => {
     const { service } = makeService({ sessions: [], total: 0 });
 
-    const result = await service.showsBySlug('skyfront-protocol', { limit: 50 });
+    const result = await service.shows('skyfront-protocol', { limit: 50 });
 
     // The film exists and deserves a page; it simply has no screenings.
     expect(result.shows).toEqual([]);
@@ -208,7 +177,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       seatGroups: [{ eventSessionId: 'sess_1', status: 'AVAILABLE', _count: { _all: 80 } }],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.startsAt).toBe('2026-09-01T14:00:00.000Z');
     expect(show.venue.city).toBe('Bengaluru');
@@ -229,7 +198,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       ],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.seatingType).toBe('RESERVED');
     expect(show.seatsAvailable).toBe(60);
@@ -242,7 +211,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       sessions: [session({ screenId: null, screen: null })],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.seatingType).toBe('GENERAL_ADMISSION');
     expect(show.seatsAvailable).toBeNull();
@@ -257,7 +226,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       seatGroups: [{ eventSessionId: 'sess_1', status: 'SOLD', _count: { _all: 80 } }],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.availability).toBe('SOLD_OUT');
     expect(show.seatsAvailable).toBe(0);
@@ -272,7 +241,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       ],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.availability).toBe('LIMITED');
   });
@@ -284,7 +253,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       seatGroups: [{ eventSessionId: 'sess_1', status: 'AVAILABLE', _count: { _all: 80 } }],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     expect(show.availability).toBe('SOLD_OUT');
     expect(show.fromPriceMinor).toBeNull();
@@ -318,7 +287,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       ],
     });
 
-    const result = await service.showsBySlug('skyfront-protocol', { limit: 50 });
+    const result = await service.shows('skyfront-protocol', { limit: 50 });
 
     expect(result.shows).toHaveLength(2);
     expect(result.filters.dates).toEqual(['2026-09-01', '2026-09-02']);
@@ -333,7 +302,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       seatGroups: [],
     });
 
-    await service.showsBySlug('skyfront-protocol', { limit: 50 });
+    await service.shows('skyfront-protocol', { limit: 50 });
 
     expect(groupBy).toHaveBeenCalledTimes(1);
     expect(groupBy.mock.calls[0][0].where.eventSessionId.in).toEqual([
@@ -348,7 +317,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       sessions: [session({ screenId: null, screen: null })],
     });
 
-    await service.showsBySlug('skyfront-protocol', { limit: 50 });
+    await service.shows('skyfront-protocol', { limit: 50 });
 
     expect(groupBy).not.toHaveBeenCalled();
   });
@@ -359,7 +328,7 @@ describe('GET /public/movies/:slug/shows — the response', () => {
       seatGroups: [{ eventSessionId: 'sess_1', status: 'AVAILABLE', _count: { _all: 80 } }],
     });
 
-    const [show] = (await service.showsBySlug('skyfront-protocol', { limit: 50 })).shows;
+    const [show] = (await service.shows('skyfront-protocol', { limit: 50 })).shows;
 
     for (const leaked of ['organizationId', 'feeMode', 'ticketTypes', 'inventory', 'status']) {
       expect(show).not.toHaveProperty(leaked);

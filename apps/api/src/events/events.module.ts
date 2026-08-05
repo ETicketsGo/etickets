@@ -7,8 +7,6 @@ import {
   PublicOrganizersController,
 } from './events.controller';
 import { EventsService } from './events.service';
-import { PublicMoviesController } from './public-movies.controller';
-import { PublicMoviesService } from './public-movies.service';
 import { PublicEventsService } from './public-events.service';
 
 @Module({
@@ -18,9 +16,8 @@ import { PublicEventsService } from './public-events.service';
     PublicCategoriesController,
     PublicOrganizersController,
     AdminEventsController,
-    PublicMoviesController,
   ],
-  providers: [EventsService, PublicEventsService, PublicMoviesService],
-  exports: [EventsService, PublicEventsService, PublicMoviesService],
+  providers: [EventsService, PublicEventsService],
+  exports: [EventsService, PublicEventsService],
 })
 export class EventsModule {}

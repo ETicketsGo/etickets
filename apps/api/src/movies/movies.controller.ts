@@ -67,6 +67,22 @@ export class MoviesController {
   }
 }
 
+/**
+ * Query for GET /public/movies/:slug/shows.
+ *
+ * `limit` is capped again in the service. Validating here gives a clean 400 for a
+ * nonsense value; capping there means no route into the query can request an unbounded
+ * scan, whatever a future caller does.
+ */
+const showsQuerySchema = z.object({
+  city: z.string().trim().min(1).max(80).optional(),
+  /** Inclusive lower bound. Clamped to now by the service — the past is never bookable. */
+  from: z.coerce.date().optional(),
+  /** Exclusive upper bound. */
+  to: z.coerce.date().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
 @ApiTags('public')
 @Controller('public/movies')
 export class PublicMoviesController {
@@ -99,5 +115,27 @@ export class PublicMoviesController {
   @ApiOperation({ summary: 'Get a published movie by slug.' })
   getBySlug(@Param('slug') slug: string) {
     return this.publicMovies.getBySlug(slug);
+  }
+
+  @Public()
+  @Get(':slug/shows')
+  @ApiOperation({
+    summary: 'Bookable screenings of a published film, with pricing and availability.',
+    description:
+      'Complements GET /public/movies/:slug, which returns shows grouped by cinema but ' +
+      'nothing about buying. Each row here carries price, currency, availability ' +
+      '(AVAILABLE | LIMITED | SOLD_OUT), seating type, format and city, plus eventSlug ' +
+      'and sessionId to continue into /public/events/:slug and ' +
+      '/public/shows/:sessionId/seats. Only screenings a customer can buy: film ' +
+      'PUBLISHED, listing PUBLISHED, session SCHEDULED, start time in the future. A film ' +
+      'with nothing on returns an empty list, not a 404. Times are ISO instants — no ' +
+      'venue timezone exists in the schema, so the server does not invent a local date.',
+  })
+  shows(
+    @Param('slug') slug: string,
+    @Query(new ZodValidationPipe(showsQuerySchema))
+    query: { city?: string; from?: Date; to?: Date; limit: number },
+  ) {
+    return this.publicMovies.shows(slug, query);
   }
 }
