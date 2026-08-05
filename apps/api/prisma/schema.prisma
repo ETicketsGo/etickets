@@ -587,6 +587,7 @@ model Cinema {
 
   @@index([organizationId])
   @@index([city])
+  @@index([venueId])
 }
 
 model Screen {
@@ -679,6 +680,7 @@ model Seat {
 
   @@unique([rowId, label])
   @@index([seatMapId])
+  @@index([seatCategoryId])
 }
 
 model ShowSeat {
@@ -697,6 +699,7 @@ model ShowSeat {
   @@unique([eventSessionId, seatId])
   @@index([eventSessionId, status])
   @@index([holdBookingId])
+  @@index([seatId])
 }
 
 model Event {
@@ -751,6 +754,7 @@ model Review {
 
   @@unique([eventId, userId])
   @@index([eventId])
+  @@index([userId])
 }
 
 model EventSession {
@@ -891,6 +895,7 @@ model Booking {
   @@index([confirmedAt])
   // Serves the platform-wide createdAt-window scan in the risk service (v2.1 audit).
   @@index([createdAt])
+  @@index([couponId])
 }
 
 model BookingItem {
@@ -918,6 +923,7 @@ model BookingItem {
   @@index([bookingId])
   @@index([addOnId])
   @@index([bundleId])
+  @@index([ticketTypeId])
 }
 
 // A configurable non-ticket product an organizer sells for an event (v1.3 WS1/WS4).
@@ -999,6 +1005,8 @@ model BundleItem {
   quantity     Int         @default(1)
 
   @@index([bundleId])
+  @@index([ticketTypeId])
+  @@index([addOnId])
 }
 
 model Ticket {
@@ -1048,6 +1056,7 @@ model Ticket {
   @@index([status])
   @@index([seatId])
   @@index([attendeeUserId])
+  @@index([ticketTypeId])
 }
 
 // Invitation / transfer ledger for the attendee identity layer (ADR-031). Each
@@ -1408,6 +1417,7 @@ model CheckIn {
 
   @@index([ticketId])
   @@index([eventSessionId])
+  @@index([byUserId])
 }
 
 model Notification {
@@ -1481,6 +1491,7 @@ model Feedback {
   @@index([kind])
   @@index([status])
   @@index([createdAt])
+  @@index([userId])
 }
 
 model AuditLog {
@@ -1499,6 +1510,7 @@ model AuditLog {
   @@index([organizationId])
   @@index([entityType, entityId])
   @@index([action])
+  @@index([actorUserId])
 }
 
 model IdempotencyRecord {
@@ -1851,6 +1863,7 @@ model Settlement {
   @@index([organizationId, status])
   @@index([status])
   @@index([providerTransferId])
+  @@index([accountId])
 }
 
 // Provider webhook idempotency + dead-letter store, keyed on the provider event id.
