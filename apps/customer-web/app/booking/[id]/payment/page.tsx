@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { Stepper } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
+import { loadRazorpay } from '@/lib/razorpay';
 import { money, dateTime } from '@/lib/format';
 import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
 
@@ -20,6 +21,24 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
       <span className="text-text-primary">{value}</span>
     </div>
   );
+}
+
+/**
+ * True only for an absolute http(s) URL on a *different* host than this app —
+ * i.e. a real hosted Stripe Checkout page. The local/dev mock returns a
+ * same-origin relative path, which resolves to our own host and is NOT external.
+ */
+function isExternalUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      parsed.host !== window.location.host
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Live mm:ss countdown to the hold expiry. */
@@ -60,11 +79,62 @@ export default function PaymentPage() {
 
   const pay = useMutation({
     mutationFn: async () => {
-      await api.createPaymentIntent(id);
-      // A real gateway calls our signed webhook; the mock endpoint stands in.
-      return api.mockPay(id, 'succeeded');
+      const payResult = await api.payBooking(id);
+      const { clientActionUrl } = payResult;
+      if (isExternalUrl(clientActionUrl)) {
+        // Real Stripe: hand off to the hosted Checkout page. Confirmation happens
+        // only via the signed webhook after Stripe processes the payment — landing
+        // back on our success_url is NEVER treated as proof of payment.
+        window.location.href = clientActionUrl;
+        return { redirected: true as const };
+      }
+      // India (Razorpay): open Standard Checkout in a modal. The Checkout handler
+      // and signature verification are NEVER treated as proof of payment — the
+      // signed webhook confirms the booking, which the confirmation page polls for.
+      if (payResult.provider === 'razorpay' && payResult.razorpay) {
+        const rzp = payResult.razorpay;
+        const Razorpay = await loadRazorpay();
+        const checkout = new Razorpay({
+          key: rzp.keyId,
+          order_id: rzp.orderId,
+          amount: rzp.amountMinor,
+          currency: rzp.currency,
+          name: rzp.name,
+          description: rzp.description,
+          prefill: rzp.prefill,
+          handler: (resp) => {
+            void (async () => {
+              try {
+                await api.razorpayVerify(id, {
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature,
+                });
+                // Verified signature only — the confirmation page keeps polling
+                // until the signed webhook actually confirms the booking.
+                qc.invalidateQueries({ queryKey: ['booking', id] });
+                router.push(`/booking/${id}/confirmation`);
+              } catch {
+                setError(
+                  'We couldn’t verify your payment. If you were charged, it will be confirmed shortly — check “My bookings”.',
+                );
+              }
+            })();
+          },
+          modal: {
+            ondismiss: () => setError('Payment was cancelled. You can try again.'),
+          },
+        });
+        checkout.open();
+        return { redirected: true as const };
+      }
+      // Local/dev mock (same-origin URL, no hosted page): stand in with mock-pay.
+      // A real gateway would instead call our signed webhook.
+      await api.mockPay(id, 'succeeded');
+      return { redirected: false as const };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.redirected) return; // Navigating away to Stripe — keep the button busy.
       qc.invalidateQueries({ queryKey: ['booking', id] });
       router.push(`/booking/${id}/confirmation`);
     },
@@ -183,7 +253,7 @@ export default function PaymentPage() {
       ) : (
         <>
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)} (mock)`}
+            {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)}`}
           </Button>
 
           {/* Booking confidence */}
@@ -204,7 +274,8 @@ export default function PaymentPage() {
           </div>
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
-            Mock payment — confirmation happens via a signed webhook, not this button.
+            Payments are processed securely — confirmation happens via a signed webhook, not this
+            button.
           </p>
         </>
       )}

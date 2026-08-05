@@ -1,0 +1,35 @@
+# P6.6 — Alertmanager routing skeleton. `severity=page` → the pager channel; `severity=warn` →
+# the ops channel. Receiver webhooks/keys are injected via env at deploy (NEVER committed).
+# Wire real receivers (PagerDuty/Opsgenie/Slack) before production.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: ops-default
+  group_by: ['alertname', 'area']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="page"']
+      receiver: pager
+      group_wait: 10s
+      repeat_interval: 1h
+    - matchers: ['severity="warn"']
+      receiver: ops-default
+
+receivers:
+  # Placeholders — set the real URL/key via a secret-templated config at deploy time.
+  - name: pager
+    # pagerduty_configs: [{ service_key: '${PAGERDUTY_KEY}' }]
+    webhook_configs:
+      - url: '${PAGER_WEBHOOK_URL:-http://localhost:5001/noop}'
+  - name: ops-default
+    webhook_configs:
+      - url: '${OPS_WEBHOOK_URL:-http://localhost:5001/noop}'
+
+inhibit_rules:
+  # An infra outage (Redis/Postgres down) inhibits the downstream money/booking alerts it causes.
+  - source_matchers: ['area="infra"', 'severity="page"']
+    target_matchers: ['area=~"payments|compensation|booking"']
+    equal: ['monitor']

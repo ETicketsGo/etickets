@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Ticket, Compass, LogOut, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
+import { useIsAuthenticated } from '@eticketsgo/web-kit';
 import { ButtonLink } from '@/components/ui';
 import { currentUserId } from '@/lib/offline/identity';
 import { purgeUser } from '@/lib/offline/wallet-store';
@@ -15,11 +15,10 @@ const navLink =
 
 export function Header() {
   const router = useRouter();
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    setAuthed(!!tokenStore.access);
-  }, []);
+  // Subscribed, not read-once. The previous `useEffect(..., [])` ran only on mount, and
+  // Next.js keeps this layout mounted across client-side navigation — so signing in never
+  // updated the header and signed-in users kept seeing "Sign in / Sign up".
+  const authed = useIsAuthenticated();
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -35,7 +34,6 @@ export function Header() {
     const uid = currentUserId();
     if (uid) void purgeUser(uid);
     tokenStore.clear();
-    setAuthed(false);
     router.push('/');
   };
 

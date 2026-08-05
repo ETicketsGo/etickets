@@ -1,10 +1,12 @@
+import type { ConfigService } from '@nestjs/config';
 import { CacheService } from './cache.service';
 import type { RedisService } from '../redis/redis.service';
 
 describe('CacheService.getOrSet', () => {
-  function makeService(client: { get: jest.Mock; set: jest.Mock }) {
+  function makeService(client: { get: jest.Mock; set: jest.Mock }, appEnv = 'STAGING') {
     const redis = { client } as unknown as RedisService;
-    return new CacheService(redis);
+    const config = { get: jest.fn(() => appEnv) } as unknown as ConfigService;
+    return new CacheService(redis, config);
   }
 
   it('returns the cached value on a hit without calling the producer', async () => {
@@ -35,7 +37,18 @@ describe('CacheService.getOrSet', () => {
 
     expect(result).toBe(value);
     expect(producer).toHaveBeenCalledTimes(1);
-    expect(client.set).toHaveBeenCalledWith('k', JSON.stringify(value), 'EX', 45);
+    // Key is env-namespaced (P6.2) so environments sharing a Redis never collide.
+    expect(client.set).toHaveBeenCalledWith('etg:staging:cache:k', JSON.stringify(value), 'EX', 45);
+  });
+
+  it('namespaces the read key by environment (P6.2 isolation)', async () => {
+    const client = {
+      get: jest.fn().mockResolvedValue(null),
+      set: jest.fn().mockResolvedValue('OK'),
+    };
+    const service = makeService(client, 'PRODUCTION');
+    await service.getOrSet('discovery:home', 30, jest.fn().mockResolvedValue({}));
+    expect(client.get).toHaveBeenCalledWith('etg:production:cache:discovery:home');
   });
 
   it('falls back to the producer (and still returns) when Redis read errors', async () => {

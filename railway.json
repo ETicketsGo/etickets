@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/api/Dockerfile"
+  },
+  "deploy": {
+    "preDeployCommand": "npx prisma migrate deploy",
+    "startCommand": "node dist/main.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  },
+  "//": "DEFAULT config for a Railway service with no explicit config-as-code path — it describes the API. Every service SHOULD instead point at its own file under deploy/railway/ (api, worker, customer-web, organizer-web, admin-web); this root file exists so a service created without that setting still gets a correct API deployment rather than a Nixpacks guess. Two corrections vs the previous version: (1) startCommand is 'node dist/main.js', because the runtime image's WORKDIR is /app/apps/api — the old 'node apps/api/dist/main.js' resolved to /app/apps/api/apps/api/dist/main.js and could not boot; (2) migrations moved out of startCommand into preDeployCommand so they run ONCE per deployment before any replica takes traffic and fail the deploy on a non-zero exit, instead of every replica racing to migrate on every restart. numReplicas is 1 here (QA/UAT default); Production sets >=2 in the Railway UI or via deploy/railway/api.railway.json. See docs/deployment/RAILWAY_DEPLOYMENT_RUNBOOK.md for the three-project QA/UAT/Production setup and docs/p6/P6.1-CLOUD-DEPLOYMENT.md for the AWS topology."
+}

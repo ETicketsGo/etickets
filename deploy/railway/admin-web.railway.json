@@ -1,0 +1,16 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/admin-web/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node apps/admin-web/server.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  },
+  "//": "ETicketsGo admin web (Next.js standalone). Root Directory stays '/'. NO migrations here. NEXT_PUBLIC_API_URL is a BUILD-TIME variable inlined into the bundle — set it before the first build; changing it requires a rebuild. This app fronts platform administration: put Cloudflare Access (or equivalent) in front of it in EVERY environment, and never cache its responses. /api/health is a static Next route handler."
+}

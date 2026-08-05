@@ -8,11 +8,11 @@ documents the **existing** fee engine (`apps/api/src/pricing/`) — no behavior 
 Every booking's fees are computed deterministically in integer minor units
 ([fee-calculator.ts](../../apps/api/src/pricing/fee-calculator.ts)):
 
-| Component | Default | Notes |
-| --- | --- | --- |
-| **Booking fee** | Tiered by net subtotal (`DEFAULT_FEE_TIERS`) | The platform's per-order fee; zero on a zero-value order. |
-| **Payment-processing fee** | 2.00% (`DEFAULT_PAYMENT_FEE_BPS = 200`) | Applied to (net subtotal + booking fee). |
-| **Discounts** | Coupon-driven | Applied to the subtotal before fees. |
+| Component                  | Default                                      | Notes                                                     |
+| -------------------------- | -------------------------------------------- | --------------------------------------------------------- |
+| **Booking fee**            | Tiered by net subtotal (`DEFAULT_FEE_TIERS`) | The platform's per-order fee; zero on a zero-value order. |
+| **Payment-processing fee** | 2.00% (`DEFAULT_PAYMENT_FEE_BPS = 200`)      | Applied to (net subtotal + booking fee).                  |
+| **Discounts**              | Coupon-driven                                | Applied to the subtotal before fees.                      |
 
 Fee tiers are overridable per platform via pricing rules
 ([pricing.service.ts](../../apps/api/src/pricing/pricing.service.ts)); the defaults apply
@@ -22,11 +22,11 @@ when no rule exists.
 
 Set per event via `feeMode`:
 
-| Mode | Customer pays | Organizer nets |
-| --- | --- | --- |
-| **CUSTOMER_PAYS** | Ticket price + all fees | Full ticket price |
-| **ORGANIZER_PAYS** | Ticket price only | Ticket price − all fees |
-| **SHARED** | Ticket price + a share of fees | Ticket price − the remaining share |
+| Mode               | Customer pays                  | Organizer nets                     |
+| ------------------ | ------------------------------ | ---------------------------------- |
+| **CUSTOMER_PAYS**  | Ticket price + all fees        | Full ticket price                  |
+| **ORGANIZER_PAYS** | Ticket price only              | Ticket price − all fees            |
+| **SHARED**         | Ticket price + a share of fees | Ticket price − the remaining share |
 
 The buyer always sees the exact total before paying; fee snapshots are immutable once a
 booking is created (money transitions are auditable and idempotent).
@@ -52,5 +52,5 @@ Amounts are stored and computed in integer **minor units** with a per-booking cu
 (default `INR`). Multi-currency routing is handled by the payments layer per country; see
 [INTERNATIONAL-READINESS.md](../guides/INTERNATIONAL-READINESS.md).
 
-> **Note:** Fee *rates and tiers* are commercial policy. The values above are the shipped
+> **Note:** Fee _rates and tiers_ are commercial policy. The values above are the shipped
 > defaults; confirm your commercial pricing before onboarding paying organizers.

@@ -68,5 +68,6 @@ The self-serve workflow is a documented follow-up; handle manually per
 [SUPPORT-WORKFLOWS](../commercial/SUPPORT-WORKFLOWS.md) + the Privacy Policy data map.
 
 ## Diagnosis toolkit
+
 Correlation IDs in logs · `/api/metrics` + worker metrics · Sentry · `/admin/ops/health` ·
 audit trail · reconciliation console.

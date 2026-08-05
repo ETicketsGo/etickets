@@ -1,8 +1,51 @@
 import { Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/node';
+import type { ErrorEvent, EventHint } from '@sentry/core';
 
 const logger = new Logger('Sentry');
 let initialised = false;
+
+/**
+ * Defensive PII scrubber (belt-and-suspenders on top of `sendDefaultPii: false`).
+ * Strips anything that could carry secrets/PII from an outgoing event, regardless of
+ * which integration produced it: request cookies/body/query-string, the
+ * Authorization/Cookie headers, and any user identity (email/ip/username). The app
+ * never attaches these today; this guarantees they can never leak if a future code
+ * path or integration adds them. Never throws.
+ */
+export function scrubSensitiveData(event: ErrorEvent, _hint?: EventHint): ErrorEvent {
+  try {
+    if (event.request) {
+      delete event.request.cookies;
+      delete event.request.data;
+      delete event.request.query_string;
+      const headers = event.request.headers;
+      if (headers) {
+        for (const key of Object.keys(headers)) {
+          const k = key.toLowerCase();
+          if (k === 'authorization' || k === 'cookie' || k === 'set-cookie') delete headers[key];
+        }
+      }
+    }
+    // The app never sets user context; drop it wholesale so no email/ip can ride along.
+    delete event.user;
+  } catch {
+    /* scrubbing is best-effort; never block error reporting */
+  }
+  return event;
+}
+
+/**
+ * The release identifier reported to Sentry.
+ *
+ * An explicit SENTRY_RELEASE always wins. Failing that, fall back to the commit SHA the
+ * platform already injects — Railway sets RAILWAY_GIT_COMMIT_SHA on every deployment — so
+ * errors are attributable to a specific deploy without anyone remembering to set a
+ * variable. Undefined when neither is available, which is exactly the previous behaviour.
+ */
+export function resolveSentryRelease(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.SENTRY_RELEASE || env.RAILWAY_GIT_COMMIT_SHA || undefined;
+}
 
 /**
  * Initialise Sentry error tracking — a complete no-op unless SENTRY_DSN is set.
@@ -16,11 +59,15 @@ export function initSentry(): boolean {
     Sentry.init({
       dsn,
       environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
-      release: process.env.SENTRY_RELEASE,
+      release: resolveSentryRelease(),
       // Error tracking only by default; tracing is opt-in via OpenTelemetry (see tracing.ts).
       tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0),
       // Preserve the no-PII posture of the JSON logs.
       sendDefaultPii: false,
+      // Drop consecutive identical errors client-side (node has no default dedupe).
+      integrations: [Sentry.dedupeIntegration()],
+      // Belt-and-suspenders PII scrub on every outgoing event.
+      beforeSend: scrubSensitiveData,
     });
     initialised = true;
     logger.log('Sentry initialised (error tracking enabled).');

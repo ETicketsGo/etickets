@@ -10,7 +10,9 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/account/tickets';
-  const [email, setEmail] = useState('');
+  // Prefilled when arriving from the "that email is already registered" path on sign-up, so
+  // the address does not have to be typed twice.
+  const [email, setEmail] = useState(() => params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

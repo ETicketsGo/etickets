@@ -9,7 +9,7 @@ import {
   filterWallet,
   searchWallet,
   sectionizeWallet,
-  useOnline,
+  useConnectivity,
   useToast,
   DEFAULT_WALLET_FLAGS,
   WALLET_SECTION_LABELS,
@@ -80,7 +80,11 @@ export default function ExperienceWalletPage() {
     setFlags(readFlags());
   }, [router]);
 
-  const online = useOnline();
+  // Connectivity is derived from the browser hint AND real API-origin reachability, so the offline
+  // indicator is correct even when navigator.onLine is stale (e.g. after an offline reload). Treat
+  // ONLINE/UNKNOWN as "online" for affordances; OFFLINE/DEGRADED disable sync + show the offline icon.
+  const connectivity = useConnectivity();
+  const online = connectivity.state === 'ONLINE' || connectivity.state === 'UNKNOWN';
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
@@ -107,7 +111,7 @@ export default function ExperienceWalletPage() {
 
   const syncState = deriveSyncState({
     hasToken: typeof window !== 'undefined' && !!tokenStore.access,
-    online,
+    connectivity: connectivity.state,
     isFetching,
     hasData: !!data && data.length > 0,
     isError,

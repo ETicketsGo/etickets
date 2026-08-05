@@ -24,18 +24,18 @@ under dependency failure. RC1 is recommended for a controlled production launch.
 
 ## 2. Production readiness score
 
-| Dimension | Score | Notes |
-| --- | --- | --- |
-| Configuration & secrets | 9.5 / 10 | Zod-validated, fail-fast; **now** rejects placeholder/weak core secrets + unconfigured CORS in prod. |
-| Security | 9.5 / 10 | Strong authz/IDOR, replay, signing; one cross-tenant read fixed. |
-| Observability | 8.5 / 10 | Metrics, health, correlation IDs, audit; JSON-log + a few counters are follow-ups. |
-| Resilience | 9 / 10 | DB-backed holds, fail-open cache; Redis-hang fixed; payment failover + circuit breaker. |
-| Data & migrations | 9.5 / 10 | Additive-only, `migrate deploy`, PITR/backup documented. |
-| Build & CI/CD | 9 / 10 | Lockfile, pinned Node/pm, full CI gate; deploy host step is a placeholder. |
-| Accessibility | 9 / 10 | Broad aria/role usage, non-color status; no regression found. |
-| Performance | 9 / 10 | Paginated hot paths, indexed, no N+1 in reviewed paths. |
-| Documentation | 9.5 / 10 | Deep guides + RC release doc set. |
-| **Overall** | **9.2 / 10** | **Production-ready for a controlled launch.** |
+| Dimension               | Score        | Notes                                                                                                |
+| ----------------------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| Configuration & secrets | 9.5 / 10     | Zod-validated, fail-fast; **now** rejects placeholder/weak core secrets + unconfigured CORS in prod. |
+| Security                | 9.5 / 10     | Strong authz/IDOR, replay, signing; one cross-tenant read fixed.                                     |
+| Observability           | 8.5 / 10     | Metrics, health, correlation IDs, audit; JSON-log + a few counters are follow-ups.                   |
+| Resilience              | 9 / 10       | DB-backed holds, fail-open cache; Redis-hang fixed; payment failover + circuit breaker.              |
+| Data & migrations       | 9.5 / 10     | Additive-only, `migrate deploy`, PITR/backup documented.                                             |
+| Build & CI/CD           | 9 / 10       | Lockfile, pinned Node/pm, full CI gate; deploy host step is a placeholder.                           |
+| Accessibility           | 9 / 10       | Broad aria/role usage, non-color status; no regression found.                                        |
+| Performance             | 9 / 10       | Paginated hot paths, indexed, no N+1 in reviewed paths.                                              |
+| Documentation           | 9.5 / 10     | Deep guides + RC release doc set.                                                                    |
+| **Overall**             | **9.2 / 10** | **Production-ready for a controlled launch.**                                                        |
 
 ## 3. Security assessment
 
@@ -48,6 +48,7 @@ cannot convert a rejected scan to ACCEPTED; wallet issuance is authz-gated, ACTI
 fail-closed; activation is scoped, evidence-gated, and revocable.
 
 **Fixed this RC:**
+
 - Fail-closed production guard against placeholder/weak `JWT_*` / `QR_SIGNING_SECRET` /
   `PAYMENT_WEBHOOK_SECRET` / `MANIFEST_SIGNING_SECRET` and unconfigured CORS (HIGH).
 - `assertMember` added to `GET /checkin/offline-readiness` and `/checkin/activation` (LOW
@@ -77,10 +78,11 @@ scale), platform-role revocation lag bounded by the 15-min access-token TTL. See
 ## 5. Remaining external dependencies
 
 To go live, provision (see [EXTERNAL-DEPENDENCIES.md](EXTERNAL-DEPENDENCIES.md)):
+
 - **Required:** managed PostgreSQL (PITR), managed Redis, Node 20 runtime, TLS/reverse proxy.
 - **For real payments:** a configured provider + ACTIVE merchant + PASS sandbox certification
-  + live-readiness GO + `PAYMENT_LIVE_ENABLED=true`; a cloud secret manager (env backend is
-  rejected in prod).
+  - live-readiness GO + `PAYMENT_LIVE_ENABLED=true`; a cloud secret manager (env backend is
+    rejected in prod).
 - **Optional/feature-gated:** notification providers (email/SMS/WhatsApp/push), Apple/Google
   wallet issuer credentials, Sentry/OTel/Prometheus, durable object storage.
 - **CI/CD:** wire the `deploy.yml` rollout step to the chosen host/registry/orchestrator.
@@ -91,6 +93,7 @@ All conditional dependencies fail closed / no-op when unconfigured.
 
 **✅ GO for a controlled production launch.** RC1 is stable, secure, observable, and
 fail-closed by default, with no Critical/High open issues. Recommended launch shape:
+
 1. Deploy with real secrets, `PAYMENT_LIVE_ENABLED=false`, `OFFLINE_CHECKIN_ENABLED=false`.
 2. Validate via the [DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md) and smoke test.
 3. Enable live payments per provider only after certification + readiness GO.
@@ -103,14 +106,14 @@ fail-closed by default, with no Critical/High open issues. Recommended launch sh
 
 RC1 base (Phase 1 complete): `bc062d4`. RC1 hardening + documentation commits on `main`:
 
-| Commit | Change |
-| --- | --- |
-| `9e24cd0` | fail-closed prod config guard + Swagger prod-gate |
-| `9831ebe` | org membership on offline readiness/activation reads |
+| Commit    | Change                                                               |
+| --------- | -------------------------------------------------------------------- |
+| `9e24cd0` | fail-closed prod config guard + Swagger prod-gate                    |
+| `9831ebe` | org membership on offline readiness/activation reads                 |
 | `3bceaf3` | redis fail-open timeout + payment error classification + log hygiene |
-| `a94c9c1` | audit auth events + maintenance toggle |
-| `f77bd9f` | web security headers + health routes |
-| `98b04ac` | env docs, Node pin, license |
-| `d92ef72` | RC1 release documentation set |
+| `a94c9c1` | audit auth events + maintenance toggle                               |
+| `f77bd9f` | web security headers + health routes                                 |
+| `98b04ac` | env docs, Node pin, license                                          |
+| `d92ef72` | RC1 release documentation set                                        |
 
 The RC1 line is `bc062d4 → d92ef72` on `main`, finalized by the commit recording this table.

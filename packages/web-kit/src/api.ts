@@ -10,12 +10,28 @@ import type {
 
 export type { QueuedCheckIn, RevocationDelta } from '@eticketsgo/shared-types';
 
+import { markApiReachable, markApiUnreachable } from './connectivity';
+
 export const API_URL =
   (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL) ||
   'http://localhost:4000/api';
 
 const ACCESS_KEY = 'etg_access';
 const REFRESH_KEY = 'etg_refresh';
+
+/**
+ * Listeners notified whenever the stored session changes.
+ *
+ * localStorage gives no in-tab change signal: the `storage` event fires only in OTHER tabs.
+ * Without this, a component that read the token once on mount never learns about a later
+ * sign-in — which is exactly how the customer header kept showing "Sign in / Sign up" after
+ * a successful login. Next.js keeps the layout mounted across client-side navigation, so
+ * the header never remounted and never re-read the token.
+ */
+const tokenListeners = new Set<() => void>();
+const notifyTokenChange = (): void => {
+  for (const listener of tokenListeners) listener();
+};
 
 export const tokenStore = {
   get access() {
@@ -27,12 +43,42 @@ export const tokenStore = {
   set(tokens: AuthTokens) {
     localStorage.setItem(ACCESS_KEY, tokens.accessToken);
     localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+    notifyTokenChange();
   },
   clear() {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    notifyTokenChange();
+  },
+  /**
+   * Subscribe to session changes. Covers both directions:
+   *  - this tab, via the explicit notify in set()/clear()
+   *  - other tabs, via the `storage` event, so signing out on one tab updates the rest
+   * Returns an unsubscribe function, shaped for React's useSyncExternalStore.
+   */
+  subscribe(listener: () => void): () => void {
+    tokenListeners.add(listener);
+    const onStorage = (event: StorageEvent) => {
+      // key === null means the whole store was cleared.
+      if (event.key === null || event.key === ACCESS_KEY || event.key === REFRESH_KEY) listener();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('storage', onStorage);
+    return () => {
+      tokenListeners.delete(listener);
+      if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage);
+    };
   },
 };
+
+/** Snapshot for useSyncExternalStore — a stable primitive, so React can compare it cheaply. */
+export function getAuthSnapshot(): boolean {
+  return typeof window !== 'undefined' && !!localStorage.getItem(ACCESS_KEY);
+}
+
+/** Server render has no localStorage; always start signed-out and let hydration correct it. */
+export function getServerAuthSnapshot(): boolean {
+  return false;
+}
 
 export class ApiRequestError extends Error {
   constructor(
@@ -96,7 +142,18 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
     headers.set('authorization', `Bearer ${tokenStore.access}`);
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  // Reachability signal (ADR-034): a network-level fetch failure means our API origin is
+  // unreachable; any HTTP response — including 4xx/5xx — means it IS reachable (an application
+  // error is not a connectivity problem). This drives the offline indicator independently of the
+  // sometimes-stale `navigator.onLine`.
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  } catch (err) {
+    markApiUnreachable();
+    throw err;
+  }
+  markApiReachable();
 
   // Attempt a single transparent refresh on auth failure.
   if (res.status === 401 && options.auth !== false && !options._retried && tokenStore.refresh) {
@@ -250,10 +307,7 @@ export const api = {
       }),
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
-    pay: (id: string) =>
-      request<{ providerRef: string; clientActionUrl: string }>(`/bookings/${id}/pay`, {
-        method: 'POST',
-      }),
+    pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
   },
 
   payments: {
@@ -263,6 +317,16 @@ export const api = {
         body: JSON.stringify({ outcome }),
         auth: false,
       }),
+    // India (Razorpay): verify the Checkout signature after the modal returns. Never proof
+    // of payment (the webhook confirms) — surfaces a 'processing'/'confirmed' status.
+    razorpayVerify: (
+      bookingId: string,
+      body: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
+    ) =>
+      request<{ status: 'processing' | 'confirmed'; bookingId: string }>(
+        `/bookings/${bookingId}/payments/razorpay/verify`,
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
   },
 
   tickets: {
@@ -699,6 +763,34 @@ export const api = {
       }),
   },
 
+  // ─── Organizer Stripe Connect (payout setup) ───
+  organizerPayments: {
+    status: (organizerId: string) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/status`),
+    createAccount: (organizerId: string, body?: { country?: string; email?: string }) =>
+      request<OrganizerPaymentStatus>(`/organizers/${organizerId}/payments/stripe/account`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+      }),
+    onboardingLink: (organizerId: string) =>
+      request<{ url: string; expiresAt?: number }>(
+        `/organizers/${organizerId}/payments/stripe/onboarding-link`,
+        { method: 'POST' },
+      ),
+    dashboardLink: (organizerId: string) =>
+      request<{ url: string }>(`/organizers/${organizerId}/payments/stripe/dashboard-link`, {
+        method: 'POST',
+      }),
+    // India (Razorpay Route) payout account.
+    razorpayStatus: (organizerId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/status`),
+    razorpayLink: (organizerId: string, linkedAccountId: string) =>
+      request<RazorpayAccountStatus>(`/organizers/${organizerId}/payments/razorpay/account`, {
+        method: 'POST',
+        body: JSON.stringify({ linkedAccountId }),
+      }),
+  },
+
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
@@ -737,6 +829,42 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+    /** Create a band. `currency` is required — a band only means anything within one. */
+    createFeeRule: (input: Omit<FeeRule, 'id'>) =>
+      request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
+    /**
+     * Update one fee rule. `currency` is not editable — the amounts are minor units, so
+     * switching currency would reinterpret ₹5 as $5. Omit a field to leave it unchanged;
+     * pass `maxMinor: null` to make a band open-ended ("and above").
+     */
+    updateFeeRule: (
+      id: string,
+      patch: Partial<Pick<FeeRule, 'label' | 'minMinor' | 'maxMinor' | 'feeMinor' | 'active'>>,
+    ) =>
+      request<FeeRule>(`/admin/fee-rules/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+
+    // ─── Marketplace settlements (admin/finance) ───
+    settlements: {
+      list: (
+        params?: PageParams & { status?: string; organizationId?: string; eventId?: string },
+      ) => request<Paged<SettlementRow>>(`/admin/settlements${qs(params ?? {})}`),
+      get: (id: string) => request<SettlementDetail>(`/admin/settlements/${id}`),
+      approve: (id: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/approve`, { method: 'POST' }),
+      release: (id: string, note?: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/release`, {
+          method: 'POST',
+          body: JSON.stringify({ note }),
+        }),
+      block: (id: string, reason: string) =>
+        request<SettlementRow>(`/admin/settlements/${id}/block`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+    },
 
     // ─── Runtime payment configuration (admin) ───
     paymentConfig: {
@@ -1930,6 +2058,84 @@ export interface Payout {
   paidAt: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+// ─── Payment start (provider-aware) ───
+/** Razorpay Standard Checkout options (public — no secret). */
+export interface RazorpayCheckout {
+  keyId: string;
+  orderId: string;
+  amountMinor: number;
+  currency: string;
+  name: string;
+  description: string;
+  prefill: { name: string; email: string };
+  callbackUrl: string;
+}
+export interface PayResult {
+  providerRef: string;
+  clientActionUrl: string;
+  /** 'razorpay' when India routing applies; absent/other for the Stripe/mock path. */
+  provider?: string;
+  razorpay?: RazorpayCheckout;
+}
+
+/** India (Razorpay Route) payout account status (client-safe). */
+export interface RazorpayAccountStatus {
+  organizationId: string;
+  provider: 'razorpay';
+  hasAccount: boolean;
+  linkedAccountId: string | null;
+  onboardingStatus: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  routeEnabled: boolean;
+  payoutReady: boolean;
+  country: string;
+  currency: string;
+}
+
+// ─── Stripe Connect marketplace (client-safe views) ───
+export interface OrganizerPaymentStatus {
+  organizationId: string;
+  provider: string;
+  hasAccount: boolean;
+  accountType: string;
+  onboardingStatus: string;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  disabledReason: string | null;
+  canSellPaidTickets: boolean;
+  country: string;
+  currency: string;
+}
+
+export interface SettlementRow {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  currency: string;
+  grossSalesMinor: number;
+  refundsMinor: number;
+  disputesMinor: number;
+  platformFeesMinor: number;
+  reserveMinor: number;
+  payableMinor: number;
+  transferredMinor: number;
+  providerTransferId: string | null;
+  connectedAccountId: string | null;
+  status: string;
+  releasedAt: string | null;
+  createdAt: string;
+  event?: { title: string; status?: string };
+  organization?: { name: string };
+}
+
+export interface SettlementDetail extends SettlementRow {
+  payments: Array<{ id: string; amountMinor: number; organizerNetMinor: number; status: string }>;
 }
 
 export interface EventReport {

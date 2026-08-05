@@ -23,6 +23,8 @@ import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
+import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -46,6 +48,12 @@ export class BookingsService {
     private readonly inventory: InventoryService,
     private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
+    // Shadow-mode distributed lock observer (ADR-039). No-op unless
+    // INVENTORY_LOCKS_ENABLED + mode=shadow; never affects booking correctness.
+    private readonly lockShadow: InventoryLockShadowService,
+    // Shadow-mode booking orchestration observer (ADR-042). No-op unless
+    // BOOKING_ORCHESTRATOR_ENABLED + mode=shadow; never affects booking correctness.
+    private readonly bookingShadow: BookingShadowObserver,
   ) {}
 
   /**
@@ -53,7 +61,12 @@ export class BookingsService {
    * hold. Fee amounts are snapshotted onto the booking so later rule changes
    * never alter historical orders.
    */
-  async create(user: RequestUser | null, input: CreateBookingInput, idempotencyKey?: string) {
+  async create(
+    user: RequestUser | null,
+    input: CreateBookingInput,
+    idempotencyKey?: string,
+    hooks?: { inHoldTx?: (tx: Prisma.TransactionClient, bookingId: string) => Promise<void> },
+  ) {
     if (idempotencyKey) {
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope: 'booking:create', key: idempotencyKey } },
@@ -255,6 +268,10 @@ export class BookingsService {
       if (commerce.addOnHolds.length > 0) {
         await this.addOnInventory.reserve(tx, commerce.addOnHolds);
       }
+      // In-transaction hook (ADR-042 P5.3A.1): ALLOCATED bookings run the atomic allocation
+      // capacity guard + held-consumption event here, so a guard failure rolls the whole hold
+      // back (oversell-proof) and the allocation ledger commits atomically with the booking.
+      if (hooks?.inHoldTx) await hooks.inHoldTx(tx, created.id);
       return created;
     });
 
@@ -267,6 +284,41 @@ export class BookingsService {
       metadata: { totalMinor: booking.totalMinor },
     });
     this.metrics.recordBookingCreated();
+
+    // Shadow-mode distributed lock observation (ADR-039). PostgreSQL already holds
+    // authoritatively above; this only MEASURES what the Redis lock layer would have
+    // decided and never changes the outcome. Fully isolated + no-op when disabled.
+    try {
+      const seatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      const quantity = input.items.reduce((s, i) => s + i.quantity, 0);
+      await this.lockShadow.observe({
+        inventoryType: isSeatBased ? 'SEAT' : 'QUANTITY',
+        inventoryKey: `session:${session.id}`,
+        seatIds: isSeatBased ? seatIds : undefined,
+        quantity: isSeatBased ? undefined : quantity,
+        capacity: quantity,
+        holdId: booking.id,
+        bookingId: booking.id,
+        owner: user?.id ? { ownerId: user.id } : { anonymousSessionId: booking.id },
+      });
+    } catch {
+      /* shadow observation must never affect booking creation */
+    }
+
+    // Booking-orchestration shadow observation (ADR-042). Observes what the orchestrator
+    // would decide (provider resolution + workflow expectation) alongside this legacy
+    // hold. Fully isolated + no-op unless BOOKING_ORCHESTRATOR_ENABLED + mode=shadow.
+    try {
+      await this.bookingShadow.observe({
+        bookingId: booking.id,
+        eventSessionId: session.id,
+        experienceType: session.event.experienceType,
+        seatCount: input.items.flatMap((i) => i.seatIds ?? []).length,
+        quantity: input.items.reduce((s, i) => s + i.quantity, 0),
+      });
+    } catch {
+      /* shadow observation must never affect booking creation */
+    }
 
     const result = {
       id: booking.id,

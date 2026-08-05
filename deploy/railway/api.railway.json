@@ -1,0 +1,17 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/api/Dockerfile"
+  },
+  "deploy": {
+    "preDeployCommand": "npx prisma migrate deploy",
+    "startCommand": "node dist/main.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  },
+  "//": "ETicketsGo API (NestJS + Prisma). Railway service Root Directory MUST stay '/' — the Dockerfile builds from the monorepo root and COPYs package manifests from apps/* and packages/*. Set this file as the service's config-as-code path (Settings -> Config-as-code -> deploy/railway/api.railway.json). MIGRATIONS: preDeployCommand runs ONCE per deployment, before any new replica receives traffic, and a non-zero exit FAILS the deploy — this is the single migration executor for the environment; worker and web services must never run migrations. The image WORKDIR is /app/apps/api, so 'npx prisma migrate deploy' resolves prisma/schema.prisma and 'node dist/main.js' resolves the compiled API. PORT is injected by Railway and honoured ahead of API_PORT (apps/api/src/main.ts binds 0.0.0.0:PORT). numReplicas is 1 for QA/UAT; raise to >=2 in Production (see docs/deployment/RAILWAY_COST_SIZING.md)."
+}

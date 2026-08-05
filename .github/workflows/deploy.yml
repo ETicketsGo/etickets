@@ -15,12 +15,17 @@
 #   PRODUCTION_BASE_URL /
 #   STAGING_BASE_URL          — public API base for the smoke test.
 #   (+ whatever your deploy target needs: KUBE_CONFIG, SSH_KEY, RENDER_API_KEY…)
+#
+# TRIGGER NOTE: this workflow is now MANUAL-ONLY (`workflow_dispatch`). Railway is the
+# active deployment target and .github/workflows/deploy-railway.yml owns the automatic
+# main → Production path. Leaving both on `push: main` would have two pipelines racing
+# to migrate the same database and restart the same services. This one is retained,
+# unchanged in behaviour, so the GHCR image-build path for AWS / Docker Compose / k8s
+# stays available — run it from the Actions tab when you need those images.
 # ─────────────────────────────────────────────────────────────
-name: Deploy
+name: Deploy (GHCR images — AWS/Docker/k8s targets)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       environment:

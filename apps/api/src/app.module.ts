@@ -43,6 +43,14 @@ import { AiModule } from './ai/ai.module';
 import { AiGrowthModule } from './ai-growth/ai-growth.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
+import { InventorySourcingModule } from './inventory/sourcing/inventory-sourcing.module';
+import { DomainEventsModule } from './common/domain-events/domain-events.module';
+import { InventoryLockingModule } from './inventory/locking/inventory-locking.module';
+import { InventorySyncModule } from './inventory/sync/inventory-sync.module';
+import { BookingOrchestrationModule } from './bookings/orchestration/booking-orchestration.module';
+import { BookingConfirmationBridgeModule } from './bookings/orchestration/booking-confirmation-bridge';
+import { BookingProvidersModule } from './bookings/providers/booking-providers.module';
+import { CompensationModule } from './bookings/compensation/compensation.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -98,6 +106,14 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     AiGrowthModule,
     DiscoveryModule,
     RecommendationsModule,
+    InventorySourcingModule,
+    DomainEventsModule,
+    InventoryLockingModule,
+    InventorySyncModule,
+    BookingConfirmationBridgeModule,
+    BookingProvidersModule,
+    BookingOrchestrationModule,
+    CompensationModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
@@ -113,6 +129,9 @@ import { LoggingInterceptor } from './common/logging.interceptor';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    // Express 5 / path-to-regexp v8 require a named wildcard; '*' is no longer a valid path token
+    // (NestJS auto-converts it with a deprecation warning). '{*path}' matches every route exactly
+    // as the old '*' did, so the correlation-ID middleware still runs on all requests.
+    consumer.apply(CorrelationIdMiddleware).forRoutes('{*path}');
   }
 }

@@ -13,6 +13,7 @@ operational detail.
 ## What's in RC1
 
 **Core commerce & ticketing**
+
 - Event/session/ticket-type catalog, inventory with atomic DB-backed seat holds and lazy
   expiry, coupons, fees, refunds, payouts.
 - Booking → payment → ticket issuance with idempotent, replay-safe state transitions.
@@ -20,6 +21,7 @@ operational detail.
   gate check-in.
 
 **Payments platform (multi-country, multi-provider)**
+
 - Runtime-configurable provider routing (mock/Stripe/Razorpay/PayPal/Square) with circuit
   breaker, bounded retry, and provider failover.
 - Secret-reference resolution via env/Azure/AWS/GCP secret managers; live payments gated
@@ -47,6 +49,7 @@ RC1 was produced by a full production-readiness, observability, and security aud
 genuine, minimal, backward-compatible fixes were applied — no system was redesigned.
 
 **Security**
+
 - **Production fail-closed config guard** — boots in `NODE_ENV=production` / `APP_ENV`
   STAGING|PRODUCTION now reject shipped-placeholder or weak (`< 24` char) core signing
   secrets (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `QR_SIGNING_SECRET`,
@@ -60,6 +63,7 @@ genuine, minimal, backward-compatible fixes were applied — no system was redes
 - **Swagger disabled in production** unless `ENABLE_SWAGGER=true`.
 
 **Resilience & observability**
+
 - **Redis fail-open hardened** — the API's Redis client now uses a command timeout and no
   offline queue, so a Redis outage degrades gracefully (cache/maintenance fail open)
   instead of hanging requests.
@@ -90,14 +94,14 @@ See the full audit outcome in [RC-READINESS-REPORT.md](RC-READINESS-REPORT.md).
 
 ## Companion documents
 
-| Document | Purpose |
-| --- | --- |
-| [DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md) | Step-by-step go-live checklist |
-| [ROLLBACK-CHECKLIST.md](ROLLBACK-CHECKLIST.md) | Safe rollback procedure |
-| [OPERATIONS-CHECKLIST.md](OPERATIONS-CHECKLIST.md) | Day-2 operations |
-| [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) | Accepted RC1 limitations + follow-ups |
+| Document                                             | Purpose                                  |
+| ---------------------------------------------------- | ---------------------------------------- |
+| [DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)   | Step-by-step go-live checklist           |
+| [ROLLBACK-CHECKLIST.md](ROLLBACK-CHECKLIST.md)       | Safe rollback procedure                  |
+| [OPERATIONS-CHECKLIST.md](OPERATIONS-CHECKLIST.md)   | Day-2 operations                         |
+| [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md)         | Accepted RC1 limitations + follow-ups    |
 | [EXTERNAL-DEPENDENCIES.md](EXTERNAL-DEPENDENCIES.md) | Third-party services required to go live |
-| [RC-READINESS-REPORT.md](RC-READINESS-REPORT.md) | Final readiness assessment & score |
+| [RC-READINESS-REPORT.md](RC-READINESS-REPORT.md)     | Final readiness assessment & score       |
 
 Deep-dive guides: [DEPLOYMENT.md](../guides/DEPLOYMENT.md), [MONITORING.md](../guides/MONITORING.md),
 [PILOT-RUNBOOK.md](../guides/PILOT-RUNBOOK.md), [PAYMENT-PLATFORM.md](../guides/PAYMENT-PLATFORM.md),

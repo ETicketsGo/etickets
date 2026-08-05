@@ -10,3 +10,4 @@ export * from './attendee';
 export * from './share';
 export * from './coupon';
 export * from './commerce';
+export * from './payment';

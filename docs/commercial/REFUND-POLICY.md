@@ -43,5 +43,6 @@ Refund questions: [support email] — see [SUPPORT-WORKFLOWS.md](SUPPORT-WORKFLO
 [FAQ](FAQ.md).
 
 ---
-*Fee-refundability and cancellation handling require a commercial decision. Do not publish
-as-is.*
+
+_Fee-refundability and cancellation handling require a commercial decision. Do not publish
+as-is._

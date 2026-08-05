@@ -4,7 +4,7 @@
 // hydrates the last cached copy. No polling loop — sync is event-driven (login,
 // foreground, reconnect, before Event Day Mode) via React Query's refetch hooks.
 
-import type { OfflineSyncState, WalletTicket } from '@eticketsgo/web-kit';
+import type { WalletTicket } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { currentUserId } from './identity';
 import { loadWallet, saveWallet } from './wallet-store';
@@ -48,18 +48,6 @@ export async function lastSyncedAt(): Promise<number | null> {
   return record?.syncedAt ?? null;
 }
 
-/** Derives the user-facing sync state (never silently "synced"). */
-export function deriveSyncState(opts: {
-  hasToken: boolean;
-  online: boolean;
-  isFetching: boolean;
-  hasData: boolean;
-  isError: boolean;
-}): OfflineSyncState {
-  if (!opts.hasToken) return 'REQUIRES_SIGN_IN';
-  if (opts.isFetching) return 'SYNCING';
-  if (opts.online) return opts.hasData ? 'CURRENT' : opts.isError ? 'FAILED' : 'SYNCING';
-  // Offline:
-  if (opts.hasData) return 'STALE';
-  return 'OFFLINE';
-}
+// `deriveSyncState` now lives in @eticketsgo/web-kit alongside the connectivity model, so the wallet
+// label is derived from real API-origin reachability (not just the sometimes-stale navigator.onLine).
+export { deriveSyncState } from '@eticketsgo/web-kit';

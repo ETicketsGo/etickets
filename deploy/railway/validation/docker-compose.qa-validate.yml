@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ETicketsGo — QA pre-deployment validation stack.
+#
+# A deliberately Railway-SHAPED local environment, used to prove the deployment
+# contract before any cloud resource exists. It is NOT a development stack (use the
+# root docker-compose.yml for that) and it is NOT a deployment target.
+#
+# What makes it Railway-shaped, and why each choice matters:
+#
+#   * Redis REQUIRES A PASSWORD. Railway's Redis puts credentials in REDIS_URL. The
+#     regression this whole branch exists for was BullMQ parsing that URL down to
+#     host+port and discarding the credentials — which fails with NOAUTH on Railway
+#     but passes silently against a passwordless local Redis. A passwordless Redis
+#     cannot detect that bug; this one can.
+#   * Services are given PORT (not API_PORT/WORKER_PORT), the way a platform injects it.
+#   * APP_ENV=QA, so every Redis key is namespaced etg:qa:* exactly as in the real
+#     QA environment.
+#   * A second `api-replica` on the same database proves migrations are not re-run
+#     per replica.
+#   * A `uat-probe` container runs with APP_ENV=UAT against the SAME Redis, to prove
+#     that a foreign environment cannot consume QA's jobs. On Railway the instances
+#     are separate anyway; this proves the application-level namespace holds even
+#     when the instance is shared — which is the property that makes the isolation
+#     defence-in-depth rather than a single point of failure.
+#
+# Usage:
+#   docker compose -f deploy/railway/validation/docker-compose.qa-validate.yml up -d
+#   docker compose -f deploy/railway/validation/docker-compose.qa-validate.yml down -v
+#
+# Every secret below is a THROWAWAY local value. Nothing here is a real credential,
+# and this file must never be used to run anything reachable from a network.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: etg-qa-validate
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: etg-val-db
+    environment:
+      POSTGRES_USER: etgval
+      POSTGRES_PASSWORD: etgval
+      POSTGRES_DB: etgval
+    ports:
+      # High, deliberately unusual host ports so this stack cannot collide with the
+      # root docker-compose.yml dev stack (5432/6379) or another project's containers.
+      - '55437:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U etgval']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Password-protected, mirroring a managed Redis. `--requirepass` makes every
+  # unauthenticated command fail with NOAUTH, so a connection that drops the password
+  # cannot silently appear to work.
+  redis:
+    image: redis:7-alpine
+    container_name: etg-val-redis
+    command: ['redis-server', '--requirepass', 'val-redis-pw', '--appendonly', 'yes']
+    ports:
+      - '56379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'val-redis-pw', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  etg-val-db: {}

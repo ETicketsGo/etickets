@@ -29,6 +29,7 @@ interface BookingShape {
   userId: string | null;
   holdExpiresAt: Date;
   couponId?: string | null;
+  totalMinor: number;
   items: Array<{ ticketTypeId: string; quantity: number }>;
   event: { experienceType: string; venue: { country: string } | null };
 }
@@ -80,6 +81,13 @@ function setup(opts: {
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
   const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
+  const config = { get: jest.fn().mockReturnValue('LOCAL') };
+  const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
+  const razorpayOrders = { createOrder: jest.fn(), verify: jest.fn() };
+  const eventPublisher = {
+    recordInTransaction: jest.fn().mockResolvedValue(0),
+    deliverAfterCommit: jest.fn().mockResolvedValue(undefined),
+  };
 
   const service = new PaymentsService(
     prisma as never,
@@ -92,8 +100,23 @@ function setup(opts: {
     new AddOnInventoryService(),
     new MetricsService(),
     new BookingReferenceService(),
+    config as never,
+    settlements as never,
+    razorpayOrders as never,
+    eventPublisher as never,
+    { onConfirmed: async () => undefined, preConfirm: async () => ({ handled: false }) } as never,
   );
-  return { service, prisma, tx, strategy, provider, audit, notifications, inventory };
+  return {
+    service,
+    prisma,
+    tx,
+    strategy,
+    provider,
+    audit,
+    notifications,
+    inventory,
+    eventPublisher,
+  };
 }
 
 const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
@@ -106,6 +129,7 @@ const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
   userId: 'u1',
   holdExpiresAt: new Date(Date.now() + 60_000),
   couponId: null,
+  totalMinor: 5000,
   items: [{ ticketTypeId: 't1', quantity: 2 }],
   event: { experienceType: ExperienceType.EVENT, venue: { country: 'India' } },
   ...over,
@@ -115,7 +139,7 @@ const webhook = { rawBody: '{}', signature: 'sig' };
 
 describe('PaymentsService.confirm (via handleWebhook)', () => {
   it('confirms a pending booking: issues N tickets, marks SUCCEEDED, records attempt', async () => {
-    const { service, tx, prisma, notifications, audit } = setup({
+    const { service, tx, prisma, notifications, audit, eventPublisher } = setup({
       booking: pendingBooking(),
       claimCount: 1,
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -163,6 +187,19 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(notifications.send).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledTimes(1);
+    // ADR-041 proof slice: the BookingConfirmed fact is recorded IN the confirm tx
+    // (durable in outbox mode; no-op in_process) and delivered exactly once after commit,
+    // with a PII-free payload.
+    expect(eventPublisher.recordInTransaction).toHaveBeenCalledTimes(1);
+    expect(eventPublisher.deliverAfterCommit).toHaveBeenCalledTimes(1);
+    const recorded = (eventPublisher.recordInTransaction as jest.Mock).mock.calls[0][1][0];
+    expect(recorded).toMatchObject({
+      eventType: 'booking.confirmed',
+      aggregateType: 'Booking',
+      aggregateId: 'b1',
+      payload: expect.objectContaining({ bookingId: 'b1', ticketCount: 2 }),
+    });
+    expect(recorded.payload).not.toHaveProperty('buyerEmail');
   });
 
   it('increments the coupon redemption count when the booking used a coupon', async () => {
@@ -181,7 +218,7 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
   });
 
   it('is idempotent: a concurrent re-delivery (claim count 0) issues no tickets', async () => {
-    const { service, tx } = setup({
+    const { service, tx, eventPublisher } = setup({
       booking: pendingBooking(),
       claimCount: 0, // another delivery already flipped it
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
@@ -193,6 +230,9 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     expect(tx.ticket.create).not.toHaveBeenCalled();
     expect(tx.payment.update).not.toHaveBeenCalled();
     expect(tx.paymentAttempt.create).not.toHaveBeenCalled();
+    // No real confirm happened → no outbox record + no delivery (recorded/delivered once).
+    expect(eventPublisher.recordInTransaction).not.toHaveBeenCalled();
+    expect(eventPublisher.deliverAfterCommit).not.toHaveBeenCalled();
   });
 
   it('returns already_confirmed for a pre-claim CONFIRMED booking without opening a tx', async () => {

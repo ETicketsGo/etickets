@@ -1,0 +1,101 @@
+name: Security & Supply Chain
+
+# Additive to ci.yml / deploy.yml (P6.3). Runs dependency + secret + migration-drift checks on PRs
+# to main and weekly. No secrets required. Dependency audit is currently INFORMATIONAL (the repo
+# carries pre-existing high-severity advisories, mostly build tooling — see docs/reports/
+# DEPENDENCY-REMEDIATION.md); flip `continue-on-error` to false once SEC-1 runtime highs are cleared.
+
+on:
+  pull_request:
+    # Cover every branch in the promotion flow, not just main — a secret or a drifted
+    # migration must be caught on the PR into develop, well before it can reach QA.
+    branches: [main, develop, 'release/**']
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-scan:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: npm audit (production deps) — informational until SEC-1 cleared
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+      - name: Full advisory report (all deps)
+        continue-on-error: true
+        run: npm audit --json > npm-audit.json || true
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit.json
+
+  dependency-review:
+    name: Dependency review (PR)
+    runs-on: ubuntu-latest
+    # Requires GitHub Advanced Security + Dependency Graph, which a private repo on the free plan
+    # does NOT have (the action hard-errors "not supported on this repository"). Kept + soft-failed
+    # so it enforces automatically the moment GHAS is enabled; until then `Dependency audit`
+    # (npm audit) is the functional dependency gate. Do NOT let this block PRs.
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Review new/changed dependencies
+        continue-on-error: true # soft until GHAS is enabled (see note above)
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: TruffleHog (verified secrets only)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified
+
+  migration-drift:
+    name: Prisma migration drift
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: eticketsgo
+          POSTGRES_PASSWORD: eticketsgo
+          POSTGRES_DB: shadow
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U eticketsgo" --health-interval 10s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Fails if prisma/schema.prisma has changes NOT captured by prisma/migrations
+      # (i.e. someone edited the schema without generating a migration).
+      - name: Assert schema == migrations (no drift)
+        run: |
+          npx --prefix apps/api prisma migrate diff \
+            --from-migrations apps/api/prisma/migrations \
+            --to-schema-datamodel apps/api/prisma/schema.prisma \
+            --shadow-database-url postgresql://eticketsgo:eticketsgo@localhost:5432/shadow \
+            --exit-code && echo "No drift: schema matches migrations." \
+            || (echo "::error::Schema drift — commit a migration for your schema changes." && exit 1)

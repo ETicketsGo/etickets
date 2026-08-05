@@ -30,7 +30,7 @@ import {
   isTicketInactive,
   nextActiveIndex,
   pickInitialTicketIndex,
-  useOnline,
+  useConnectivity,
   useToast,
   type BookingGroup,
   type WalletTicket,
@@ -54,7 +54,10 @@ export default function BookingTicketsViewer() {
   const { bookingId } = useParams<{ bookingId: string }>();
   const router = useRouter();
   const toast = useToast();
-  const online = useOnline();
+  // Offline indicator derives from the browser hint AND real API-origin reachability (see web-kit's
+  // connectivity model), so it stays correct after an offline reload where navigator.onLine is stale.
+  const connectivity = useConnectivity();
+  const online = connectivity.state === 'ONLINE' || connectivity.state === 'UNKNOWN';
 
   useEffect(() => {
     if (!tokenStore.access) router.push(`/login?next=/account/bookings/${bookingId}/tickets`);
