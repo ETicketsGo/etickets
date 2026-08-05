@@ -236,26 +236,72 @@ try {
   record('ticket types rendered', /General|Gold|VIP/i.test(eventText));
   await shot(page, 'event-detail');
 
-  // 9 — the reserved-seat screen for the seeded movie session
-  await page.goto(`${base}/event/skyfront-protocol-show-598484`, {
-    waitUntil: 'networkidle',
-    timeout: 60_000,
-  });
-  const movieEventText = await page.locator('body').innerText();
-  record('movie event loads', /Skyfront/i.test(movieEventText));
-  record(
-    'reserved seating routes to the seat map',
-    /Choose seats|reserved seating/i.test(movieEventText),
-  );
+  // 9 — the reserved-seat screen.
+  //
+  // The event slug and session id are DISCOVERED from the API rather than hardcoded.
+  // They were pinned to QA's seed values, which made the run fail against any other
+  // database — a harness reporting environment coupling as an app defect. The new
+  // /public/movies/:slug/shows endpoint is exactly the lookup that removes the need.
+  const firstShow = await fetch(`${API_TARGET}/public/movies/skyfront-protocol/shows`)
+    .then((r) => r.json())
+    .then((body) => body.shows?.[0] ?? null)
+    .catch(() => null);
 
-  await page.goto(`${base}/session/cmsdp3od100758jznrl6atlru/seats`, {
+  if (!firstShow) {
+    record(
+      'reserved-seat fixture available',
+      false,
+      'no screenings returned for skyfront-protocol',
+    );
+  } else {
+    await page.goto(`${base}/event/${firstShow.eventSlug}`, {
+      waitUntil: 'networkidle',
+      timeout: 60_000,
+    });
+    const movieEventText = await page.locator('body').innerText();
+    record('movie event loads', /Skyfront/i.test(movieEventText));
+    record(
+      'reserved seating routes to the seat map',
+      /Choose seats|reserved seating/i.test(movieEventText),
+    );
+
+    await page.goto(`${base}/session/${firstShow.sessionId}/seats`, {
+      waitUntil: 'networkidle',
+      timeout: 60_000,
+    });
+    const seatsText = await page.locator('body').innerText();
+    record('seat map screen renders', /seat|SCREEN|Available/i.test(seatsText));
+    record('seat legend rendered', /Available/i.test(seatsText) && /Sold/i.test(seatsText));
+    await shot(page, 'seat-map');
+  }
+
+  // 12 — the cinema journey, end to end. This is the flow that did not exist until
+  // GET /public/movies/:slug/shows shipped: poster → film → date → theatre → showtime
+  // → seat map.
+  await page.goto(`${base}/movie/skyfront-protocol`, {
     waitUntil: 'networkidle',
     timeout: 60_000,
   });
-  const seatsText = await page.locator('body').innerText();
-  record('seat map screen renders', /seat|SCREEN|Available/i.test(seatsText));
-  record('seat legend rendered', /Available/i.test(seatsText) && /Sold/i.test(seatsText));
-  await shot(page, 'seat-map');
+  const movieText = await page.locator('body').innerText();
+  record('movie detail loads from /public/movies/:slug', /Skyfront Protocol/i.test(movieText));
+  record('film metadata rendered', /UA/.test(movieText) && /English/i.test(movieText));
+  record('showtimes rendered from the new endpoint', /Showtimes/i.test(movieText));
+  record('theatre grouping rendered', /PVR|Phoenix|Cinema/i.test(movieText));
+  await shot(page, 'movie-showtimes');
+
+  // Tapping a showtime must reach the seat map.
+  const showtime = page.getByRole('button', { name: /IMAX|Screen 1/i }).first();
+  const tapped = await showtime
+    .click({ timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  record('showtime is tappable', tapped);
+  if (tapped) {
+    await page.waitForTimeout(2500);
+    const afterTap = await page.locator('body').innerText();
+    record('showtime leads to the seat map', /Choose your seats|SCREEN|Available/i.test(afterTap));
+    await shot(page, 'movie-to-seatmap');
+  }
 
   // 10 — auth screens
   await page.goto(`${base}/register`, { waitUntil: 'networkidle', timeout: 60_000 });

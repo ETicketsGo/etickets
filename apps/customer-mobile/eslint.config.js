@@ -48,6 +48,9 @@ module.exports = [
     languageOptions: {
       globals: {
         AbortSignal: 'readonly',
+        // page.waitForFunction bodies run IN the browser, so DOM globals appear in
+        // this Node file even though Node itself never evaluates them.
+        document: 'readonly',
         Buffer: 'readonly',
         URL: 'readonly',
         console: 'readonly',
