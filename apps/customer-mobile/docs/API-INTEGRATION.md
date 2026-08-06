@@ -5,7 +5,7 @@ logic that the server does not already own.
 
 ## Every endpoint the app calls
 
-Verified against QA (`api-qa-f580.up.railway.app`) on 2026-08-04.
+Verified against QA (`api-qa.eticketsgo.com`) on 2026-08-04.
 
 | Method | Path                             | Auth   | Used by                               |
 | ------ | -------------------------------- | ------ | ------------------------------------- |

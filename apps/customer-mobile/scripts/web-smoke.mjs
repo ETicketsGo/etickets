@@ -46,7 +46,7 @@ const MIME = {
  * deployed environment's security for a test's convenience, so instead the requests are
  * forwarded server-side here, where CORS does not apply. QA is unchanged.
  */
-const API_TARGET = process.env.SMOKE_API_TARGET ?? 'https://api-qa-f580.up.railway.app/api';
+const API_TARGET = process.env.SMOKE_API_TARGET ?? 'https://api-qa.eticketsgo.com/api';
 
 /** Static server with SPA fallback, so client-side routes resolve like they would hosted. */
 const server = createServer(async (req, res) => {

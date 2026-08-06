@@ -7,7 +7,7 @@ Run from `apps/customer-mobile`.
 
 ## Before you start
 
-The QA build points at `https://api-qa-f580.up.railway.app/api`, and **the API changes
+The QA build points at `https://api-qa.eticketsgo.com/api`, and **the API changes
 in this branch are not deployed there yet**. Until PR #38 is merged and QA redeploys,
 an installed APK will 404 on:
 
@@ -22,7 +22,7 @@ Confirm the deploy landed:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
-  https://api-qa-f580.up.railway.app/api/public/movies/skyfront-protocol/shows
+  https://api-qa.eticketsgo.com/api/public/movies/skyfront-protocol/shows
 # 200 = deployed. 404 = not yet.
 ```
 

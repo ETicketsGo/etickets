@@ -55,11 +55,18 @@ const secret = () => randomBytes(48).toString('base64url');
  * Every service has TWO reachable names: the Railway-generated one and the
  * eticketsgo.com custom domain. Both are kept here on purpose.
  *
- * The generated name is what NEXT_PUBLIC_API_URL points at, because it exists the
- * moment the service does — a custom domain is only reachable once its CNAME is live
- * and Railway has issued a certificate, and pointing the bundle at a name that does not
- * resolve yet bricks the app until DNS propagates. (These are inlined at BUILD time, so
- * repointing them later is a rebuild, not a restart.)
+ * NEXT_PUBLIC_API_URL now points at the CUSTOM domain. It previously used the generated
+ * one, because a custom domain is unreachable until its CNAME is live and Railway has
+ * issued a certificate, and pointing a build at a name that does not resolve bricks it.
+ * All four conditions were verified on 2026-08-06 — DNS matches, the certificate is
+ * VALID, /api/health and /api/ready return 200, and CORS answers all three QA origins —
+ * so the reason for preferring the generated name has gone.
+ *
+ * The generated name is also actively worse: it is NOT stable across service
+ * re-creation. It changed once already (api-qa-f23c → api-qa-f580) and every consumer
+ * baked against it broke, because these values are inlined at BUILD time and repointing
+ * them is a rebuild, not a restart. A native app makes that far worse — an APK cannot be
+ * repointed at all without shipping a new binary.
  *
  * The custom names must nevertheless be in CORS_ORIGINS, and that is not optional: a
  * user who opens https://qa.eticketsgo.com gets an Origin the API does not recognise,
@@ -71,7 +78,7 @@ const secret = () => randomBytes(48).toString('base64url');
  * api-qa-f23c until the api service was rebuilt, after which the old name 404'd at the
  * Railway edge. Override with QA_API_HOST rather than editing this line.
  */
-const API_HOST = process.env.QA_API_HOST ?? 'api-qa-f580.up.railway.app';
+const API_HOST = process.env.QA_API_HOST ?? 'api-qa.eticketsgo.com';
 const WEB_HOST = process.env.QA_WEB_HOST ?? 'customer-web-qa.up.railway.app';
 const ORG_HOST = process.env.QA_ORG_HOST ?? 'organizer-web-qa.up.railway.app';
 const ADMIN_HOST = process.env.QA_ADMIN_HOST ?? 'admin-web-qa.up.railway.app';
@@ -163,8 +170,12 @@ const WEB_COMMON = { NEXT_PUBLIC_API_URL: API_URL };
 const WEB_BY_APP = {
   'customer-web': {
     ...WEB_COMMON,
-    NEXT_PUBLIC_ORGANIZER_URL: `https://${ORG_HOST}`,
-    NEXT_PUBLIC_SITE_URL: `https://${WEB_HOST}`,
+    // Both point at the CUSTOM domains, not the generated ones. NEXT_PUBLIC_SITE_URL is
+    // what robots.txt, sitemap.xml and every canonical tag advertise, so pointing it at
+    // customer-web-qa.up.railway.app published the wrong URL for the whole site — and
+    // NEXT_PUBLIC_ORGANIZER_URL is where the "Open organizer console" button sends people.
+    NEXT_PUBLIC_ORGANIZER_URL: `https://${CUSTOM_ORG_HOST}`,
+    NEXT_PUBLIC_SITE_URL: `https://${CUSTOM_WEB_HOST}`,
   },
   'organizer-web': { ...WEB_COMMON },
   'admin-web': { ...WEB_COMMON },

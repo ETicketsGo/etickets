@@ -27,44 +27,55 @@ naively, `env.webHost` becomes an object and `webHost.toLowerCase()` throws.
 In a `production` build, `env.ts` throws rather than start with a missing or localhost
 API URL. A prod build pointing at a dev API is a release defect, not a fallback.
 
-## Live QA (verified 2026-08-04)
+## Live QA (verified 2026-08-06)
 
-| Service         | Host                                     | State                                 |
-| --------------- | ---------------------------------------- | ------------------------------------- |
-| API             | `https://api-qa-f580.up.railway.app/api` | **Working** — use this                |
-| Customer web    | `https://qa.eticketsgo.com`              | Live, cert valid                      |
-| API (preferred) | `https://api-qa.eticketsgo.com`          | **NXDOMAIN** — CNAME not at registrar |
-| Organizer web   | `https://organizer-qa.eticketsgo.com`    | NXDOMAIN                              |
-| Admin web       | `https://admin-qa.eticketsgo.com`        | NXDOMAIN                              |
+Every service is reachable on its eticketsgo.com name, with a Railway-issued certificate.
 
-QA posture: `PAYMENT_PROVIDER_NAME=mock`, all money automation off, Swagger enabled,
-app-sleeping on (so the first request after idle pays a cold start).
+| Service       | Host                                  | State                             |
+| ------------- | ------------------------------------- | --------------------------------- |
+| API           | `https://api-qa.eticketsgo.com/api`   | **Live** — this is the one to use |
+| Customer web  | `https://qa.eticketsgo.com`           | Live                              |
+| Organizer web | `https://organizer-qa.eticketsgo.com` | Live                              |
+| Admin web     | `https://admin-qa.eticketsgo.com`     | Live                              |
 
-### Switching to `api-qa.eticketsgo.com`
+All four: DNS matches the required CNAME, `certificateStatus: VALID`, and the API answers
+`/api/health` and `/api/ready` with 200 and CORS for all three web origins.
 
-Do **not** switch until all four verify. The Railway hostname works today; a bundle
-pointed at a name that does not resolve is bricked until DNS propagates.
+### Do not go back to the generated hostname
+
+`api-qa-f580.up.railway.app` still works, and everything pointed at it until 2026-08-06,
+but it is **not stable across service re-creation**. It has already changed once —
+`api-qa-f23c` → `api-qa-f580` — and because these values are inlined at BUILD time,
+every consumer baked against the old one broke and needed a rebuild rather than a restart.
+
+That is worse for a native app than for the web: an APK cannot be repointed at all
+without shipping a new binary. The mobile `qa` EAS profile therefore uses the custom
+domain, and did so before the first build was ever produced.
+
+Override with `EXPO_PUBLIC_API_URL` (mobile) or `QA_API_HOST` (deploy script) if a
+hostname ever needs to change again — neither requires a code edit.
+
+### The checklist that was used before switching
+
+Kept because the same four conditions apply to UAT and production when their domains are
+provisioned. Do not repoint a build until all four pass.
 
 ```bash
-# 1. DNS resolves
-nslookup api-qa.eticketsgo.com          # must not say "Non-existent domain"
+# 1. DNS resolves, and to the CNAME Railway asked for
+nslookup api-qa.eticketsgo.com
 
-# 2. TLS issued (Railway needs the CNAME present first)
-curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' \
+# 2. TLS verifies (0 = valid chain)
+curl -sS -o /dev/null -w '%{http_code} tls=%{ssl_verify_result}\n' \
   https://api-qa.eticketsgo.com/api/health
 
-# 3. Health responds
-curl -sS https://api-qa.eticketsgo.com/api/health     # {"status":"ok",...}
+# 3. The app is actually up behind it
+curl -sS https://api-qa.eticketsgo.com/api/ready
 
-# 4. CORS allows the customer origin
+# 4. CORS answers the browser origin that will call it
 curl -sS -X OPTIONS https://api-qa.eticketsgo.com/api/public/discovery \
   -H 'Origin: https://qa.eticketsgo.com' \
   -H 'Access-Control-Request-Method: GET' -D - -o /dev/null | grep -i allow-origin
 ```
-
-The CNAME still missing at the registrar: `api-qa` → `ktndx6oh.up.railway.app`.
-
-Then set `EXPO_PUBLIC_API_URL` in `eas.json`'s `qa` profile and rebuild. No code change.
 
 ## EAS profiles
 
