@@ -61,6 +61,29 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
       </Text>
 
       <View
+        /**
+         * `collapsable={false}` PREVENTS A NATIVE CRASH. It is not a performance hint.
+         *
+         * Fabric flattens away Views that need no native view of their own, and the
+         * `opacity-50` below appears only while `editable` is false. So toggling `editable`
+         * changes whether this View exists natively, and Android then has to move the
+         * TextInput between parents. A ReactEditText cannot be flattened, so it is a real
+         * view with a real parent, and the move throws:
+         *
+         *   IllegalStateException: addViewAt: cannot insert view into parent:
+         *   View already has a parent … View: ReactEditText
+         *
+         * which is an uncaught native exception — the app dies instantly, no error screen.
+         * Reproduced 2/2 on Android 14 by submitting the Create-account form, whose fields
+         * pass `editable={!submitting}`: the account was created server-side and then the
+         * process crashed, so the user saw the launcher and assumed it had failed. The
+         * login screen escaped only because it happens to use its own local field
+         * component and never toggles `editable`.
+         *
+         * Opting out of flattening keeps this View native in both states, so the TextInput
+         * never changes parent. The cost is one always-present view per field.
+         */
+        collapsable={false}
         className={`flex-row gap-2 rounded-md border bg-background-surface px-3 ${border} ${
           // A multiline field's icon and reveal button belong at the top, beside the
           // first line, not floating in the vertical middle of a growing box.
