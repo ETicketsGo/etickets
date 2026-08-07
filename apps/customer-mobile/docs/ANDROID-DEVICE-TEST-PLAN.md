@@ -1,9 +1,37 @@
 # Android physical-device test plan
 
-**Status: NOT EXECUTED.** No Android SDK, JDK, adb or emulator exists in the environment
-this was built in, and EAS reports "Not logged in" with no `EXPO_TOKEN`. No APK has been
-produced, so there is no build URL or build ID to quote. Nothing in this app has run on
-Android hardware.
+## The APK exists
+
+|          |                                                                                |
+| -------- | ------------------------------------------------------------------------------ |
+| Build ID | `e739c419-0fdd-45c3-9197-b92803a51e26`                                         |
+| Artifact | https://expo.dev/artifacts/eas/snwQQ1thxpB_G0rsGRoK_Fll7pKLiwISGUVbznXkgVo.apk |
+| Project  | `@srinivasdeeptrics/eticketsgo-customer`                                       |
+| Profile  | `qa` (internal distribution)                                                   |
+| Size     | 111.1 MB                                                                       |
+| Package  | `com.eticketsgo.customer.preview`                                              |
+| ABIs     | arm64-v8a, armeabi-v7a, x86, x86_64                                            |
+
+Verified by downloading and unpacking it, not by trusting the build status: valid ZIP,
+`AndroidManifest.xml`, `classes.dex`, a 6.5 MB JS bundle, v1 signature, and the native
+libraries that matter — `libreanimated.so`, `libworklets.so`, `libgesturehandler.so`,
+`librnscreens.so`, `libhermesvm.so`.
+
+`assets/app.config` confirms it is pointed at the right place:
+`apiUrl: https://api-qa.eticketsgo.com/api`, `webHost: qa.eticketsgo.com`, and the EAS
+project id. The manifest carries the `etickets` scheme and the `qa.eticketsgo.com`
+app-link host.
+
+Permissions in the shipped manifest: ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE (NetInfo),
+BIND_JOB_SERVICE, RECEIVE_BOOT_COMPLETED, WAKE_LOCK, READ_APP_BADGE (notifications),
+USE_BIOMETRIC, USE_FINGERPRINT (SecureStore keychain), plus INTERNET,
+POST_NOTIFICATIONS and VIBRATE. **No CAMERA, RECORD_AUDIO, WRITE_SETTINGS,
+SYSTEM_ALERT_WINDOW or external storage** — the `blockedPermissions` held through to the
+real binary.
+
+**Status: STILL NOT EXECUTED ON HARDWARE.** An APK existing is not device validation.
+There is no Android SDK, JDK, adb or emulator in the environment it was built from, so
+nothing below has been run. Install it and work through the tiers.
 
 This plan exists so the first person with a device does not have to invent one, and it is
 ordered by **native risk** — the things that cannot be caught by tests, a web bundle, or
@@ -41,21 +69,21 @@ Run these first. A failure here is most likely and most expensive.
 
 ## Tier 2 — native integration points
 
-| #   | Test                                                 | Watch for                                                                                  |
-| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 8   | Cold launch from a killed state                      | Splash lifts; no blank screen (this exact failure was found and fixed on web)              |
-| 9   | External payment browser handoff                     | Custom Tab opens with a real address bar                                                   |
-| 10  | Return from the browser                              | Lands on the booking; status is **re-read from the server**, never assumed                 |
-| 11  | Kill the app mid-payment, relaunch                   | Booking shows its true server state, not a stale local guess                               |
-| 12  | Deep link `etickets://tickets` from another app      | Opens the app on the Tickets tab                                                           |
-| 13  | Deep link `etickets://booking/<id>` while signed out | Prompts sign-in, then **continues to the booking**                                         |
-| 14  | `https://qa.eticketsgo.com/...` link                 | Will open the browser, not the app, until `assetlinks.json` is served — see DEEPLINKING.md |
-| 15  | Android hardware back, every screen                  | Never traps; never exits from mid-stack                                                    |
-| 16  | Back during checkout                                 | Does not lose an active hold silently                                                      |
-| 17  | Offline ticket after airplane mode + force-stop      | Ticket renders from disk with a "Synced N ago" label                                       |
-| 18  | Network loss mid-booking, then recovery              | Clear error, retry works, no duplicate booking (idempotency key is reused)                 |
-| 19  | Notification permission prompt                       | Appears after sign-in, not on first launch                                                 |
-| 20  | Device registers for push                            | **Will return null until `eas init` is run** — there is no project id yet                  |
+| #   | Test                                                 | Watch for                                                                                                                                                 |
+| --- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8   | Cold launch from a killed state                      | Splash lifts; no blank screen (this exact failure was found and fixed on web)                                                                             |
+| 9   | External payment browser handoff                     | Custom Tab opens with a real address bar                                                                                                                  |
+| 10  | Return from the browser                              | Lands on the booking; status is **re-read from the server**, never assumed                                                                                |
+| 11  | Kill the app mid-payment, relaunch                   | Booking shows its true server state, not a stale local guess                                                                                              |
+| 12  | Deep link `etickets://tickets` from another app      | Opens the app on the Tickets tab                                                                                                                          |
+| 13  | Deep link `etickets://booking/<id>` while signed out | Prompts sign-in, then **continues to the booking**                                                                                                        |
+| 14  | `https://qa.eticketsgo.com/...` link                 | Will open the browser, not the app, until `assetlinks.json` is served — see DEEPLINKING.md                                                                |
+| 15  | Android hardware back, every screen                  | Never traps; never exits from mid-stack                                                                                                                   |
+| 16  | Back during checkout                                 | Does not lose an active hold silently                                                                                                                     |
+| 17  | Offline ticket after airplane mode + force-stop      | Ticket renders from disk with a "Synced N ago" label                                                                                                      |
+| 18  | Network loss mid-booking, then recovery              | Clear error, retry works, no duplicate booking (idempotency key is reused)                                                                                |
+| 19  | Notification permission prompt                       | Appears after sign-in, not on first launch                                                                                                                |
+| 20  | Device registers for push                            | The project id is in this build, so a token should be issued and `POST /users/me/devices` should return 201. Delivery still needs an APNs/FCM credential. |
 
 ## Tier 3 — account and cleanup
 
@@ -82,13 +110,26 @@ tokens and QR payloads stripped. Then classify — mobile, API, configuration, o
 environment — because the fix differs and the wrong classification wastes the next
 person's time.
 
-## Getting a build
+## Getting another build
 
-See [OWNER-HANDOFF.md](OWNER-HANDOFF.md). Short version:
+Login and project setup are done. A rebuild is one command:
 
 ```bash
 cd apps/customer-mobile
-npx eas login
-npx eas init                                    # creates the project id; push needs it
-npx eas build --profile qa --platform android   # internal-distribution APK
+npx eas-cli build --profile qa --platform android
 ```
+
+Three attempts were needed for the first APK, and both failures were real bugs rather
+than flakes — a rebuild today should go straight through:
+
+1. `817c0def` — the shared workspace packages compile to gitignored `dist/`, and EAS runs
+   `npm ci`, which does not build them. `tailwind.config.js` requires
+   `@eticketsgo/design-tokens` and Metro died before bundling anything. Fixed with an
+   `eas-build-post-install` hook that does what CI already did.
+2. `46e56d74` — the Sentry Gradle plugin runs `sentry-cli` as a build task and fails the
+   whole build when it cannot upload source maps. No auth token exists. Fixed with
+   `SENTRY_DISABLE_AUTO_UPLOAD` on the credential-less profiles only; production still
+   fails loudly, which is correct there.
+
+Neither was reproducible locally: `dist/` always exists on a dev machine, and the Sentry
+upload only runs during a release Gradle build.
