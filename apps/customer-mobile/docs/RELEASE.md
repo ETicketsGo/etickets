@@ -72,6 +72,27 @@ npx expo prebuild --platform android --no-install   # generates android/, needs 
 `prebuild` generates the native project without building it, which is a useful check that
 the config plugins resolve. Compiling it needs the Android SDK and JDK 17.
 
+## Sentry source maps
+
+The `development`, `qa` and `preview` profiles set `SENTRY_DISABLE_AUTO_UPLOAD=true`.
+
+This is not cosmetic. The Sentry Gradle plugin runs `sentry-cli` as a build task, and a
+failed upload **fails the whole build** — it is not a warning. Without a
+`SENTRY_AUTH_TOKEN` the upload exits non-zero and no APK is produced. That is exactly
+what killed build `46e56d74`, after 411 Gradle tasks had already succeeded.
+
+Production is deliberately left alone. A release build _should_ upload source maps, and
+failing loudly when it cannot is the right behaviour there — a production crash without
+symbolication is close to useless, and shipping silently without them is worse than a
+red build. Before the first production build:
+
+```bash
+npx eas secret:create --scope project --name SENTRY_AUTH_TOKEN --value <token>
+```
+
+The runtime SDK is unaffected either way: crash capture depends on
+`EXPO_PUBLIC_SENTRY_DSN`, not on the build-time upload.
+
 ## Do not
 
 - Publish to any app store. Not in scope, and see

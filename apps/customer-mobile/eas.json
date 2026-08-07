@@ -9,7 +9,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000/api"
+        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:4000/api",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -29,7 +30,8 @@
       "env": {
         "EXPO_PUBLIC_ENV": "staging",
         "EXPO_PUBLIC_API_URL": "https://api-qa.eticketsgo.com/api",
-        "EXPO_PUBLIC_WEB_HOST": "qa.eticketsgo.com"
+        "EXPO_PUBLIC_WEB_HOST": "qa.eticketsgo.com",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -43,7 +45,8 @@
       "env": {
         "EXPO_PUBLIC_ENV": "staging",
         "EXPO_PUBLIC_API_URL": "https://api-uat.eticketsgo.com/api",
-        "EXPO_PUBLIC_WEB_HOST": "uat.eticketsgo.com"
+        "EXPO_PUBLIC_WEB_HOST": "uat.eticketsgo.com",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
