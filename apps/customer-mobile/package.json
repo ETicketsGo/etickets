@@ -14,7 +14,8 @@
     "test:mobile": "jest",
     "lint:mobile": "eslint .",
     "typecheck:mobile": "tsc --noEmit -p tsconfig.typecheck.json",
-    "smoke:web": "expo export --platform web --clear && node scripts/web-smoke.mjs"
+    "smoke:web": "expo export --platform web --clear && node scripts/web-smoke.mjs",
+    "eas-build-post-install": "cd ../.. && npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens"
   },
   "expo": {
     "install": {
