@@ -1,12 +1,15 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { env } from './env';
+import { isUnreachable } from './errors';
 import { tokenStore, type AuthTokens } from './secure-store';
 
 /**
  * The single Axios instance for the app. It talks ONLY to the existing NestJS API
  * (no new backend, no business logic here) — it attaches the access token, and on a
  * 401 performs a single-flight refresh via `POST /auth/refresh` (token rotation),
- * then retries. On refresh failure it clears tokens and lets the auth store log out.
+ * then retries. A refresh the SERVER rejects clears the tokens and lets the auth store log
+ * out; a refresh that could not reach the server leaves them in place, because a dropped
+ * connection is not a revoked session.
  */
 export const apiClient = axios.create({
   baseURL: env.apiUrl,
@@ -41,8 +44,12 @@ async function refreshTokens(): Promise<AuthTokens | null> {
     if (!data?.accessToken || !data?.refreshToken) return null;
     await tokenStore.set(data);
     return data;
-  } catch {
-    await tokenStore.clear();
+  } catch (error) {
+    // Same rule as hydrate: only the server may end a session. This cleared the tokens on
+    // any failure, so a connection that dropped in the gap between the 401 and the refresh
+    // signed the user out for good rather than for the moment. The refresh token is still
+    // valid in that case and deserves another attempt when there is signal.
+    if (!isUnreachable(error)) await tokenStore.clear();
     return null;
   }
 }

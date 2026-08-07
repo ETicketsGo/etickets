@@ -9,6 +9,19 @@ import { ApiContractError } from './http';
  * so those are surfaced verbatim. Everything else gets a plain sentence — an axios
  * stack or a raw status code tells the user nothing they can act on.
  */
+/**
+ * Whether the server never answered, as opposed to answering with a refusal.
+ *
+ * The difference decides whether a session is destroyed. "401, your token is dead" and
+ * "aeroplane mode" both surface as a thrown error, and treating them alike is what made
+ * the app delete a perfectly good refresh token every time it launched without signal —
+ * which is precisely when its cached tickets were needed. Only the server may end a
+ * session; the network may not.
+ */
+export function isUnreachable(error: unknown): boolean {
+  return error instanceof AxiosError && !error.response;
+}
+
 export function messageForError(error: unknown): string {
   if (error instanceof ApiContractError) {
     return 'This version of the app could not understand the response. Please update to the latest version.';
