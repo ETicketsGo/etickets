@@ -136,7 +136,13 @@ describe('booking contract', () => {
 
   it('maps booking statuses to the right visual tone', () => {
     expect(bookingTone('CONFIRMED')).toBe('success');
-    expect(bookingTone('PENDING_PAYMENT')).toBe('neutral');
+    // CORRECTED EXPECTATION. This asserted 'neutral', which described the code rather than
+    // the intent: PENDING_PAYMENT is the status the deployed API actually emits for an
+    // unpaid hold, and the lookup only listed PENDING / HELD / AWAITING_PAYMENT, so the one
+    // state that needs the customer to act fell through to the grey reserved for statuses
+    // the app has never heard of. Seen on a live QA booking. The neutral fallback is still
+    // covered on the last line, where it belongs.
+    expect(bookingTone('PENDING_PAYMENT')).toBe('warning');
     expect(bookingTone('CANCELLED')).toBe('error');
     expect(bookingTone('EXPIRED')).toBe('error');
     // An unknown status from a newer API must render, not crash the list.

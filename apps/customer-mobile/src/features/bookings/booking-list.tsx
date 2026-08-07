@@ -8,7 +8,7 @@ import { useTheme } from '@/theme';
 import { useNow } from '@/hooks/use-now';
 import { formatDateTime, formatMoney } from '@/services/locale';
 import { useBookings } from './api';
-import { bookingTone, type Booking } from './schema';
+import { bookingTone, isLiveBooking, type Booking } from './schema';
 
 type Filter = 'upcoming' | 'past';
 
@@ -18,6 +18,9 @@ type Filter = 'upcoming' | 'past';
  * The split is by SESSION time, not by booking status: a confirmed booking for last
  * month and a confirmed booking for tomorrow are the same status but the user is
  * looking for exactly one of them, and it is always the upcoming one.
+ *
+ * With one exception, added after seeing it on a real device: a booking whose hold lapsed
+ * or was cancelled is never "upcoming", whatever its session date says. See isLiveBooking.
  */
 export function BookingList() {
   const router = useRouter();
@@ -33,15 +36,22 @@ export function BookingList() {
     const all = data?.data ?? [];
     return {
       upcoming: all
-        .filter((b) => new Date(b.eventSession.startsAt).getTime() >= now)
+        .filter(
+          (b) => new Date(b.eventSession.startsAt).getTime() >= now && isLiveBooking(b.status),
+        )
         .sort(
           (a, b) =>
             new Date(a.eventSession.startsAt).getTime() -
             new Date(b.eventSession.startsAt).getTime(),
         ),
       // Most recent first — the thing someone wants a receipt for is the last one.
+      // The exact complement of `upcoming`, deliberately: a dead hold for a future date
+      // is excluded from Upcoming, and if Past also filtered on time alone it would fall
+      // out of both tabs and be unreachable.
       past: all
-        .filter((b) => new Date(b.eventSession.startsAt).getTime() < now)
+        .filter(
+          (b) => !(new Date(b.eventSession.startsAt).getTime() >= now && isLiveBooking(b.status)),
+        )
         .sort(
           (a, b) =>
             new Date(b.eventSession.startsAt).getTime() -
