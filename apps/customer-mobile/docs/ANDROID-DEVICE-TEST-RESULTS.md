@@ -4,14 +4,14 @@ The app has now actually run on Android. Everything below was observed on a boot
 Android 14 runtime with the genuine EAS APK installed — nothing here is inferred from
 reading code, and where something could not be observed it says so instead of passing.
 
-|                 |                                                                       |
-| --------------- | --------------------------------------------------------------------- |
-| Device          | Android emulator, `sdk_gphone64_x86_64`, AVD `etg-qa`                 |
-| Android         | 14 (API 34), 1080×2400                                                |
-| APK under test  | build `e739c419-0fdd-45c3-9197-b92803a51e26`, from commit `4b75c2a`   |
-| Package         | `com.eticketsgo.customer.preview` 0.1.0+1                             |
-| API             | `https://api-qa.eticketsgo.com/api` (live QA)                         |
-| Follow-up build | `b2763a6c-da06-4c76-ba08-3468e302f61e`, carrying the five fixes below |
+|                |                                                                             |
+| -------------- | --------------------------------------------------------------------------- |
+| Device         | Android emulator, `sdk_gphone64_x86_64`, AVD `etg-qa`                       |
+| Android        | 14 (API 34), 1080×2400                                                      |
+| APK under test | build `e739c419-0fdd-45c3-9197-b92803a51e26`, from commit `4b75c2a`         |
+| Package        | `com.eticketsgo.customer.preview` 0.1.0+1                                   |
+| API            | `https://api-qa.eticketsgo.com/api` (live QA)                               |
+| Fixed build    | `b2763a6c-da06-4c76-ba08-3468e302f61e` — installed and re-tested, see below |
 
 x86_64 emulator rather than an arm phone. That covers the JS, the layout, the navigator,
 gesture recognisers, SecureStore, AsyncStorage, Brightness and the whole networking path.
@@ -176,8 +176,9 @@ missing has been corrected; the project id is configured, FCM is what is absent.
 
 ## Test results
 
-30 Tier-1 checks. **19 passed, 6 blocked, 5 not deliverable by this harness.** No test is
-marked passed from reading code.
+30 Tier-1 checks. **19 passed first time, 5 failed and now pass on the fixed build, 6 are
+blocked by environment configuration, and 5 are not deliverable by this harness.** No test
+is marked passed from reading code.
 
 ### Passed on the device
 
@@ -203,14 +204,35 @@ marked passed from reading code.
 | —   | Cold launch fully offline              | No blank screen, banner "You're offline — showing saved data", session restored with no network                                                                                                     |
 | —   | Seat map reflects others' holds        | Seats held by another account showed "on hold by another customer"                                                                                                                                  |
 
-### Failed, then fixed — awaiting re-verification on build `b2763a6c`
+### Failed, then fixed, then RE-VERIFIED on the fixed build
 
-| #   | Test                                          | Status                                                                                                                                                                            |
-| --- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 14  | Brightness **restored** on leaving the ticket | Was P1: `dumpsys display` still showed `mBrightnessReason=override` after BACK; the override only released when Android reclaimed the window on HOME. Stale-closure fix + 7 tests |
-| 17  | Offline cached ticket                         | Was P1: the offline launch showed the signed-out state and destroyed the session                                                                                                  |
-| 19  | Payment handoff                               | Was P0: bodyless POST. Fix clears validation; full completion still blocked by the QA config gap above                                                                            |
-| 23  | Account creation                              | Was P0: native crash                                                                                                                                                              |
+Build `b2763a6c` was installed on the same emulator and every defect re-tested by
+repeating the exact steps that had failed.
+
+| #   | Test                                          | Before                                           | After, on device                                                                                                                                         |
+| --- | --------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 23  | Account creation                              | Process died, 2/2                                | **PASS** — registration completed, the modal dismissed and it navigated to Tickets. Pid unchanged, 0 FATAL exceptions                                    |
+| 19  | Payment handoff                               | "The request failed validation."                 | **PASS** — now "Mock payments are disabled in this environment." The request clears validation; what remains is the QA config gap, now reported honestly |
+| 14  | Brightness **restored** on leaving the ticket | Stayed at 1.0 until Android reclaimed the window | **PASS** — opening: `brt=1.0, initBrt=0.39763778`; BACK: `brt=0.39763778, initBrt=1.0`. Symmetric                                                        |
+| —   | Upcoming count                                | "Upcoming (5)" with four EXPIRED                 | **PASS** — "Upcoming (1)" and "Past (4)". 1 + 4 = 5, so nothing was lost                                                                                 |
+| 17  | Session survives an offline cold start        | Signed-out screen, refresh token deleted         | **PASS** — aeroplane mode + force-stop + launch still shows "Hi, Riya"                                                                                   |
+
+### One gap the session fix exposed rather than solved
+
+With the session surviving offline, the Tickets tab reached the next obstacle: it sat on
+**loading skeletons indefinitely**. TanStack Query's default `networkMode` pauses a query
+while the device is offline, so it stays `pending`/`paused` forever — not waiting on a
+slow server, but on a network that will not return by itself.
+
+The lie is fixed: an offline pause now renders a real message rather than a skeleton. But
+**the bookings list itself is still not available offline**, so a cold start with no signal
+cannot reach a cached ticket by going through the list. The per-booking cache does work —
+`use-offline-tickets.ts` reads it on the booking detail screen — the missing piece is
+persisting the list that leads there.
+
+That is a real remaining hole in the offline promise, deliberately left open: closing it
+means writing the list to disk with its own invalidation, which is a larger change than a
+native-QA pass should smuggle in. It is the most valuable next piece of work on this app.
 
 ### Blocked, and honestly so
 
