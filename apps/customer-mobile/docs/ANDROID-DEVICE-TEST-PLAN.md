@@ -29,13 +29,22 @@ POST_NOTIFICATIONS and VIBRATE. **No CAMERA, RECORD_AUDIO, WRITE_SETTINGS,
 SYSTEM_ALERT_WINDOW or external storage** — the `blockedPermissions` held through to the
 real binary.
 
-**Status: STILL NOT EXECUTED ON HARDWARE.** An APK existing is not device validation.
-There is no Android SDK, JDK, adb or emulator in the environment it was built from, so
-nothing below has been run. Install it and work through the tiers.
+**Status: EXECUTED. See [ANDROID-DEVICE-TEST-RESULTS.md](./ANDROID-DEVICE-TEST-RESULTS.md)
+for what happened.**
 
-This plan exists so the first person with a device does not have to invent one, and it is
-ordered by **native risk** — the things that cannot be caught by tests, a web bundle, or
-a browser, and are therefore genuinely unknown.
+This APK has now been run on an Android 14 runtime. 19 of the 30 Tier-1 checks passed,
+five defects were found and fixed (two of them P0 — the booking flow could not complete,
+and creating an account crashed the process), two blockers were traced to environment
+configuration rather than the app, and the remainder are recorded as blocked or as not
+deliverable by an adb-driven harness. Read the results before re-running anything here:
+several entries below are answered, and the results file explains two traps in the tooling
+that cost real time.
+
+Still genuinely unknown and needing a physical handset: QR scannability against a real
+scanner, haptics, and arm-specific native behaviour.
+
+This plan remains ordered by **native risk** — the things that cannot be caught by tests, a
+web bundle, or a browser.
 
 ## What has been validated, and by what
 
