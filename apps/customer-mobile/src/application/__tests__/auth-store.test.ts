@@ -1,5 +1,6 @@
 /** Auth store lifecycle: hydrate, login, logout, and forced expiry. */
 import { useAuthStore } from '@/application/auth-store';
+import { authRepository } from '@/data/auth-repository';
 
 /**
  * The store now clears cached tickets on logout, which pulls in AsyncStorage — a native
@@ -131,8 +132,9 @@ describe('hydrate() with an unreachable server', () => {
     return e;
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const repo = () => require('@/data/auth-repository').authRepository;
+  // The module is mocked above, so this import resolves to the mock and `me` is a
+  // jest.fn — no require() needed to reach it.
+  const repo = () => authRepository as unknown as { me: jest.Mock };
 
   it('keeps the session and restores the cached user when the server cannot be reached', async () => {
     tokenState.tokens = { accessToken: 'a', refreshToken: 'r' };

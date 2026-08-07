@@ -1,6 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { env } from './env';
-import { isUnreachable } from './errors';
+import { isUnreachable } from './network-error';
 import { tokenStore, type AuthTokens } from './secure-store';
 
 /**
