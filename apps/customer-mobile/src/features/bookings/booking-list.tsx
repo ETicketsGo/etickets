@@ -26,7 +26,7 @@ export function BookingList() {
   const router = useRouter();
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>('upcoming');
-  const { data, isPending, isError, refetch, isRefetching } = useBookings();
+  const { data, isPending, isError, isPaused, refetch, isRefetching } = useBookings();
 
   // A minute's granularity is ample for an upcoming/past split, and keeps this list
   // from re-partitioning once a second while the user scrolls it.
@@ -59,6 +59,29 @@ export function BookingList() {
         ),
     };
   }, [data, now]);
+
+  /**
+   * Offline with nothing fetched yet is NOT a loading state, and showing skeletons for it
+   * is a lie that never resolves.
+   *
+   * TanStack Query's default networkMode pauses a query while the device is offline, so it
+   * sits at `status: 'pending'` with `fetchStatus: 'paused'` indefinitely — it is not
+   * waiting on a slow server, it is waiting on a network that is not coming back until the
+   * user does something. Observed on a device in aeroplane mode after a cold start: three
+   * skeleton cards, forever, with no way to tell whether the app was working.
+   *
+   * The check is on `isPaused` rather than a general offline flag, so a genuinely slow
+   * request still gets skeletons.
+   */
+  if (isPending && isPaused) {
+    return (
+      <ErrorState
+        title="You're offline"
+        message="Your bookings will appear once you're back online. Tickets you've already opened stay available on this device."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
 
   if (isPending) {
     return (
