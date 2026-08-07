@@ -108,7 +108,15 @@ export async function followPaymentAction(
     // Strip the API's global prefix: the URL is absolute from the host root
     // ("/api/payments/..."), while apiClient's baseURL already ends in "/api".
     const path = url.replace(/^\/api/, '');
-    await apiClient.post(path);
+    // The `{}` is REQUIRED, not decoration. Without a second argument axios sends no
+    // request body at all, Nest hands `@Body()` `undefined`, and a Zod object schema
+    // rejects undefined even when every field in it has a default — so the mock
+    // gateway's `{ outcome: enum.default('succeeded') }` schema 400s before any payment
+    // logic runs. This broke the entire booking flow on Android: the user reached
+    // "Continue to payment" and got "The request failed validation." with a real hold
+    // already placed on their seats and no way forward. Caught on a physical Android
+    // runtime; no test covered the request shape, only the branch that was taken.
+    await apiClient.post(path, {});
     return { kind: 'completed' };
   }
 
