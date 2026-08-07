@@ -4,13 +4,13 @@ The app has now actually run on Android. Everything below was observed on a boot
 Android 14 runtime with the genuine EAS APK installed — nothing here is inferred from
 reading code, and where something could not be observed it says so instead of passing.
 
-| | |
-| --- | --- |
-| Device | Android emulator, `sdk_gphone64_x86_64`, AVD `etg-qa` |
-| Android | 14 (API 34), 1080×2400 |
-| APK under test | build `e739c419-0fdd-45c3-9197-b92803a51e26`, from commit `4b75c2a` |
-| Package | `com.eticketsgo.customer.preview` 0.1.0+1 |
-| API | `https://api-qa.eticketsgo.com/api` (live QA) |
+|                 |                                                                       |
+| --------------- | --------------------------------------------------------------------- |
+| Device          | Android emulator, `sdk_gphone64_x86_64`, AVD `etg-qa`                 |
+| Android         | 14 (API 34), 1080×2400                                                |
+| APK under test  | build `e739c419-0fdd-45c3-9197-b92803a51e26`, from commit `4b75c2a`   |
+| Package         | `com.eticketsgo.customer.preview` 0.1.0+1                             |
+| API             | `https://api-qa.eticketsgo.com/api` (live QA)                         |
 | Follow-up build | `b2763a6c-da06-4c76-ba08-3468e302f61e`, carrying the five fixes below |
 
 x86_64 emulator rather than an arm phone. That covers the JS, the layout, the navigator,
@@ -103,6 +103,14 @@ Fixed with `collapsable={false}` on the wrapper, so it stays native in both stat
 input never changes parent. A unit test cannot reproduce a native mounting crash, so the
 test added instead fails if the opt-out is ever removed.
 
+**Checked for recurrence, and this was the only site.** The app has exactly two TextInputs
+— the shared `Field` and login's local one. The other two conditional-opacity styles live
+on `Pressable`s, which always need a native view for their touch handlers, so their
+flattening decision cannot change; that matches the evidence, since those controls were
+tapped dozens of times without incident. Login's field is safe for a different reason: its
+wrapper className is constant, and its conditional error text is appended _after_ the
+input, so the input's index never moves.
+
 ### P2 — "Upcoming (5)" against one real ticket. FIXED
 
 The Tickets tab counted lapsed holds as upcoming. On a live QA account it read
@@ -158,7 +166,7 @@ Verified, not assumed: after registering an account, `POST_NOTIFICATIONS` was st
    app invokes either. The permission is never requested and no device is ever registered.
 2. **Android cannot mint a token regardless.** The APK ships no `google-services.json`, so
    logcat reports `Default FirebaseApp failed to initialize because no default options
-   were found` and `getExpoPushTokenAsync` has no FCM registration to ask.
+were found` and `getExpoPushTokenAsync` has no FCM registration to ask.
 
 Left unwired on purpose. Hooking (1) up today would prompt for notification permission and
 then fail at the token step — asking for a permission the build cannot honour is worse
@@ -173,56 +181,56 @@ marked passed from reading code.
 
 ### Passed on the device
 
-| # | Test | Evidence |
-| --- | --- | --- |
-| 1 | Cold launch from killed state | Splash lifts, no blank screen |
-| 2 | Session restored across a process kill | pid 4666 → dead → 8590, returned as "Hi, Riya" |
-| 3 | Public discovery loads | Movies and events from live QA |
-| 4 | Movie → showtime | Skyfront Protocol → 2:42 PM IMAX Screen 1 |
-| 5 | Reserved seat map renders | 80 seats, 3 categories, screen marker |
-| 6 | Double-tap zoom + restore | Selected seat measured **62px → 126px = 2.03×** in the framebuffer |
-| 8 | Seat tap accuracy | A1/A2 exact, ₹400 |
-| 9 | Max-seat enforcement | 10 seats ₹2,000; 11th refused |
-| — | Tap accuracy **while zoomed 2×** | Tap 6px inside a seat's left edge selected that seat; 4px inside its neighbour's right edge toggled the neighbour. Never off-by-one |
-| 10 | Hold countdown | "Tickets held for 4:56" ticking down to 3:00; fees ₹400 + ₹18 = ₹418 from the server, CTA became "Pay ₹418" |
-| 11 | Hold expiry | At zero: "Your hold expired — those tickets have been released", and it navigated back to the seat map rather than stranding the user. Server released all 80 seats and marked the bookings EXPIRED |
-| — | Retry reuses the hold | A second attempt reused the existing booking instead of holding a second set of seats |
-| 12 | QR renders | `TKT-05320161CB2E`, ACTIVE |
-| 13 | Brightness raised on the ticket | logcat `Brightness [1.0] reason=override` |
-| 18 | Logout scrubs the ticket cache | **Zero `etg.*` keys left in AsyncStorage on disk** — checked in the sqlite file, not the UI |
-| 27 | Android hardware back | Never trapped, never exited mid-stack |
-| 28 | Deep links | `etickets://tickets` and auth-aware continuation |
-| — | Cold launch fully offline | No blank screen, banner "You're offline — showing saved data", session restored with no network |
-| — | Seat map reflects others' holds | Seats held by another account showed "on hold by another customer" |
+| #   | Test                                   | Evidence                                                                                                                                                                                            |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Cold launch from killed state          | Splash lifts, no blank screen                                                                                                                                                                       |
+| 2   | Session restored across a process kill | pid 4666 → dead → 8590, returned as "Hi, Riya"                                                                                                                                                      |
+| 3   | Public discovery loads                 | Movies and events from live QA                                                                                                                                                                      |
+| 4   | Movie → showtime                       | Skyfront Protocol → 2:42 PM IMAX Screen 1                                                                                                                                                           |
+| 5   | Reserved seat map renders              | 80 seats, 3 categories, screen marker                                                                                                                                                               |
+| 6   | Double-tap zoom + restore              | Selected seat measured **62px → 126px = 2.03×** in the framebuffer                                                                                                                                  |
+| 8   | Seat tap accuracy                      | A1/A2 exact, ₹400                                                                                                                                                                                   |
+| 9   | Max-seat enforcement                   | 10 seats ₹2,000; 11th refused                                                                                                                                                                       |
+| —   | Tap accuracy **while zoomed 2×**       | Tap 6px inside a seat's left edge selected that seat; 4px inside its neighbour's right edge toggled the neighbour. Never off-by-one                                                                 |
+| 10  | Hold countdown                         | "Tickets held for 4:56" ticking down to 3:00; fees ₹400 + ₹18 = ₹418 from the server, CTA became "Pay ₹418"                                                                                         |
+| 11  | Hold expiry                            | At zero: "Your hold expired — those tickets have been released", and it navigated back to the seat map rather than stranding the user. Server released all 80 seats and marked the bookings EXPIRED |
+| —   | Retry reuses the hold                  | A second attempt reused the existing booking instead of holding a second set of seats                                                                                                               |
+| 12  | QR renders                             | `TKT-05320161CB2E`, ACTIVE                                                                                                                                                                          |
+| 13  | Brightness raised on the ticket        | logcat `Brightness [1.0] reason=override`                                                                                                                                                           |
+| 18  | Logout scrubs the ticket cache         | **Zero `etg.*` keys left in AsyncStorage on disk** — checked in the sqlite file, not the UI                                                                                                         |
+| 27  | Android hardware back                  | Never trapped, never exited mid-stack                                                                                                                                                               |
+| 28  | Deep links                             | `etickets://tickets` and auth-aware continuation                                                                                                                                                    |
+| —   | Cold launch fully offline              | No blank screen, banner "You're offline — showing saved data", session restored with no network                                                                                                     |
+| —   | Seat map reflects others' holds        | Seats held by another account showed "on hold by another customer"                                                                                                                                  |
 
 ### Failed, then fixed — awaiting re-verification on build `b2763a6c`
 
-| # | Test | Status |
-| --- | --- | --- |
-| 14 | Brightness **restored** on leaving the ticket | Was P1: `dumpsys display` still showed `mBrightnessReason=override` after BACK; the override only released when Android reclaimed the window on HOME. Stale-closure fix + 7 tests |
-| 17 | Offline cached ticket | Was P1: the offline launch showed the signed-out state and destroyed the session |
-| 19 | Payment handoff | Was P0: bodyless POST. Fix clears validation; full completion still blocked by the QA config gap above |
-| 23 | Account creation | Was P0: native crash |
+| #   | Test                                          | Status                                                                                                                                                                            |
+| --- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14  | Brightness **restored** on leaving the ticket | Was P1: `dumpsys display` still showed `mBrightnessReason=override` after BACK; the override only released when Android reclaimed the window on HOME. Stale-closure fix + 7 tests |
+| 17  | Offline cached ticket                         | Was P1: the offline launch showed the signed-out state and destroyed the session                                                                                                  |
+| 19  | Payment handoff                               | Was P0: bodyless POST. Fix clears validation; full completion still blocked by the QA config gap above                                                                            |
+| 23  | Account creation                              | Was P0: native crash                                                                                                                                                              |
 
 ### Blocked, and honestly so
 
-| # | Test | Why |
-| --- | --- | --- |
+| #     | Test                                         | Why                                                                                                                      |
+| ----- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | 20–22 | Payment return / kill mid-payment / recovery | Cannot start a payment on QA at all — see the config gap. Not a mobile defect and not something a mobile fix can unblock |
-| 25 | Device registers for push | No FCM in the build; nothing is called either |
-| 26 | Logout deregisters the device | Nothing to deregister, since 25 never registers one |
+| 25    | Device registers for push                    | No FCM in the build; nothing is called either                                                                            |
+| 26    | Logout deregisters the device                | Nothing to deregister, since 25 never registers one                                                                      |
 
 ### Not deliverable by this harness
 
 Reported as untested rather than passed or failed. These are harness limits, **not**
 product findings, and no defect is filed for them.
 
-| # | Test | Why |
-| --- | --- | --- |
-| 7 | Pinch-to-zoom and two-finger pan | See below |
-| — | QR read by a real scanner | Needs a physical scanner and a real panel |
-| 15/16 | Haptics; brightness after task termination | Not observable through adb |
-| 24 | Sign-in refused after account deletion | Deletion needs a disposable account and a payment-complete state that QA cannot reach |
+| #     | Test                                       | Why                                                                                   |
+| ----- | ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| 7     | Pinch-to-zoom and two-finger pan           | See below                                                                             |
+| —     | QR read by a real scanner                  | Needs a physical scanner and a real panel                                             |
+| 15/16 | Haptics; brightness after task termination | Not observable through adb                                                            |
+| 24    | Sign-in refused after account deletion     | Deletion needs a disposable account and a payment-complete state that QA cannot reach |
 
 **On pinch:** genuine two-pointer input could not be delivered. `adb shell input swipe` is
 single-pointer. Writing MT events to `/dev/input` needed root, then `ABS_MT_SLOT` before
