@@ -15,6 +15,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: `ETicketsGo${nameSuffix}`,
   slug: 'eticketsgo-customer',
+  // The Expo account that owns the EAS project. Required alongside extra.eas.projectId
+  // for a DYNAMIC config: EAS cannot infer the account from app.config.ts the way it can
+  // from a static app.json, and refuses to resolve the project without it.
+  owner: 'srinivasdeeptrics',
   scheme: 'etickets',
   version: '0.1.0',
   orientation: 'portrait',
@@ -98,6 +102,20 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   experiments: { typedRoutes: true },
   extra: {
+    /**
+     * EAS project link — @srinivasdeeptrics/eticketsgo-customer.
+     *
+     * Required by getExpoPushTokenAsync: without it, token acquisition throws and
+     * registerDevice() returns null, which is why push could not be completed before
+     * the account existed.
+     *
+     * It belongs HERE, not in a root app.json. Running `eas init` from the monorepo root
+     * writes one there and links the WORKSPACE as the Expo project — the app never reads
+     * it, the root starts looking like an Expo project to other tooling, and the slug it
+     * registers is the root package name (eticketsgo) rather than this app's
+     * (eticketsgo-customer), which EAS then rejects as a mismatch.
+     */
+    eas: { projectId: '6294641c-c830-4932-bfc8-194405d1ab9e' },
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000/api',
     webHost: process.env.EXPO_PUBLIC_WEB_HOST ?? null,
     sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? null,
