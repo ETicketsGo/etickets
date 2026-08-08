@@ -404,4 +404,110 @@ test.describe('organizer cinema scheduling', () => {
     // what must never appear is this cinema's shows.
     await expect(page.getByText(fixture.movieTitle)).toHaveCount(0, { timeout: 20_000 });
   });
+  // ── Screen operational lifecycle ─────────────────────────────────────────────────
+
+  test('21-26: a screen can be taken out of service and put back', async ({ page, request }) => {
+    const date = dateLabel(45);
+    // A future show exists on Screen B, so the confirmation must warn about it.
+    await seedShows(request, token, fixture, fixture.screenBId, date, ['15:00']);
+
+    await page.goto(`${ORGANIZER}/organizer/cinemas/${fixture.cinemaId}`);
+    const row = page.getByRole('row', { name: /Screen B/ });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    // Status is readable text, not a colour.
+    await expect(row.getByText('In service')).toBeVisible();
+
+    await row.getByRole('button', { name: 'Change status for Screen B' }).click();
+    const dlg = page.getByRole('dialog', { name: /Change status for Screen B/ });
+    await dlg.getByLabel('New status').selectOption('MAINTENANCE');
+
+    // The count is whatever earlier specs left on this screen — asserting an exact number
+    // would couple this test to their execution order. What matters is that a count is
+    // surfaced at all, and that the warning says those shows are NOT cancelled.
+    await expect(dlg.getByText(/has \d+ future show/)).toBeVisible();
+    await expect(dlg.getByText(/will not cancel them/)).toBeVisible();
+    await expect(dlg.getByText(/Shows already scheduled are NOT cancelled/)).toBeVisible();
+
+    await dlg.getByLabel(/Reason/).fill('projector replacement');
+    await dlg.getByRole('button', { name: 'Set Maintenance' }).click();
+    await expect(row.getByText('Maintenance')).toBeVisible({ timeout: 20_000 });
+
+    // Survives a reload — the state is the server's, not the page's.
+    await page.reload();
+    await expect(page.getByRole('row', { name: /Screen B/ }).getByText('Maintenance')).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // The existing show is untouched: still there, still on sale.
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await expect(page.getByRole('heading', { name: 'Screen B' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible();
+
+    // Scheduling anything NEW on it is prevented twice over.
+    //
+    // In the UI the screen is offered but not selectable, and says why — better than
+    // hiding it, which would leave an operator wondering where Screen B went.
+    await page.getByRole('button', { name: 'Create shows' }).click();
+    const bulk = bulkDialog(page);
+    const maintenanceOption = bulk.locator(`option[value="${fixture.screenBId}"]`);
+    await expect(maintenanceOption).toBeDisabled();
+    await expect(maintenanceOption).toContainText(/maintenance/i);
+    await bulk.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    // And the SERVER refuses regardless, which is what actually protects the screen — a
+    // disabled dropdown is a courtesy, not a control.
+    const refused = await request.post(`${API}/movies/${fixture.movieId}/shows/bulk`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        screenId: fixture.screenBId,
+        dates: [dateLabel(46)],
+        times: ['10:00'],
+        padMinutes: 0,
+        timezone: CINEMA_TZ,
+        dryRun: false,
+      },
+    });
+    expect(refused.status()).toBe(409);
+    expect(JSON.stringify(await refused.json())).toMatch(/maintenance/i);
+
+    // Restore, and scheduling works again.
+    await page.goto(`${ORGANIZER}/organizer/cinemas/${fixture.cinemaId}`);
+    const rowAgain = page.getByRole('row', { name: /Screen B/ });
+    await rowAgain.getByRole('button', { name: 'Change status for Screen B' }).click();
+    const dlg2 = page.getByRole('dialog', { name: /Change status for Screen B/ });
+    await dlg2.getByLabel('New status').selectOption('ACTIVE');
+    await dlg2.getByRole('button', { name: 'Set In service' }).click();
+    await expect(rowAgain.getByText('In service')).toBeVisible({ timeout: 20_000 });
+
+    await gotoSchedule(page, fixture.cinemaId, dateLabel(46));
+    await page.getByRole('button', { name: 'Create shows' }).click();
+    const bulk2 = bulkDialog(page);
+    await expect(bulk2.locator(`option[value="${fixture.screenBId}"]`)).toBeEnabled();
+    await bulk2.getByLabel('Screen').selectOption(fixture.screenBId);
+    await bulk2.getByLabel('Movie').selectOption(fixture.movieId);
+    await bulk2.getByLabel('Date', { exact: true }).fill(dateLabel(46));
+    await bulk2.getByLabel(/Showtimes/).fill('10:00');
+    await bulk2.getByRole('button', { name: 'Preview' }).click();
+    await expect(bulk2.getByText('1 slot proposed')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('27: another tenant cannot change this screen’s status', async ({ request }) => {
+    // Asserted at the API, because the UI never renders the control for a foreign cinema —
+    // and the server, not the absence of a button, is what has to refuse.
+    const other = await apiLogin(request, 'organizer2@eticketsgo.test');
+    const res = await request.patch(`${API}/screens/${fixture.screenAId}`, {
+      headers: { Authorization: `Bearer ${other.accessToken}` },
+      data: { name: 'Hijacked', screenType: '2D', capacity: 20, status: 'INACTIVE' },
+    });
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+
+    const mine = await (
+      await request.get(`${API}/cinemas/${fixture.cinemaId}/screens`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    const screenA = mine.find((s: { id: string }) => s.id === fixture.screenAId);
+    expect(screenA.status).toBe('ACTIVE');
+    expect(screenA.name).toBe('Screen A');
+  });
 });
