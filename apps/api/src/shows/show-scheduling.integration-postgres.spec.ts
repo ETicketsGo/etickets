@@ -225,7 +225,15 @@ describe('integration-real-postgres: scheduling races cannot double-book a scree
     return rows;
   };
 
-  /** No orphaned inventory: every ShowSeat/TicketType belongs to a session that exists. */
+  /**
+   * No orphaned inventory: every ShowSeat and TicketType belongs to a session that exists.
+   *
+   * Scoped to THIS suite's cinema. An unscoped count looks stricter and is simply wrong —
+   * Jest runs suites in parallel against one database, so it counts other suites'
+   * perfectly legitimate rows as strays and fails intermittently. That produced exactly
+   * the kind of flake that would discredit a real proof, and the fix is to make the
+   * assertion mean what it says rather than to delete it.
+   */
   const expectNoOrphans = async () => {
     const sessionIds = (
       await (a as Client).eventSession.findMany({
@@ -233,12 +241,16 @@ describe('integration-real-postgres: scheduling races cannot double-book a scree
         select: { id: true },
       })
     ).map((s: { id: string }) => s.id);
+    const mine = sessionIds.length ? sessionIds : ['none'];
     const straySeats = await (a as Client).showSeat.count({
-      where: { eventSessionId: { notIn: sessionIds.length ? sessionIds : ['none'] } },
+      where: {
+        eventSessionId: { notIn: mine },
+        seat: { seatMap: { screen: { cinemaId } } },
+      },
     });
     const strayTypes = await (a as Client).ticketType.count({
       where: {
-        eventSessionId: { notIn: sessionIds.length ? sessionIds : ['none'] },
+        eventSessionId: { notIn: mine },
         seatCategory: { seatMap: { screen: { cinemaId } } },
       },
     });
