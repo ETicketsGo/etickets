@@ -22,6 +22,7 @@ const version = (over: Partial<LayoutVersion> = {}): LayoutVersion => ({
   status: 'PUBLISHED',
   effectiveFrom: at('2026-01-01T00:00:00Z'),
   publishedAt: at('2026-01-01T00:00:00Z'),
+  createdAt: at('2026-01-01T00:00:00Z'),
   ...over,
 });
 
@@ -51,7 +52,11 @@ describe('resolveEffectiveLayout', () => {
   });
 
   it('ignores archived versions for NEW shows', () => {
-    const archived = version({ version: 2, status: 'ARCHIVED', effectiveFrom: at('2026-02-01T00:00:00Z') });
+    const archived = version({
+      version: 2,
+      status: 'ARCHIVED',
+      effectiveFrom: at('2026-02-01T00:00:00Z'),
+    });
     const live = version({ version: 3, effectiveFrom: at('2026-01-15T00:00:00Z') });
     expect(resolveEffectiveLayout([archived, live], at('2026-06-01T00:00:00Z'))?.version).toBe(3);
   });
@@ -73,9 +78,9 @@ describe('resolveEffectiveLayout', () => {
   it('takes effect exactly AT the boundary instant, not a moment later', () => {
     const future = version({ version: 2, effectiveFrom: at('2026-07-01T00:00:00Z') });
     const before = version({ version: 1, effectiveFrom: at('2026-01-01T00:00:00Z') });
-    expect(
-      resolveEffectiveLayout([before, future], at('2026-06-30T23:59:59.999Z'))?.version,
-    ).toBe(1);
+    expect(resolveEffectiveLayout([before, future], at('2026-06-30T23:59:59.999Z'))?.version).toBe(
+      1,
+    );
     expect(resolveEffectiveLayout([before, future], at('2026-07-01T00:00:00Z'))?.version).toBe(2);
   });
 
@@ -101,6 +106,24 @@ describe('resolveEffectiveLayout', () => {
     expect(resolveEffectiveLayout([v], at('2026-01-04T00:00:00Z'))).toBeNull();
   });
 
+  it('falls back to createdAt when a published row carries no dates at all', () => {
+    /*
+      Not a hypothetical. `status` defaults to PUBLISHED while both date columns default to
+      null, so any seed, fixture or caller that does not set them writes exactly this row.
+      Without the fallback the screen resolves to "no layout in effect" and becomes
+      unschedulable with an error nobody can act on — which is how three existing integration
+      suites broke when versioning first landed.
+    */
+    const v = version({
+      version: 1,
+      effectiveFrom: null,
+      publishedAt: null,
+      createdAt: at('2026-01-05T00:00:00Z'),
+    });
+    expect(resolveEffectiveLayout([v], at('2026-02-01T00:00:00Z'))?.version).toBe(1);
+    expect(resolveEffectiveLayout([v], at('2026-01-04T00:00:00Z'))).toBeNull();
+  });
+
   it('returns null when every published version is still in the future', () => {
     // Refusing is correct: there is genuinely no layout in effect for that date, and
     // silently reaching for a future one would sell seats from a room that does not exist yet.
@@ -119,10 +142,14 @@ describe('evaluateLayoutOperation', () => {
   });
 
   it('allows editing only a draft', () => {
-    expect(evaluateLayoutOperation(version({ status: 'DRAFT' }), 'EDIT', commitments()).allowed).toBe(
-      true,
+    expect(
+      evaluateLayoutOperation(version({ status: 'DRAFT' }), 'EDIT', commitments()).allowed,
+    ).toBe(true);
+    const refused = evaluateLayoutOperation(
+      version({ status: 'PUBLISHED' }),
+      'EDIT',
+      commitments(),
     );
-    const refused = evaluateLayoutOperation(version({ status: 'PUBLISHED' }), 'EDIT', commitments());
     expect(refused.allowed).toBe(false);
     expect(refused.code).toBe('LAYOUT_NOT_DRAFT');
     // The refusal must say what to do instead, not just say no.
@@ -197,7 +224,12 @@ describe('evaluateLayoutOperation', () => {
 });
 
 describe('compareLayouts', () => {
-  const seat = (row: string, label: string, categoryName = 'Normal', kind = 'SEAT'): ComparableSeat => ({
+  const seat = (
+    row: string,
+    label: string,
+    categoryName = 'Normal',
+    kind = 'SEAT',
+  ): ComparableSeat => ({
     row,
     label,
     categoryName,

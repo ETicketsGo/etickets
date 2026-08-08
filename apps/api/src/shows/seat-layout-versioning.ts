@@ -27,6 +27,16 @@ export interface LayoutVersion {
   /** When this version starts applying to newly scheduled shows. */
   effectiveFrom: Date | null;
   publishedAt: Date | null;
+  /**
+   * Always set by the database, and the last-resort effective instant.
+   *
+   * `status` defaults to PUBLISHED while the two date columns default to null, so a row
+   * written by a seed, a fixture or any caller that does not set them is published with no
+   * date. Without this fallback such a screen resolves to "no layout in effect" and becomes
+   * unschedulable with an error nobody can act on. Falling back to creation time is also
+   * exactly what the migration did for pre-existing maps, so old and new rows behave alike.
+   */
+  createdAt: Date;
 }
 
 export type LayoutOperation = 'EDIT' | 'PUBLISH' | 'ARCHIVE' | 'CLONE' | 'DELETE';
@@ -65,13 +75,13 @@ export function resolveEffectiveLayout(
   startsAt: Date,
 ): LayoutVersion | null {
   const candidates = versions.filter(
-    (v) => v.status === 'PUBLISHED' && effectiveInstant(v) !== null && effectiveInstant(v)! <= startsAt.getTime(),
+    (v) => v.status === 'PUBLISHED' && effectiveInstant(v) <= startsAt.getTime(),
   );
   if (candidates.length === 0) return null;
 
   return candidates.reduce((best, v) => {
-    const a = effectiveInstant(v)!;
-    const b = effectiveInstant(best)!;
+    const a = effectiveInstant(v);
+    const b = effectiveInstant(best);
     if (a !== b) return a > b ? v : best;
     // Two versions effective at the same instant is an operator mistake, not a data error.
     // The higher version number is the later intent, so it wins rather than the comparison
@@ -80,9 +90,8 @@ export function resolveEffectiveLayout(
   });
 }
 
-function effectiveInstant(v: LayoutVersion): number | null {
-  const at = v.effectiveFrom ?? v.publishedAt;
-  return at ? at.getTime() : null;
+function effectiveInstant(v: LayoutVersion): number {
+  return (v.effectiveFrom ?? v.publishedAt ?? v.createdAt).getTime();
 }
 
 /**

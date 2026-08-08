@@ -94,7 +94,11 @@ describe('ShowsService.getPublicSeatLayout', () => {
           name: 'Re-seated stalls',
           sortOrder: 0,
           rows: [
-            { label: 'A', sortOrder: 0, seats: [{ id: 'sX', label: '1', colIndex: 1, seatCategoryId: 'catX' }] },
+            {
+              label: 'A',
+              sortOrder: 0,
+              seats: [{ id: 'sX', label: '1', colIndex: 1, seatCategoryId: 'catX' }],
+            },
           ],
         },
       ],

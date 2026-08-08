@@ -457,6 +457,7 @@ export class ShowsService {
         status: true,
         effectiveFrom: true,
         publishedAt: true,
+        createdAt: true,
       },
     });
 
