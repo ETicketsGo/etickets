@@ -216,3 +216,40 @@ read and its write, and that test fails when the guard is removed.
 
 This is the second time on this track that falsifying a "green" suite found a hole rather than
 confirming one. It is worth keeping as the default habit.
+
+---
+
+## Addendum — theater operations UI (2026-08-09)
+
+Closes the gap the previous addendum reported: the backend existed but no operator could
+reach it. A theater manager can now run a cinema from the organizer app.
+
+| §   | Capability              | State                                                                                                                   |
+| --- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 5   | Seat override UX        | **DONE** — click a seat, see who set what and why, change it with a mandatory reason                                    |
+| 13  | Organizer UI            | **DONE** — Live Operations, live seat map, layout versions, override history                                            |
+| 14  | Playwright              | **DONE** — 23 scenarios + 5 axe scans, green on 3 consecutive runs                                                      |
+| 7   | Maintenance auto-expiry | **NOW SCHEDULED** — rides the worker's existing 60s hold-expiry tick, bounded at 500/tick with `FOR UPDATE SKIP LOCKED` |
+
+### Three test defects found, and why they are worth recording
+
+None of these were product bugs, and all three would have been easy to paper over.
+
+1. **The auth throttle.** Logging in through the form on every test tripped the API's rate
+   limit and surfaced as a flat `UNAUTHORIZED` on unrelated requests — three tests failing for
+   reasons that had nothing to do with what they asserted. The repository already had
+   `seedBrowserAuth` for exactly this, with a comment saying so. The throttle was left alone.
+2. **axe scanned mid-animation.** The override dialog fades in, and a scan during the fade
+   composited `#666D7A` as `#8f949d` and failed on contrast that is fine once the panel is
+   opaque. Fixed by waiting on the panel's computed opacity — a condition, not a sleep.
+3. **`Badge` does not forward `data-testid`** (the same trap `Card` set earlier). A test hook
+   silently did nothing; the assertion now reads the text an operator actually sees.
+
+### Still not built
+
+- No realtime push — polling at the existing 15s cadence; this repo has no WebSocket or SSE
+  infrastructure, verified rather than assumed.
+- No visual draft editor for layout geometry, and no per-seat kind editor in the UI.
+- No bulk row/section selection in the seat map (the API takes up to 500 seats per call).
+- No report export, no chain-level rollup.
+- No manual screen-reader pass or user testing.

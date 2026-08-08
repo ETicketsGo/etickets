@@ -141,8 +141,20 @@ stops earning.
 `expireLapsedOverrides()` sweeps only rows that are still `BLOCKED` with an elapsed deadline,
 so a seat re-blocked for a different reason in the meantime is left alone. Idempotent.
 
-> **Not yet scheduled.** The sweep is implemented and tested but is not wired to a cron or
-> worker job. Until it is, an expiry is advisory and somebody still has to run it.
+**Scheduled on the worker's existing hold-expiry tick, every 60 seconds.** It is the same
+operational question at the same cadence, so it shares that repeatable job rather than adding
+a second queue key and a second retry policy to keep an eye on. Isolated in its own try/catch,
+so a failing sweep can never undo the hold release that runs before it; a failure is simply
+retried next tick.
+
+Bounded at **500 seats per tick**, reporting whether a backlog remains. A chain that withheld a
+tier for a fortnight can have thousands come due in one minute, and an unbounded UPDATE would
+hold locks across all of them and stall checkouts on unrelated shows. The selection uses
+`FOR UPDATE SKIP LOCKED`, so two workers take disjoint slices instead of blocking on each
+other, and the outer UPDATE re-checks `status = 'BLOCKED'` — a seat re-blocked for a new reason
+between select and write keeps its new block.
+
+Cadence is `HOLD_EXPIRY_INTERVAL_MS` (default 60s).
 
 ## Accessibility
 
@@ -194,4 +206,5 @@ let a caller probe which ids exist by watching the applied counts.
 - **No cron for `expireLapsedOverrides`** — see above.
 - **No undo stack.** Release is the inverse of block; there is no multi-step history to walk
   back.
-- **No organizer UI yet.**
+- **No bulk row/section selection in the UI.** The API accepts up to 500 seats per call; the
+  seat map currently overrides one seat at a time.

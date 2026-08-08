@@ -158,4 +158,9 @@ sentence rather than matching on prose.
 - **No per-seat geometry editor.** Drafts are expressed through the same compact
   section/rows/seatsPerRow spec as the generator, plus a `seatKinds` map for wheelchair bays
   and gaps.
-- **No organizer UI yet** — see the assessment in `AUDIT.md`.
+- **No visual draft editor.** `/organizer/cinemas/[id]/screens/[screenId]/layouts` manages the
+  LIFECYCLE — clone, publish (optionally future-dated), compare, archive — and the existing
+  seat-map designer draws rooms. Editing a draft's geometry still goes through the
+  section/rows/seatsPerRow spec on the API, not a drag-and-drop canvas.
+- **No per-seat kind editor in the UI.** Wheelchair bays and gaps are expressible via the
+  API's `seatKinds` map; the UI does not yet expose it.

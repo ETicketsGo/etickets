@@ -170,15 +170,35 @@ const seatButton = (page: Page, label: string) =>
 const overrideDialog = (page: Page, label: string) =>
   page.getByRole('dialog', { name: `Seat ${label}` });
 
+
+/*
+  ONE fixture for the entire file.
+
+  Each describe used to build its own cinema, screen, movie and show — three logins and
+  roughly thirty extra requests. All e2e traffic comes from a single IP, so that pushed the
+  whole suite over the API's shared rate limit and took unrelated specs down with it. Sharing
+  is also a better test: layout versions and live operations coexisting on one screen is
+  exactly the real arrangement.
+*/
+let sharedToken = '';
+let sharedTokens: AuthTokens;
+let sharedFixture: Fixture;
+
+test.beforeAll(async ({ request }) => {
+  sharedTokens = await apiLogin(request, OWNER);
+  sharedToken = sharedTokens.accessToken;
+  sharedFixture = await createFixture(request, sharedToken);
+});
+
 test.describe('organizer theater operations', () => {
   let token = '';
   let tokens: AuthTokens;
   let fixture: Fixture;
 
-  test.beforeAll(async ({ request }) => {
-    tokens = await apiLogin(request, OWNER);
-    token = tokens.accessToken;
-    fixture = await createFixture(request, token);
+  test.beforeAll(() => {
+    tokens = sharedTokens;
+    token = sharedToken;
+    fixture = sharedFixture;
   });
 
   /*
@@ -515,10 +535,10 @@ test.describe('seat layout versions', () => {
   let tokens: AuthTokens;
   let fixture: Fixture;
 
-  test.beforeAll(async ({ request }) => {
-    tokens = await apiLogin(request, OWNER);
-    token = tokens.accessToken;
-    fixture = await createFixture(request, token);
+  test.beforeAll(() => {
+    tokens = sharedTokens;
+    token = sharedToken;
+    fixture = sharedFixture;
   });
 
   test.beforeEach(async ({ context }) => {
@@ -611,8 +631,8 @@ test.describe('theater operations accessibility', () => {
   let fixture: Fixture;
 
   test.beforeAll(async ({ request }) => {
-    tokens = await apiLogin(request, OWNER);
-    fixture = await createFixture(request, tokens.accessToken);
+    tokens = sharedTokens;
+    fixture = sharedFixture;
     // One of each interesting state on screen, so the scan is not run against an empty room.
     await request.post(`${API}/shows/${fixture.sessionId}/seats/block`, {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },

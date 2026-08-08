@@ -125,13 +125,28 @@ All against real PostgreSQL 16.
 
 ---
 
+## The organizer UI
+
+`/organizer/cinemas/[id]/live` — the day's shows, their occupancy, and the seat map behind
+each. Reached from the cinema page alongside Schedule and Override history.
+
+Polls at **15s**, the same cadence as the events command centre. Every number is
+server-computed; occupancy in particular is rendered, never recalculated, so the UI cannot
+drift from the reports finance reads.
+
+The seat map draws only what the API returned. Each seat is a real `<button>` so the plan is
+operable by keyboard — a graphical map that answers only to a mouse is unusable for an
+operator who navigates by keyboard. Aisle gaps render for geometry but are deliberately not
+focusable, because an aisle is not actionable. State is carried in the accessible name and by
+a glyph, never by colour alone.
+
+Covered by 23 Playwright scenarios (green on three consecutive runs, no retries) and 5 axe
+WCAG 2.1 AA scans over the board, the seat map, the override dialog, the layout list and the
+report table.
+
 ## Not built
 
-- **No organizer UI.** The APIs above are complete and tested; the Live Operations screens,
-  the clickable seat map and the override dialog are **not implemented**. See the assessment
-  in `AUDIT.md`.
 - **No realtime push.** Polling only, at the existing 15-second cadence.
-- **No scheduled sweep** for lapsed maintenance blocks — the function exists and is tested but
-  nothing calls it on a timer.
 - **No CSV/PDF export** of the override report.
 - **No cross-cinema (chain-level) rollup.**
+- **No manual screen-reader pass.** The axe scans are a floor, not a certificate.
