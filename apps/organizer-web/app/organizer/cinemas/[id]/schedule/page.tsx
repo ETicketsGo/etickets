@@ -22,16 +22,17 @@ import {
 } from '@eticketsgo/web-kit';
 import {
   availableActions,
+  effectiveShowBadge,
   formatLocalTime,
   groupByScreen,
   occupancyPercent,
-  presentShow,
   shiftDate,
   todayLabel,
 } from './show-status';
 import { BulkScheduler } from './bulk-scheduler';
 import { CopyScheduleDialog } from './copy-schedule';
 import { EditShowDialog } from './edit-show';
+import { WeekView } from './week-view';
 
 /**
  * The cinema scheduling workspace — a theater's daily operating screen.
@@ -53,6 +54,8 @@ export default function CinemaSchedulePage() {
   const [date, setDate] = useState(todayLabel());
   const [screenFilter, setScreenFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Day is the default: it is where an operator works. Week is for planning.
+  const [mode, setMode] = useState<'day' | 'week'>('day');
   const [bulkOpen, setBulkOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
 
@@ -82,6 +85,8 @@ export default function CinemaSchedulePage() {
   const scheduleQ = useQuery({
     queryKey: ['cinema', cinemaId, 'schedule', date, timezone],
     queryFn: () => api.shows.cinemaSchedule(cinemaId, date, timezone),
+    // No point fetching a day nobody is looking at.
+    enabled: mode === 'day',
   });
 
   /** Re-read the authoritative day after any mutation. Never patch local state. */
@@ -130,14 +135,38 @@ export default function CinemaSchedulePage() {
               onChange={(e) => setDate(e.target.value)}
             />
           </div>
+          <div className="flex gap-2" role="group" aria-label="Schedule view">
+            <Button
+              variant={mode === 'day' ? 'primary' : 'secondary'}
+              aria-pressed={mode === 'day'}
+              onClick={() => setMode('day')}
+            >
+              Day
+            </Button>
+            <Button
+              variant={mode === 'week' ? 'primary' : 'secondary'}
+              aria-pressed={mode === 'week'}
+              onClick={() => setMode('week')}
+            >
+              Week
+            </Button>
+          </div>
           <div className="flex gap-2" role="group" aria-label="Change date">
-            <Button variant="secondary" onClick={() => setDate(shiftDate(date, -1))}>
+            <Button
+              variant="secondary"
+              onClick={() => setDate(shiftDate(date, mode === 'week' ? -7 : -1))}
+              aria-label={mode === 'week' ? 'Previous week' : 'Previous day'}
+            >
               ← Prev
             </Button>
             <Button variant="secondary" onClick={() => setDate(todayLabel())}>
               Today
             </Button>
-            <Button variant="secondary" onClick={() => setDate(shiftDate(date, 1))}>
+            <Button
+              variant="secondary"
+              onClick={() => setDate(shiftDate(date, mode === 'week' ? 7 : 1))}
+              aria-label={mode === 'week' ? 'Next week' : 'Next day'}
+            >
               Next →
             </Button>
           </div>
@@ -176,7 +205,21 @@ export default function CinemaSchedulePage() {
         </div>
       </Card>
 
-      {scheduleQ.isPending ? (
+      {mode === 'week' ? (
+        <WeekView
+          cinemaId={cinemaId}
+          anchorDate={date}
+          timezone={timezone}
+          screenFilter={screenFilter}
+          onSelectDay={(d) => {
+            // Selecting a show or a day hands over to the day view, which is where the
+            // pause/move/cancel controls live. Duplicating them here would mean two
+            // implementations of every destructive action.
+            setDate(d);
+            setMode('day');
+          }}
+        />
+      ) : scheduleQ.isPending ? (
         <div className="space-y-3" aria-busy="true" aria-label="Loading schedule">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 w-full" />
@@ -295,7 +338,7 @@ function ShowRowItem({
   onChanged: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
-  const presentation = presentShow(show.status);
+  const presentation = effectiveShowBadge(show, new Date(), timezone);
   const actions = availableActions(show, new Date());
   const occupancy = occupancyPercent(show);
   const [cancelling, setCancelling] = useState(false);
@@ -331,7 +374,14 @@ function ShowRowItem({
         greyscale, colour-blindness and a screen reader. No duplicate sr-only copy — that
         made assistive tech announce the status twice.
       */}
-      <span className="flex items-center gap-2">
+      {/*
+        ONE badge, carrying the booking window as well as the lifecycle. A show can be
+        perfectly SCHEDULED and still unsellable because its window has not opened or has
+        already closed, and an operator reading "On sale" while customers are turned away
+        has been told the wrong thing. `title` carries the explanation for a pointer user;
+        the label alone is enough to act on.
+      */}
+      <span className="flex items-center gap-2" title={presentation.hint}>
         <Badge tone={presentation.tone}>{presentation.label}</Badge>
       </span>
 

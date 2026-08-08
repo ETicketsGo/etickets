@@ -237,3 +237,147 @@ export function explainMutationError(err: unknown): string {
   // The server's message is written for end users, so it is a safe fallback.
   return String(e.message || 'That change could not be saved. Please try again.');
 }
+
+/**
+ * The seven local dates of the week containing `date`, Monday first.
+ *
+ * Walked on the label calendar, never on instants. Deriving week boundaries from the
+ * browser would give a Hyderabad cinema a different week to an operator in Sydney, which
+ * is the same class of defect already fixed twice on this page.
+ */
+export function weekDates(date: string): string[] {
+  const anchor = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(anchor.getTime())) return [];
+  // getUTCDay: 0 = Sunday. A theater week reads Monday-first.
+  const offsetToMonday = (anchor.getUTCDay() + 6) % 7;
+  const monday = new Date(anchor.getTime() - offsetToMonday * 86_400_000);
+  return Array.from({ length: 7 }, (_unused, i) =>
+    new Date(monday.getTime() + i * 86_400_000).toISOString().slice(0, 10),
+  );
+}
+
+/** A show's LOCAL calendar date at the cinema, for bucketing a week. */
+export function localDateOf(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date(iso));
+}
+
+/**
+ * "Mon 21 Aug", for a week column heading.
+ *
+ * Formatted from the label at UTC midday, deliberately: the label already IS the cinema's
+ * local date, so re-interpreting it through a zone would shift it back off by one.
+ */
+export function formatDayHeading(date: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(`${date}T12:00:00Z`));
+}
+
+/**
+ * Booking-window state for one show, as the OPERATOR needs to read it.
+ *
+ * Derived from the same fields and the same boundary rule the server enforces: booking
+ * creation rejects on `salesStartAt > now` and `salesEndAt < now`, so both edges are
+ * INCLUSIVE. An exclusive close reads more naturally and would be wrong — the workspace
+ * would say "closed" on a show the server would still happily sell, which is exactly the
+ * inconsistency already fixed once on the public side.
+ *
+ * Sales state outranks the window: a paused or cancelled show is not "waiting to open".
+ */
+export type BookingWindowState =
+  'ON_SALE' | 'SALES_NOT_OPEN' | 'BOOKING_CLOSED' | 'SALES_PAUSED' | 'CANCELLED' | 'FINISHED';
+
+export function bookingWindowState(
+  show: { status: string; salesStartAt?: string | null; salesEndAt?: string | null },
+  now: Date,
+): BookingWindowState {
+  const status = show.status.toUpperCase();
+  if (status === 'CANCELLED') return 'CANCELLED';
+  if (status === 'PAUSED') return 'SALES_PAUSED';
+  if (status === 'COMPLETED') return 'FINISHED';
+
+  if (show.salesStartAt && now.getTime() < new Date(show.salesStartAt).getTime()) {
+    return 'SALES_NOT_OPEN';
+  }
+  // `>` not `>=`: the close is inclusive, matching booking creation exactly.
+  if (show.salesEndAt && now.getTime() > new Date(show.salesEndAt).getTime()) {
+    return 'BOOKING_CLOSED';
+  }
+  return 'ON_SALE';
+}
+
+/** Operator-facing label and explanation for a booking-window state. */
+export function describeBookingWindow(
+  state: BookingWindowState,
+  show: { salesStartAt?: string | null },
+  timeZone: string,
+): { label: string; tone: ShowTone; hint: string } {
+  switch (state) {
+    case 'ON_SALE':
+      return { label: 'On sale', tone: 'success', hint: 'Customers can book this show.' };
+    case 'SALES_NOT_OPEN':
+      return {
+        label: 'Not open yet',
+        tone: 'neutral',
+        hint: show.salesStartAt
+          ? `Bookings open ${new Intl.DateTimeFormat('en-GB', {
+              timeZone,
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            }).format(new Date(show.salesStartAt))}.`
+          : 'Bookings have not opened for this show yet.',
+      };
+    case 'BOOKING_CLOSED':
+      return {
+        label: 'Booking closed',
+        tone: 'neutral',
+        hint: 'Online booking has closed for this show.',
+      };
+    case 'SALES_PAUSED':
+      return {
+        label: 'Sales paused',
+        tone: 'warning',
+        hint: 'Sales were paused manually. Existing tickets are still valid.',
+      };
+    case 'CANCELLED':
+      return { label: 'Cancelled', tone: 'error', hint: 'This show was cancelled.' };
+    case 'FINISHED':
+      return { label: 'Finished', tone: 'neutral', hint: 'This show has already played.' };
+  }
+}
+
+/**
+ * The single badge a show row displays.
+ *
+ * Lifecycle status ("scheduled") and booking window ("closed") answer different questions,
+ * and rendering both put rows on screen reading "On sale  Booking closed" — two badges
+ * contradicting each other in the same breath. An operator does not need the taxonomy; they
+ * need one answer to "is this selling right now, and if not, why".
+ *
+ * `describeBookingWindow` already folds the lifecycle in, so it is the answer for every
+ * status this build knows. A status it does NOT know falls back to rendering itself rather
+ * than defaulting to "On sale": when a newer API adds a state, an out-of-date screen must
+ * say something honest and unfamiliar, not something confident and wrong.
+ */
+export function effectiveShowBadge(
+  show: { status: string; salesStartAt?: string | null; salesEndAt?: string | null },
+  now: Date,
+  timeZone: string,
+): { label: string; tone: ShowTone; hint: string } {
+  const known = ['SCHEDULED', 'PAUSED', 'CANCELLED', 'COMPLETED'];
+  if (!known.includes(show.status.toUpperCase())) {
+    const fallback = presentShow(show.status);
+    return {
+      label: fallback.label,
+      tone: fallback.tone,
+      hint: 'This show is in a state this screen does not recognise.',
+    };
+  }
+  return describeBookingWindow(bookingWindowState(show, now), show, timeZone);
+}
