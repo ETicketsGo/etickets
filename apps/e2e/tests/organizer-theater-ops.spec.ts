@@ -170,7 +170,6 @@ const seatButton = (page: Page, label: string) =>
 const overrideDialog = (page: Page, label: string) =>
   page.getByRole('dialog', { name: `Seat ${label}` });
 
-
 /*
   ONE fixture for the entire file.
 
