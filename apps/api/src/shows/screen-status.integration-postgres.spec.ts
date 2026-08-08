@@ -362,4 +362,42 @@ describe('integration-real-postgres: screen operational status', () => {
       expect(rows).toEqual([]);
     });
   });
+  // ── Error details carry a machine-readable reason ────────────────────────────────
+
+  describe('rejection details', () => {
+    maybe('a refused edit names WHY in details, not only in prose', async () => {
+      const date = futureDate(130);
+      const seeded = await seedDay(date, ['09:00']);
+      await shows.cancelShow(ORGANIZER, seeded.created[0].sessionId, 'test');
+
+      // Without this a client can only regex the English message, which breaks on any
+      // rewording. The message stays human; the code is the stable handle.
+      await expect(
+        shows.rescheduleShow(ORGANIZER, seeded.created[0].sessionId, {
+          startsAt: new Date(Date.now() + 86_400_000),
+          padMinutes: 0,
+        }),
+      ).rejects.toMatchObject({ details: { reason: 'SHOW_CANCELLED' } });
+    });
+
+    maybe('an overlap names the show it collides with', async () => {
+      const date = futureDate(131);
+      const seeded = await seedDay(date, ['09:00', '14:00']);
+      const [first, second] = seeded.created;
+
+      let caught: unknown;
+      try {
+        // Move the 14:00 show onto the 09:00 one.
+        await shows.rescheduleShow(ORGANIZER, second.sessionId, {
+          startsAt: new Date(first.startsAt),
+          padMinutes: 0,
+        });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toMatchObject({
+        details: { reason: 'OVERLAPS_EXISTING_SHOW', conflictsWith: first.sessionId },
+      });
+    });
+  });
 });

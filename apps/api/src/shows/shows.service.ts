@@ -949,7 +949,17 @@ export class ShowsService {
       now: new Date(),
     });
     if (!verdict.allowed) {
-      throw new AppException(ErrorCodes.CONFLICT, verdict.message, HttpStatus.CONFLICT);
+      /**
+       * The policy's specific reason travels in `details`, not just in the message.
+       *
+       * Without it a client sees only `code: 'CONFLICT'` and an English sentence, so
+       * telling "someone has paid" apart from "someone is mid-checkout" means regex-matching
+       * prose — which breaks the moment the wording changes or is translated. The message
+       * stays the human text; this is the stable handle a UI can branch on.
+       */
+      throw new AppException(ErrorCodes.CONFLICT, verdict.message, HttpStatus.CONFLICT, {
+        reason: verdict.code,
+      });
     }
     return { session, commitments, idempotent: 'idempotent' in verdict };
   }
@@ -1122,6 +1132,7 @@ export class ShowsService {
           ErrorCodes.CONFLICT,
           `Screen is already booked from ${conflict.startsAt.toISOString()} to ${conflict.endsAt.toISOString()}.`,
           HttpStatus.CONFLICT,
+          { reason: 'OVERLAPS_EXISTING_SHOW', conflictsWith: conflict.id },
         );
       }
       return tx.eventSession.update({ where: { id: sessionId }, data: { startsAt, endsAt } });
