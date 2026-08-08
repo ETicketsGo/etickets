@@ -283,4 +283,83 @@ describe('integration-real-postgres: screen operational status', () => {
     expect(audited.filter((a) => a.action === 'SCREEN_STATUS_CHANGED')).toHaveLength(0);
     await (db as Client).screen.update({ where: { id: screenId }, data: { name: 'Screen 1' } });
   });
+  // ── Cinema day schedule (the organizer's landing view) ───────────────────────────
+
+  describe('cinema day schedule', () => {
+    maybe('returns the day grouped by screen with state and movie title', async () => {
+      const date = futureDate(120);
+      await seedDay(date, ['09:00', '14:00']);
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date,
+        timezone: 'Asia/Kolkata',
+      });
+
+      expect(rows).toHaveLength(2);
+      // Every field the day view needs, so it never has to infer state.
+      expect(rows[0]).toMatchObject({
+        screenId,
+        screenName: 'Screen 1',
+        cinemaId,
+        movieId,
+        status: 'SCHEDULED',
+      });
+      expect(rows[0].movieTitle).toContain('Scr Movie');
+      expect(rows[0].seatsTotal).toBe(2);
+      expect(rows[0].seatsSold).toBe(0);
+    });
+
+    maybe('reflects a paused show, so the operator sees what they paused', async () => {
+      const date = futureDate(121);
+      const seeded = await seedDay(date, ['09:00']);
+      await shows.pauseSales(ORGANIZER, seeded.created[0].sessionId, 'staffing');
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows[0].status).toBe('PAUSED');
+    });
+
+    maybe('includes cancelled shows, which an operator still needs to see', async () => {
+      const date = futureDate(122);
+      const seeded = await seedDay(date, ['09:00']);
+      await shows.cancelShow(ORGANIZER, seeded.created[0].sessionId, 'projector fault');
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows[0].status).toBe('CANCELLED');
+    });
+
+    maybe('uses the LOCAL day, so a late show belongs to the day it is advertised', async () => {
+      // 23:45 IST is 18:15Z the same day, but a UTC-midnight window would still be a
+      // different bucket for anything past 18:30. The operator calls it that evening.
+      const date = futureDate(123);
+      await seedDay(date, ['23:45']);
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows).toHaveLength(1);
+      // And it must NOT appear on the following day.
+      const next = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date: new Date(new Date(`${date}T00:00:00Z`).getTime() + 86400000)
+          .toISOString()
+          .slice(0, 10),
+        timezone: 'Asia/Kolkata',
+      });
+      expect(next).toHaveLength(0);
+    });
+
+    maybe('returns an empty day rather than failing', async () => {
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date: futureDate(124),
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows).toEqual([]);
+    });
+  });
 });

@@ -519,6 +519,43 @@ export const api = {
         body: JSON.stringify(body),
       }),
     listForMovie: (movieId: string) => request<ShowRow[]>(`/movies/${movieId}/shows`),
+    /** A cinema's schedule for one LOCAL day — the organizer's landing view. */
+    cinemaSchedule: (cinemaId: string, date: string, timezone: string) =>
+      request<ShowRow[]>(`/cinemas/${cinemaId}/schedule${qs({ date, timezone })}`),
+    /**
+     * Preview or create many shows. `dryRun` defaults to true SERVER-side; the client
+     * always sends it explicitly so a preview can never be mistaken for a publish.
+     */
+    bulkSchedule: (movieId: string, body: BulkScheduleBody) =>
+      request<BulkScheduleResult>(`/movies/${movieId}/shows/bulk`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    copySchedule: (movieId: string, body: CopyScheduleBody) =>
+      request<CopyScheduleResult>(`/movies/${movieId}/shows/copy`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    pause: (sessionId: string, reason?: string) =>
+      request<ShowSalesResult>(`/shows/${sessionId}/pause`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reopen: (sessionId: string, reason?: string) =>
+      request<ShowSalesResult>(`/shows/${sessionId}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    cancel: (sessionId: string, reason: string) =>
+      request<CancelShowResult>(`/shows/${sessionId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reschedule: (sessionId: string, startsAt: string, padMinutes = 20) =>
+      request<{ sessionId: string; startsAt: string; endsAt: string }>(
+        `/shows/${sessionId}/reschedule`,
+        { method: 'POST', body: JSON.stringify({ startsAt, padMinutes }) },
+      ),
     schedule: (movieId: string, body: ScheduleShowBody) =>
       request<{ eventId: string; sessionId: string }>(`/movies/${movieId}/shows`, {
         method: 'POST',
@@ -1493,11 +1530,18 @@ export interface ScreenBody {
   name: string;
   screenType: string;
   capacity: number;
+  status?: string;
+  /** Recorded on the audit entry when the operational state changes. */
+  statusReason?: string;
 }
 
 export interface Screen extends ScreenBody {
   id: string;
   cinemaId: string;
+  /** ACTIVE | MAINTENANCE | INACTIVE. Absent on older API responses. */
+  status?: string;
+  /** Returned when a status change is made, so the UI can warn before committing. */
+  futureShowsRequiringAttention?: number;
 }
 
 export interface CinemaBody {
@@ -1631,10 +1675,82 @@ export interface ShowRow {
   sessionId: string;
   startsAt: string;
   endsAt: string;
+  screenId: string | null;
   screenName: string | null;
+  cinemaId: string | null;
   cinemaName: string | null;
+  movieId: string | null;
+  movieTitle: string | null;
+  /** SCHEDULED | PAUSED | CANCELLED | COMPLETED. Never inferred client-side. */
+  status: string;
   seatsSold: number;
   seatsTotal: number;
+}
+
+export interface BulkScheduleBody {
+  screenId: string;
+  dates?: string[];
+  from?: string;
+  to?: string;
+  times: string[];
+  padMinutes?: number;
+  timezone?: string;
+  pricing?: { seatCategoryId: string; priceMinor: number }[];
+  dryRun: boolean;
+}
+
+/** One proposal the server refused, with enough detail to fix it. */
+export interface ScheduleRejection {
+  startsAt: string;
+  endsAt: string;
+  reason:
+    | 'ENDS_BEFORE_IT_STARTS'
+    | 'IN_THE_PAST'
+    | 'DUPLICATE_IN_REQUEST'
+    | 'OVERLAPS_EXISTING_SHOW'
+    | 'OVERLAPS_PROPOSED_SHOW'
+    | string;
+  detail?: string | number;
+  gapMinutes?: number;
+}
+
+export interface BulkScheduleResult {
+  dryRun: boolean;
+  turnaroundMinutes: number;
+  proposed: number;
+  created: { sessionId: string; startsAt: string; endsAt: string }[];
+  rejected: ScheduleRejection[];
+}
+
+export interface CopyScheduleBody {
+  sourceScreenId: string;
+  sourceDate: string;
+  targetScreenId?: string;
+  targetDate: string;
+  timezone?: string;
+  dryRun: boolean;
+}
+
+export interface CopyScheduleResult extends BulkScheduleResult {
+  sourceDate: string;
+  targetDate: string;
+  targetScreenId: string;
+  /** Local times recovered from the source day, so a preview explains itself. */
+  times: string[];
+}
+
+export interface ShowSalesResult {
+  sessionId: string;
+  status: string;
+  changed: boolean;
+}
+
+export interface CancelShowResult extends ShowSalesResult {
+  /**
+   * Bookings the existing refund workflow must handle. Cancelling does NOT refund:
+   * the UI must not imply customers have their money back.
+   */
+  bookingsRequiringRefund: string[];
 }
 
 export interface PublicMovieCard {

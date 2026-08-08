@@ -116,6 +116,36 @@ function describeRejections(decision: ScheduleDecision) {
   });
 }
 
+/** Shapes one session row for the organizer, shared by both listing endpoints. */
+function toShowRow(
+  s: {
+    id: string;
+    startsAt: Date;
+    endsAt: Date;
+    status: string;
+    screenId: string | null;
+    screen: { id: string; name: string; cinema: { id: string; name: string } } | null;
+    event: { movieId: string | null; movie: { title: string } | null };
+  },
+  sold: Map<string, number>,
+  totals: Map<string, number>,
+): ShowRowView {
+  return {
+    sessionId: s.id,
+    startsAt: s.startsAt,
+    endsAt: s.endsAt,
+    screenId: s.screen?.id ?? null,
+    screenName: s.screen?.name ?? null,
+    cinemaId: s.screen?.cinema.id ?? null,
+    cinemaName: s.screen?.cinema.name ?? null,
+    movieId: s.event.movieId,
+    movieTitle: s.event.movie?.title ?? null,
+    status: s.status,
+    seatsSold: sold.get(s.id) ?? 0,
+    seatsTotal: totals.get(s.id) ?? 0,
+  };
+}
+
 /** The GET/POST seat-map response shape (categories + sections→rows→seats). */
 export interface SeatMapView {
   id: string;
@@ -137,8 +167,18 @@ export interface ShowRowView {
   sessionId: string;
   startsAt: Date;
   endsAt: Date;
+  /**
+   * Added for the organizer schedule. Without these a day view cannot group shows by
+   * screen or render sales state, and would have to infer both — which is how a paused
+   * show ends up looking bookable to the person who paused it.
+   */
+  screenId: string | null;
   screenName: string | null;
+  cinemaId: string | null;
   cinemaName: string | null;
+  movieId: string | null;
+  movieTitle: string | null;
+  status: string;
   seatsSold: number;
   seatsTotal: number;
 }
@@ -1123,7 +1163,10 @@ export class ShowsService {
         event: { movieId, experienceType: ExperienceType.MOVIE },
       },
       orderBy: { startsAt: 'asc' },
-      include: { screen: { include: { cinema: { select: { name: true } } } } },
+      include: {
+        screen: { include: { cinema: { select: { id: true, name: true } } } },
+        event: { select: { movieId: true, movie: { select: { title: true } } } },
+      },
     });
     if (sessions.length === 0) return [];
 
@@ -1139,15 +1182,61 @@ export class ShowsService {
       if (g.status === 'SOLD') sold.set(g.eventSessionId, g._count._all);
     }
 
-    return sessions.map((s) => ({
-      sessionId: s.id,
-      startsAt: s.startsAt,
-      endsAt: s.endsAt,
-      screenName: s.screen?.name ?? null,
-      cinemaName: s.screen?.cinema.name ?? null,
-      seatsSold: sold.get(s.id) ?? 0,
-      seatsTotal: totals.get(s.id) ?? 0,
-    }));
+    return sessions.map((s) => toShowRow(s, sold, totals));
+  }
+
+  /**
+   * One cinema's schedule for one LOCAL day, which is how a theater actually works.
+   *
+   * The existing listing is per-movie, and an operator does not think per-movie: they think
+   * "what is on Screen 2 today". Building that from the per-movie endpoint would mean the
+   * client fetching every film and reassembling the day, which is both slow and a place for
+   * the two views to disagree.
+   *
+   * The day window is resolved through the venue's zone, not a UTC midnight, for the same
+   * reason copying is: a 23:45 show belongs to the day the operator calls it.
+   */
+  async cinemaSchedule(
+    user: RequestUser,
+    cinemaId: string,
+    params: { date: string; timezone: string },
+  ): Promise<ShowRowView[]> {
+    const cinema = await this.prisma.cinema.findUnique({ where: { id: cinemaId } });
+    if (!cinema)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, cinema.organizationId);
+
+    const from = zonedWallClockToInstant(params.date, '00:00', params.timezone);
+    const to = zonedWallClockToInstant(nextDateLabel(params.date), '00:00', params.timezone);
+
+    const sessions = await this.prisma.eventSession.findMany({
+      where: {
+        startsAt: { gte: from, lt: to },
+        screen: { cinemaId },
+        event: { experienceType: ExperienceType.MOVIE },
+      },
+      orderBy: [{ screenId: 'asc' }, { startsAt: 'asc' }],
+      include: {
+        screen: { include: { cinema: { select: { id: true, name: true } } } },
+        event: { select: { movieId: true, movie: { select: { title: true } } } },
+      },
+    });
+    if (sessions.length === 0) return [];
+
+    // One grouped query for the whole day rather than one per show: a busy multiplex day is
+    // dozens of sessions and this is the operator's landing page.
+    const grouped = await this.prisma.showSeat.groupBy({
+      by: ['eventSessionId', 'status'],
+      where: { eventSessionId: { in: sessions.map((s) => s.id) } },
+      _count: { _all: true },
+    });
+    const totals = new Map<string, number>();
+    const sold = new Map<string, number>();
+    for (const g of grouped) {
+      totals.set(g.eventSessionId, (totals.get(g.eventSessionId) ?? 0) + g._count._all);
+      if (g.status === 'SOLD') sold.set(g.eventSessionId, g._count._all);
+    }
+    return sessions.map((s) => toShowRow(s, sold, totals));
   }
 
   // ─── Public seat layout ───

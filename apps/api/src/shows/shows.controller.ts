@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   bulkScheduleShowsSchema,
@@ -132,6 +132,27 @@ export class ShowsController {
     @Body(new ZodValidationPipe(rescheduleShowSchema)) body: RescheduleShowInput,
   ) {
     return this.shows.rescheduleShow(user, sessionId, body);
+  }
+
+  /**
+   * A cinema's schedule for one local day — the organizer's landing view.
+   *
+   * Additive: the per-movie listing below is unchanged. An operator thinks "what is on
+   * Screen 2 today", not "where is this film playing", and assembling that client-side from
+   * every film would be slow and let the two views disagree.
+   */
+  @Get('cinemas/:cinemaId/schedule')
+  @ApiOperation({ summary: 'Shows on a cinema’s screens for one local day.' })
+  cinemaSchedule(
+    @CurrentUser() user: RequestUser,
+    @Param('cinemaId') cinemaId: string,
+    @Query('date') date: string,
+    @Query('timezone') timezone?: string,
+  ) {
+    return this.shows.cinemaSchedule(user, cinemaId, {
+      date,
+      timezone: timezone || 'Asia/Kolkata',
+    });
   }
 
   @Get('movies/:movieId/shows')
