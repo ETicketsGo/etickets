@@ -695,10 +695,16 @@ describe('integration-real-postgres: show seat overrides', () => {
     expect((await statusOf(seatIds[2])).status).toBe('BLOCKED');
   });
 
-  maybe('the sweep is bounded, and says when a backlog remains', async () => {
-    // A chain that blocked a tier for a fortnight can have thousands come due in one minute.
-    // An unbounded UPDATE would hold locks across all of them and stall checkouts on
-    // unrelated shows, so a tick takes a bounded slice and reports that more is waiting.
+  maybe('the sweep is bounded, and drains a backlog over successive ticks', async () => {
+    /*
+      Asserts the BOUND, not a global count.
+
+      `expireLapsedOverrides` sweeps every session in the database, so on a shared test
+      database other suites' lapsed overrides consume part of the same batch. An earlier
+      version of this test expected exactly 2 released per call and passed locally on an
+      empty database while failing in CI — the invariant is that a tick never exceeds its
+      budget and that the backlog drains, not that this suite owns the whole batch.
+    */
     const past = new Date(Date.now() - 60_000);
     await overrides.blockSeats(OPERATOR, sessionId, {
       seatIds: seatIds.slice(0, 4),
@@ -707,17 +713,27 @@ describe('integration-real-postgres: show seat overrides', () => {
       expiresAt: past,
     });
 
+    const mineStillBlocked = async () =>
+      db!.showSeat.count({
+        where: {
+          eventSessionId: sessionId,
+          seatId: { in: seatIds.slice(0, 4) },
+          status: 'BLOCKED',
+        },
+      });
+    expect(await mineStillBlocked()).toBe(4);
+
+    // A tick can never exceed its budget, however much work is waiting.
     const first = await overrides.expireLapsedOverrides(new Date(), 2);
-    expect(first.released).toBe(2);
+    expect(first.released).toBeLessThanOrEqual(2);
     expect(first.more).toBe(true);
 
-    const second = await overrides.expireLapsedOverrides(new Date(), 2);
-    expect(second.released).toBe(2);
-
-    // Drained: the next tick finds nothing and says so.
-    const third = await overrides.expireLapsedOverrides(new Date(), 2);
-    expect(third.released).toBe(0);
-    expect(third.more).toBe(false);
+    // And the backlog drains over successive ticks rather than being abandoned.
+    for (let i = 0; i < 10 && (await mineStillBlocked()) > 0; i += 1) {
+      const tick = await overrides.expireLapsedOverrides(new Date(), 2);
+      expect(tick.released).toBeLessThanOrEqual(2);
+    }
+    expect(await mineStillBlocked()).toBe(0);
   });
 
   maybe('two workers sweeping at once release each seat exactly once', async () => {
