@@ -743,10 +743,7 @@ export class ShowsService {
     */
     // Emptiness first: an expansion can legitimately produce nothing, and dereferencing
     // proposed[0] before checking turns that into a 500 instead of an empty dry run.
-    const seatMap = await this.resolveLayoutForShow(
-      screen.id,
-      proposed[0]?.startsAt ?? new Date(),
-    );
+    const seatMap = await this.resolveLayoutForShow(screen.id, proposed[0]?.startsAt ?? new Date());
     if (proposed.length > 1) {
       const last = await this.resolveLayoutForShow(
         screen.id,
@@ -1539,8 +1536,7 @@ export class ShowsService {
       pre-existing shows, so old rows, seeded rows and scheduled rows all resolve identically
       and no future caller can forget.
     */
-    const seatMap =
-      session.seatMap ?? (await this.layoutFromShowSeats(sessionId));
+    const seatMap = session.seatMap ?? (await this.layoutFromShowSeats(sessionId));
     if (!seatMap) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
