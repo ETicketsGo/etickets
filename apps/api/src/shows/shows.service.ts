@@ -29,6 +29,7 @@ import {
   type ShowWindow,
 } from './show-scheduling';
 import { AuditService } from '../audit/audit.service';
+import { resolveEffectiveLayout, type LayoutStatus } from './seat-layout-versioning';
 import {
   evaluateOperation,
   type ShowCommitments,
@@ -175,6 +176,16 @@ export interface SeatMapView {
   id: string;
   screenId: string;
   name: string | null;
+  /**
+   * Version identity. A layout is no longer "the" seat map for a screen — it is one version
+   * among several, and a caller that cannot tell which one it is holding will eventually
+   * render last month's room.
+   */
+  version: number;
+  status: LayoutStatus;
+  effectiveFrom: Date | null;
+  publishedAt: Date | null;
+  clonedFromId: string | null;
   categories: { id: string; name: string; colorHex: string | null; basePriceMinor: number }[];
   sections: {
     id: string;
@@ -182,7 +193,13 @@ export interface SeatMapView {
     rows: {
       id: string;
       label: string;
-      seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[];
+      seats: {
+        id: string;
+        label: string;
+        colIndex: number;
+        seatCategoryId: string;
+        kind: string;
+      }[];
     }[];
   }[];
 }
@@ -277,18 +294,30 @@ export class ShowsService {
   ): Promise<SeatMapView> {
     await this.loadOwnedScreen(user, screenId);
 
-    const existing = await this.prisma.seatMap.findUnique({ where: { screenId } });
+    // Still one-shot: this creates the screen's FIRST layout. Changing an existing one goes
+    // through clone → edit draft → publish, so a published layout is never mutated under a
+    // show that has already sold seats from it.
+    const existing = await this.prisma.seatMap.findFirst({ where: { screenId } });
     if (existing) {
       throw new AppException(
         ErrorCodes.CONFLICT,
-        'This screen already has a seat map.',
+        'This screen already has a seat layout. Clone the current version to change it — published layouts are frozen because sold tickets point at their seats.',
         HttpStatus.CONFLICT,
       );
     }
 
+    const createdAt = new Date();
     await this.prisma.$transaction(async (tx) => {
       const seatMap = await tx.seatMap.create({
-        data: { screenId, name: input.name },
+        data: {
+          screenId,
+          name: input.name,
+          version: 1,
+          status: 'PUBLISHED',
+          publishedAt: createdAt,
+          // In effect immediately: a screen's first layout has nothing to supersede.
+          effectiveFrom: createdAt,
+        },
       });
       for (const [index, section] of input.sections.entries()) {
         const category = await tx.seatCategory.create({
@@ -331,9 +360,37 @@ export class ShowsService {
     return this.buildSeatMapView(screenId);
   }
 
-  private async buildSeatMapView(screenId: string): Promise<SeatMapView | null> {
-    const seatMap = await this.prisma.seatMap.findUnique({
+  /**
+   * The layout a caller means when they say "this screen's seat map" without naming a
+   * version: the newest published one, falling back to a draft if nothing is published yet.
+   *
+   * Existing callers asked for the screen's single map. Rather than making all of them
+   * version-aware at once, this preserves that question and gives the best current answer.
+   */
+  private async currentSeatMapId(screenId: string): Promise<string | null> {
+    const published = await this.prisma.seatMap.findFirst({
+      where: { screenId, status: 'PUBLISHED' },
+      orderBy: [{ version: 'desc' }],
+      select: { id: true },
+    });
+    if (published) return published.id;
+    const draft = await this.prisma.seatMap.findFirst({
       where: { screenId },
+      orderBy: [{ version: 'desc' }],
+      select: { id: true },
+    });
+    return draft?.id ?? null;
+  }
+
+  private async buildSeatMapView(screenId: string): Promise<SeatMapView | null> {
+    const id = await this.currentSeatMapId(screenId);
+    if (!id) return null;
+    return this.buildSeatMapViewById(id);
+  }
+
+  private async buildSeatMapViewById(seatMapId: string): Promise<SeatMapView | null> {
+    const seatMap = await this.prisma.seatMap.findUnique({
+      where: { id: seatMapId },
       include: {
         categories: { orderBy: { sortOrder: 'asc' } },
         sections: {
@@ -352,6 +409,11 @@ export class ShowsService {
       id: seatMap.id,
       screenId: seatMap.screenId,
       name: seatMap.name,
+      version: seatMap.version,
+      status: seatMap.status as LayoutStatus,
+      effectiveFrom: seatMap.effectiveFrom,
+      publishedAt: seatMap.publishedAt,
+      clonedFromId: seatMap.clonedFromId,
       categories: seatMap.categories.map((c) => ({
         id: c.id,
         name: c.name,
@@ -369,10 +431,61 @@ export class ShowsService {
             label: seat.label,
             colIndex: seat.colIndex,
             seatCategoryId: seat.seatCategoryId,
+            kind: seat.kind,
           })),
         })),
       })),
     };
+  }
+
+  /**
+   * The seat layout a show starting at `startsAt` must be built from, with its seats.
+   *
+   * Scheduling used to read `screen.seatMap` — the one and only map. Now a screen has a
+   * history of versions, so the question has to include WHEN: a show tomorrow may legitimately
+   * use a different room from a show tonight, and that is the entire point of versioning.
+   *
+   * Throws rather than falling back. If no version is in effect for that date, quietly using
+   * the newest one would sell seats from a room that does not exist yet.
+   */
+  private async resolveLayoutForShow(screenId: string, startsAt: Date) {
+    const versions = await this.prisma.seatMap.findMany({
+      where: { screenId },
+      select: {
+        id: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+      },
+    });
+
+    if (versions.length === 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'The screen has no seat map; generate one before scheduling shows.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const chosen = resolveEffectiveLayout(
+      versions.map((v) => ({ ...v, status: v.status as LayoutStatus })),
+      startsAt,
+    );
+    if (!chosen) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'No published seat layout is in effect for that date. Publish a layout effective on or before it, or move the show.',
+        HttpStatus.CONFLICT,
+        { screenId },
+      );
+    }
+
+    const full = await this.prisma.seatMap.findUniqueOrThrow({
+      where: { id: chosen.id },
+      include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
+    });
+    return full;
   }
 
   // ─── Shows (movie sessions) ───
@@ -389,12 +502,7 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: {
-        cinema: true,
-        seatMap: {
-          include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
-        },
-      },
+      include: { cinema: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
@@ -406,14 +514,8 @@ export class ShowsService {
       );
     }
     this.assertScreenUsable(screen);
-    if (!screen.seatMap) {
-      throw new AppException(
-        ErrorCodes.CONFLICT,
-        'The screen has no seat map; generate one before scheduling shows.',
-        HttpStatus.CONFLICT,
-      );
-    }
-    const seatMap = screen.seatMap;
+    // Resolved for THIS show's start time, not "the screen's map" — see resolveLayoutForShow.
+    const seatMap = await this.resolveLayoutForShow(screen.id, input.startsAt);
 
     const priceByCategory = new Map(
       (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
@@ -481,6 +583,9 @@ export class ShowsService {
         data: {
           eventId: event.id,
           screenId: screen.id,
+          // Pin the layout version. Recoverable from the seats, but recording it lets the
+          // schedule say which room tomorrow's show uses before a seat has been touched.
+          seatMapId: seatMap.id,
           startsAt: input.startsAt,
           endsAt: input.endsAt,
           status: SessionStatus.SCHEDULED,
@@ -595,10 +700,7 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: {
-        cinema: true,
-        seatMap: { include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true } },
-      },
+      include: { cinema: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
@@ -617,13 +719,6 @@ export class ShowsService {
       );
     }
     this.assertScreenUsable(screen);
-    if (!screen.seatMap) {
-      throw new AppException(
-        ErrorCodes.CONFLICT,
-        'The screen has no seat map; generate one before scheduling shows.',
-        HttpStatus.CONFLICT,
-      );
-    }
 
     const dates = input.dates?.length
       ? [...input.dates].sort()
@@ -635,6 +730,31 @@ export class ShowsService {
       runtimeMinutes: movie.runtimeMinutes + input.padMinutes,
       toInstant: (date, time) => zonedWallClockToInstant(date, time, input.timezone),
     });
+
+    /*
+      One layout for the whole batch, and it must genuinely be one.
+
+      A range can straddle the date a new layout version takes effect, in which case the
+      earlier shows belong in the old room and the later ones in the new. Quietly using one
+      map for both would build half the batch against a room that is not there on the night.
+      Rather than guess, the batch is refused with the boundary named, and the operator
+      schedules the two sides separately — which is what they actually meant.
+    */
+    const seatMap = await this.resolveLayoutForShow(screen.id, proposed[0].startsAt);
+    if (proposed.length > 0) {
+      const last = await this.resolveLayoutForShow(
+        screen.id,
+        proposed[proposed.length - 1].startsAt,
+      );
+      if (last.id !== seatMap.id) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `This range crosses a seat layout change (v${seatMap.version} → v${last.version}). Schedule the dates before and after the change separately, so each show is built against the room it will actually use.`,
+          HttpStatus.CONFLICT,
+          { fromVersion: seatMap.version, toVersion: last.version },
+        );
+      }
+    }
 
     const existing = await this.prisma.eventSession.findMany({
       where: { screenId: screen.id, status: { not: SessionStatus.CANCELLED } },
@@ -659,7 +779,6 @@ export class ShowsService {
       };
     }
 
-    const seatMap = screen.seatMap;
     const priceByCategory = new Map(
       (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
     );
@@ -692,6 +811,7 @@ export class ShowsService {
           data: {
             eventId: event.id,
             screenId: screen.id,
+            seatMapId: seatMap.id,
             startsAt: show.startsAt,
             endsAt: show.endsAt,
             status: SessionStatus.SCHEDULED,
@@ -1331,24 +1451,32 @@ export class ShowsService {
   // ─── Public seat layout ───
 
   async getPublicSeatLayout(sessionId: string) {
+    /*
+      Reads the layout version PINNED TO THE SHOW, not the screen's current one.
+
+      This is the single most important consequence of versioning. Reading
+      `session.screen.seatMap` — which is what this did — would render tomorrow's re-seated
+      room to a customer looking at a show that was sold from the old layout: seats that no
+      longer exist, prices from a different tier, and a seat map that disagrees with the
+      ticket in their hand.
+
+      `session.seatMap` is set at scheduling time and backfilled for every pre-existing show,
+      so the answer is always the room the show is actually being played in.
+    */
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
       include: {
         ticketTypes: true,
         showSeats: true,
-        screen: {
+        seatMap: {
           include: {
-            seatMap: {
+            categories: { orderBy: { sortOrder: 'asc' } },
+            sections: {
+              orderBy: { sortOrder: 'asc' },
               include: {
-                categories: { orderBy: { sortOrder: 'asc' } },
-                sections: {
+                rows: {
                   orderBy: { sortOrder: 'asc' },
-                  include: {
-                    rows: {
-                      orderBy: { sortOrder: 'asc' },
-                      include: { seats: { orderBy: { colIndex: 'asc' } } },
-                    },
-                  },
+                  include: { seats: { orderBy: { colIndex: 'asc' } } },
                 },
               },
             },
@@ -1356,14 +1484,14 @@ export class ShowsService {
         },
       },
     });
-    if (!session || !session.screen?.seatMap) {
+    if (!session || !session.seatMap) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
         'Show not found or has no seat layout.',
         HttpStatus.NOT_FOUND,
       );
     }
-    const seatMap = session.screen.seatMap;
+    const seatMap = session.seatMap;
 
     const ticketTypeByCategory = new Map(
       session.ticketTypes
