@@ -154,3 +154,148 @@ Honest list, so nobody assumes otherwise:
   status column, so a single screen cannot be taken out of service.
 - **Booking-window fields** (`bookingOpensAt` / `bookingClosesAt`) on a session.
 - **Organizer UI.** This is API-only so far.
+
+---
+
+# Sales control, cancellation and mutation
+
+## States
+
+`SessionStatus` is `SCHEDULED | PAUSED | CANCELLED | COMPLETED`. `PAUSED` was added for
+sales control; the other three already existed.
+
+A status rather than a `salesPaused` boolean, deliberately. Booking creation already
+refuses anything that is not `SCHEDULED`, and the public showtime query already filters on
+status, so the new state is enforced by code that already exists. A parallel flag would
+have to be taught to both call sites, and the failure mode of forgetting one is selling
+tickets to a show the operator believes is closed.
+
+```
+SCHEDULED ⇄ PAUSED        pause / reopen
+SCHEDULED → CANCELLED     cancel
+PAUSED    → CANCELLED     cancel
+COMPLETED                 terminal
+CANCELLED                 terminal
+```
+
+## Operation policy
+
+Decided in `show-operations.ts` and asserted cell-by-cell in its spec, so this table cannot
+drift from the code.
+
+| Operation   | Nothing booked | Active hold | Pending payment | Confirmed | Started | Cancelled  | Completed |
+| ----------- | -------------- | ----------- | --------------- | --------- | ------- | ---------- | --------- |
+| Pause       | yes            | yes         | yes             | yes       | no      | no         | no        |
+| Reopen      | yes            | yes         | yes             | yes       | no      | no         | no        |
+| Cancel      | yes            | yes         | yes             | yes       | **yes** | idempotent | no        |
+| Edit time   | yes            | no          | no              | **no**    | no      | no         | no        |
+| Edit screen | yes            | **no**      | no              | no        | no      | no         | no        |
+
+Repeating an operation already in effect returns `changed: false` rather than an error. An
+operator double-clicking, or retrying after a timed-out response, should land on the
+intended state rather than an error inviting them to try something else.
+
+Three of these are worth the reasoning:
+
+**Cancel is allowed on a show that has already started.** A projector failing ten minutes
+in is precisely when an operator needs to cancel and refund. Refusing would leave them with
+no way to record it.
+
+**Edit time refuses once anyone has paid.** Someone bought a seat to be somewhere at a
+stated time. Moving it silently is the worst thing this API could do. The operator must
+cancel, so the customer is actually told.
+
+**Edit screen refuses on any commitment at all, including an unpaid hold.** Seats belong to
+a screen's layout. A held seat on the old screen would silently cease to exist.
+
+## Field mutability
+
+`FIELD_MUTABILITY` in `show-operations.ts`, exported so the classification is checkable
+rather than a comment.
+
+| Class | Meaning                      | Fields                                     |
+| ----- | ---------------------------- | ------------------------------------------ |
+| A     | Safe before any booking      | `startsAt`, `endsAt`                       |
+| B     | Safe with bookings present   | `salesStartAt`, `salesEndAt`, `priceMinor` |
+| C     | Never after publication      | `seatMapId`                                |
+| D     | Requires cancel-and-recreate | `screenId`, `movieId`                      |
+
+Class B is safe because none of it can invalidate an existing purchase: bookings snapshot
+their own totals, and sales windows gate only new ones.
+
+## Pause semantics
+
+Existing holds are **left alone** and allowed to run out their TTL.
+
+This is a deliberate choice between two defensible options. A customer on the payment page
+when a manager pauses the show has already picked seats and may already have been charged
+by the provider. Invalidating the hold mid-transaction produces the worst outcome
+available: money taken for seats the system has since released. Letting it finish costs at
+most a handful of extra tickets on a show that is closing anyway, and those seats were
+already spoken for.
+
+Confirmed bookings are untouched. Sold seats are never released.
+
+## Cancel semantics
+
+The session is **never deleted** and no financial record is touched.
+
+Seats that are `AVAILABLE` or `HELD` become `UNAVAILABLE`. `SOLD` stays `SOLD`: the booking
+behind it is real until a refund says otherwise, and releasing it would let the same seat
+sell twice if the show were reinstated as a new session.
+
+**No refunds are issued here.** Refunds go through a provider, and calling one inside this
+transaction would hold database locks open across a network call to Razorpay — the pattern
+the platform's own guidance forbids, because a slow provider then blocks the row locks seat
+inventory depends on.
+
+Affected bookings are instead **returned** in `bookingsRequiringRefund` so the caller can
+route them into the existing refund workflow. An explicit handoff is better than a second
+refund path invented here.
+
+## Booking windows
+
+Enforced server-side on `TicketType.salesStartAt` / `salesEndAt` at booking creation, which
+is the same path the seat hold runs on. The client is never authoritative.
+
+Boundaries are **inclusive at both ends**, because that is what the server does
+(`salesStartAt > now` and `salesEndAt < now` reject). `publicShowState` matches exactly.
+An exclusive close reads more naturally and would be wrong: for one instant the listing
+would say "closed" on a show the server would still happily sell.
+
+## Public API
+
+Paused shows stay in the listing with `availability: 'SALES_PAUSED'` rather than vanishing
+— a show that simply disappeared reads as a bug to a customer who was about to book it.
+This extends the existing `AVAILABLE | LIMITED | SOLD_OUT` field rather than adding a
+parallel flag, so a client keeps reading one value to decide whether to show a Book button.
+
+`CANCELLED` and `COMPLETED` sessions remain excluded: they are not upcoming screenings a
+customer can plan around.
+
+Paused outranks seat counts, so a closed show never advertises seats it will not sell.
+
+## Audit
+
+Every operation records through the existing `AuditService` with one shape:
+`actorUserId`, `organizationId`, `entityType: 'EventSession'`, `entityId`, and metadata
+carrying `screenId`, `from`, `to` and the reason.
+
+Actions: `SHOW_BULK_SCHEDULED`, `SHOW_SALES_PAUSED`, `SHOW_SALES_REOPENED`,
+`SHOW_CANCELLED`, `SHOW_RESCHEDULED`.
+
+A reason is **required** for cancellation and optional for pause/reopen. Cancelling strands
+people who have paid, and an audit trail that cannot say why is not much of a trail;
+pausing is routine and usually self-evident.
+
+## Still not built
+
+- **Copy schedule to another date or screen.** The bulk endpoint covers most of it —
+  copying to another screen is a bulk call with a different `screenId`, and its
+  compatibility checks (tenant, cinema active, seat map present) already run. What is
+  missing is the convenience of reading a source day's times automatically.
+- **Screen-level operational status.** `Cinema.status` is checked; `Screen` has no status
+  column, so one screen cannot be taken out of service for maintenance.
+- **Concurrency proofs against real PostgreSQL** for the scheduling paths. The row-lock
+  design is in place and migrations were validated against a real database, but the racing
+  proofs are not written.

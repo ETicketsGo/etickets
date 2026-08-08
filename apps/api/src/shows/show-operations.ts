@@ -219,8 +219,18 @@ export function publicShowState(params: {
   // BOOKING_CLOSED is the honest description.
   if (state === 'COMPLETED') return 'BOOKING_CLOSED';
 
+  /**
+   * Boundaries match the SERVER exactly, and that is the point rather than a detail.
+   *
+   * Booking creation rejects with `salesStartAt > now` and `salesEndAt < now`, so the
+   * open instant is inclusive and so is the close. If this view used a different rule —
+   * an exclusive close reads more naturally — there would be one instant where the
+   * listing says "closed" on a show the server would happily sell, and another where it
+   * offers a Book button the server refuses. The client is not authoritative, so it must
+   * agree with what the server will actually do.
+   */
   if (salesOpenAt && now.getTime() < salesOpenAt.getTime()) return 'BOOKING_CLOSED';
-  if (salesCloseAt && now.getTime() >= salesCloseAt.getTime()) return 'BOOKING_CLOSED';
+  if (salesCloseAt && now.getTime() > salesCloseAt.getTime()) return 'BOOKING_CLOSED';
 
   if (seatsRemaining === null) return 'AVAILABLE';
   if (seatsRemaining <= 0) return 'SOLD_OUT';

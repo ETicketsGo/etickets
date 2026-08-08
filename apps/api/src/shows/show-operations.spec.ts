@@ -264,9 +264,15 @@ describe('publicShowState', () => {
       expect(at('2026-08-10T13:59:59Z')).toBe('AVAILABLE');
     });
 
-    it('is closed exactly at the closing instant', () => {
-      // Closing is exclusive: "closes at 14:00" means you cannot buy at 14:00.
-      expect(at('2026-08-10T14:00:00Z')).toBe('BOOKING_CLOSED');
+    it('is still open exactly at the closing instant, matching the server', () => {
+      // Booking creation rejects on `salesEndAt < now`, so the close is INCLUSIVE. An
+      // exclusive close here would read more naturally and would be wrong: for one
+      // instant the listing would say closed on a show the server would still sell.
+      expect(at('2026-08-10T14:00:00Z')).toBe('AVAILABLE');
+    });
+
+    it('is closed one millisecond after the closing instant', () => {
+      expect(at('2026-08-10T14:00:00.001Z')).toBe('BOOKING_CLOSED');
     });
 
     it('is closed after closing', () => {
