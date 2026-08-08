@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import {
   BookingItemKind,
@@ -34,11 +35,33 @@ interface CommerceResolution {
   ticketHolds: InventoryLine[];
 }
 
-const HOLD_MINUTES = 10;
+/**
+ * Fallback hold window when configuration is absent, in minutes.
+ *
+ * The real value comes from `BOOKING_HOLD_MINUTES` (validated in configuration.ts, bounded
+ * 1–60). This constant exists only so a unit test that constructs the service without a
+ * ConfigService still gets the historical behaviour rather than a hold of `NaN` minutes,
+ * which would produce an Invalid Date and a hold that never expires.
+ */
+const DEFAULT_HOLD_MINUTES = 10;
 
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger('Bookings');
+
+  /**
+   * How long an unpaid booking holds inventory.
+   *
+   * Read once at construction rather than per booking: it is process configuration, and
+   * re-reading it mid-flight would let two bookings created a second apart disagree about
+   * the window. Restarting to change it is the correct cost.
+   */
+  private get holdMinutes(): number {
+    const configured = this.config?.get<number>('BOOKING_HOLD_MINUTES');
+    return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_HOLD_MINUTES;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -54,6 +77,9 @@ export class BookingsService {
     // Shadow-mode booking orchestration observer (ADR-042). No-op unless
     // BOOKING_ORCHESTRATOR_ENABLED + mode=shadow; never affects booking correctness.
     private readonly bookingShadow: BookingShadowObserver,
+    // Optional so the many unit tests that construct this service directly are not all
+    // forced to supply a ConfigService for one number; holdMinutes falls back safely.
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   /**
@@ -197,7 +223,7 @@ export class BookingsService {
     const feeMode = session.event.feeMode as FeeMode;
     const fees = await this.pricing.quote(subtotal, feeMode, discountMinor);
 
-    const holdExpiresAt = new Date(now.getTime() + HOLD_MINUTES * 60 * 1000);
+    const holdExpiresAt = new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
     // The inventory model is chosen by the experience type — general admission
     // for events today, seat-based for movies in a later PR — without this
