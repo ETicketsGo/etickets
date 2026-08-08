@@ -299,3 +299,128 @@ pausing is routine and usually self-evident.
 - **Concurrency proofs against real PostgreSQL** for the scheduling paths. The row-lock
   design is in place and migrations were validated against a real database, but the racing
   proofs are not written.
+
+---
+
+# Concurrency guarantees
+
+Proved against real PostgreSQL 16, not argued. `show-scheduling.integration-postgres.spec.ts`.
+
+## Lock target and ordering
+
+Every write path takes `SELECT id FROM "Screen" WHERE id = $1 FOR UPDATE` as the **first
+statement** in its transaction:
+
+| Path                | Locks                                      |
+| ------------------- | ------------------------------------------ |
+| `scheduleShow`      | the target screen                          |
+| `bulkScheduleShows` | the target screen                          |
+| `rescheduleShow`    | the session's current screen               |
+| `copySchedule`      | the target screen, via `bulkScheduleShows` |
+
+**Exactly one row, always.** That is what removes the deadlock question rather than
+answering it: a transaction holding one lock and waiting for none cannot participate in a
+cycle. There is no lock ordering to get wrong because there is never a second lock.
+
+The screen is the right granularity because conflicts are always between sessions on the
+same screen. Nothing broader needs to serialise, and scheduling is far too infrequent for
+the contention to matter.
+
+`copySchedule` reads the source screen without locking it. That race is benign: the worst
+outcome is copying a snapshot that was edited a moment later, which affects what gets
+copied, never the integrity of the target screen.
+
+## Transaction scope and re-check location
+
+The overlap check happens **inside** the transaction, **after** the lock. Checking before
+the lock is the check-then-act bug this exists to prevent.
+
+Bulk computes its decision set from a read taken before the lock, then **re-checks each
+slot inside the lock** before inserting it, because another manager may have committed in
+between.
+
+## Isolation assumption
+
+**READ COMMITTED** — PostgreSQL's default and what this codebase runs. It is load-bearing.
+
+After the loser acquires the lock, its next `SELECT` must see the winner's committed
+insert. Under REPEATABLE READ the loser's snapshot would predate that commit, its overlap
+check would find nothing, and both would insert.
+
+This is asserted, not trusted. One test uses a deliberate barrier: T1 takes the lock and
+holds the transaction open, T2 is shown to _block_, T1 commits, and T2's subsequent read is
+required to see T1's row.
+
+## Bulk atomicity
+
+One transaction. Either the whole accepted set lands or none of it does.
+
+A half-created schedule is the worst outcome available: the operator cannot tell what
+exists without re-reading, and re-submitting would duplicate whatever succeeded.
+
+## Race outcomes
+
+Which request wins is arbitrary and never asserted. That **exactly one** wins, and that the
+final database contains no overlap, always is.
+
+| Race                     | Outcome                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| create vs create         | one session; loser gets a conflict, leaves no session, ticket types or seats |
+| create vs reschedule     | one wins, both lock orderings tested                                         |
+| reschedule vs reschedule | one moves, both shows survive, no overlap                                    |
+| bulk vs single           | no overlap; every bulk proposal accounted for as created or rejected         |
+| bulk vs bulk             | four identical proposals from two callers produce four shows, not eight      |
+
+## Validated by falsification
+
+A passing concurrency test proves nothing unless it fails without the mechanism. With the
+`FOR UPDATE` removed, **5 of the 8 proofs fail**, including both headline races.
+
+Two (`reschedule vs reschedule`, `bulk vs single`) still passed unlocked, so they are
+weaker race detectors and are not claimed otherwise.
+
+Five consecutive runs with the lock in place: 8/8 every time.
+
+---
+
+# Copy semantics
+
+`POST /movies/:movieId/shows/copy`. One endpoint for both date and screen copies, because
+they are the same operation — the target screen defaults to the source.
+
+A convenience over the bulk engine, not a second scheduler: it reads the source day,
+recovers each show's local start time, and hands those to `bulkScheduleShows`. Overlap,
+turnaround, proposal-vs-proposal checking, the screen lock, transactional creation and the
+dry-run default all come from one place.
+
+- **DST-safe by construction.** Times are recovered as wall-clock and re-resolved against
+  the target date in the venue's zone. Adding 24 hours to the UTC instant shifts every show
+  by an hour across a clock change. Both directions are proved end to end: New York
+  2027-03-13→14 is 23 real hours, 2027-11-06→07 is 25, and a 10:00 show stays 10:00.
+- **Cancelled source shows are not copied.** Copying one forward would resurrect something
+  the operator deliberately stopped.
+- **Padding is not re-applied.** The source sessions already include whatever was used when
+  they were created; re-adding it would stretch each show further every time a day is copied.
+- **Bookings are never moved.** These are new future sessions.
+- **Repeating a copy creates nothing.** Not an idempotency key — the overlap rules simply
+  refuse to duplicate a day that is already there, which is what a double-click needs.
+
+---
+
+# Screen operational status
+
+`ScreenStatus` is `ACTIVE | MAINTENANCE | INACTIVE`, set through `PATCH /screens/:id`.
+Both non-active states stop new scheduling; the difference is intent.
+
+**Taking a screen out of service does not touch shows already on it.** Cancelling a show
+somebody has paid for is an explicit, audited, per-show act, never a side effect of a status
+change. The operator is instead given a count of future shows needing a decision.
+
+Enforced on new commitments only: `scheduleShow`, `bulkScheduleShows`, copy, and reopening
+sales — reopening because selling seats in a room that cannot open is worse than leaving the
+show paused.
+
+**Nothing is exposed publicly.** Customer-facing state stays based on the show's actual
+bookability (`AVAILABLE`, `SALES_PAUSED`, `SOLD_OUT`, `CANCELLED`). "Screen maintenance" is
+an internal operational fact, and a show on a maintenance screen that has not been paused is
+still, correctly, bookable — the operator has not yet decided what to do about it.
