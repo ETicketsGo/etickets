@@ -39,6 +39,14 @@ import {
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
 /**
+ * Widest schedule window one request may ask for, in local days.
+ *
+ * A week view needs seven. The ceiling keeps the single grouped seat-count query cheap and
+ * stops the endpoint becoming a way to pull an entire season in one call.
+ */
+export const MAX_SCHEDULE_RANGE_DAYS = 14;
+
+/**
  * Turn a wall-clock date and time in a named zone into an absolute instant.
  *
  * A theater publishes "10:30", not an offset, and that must stay 10:30 locally whatever the
@@ -126,10 +134,18 @@ function toShowRow(
     screenId: string | null;
     screen: { id: string; name: string; cinema: { id: string; name: string } } | null;
     event: { movieId: string | null; movie: { title: string } | null };
+    ticketTypes?: { salesStartAt: Date | null; salesEndAt: Date | null }[];
   },
   sold: Map<string, number>,
   totals: Map<string, number>,
 ): ShowRowView {
+  const types = s.ticketTypes ?? [];
+  // A single unbounded type makes that edge unbounded: if anything is on sale with no
+  // start, the show is already open.
+  const anyOpenEnded = types.some((t) => t.salesStartAt === null);
+  const anyNeverCloses = types.some((t) => t.salesEndAt === null);
+  const starts = types.map((t) => t.salesStartAt).filter((d): d is Date => d !== null);
+  const ends = types.map((t) => t.salesEndAt).filter((d): d is Date => d !== null);
   return {
     sessionId: s.id,
     startsAt: s.startsAt,
@@ -141,6 +157,14 @@ function toShowRow(
     movieId: s.event.movieId,
     movieTitle: s.event.movie?.title ?? null,
     status: s.status,
+    salesStartAt:
+      anyOpenEnded || starts.length === 0
+        ? null
+        : new Date(Math.min(...starts.map((d) => d.getTime()))),
+    salesEndAt:
+      anyNeverCloses || ends.length === 0
+        ? null
+        : new Date(Math.max(...ends.map((d) => d.getTime()))),
     seatsSold: sold.get(s.id) ?? 0,
     seatsTotal: totals.get(s.id) ?? 0,
   };
@@ -179,6 +203,18 @@ export interface ShowRowView {
   movieId: string | null;
   movieTitle: string | null;
   status: string;
+  /**
+   * The show's effective booking window, derived from its ticket types.
+   *
+   * The window is stored per TicketType, but an operator asks about the SHOW: "can anyone
+   * buy a seat for this yet". So the earliest open and the latest close across its types
+   * are reported, and a type with no bound makes that side unbounded — if anything is
+   * already on sale, the show is on sale.
+   *
+   * Null on both sides means always open, which is what an unconfigured show does today.
+   */
+  salesStartAt: Date | null;
+  salesEndAt: Date | null;
   seatsSold: number;
   seatsTotal: number;
 }
@@ -1177,6 +1213,7 @@ export class ShowsService {
       include: {
         screen: { include: { cinema: { select: { id: true, name: true } } } },
         event: { select: { movieId: true, movie: { select: { title: true } } } },
+        ticketTypes: { select: { salesStartAt: true, salesEndAt: true } },
       },
     });
     if (sessions.length === 0) return [];
@@ -1210,15 +1247,52 @@ export class ShowsService {
   async cinemaSchedule(
     user: RequestUser,
     cinemaId: string,
-    params: { date: string; timezone: string },
+    params: { date?: string; from?: string; to?: string; timezone: string },
   ): Promise<ShowRowView[]> {
     const cinema = await this.prisma.cinema.findUnique({ where: { id: cinemaId } });
     if (!cinema)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, cinema.organizationId);
 
-    const from = zonedWallClockToInstant(params.date, '00:00', params.timezone);
-    const to = zonedWallClockToInstant(nextDateLabel(params.date), '00:00', params.timezone);
+    /**
+     * A single local day, or an inclusive local-date RANGE for week planning.
+     *
+     * `date` remains supported and unchanged, so the day view is untouched. A range is
+     * expressed as first and last LOCAL calendar dates inclusive — "Mon to Sun" means what
+     * an operator means by it — and resolved to instants through the cinema's zone, so a
+     * 23:45 show belongs to the day it is advertised on rather than to UTC midnight.
+     *
+     * Bounded at 14 days. A week view needs seven; the ceiling exists so an unbounded query
+     * cannot be used to pull a cinema's entire programme in one unauthenticated-feeling
+     * request, and so the single grouped seat-count query below stays cheap.
+     */
+    const startLabel = params.from ?? params.date;
+    const endLabel = params.to ?? params.date;
+    if (!startLabel || !endLabel) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Provide either a date or a from/to range.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (endLabel < startLabel) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The range ends before it starts.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const spanDays = datesInRange(startLabel, endLabel).length;
+    if (spanDays === 0 || spanDays > MAX_SCHEDULE_RANGE_DAYS) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `A schedule range must cover between 1 and ${MAX_SCHEDULE_RANGE_DAYS} days.`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const from = zonedWallClockToInstant(startLabel, '00:00', params.timezone);
+    const to = zonedWallClockToInstant(nextDateLabel(endLabel), '00:00', params.timezone);
 
     const sessions = await this.prisma.eventSession.findMany({
       where: {
@@ -1226,10 +1300,14 @@ export class ShowsService {
         screen: { cinemaId },
         event: { experienceType: ExperienceType.MOVIE },
       },
-      orderBy: [{ screenId: 'asc' }, { startsAt: 'asc' }],
+      // Chronological first: a week view groups by local day, and a day view reads as a
+      // timeline. Grouping by screen is the client's job and is cheap; re-sorting a
+      // screen-ordered list into time order is not.
+      orderBy: [{ startsAt: 'asc' }, { screenId: 'asc' }],
       include: {
         screen: { include: { cinema: { select: { id: true, name: true } } } },
         event: { select: { movieId: true, movie: { select: { title: true } } } },
+        ticketTypes: { select: { salesStartAt: true, salesEndAt: true } },
       },
     });
     if (sessions.length === 0) return [];

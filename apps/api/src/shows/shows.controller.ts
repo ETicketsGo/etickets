@@ -142,15 +142,21 @@ export class ShowsController {
    * every film would be slow and let the two views disagree.
    */
   @Get('cinemas/:cinemaId/schedule')
-  @ApiOperation({ summary: 'Shows on a cinema’s screens for one local day.' })
+  @ApiOperation({
+    summary: 'Shows on a cinema’s screens for one local day, or an inclusive local range.',
+  })
   cinemaSchedule(
     @CurrentUser() user: RequestUser,
     @Param('cinemaId') cinemaId: string,
-    @Query('date') date: string,
+    @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('timezone') timezone?: string,
   ) {
     return this.shows.cinemaSchedule(user, cinemaId, {
       date,
+      from,
+      to,
       timezone: timezone || 'Asia/Kolkata',
     });
   }

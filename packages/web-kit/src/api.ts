@@ -523,6 +523,14 @@ export const api = {
     cinemaSchedule: (cinemaId: string, date: string, timezone: string) =>
       request<ShowRow[]>(`/cinemas/${cinemaId}/schedule${qs({ date, timezone })}`),
     /**
+     * An inclusive LOCAL date range, for week planning. Bounded server-side at 14 days.
+     *
+     * One request rather than seven: a week is a single question, and seven round trips
+     * would render the view in seven jerks.
+     */
+    cinemaScheduleRange: (cinemaId: string, from: string, to: string, timezone: string) =>
+      request<ShowRow[]>(`/cinemas/${cinemaId}/schedule${qs({ from, to, timezone })}`),
+    /**
      * Preview or create many shows. `dryRun` defaults to true SERVER-side; the client
      * always sends it explicitly so a preview can never be mistaken for a publish.
      */
@@ -1683,6 +1691,9 @@ export interface ShowRow {
   movieTitle: string | null;
   /** SCHEDULED | PAUSED | CANCELLED | COMPLETED. Never inferred client-side. */
   status: string;
+  /** Effective booking window across the show's ticket types. Null = unbounded. */
+  salesStartAt: string | null;
+  salesEndAt: string | null;
   seatsSold: number;
   seatsTotal: number;
 }

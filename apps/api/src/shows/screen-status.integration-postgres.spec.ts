@@ -400,4 +400,151 @@ describe('integration-real-postgres: screen operational status', () => {
       });
     });
   });
+  // ── Week planning: bounded local-date ranges ─────────────────────────────────────
+
+  describe('schedule range', () => {
+    maybe('returns a seven-day window in chronological order', async () => {
+      const d0 = futureDate(140);
+      const d3 = futureDate(143);
+      const d6 = futureDate(146);
+      await seedDay(d0, ['10:00']);
+      await seedDay(d3, ['14:00']);
+      await seedDay(d6, ['20:00']);
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: d0,
+        to: d6,
+        timezone: 'Asia/Kolkata',
+      });
+
+      expect(rows).toHaveLength(3);
+      const times = rows.map((r) => r.startsAt.getTime());
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+    });
+
+    maybe('is inclusive of both end dates', async () => {
+      const first = futureDate(150);
+      const last = futureDate(152);
+      await seedDay(first, ['09:00']);
+      await seedDay(last, ['09:00']);
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: first,
+        to: last,
+        timezone: 'Asia/Kolkata',
+      });
+      // Both edges present: "Mon to Sun" means what an operator means by it.
+      expect(rows).toHaveLength(2);
+    });
+
+    maybe('excludes the day either side of the window', async () => {
+      const before = futureDate(159);
+      const inside = futureDate(160);
+      const after = futureDate(161);
+      await seedDay(before, ['09:00']);
+      await seedDay(inside, ['09:00']);
+      await seedDay(after, ['09:00']);
+
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: inside,
+        to: inside,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows).toHaveLength(1);
+    });
+
+    maybe('keeps a late show on its LOCAL day, not the UTC one', async () => {
+      // 23:45 IST is 18:15Z the same day. A UTC-midnight window would still bucket it
+      // correctly here, but a naive +24h range walk would not — this pins the local
+      // reckoning the operator relies on.
+      const date = futureDate(170);
+      await seedDay(date, ['23:45']);
+
+      const inRange = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: date,
+        to: date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(inRange).toHaveLength(1);
+
+      const nextDay = new Date(new Date(`${date}T00:00:00Z`).getTime() + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const after = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: nextDay,
+        to: nextDay,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(after).toHaveLength(0);
+    });
+
+    maybe('the same instant lands on different local days in different zones', async () => {
+      // The clearest proof that the zone decides the bucket, not the server's clock.
+      const date = futureDate(175);
+      await seedDay(date, ['00:30']); // 00:30 IST == 19:00Z the PREVIOUS day
+
+      const inIndia = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: date,
+        to: date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(inIndia).toHaveLength(1);
+
+      const prev = new Date(new Date(`${date}T00:00:00Z`).getTime() - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const inUtc = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: prev,
+        to: prev,
+        timezone: 'UTC',
+      });
+      expect(inUtc).toHaveLength(1);
+    });
+
+    maybe('still supports a single date, unchanged', async () => {
+      const date = futureDate(180);
+      await seedDay(date, ['11:00']);
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        date,
+        timezone: 'Asia/Kolkata',
+      });
+      expect(rows).toHaveLength(1);
+    });
+
+    maybe('rejects a backwards range', async () => {
+      await expect(
+        shows.cinemaSchedule(ORGANIZER, cinemaId, {
+          from: futureDate(190),
+          to: futureDate(185),
+          timezone: 'Asia/Kolkata',
+        }),
+      ).rejects.toThrow(/ends before it starts/i);
+    });
+
+    maybe('rejects a range wider than the cap', async () => {
+      // Otherwise this becomes a way to pull an entire season in one request.
+      await expect(
+        shows.cinemaSchedule(ORGANIZER, cinemaId, {
+          from: futureDate(200),
+          to: futureDate(230),
+          timezone: 'Asia/Kolkata',
+        }),
+      ).rejects.toThrow(/between 1 and 14 days/i);
+    });
+
+    maybe('accepts exactly the cap', async () => {
+      const rows = await shows.cinemaSchedule(ORGANIZER, cinemaId, {
+        from: futureDate(240),
+        to: futureDate(253),
+        timezone: 'Asia/Kolkata',
+      });
+      expect(Array.isArray(rows)).toBe(true);
+    });
+
+    maybe('rejects a request with neither a date nor a range', async () => {
+      await expect(
+        shows.cinemaSchedule(ORGANIZER, cinemaId, { timezone: 'Asia/Kolkata' }),
+      ).rejects.toThrow(/date or a from\/to range/i);
+    });
+  });
 });
