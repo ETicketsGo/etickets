@@ -146,6 +146,41 @@ async function seedShows(
   return res.json();
 }
 
+/**
+ * Put a CONFIRMED booking on a session, so the paid-booking guard can be exercised.
+ *
+ * Goes through the real booking endpoint and the platform's own mock settlement, which is
+ * the only path that produces a genuinely confirmed booking without real money. It never
+ * writes booking rows directly: a fixture that faked CONFIRMED would prove nothing about
+ * the guard, because the guard counts the same rows the booking flow writes.
+ */
+async function confirmBookingOnSession(
+  request: APIRequestContext,
+  token: string,
+  sessionId: string,
+) {
+  const auth = { Authorization: `Bearer ${token}` };
+  const seats = await (await request.get(`${API}/public/shows/${sessionId}/seats`)).json();
+  const category = seats.categories[0];
+  const seat = seats.sections[0].rows[0].seats.find(
+    (x: { status: string }) => x.status === 'AVAILABLE',
+  );
+  const booking = await (
+    await request.post(`${API}/bookings`, {
+      headers: { ...auth, 'idempotency-key': `e2e-${sessionId}` },
+      data: {
+        eventSessionId: sessionId,
+        items: [{ ticketTypeId: category.ticketTypeId, quantity: 1, seatIds: [seat.id] }],
+        buyerName: 'E2E Buyer',
+        buyerEmail: 'e2e-buyer@eticketsgo.test',
+      },
+    })
+  ).json();
+  await request.post(`${API}/bookings/${booking.id}/pay`, { headers: auth, data: {} });
+  await request.post(`${API}/payments/${booking.id}/mock-pay`, { headers: auth, data: {} });
+  return booking.id;
+}
+
 /** The Create-shows dialog, scoped so its fields cannot collide with the page filters. */
 const bulkDialog = (page: Page) => page.getByRole('dialog', { name: 'Create shows' });
 /** The Copy-schedule dialog, scoped for the same reason. */
@@ -509,5 +544,178 @@ test.describe('organizer cinema scheduling', () => {
     const screenA = mine.find((s: { id: string }) => s.id === fixture.screenAId);
     expect(screenA.status).toBe('ACTIVE');
     expect(screenA.name).toBe('Screen A');
+  });
+  // ── Moving a show ────────────────────────────────────────────────────────────────
+  //
+  // The backend edit endpoint accepts a start time only. Its policy module also describes an
+  // EDIT_SCREEN rule, but no endpoint exposes it, so there is no screen picker to test.
+  // See the note at the top of edit-show.tsx.
+
+  const openEdit = async (page: Page) => {
+    await page
+      .getByRole('button', { name: /^Move / })
+      .first()
+      .click();
+    const dlg = page.getByRole('dialog', { name: 'Move show' });
+    await expect(dlg).toBeVisible({ timeout: 20_000 });
+    return dlg;
+  };
+
+  test('28-30: moves an unbooked show, and the new time survives a refresh', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(55);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['09:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    const dlg = await openEdit(page);
+    // Current values are shown, so the operator sees what they are changing from.
+    await expect(dlg.getByText(`${date} at 09:00`)).toBeVisible();
+    await expect(dlg.getByLabel('New date')).toHaveValue(date);
+    await expect(dlg.getByLabel('New start time')).toHaveValue('09:00');
+
+    await dlg.getByLabel('New start time').fill('16:30');
+    await dlg.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(page.getByText('16:30', { exact: false })).toBeVisible({ timeout: 20_000 });
+
+    await page.reload();
+    await page.getByLabel('Date', { exact: true }).fill(date);
+    await expect(page.getByText('16:30', { exact: false })).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('31: saving with no change is not offered', async ({ page, request }) => {
+    const date = dateLabel(56);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['11:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    const dlg = await openEdit(page);
+    // A no-op must not spend a request, nor look like it did something.
+    await expect(dlg.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    await dlg.getByLabel('New start time').fill('12:00');
+    await expect(dlg.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  test('32-33: moving into a clash is refused with a readable reason', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(57);
+    // 09:00 and 14:00 exist; moving the second onto the first must fail.
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['09:00', '14:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    await page
+      .getByRole('button', { name: /^Move / })
+      .nth(1)
+      .click();
+    const dlg = page.getByRole('dialog', { name: 'Move show' });
+    await dlg.getByLabel('New start time').fill('09:30');
+    await dlg.getByRole('button', { name: 'Save changes' }).click();
+
+    // A human sentence, not a code, and it explains the turnaround as well.
+    await expect(dlg.getByRole('alert')).toContainText(/conflicts with another show/i, {
+      timeout: 20_000,
+    });
+    await expect(dlg.getByRole('alert')).toContainText(/cleaned/i);
+
+    // Nothing moved optimistically: the show is still at its original time.
+    await dlg.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByText('14:00', { exact: false })).toBeVisible();
+  });
+
+  test('34: a paid booking blocks the move and says to cancel instead', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(58);
+    const seeded = await seedShows(request, token, fixture, fixture.screenAId, date, ['13:00']);
+    const sessionId = seeded.created[0].sessionId;
+
+    // Built through the real booking + mock settlement path, not by writing rows.
+    await confirmBookingOnSession(request, token, sessionId);
+
+    await gotoSchedule(page, fixture.cinemaId, date);
+    const dlg = await openEdit(page);
+    await dlg.getByLabel('New start time').fill('17:00');
+    await dlg.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(dlg.getByRole('alert')).toContainText(/already has paid bookings/i, {
+      timeout: 20_000,
+    });
+    await expect(dlg.getByRole('alert')).toContainText(/Cancel the show instead/i);
+  });
+
+  test('35: a cancelled show offers no Move action, and the server refuses anyway', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(59);
+    const seeded = await seedShows(request, token, fixture, fixture.screenAId, date, ['10:00']);
+    await request.post(`${API}/shows/${seeded.created[0].sessionId}/cancel`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { reason: 'test cancellation' },
+    });
+
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await expect(page.getByText('Cancelled', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByRole('button', { name: /^Move / })).toHaveCount(0);
+
+    // Hiding the button is a courtesy; the server is the control.
+    const refused = await request.post(`${API}/shows/${seeded.created[0].sessionId}/reschedule`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { startsAt: new Date(Date.now() + 9 * 86_400_000).toISOString(), padMinutes: 0 },
+    });
+    expect(refused.status()).toBe(409);
+    expect((await refused.json()).details?.reason).toBe('SHOW_CANCELLED');
+  });
+
+  test('36: another tenant cannot move this show', async ({ request }) => {
+    const date = dateLabel(60);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['08:00']);
+    const listed = await (
+      await request.get(
+        `${API}/cinemas/${fixture.cinemaId}/schedule?date=${date}&timezone=${CINEMA_TZ}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+    ).json();
+    const sessionId = listed[0].sessionId;
+
+    const other = await apiLogin(request, 'organizer2@eticketsgo.test');
+    const refused = await request.post(`${API}/shows/${sessionId}/reschedule`, {
+      headers: { Authorization: `Bearer ${other.accessToken}` },
+      data: { startsAt: new Date(Date.now() + 11 * 86_400_000).toISOString(), padMinutes: 0 },
+    });
+    expect(refused.status()).toBeGreaterThanOrEqual(400);
+
+    const after = await (
+      await request.get(
+        `${API}/cinemas/${fixture.cinemaId}/schedule?date=${date}&timezone=${CINEMA_TZ}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+    ).json();
+    expect(after).toHaveLength(1);
+    expect(after[0].startsAt).toBe(listed[0].startsAt);
+  });
+
+  test('37: closing the dialog returns focus to the control that opened it', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(61);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['19:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    const trigger = page.getByRole('button', { name: /^Move / }).first();
+    await trigger.click();
+    const dlg = page.getByRole('dialog', { name: 'Move show' });
+    await expect(dlg).toBeVisible();
+    await dlg.getByRole('button', { name: 'Cancel' }).click();
+
+    // A keyboard user must not be dumped at the top of the document.
+    await expect(trigger).toBeFocused();
   });
 });
