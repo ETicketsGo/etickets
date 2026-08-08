@@ -144,16 +144,23 @@ would duplicate whatever succeeded.
 
 ## What is not built yet
 
-Honest list, so nobody assumes otherwise:
+> **Superseded.** Everything this section originally listed as missing — pause/reopen,
+> cancel, edit-time, copy-to-date, copy-to-screen, screen operational status and the
+> organizer UI — has since shipped and is documented in the sections below and in
+> [THEATER-OPERATIONS.md](./THEATER-OPERATIONS.md). The list is kept, corrected, rather than
+> deleted, because a stale "not built" list is worse than none: it makes somebody rebuild
+> something that exists.
 
-- **Pause / reopen sales, cancel show, edit an eligible future show.** `SessionStatus`
-  supports the states; the operations and their booking-aware guards are not written.
-- **Copy a schedule** to another day or another compatible screen. The bulk endpoint makes
-  this mostly a matter of reading one day and re-submitting it, but there is no endpoint.
-- **Screen-level active/maintenance status.** `Cinema.status` is checked; `Screen` has no
-  status column, so a single screen cannot be taken out of service.
-- **Booking-window fields** (`bookingOpensAt` / `bookingClosesAt`) on a session.
-- **Organizer UI.** This is API-only so far.
+Still genuinely missing:
+
+- **Screen-change editing.** `show-operations.ts` defines an `EDIT_SCREEN` policy rule, but
+  **no endpoint implements it** and no UI offers it. `POST /shows/:sessionId/reschedule`
+  accepts a start time and padding only. The supported workflow is cancel-and-reschedule.
+- **Per-session booking-window fields.** The window is derived from the session's ticket
+  types (`salesStartAt` / `salesEndAt`); there is no `bookingOpensAt` / `bookingClosesAt` on
+  `EventSession` itself, so a show cannot have a window independent of what it sells.
+- **Per-cinema timezone.** `Cinema` has no timezone column. The organizer workspace defaults
+  to `Asia/Kolkata` in a single place, which is what changes when the column exists.
 
 ---
 
@@ -290,15 +297,15 @@ pausing is routine and usually self-evident.
 
 ## Still not built
 
-- **Copy schedule to another date or screen.** The bulk endpoint covers most of it —
-  copying to another screen is a bulk call with a different `screenId`, and its
-  compatibility checks (tenant, cinema active, seat map present) already run. What is
-  missing is the convenience of reading a source day's times automatically.
-- **Screen-level operational status.** `Cinema.status` is checked; `Screen` has no status
-  column, so one screen cannot be taken out of service for maintenance.
-- **Concurrency proofs against real PostgreSQL** for the scheduling paths. The row-lock
-  design is in place and migrations were validated against a real database, but the racing
-  proofs are not written.
+> **Superseded.** Copy-to-date/screen, screen operational status and the real-PostgreSQL
+> race proofs have all shipped — see [Copy semantics](#copy-semantics),
+> [Screen operational status](#screen-operational-status) and
+> [Concurrency guarantees](#concurrency-guarantees) below.
+
+The one operation in the policy module with no endpoint behind it is **`EDIT_SCREEN`**.
+`FIELD_MUTABILITY` and `evaluateOperation` both know the rule, which makes it easy to
+mistake for a shipped feature; it is not. Nothing calls it, and the organizer UI offers no
+screen picker precisely because the endpoint it would post to does not exist.
 
 ---
 
@@ -424,3 +431,79 @@ show paused.
 bookability (`AVAILABLE`, `SALES_PAUSED`, `SOLD_OUT`, `CANCELLED`). "Screen maintenance" is
 an internal operational fact, and a show on a maintenance screen that has not been paused is
 still, correctly, bookable — the operator has not yet decided what to do about it.
+
+---
+
+# Organizer workspace
+
+The UI over all of the above lives at `/organizer/cinemas/[id]/schedule`. Its operator-facing
+runbook is [THEATER-OPERATIONS.md](./THEATER-OPERATIONS.md); this section records the
+engineering decisions.
+
+## The frontend is a view, never an authority
+
+The workspace does not compute overlap, turnaround, bookability or eligibility. It submits,
+reads what the server decided, and translates rejection codes into sentences. A stale page
+therefore cannot perform an action the server would refuse — the server refuses it.
+
+This is why `authorizeOperation` returns the policy code in `details.reason` rather than only
+a message: the client needs something stable to map to an explanation, and matching on
+human-readable prose would break the first time someone improves the wording.
+
+## One badge, not two
+
+`effectiveShowBadge` in `show-status.ts` is the single source for what a row displays. It
+folds the booking window into the lifecycle status, because rendering them as two badges put
+rows on screen reading **"On sale Booking closed"** — two chips contradicting each other.
+
+An unrecognised status falls through to rendering itself rather than defaulting to "On sale".
+When a newer API adds a state, an out-of-date screen must say something honest and unfamiliar
+rather than something confident and wrong.
+
+Both the day and week views call this one function. That is the guard against a second set of
+presentation rules quietly appearing in one of them.
+
+## The inclusive close, again
+
+`bookingWindowState` uses `now > salesEndAt` — strictly greater — so a show is still on sale
+**at** its closing instant, matching `bookings.service.ts`'s `salesEndAt < now` rejection.
+
+This exact inconsistency was introduced once already, on the public side, and fixed. The unit
+tests pin both edges at millisecond resolution, which is the reason they exist: no browser
+test can place the clock precisely on the boundary.
+
+## Bounded range queries
+
+`GET /cinemas/:id/schedule` accepts either `date` or `from`/`to`, capped at
+`MAX_SCHEDULE_RANGE_DAYS = 14`. The week view issues **one** range request rather than seven
+day requests — a week is a single question, and seven round trips render the view in seven
+jerks. The cap exists so the same endpoint cannot be used to pull an entire season.
+
+Both ends are inclusive, because "Monday to Sunday" means what an operator means by it.
+
+## Timezone handling
+
+Every local date is computed with `Intl.DateTimeFormat().formatToParts` against the cinema's
+IANA zone — never a fixed offset, never the browser's zone. Week bucketing uses `localDateOf`,
+row times use `formatLocalTime`, and both take the zone as an argument.
+
+The browser-zone defect has now appeared **twice** on this page (once in the day query, once
+in row rendering). It is guarded by a Playwright spec pinned to `Europe/London` while
+operating an `Asia/Kolkata` cinema, and that guard was itself falsified — reverting the
+bucketing to UTC files a 00:30 show under the wrong day and fails the test.
+
+## Testing
+
+- `show-status.test.ts` (vitest, 24 tests) — pure rules. This is organizer-web's first unit
+  test harness; the app had none.
+- `organizer-scheduling.spec.ts` (Playwright, 33 tests) — the workspace end to end.
+- `organizer-scheduling-a11y.spec.ts` (Playwright + axe-core, 5 tests) — WCAG 2.1 AA on both
+  views, with rows and badges rendered. The first run found real, serious contrast failures in
+  shared design tokens.
+
+## Known gaps
+
+- **Screen-change editing is not implemented** and is not a UI oversight — there is no
+  endpoint. See "Still not built" above.
+- `Cinema` has no timezone column; the workspace defaults to `Asia/Kolkata` in one place.
+- No manual screen-reader pass. The axe scan is a floor, not a certificate.

@@ -66,11 +66,11 @@ must extend `PublicMoviesController`, never add a competing controller.
 | 27    | City discovery                               | **Partial** — `Cinema.city` is indexed and shows expose a city filter                                                                                                                                                                                                                                                                                           | No dedicated public cities endpoint                                                                                        |
 | 28    | Customer web                                 | **Partial** — `/movies` (108 lines), `/movies/[slug]` (185), `/shows/[sessionId]` seat selection                                                                                                                                                                                                                                                                | Verify depth against §28's required screens                                                                                |
 | 29    | Customer mobile                              | **Existing and device-validated** — full journey verified on Android 14; five defects fixed in PR #39                                                                                                                                                                                                                                                           | Preserve; do not regress                                                                                                   |
-| 30    | Organizer web                                | **Partial** — `/organizer/movies` (102), `/organizer/movies/[id]` (507), `/organizer/cinemas` (88), `/organizer/cinemas/[id]` (375), seatmap designer (298)                                                                                                                                                                                                     | No schedule calendar, no bulk create, no live show dashboard                                                               |
+| 30    | Organizer web                                | **Partial, scheduling COMPLETE** — `/organizer/cinemas/[id]/schedule` is a full day+week workspace: bulk create with mandatory dry-run preview, copy-to-date/screen, pause/reopen/cancel/move, booking-window state, screen status, cinema-local timezone throughout. See THEATER-OPERATIONS.md                                                                 | Remaining: no live show dashboard (running/next-up/occupancy), no catalogue governance                                     |
 | 31    | Admin                                        | **Partial** — `GET /admin/movies` exists                                                                                                                                                                                                                                                                                                                        | No catalogue governance, dedupe, venue approval, show audit                                                                |
 | 32    | Search                                       | **Partial** — discovery module exists                                                                                                                                                                                                                                                                                                                           | Assess before adding infrastructure                                                                                        |
 | 35–37 | Partner / theater integration                | **Partial** — `InventoryProvider` seam, `ProviderMapping`, `RawProviderEvent`, `ProviderSyncCheckpoint`, `ProviderInventoryState` all exist (ADR-037/040)                                                                                                                                                                                                       | Extend the existing seam with cinema semantics; do **not** build a parallel one                                            |
-| 44    | Testing                                      | **Existing (API)** — 169 API spec files. **customer-web: 0 tests. organizer-web: 0 tests.**                                                                                                                                                                                                                                                                     | Web test coverage is the largest quality gap                                                                               |
+| 44    | Testing                                      | **API existing; organizer-web now covered for scheduling** — 24 vitest unit tests (`show-status.test.ts`, the app's first) + 33 Playwright workspace tests + 5 axe WCAG 2.1 AA tests. **customer-web still 0 tests.**                                                                                                                                           | customer-web coverage is now the largest remaining test gap                                                                |
 | 47    | Feature flags                                | **MISSING** — only `MOVIE_NOT_PUBLISHED` (an error code, not a flag)                                                                                                                                                                                                                                                                                            | Build if rollout control is wanted                                                                                         |
 | 49    | `docs/movie-ticketing/`                      | **MISSING**                                                                                                                                                                                                                                                                                                                                                     | This file is the first entry                                                                                               |
 
@@ -102,3 +102,68 @@ actually there.
 
 The audit above is the durable deliverable that makes the rest safe to execute
 incrementally, by whoever picks it up, without rebuilding what exists.
+
+---
+
+## Addendum — scheduling track assessment (2026-08-08)
+
+An honest read of where the §7 theater-operations track actually stands, replacing the
+matrix's one-word verdict with something a reviewer can act on.
+
+### Shipped and verified
+
+| Capability                                    | Evidence                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Scheduling rules, turnaround, bulk, recurring | 34 unit tests; pure module, no Prisma                                                      |
+| Operation policy (pause/reopen/cancel/edit)   | 42 unit tests                                                                              |
+| Concurrency under real PostgreSQL             | 8 race proofs, two independent clients; **falsified** — removing `FOR UPDATE` fails 5 of 8 |
+| Copy semantics incl. DST                      | 9 integration tests (spring-forward 23h, fall-back 25h)                                    |
+| Screen status, day schedule, bounded ranges   | 27 integration tests                                                                       |
+| Organizer workspace end to end                | 33 Playwright tests                                                                        |
+| Pure presentation rules                       | 24 vitest tests                                                                            |
+| WCAG 2.1 AA                                   | 5 axe tests, no suppressed rules                                                           |
+
+Two of those deserve their weight noted. The concurrency proofs were **falsified** — the
+lock was removed and the tests were confirmed to fail — so they detect the defect rather
+than merely coexisting with the fix. C and D still passed unlocked and are therefore
+reported as weaker detectors, not as proof. The timezone regression test was falsified the
+same way.
+
+### Defects this work found
+
+Not a summary of features; a list of things that were wrong and are no longer:
+
+1. The workspace derived the cinema's day from the **browser's** timezone.
+2. Row times rendered with no zone while the day was queried in the cinema's zone.
+3. Show status was rendered twice (badge + `sr-only`), so screen readers announced it twice.
+4. `publicShowState` treated `salesEndAt` as exclusive while booking creation treats it as
+   inclusive — introduced during this track, found by auditing it.
+5. A SCHEDULED show past its sales close rendered **two contradicting badges**.
+6. Shared design tokens failed WCAG AA: muted text at 3.19:1, status-success 3.64:1,
+   status-warning 3.21:1, primary-on-tint 4.49:1, dark status-error 4.30:1.
+7. An existing test had **codified** defect 4 (`bookingTone('PENDING_PAYMENT')`); the
+   expectation was wrong, not the code.
+
+Defect 6 is the widest: those tokens are shared by all three web apps and mirrored by the
+mobile app, so "muted" quietly meant "hard to read" product-wide, not just here.
+
+### Not built, and not to be assumed
+
+- **`EDIT_SCREEN`.** The policy module defines the rule and `FIELD_MUTABILITY` classifies
+  the field, which makes it read like a shipped feature in code review. **No endpoint
+  implements it.** Cancel-and-reschedule is the supported workflow.
+- **Per-cinema timezone.** One hard-coded `Asia/Kolkata` default.
+- **Per-session booking windows.** Derived from ticket types, not settable per show.
+- **Refunds on show cancellation.** Not initiated and not reported by this UI.
+- **Manual accessibility testing.** No screen-reader pass, no user testing. The axe scan
+  covers roughly a third of WCAG by construction.
+- **Live show dashboard** (§30) — running now / next up / occupancy at a glance.
+
+### Verdict
+
+The scheduling backend and the organizer workspace are **ready for theater QA**: the rules
+are server-authoritative, the races are proved against real PostgreSQL rather than mocks,
+and the UI is covered end to end including a foreign-timezone browser.
+
+They are **not** a complete theater-operations product. The gaps above are known and
+deliberate, and none of them is a silent one — each is stated in the UI, the docs, or both.
