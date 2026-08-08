@@ -741,8 +741,13 @@ export class ShowsService {
       Rather than guess, the batch is refused with the boundary named, and the operator
       schedules the two sides separately — which is what they actually meant.
     */
-    const seatMap = await this.resolveLayoutForShow(screen.id, proposed[0].startsAt);
-    if (proposed.length > 0) {
+    // Emptiness first: an expansion can legitimately produce nothing, and dereferencing
+    // proposed[0] before checking turns that into a 500 instead of an empty dry run.
+    const seatMap = await this.resolveLayoutForShow(
+      screen.id,
+      proposed[0]?.startsAt ?? new Date(),
+    );
+    if (proposed.length > 1) {
       const last = await this.resolveLayoutForShow(
         screen.id,
         proposed[proposed.length - 1].startsAt,
@@ -1451,6 +1456,35 @@ export class ShowsService {
 
   // ─── Public seat layout ───
 
+  /**
+   * The layout a show's seats actually belong to, read from the seats themselves.
+   *
+   * The authoritative answer when `EventSession.seatMapId` was never set. One seat is enough:
+   * a session's ShowSeat rows are materialised from a single layout in one transaction.
+   */
+  private async layoutFromShowSeats(sessionId: string) {
+    const anySeat = await this.prisma.showSeat.findFirst({
+      where: { eventSessionId: sessionId },
+      select: { seat: { select: { seatMapId: true } } },
+    });
+    if (!anySeat) return null;
+    return this.prisma.seatMap.findUnique({
+      where: { id: anySeat.seat.seatMapId },
+      include: {
+        categories: { orderBy: { sortOrder: 'asc' } },
+        sections: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            rows: {
+              orderBy: { sortOrder: 'asc' },
+              include: { seats: { orderBy: { colIndex: 'asc' } } },
+            },
+          },
+        },
+      },
+    });
+  }
+
   async getPublicSeatLayout(sessionId: string) {
     /*
       Reads the layout version PINNED TO THE SHOW, not the screen's current one.
@@ -1485,14 +1519,35 @@ export class ShowsService {
         },
       },
     });
-    if (!session || !session.seatMap) {
+    if (!session) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
         'Show not found or has no seat layout.',
         HttpStatus.NOT_FOUND,
       );
     }
-    const seatMap = session.seatMap;
+
+    /*
+      Fall back to the show's own seats when the pin is missing.
+
+      `seatMapId` is a record of a decision, not the ground truth — the seats are. Any code
+      path that creates an EventSession without going through `scheduleShow` leaves the
+      column null, and the seed does exactly that, which took the whole customer booking
+      journey down with a 404 in CI while passing locally against an older database.
+
+      Deriving from ShowSeat -> Seat -> seatMap is the same answer the migration computed for
+      pre-existing shows, so old rows, seeded rows and scheduled rows all resolve identically
+      and no future caller can forget.
+    */
+    const seatMap =
+      session.seatMap ?? (await this.layoutFromShowSeats(sessionId));
+    if (!seatMap) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Show not found or has no seat layout.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
     const ticketTypeByCategory = new Map(
       session.ticketTypes

@@ -632,6 +632,8 @@ async function main() {
       data: {
         eventId: movieEvent.id,
         screenId: bookableScreen.id,
+        // Pin the layout version, exactly as scheduleShow does.
+        seatMapId: seatMap.id,
         startsAt,
         endsAt,
         status: SessionStatus.SCHEDULED,
