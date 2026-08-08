@@ -241,6 +241,23 @@ export const SessionStatus = {
 } as const;
 export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus];
 
+/**
+ * Whether a screen can be scheduled and sold.
+ *
+ * Deliberately small. MAINTENANCE and INACTIVE both stop NEW scheduling; the difference is
+ * intent, which matters to an operator reading a list of screens. Neither touches shows
+ * that already exist: taking a screen out of service must never silently cancel a show
+ * somebody has paid for. Cancelling is an explicit, audited, per-show act.
+ */
+export const ScreenStatus = {
+  ACTIVE: 'ACTIVE',
+  /** Temporarily out of service. Expected back. */
+  MAINTENANCE: 'MAINTENANCE',
+  /** Retired or not in use. */
+  INACTIVE: 'INACTIVE',
+} as const;
+export type ScreenStatus = (typeof ScreenStatus)[keyof typeof ScreenStatus];
+
 export const FeeMode = {
   CUSTOMER_PAYS: 'CUSTOMER_PAYS',
   ORGANIZER_PAYS: 'ORGANIZER_PAYS',

@@ -162,6 +162,24 @@ export class ShowsService {
       : DEFAULT_TURNAROUND_MINUTES;
   }
 
+  /**
+   * A screen must be in service before anything new is scheduled or reopened on it.
+   *
+   * Applies only to NEW commitments. Shows already on a screen that goes into maintenance
+   * are deliberately left alone — see updateScreen — because cancelling something people
+   * have paid for must never be a side effect of a status change.
+   */
+  private assertScreenUsable(screen: { status: string; name: string }) {
+    if (screen.status === 'ACTIVE') return;
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      screen.status === 'MAINTENANCE'
+        ? `${screen.name} is under maintenance and cannot take new shows.`
+        : `${screen.name} is not in service.`,
+      HttpStatus.CONFLICT,
+    );
+  }
+
   /** Loads a screen and authorizes the caller via its cinema's organization. */
   private async loadOwnedScreen(user: RequestUser, screenId: string, roles = ORGANIZER_ROLES) {
     const screen = await this.prisma.screen.findUnique({
@@ -311,6 +329,7 @@ export class ShowsService {
         HttpStatus.FORBIDDEN,
       );
     }
+    this.assertScreenUsable(screen);
     if (!screen.seatMap) {
       throw new AppException(
         ErrorCodes.CONFLICT,
@@ -521,6 +540,7 @@ export class ShowsService {
         HttpStatus.CONFLICT,
       );
     }
+    this.assertScreenUsable(screen);
     if (!screen.seatMap) {
       throw new AppException(
         ErrorCodes.CONFLICT,
@@ -929,6 +949,8 @@ export class ShowsService {
   async reopenSales(user: RequestUser, sessionId: string, reason?: string) {
     const { session, idempotent } = await this.authorizeOperation(user, sessionId, 'REOPEN');
     if (idempotent) return { sessionId, status: session.status, changed: false };
+    // Selling seats in a room that cannot open is worse than leaving the show paused.
+    if (session.screen) this.assertScreenUsable(session.screen);
 
     const updated = await this.prisma.eventSession.update({
       where: { id: sessionId },

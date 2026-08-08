@@ -45,7 +45,15 @@ export const createScreenSchema = z.object({
 });
 export type CreateScreenInput = z.infer<typeof createScreenSchema>;
 
-export const updateScreenSchema = createScreenSchema.partial();
+/**
+ * Status is updatable but not settable at creation: a screen is born ACTIVE, and there is
+ * no sensible reason to create one already in maintenance.
+ */
+export const updateScreenSchema = createScreenSchema.partial().extend({
+  status: z.enum(['ACTIVE', 'MAINTENANCE', 'INACTIVE']).optional(),
+  /** Recorded on the audit entry when the operational state changes. */
+  statusReason: z.string().trim().min(3).max(500).optional(),
+});
 export type UpdateScreenInput = z.infer<typeof updateScreenSchema>;
 
 /** Generate a screen's seat map from a compact section spec. Each section maps to

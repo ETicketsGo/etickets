@@ -66,6 +66,12 @@ enum ExperienceType {
   TOUR
 }
 
+enum ScreenStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
 enum SessionStatus {
   SCHEDULED
   PAUSED
@@ -598,6 +604,8 @@ model Screen {
   name       String
   screenType String   @default("2D") // 2D, 3D, IMAX, 4DX
   capacity   Int
+  /// Operational state. Existing rows default ACTIVE, so this is purely additive.
+  status     ScreenStatus @default(ACTIVE)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
