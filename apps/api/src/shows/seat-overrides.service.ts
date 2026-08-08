@@ -352,7 +352,23 @@ export class SeatOverridesService {
    * re-blocked for a different reason in the meantime is left alone. Idempotent, and safe
    * to run from a schedule or on demand.
    */
-  async expireLapsedOverrides(now = new Date()): Promise<{ released: number }> {
+  async expireLapsedOverrides(
+    now = new Date(),
+    batchSize = SeatOverridesService.EXPIRY_BATCH_SIZE,
+  ): Promise<{ released: number; more: boolean }> {
+    /*
+      Bounded, and safe to run from several workers at once.
+
+      The bound matters because a chain that blocked a whole tier for a fortnight can have
+      thousands of rows come due in the same minute; an unbounded UPDATE would hold locks
+      across all of them and stall bookings on unrelated shows. Whatever does not fit is
+      picked up on the next tick, and `more` says so rather than leaving the caller to guess.
+
+      `FOR UPDATE SKIP LOCKED` on the selection is what makes concurrent workers safe: two
+      ticks running at once take disjoint sets instead of blocking on each other, and the
+      outer UPDATE re-checks `status = 'BLOCKED'` so a seat re-blocked between the select and
+      the write is left alone. Sold and held seats are unreachable — neither is BLOCKED.
+    */
     const released = await this.prisma.$executeRaw`
       UPDATE "ShowSeat"
          SET "status" = 'AVAILABLE',
@@ -363,12 +379,27 @@ export class SeatOverridesService {
              "overrideExpiresAt" = NULL,
              "version" = "version" + 1,
              "updatedAt" = NOW()
-       WHERE "status" = 'BLOCKED'
-         AND "overrideExpiresAt" IS NOT NULL
-         AND "overrideExpiresAt" <= ${now}
+       WHERE "id" IN (
+         SELECT "id" FROM "ShowSeat"
+          WHERE "status" = 'BLOCKED'
+            AND "overrideExpiresAt" IS NOT NULL
+            AND "overrideExpiresAt" <= ${now}
+          ORDER BY "overrideExpiresAt" ASC
+          LIMIT ${batchSize}
+          FOR UPDATE SKIP LOCKED
+       )
+         AND "status" = 'BLOCKED'
     `;
-    return { released };
+    return { released, more: released >= batchSize };
   }
+
+  /**
+   * How many lapsed overrides one sweep will release.
+   *
+   * Sized so a tick stays well under the worker's job timeout even on a slow database, and
+   * so the lock footprint of one batch cannot noticeably delay a customer's checkout.
+   */
+  static readonly EXPIRY_BATCH_SIZE = 500;
 
   // ── Accessibility ───────────────────────────────────────────────────────────────
 

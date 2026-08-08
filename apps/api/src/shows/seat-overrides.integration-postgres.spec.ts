@@ -695,6 +695,112 @@ describe('integration-real-postgres: show seat overrides', () => {
     expect((await statusOf(seatIds[2])).status).toBe('BLOCKED');
   });
 
+  maybe('the sweep is bounded, and says when a backlog remains', async () => {
+    // A chain that blocked a tier for a fortnight can have thousands come due in one minute.
+    // An unbounded UPDATE would hold locks across all of them and stall checkouts on
+    // unrelated shows, so a tick takes a bounded slice and reports that more is waiting.
+    const past = new Date(Date.now() - 60_000);
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: seatIds.slice(0, 4),
+      kind: 'MAINTENANCE',
+      reason: 'deep clean',
+      expiresAt: past,
+    });
+
+    const first = await overrides.expireLapsedOverrides(new Date(), 2);
+    expect(first.released).toBe(2);
+    expect(first.more).toBe(true);
+
+    const second = await overrides.expireLapsedOverrides(new Date(), 2);
+    expect(second.released).toBe(2);
+
+    // Drained: the next tick finds nothing and says so.
+    const third = await overrides.expireLapsedOverrides(new Date(), 2);
+    expect(third.released).toBe(0);
+    expect(third.more).toBe(false);
+  });
+
+  maybe('two workers sweeping at once release each seat exactly once', async () => {
+    /*
+      SKIP LOCKED is what makes this safe: concurrent ticks take DISJOINT slices instead of
+      blocking on each other or double-counting. Two independent clients, because two
+      transactions from one client can share a pooled connection and serialise for the wrong
+      reason.
+    */
+    const past = new Date(Date.now() - 60_000);
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: seatIds.slice(0, 6),
+      kind: 'MAINTENANCE',
+      reason: 'cleaning',
+      expiresAt: past,
+    });
+
+    const other = new SeatOverridesService(db2 as never, allowAll, {
+      record: async () => undefined,
+    } as never);
+
+    const [a, b] = await Promise.all([
+      overrides.expireLapsedOverrides(new Date(), 6),
+      other.expireLapsedOverrides(new Date(), 6),
+    ]);
+
+    // Every seat released once in total — never twice, never missed.
+    expect(a.released + b.released).toBe(6);
+    const stillBlocked = await db!.showSeat.count({
+      where: { eventSessionId: sessionId, status: 'BLOCKED' },
+    });
+    expect(stillBlocked).toBe(0);
+  });
+
+  maybe('the sweep never touches a sold or held seat', async () => {
+    // Neither is BLOCKED, so neither is reachable — asserted rather than assumed, because
+    // this is the sweep's one catastrophic failure mode.
+    const past = new Date(Date.now() - 60_000);
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[0]],
+      kind: 'MAINTENANCE',
+      reason: 'lapsed',
+      expiresAt: past,
+    });
+    await db!.showSeat.updateMany({
+      where: { eventSessionId: sessionId, seatId: seatIds[1] },
+      data: { status: 'SOLD', overrideExpiresAt: past },
+    });
+    await holdSeat(db!, seatIds[2], `sweep-${Date.now()}`);
+    await db!.showSeat.updateMany({
+      where: { eventSessionId: sessionId, seatId: seatIds[2] },
+      data: { overrideExpiresAt: past },
+    });
+
+    await overrides.expireLapsedOverrides();
+
+    expect((await statusOf(seatIds[0])).status).toBe('AVAILABLE');
+    expect((await statusOf(seatIds[1])).status).toBe('SOLD');
+    expect((await statusOf(seatIds[2])).status).toBe('HELD');
+  });
+
+  maybe('a seat re-blocked for a new reason survives the sweep', async () => {
+    // The deadline belonged to the OLD block. Releasing on a stale timestamp would undo a
+    // decision somebody made seconds ago.
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[0]],
+      kind: 'MAINTENANCE',
+      reason: 'spillage',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[0]],
+      kind: 'EMERGENCY',
+      reason: 'incident',
+    });
+
+    const { released } = await overrides.expireLapsedOverrides();
+    expect(released).toBe(0);
+    const after = await statusOf(seatIds[0]);
+    expect(after.status).toBe('BLOCKED');
+    expect(after.overrideKind).toBe('EMERGENCY');
+  });
+
   maybe('the sweep is idempotent', async () => {
     await overrides.blockSeats(OPERATOR, sessionId, {
       seatIds: [seatIds[0]],
