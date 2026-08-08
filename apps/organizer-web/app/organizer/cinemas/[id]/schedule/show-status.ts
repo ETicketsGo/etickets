@@ -89,8 +89,12 @@ export const occupancyPercent = (show: ShowRow): number | null =>
  * sentence. "OVERLAPS_EXISTING_SHOW" tells an operator nothing about which show, or why a
  * gap that looks fine is not.
  */
-export function explainRejection(r: ScheduleRejection, turnaroundMinutes: number): string {
-  const at = formatLocalTime(r.startsAt);
+export function explainRejection(
+  r: ScheduleRejection,
+  turnaroundMinutes: number,
+  timeZone: string,
+): string {
+  const at = formatLocalTime(r.startsAt, timeZone);
   switch (r.reason) {
     case 'OVERLAPS_EXISTING_SHOW': {
       const gap = r.gapMinutes;
@@ -113,9 +117,24 @@ export function explainRejection(r: ScheduleRejection, turnaroundMinutes: number
   }
 }
 
-/** HH:mm in the viewer's locale, from an ISO instant. */
-export function formatLocalTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+/**
+ * A show's start as the CINEMA reads it, in 24-hour time.
+ *
+ * The timezone is required, not optional. This used to call toLocaleTimeString with no zone,
+ * which resolves in the BROWSER's — so the day was fetched for Asia/Kolkata while the rows
+ * were rendered in whatever zone the operator's laptop was set to. A 09:00 Hyderabad show
+ * displayed as 21:30 the previous evening for anyone outside India, on the same page that
+ * had correctly asked for the Hyderabad day.
+ *
+ * 24-hour because that is how a theater publishes and how the operator typed it in.
+ */
+export function formatLocalTime(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(iso));
 }
 
 /** Group a flat day into screens, preserving the server's ordering within each. */
@@ -149,3 +168,72 @@ export const todayLabel = (): string => {
   // Local calendar day, which is what the operator means by "today".
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+/**
+ * A show's start as wall-clock parts in the cinema's zone.
+ *
+ * Used to prefill the edit dialog. Reading `.getHours()` would give the browser's zone and
+ * show a Hyderabad manager in London the wrong current time before they had changed
+ * anything.
+ */
+export function localDateParts(iso: string, timeZone: string): { date: string; time: string } {
+  const d = new Date(iso);
+  // en-CA yields YYYY-MM-DD, which is what a date input expects.
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone }).format(d);
+  const time = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+  return { date, time };
+}
+
+/**
+ * Operator-facing text for a refused mutation.
+ *
+ * Keyed on `details.reason`, the stable code the API now returns, NOT on the message text —
+ * matching English prose would break the first time a sentence is reworded. The server's
+ * own message is the fallback, so an unrecognised refusal still says something true rather
+ * than "something went wrong".
+ */
+export function explainMutationError(err: unknown): string {
+  // web-kit's ApiRequestError carries code / message / details as own properties.
+  const e = (err ?? {}) as {
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+  };
+  const reason = String(e.details?.reason ?? '');
+  const code = String(e.code ?? '');
+
+  switch (reason) {
+    case 'SHOW_HAS_CONFIRMED_BOOKINGS':
+      return 'This show already has paid bookings and cannot be moved. Cancel the show instead, so customers are told.';
+    case 'SHOW_HAS_ACTIVE_CHECKOUTS':
+      return 'Someone is part-way through booking this show. Try again once their hold expires.';
+    case 'SHOW_HAS_BOOKINGS':
+      return 'This show has active seat commitments and cannot be moved to another screen.';
+    case 'SHOW_ALREADY_STARTED':
+      return 'This show has already started and can no longer be edited.';
+    case 'SHOW_ALREADY_COMPLETED':
+      return 'This show has finished and can no longer be edited.';
+    case 'SHOW_CANCELLED':
+      return 'Cancelled shows cannot be edited.';
+    case 'SHOW_NOT_PAUSED':
+      return 'Only a paused show can be reopened.';
+    case 'OVERLAPS_EXISTING_SHOW':
+      return 'That time conflicts with another show on this screen. Screens also need time between shows for the audience to leave and the room to be cleaned.';
+    default:
+      break;
+  }
+
+  if (code === 'TENANT_FORBIDDEN' || code === 'FORBIDDEN') {
+    return 'You do not have access to modify this show.';
+  }
+  if (/maintenance|not in service/i.test(String(e.message ?? ''))) {
+    return 'This screen is not available for scheduling.';
+  }
+  // The server's message is written for end users, so it is a safe fallback.
+  return String(e.message || 'That change could not be saved. Please try again.');
+}

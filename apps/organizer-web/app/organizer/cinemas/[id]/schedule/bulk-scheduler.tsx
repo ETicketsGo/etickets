@@ -246,6 +246,7 @@ export function BulkScheduler({
       ) : (
         <PreviewStep
           preview={preview}
+          timezone={timezone}
           publishing={publishM.isPending}
           onBack={() => setStep('configure')}
           onPublish={() => publishM.mutate()}
@@ -263,11 +264,13 @@ export function BulkScheduler({
  */
 function PreviewStep({
   preview,
+  timezone,
   publishing,
   onBack,
   onPublish,
 }: {
   preview: BulkScheduleResult | null;
+  timezone: string;
   publishing: boolean;
   onBack: () => void;
   onPublish: () => void;
@@ -301,7 +304,7 @@ function PreviewStep({
                 key={`${r.startsAt}-${i}`}
                 className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm"
               >
-                {explainRejection(r, preview.turnaroundMinutes)}
+                {explainRejection(r, preview.turnaroundMinutes, timezone)}
                 {/* The raw code stays visible for diagnostics without being the message. */}
                 <span className="ml-2 font-mono text-xs text-slate-400">{r.reason}</span>
               </li>

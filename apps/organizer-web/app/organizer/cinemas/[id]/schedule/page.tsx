@@ -31,6 +31,7 @@ import {
 } from './show-status';
 import { BulkScheduler } from './bulk-scheduler';
 import { CopyScheduleDialog } from './copy-schedule';
+import { EditShowDialog } from './edit-show';
 
 /**
  * The cinema scheduling workspace — a theater's daily operating screen.
@@ -198,7 +199,7 @@ export default function CinemaSchedulePage() {
               key={group.screenId}
               screenName={group.screenName}
               shows={group.shows}
-              cinemaId={cinemaId}
+              timezone={timezone}
               onChanged={refresh}
               toast={toast}
             />
@@ -250,12 +251,13 @@ export default function CinemaSchedulePage() {
 function ScreenTimeline({
   screenName,
   shows,
+  timezone,
   onChanged,
   toast,
 }: {
   screenName: string;
   shows: ShowRow[];
-  cinemaId: string;
+  timezone: string;
   onChanged: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
@@ -269,7 +271,13 @@ function ScreenTimeline({
       </div>
       <ul className="divide-y divide-slate-200">
         {shows.map((show) => (
-          <ShowRowItem key={show.sessionId} show={show} onChanged={onChanged} toast={toast} />
+          <ShowRowItem
+            key={show.sessionId}
+            show={show}
+            timezone={timezone}
+            onChanged={onChanged}
+            toast={toast}
+          />
         ))}
       </ul>
     </Card>
@@ -278,10 +286,12 @@ function ScreenTimeline({
 
 function ShowRowItem({
   show,
+  timezone,
   onChanged,
   toast,
 }: {
   show: ShowRow;
+  timezone: string;
   onChanged: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
@@ -290,6 +300,7 @@ function ShowRowItem({
   const occupancy = occupancyPercent(show);
   const [cancelling, setCancelling] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   /**
    * Every mutation re-reads the day afterwards rather than patching local state.
@@ -310,7 +321,7 @@ function ShowRowItem({
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
       <span className="w-32 font-mono text-sm tabular-nums">
-        {formatLocalTime(show.startsAt)} – {formatLocalTime(show.endsAt)}
+        {formatLocalTime(show.startsAt, timezone)} – {formatLocalTime(show.endsAt, timezone)}
       </span>
       <span className="min-w-[10rem] flex-1 font-medium">{show.movieTitle ?? 'Untitled'}</span>
 
@@ -341,7 +352,7 @@ function ShowRowItem({
             variant="secondary"
             disabled={run.isPending}
             onClick={() => setPausing(true)}
-            aria-label={`Pause sales for ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt)}`}
+            aria-label={`Pause sales for ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt, timezone)}`}
           >
             Pause
           </Button>
@@ -356,21 +367,44 @@ function ShowRowItem({
             Reopen
           </Button>
         ) : null}
+        {actions.edit ? (
+          <Button
+            variant="secondary"
+            disabled={run.isPending}
+            onClick={() => setEditing(true)}
+            aria-label={`Move ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt, timezone)}`}
+          >
+            Move
+          </Button>
+        ) : null}
         {actions.cancel ? (
           <Button
             variant="secondary"
             disabled={run.isPending}
             onClick={() => setCancelling(true)}
-            aria-label={`Cancel ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt)}`}
+            aria-label={`Cancel ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt, timezone)}`}
           >
             Cancel
           </Button>
         ) : null}
       </span>
 
+      {editing ? (
+        <EditShowDialog
+          show={show}
+          timezone={timezone}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            onChanged();
+          }}
+        />
+      ) : null}
+
       {pausing ? (
         <PauseDialog
           show={show}
+          timezone={timezone}
           busy={run.isPending}
           onClose={() => setPausing(false)}
           onConfirm={(reason) => {
@@ -383,6 +417,7 @@ function ShowRowItem({
       {cancelling ? (
         <CancelDialog
           show={show}
+          timezone={timezone}
           busy={run.isPending}
           onClose={() => setCancelling(false)}
           onConfirm={(reason) => {
@@ -405,11 +440,13 @@ function ShowRowItem({
 
 function PauseDialog({
   show,
+  timezone,
   busy,
   onClose,
   onConfirm,
 }: {
   show: ShowRow;
+  timezone: string;
   busy: boolean;
   onClose: () => void;
   onConfirm: (reason?: string) => void;
@@ -418,7 +455,7 @@ function PauseDialog({
   return (
     <Dialog open onClose={onClose} title="Pause new ticket sales for this show?">
       <p className="text-sm">
-        {show.movieTitle} at {formatLocalTime(show.startsAt)}.
+        {show.movieTitle} at {formatLocalTime(show.startsAt, timezone)}.
       </p>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600">
         <li>Tickets already sold stay valid — nobody loses a seat.</li>
@@ -459,11 +496,13 @@ function PauseDialog({
  */
 function CancelDialog({
   show,
+  timezone,
   busy,
   onClose,
   onConfirm,
 }: {
   show: ShowRow;
+  timezone: string;
   busy: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
@@ -473,7 +512,7 @@ function CancelDialog({
   return (
     <Dialog open onClose={onClose} title="Cancel this show?">
       <p className="text-sm">
-        {show.movieTitle} at {formatLocalTime(show.startsAt)} — {show.screenName}.
+        {show.movieTitle} at {formatLocalTime(show.startsAt, timezone)} — {show.screenName}.
       </p>
       {show.seatsSold > 0 ? (
         <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">

@@ -180,7 +180,7 @@ export function CopyScheduleDialog({
                     key={`${r.startsAt}-${i}`}
                     className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm"
                   >
-                    {explainRejection(r, preview.turnaroundMinutes)}
+                    {explainRejection(r, preview.turnaroundMinutes, timezone)}
                     <span className="ml-2 font-mono text-xs text-slate-400">{r.reason}</span>
                   </li>
                 ))}
