@@ -226,6 +226,16 @@ export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
 
 export const SessionStatus = {
   SCHEDULED: 'SCHEDULED',
+  /**
+   * Sales stopped by the operator; the show still happens and existing bookings stand.
+   *
+   * A status rather than a separate boolean, because booking creation already refuses
+   * anything that is not SCHEDULED and the public showtime query already filters on it —
+   * so this is enforced by code that exists. A parallel flag would have to be taught to
+   * both call sites, and forgetting one means selling tickets to a show the operator
+   * believes is closed.
+   */
+  PAUSED: 'PAUSED',
   CANCELLED: 'CANCELLED',
   COMPLETED: 'COMPLETED',
 } as const;

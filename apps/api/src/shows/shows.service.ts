@@ -1,10 +1,17 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import { EventStatus, ExperienceType, Role, SessionStatus } from '@eticketsgo/shared-types';
+import {
+  BookingStatus,
+  EventStatus,
+  ExperienceType,
+  Role,
+  SessionStatus,
+} from '@eticketsgo/shared-types';
 import type {
   BulkScheduleShowsInput,
   GenerateSeatMapInput,
+  RescheduleShowInput,
   ScheduleShowInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +28,12 @@ import {
   type ShowWindow,
 } from './show-scheduling';
 import { AuditService } from '../audit/audit.service';
+import {
+  evaluateOperation,
+  type ShowCommitments,
+  type ShowOperation,
+  type ShowState,
+} from './show-operations';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -658,6 +671,269 @@ export class ShowsService {
         status: EventStatus.PUBLISHED,
         publishedAt: new Date(),
       },
+    });
+  }
+
+  // ─── Sales control and cancellation ───
+
+  /**
+   * Load a session, authorize the caller through its cinema, and count what is booked.
+   *
+   * Every sales operation needs the same three things, and they must be read together:
+   * deciding on a stale commitment count is how an edit slips past a booking that arrived
+   * a moment earlier.
+   */
+  private async loadOwnedSession(user: RequestUser, sessionId: string) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      include: { event: { select: { organizationId: true, movieId: true } }, screen: true },
+    });
+    if (!session)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
+    return session;
+  }
+
+  /**
+   * What is committed against a show right now.
+   *
+   * Expired holds are excluded by comparing `holdExpiresAt` to now rather than trusting the
+   * booking's status: a lapsed hold that the sweeper has not yet collected is not a reason
+   * to refuse an operator, and treating it as one would make edits fail unpredictably for
+   * ten minutes after anyone browsed the show.
+   */
+  private async commitmentsFor(sessionId: string, now = new Date()): Promise<ShowCommitments> {
+    const rows = await this.prisma.booking.groupBy({
+      by: ['status'],
+      where: {
+        eventSessionId: sessionId,
+        OR: [
+          { status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] } },
+          { status: BookingStatus.PENDING_PAYMENT, holdExpiresAt: { gt: now } },
+        ],
+      },
+      _count: { _all: true },
+    });
+    const count = (s: BookingStatus) => rows.find((r) => r.status === s)?._count._all ?? 0;
+    return {
+      // A pending-payment booking IS the hold in this model: the seats are flipped to HELD
+      // against it and released when it lapses. Reported as both so the policy can talk
+      // about "someone is mid-checkout" without the caller re-deriving it.
+      activeHolds: count(BookingStatus.PENDING_PAYMENT),
+      pendingPayment: count(BookingStatus.PENDING_PAYMENT),
+      confirmed: count(BookingStatus.CONFIRMED) + count(BookingStatus.PARTIALLY_REFUNDED),
+    };
+  }
+
+  /** Shared guard: evaluate the policy and turn a refusal into the right HTTP error. */
+  private async authorizeOperation(user: RequestUser, sessionId: string, operation: ShowOperation) {
+    const session = await this.loadOwnedSession(user, sessionId);
+    const commitments = await this.commitmentsFor(sessionId);
+    const verdict = evaluateOperation({
+      operation,
+      state: session.status as ShowState,
+      startsAt: session.startsAt,
+      commitments,
+      now: new Date(),
+    });
+    if (!verdict.allowed) {
+      throw new AppException(ErrorCodes.CONFLICT, verdict.message, HttpStatus.CONFLICT);
+    }
+    return { session, commitments, idempotent: 'idempotent' in verdict };
+  }
+
+  /**
+   * Stop selling a show without cancelling it.
+   *
+   * ── WHAT HAPPENS TO EXISTING HOLDS ────────────────────────────────────────────────
+   * They are LEFT ALONE and allowed to run out their TTL. This is a deliberate choice
+   * between two defensible options.
+   *
+   * A customer who is on the payment page when a manager pauses the show has already picked
+   * seats and may already have been charged by the provider. Invalidating their hold
+   * mid-transaction produces the worst outcome available: money taken for seats the system
+   * has since released. Letting the hold finish costs at most a handful of extra tickets on
+   * a show that is closing anyway, and those seats were already spoken for.
+   *
+   * Confirmed bookings are untouched and sold seats are never released.
+   */
+  async pauseSales(user: RequestUser, sessionId: string, reason?: string) {
+    const { session, idempotent } = await this.authorizeOperation(user, sessionId, 'PAUSE');
+    if (idempotent) return { sessionId, status: session.status, changed: false };
+
+    const updated = await this.prisma.eventSession.update({
+      where: { id: sessionId },
+      data: { status: SessionStatus.PAUSED },
+    });
+    await this.recordShowAudit(user, session, 'SHOW_SALES_PAUSED', {
+      from: session.status,
+      to: SessionStatus.PAUSED,
+      reason,
+    });
+    return { sessionId, status: updated.status, changed: true };
+  }
+
+  /** Put a paused show back on sale. Cancellation is never undone this way. */
+  async reopenSales(user: RequestUser, sessionId: string, reason?: string) {
+    const { session, idempotent } = await this.authorizeOperation(user, sessionId, 'REOPEN');
+    if (idempotent) return { sessionId, status: session.status, changed: false };
+
+    const updated = await this.prisma.eventSession.update({
+      where: { id: sessionId },
+      data: { status: SessionStatus.SCHEDULED },
+    });
+    await this.recordShowAudit(user, session, 'SHOW_SALES_REOPENED', {
+      from: session.status,
+      to: SessionStatus.SCHEDULED,
+      reason,
+    });
+    return { sessionId, status: updated.status, changed: true };
+  }
+
+  /**
+   * Cancel a show.
+   *
+   * The session is never deleted and no financial record is touched. Cancelling marks the
+   * show and releases inventory that nobody has paid for; what happens to the money is the
+   * refund subsystem's job, and this does not reach into it.
+   *
+   * ── WHY NO REFUNDS ARE ISSUED HERE ────────────────────────────────────────────────
+   * Refunds go through a provider. Calling one inside this transaction would hold a
+   * database transaction open across a network call to Razorpay — the exact pattern the
+   * platform's own guidance forbids, because a slow provider then blocks the row locks that
+   * seat inventory depends on.
+   *
+   * Affected bookings are therefore REPORTED, not refunded: the response names them so the
+   * caller can route them into the existing refund workflow. Inventing a second refund path
+   * here would be a worse outcome than an explicit handoff.
+   */
+  async cancelShow(user: RequestUser, sessionId: string, reason: string) {
+    const { session, commitments, idempotent } = await this.authorizeOperation(
+      user,
+      sessionId,
+      'CANCEL',
+    );
+    if (idempotent) {
+      return {
+        sessionId,
+        status: session.status,
+        changed: false,
+        bookingsRequiringRefund: [] as string[],
+      };
+    }
+
+    const affected = await this.prisma.booking.findMany({
+      where: {
+        eventSessionId: sessionId,
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
+      },
+      select: { id: true, reference: true },
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.eventSession.update({
+        where: { id: sessionId },
+        data: { status: SessionStatus.CANCELLED },
+      });
+      // Release only what nobody owns. SOLD seats stay SOLD: the booking behind them is
+      // still real until a refund says otherwise, and releasing them would let the same
+      // seat be sold twice for a show that may yet be reinstated as a new session.
+      await tx.showSeat.updateMany({
+        where: { eventSessionId: sessionId, status: { in: ['AVAILABLE', 'HELD'] } },
+        data: { status: 'UNAVAILABLE', holdBookingId: null, holdExpiresAt: null },
+      });
+    });
+
+    await this.recordShowAudit(user, session, 'SHOW_CANCELLED', {
+      from: session.status,
+      to: SessionStatus.CANCELLED,
+      reason,
+      confirmedBookings: commitments.confirmed,
+      activeHolds: commitments.activeHolds,
+    });
+
+    return {
+      sessionId,
+      status: SessionStatus.CANCELLED,
+      changed: true,
+      /**
+       * Handed back rather than acted on. These need the existing refund workflow; this
+       * endpoint deliberately does not start it.
+       */
+      bookingsRequiringRefund: affected.map((b) => b.reference ?? b.id),
+    };
+  }
+
+  /**
+   * Move a future show to a new start time.
+   *
+   * The end time is recomputed from the film's runtime rather than accepted, so a slot can
+   * never disagree with the length of what is being shown. Overlap is re-checked under the
+   * same screen-row lock that scheduling uses, because moving a show into an occupied slot
+   * is the same defect as creating one there.
+   */
+  async rescheduleShow(user: RequestUser, sessionId: string, input: RescheduleShowInput) {
+    const { session } = await this.authorizeOperation(user, sessionId, 'EDIT_TIME');
+    if (!session.screenId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This show is not assigned to a screen.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    const movie = session.event.movieId
+      ? await this.prisma.movie.findUnique({ where: { id: session.event.movieId } })
+      : null;
+    if (!movie) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This show has no movie to take a runtime from.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const startsAt = input.startsAt;
+    const endsAt = new Date(
+      startsAt.getTime() + (movie.runtimeMinutes + input.padMinutes) * 60_000,
+    );
+    const screenId = session.screenId;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Screen" WHERE id = ${screenId} FOR UPDATE`;
+      // Ignore this session's own current window, or a show would always collide with
+      // itself and no reschedule could ever succeed.
+      const conflict = await this.findConflict(tx, screenId, { startsAt, endsAt }, sessionId);
+      if (conflict) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `Screen is already booked from ${conflict.startsAt.toISOString()} to ${conflict.endsAt.toISOString()}.`,
+          HttpStatus.CONFLICT,
+        );
+      }
+      return tx.eventSession.update({ where: { id: sessionId }, data: { startsAt, endsAt } });
+    });
+
+    await this.recordShowAudit(user, session, 'SHOW_RESCHEDULED', {
+      from: { startsAt: session.startsAt, endsAt: session.endsAt },
+      to: { startsAt, endsAt },
+    });
+    return { sessionId, startsAt: updated.startsAt, endsAt: updated.endsAt };
+  }
+
+  /** One audit shape for every scheduling operation, so the trail is queryable. */
+  private async recordShowAudit(
+    user: RequestUser,
+    session: { id: string; screenId: string | null; event: { organizationId: string } },
+    action: string,
+    metadata: Record<string, unknown>,
+  ) {
+    await this.audit?.record({
+      actorUserId: user.id,
+      organizationId: session.event.organizationId,
+      action,
+      entityType: 'EventSession',
+      entityId: session.id,
+      metadata: { screenId: session.screenId, ...metadata },
     });
   }
 

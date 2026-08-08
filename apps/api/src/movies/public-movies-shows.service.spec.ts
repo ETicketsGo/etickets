@@ -98,13 +98,46 @@ describe('GET /public/movies/:slug/shows — what is queried', () => {
     await service.shows('skyfront-protocol', { limit: 50 });
 
     const where = count.mock.calls[0][0].where;
-    expect(where.status).toBe('SCHEDULED');
+    /**
+     * UPDATED EXPECTATION. This asserted `'SCHEDULED'` exactly, which excluded paused shows
+     * from the listing entirely — a show whose sales an operator had stopped simply
+     * vanished, which reads as a bug to a customer who was about to book it. PAUSED is now
+     * listed and marked unbookable via `availability: 'SALES_PAUSED'`.
+     *
+     * CANCELLED and COMPLETED remain excluded, and the assertion below is deliberately
+     * exact so adding either one silently fails here.
+     */
+    expect(where.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
     expect(where.event.status).toBe('PUBLISHED');
     expect(where.event.experienceType).toBe('MOVIE');
     // Scoped to THIS film — the mechanism that keeps another tenant's screenings out.
     expect(where.event.movieId).toBe('mv_1');
     expect(where.startsAt.gte).toBeInstanceOf(Date);
     expect($transaction).toHaveBeenCalled();
+  });
+
+  it('marks a paused show SALES_PAUSED instead of hiding it', async () => {
+    const { service } = makeService({
+      sessions: [session({ id: 'ses_paused', status: 'PAUSED' })],
+    });
+
+    const result = await service.shows('skyfront-protocol', { limit: 50 });
+
+    expect(result.shows).toHaveLength(1);
+    expect(result.shows[0].availability).toBe('SALES_PAUSED');
+  });
+
+  it('does not advertise remaining seats on a paused show', async () => {
+    // A closed show reporting "AVAILABLE" would put a Book button on something that will
+    // refuse the booking.
+    const { service } = makeService({
+      sessions: [session({ id: 'ses_paused', status: 'PAUSED' })],
+      seatGroups: [{ eventSessionId: 'ses_paused', status: 'AVAILABLE', _count: { _all: 200 } }],
+    });
+
+    const result = await service.shows('skyfront-protocol', { limit: 50 });
+
+    expect(result.shows[0].availability).toBe('SALES_PAUSED');
   });
 
   it('clamps a past `from` to now, so history is never bookable', async () => {

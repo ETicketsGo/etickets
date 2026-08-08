@@ -153,3 +153,34 @@ export const bulkScheduleShowsSchema = z
     path: ['dates'],
   });
 export type BulkScheduleShowsInput = z.infer<typeof bulkScheduleShowsSchema>;
+
+/**
+ * Sales control and cancellation for one show.
+ *
+ * A reason is required for cancellation and optional for pause/reopen. Cancelling strands
+ * people who have paid, and an audit trail that cannot say why is not much of an audit
+ * trail; pausing is routine and usually self-evident.
+ */
+export const showSalesActionSchema = z.object({
+  reason: z.string().trim().min(3).max(500).optional(),
+});
+export type ShowSalesActionInput = z.infer<typeof showSalesActionSchema>;
+
+export const cancelShowSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+export type CancelShowInput = z.infer<typeof cancelShowSchema>;
+
+/**
+ * Move a future show.
+ *
+ * Only the start time is accepted; the end is recomputed from the film's runtime, so a slot
+ * can never disagree with the length of what is being shown. Screen changes are deliberately
+ * absent — every issued seat identifier belongs to the current screen's layout, so moving a
+ * show between screens is a cancel-and-recreate, not an edit.
+ */
+export const rescheduleShowSchema = z.object({
+  startsAt: z.coerce.date(),
+  padMinutes: z.number().int().min(0).max(120).default(20),
+});
+export type RescheduleShowInput = z.infer<typeof rescheduleShowSchema>;

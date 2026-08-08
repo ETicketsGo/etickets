@@ -2,9 +2,15 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   bulkScheduleShowsSchema,
+  cancelShowSchema,
+  rescheduleShowSchema,
+  showSalesActionSchema,
   generateSeatMapSchema,
   scheduleShowSchema,
   type BulkScheduleShowsInput,
+  type CancelShowInput,
+  type RescheduleShowInput,
+  type ShowSalesActionInput,
   type GenerateSeatMapInput,
   type ScheduleShowInput,
 } from '@eticketsgo/validation';
@@ -61,6 +67,53 @@ export class ShowsController {
     @Body(new ZodValidationPipe(bulkScheduleShowsSchema)) body: BulkScheduleShowsInput,
   ) {
     return this.shows.bulkScheduleShows(user, movieId, body);
+  }
+
+  /**
+   * Sales control for one show. Separate verbs rather than a generic status PATCH: each has
+   * different preconditions, and "set status to CANCELLED" hides that cancelling is a
+   * different kind of act from pausing.
+   */
+  @Post('shows/:sessionId/pause')
+  @ApiOperation({ summary: 'Stop selling a show without cancelling it.' })
+  pauseSales(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(showSalesActionSchema)) body: ShowSalesActionInput,
+  ) {
+    return this.shows.pauseSales(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/reopen')
+  @ApiOperation({ summary: 'Put a paused show back on sale.' })
+  reopenSales(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(showSalesActionSchema)) body: ShowSalesActionInput,
+  ) {
+    return this.shows.reopenSales(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/cancel')
+  @ApiOperation({
+    summary: 'Cancel a show. Returns bookings that need the refund workflow.',
+  })
+  cancelShow(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(cancelShowSchema)) body: CancelShowInput,
+  ) {
+    return this.shows.cancelShow(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/reschedule')
+  @ApiOperation({ summary: 'Move a future show to a new start time.' })
+  rescheduleShow(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(rescheduleShowSchema)) body: RescheduleShowInput,
+  ) {
+    return this.shows.rescheduleShow(user, sessionId, body);
   }
 
   @Get('movies/:movieId/shows')
