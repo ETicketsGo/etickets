@@ -184,3 +184,28 @@ export const rescheduleShowSchema = z.object({
   padMinutes: z.number().int().min(0).max(120).default(20),
 });
 export type RescheduleShowInput = z.infer<typeof rescheduleShowSchema>;
+
+/**
+ * Copy one screen's schedule for a day onto another date and/or another screen.
+ *
+ * Deliberately expressed as source day → target day rather than as a list of times: the
+ * operator's intent is "the same as yesterday", and re-deriving the times from what is
+ * actually scheduled is both less typing and impossible to get subtly wrong.
+ *
+ * Target screen defaults to the source, so the common case (copy yesterday to today) needs
+ * only two dates. Copying to another screen is the same operation with one more field.
+ */
+export const copyScheduleSchema = z.object({
+  sourceScreenId: z.string().cuid(),
+  /** Local calendar date on the source screen, in `timezone`. */
+  sourceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Defaults to the source screen. */
+  targetScreenId: z.string().cuid().optional(),
+  targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezone: z.string().min(1).max(64).default('Asia/Kolkata'),
+  pricing: z
+    .array(z.object({ seatCategoryId: z.string().cuid(), priceMinor: z.number().int().min(0) }))
+    .optional(),
+  dryRun: z.boolean().default(true),
+});
+export type CopyScheduleInput = z.infer<typeof copyScheduleSchema>;

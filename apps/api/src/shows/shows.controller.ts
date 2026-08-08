@@ -3,12 +3,14 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   bulkScheduleShowsSchema,
   cancelShowSchema,
+  copyScheduleSchema,
   rescheduleShowSchema,
   showSalesActionSchema,
   generateSeatMapSchema,
   scheduleShowSchema,
   type BulkScheduleShowsInput,
   type CancelShowInput,
+  type CopyScheduleInput,
   type RescheduleShowInput,
   type ShowSalesActionInput,
   type GenerateSeatMapInput,
@@ -67,6 +69,22 @@ export class ShowsController {
     @Body(new ZodValidationPipe(bulkScheduleShowsSchema)) body: BulkScheduleShowsInput,
   ) {
     return this.shows.bulkScheduleShows(user, movieId, body);
+  }
+
+  /**
+   * Copy a screen's day onto another date and/or another screen. Dry run by default.
+   *
+   * One endpoint for both, because they are the same operation: the target screen simply
+   * defaults to the source. Splitting them would duplicate every compatibility check.
+   */
+  @Post('movies/:movieId/shows/copy')
+  @ApiOperation({ summary: 'Copy a day’s schedule to another date and/or screen.' })
+  copySchedule(
+    @CurrentUser() user: RequestUser,
+    @Param('movieId') movieId: string,
+    @Body(new ZodValidationPipe(copyScheduleSchema)) body: CopyScheduleInput,
+  ) {
+    return this.shows.copySchedule(user, movieId, body);
   }
 
   /**

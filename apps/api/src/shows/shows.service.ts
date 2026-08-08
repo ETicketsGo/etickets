@@ -10,6 +10,7 @@ import {
 } from '@eticketsgo/shared-types';
 import type {
   BulkScheduleShowsInput,
+  CopyScheduleInput,
   GenerateSeatMapInput,
   RescheduleShowInput,
   ScheduleShowInput,
@@ -72,6 +73,30 @@ export function zonedWallClockToInstant(date: string, time: string, timeZone: st
     get('second'),
   );
   return new Date(naive.getTime() - (asZone - naive.getTime()));
+}
+
+/**
+ * The wall-clock time an instant reads as in a given zone, as HH:mm.
+ *
+ * The inverse of zonedWallClockToInstant, and the reason copying a day is DST-safe: the
+ * source show's LOCAL time is recovered and re-resolved against the target date, so a
+ * 10:30 show stays 10:30 even if the two dates sit on opposite sides of a clock change.
+ * Adding 24h to the UTC instant — the obvious implementation — silently shifts every show
+ * by an hour across a transition.
+ */
+export function instantToZonedWallClock(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(instant);
+}
+
+/** The next calendar date LABEL. Label arithmetic, so DST cannot add or drop a day. */
+function nextDateLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  return new Date(d.getTime() + 24 * 60 * 60_000).toISOString().slice(0, 10);
 }
 
 /** Flattens scheduling rejections into a stable, client-readable shape. */
@@ -672,6 +697,133 @@ export class ShowsService {
         publishedAt: new Date(),
       },
     });
+  }
+
+  /**
+   * Copy a screen's day onto another date and/or another screen.
+   *
+   * A convenience over the bulk engine, not a second scheduler. It reads the source day,
+   * recovers each show's LOCAL start time, and hands those times to `bulkScheduleShows`
+   * against the target — so overlap, turnaround, proposal-vs-proposal checking, the screen
+   * row lock, transactional creation and the dry-run default all come from one place and
+   * cannot drift.
+   *
+   * DST-safe by construction. The source times are recovered as wall-clock and re-resolved
+   * against the target date in the venue's zone, so a 10:30 show stays 10:30 even when the
+   * two dates sit either side of a clock change. Adding 24 hours to the UTC instant — the
+   * obvious implementation — shifts every show by an hour across a transition.
+   *
+   * Only the schedule is copied. Bookings are never moved: these are new future sessions.
+   */
+  async copySchedule(user: RequestUser, movieId: string, input: CopyScheduleInput) {
+    const targetScreenId = input.targetScreenId ?? input.sourceScreenId;
+
+    const movie = await this.prisma.movie.findUnique({ where: { id: movieId } });
+    if (!movie)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Movie not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, movie.organizationId, ORGANIZER_ROLES);
+
+    // Authorize the SOURCE too. The target is validated by bulkScheduleShows, but reading
+    // another tenant's schedule would leak their programming even if nothing were created.
+    const source = await this.prisma.screen.findUnique({
+      where: { id: input.sourceScreenId },
+      include: { cinema: true },
+    });
+    if (!source)
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Source screen not found.',
+        HttpStatus.NOT_FOUND,
+      );
+    if (source.cinema.organizationId !== movie.organizationId) {
+      throw new AppException(
+        ErrorCodes.TENANT_FORBIDDEN,
+        'The source screen does not belong to this movie’s organization.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    // The UTC window covering the source LOCAL day. Both edges are resolved through the
+    // zone, so a 23- or 25-hour DST day is exactly covered rather than clipped or doubled.
+    const dayStart = zonedWallClockToInstant(input.sourceDate, '00:00', input.timezone);
+    const dayEnd = zonedWallClockToInstant(
+      nextDateLabel(input.sourceDate),
+      '00:00',
+      input.timezone,
+    );
+
+    const sourceSessions = await this.prisma.eventSession.findMany({
+      where: {
+        screenId: input.sourceScreenId,
+        // A cancelled show is not part of the day's programme and must not be copied
+        // forward; copying it would resurrect something the operator deliberately stopped.
+        status: { not: SessionStatus.CANCELLED },
+        startsAt: { gte: dayStart, lt: dayEnd },
+        event: { movieId },
+      },
+      select: { startsAt: true },
+      orderBy: { startsAt: 'asc' },
+    });
+
+    if (!sourceSessions.length) {
+      return {
+        dryRun: input.dryRun,
+        sourceDate: input.sourceDate,
+        targetDate: input.targetDate,
+        targetScreenId,
+        turnaroundMinutes: this.turnaroundMinutes,
+        proposed: 0,
+        created: [],
+        rejected: [],
+        times: [] as string[],
+      };
+    }
+
+    const times = [
+      ...new Set(sourceSessions.map((s) => instantToZonedWallClock(s.startsAt, input.timezone))),
+    ].sort();
+
+    const result = await this.bulkScheduleShows(user, movieId, {
+      screenId: targetScreenId,
+      dates: [input.targetDate],
+      times,
+      // The source sessions already include whatever padding was applied when they were
+      // created; re-adding it would stretch each copied show a little further every time a
+      // day was copied forward.
+      padMinutes: 0,
+      timezone: input.timezone,
+      pricing: input.pricing,
+      dryRun: input.dryRun,
+    });
+
+    if (!input.dryRun) {
+      await this.audit?.record({
+        actorUserId: user.id,
+        organizationId: movie.organizationId,
+        action: 'SHOW_SCHEDULE_COPIED',
+        entityType: 'Screen',
+        entityId: targetScreenId,
+        metadata: {
+          movieId,
+          sourceScreenId: input.sourceScreenId,
+          sourceDate: input.sourceDate,
+          targetDate: input.targetDate,
+          timezone: input.timezone,
+          times,
+          created: result.created.length,
+          rejected: result.rejected.length,
+        },
+      });
+    }
+
+    return {
+      ...result,
+      sourceDate: input.sourceDate,
+      targetDate: input.targetDate,
+      targetScreenId,
+      /** The local times recovered from the source day, so a dry run is self-explaining. */
+      times,
+    };
   }
 
   // ─── Sales control and cancellation ───
