@@ -571,6 +571,63 @@ export const api = {
       }),
   },
 
+  /**
+   * Theater operations — live shows, seat overrides and layout versions.
+   *
+   * Separate from `shows` because these are the things a duty manager does to a room and to
+   * tonight's performance, which is a different job from planning next week.
+   */
+  theaterOps: {
+    occupancy: (sessionId: string) => request<OccupancySnapshot>(`/shows/${sessionId}/occupancy`),
+    cinemaOccupancy: (cinemaId: string, from: string, to: string) =>
+      request<OccupancySnapshot[]>(`/cinemas/${cinemaId}/occupancy${qs({ from, to })}`),
+    liveSeatMap: (sessionId: string) => request<LiveSeatMap>(`/shows/${sessionId}/live-seat-map`),
+
+    blockSeats: (sessionId: string, body: BlockSeatsBody) =>
+      request<SeatOverrideResult>(`/shows/${sessionId}/seats/block`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    releaseSeats: (sessionId: string, body: ReleaseSeatsBody) =>
+      request<SeatOverrideResult>(`/shows/${sessionId}/seats/release`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    companions: (sessionId: string, seatId: string) =>
+      request<{ candidates: { seatId: string; label: string }[] }>(
+        `/shows/${sessionId}/seats/${seatId}/companions`,
+      ),
+
+    overrideReport: (cinemaId: string, from: string, to: string) =>
+      request<SeatOverrideReport>(`/cinemas/${cinemaId}/reports/seat-overrides${qs({ from, to })}`),
+
+    layouts: (screenId: string) =>
+      request<SeatLayoutSummary[]>(`/screens/${screenId}/seat-layouts`),
+    cloneLayout: (layoutId: string, name?: string) =>
+      request<{ id: string; version: number; status: string }>(`/seat-layouts/${layoutId}/clone`, {
+        method: 'POST',
+        body: JSON.stringify(name ? { name } : {}),
+      }),
+    updateDraft: (layoutId: string, body: UpdateSeatLayoutBody) =>
+      request<{ id: string; status: string }>(`/seat-layouts/${layoutId}/draft`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    publishLayout: (layoutId: string, effectiveFrom?: string) =>
+      request<SeatLayoutSummary>(`/seat-layouts/${layoutId}/publish`, {
+        method: 'POST',
+        body: JSON.stringify(effectiveFrom ? { effectiveFrom } : {}),
+      }),
+    archiveLayout: (layoutId: string) =>
+      request<{ id: string; status: string }>(`/seat-layouts/${layoutId}/archive`, {
+        method: 'POST',
+      }),
+    deleteDraft: (layoutId: string) =>
+      request<{ id: string; deleted: boolean }>(`/seat-layouts/${layoutId}`, { method: 'DELETE' }),
+    compareLayouts: (from: string, to: string) =>
+      request<LayoutComparison>(`/seat-layouts/compare${qs({ from, to })}`),
+  },
+
   events: {
     list: (organizationId: string) => request<OrgEventRow[]>(`/events${qs({ organizationId })}`),
     get: (id: string) => request<OrgEventDetail>(`/events/${id}`),
@@ -3115,4 +3172,173 @@ export interface PaymentHealthReport {
     pending: number;
     successRate: number | null;
   }[];
+}
+
+// ── Theater operations ────────────────────────────────────────────────────────────
+
+/**
+ * Why a seat was withdrawn from sale.
+ *
+ * Mirrors the server enum exactly. Defining a different set here is how a UI ends up
+ * offering an option the API will always refuse.
+ */
+export type SeatOverrideKind =
+  'MANUAL_BLOCK' | 'MAINTENANCE' | 'HOUSE' | 'VIP' | 'COMPANION' | 'EMERGENCY';
+
+export type HousePurpose = 'COMPLIMENTARY' | 'PRESS' | 'SPONSOR' | 'MANAGEMENT' | 'TECHNICAL';
+
+export interface OccupancySnapshot {
+  sessionId: string;
+  movieTitle: string | null;
+  screenId: string | null;
+  screenName: string | null;
+  cinemaId: string | null;
+  cinemaName: string | null;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  seatsTotal: number;
+  capacity: number;
+  sold: number;
+  held: number;
+  available: number;
+  blocked: number;
+  blockedByKind: { kind: SeatOverrideKind; label: string; count: number }[];
+  house: number;
+  /** Server-computed. Never recomputed client-side — see LIVE-OPERATIONS.md. */
+  occupancyPercent: number | null;
+  revenueMinor: number;
+  pendingPaymentMinor: number;
+  currency: string;
+  salesPacePerHour: number | null;
+  observedAt: string;
+}
+
+export interface LiveSeat {
+  seatId: string;
+  label: string;
+  row: string;
+  colIndex: number;
+  /** SEAT | GAP | WHEELCHAIR | COMPANION — a property of the layout version. */
+  kind: string;
+  categoryId: string;
+  status: string;
+  overrideKind: SeatOverrideKind | null;
+  overrideReason: string | null;
+  overrideBy: string | null;
+  overrideAt: string | null;
+  overrideExpiresAt: string | null;
+  heldNow: boolean;
+}
+
+export interface LiveSeatMap {
+  sessionId: string;
+  movieTitle: string | null;
+  screenName: string | null;
+  cinemaName: string | null;
+  startsAt: string;
+  status: string;
+  seatMapId: string | null;
+  categories: { id: string; name: string; colorHex: string | null; basePriceMinor: number }[];
+  observedAt: string;
+  sections: { name: string; rows: { label: string; seats: LiveSeat[] }[] }[];
+}
+
+export interface BlockSeatsBody {
+  seatIds: string[];
+  kind: SeatOverrideKind;
+  reason: string;
+  expiresAt?: string;
+  housePurpose?: HousePurpose;
+}
+
+export interface ReleaseSeatsBody {
+  seatIds: string[];
+  reason: string;
+  /** Required to release an EMERGENCY block. */
+  force?: boolean;
+}
+
+export interface SeatOverrideResult {
+  sessionId: string;
+  applied: number;
+  refused: number;
+  seats: { seatId: string; seatLabel: string; applied: boolean; reason?: string; code?: string }[];
+  warnings: string[];
+}
+
+export interface SeatOverrideReport {
+  cinemaId: string;
+  from: string;
+  to: string;
+  totalActions: number;
+  seatsBlocked: number;
+  seatsReleased: number;
+  byKind: { kind: SeatOverrideKind; label: string; count: number }[];
+  byReason: { reason: string; count: number }[];
+  byOperator: { actor: string; count: number }[];
+  timeline: {
+    at: string;
+    action: string;
+    actor: string;
+    sessionId: string | null;
+    showStartsAt: string | null;
+    movieTitle: string | null;
+    screenId: string | null;
+    screenName: string | null;
+    kind: SeatOverrideKind | null;
+    housePurpose: string | null;
+    reason: string | null;
+    seatCount: number;
+    seats: string[];
+    expiresAt: string | null;
+  }[];
+  /** True when the window hit the server cap — the UI must say so. */
+  truncated: boolean;
+}
+
+export type SeatLayoutStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export interface SeatLayoutSummary {
+  id: string;
+  screenId: string;
+  name: string | null;
+  version: number;
+  status: SeatLayoutStatus;
+  effectiveFrom: string | null;
+  publishedAt: string | null;
+  archivedAt: string | null;
+  clonedFromId: string | null;
+  seatCount: number;
+  capacity: number;
+  futureShows: number;
+  historicalShows: number;
+  createdAt: string;
+}
+
+export interface UpdateSeatLayoutBody {
+  name?: string;
+  sections: {
+    name: string;
+    categoryName: string;
+    colorHex?: string;
+    basePriceMinor: number;
+    rowLabels: string[];
+    seatsPerRow: number;
+    seatKinds?: Record<string, 'SEAT' | 'GAP' | 'WHEELCHAIR' | 'COMPANION'>;
+  }[];
+}
+
+export interface LayoutComparison {
+  addedSeats: { seat: string; to?: { categoryName: string; kind: string } }[];
+  removedSeats: { seat: string; from?: { categoryName: string; kind: string } }[];
+  changedSeats: {
+    seat: string;
+    from?: { categoryName: string; kind: string };
+    to?: { categoryName: string; kind: string };
+  }[];
+  unchangedCount: number;
+  capacityDelta: number;
+  from: SeatLayoutSummary;
+  to: SeatLayoutSummary;
 }

@@ -276,6 +276,14 @@ export default function CinemaDetailPage() {
           >
             Seat map
           </ButtonLink>
+          {/* The designer draws a room; this manages the versions the screen has had. */}
+          <ButtonLink
+            variant="ghost"
+            size="sm"
+            href={`/organizer/cinemas/${id}/screens/${s.id}/layouts`}
+          >
+            Layouts
+          </ButtonLink>
           <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>
             Edit
           </Button>
@@ -321,6 +329,23 @@ export default function CinemaDetailPage() {
         title={cinema.name}
         breadcrumbs={[{ label: 'Cinemas', href: '/organizer/cinemas' }, { label: cinema.name }]}
       />
+
+      {/*
+        The operator's entry points into this cinema, in the order a day is actually run:
+        plan the week, work tonight, review what was done. Plain links rather than a new
+        navigation pattern — the shell's sidebar is organisation-level, and a cinema is not.
+      */}
+      <nav aria-label="Cinema operations" className="flex flex-wrap gap-2">
+        <ButtonLink href={`/organizer/cinemas/${cinema.id}/schedule`} variant="secondary">
+          Schedule
+        </ButtonLink>
+        <ButtonLink href={`/organizer/cinemas/${cinema.id}/live`} variant="secondary">
+          Live operations
+        </ButtonLink>
+        <ButtonLink href={`/organizer/cinemas/${cinema.id}/reports`} variant="secondary">
+          Override history
+        </ButtonLink>
+      </nav>
 
       <Card title="Details">
         <div className="space-y-4">
