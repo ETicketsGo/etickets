@@ -94,12 +94,38 @@ export class CinemasService {
 
   // ─── Screens ───
 
+  /**
+   * A cinema's screens, each with the number of future shows on it.
+   *
+   * The count is included so the operator can be warned BEFORE taking a screen out of
+   * service — "Screen 2 has 14 future shows" is the difference between an informed decision
+   * and a surprise. Returning it only from the update response would mean showing the
+   * consequence after the fact.
+   *
+   * One grouped query for the whole cinema rather than one per screen.
+   */
   async listScreens(user: RequestUser, cinemaId: string) {
     await this.loadOwnedCinema(user, cinemaId, undefined);
-    return this.prisma.screen.findMany({
+    const screens = await this.prisma.screen.findMany({
       where: { cinemaId },
       orderBy: { createdAt: 'asc' },
     });
+    if (screens.length === 0) return screens;
+
+    const counts = await this.prisma.eventSession.groupBy({
+      by: ['screenId'],
+      where: {
+        screenId: { in: screens.map((s) => s.id) },
+        startsAt: { gt: new Date() },
+        status: { not: SessionStatus.CANCELLED },
+      },
+      _count: { _all: true },
+    });
+    const byScreen = new Map(counts.map((c) => [c.screenId, c._count._all]));
+    return screens.map((s) => ({
+      ...s,
+      futureShowsRequiringAttention: byScreen.get(s.id) ?? 0,
+    }));
   }
 
   async addScreen(user: RequestUser, cinemaId: string, input: CreateScreenInput) {
