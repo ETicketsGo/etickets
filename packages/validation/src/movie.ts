@@ -91,3 +91,65 @@ export const scheduleShowSchema = z
     path: ['endsAt'],
   });
 export type ScheduleShowInput = z.infer<typeof scheduleShowSchema>;
+
+/**
+ * Bulk show scheduling.
+ *
+ * A theater manager sets a day's grid — one film, one screen, a handful of start times —
+ * and repeats it across a week. Doing that one request at a time is both slow and unsafe:
+ * each request is individually valid and only the set collides, so conflicts surface one
+ * failure at a time after some shows already exist.
+ *
+ * Times are wall-clock HH:mm applied to each date, which is how a schedule is published: a
+ * 10:30 show is 10:30 every day and does not shift with the server's zone. End times are
+ * derived from the movie's runtime rather than supplied, so a slot cannot disagree with the
+ * film's length.
+ */
+export const bulkScheduleShowsSchema = z
+  .object({
+    screenId: z.string().cuid(),
+    /** Explicit dates (YYYY-MM-DD). Mutually exclusive with `from`/`to`. */
+    dates: z
+      .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+      .max(62)
+      .optional(),
+    /** Inclusive date range, expanded server-side. */
+    from: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    to: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    /** Daily start times as wall-clock HH:mm. */
+    times: z
+      .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
+      .min(1)
+      .max(24),
+    /**
+     * Minutes to add to the film's runtime for trailers and titles, so the screen is not
+     * booked back-to-back against the feature length alone.
+     */
+    padMinutes: z.number().int().min(0).max(120).default(20),
+    /** IANA zone for interpreting the wall-clock times. Defaults to the India market. */
+    timezone: z.string().min(1).max(64).default('Asia/Kolkata'),
+    pricing: z
+      .array(z.object({ seatCategoryId: z.string().cuid(), priceMinor: z.number().int().min(0) }))
+      .optional(),
+    /**
+     * Preview only. Returns exactly the same decisions without writing anything, so an
+     * operator can resolve conflicts before committing. Defaults to true: the safe outcome
+     * for a malformed or forgotten flag is "showed you the plan", never "created 40 shows".
+     */
+    dryRun: z.boolean().default(true),
+  })
+  .refine((v) => (v.dates?.length ?? 0) > 0 || (v.from && v.to), {
+    message: 'Provide either explicit dates or a from/to range.',
+    path: ['dates'],
+  })
+  .refine((v) => !(v.dates?.length && (v.from || v.to)), {
+    message: 'Provide dates or a from/to range, not both.',
+    path: ['dates'],
+  });
+export type BulkScheduleShowsInput = z.infer<typeof bulkScheduleShowsSchema>;

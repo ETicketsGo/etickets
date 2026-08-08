@@ -93,6 +93,20 @@ const envSchema = z.object({
    */
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
 
+  /**
+   * Minimum gap between two shows on the same screen, in minutes.
+   *
+   * A cinema cannot run back-to-back: the room has to empty, be cleaned and refill.
+   * Scheduling 14:00–16:00 followed by 16:00–18:00 looks correct in a spreadsheet and is
+   * not runnable. This is a property of how a venue operates — a multiplex with cleaning
+   * staff per screen turns around faster than a single-screen house — so it is
+   * configuration rather than a constant.
+   *
+   * Zero is permitted: some operators schedule the gap into the advertised runtime and do
+   * not want a second one imposed on top.
+   */
+  SHOW_TURNAROUND_MINUTES: z.coerce.number().int().min(0).max(240).default(15),
+
   // Transactional outbox (ADR-041). DEFAULTS PRESERVE P2 in-process behaviour. Mode
   // `in_process` = current P2. `outbox` = record durably in the business tx + dispatch
   // from the outbox (no direct post-commit publish). `dual_write_shadow` = record
