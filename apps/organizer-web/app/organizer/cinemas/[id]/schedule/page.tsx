@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   api,
   Badge,
@@ -55,12 +55,20 @@ export default function CinemaSchedulePage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
 
-  // The venue's zone. Sent explicitly so the server resolves the local day rather than the
-  // browser or the container guessing at it.
-  const timezone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
-    [],
-  );
+  /**
+   * The zone the cinema's day is reckoned in.
+   *
+   * NOT the browser's zone, which is what this used to be and was wrong: a Hyderabad
+   * theater operated by someone travelling in London must still show the Hyderabad day, and
+   * a 09:00 show would otherwise slide onto the previous date. It is also not fixed-offset
+   * arithmetic — the IANA name is sent and the server resolves it, so DST markets stay
+   * correct.
+   *
+   * Defaulted to the India launch market because `Cinema` carries no timezone column yet.
+   * That is a real gap: a chain operating across zones needs it per venue, and this is the
+   * one place that will need changing when the column exists.
+   */
+  const timezone = 'Asia/Kolkata';
 
   const cinemaQ = useQuery({
     queryKey: ['cinema', cinemaId],
@@ -255,7 +263,7 @@ function ScreenTimeline({
     <Card>
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="text-base font-semibold">{screenName}</h3>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-slate-500" data-testid="screen-show-count">
           {shows.length} {shows.length === 1 ? 'show' : 'shows'}
         </span>
       </div>
@@ -307,9 +315,13 @@ function ShowRowItem({
       <span className="min-w-[10rem] flex-1 font-medium">{show.movieTitle ?? 'Untitled'}</span>
 
       {/* Text alongside the badge: state is never carried by colour alone. */}
+      {/*
+        The label is real text inside the badge, not a colour swatch, so status survives
+        greyscale, colour-blindness and a screen reader. No duplicate sr-only copy — that
+        made assistive tech announce the status twice.
+      */}
       <span className="flex items-center gap-2">
         <Badge tone={presentation.tone}>{presentation.label}</Badge>
-        <span className="sr-only">{presentation.srText}</span>
       </span>
 
       <span className="w-32 text-sm text-slate-500">

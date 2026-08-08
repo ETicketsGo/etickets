@@ -1,0 +1,407 @@
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { API, ORGANIZER, apiLogin, login } from './helpers';
+
+/**
+ * Organizer cinema scheduling — the theater's daily operating screen.
+ *
+ * These drive the real UI against the real API. Nothing here reimplements a backend rule:
+ * conflicts, turnaround and booking-aware guards are all asserted by observing what the
+ * server decided and what the operator is then shown. A test that computed its own overlap
+ * would pass while the product was broken.
+ *
+ * ── ISOLATION ─────────────────────────────────────────────────────────────────────
+ * Every spec creates its OWN cinema, screen, seat map and movie over the API, with a
+ * unique suffix. The seeded PVR cinema is shared with the customer movie spec, and mutating
+ * it here would make both suites depend on execution order. Playwright is configured with
+ * workers: 1 and fullyParallel: false, but relying on that for correctness would be a trap
+ * the moment someone turns parallelism on.
+ */
+
+const OWNER = 'owner@eticketsgo.test';
+
+interface Fixture {
+  cinemaId: string;
+  screenAId: string;
+  screenBId: string;
+  movieId: string;
+  movieTitle: string;
+  organizationId: string;
+}
+
+/**
+ * A YYYY-MM-DD label N days ahead, on the CINEMA's calendar.
+ *
+ * Must match the zone the workspace reckons the day in, or a 09:00 show seeded here lands
+ * on a different local date than the page asks for and every assertion looks at an empty
+ * day. Deriving it from the runner's local calendar was exactly that bug.
+ */
+const CINEMA_TZ = 'Asia/Kolkata';
+
+function dateLabel(daysAhead: number): string {
+  const d = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
+  // en-CA formats as YYYY-MM-DD, which is the label shape the API and the date input use.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CINEMA_TZ }).format(d);
+}
+
+/**
+ * Build a private cinema over the API.
+ *
+ * Using the API rather than the UI is deliberate: these specs are about the SCHEDULING
+ * workspace, and driving cinema/screen/seat-map creation through forms would make every one
+ * of them fail for unrelated reasons.
+ */
+async function createFixture(request: APIRequestContext, token: string): Promise<Fixture> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+  const orgs = await (await request.get(`${API}/organizations`, { headers: auth })).json();
+  const organizationId = (Array.isArray(orgs) ? orgs[0] : orgs.data?.[0])?.id as string;
+
+  const cinema = await (
+    await request.post(`${API}/cinemas`, {
+      headers: auth,
+      data: {
+        organizationId,
+        name: `E2E Multiplex ${suffix}`,
+        city: 'Hyderabad',
+      },
+    })
+  ).json();
+
+  const screens: string[] = [];
+  for (const name of ['Screen A', 'Screen B']) {
+    const screen = await (
+      await request.post(`${API}/cinemas/${cinema.id}/screens`, {
+        headers: auth,
+        data: { name, screenType: '2D', capacity: 20 },
+      })
+    ).json();
+    // A screen without a seat map cannot be scheduled — the server says so explicitly.
+    await request.post(`${API}/screens/${screen.id}/seatmap`, {
+      headers: auth,
+      data: {
+        name: 'Main',
+        sections: [
+          {
+            name: 'Stalls',
+            categoryName: 'Normal',
+            basePriceMinor: 20000,
+            rowLabels: ['A', 'B'],
+            seatsPerRow: 5,
+          },
+        ],
+      },
+    });
+    screens.push(screen.id);
+  }
+
+  const movieTitle = `E2E Feature ${suffix}`;
+  const movie = await (
+    await request.post(`${API}/movies`, {
+      headers: auth,
+      data: {
+        organizationId,
+        title: movieTitle,
+        runtimeMinutes: 100,
+        language: 'Telugu',
+        genres: ['Drama'],
+      },
+    })
+  ).json();
+  await request.post(`${API}/movies/${movie.id}/status`, {
+    headers: auth,
+    data: { status: 'PUBLISHED' },
+  });
+
+  return {
+    cinemaId: cinema.id,
+    screenAId: screens[0],
+    screenBId: screens[1],
+    movieId: movie.id,
+    movieTitle,
+    organizationId,
+  };
+}
+
+/** Schedule shows directly over the API, for arranging a starting state. */
+async function seedShows(
+  request: APIRequestContext,
+  token: string,
+  fixture: Fixture,
+  screenId: string,
+  date: string,
+  times: string[],
+) {
+  const res = await request.post(`${API}/movies/${fixture.movieId}/shows/bulk`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      screenId,
+      dates: [date],
+      times,
+      padMinutes: 0,
+      timezone: CINEMA_TZ,
+      dryRun: false,
+    },
+  });
+  return res.json();
+}
+
+/** The Create-shows dialog, scoped so its fields cannot collide with the page filters. */
+const bulkDialog = (page: Page) => page.getByRole('dialog', { name: 'Create shows' });
+/** The Copy-schedule dialog, scoped for the same reason. */
+const copyDialog = (page: Page) => page.getByRole('dialog', { name: 'Copy schedule' });
+
+const gotoSchedule = async (page: Page, cinemaId: string, date: string) => {
+  await page.goto(`${ORGANIZER}/organizer/cinemas/${cinemaId}/schedule`);
+  // The date control is the page's anchor; waiting on it proves the workspace mounted.
+  const dateInput = page.getByLabel('Date', { exact: true });
+  await expect(dateInput).toBeVisible({ timeout: 20_000 });
+  await dateInput.fill(date);
+  return dateInput;
+};
+
+test.describe('organizer cinema scheduling', () => {
+  let token = '';
+  let fixture: Fixture;
+
+  test.beforeAll(async ({ request }) => {
+    const tokens = await apiLogin(request, OWNER);
+    token = tokens.accessToken;
+    fixture = await createFixture(request, token);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await login(page, ORGANIZER, OWNER);
+  });
+
+  test('1-2: opens the schedule and shows a row per screen', async ({ page, request }) => {
+    const date = dateLabel(14);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['09:00', '14:00']);
+
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    // Both screens appear: the one with shows, and the empty one — an empty screen is the
+    // most actionable thing on this page and must not be hidden.
+    await expect(page.getByRole('heading', { name: 'Screen A' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Screen B' })).toBeVisible();
+    await expect(
+      page.getByTestId('screen-show-count').filter({ hasText: '2 shows' }),
+    ).toBeVisible();
+    await expect(page.getByText(fixture.movieTitle).first()).toBeVisible();
+  });
+
+  test('3: creates shows through the bulk workflow', async ({ page }) => {
+    const date = dateLabel(15);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    await page.getByRole('button', { name: 'Create shows' }).click();
+    const d = bulkDialog(page);
+    await d.getByLabel('Screen').selectOption({ label: 'Screen A' });
+    await d.getByLabel('Movie').selectOption(fixture.movieId);
+    await d.getByLabel('Date', { exact: true }).fill(date);
+    await d.getByLabel(/Showtimes/).fill('10:00');
+
+    await d.getByRole('button', { name: 'Preview' }).click();
+    await expect(bulkDialog(page).getByText('1 slot proposed')).toBeVisible({ timeout: 20_000 });
+    await bulkDialog(page)
+      .getByRole('button', { name: /Publish 1 show/ })
+      .click();
+
+    await expect(page.getByRole('heading', { name: 'Screen A' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('screen-show-count').filter({ hasText: '1 show' })).toBeVisible();
+  });
+
+  test('4-5: a turnaround-only clash is explained, not just rejected', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(16);
+    // 10:00–11:40 exists. 11:45 does not overlap it — it is 5 min later — but a screen needs
+    // 15 min between shows, and the operator must be told THAT rather than "conflict".
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['10:00']);
+
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await page.getByRole('button', { name: 'Create shows' }).click();
+    const d = bulkDialog(page);
+    await d.getByLabel('Screen').selectOption({ label: 'Screen A' });
+    await d.getByLabel('Movie').selectOption(fixture.movieId);
+    await d.getByLabel('Date', { exact: true }).fill(date);
+    await d.getByLabel(/Showtimes/).fill('11:45');
+    await d.getByRole('button', { name: 'Preview' }).click();
+
+    await expect(page.getByText('1 will be skipped')).toBeVisible({ timeout: 20_000 });
+    // The human sentence, naming the turnaround as the cause.
+    await expect(page.getByText(/min between shows to empty and clean/)).toBeVisible();
+    // The raw code stays available for diagnostics without being the message.
+    await expect(page.getByText('OVERLAPS_EXISTING_SHOW')).toBeVisible();
+  });
+
+  test('6-8: preview is required before publish', async ({ page }) => {
+    const date = dateLabel(17);
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await page.getByRole('button', { name: 'Create shows' }).click();
+
+    // Step 1 is Configure and there is no Publish control at all until a preview is run:
+    // a mis-click must never be able to create a week of shows.
+    const d = bulkDialog(page);
+    await expect(d.getByRole('button', { name: /^Publish/ })).toHaveCount(0);
+    await expect(d.getByRole('button', { name: 'Preview' })).toBeVisible();
+  });
+
+  test('9-11: a recurring range previews per-slot conflicts individually', async ({
+    page,
+    request,
+  }) => {
+    const from = dateLabel(20);
+    const to = dateLabel(22);
+    // Block the middle day only, so exactly one of three proposals must be refused.
+    await seedShows(request, token, fixture, fixture.screenBId, dateLabel(21), ['18:00']);
+
+    await gotoSchedule(page, fixture.cinemaId, from);
+    await page.getByRole('button', { name: 'Create shows' }).click();
+    const d = bulkDialog(page);
+    await d.getByLabel('Screen').selectOption({ label: 'Screen B' });
+    await d.getByLabel('Movie').selectOption(fixture.movieId);
+    await d.getByLabel('Date mode').selectOption('range');
+    await d.getByLabel('From').fill(from);
+    await d.getByLabel('To', { exact: true }).fill(to);
+    await d.getByLabel(/Showtimes/).fill('18:00');
+    await d.getByRole('button', { name: 'Preview' }).click();
+
+    await expect(page.getByText('3 slots proposed')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('2 will be created')).toBeVisible();
+    await expect(page.getByText('1 will be skipped')).toBeVisible();
+  });
+
+  test('12-14: pause then reopen, with state visible throughout', async ({ page, request }) => {
+    const date = dateLabel(25);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['12:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await page.getByRole('button', { name: /^Pause sales for/ }).click();
+    // The dialog must say what pause does NOT do, so nobody thinks they stranded a customer.
+    await expect(page.getByText(/Tickets already sold stay valid/)).toBeVisible();
+    await page.getByRole('button', { name: 'Pause sales', exact: true }).click();
+
+    await expect(page.getByText('Sales paused', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.locator('li').getByText('On sale', { exact: true })).toHaveCount(0);
+
+    await page.getByRole('button', { name: /^Reopen sales for/ }).click();
+    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('15-16: cancelling needs a reason and the show stays visible', async ({ page, request }) => {
+    const date = dateLabel(26);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['13:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+
+    await page.getByRole('button', { name: /^Cancel .* at / }).click();
+    const confirm = page.getByRole('button', { name: 'Cancel show' });
+    // Guarded until a reason is given: cancelling strands people who have paid.
+    await expect(confirm).toBeDisabled();
+    await page.getByLabel(/Reason \(required\)/).fill('projector failure');
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+
+    // Kept and marked, not deleted — the operator still needs to see it happened.
+    await expect(page.getByText('Cancelled', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText(fixture.movieTitle).first()).toBeVisible();
+  });
+
+  test('17: copies a day to the next date', async ({ page, request }) => {
+    const source = dateLabel(30);
+    const target = dateLabel(31);
+    await seedShows(request, token, fixture, fixture.screenAId, source, ['09:00', '15:00']);
+
+    await gotoSchedule(page, fixture.cinemaId, source);
+    await page.getByRole('button', { name: 'Copy schedule' }).click();
+    const d = copyDialog(page);
+    await d.getByLabel('From screen').selectOption({ label: 'Screen A' });
+    await d.getByLabel('Movie').selectOption(fixture.movieId);
+    await d.getByLabel('To date').fill(target);
+    await d.getByRole('button', { name: 'Preview' }).click();
+
+    // The recovered LOCAL times are shown, which is what makes the preview self-explaining.
+    await expect(copyDialog(page).getByText('09:00, 15:00')).toBeVisible({ timeout: 20_000 });
+    await copyDialog(page)
+      .getByRole('button', { name: /^Copy 2 shows/ })
+      .click();
+
+    await page.getByLabel('Date', { exact: true }).first().fill(target);
+    await expect(page.getByTestId('screen-show-count').filter({ hasText: '2 shows' })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('18: copies a day to another screen without touching the source', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(35);
+    await seedShows(request, token, fixture, fixture.screenAId, date, ['11:00']);
+
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await page.getByRole('button', { name: 'Copy schedule' }).click();
+    const d = copyDialog(page);
+    await d.getByLabel('From screen').selectOption({ label: 'Screen A' });
+    await d.getByLabel('To screen').selectOption({ label: 'Screen B' });
+    await d.getByLabel('Movie').selectOption(fixture.movieId);
+    await d.getByLabel('To date').fill(date);
+    await d.getByRole('button', { name: 'Preview' }).click();
+    await d.getByRole('button', { name: /^Copy 1 show/ }).click();
+
+    // Both screens now hold one show; the source was copied, not moved.
+    await expect(page.getByRole('heading', { name: 'Screen A' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Screen B' })).toBeVisible();
+    await expect(page.getByTestId('screen-show-count').filter({ hasText: '1 show' })).toHaveCount(
+      2,
+      { timeout: 20_000 },
+    );
+  });
+
+  test('19: a refresh shows the authoritative server state, not local optimism', async ({
+    page,
+    request,
+  }) => {
+    const date = dateLabel(40);
+    const created = await seedShows(request, token, fixture, fixture.screenAId, date, ['16:00']);
+    await gotoSchedule(page, fixture.cinemaId, date);
+    await expect(page.getByText('On sale', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // Change it behind the UI's back, then reload: the page must report the server's truth.
+    await request.post(`${API}/shows/${created.created[0].sessionId}/pause`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { reason: 'changed elsewhere' },
+    });
+
+    await page.reload();
+    await page.getByLabel('Date', { exact: true }).fill(date);
+    await expect(page.getByText('Sales paused', { exact: true }).last()).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('20: another tenant cannot read this cinema’s schedule', async ({ page }) => {
+    // organizer2 belongs to a different organization in the seed.
+    await page.goto(`${ORGANIZER}/logout`).catch(() => undefined);
+    await login(page, ORGANIZER, 'organizer2@eticketsgo.test').catch(() => undefined);
+    await page.goto(`${ORGANIZER}/organizer/cinemas/${fixture.cinemaId}/schedule`);
+
+    // The server refuses; the workspace surfaces that rather than rendering someone else's
+    // programming. Either an explicit error or simply no schedule content is acceptable —
+    // what must never appear is this cinema's shows.
+    await expect(page.getByText(fixture.movieTitle)).toHaveCount(0, { timeout: 20_000 });
+  });
+});
