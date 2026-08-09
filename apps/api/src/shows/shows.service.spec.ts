@@ -35,7 +35,7 @@ describe('ShowsService.getPublicSeatLayout', () => {
   it('maps ShowSeat status onto each seat and prices categories from the session ticket type', async () => {
     const { service } = makeService({
       id: 'sess1',
-      screen: { seatMap },
+      seatMap,
       ticketTypes: [
         { id: 'tt1', seatCategoryId: 'cat1', priceMinor: 25_000 },
         { id: 'tt2', seatCategoryId: 'cat2', priceMinor: 32_000 },
@@ -66,7 +66,7 @@ describe('ShowsService.getPublicSeatLayout', () => {
   it('defaults a seat with no ShowSeat row to AVAILABLE', async () => {
     const { service } = makeService({
       id: 'sess1',
-      screen: { seatMap },
+      seatMap,
       ticketTypes: [{ id: 'tt1', seatCategoryId: 'cat1', priceMinor: 25_000 }],
       showSeats: [{ seatId: 's1', status: 'SOLD' }],
     });
@@ -74,6 +74,49 @@ describe('ShowsService.getPublicSeatLayout', () => {
     const layout = await service.getPublicSeatLayout('sess1');
     const seats = layout.sections[0].rows[0].seats;
     expect(seats.map((s) => s.status)).toEqual(['SOLD', 'AVAILABLE']);
+  });
+
+  it('renders the layout PINNED TO THE SHOW, not the screen’s current one', async () => {
+    /*
+      The regression versioning exists to prevent. A screen that has since been re-seated
+      still has to show the old room to a show that was sold from it — otherwise a customer
+      sees seats that no longer exist and prices from a tier the show never had.
+
+      The screen here carries a completely different (newer) layout. If the service ever
+      reaches for it again, the section name and seat ids below stop matching.
+    */
+    const newerLayoutOnTheScreen = {
+      categories: [
+        { id: 'catX', name: 'Recliner', colorHex: '#f00', basePriceMinor: 90_000, sortOrder: 0 },
+      ],
+      sections: [
+        {
+          name: 'Re-seated stalls',
+          sortOrder: 0,
+          rows: [
+            {
+              label: 'A',
+              sortOrder: 0,
+              seats: [{ id: 'sX', label: '1', colIndex: 1, seatCategoryId: 'catX' }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { service } = makeService({
+      id: 'sess1',
+      seatMap,
+      screen: { seatMap: newerLayoutOnTheScreen },
+      ticketTypes: [{ id: 'tt1', seatCategoryId: 'cat1', priceMinor: 25_000 }],
+      showSeats: [{ seatId: 's1', status: 'SOLD' }],
+    });
+
+    const layout = await service.getPublicSeatLayout('sess1');
+    expect(layout.sections[0].name).toBe('Normal');
+    expect(layout.sections[0].rows[0].seats.map((s) => s.id)).toEqual(['s1', 's2']);
+    // The pinned layout's own categories — emphatically not the screen's newer 'catX'.
+    expect(layout.categories.map((c) => c.id)).toEqual(['cat1', 'cat2']);
   });
 
   it('throws NOT_FOUND when the session or its seat map is missing', async () => {

@@ -14,6 +14,7 @@ import {
   NotificationService,
   PrismaService,
   RazorpayWebhookProcessor,
+  SeatOverridesService,
   SettlementService,
   StripeWebhookProcessor,
   SyncEventProcessor,
@@ -118,6 +119,7 @@ async function main(): Promise<void> {
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
+  const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
   const outboxDispatcher = app.get(OutboxDispatcher);
@@ -330,12 +332,38 @@ async function main(): Promise<void> {
           error: (err as Error).message,
         });
       }
+      /*
+        Lapsed seat overrides ride the SAME tick as hold expiry, deliberately.
+
+        It is the identical operational question — "what deadline has passed" — at the
+        identical cadence, and a second repeatable job would mean another queue key, another
+        retry policy and another thing to notice is broken. Isolated in its own try/catch so
+        a sweep failure can never undo the hold release above, exactly like the workflow
+        sweep. Bounded per tick; a large backlog drains over successive ticks rather than
+        stalling bookings behind one long UPDATE.
+      */
+      let overridesReleased = 0;
+      try {
+        const swept = await seatOverrides.expireLapsedOverrides();
+        overridesReleased = swept.released;
+        if (swept.released > 0) {
+          log('info', 'released expired seat overrides', {
+            released: swept.released,
+            backlogRemaining: swept.more,
+          });
+        }
+      } catch (err) {
+        log('warn', 'seat override expiry sweep failed (retried next tick)', {
+          error: (err as Error).message,
+        });
+      }
+
       const completed = await events.completePastEvents();
       if (completed > 0) log('info', 'completed past events', { completed });
       // Promote settlements whose event has just completed to ELIGIBLE (awaiting approval).
       const { promoted } = await settlements.promoteCompletedEvents();
       if (promoted > 0) log('info', 'promoted settlements to eligible', { promoted });
-      return { released, completed, promoted };
+      return { released, overridesReleased, completed, promoted };
     },
     { connection: redisConnection, prefix: BULL_PREFIX },
   );

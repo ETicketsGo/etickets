@@ -72,6 +72,40 @@ enum ScreenStatus {
   INACTIVE
 }
 
+/// Lifecycle of a seat layout version.
+///
+/// Only DRAFT is editable. Publishing is the point of no return, and it is deliberately
+/// one-way: once a version can be attached to a show it must never change underneath one.
+enum SeatLayoutStatus {
+  /// Editable, invisible to scheduling. A layout being worked on.
+  DRAFT
+  /// Immutable and assignable to shows.
+  PUBLISHED
+  /// Immutable and NOT assignable to new shows. Existing shows keep working — they hold
+  /// their own seat rows — so archiving is a planning decision, never a data deletion.
+  ARCHIVED
+}
+
+/// Why an operator made a seat unavailable for one specific show.
+///
+/// Kept separate from `ShowSeat.status` on purpose. Status answers "can this be sold"
+/// (booking only ever takes AVAILABLE); the kind answers "why not", which is what an
+/// operator, a report and an auditor each need and none of them can get from a status flag.
+enum SeatOverrideKind {
+  /// Generic operator block with a reason.
+  MANUAL_BLOCK
+  /// Physically unusable: broken recliner, obstructed view, spillage. May auto-expire.
+  MAINTENANCE
+  /// Held back by the house — comps, press, sponsors, management.
+  HOUSE
+  /// Reserved for a named VIP or guest.
+  VIP
+  /// Held beside an accessible seat so a companion can sit together.
+  COMPANION
+  /// Safety: gangway keep-clear, evacuation route, incident. Highest severity.
+  EMERGENCY
+}
+
 enum SessionStatus {
   SCHEDULED
   PAUSED
@@ -341,6 +375,7 @@ model User {
   feedback                Feedback[]
   checkIns                CheckIn[]                @relation("CheckInActor")
   auditLogs               AuditLog[]
+  seatOverrides           ShowSeat[]              @relation("SeatOverrideActor")
   reviews                 Review[]
 
   @@index([status])
@@ -610,7 +645,8 @@ model Screen {
   updatedAt  DateTime @updatedAt
 
   sessions EventSession[]
-  seatMap  SeatMap?
+  /// A screen has MANY layout versions over its life, not one. See SeatMap.
+  seatMaps SeatMap[]
 
   @@index([cinemaId])
 }
@@ -620,17 +656,50 @@ model Screen {
 // Per-show seat availability lives in ShowSeat (one row per session×seat), the
 // atomic lock target that makes seat booking oversell- and double-book-proof.
 
+/// A seat layout version.
+///
+/// A screen used to have exactly one SeatMap (`screenId @unique`), which meant a layout
+/// could never change: `generateSeatMap` refused outright once one existed. That is safe but
+/// useless — a theater re-seats a room, converts a row to recliners, or adds a wheelchair
+/// bay, and the software had no answer.
+///
+/// Versions make that safe rather than merely possible. Seats belong to a VERSION, and a
+/// show's `ShowSeat` rows point at specific `Seat` rows, so a new version creates new seats
+/// and cannot reach backwards into a show that has already sold. Immutability is structural,
+/// not a rule someone has to remember to enforce.
 model SeatMap {
-  id        String   @id @default(cuid())
-  screenId  String   @unique
-  screen    Screen   @relation(fields: [screenId], references: [id], onDelete: Cascade)
-  name      String?
+  id       String @id @default(cuid())
+  screenId String
+  screen   Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  name     String?
+
+  /// Monotonic per screen, starting at 1. Human-facing: "Screen 3, layout v4".
+  version Int              @default(1)
+  status  SeatLayoutStatus @default(PUBLISHED)
+
+  /// The version this was cloned from. Lineage, so a comparison has something to compare to.
+  clonedFromId String?
+  clonedFrom   SeatMap?  @relation("SeatMapLineage", fields: [clonedFromId], references: [id])
+  clones       SeatMap[] @relation("SeatMapLineage")
+
+  /// When this version starts applying to newly scheduled shows. Null means "as soon as it
+  /// was published". This is what "activate a future version" means: publish it dated
+  /// tomorrow, and tonight's shows are untouched because they are already pinned.
+  effectiveFrom DateTime?
+  publishedAt   DateTime?
+  archivedAt    DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   categories SeatCategory[]
   sections   SeatSection[]
   seats      Seat[]
+  /// Shows pinned to this exact version.
+  sessions   EventSession[]
+
+  @@unique([screenId, version])
+  @@index([screenId, status])
 }
 
 model SeatCategory {
@@ -682,7 +751,12 @@ model Seat {
   seatCategory   SeatCategory @relation(fields: [seatCategoryId], references: [id])
   label          String // "12" (combined with row = "A12")
   colIndex       Int // position within the row for layout
-  kind           String       @default("SEAT") // SEAT | GAP (aisle spacer)
+  /// SEAT | GAP (aisle spacer) | WHEELCHAIR | COMPANION
+  ///
+  /// Accessibility is a property of the ROOM, not of a night's trading, so it lives on the
+  /// layout and changes only by publishing a new version. Putting it on ShowSeat would mean
+  /// a wheelchair bay could quietly differ between two showings of the same film.
+  kind           String       @default("SEAT")
 
   showSeats ShowSeat[]
   tickets   Ticket[]
@@ -698,17 +772,37 @@ model ShowSeat {
   eventSession   EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
   seatId         String
   seat           Seat         @relation(fields: [seatId], references: [id], onDelete: Cascade)
-  status         String       @default("AVAILABLE") // AVAILABLE | HELD | SOLD
+  /// AVAILABLE | HELD | SOLD | BLOCKED
+  ///
+  /// BLOCKED is every operator override. Booking's hold is
+  /// `UPDATE … WHERE status = 'AVAILABLE'`, so anything else is unbookable atomically —
+  /// the override needs no cooperation from the booking path to be safe.
+  status         String       @default("AVAILABLE")
   holdBookingId  String?
   holdBooking    Booking?     @relation(fields: [holdBookingId], references: [id])
   holdExpiresAt  DateTime?
   version        Int          @default(0)
   updatedAt      DateTime     @updatedAt
 
+  // ── Operator override (null on an untouched seat) ──────────────────────────────
+  /// Why this seat is BLOCKED. Always set together with status = 'BLOCKED'.
+  overrideKind      SeatOverrideKind?
+  /// Free text from the operator. Required for every override: a block nobody can explain
+  /// is a seat nobody dares release, and it stays dead for the run of the film.
+  overrideReason    String?
+  overrideByUserId  String?
+  overrideBy        User?             @relation("SeatOverrideActor", fields: [overrideByUserId], references: [id])
+  overrideAt        DateTime?
+  /// Optional auto-expiry, used by MAINTENANCE. A cleaning block should not outlive the
+  /// spill; requiring someone to remember to undo it is how seats stay dead for a week.
+  overrideExpiresAt DateTime?
+
   @@unique([eventSessionId, seatId])
   @@index([eventSessionId, status])
   @@index([holdBookingId])
   @@index([seatId])
+  @@index([eventSessionId, overrideKind])
+  @@index([overrideExpiresAt])
 }
 
 model Event {
@@ -773,6 +867,13 @@ model EventSession {
   // Set only for movie shows: the screen this session plays on.
   screenId  String?
   screen    Screen?       @relation(fields: [screenId], references: [id])
+  /// The seat layout VERSION this show was scheduled against, pinned at scheduling time.
+  ///
+  /// Recoverable from ShowSeat → Seat → seatMapId, but recording it explicitly is what lets
+  /// the schedule answer "which layout will tomorrow's show use" before a single seat has
+  /// moved, and makes a re-layout auditable rather than inferred.
+  seatMapId String?
+  seatMap   SeatMap?      @relation(fields: [seatMapId], references: [id])
   startsAt  DateTime
   endsAt    DateTime
   status    SessionStatus @default(SCHEDULED)

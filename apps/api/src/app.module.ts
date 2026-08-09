@@ -65,7 +65,25 @@ import { LoggingInterceptor } from './common/logging.interceptor';
       cache: true,
       validate: () => loadConfig(),
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    /*
+      Per-IP request ceiling. The DEFAULT IS UNCHANGED at 120/minute — this only makes it
+      configurable.
+
+      The end-to-end suite drives four apps from a single IP, so every browser and every
+      fixture shares one client's budget. Past roughly eighty scenarios it exhausts the
+      production ceiling and unrelated specs start failing with a bare UNAUTHORIZED, which
+      looks like a product fault and is not one.
+
+      Raising it in the e2e environment is not weakening the limit: a test runner is one
+      machine standing in for many users, which is precisely the case the limit is not aimed
+      at. Deployments that set nothing keep the production value.
+    */
+    ThrottlerModule.forRoot([
+      {
+        ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000),
+        limit: Number(process.env.THROTTLE_LIMIT ?? 120),
+      },
+    ]),
     PrismaModule,
     SecretsModule,
     RedisModule,

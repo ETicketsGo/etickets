@@ -56,6 +56,10 @@ jobs:
       PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
       NEXT_PUBLIC_API_URL: http://localhost:4000/api
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      # The whole e2e suite drives four apps from ONE ip, so every browser and fixture shares
+      # a single client's rate-limit budget. Production keeps the 120/min default; a test
+      # runner standing in for many users is the case that limit is not aimed at.
+      THROTTLE_LIMIT: '2000'
 
     steps:
       - uses: actions/checkout@v4

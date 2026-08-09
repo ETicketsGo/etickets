@@ -217,3 +217,96 @@ export const copyScheduleSchema = z.object({
   dryRun: z.boolean().default(true),
 });
 export type CopyScheduleInput = z.infer<typeof copyScheduleSchema>;
+
+// ── Seat layout versioning ────────────────────────────────────────────────────────
+
+/** Clone an existing layout version into a new editable draft. */
+export const cloneSeatLayoutSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+});
+export type CloneSeatLayoutInput = z.infer<typeof cloneSeatLayoutSchema>;
+
+/**
+ * Replace a DRAFT layout's contents.
+ *
+ * Whole-document, not a patch. A seat map is a single coherent thing — rows, categories and
+ * geometry only make sense together — and merging partial edits into one is how a row ends
+ * up referencing a category that the same request deleted.
+ */
+export const updateSeatLayoutSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+  sections: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        categoryName: z.string().trim().min(1).max(60),
+        colorHex: z
+          .string()
+          .trim()
+          .regex(/^#([0-9a-fA-F]{6})$/)
+          .optional(),
+        basePriceMinor: z.number().int().min(0),
+        rowLabels: z.array(z.string().trim().min(1).max(4)).min(1).max(40),
+        seatsPerRow: z.number().int().min(1).max(60),
+        /**
+         * Per-seat kind overrides, keyed "<row><col>" e.g. "A3". Absent seats are SEAT.
+         * This is how a wheelchair bay or an aisle gap is expressed without inventing a
+         * second, richer seat-map format that the generator cannot produce.
+         */
+        seatKinds: z.record(z.enum(['SEAT', 'GAP', 'WHEELCHAIR', 'COMPANION'])).optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type UpdateSeatLayoutInput = z.infer<typeof updateSeatLayoutSchema>;
+
+/** Publish a draft, optionally dated to take effect in the future. */
+export const publishSeatLayoutSchema = z.object({
+  /**
+   * When the version starts applying to NEWLY scheduled shows. Omitted means immediately.
+   * Shows already on the schedule are pinned and are never moved by this.
+   */
+  effectiveFrom: z.coerce.date().optional(),
+});
+export type PublishSeatLayoutInput = z.infer<typeof publishSeatLayoutSchema>;
+
+// ── Show-level seat overrides ─────────────────────────────────────────────────────
+
+export const seatOverrideKindSchema = z.enum([
+  'MANUAL_BLOCK',
+  'MAINTENANCE',
+  'HOUSE',
+  'VIP',
+  'COMPANION',
+  'EMERGENCY',
+]);
+
+/**
+ * Block one or more seats on one show.
+ *
+ * A reason is mandatory. A block nobody can explain is a seat nobody dares release, and it
+ * stays dead for the whole run of the film.
+ */
+export const blockSeatsSchema = z.object({
+  seatIds: z.array(z.string().cuid()).min(1).max(500),
+  kind: seatOverrideKindSchema,
+  reason: z.string().trim().min(3).max(300),
+  /** Auto-release deadline. Mostly used by MAINTENANCE so a cleaning block cannot be forgotten. */
+  expiresAt: z.coerce.date().optional(),
+  /** Sub-reason for HOUSE seats, so finance can break comps down without six enum members. */
+  housePurpose: z.enum(['COMPLIMENTARY', 'PRESS', 'SPONSOR', 'MANAGEMENT', 'TECHNICAL']).optional(),
+});
+export type BlockSeatsInput = z.infer<typeof blockSeatsSchema>;
+
+export const releaseSeatsSchema = z.object({
+  seatIds: z.array(z.string().cuid()).min(1).max(500),
+  reason: z.string().trim().min(3).max(300),
+  /**
+   * Required to release an EMERGENCY block. Safety blocks must not disappear because
+   * somebody was clearing what looked like clutter, so undoing one is a deliberate act and
+   * is audited distinctly.
+   */
+  force: z.boolean().optional(),
+});
+export type ReleaseSeatsInput = z.infer<typeof releaseSeatsSchema>;

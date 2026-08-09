@@ -167,3 +167,89 @@ and the UI is covered end to end including a foreign-timezone browser.
 
 They are **not** a complete theater-operations product. The gaps above are known and
 deliberate, and none of them is a silent one — each is stated in the UI, the docs, or both.
+
+---
+
+## Addendum — theater operations platform (2026-08-08)
+
+### Shipped
+
+| §   | Capability                | State                                                                                                                                                                                               |
+| --- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Seat layout versioning    | **DONE** — clone/edit/publish/activate-future/compare/archive; published versions immutable; migration validated on real PG 16 fresh **and** as an upgrade over live data. See LAYOUT-VERSIONING.md |
+| 2   | Show-level seat overrides | **DONE** — six kinds, mandatory reason, partial success, sold/held guards                                                                                                                           |
+| 3   | Live occupancy            | **DONE (API)** — counts, blocked-by-kind, revenue, pending, sales pace                                                                                                                              |
+| 4   | Live seat map             | **DONE (API)** — pinned layout, override kind/reason/actor, live hold state                                                                                                                         |
+| 6   | House seats               | **DONE** — `HOUSE` kind + `housePurpose` (comp/press/sponsor/management/technical)                                                                                                                  |
+| 7   | Maintenance seats         | **DONE, sweep not scheduled** — optional auto-expiry, idempotent sweeper, nothing calls it on a timer                                                                                               |
+| 8   | Accessibility seats       | **DONE** — `WHEELCHAIR`/`COMPANION` seat kinds on the layout; companion suggestions                                                                                                                 |
+| 9   | Operational reports       | **DONE (API)** — from AuditLog, rollups by kind/reason/operator, explicit `truncated` flag                                                                                                          |
+| 10  | Audit                     | **DONE** — who/when/screen/show/seat labels/old-new/reason/tenant                                                                                                                                   |
+| 11  | Security                  | **DONE** — tenancy from the owning org, `SEAT_NOT_ON_SHOW`, race guards                                                                                                                             |
+| 12  | Concurrency               | **DONE** — 24 real-PG proofs, real booking strategy, two clients, both guards falsified                                                                                                             |
+
+**API totals: 1518 tests / 179 suites green.**
+
+### NOT shipped
+
+| §   | Capability                                                       | State           |
+| --- | ---------------------------------------------------------------- | --------------- |
+| 5   | Seat override UX                                                 | **NOT STARTED** |
+| 13  | Organizer UI (Live Ops, seat map, overrides, occupancy, reports) | **NOT STARTED** |
+| 14  | Playwright operational scenarios                                 | **NOT STARTED** |
+
+The entire backend is complete, tested and documented. **No organizer-facing UI was built**,
+so against the mission's Definition of Done a theater manager can do none of this without a
+developer or an API client. That is the honest position: the platform is ready for a UI, and
+the UI is the remaining work.
+
+Also outstanding: no cron wiring for the maintenance sweep, no report export, no realtime push
+(polling only, following the existing 15s command-centre precedent — there is no WebSocket or
+SSE infrastructure in this repository, which was verified rather than assumed).
+
+### What falsification found
+
+Removing the seat-override **release** guard failed no test, because every existing case was
+refused during the pre-read and never reached the SQL backstop. The guard was load-bearing and
+unproven. It now has a deterministic test that injects the racing booking between the service's
+read and its write, and that test fails when the guard is removed.
+
+This is the second time on this track that falsifying a "green" suite found a hole rather than
+confirming one. It is worth keeping as the default habit.
+
+---
+
+## Addendum — theater operations UI (2026-08-09)
+
+Closes the gap the previous addendum reported: the backend existed but no operator could
+reach it. A theater manager can now run a cinema from the organizer app.
+
+| §   | Capability              | State                                                                                                                   |
+| --- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 5   | Seat override UX        | **DONE** — click a seat, see who set what and why, change it with a mandatory reason                                    |
+| 13  | Organizer UI            | **DONE** — Live Operations, live seat map, layout versions, override history                                            |
+| 14  | Playwright              | **DONE** — 23 scenarios + 5 axe scans, green on 3 consecutive runs                                                      |
+| 7   | Maintenance auto-expiry | **NOW SCHEDULED** — rides the worker's existing 60s hold-expiry tick, bounded at 500/tick with `FOR UPDATE SKIP LOCKED` |
+
+### Three test defects found, and why they are worth recording
+
+None of these were product bugs, and all three would have been easy to paper over.
+
+1. **The auth throttle.** Logging in through the form on every test tripped the API's rate
+   limit and surfaced as a flat `UNAUTHORIZED` on unrelated requests — three tests failing for
+   reasons that had nothing to do with what they asserted. The repository already had
+   `seedBrowserAuth` for exactly this, with a comment saying so. The throttle was left alone.
+2. **axe scanned mid-animation.** The override dialog fades in, and a scan during the fade
+   composited `#666D7A` as `#8f949d` and failed on contrast that is fine once the panel is
+   opaque. Fixed by waiting on the panel's computed opacity — a condition, not a sleep.
+3. **`Badge` does not forward `data-testid`** (the same trap `Card` set earlier). A test hook
+   silently did nothing; the assertion now reads the text an operator actually sees.
+
+### Still not built
+
+- No realtime push — polling at the existing 15s cadence; this repo has no WebSocket or SSE
+  infrastructure, verified rather than assumed.
+- No visual draft editor for layout geometry, and no per-seat kind editor in the UI.
+- No bulk row/section selection in the seat map (the API takes up to 500 seats per call).
+- No report export, no chain-level rollup.
+- No manual screen-reader pass or user testing.
