@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_CINEMA_TIMEZONE, ianaTimeZoneSchema } from './common';
 import { MovieStatus } from '@eticketsgo/shared-types';
 
 export const createMovieSchema = z.object({
@@ -32,6 +33,14 @@ export const createCinemaSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   venueId: z.string().cuid().optional(),
+  /**
+   * The zone this cinema's local dates and times are reckoned in.
+   *
+   * Optional at creation, defaulting to the launch market so an Indian operator is not made
+   * to pick from six hundred names. Once stored it is AUTHORITATIVE — nothing downstream may
+   * substitute a literal, a deployment region or the browser's zone.
+   */
+  timezone: ianaTimeZoneSchema.default(DEFAULT_CINEMA_TIMEZONE),
 });
 export type CreateCinemaInput = z.infer<typeof createCinemaSchema>;
 
@@ -141,7 +150,7 @@ export const bulkScheduleShowsSchema = z
      */
     padMinutes: z.number().int().min(0).max(120).default(20),
     /** IANA zone for interpreting the wall-clock times. Defaults to the India market. */
-    timezone: z.string().min(1).max(64).default('Asia/Kolkata'),
+    timezone: ianaTimeZoneSchema.optional(),
     pricing: z
       .array(z.object({ seatCategoryId: z.string().cuid(), priceMinor: z.number().int().min(0) }))
       .optional(),
@@ -210,7 +219,7 @@ export const copyScheduleSchema = z.object({
   /** Defaults to the source screen. */
   targetScreenId: z.string().cuid().optional(),
   targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timezone: z.string().min(1).max(64).default('Asia/Kolkata'),
+  timezone: ianaTimeZoneSchema.optional(),
   pricing: z
     .array(z.object({ seatCategoryId: z.string().cuid(), priceMinor: z.number().int().min(0) }))
     .optional(),

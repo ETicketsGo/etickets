@@ -157,7 +157,9 @@ export class ShowsController {
       date,
       from,
       to,
-      timezone: timezone || 'Asia/Kolkata',
+      // Absent means "use the cinema's own zone". Substituting a literal here is how a
+      // Sydney venue would silently be scheduled on Indian dates.
+      timezone,
     });
   }
 

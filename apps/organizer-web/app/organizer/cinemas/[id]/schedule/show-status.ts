@@ -163,11 +163,16 @@ export function shiftDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export const todayLabel = (): string => {
-  const d = new Date();
-  // Local calendar day, which is what the operator means by "today".
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+/**
+ * Today's calendar date AT THE CINEMA.
+ *
+ * The zone is required, not optional. This previously read the browser's calendar, which is
+ * the same defect in miniature: an operator in London opening a Hyderabad cinema after 18:30
+ * GMT would land on yesterday and see an empty schedule. A caller that does not yet know the
+ * venue's zone has no business computing its "today" — it should wait.
+ */
+export const todayLabel = (timeZone: string): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
 
 /**
  * A show's start as wall-clock parts in the cinema's zone.

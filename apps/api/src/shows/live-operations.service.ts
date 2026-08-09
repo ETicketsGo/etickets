@@ -16,6 +16,8 @@ export interface OccupancySnapshot {
   screenName: string | null;
   cinemaId: string | null;
   cinemaName: string | null;
+  /** The cinema's own zone. Every local time a client renders must use this. */
+  timezone: string | null;
   startsAt: Date;
   endsAt: Date;
   status: string;
@@ -78,7 +80,13 @@ export class LiveOperationsService {
       where: { id: sessionId },
       include: {
         event: { select: { organizationId: true, movie: { select: { title: true } } } },
-        screen: { select: { id: true, name: true, cinema: { select: { id: true, name: true } } } },
+        screen: {
+          select: {
+            id: true,
+            name: true,
+            cinema: { select: { id: true, name: true, timezone: true } },
+          },
+        },
       },
     });
     if (!session) {
@@ -120,7 +128,13 @@ export class LiveOperationsService {
       orderBy: [{ startsAt: 'asc' }],
       include: {
         event: { select: { organizationId: true, movie: { select: { title: true } } } },
-        screen: { select: { id: true, name: true, cinema: { select: { id: true, name: true } } } },
+        screen: {
+          select: {
+            id: true,
+            name: true,
+            cinema: { select: { id: true, name: true, timezone: true } },
+          },
+        },
       },
     });
     if (sessions.length === 0) return [];
@@ -137,7 +151,11 @@ export class LiveOperationsService {
       status: string;
       screenId: string | null;
       event: { movie: { title: string } | null };
-      screen: { id: string; name: string; cinema: { id: string; name: string } } | null;
+      screen: {
+        id: string;
+        name: string;
+        cinema: { id: string; name: string; timezone: string };
+      } | null;
     },
     now: Date,
   ): Promise<OccupancySnapshot> {
@@ -216,6 +234,7 @@ export class LiveOperationsService {
       screenName: session.screen?.name ?? null,
       cinemaId: session.screen?.cinema.id ?? null,
       cinemaName: session.screen?.cinema.name ?? null,
+      timezone: session.screen?.cinema.timezone ?? null,
       startsAt: session.startsAt,
       endsAt: session.endsAt,
       status: session.status,
@@ -345,6 +364,7 @@ export class LiveOperationsService {
       movieTitle: session.event.movie?.title ?? null,
       screenName: session.screen?.name ?? null,
       cinemaName: session.screen?.cinema.name ?? null,
+      timezone: session.screen?.cinema.timezone ?? null,
       startsAt: session.startsAt,
       status: session.status,
       seatMapId: session.seatMapId,
