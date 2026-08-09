@@ -339,6 +339,12 @@ export default function CinemaDetailPage() {
         navigation pattern — the shell's sidebar is organisation-level, and a cinema is not.
       */}
       <nav aria-label="Cinema operations" className="flex flex-wrap gap-2">
+        <ButtonLink href={`/organizer/cinemas/${cinema.id}/onboarding`} variant="secondary">
+          Setup
+        </ButtonLink>
+        <ButtonLink href={`/organizer/cinemas/${cinema.id}/readiness`} variant="secondary">
+          Launch readiness
+        </ButtonLink>
         <ButtonLink href={`/organizer/cinemas/${cinema.id}/schedule`} variant="secondary">
           Schedule
         </ButtonLink>
