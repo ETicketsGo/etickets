@@ -50,6 +50,17 @@ const MAX_SHOWS = 200;
 export type ShowAvailability = 'AVAILABLE' | 'LIMITED' | 'SOLD_OUT' | 'SALES_PAUSED';
 export type SeatingType = 'RESERVED' | 'GENERAL_ADMISSION';
 
+/**
+ * The calendar date an instant falls on in a named zone, as YYYY-MM-DD.
+ *
+ * en-CA formats as YYYY-MM-DD, which is the shape every date filter and query param in this
+ * codebase already uses. Never `toISOString().slice(0,10)` — that is the UTC date, which is a
+ * different day for half the world.
+ */
+function localDateIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone }).format(instant);
+}
+
 export interface PublicShowDto {
   sessionId: string;
   eventId: string;
@@ -57,7 +68,17 @@ export interface PublicShowDto {
   startsAt: string;
   endsAt: string;
   venue: { id: string; name: string; city: string; country: string };
-  cinema: { id: string; name: string; brand: string | null } | null;
+  cinema: { id: string; name: string; brand: string | null; timezone: string } | null;
+  /**
+   * The show's LOCAL calendar date at the cinema, e.g. "2026-08-09".
+   *
+   * Grouping a showtime list by day is the one thing every client does with this response,
+   * and doing it from the ISO instant groups by the VIEWER's zone: a 00:30 Hyderabad show
+   * files under the previous day for anyone west of India. Computed here from the cinema's
+   * own zone so every client agrees, and null only for a general-admission session with no
+   * cinema attached.
+   */
+  localDate: string | null;
   screen: { id: string; name: string } | null;
   /** Presentation format from the screen (2D / 3D / IMAX / 4DX). */
   format: string | null;
@@ -250,7 +271,11 @@ export class PublicMoviesService {
               where: { startsAt: { gt: new Date() }, screenId: { not: null } },
               orderBy: { startsAt: 'asc' },
               include: {
-                screen: { include: { cinema: { select: { id: true, name: true } } } },
+                screen: {
+                  include: {
+                    cinema: { select: { id: true, name: true, brand: true, timezone: true } },
+                  },
+                },
               },
             },
           },
@@ -329,10 +354,10 @@ export class PublicMoviesService {
    * getBySlug is deliberately left alone: it is already deployed and consumed, and
    * widening its response would change a live contract for every existing caller.
    *
-   * TIME ZONES. Returned as ISO instants with NO venue-local date, because neither Venue
-   * nor Cinema carries a timezone — a "local date" computed here would be the server's
-   * guess, and a wrong showtime date is worse than one the client groups in the viewer's
-   * own zone. Adding Venue.timezone is the fix.
+   * TIME ZONES. Instants are returned as ISO, and each show also carries `localDate` — its
+   * calendar date at the CINEMA, computed from `Cinema.timezone`. Clients group by that
+   * rather than slicing the instant, because slicing groups by the viewer's zone and files a
+   * 00:30 Hyderabad show under the previous day for anyone west of India.
    */
   async shows(slug: string, filters: PublicShowFilters) {
     const movie = await this.prisma.movie.findUnique({ where: { slug } });
@@ -452,7 +477,11 @@ export class PublicMoviesService {
               id: session.screen.cinema.id,
               name: session.screen.cinema.name,
               brand: session.screen.cinema.brand,
+              timezone: session.screen.cinema.timezone,
             }
+          : null,
+        localDate: session.screen?.cinema
+          ? localDateIn(session.startsAt, session.screen.cinema.timezone)
           : null,
         screen: session.screen ? { id: session.screen.id, name: session.screen.name } : null,
         format: session.screen?.screenType ?? null,
@@ -499,7 +528,8 @@ export class PublicMoviesService {
        * timezone note on this method.
        */
       filters: {
-        dates: unique(shows.map((s) => s.startsAt.slice(0, 10))),
+        // Venue-local dates, so the date filter offers the days the cinema advertises.
+        dates: unique(shows.map((s) => s.localDate).filter((d): d is string => d !== null)),
         cities: unique(shows.map((s) => s.venue.city)),
         formats: unique(shows.map((s) => s.format).filter((f): f is string => Boolean(f))),
         languages: unique(shows.map((s) => s.language)),

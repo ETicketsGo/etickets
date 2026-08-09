@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   api,
   Badge,
@@ -51,7 +51,14 @@ export default function CinemaSchedulePage() {
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [date, setDate] = useState(todayLabel());
+  /*
+    Empty until the cinema's zone is known.
+
+    Seeding this with the BROWSER's today is the defect in miniature: an operator in London
+    opening a Hyderabad cinema after 18:30 GMT would land on yesterday's schedule and see an
+    empty day. It is set once, below, from the venue's own clock.
+  */
+  const [date, setDate] = useState('');
   const [screenFilter, setScreenFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   // Day is the default: it is where an operator works. Week is for planning.
@@ -59,35 +66,40 @@ export default function CinemaSchedulePage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
 
-  /**
-   * The zone the cinema's day is reckoned in.
-   *
-   * NOT the browser's zone, which is what this used to be and was wrong: a Hyderabad
-   * theater operated by someone travelling in London must still show the Hyderabad day, and
-   * a 09:00 show would otherwise slide onto the previous date. It is also not fixed-offset
-   * arithmetic — the IANA name is sent and the server resolves it, so DST markets stay
-   * correct.
-   *
-   * Defaulted to the India launch market because `Cinema` carries no timezone column yet.
-   * That is a real gap: a chain operating across zones needs it per venue, and this is the
-   * one place that will need changing when the column exists.
-   */
-  const timezone = 'Asia/Kolkata';
-
   const cinemaQ = useQuery({
     queryKey: ['cinema', cinemaId],
     queryFn: () => api.cinemas.get(cinemaId),
   });
+  /*
+    The cinema's own zone, read from the cinema record.
+
+    NOT a constant, not the browser's, not a launch-market default. A hardcoded zone has
+    already produced two real defects on this page, and it stops being merely wrong the
+    moment a second city is onboarded.
+
+    There is no authoritative local date until the cinema has loaded, so the page holds its
+    loading state rather than guessing one. Guessing is exactly what produced the earlier
+    defects: a plausible-but-wrong day looks like data, whereas a skeleton looks like waiting.
+  */
+  const timezone = cinemaQ.data?.timezone ?? null;
+
   const screensQ = useQuery({
     queryKey: ['cinema', cinemaId, 'screens'],
     queryFn: () => api.cinemas.screens(cinemaId),
   });
   const scheduleQ = useQuery({
     queryKey: ['cinema', cinemaId, 'schedule', date, timezone],
-    queryFn: () => api.shows.cinemaSchedule(cinemaId, date, timezone),
-    // No point fetching a day nobody is looking at.
-    enabled: mode === 'day',
+    queryFn: () => api.shows.cinemaSchedule(cinemaId, date, timezone as string),
+    // No point fetching a day nobody is looking at — and never before the cinema's zone is
+    // known, or the first request asks for the wrong day.
+    enabled: mode === 'day' && !!timezone && !!date,
   });
+
+  // Land on today AT THE CINEMA the moment its zone is known, and never re-steer the
+  // operator afterwards — they may have navigated deliberately.
+  useEffect(() => {
+    if (timezone && !date) setDate(todayLabel(timezone));
+  }, [timezone, date]);
 
   /** Re-read the authoritative day after any mutation. Never patch local state. */
   const refresh = () => qc.invalidateQueries({ queryKey: ['cinema', cinemaId, 'schedule'] });
@@ -107,6 +119,21 @@ export default function CinemaSchedulePage() {
     (s) => !screens.some((g) => g.screenId === s.id) && (!screenFilter || s.id === screenFilter),
   );
 
+  /*
+    Hold until the venue's zone is known.
+
+    Every date on this page is a LOCAL date at the cinema, so rendering before the zone has
+    loaded means rendering a guess. A skeleton reads as "waiting"; a plausible-but-wrong day
+    reads as data, and that is precisely how the earlier timezone defects went unnoticed.
+  */
+  if (!timezone || !date) {
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       <PageHeader
@@ -159,7 +186,7 @@ export default function CinemaSchedulePage() {
             >
               ← Prev
             </Button>
-            <Button variant="secondary" onClick={() => setDate(todayLabel())}>
+            <Button variant="secondary" onClick={() => setDate(todayLabel(timezone))}>
               Today
             </Button>
             <Button
@@ -203,6 +230,16 @@ export default function CinemaSchedulePage() {
             </Select>
           </div>
         </div>
+
+        {/*
+          State the clock being used. Every date and time on this page is local to the venue,
+          and an operator working across cinemas has no other way to tell which one they are
+          reading — the difference between a Hyderabad and a Sydney day is not visible from
+          the numbers alone.
+        */}
+        <p className="mt-3 text-caption text-text-muted">
+          Times are local to the cinema ({timezone}).
+        </p>
       </Card>
 
       {mode === 'week' ? (

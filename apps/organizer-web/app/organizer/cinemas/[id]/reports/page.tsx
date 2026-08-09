@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   api,
   Badge,
@@ -28,20 +28,37 @@ import { OVERRIDE_LABEL, OVERRIDE_TONE } from '../live/seat-presentation';
  */
 export default function OverrideReportPage() {
   const { id: cinemaId } = useParams<{ id: string }>();
-  const timezone = 'Asia/Kolkata';
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
-  const weekAgo = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
-    new Date(Date.now() - 7 * 86_400_000),
-  );
+  const cinemaQ = useQuery({
+    queryKey: ['cinema', cinemaId],
+    queryFn: () => api.cinemas.get(cinemaId),
+  });
+  /*
+    The report window is expressed in the CINEMA's calendar, not the reader's. A finance user
+    in London pulling "yesterday" for a Hyderabad venue must get the venue's yesterday, or the
+    numbers straddle two trading days.
+  */
+  const timezone = cinemaQ.data?.timezone ?? null;
 
-  const [from, setFrom] = useState(weekAgo);
-  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  // Default to the last seven days AT THE CINEMA, once its zone is known.
+  useEffect(() => {
+    if (!timezone || from) return;
+    const at = (offsetDays: number) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+        new Date(Date.now() + offsetDays * 86_400_000),
+      );
+    setFrom(at(-7));
+    setTo(at(0));
+  }, [timezone, from]);
   const [kindFilter, setKindFilter] = useState('');
   const [actorFilter, setActorFilter] = useState('');
 
   const reportQ = useQuery({
     queryKey: ['cinema', cinemaId, 'override-report', from, to],
+    enabled: !!from && !!to,
     queryFn: () =>
       api.theaterOps.overrideReport(
         cinemaId,

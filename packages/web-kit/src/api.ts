@@ -1617,12 +1617,25 @@ export interface CinemaBody {
   latitude?: number;
   longitude?: number;
   venueId?: string;
+  /**
+   * IANA zone for this cinema's local clock. Optional on create — the server defaults it to
+   * the launch market — but always present on a cinema that has been read back.
+   */
+  timezone?: string;
 }
 
 export interface Cinema extends CinemaBody {
   id: string;
   status: string;
   screens?: Screen[];
+  /**
+   * AUTHORITATIVE for every local date and time this client renders for the venue.
+   *
+   * Never substitute a literal, the browser's zone, or a launch-market default: a Hyderabad
+   * cinema operated from London must show Hyderabad days, and a Sydney one must show Sydney
+   * days. Required here (not optional) precisely so a page cannot forget to pass it.
+   */
+  timezone: string;
 }
 
 export interface AdminMovieRow {

@@ -721,6 +721,10 @@ export class ShowsService {
     }
     this.assertScreenUsable(screen);
 
+    // The cinema decides its own wall clock. An explicit zone is still honoured, but the
+    // default is the venue's, so "10:30" means 10:30 in the room the film is playing in.
+    const timezone = input.timezone ?? screen.cinema.timezone;
+
     const dates = input.dates?.length
       ? [...input.dates].sort()
       : datesInRange(input.from as string, input.to as string);
@@ -729,7 +733,7 @@ export class ShowsService {
       times: input.times,
       // Trailers and titles: a screen booked against the bare feature length runs late.
       runtimeMinutes: movie.runtimeMinutes + input.padMinutes,
-      toInstant: (date, time) => zonedWallClockToInstant(date, time, input.timezone),
+      toInstant: (date, time) => zonedWallClockToInstant(date, time, timezone),
     });
 
     /*
@@ -962,14 +966,13 @@ export class ShowsService {
       );
     }
 
+    // The SOURCE cinema's zone decides what "that day" means, unless the caller names one.
+    const timezone = input.timezone ?? source.cinema.timezone;
+
     // The UTC window covering the source LOCAL day. Both edges are resolved through the
     // zone, so a 23- or 25-hour DST day is exactly covered rather than clipped or doubled.
-    const dayStart = zonedWallClockToInstant(input.sourceDate, '00:00', input.timezone);
-    const dayEnd = zonedWallClockToInstant(
-      nextDateLabel(input.sourceDate),
-      '00:00',
-      input.timezone,
-    );
+    const dayStart = zonedWallClockToInstant(input.sourceDate, '00:00', timezone);
+    const dayEnd = zonedWallClockToInstant(nextDateLabel(input.sourceDate), '00:00', timezone);
 
     const sourceSessions = await this.prisma.eventSession.findMany({
       where: {
@@ -999,7 +1002,7 @@ export class ShowsService {
     }
 
     const times = [
-      ...new Set(sourceSessions.map((s) => instantToZonedWallClock(s.startsAt, input.timezone))),
+      ...new Set(sourceSessions.map((s) => instantToZonedWallClock(s.startsAt, timezone))),
     ].sort();
 
     const result = await this.bulkScheduleShows(user, movieId, {
@@ -1370,12 +1373,22 @@ export class ShowsService {
   async cinemaSchedule(
     user: RequestUser,
     cinemaId: string,
-    params: { date?: string; from?: string; to?: string; timezone: string },
+    params: { date?: string; from?: string; to?: string; timezone?: string },
   ): Promise<ShowRowView[]> {
     const cinema = await this.prisma.cinema.findUnique({ where: { id: cinemaId } });
     if (!cinema)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, cinema.organizationId);
+
+    /*
+      The CINEMA decides its own local dates.
+
+      An explicit `timezone` is still honoured — it is how an operator asks "what does this
+      day look like in another zone" — but the default is the venue's stored zone, never a
+      hardcoded launch market and never the caller's. A wrong zone here does not throw; it
+      silently returns a different day, which is the worst failure mode available.
+    */
+    const timezone = params.timezone ?? cinema.timezone;
 
     /**
      * A single local day, or an inclusive local-date RANGE for week planning.
@@ -1414,8 +1427,8 @@ export class ShowsService {
       );
     }
 
-    const from = zonedWallClockToInstant(startLabel, '00:00', params.timezone);
-    const to = zonedWallClockToInstant(nextDateLabel(endLabel), '00:00', params.timezone);
+    const from = zonedWallClockToInstant(startLabel, '00:00', timezone);
+    const to = zonedWallClockToInstant(nextDateLabel(endLabel), '00:00', timezone);
 
     const sessions = await this.prisma.eventSession.findMany({
       where: {

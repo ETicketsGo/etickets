@@ -621,6 +621,18 @@ model Cinema {
   address        String?
   latitude       Float?
   longitude      Float?
+  /// IANA zone this cinema's local dates and times are reckoned in, e.g. "Asia/Kolkata".
+  ///
+  /// AUTHORITATIVE. Every local date the platform computes for this venue — the schedule
+  /// day, the week grid, booking windows, live operations, public showtime grouping — reads
+  /// this column. Not the deployment region, not the browser, and not a hardcoded launch
+  /// default: a hardcoded zone has already produced two real defects on this track, and it
+  /// stops being merely wrong the moment a second city is onboarded.
+  ///
+  /// The DEFAULT exists for two narrow reasons and is not a runtime fallback: it backfills
+  /// pre-existing India cinemas, and it keeps an older API instance that does not yet write
+  /// the column working during a rolling deploy. Application code must never rely on it.
+  timezone       String       @default("Asia/Kolkata")
   status         String       @default("ACTIVE")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

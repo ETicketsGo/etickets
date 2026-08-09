@@ -2,7 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   api,
   Badge,
@@ -53,17 +53,8 @@ export default function LiveOperationsPage() {
   const { id: cinemaId } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
-  /**
-   * The zone the cinema's day is reckoned in.
-   *
-   * Not the browser's. `Cinema` still carries no timezone column, so this defaults to the
-   * India launch market in exactly one place, the same as the scheduling workspace.
-   */
-  const timezone = 'Asia/Kolkata';
-
-  const [date, setDate] = useState(() =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date()),
-  );
+  // Empty until the cinema's zone is known — see the note on `timezone` below.
+  const [date, setDate] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedSeat, setSelectedSeat] = useState<LiveSeat | null>(null);
 
@@ -71,6 +62,19 @@ export default function LiveOperationsPage() {
     queryKey: ['cinema', cinemaId],
     queryFn: () => api.cinemas.get(cinemaId),
   });
+
+  /*
+    The cinema's own zone, read from the cinema record.
+
+    NOT a constant, not the browser's, not a launch-market default. A hardcoded zone has
+    already produced two real defects on this page, and it stops being merely wrong the
+    moment a second city is onboarded.
+
+    There is no authoritative local date until the cinema has loaded, so the page holds its
+    loading state rather than guessing one. Guessing is exactly what produced the earlier
+    defects: a plausible-but-wrong day looks like data, whereas a skeleton looks like waiting.
+  */
+  const timezone = cinemaQ.data?.timezone ?? null;
 
   // The whole day in ONE request. A busy multiplex has fifty shows, and per-show calls would
   // make this the slowest page in the product.
@@ -84,6 +88,13 @@ export default function LiveOperationsPage() {
       ),
     refetchInterval: POLL_MS,
   });
+
+  // Today AT THE CINEMA, once its zone is known.
+  useEffect(() => {
+    if (timezone && !date) {
+      setDate(new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date()));
+    }
+  }, [timezone, date]);
 
   const mapQ = useQuery({
     queryKey: ['show', sessionId, 'live-seat-map'],
@@ -102,6 +113,21 @@ export default function LiveOperationsPage() {
   const now = new Date();
   const selected = shows.find((s) => s.sessionId === sessionId) ?? null;
 
+  /*
+    Hold until the venue's zone is known.
+
+    Every date on this page is a LOCAL date at the cinema, so rendering before the zone has
+    loaded means rendering a guess. A skeleton reads as "waiting"; a plausible-but-wrong day
+    reads as data, and that is precisely how the earlier timezone defects went unnoticed.
+  */
+  if (!timezone || !date) {
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       <PageHeader
