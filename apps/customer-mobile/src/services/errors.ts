@@ -1,6 +1,10 @@
 import { AxiosError } from 'axios';
 import { ApiContractError } from './http';
 
+// Re-exported so callers have one obvious place to reach for error helpers, while the
+// predicate itself stays in a dependency-free module. See network-error.ts.
+export { isUnreachable } from './network-error';
+
 /**
  * Turn any thrown value into something worth showing a customer.
  *

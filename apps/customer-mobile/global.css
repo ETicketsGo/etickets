@@ -14,10 +14,10 @@
   --background-elevated: 0 0% 100%;
   --text-primary: 222 47% 11%;
   --text-secondary: 220 12% 38%;
-  --text-muted: 220 9% 55%;
+  --text-muted: 220 9% 44%; /* AA on subtle+white; mirrors design-tokens */
   --border-default: 220 18% 91%;
   --border-strong: 220 16% 84%;
-  --action-primary: 221 83% 53%;
+  --action-primary: 221 83% 51%; /* AA on its own 10% tint; mirrors design-tokens */
   --action-primary-foreground: 0 0% 100%;
   --action-secondary: 220 20% 96%;
   --action-secondary-foreground: 222 40% 16%;

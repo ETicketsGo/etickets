@@ -226,10 +226,37 @@ export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
 
 export const SessionStatus = {
   SCHEDULED: 'SCHEDULED',
+  /**
+   * Sales stopped by the operator; the show still happens and existing bookings stand.
+   *
+   * A status rather than a separate boolean, because booking creation already refuses
+   * anything that is not SCHEDULED and the public showtime query already filters on it —
+   * so this is enforced by code that exists. A parallel flag would have to be taught to
+   * both call sites, and forgetting one means selling tickets to a show the operator
+   * believes is closed.
+   */
+  PAUSED: 'PAUSED',
   CANCELLED: 'CANCELLED',
   COMPLETED: 'COMPLETED',
 } as const;
 export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus];
+
+/**
+ * Whether a screen can be scheduled and sold.
+ *
+ * Deliberately small. MAINTENANCE and INACTIVE both stop NEW scheduling; the difference is
+ * intent, which matters to an operator reading a list of screens. Neither touches shows
+ * that already exist: taking a screen out of service must never silently cancel a show
+ * somebody has paid for. Cancelling is an explicit, audited, per-show act.
+ */
+export const ScreenStatus = {
+  ACTIVE: 'ACTIVE',
+  /** Temporarily out of service. Expected back. */
+  MAINTENANCE: 'MAINTENANCE',
+  /** Retired or not in use. */
+  INACTIVE: 'INACTIVE',
+} as const;
+export type ScreenStatus = (typeof ScreenStatus)[keyof typeof ScreenStatus];
 
 export const FeeMode = {
   CUSTOMER_PAYS: 'CUSTOMER_PAYS',

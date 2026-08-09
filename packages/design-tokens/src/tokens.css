@@ -17,15 +17,32 @@
   /* text */
   --text-primary: 222 47% 11%; /* #0F172A */
   --text-secondary: 220 12% 38%; /* #545B6B */
-  --text-muted: 220 9% 55%; /* #838A97 */
+  /*
+    Darkened from 55% after an axe scan measured this failing WCAG AA on the two surfaces it
+    is actually used on: 3.19:1 over --background-subtle and 3.48:1 over white, against a
+    4.5:1 requirement for body text. 44% gives 4.73:1 and 5.21:1.
+
+    Muted text is the caption/secondary-detail colour used across all three web apps, so
+    "muted" was quietly meaning "hard to read" everywhere, not just on the schedule. The
+    dark-mode value already passed (4.76:1) and is left alone.
+  */
+  --text-muted: 220 9% 44%; /* #666D7A */
 
   /* border */
   --border-default: 220 18% 91%; /* very subtle gray */
   --border-strong: 220 16% 84%;
 
-  /* primary — blue, used sparingly */
-  --action-primary: 221 83% 53%; /* #2563EB */
-  --action-primary-hover: 221 83% 48%;
+  /*
+    primary — blue, used sparingly.
+
+    Darkened from 53% to 51%. The failing pair is `text-action-primary` on
+    `bg-action-primary/10`, which the shell uses for the active nav item and the user avatar:
+    at 53% that measured 4.49:1, a hair under AA. Two points of lightness takes it to 4.84:1
+    and also lifts white-on-primary from 5.17:1 to 5.58:1, so every primary button improves
+    too. The hue and saturation are untouched — this is the same blue, not a rebrand.
+  */
+  --action-primary: 221 83% 51%; /* #1A5CEA */
+  --action-primary-hover: 221 83% 46%;
   --action-primary-foreground: 0 0% 100%;
 
   /* secondary — light neutral */
@@ -36,11 +53,23 @@
   --action-danger: 0 72% 51%; /* #DC2626 */
   --action-danger-foreground: 0 0% 100%;
 
-  /* status */
-  --status-success: 142 68% 36%; /* #16A34A */
-  --status-warning: 32 92% 44%; /* #D97706 */
-  --status-error: 0 72% 51%; /* #DC2626 */
-  --status-info: 221 83% 53%; /* blue */
+  /*
+    status
+
+    These are badge text colours, and every badge paints them on a 12% wash of themselves —
+    which is very nearly white. An axe scan measured success at 3.64:1 and warning at 3.21:1
+    against a 4.5:1 requirement, so the two states an operator most needs to read at a glance
+    were the two least legible on the page. Each is darkened to clear 4.5:1 measured against
+    the TINT (the stricter of the two backgrounds), leaving hue and saturation alone so the
+    palette still reads as green/amber/red/blue.
+
+    Amber moves the most. A mid-amber simply cannot pass AA as small text on white — that is
+    a property of the colour, not of this palette, and the usual remedy is exactly this.
+  */
+  --status-success: 142 68% 28%; /* #17783A — 4.70:1 on tint */
+  --status-warning: 32 92% 32%; /* #9D5707 — 4.68:1 on tint */
+  --status-error: 0 72% 45%; /* #C52020 — 4.78:1 on tint */
+  --status-info: 221 83% 51%; /* #1A5CEA — 4.67:1 on tint */
 
   /* focus ring */
   --ring: 221 83% 53%;
@@ -83,7 +112,9 @@
 
   --status-success: 142 60% 48%;
   --status-warning: 34 90% 56%;
-  --status-error: 0 74% 62%;
+  /* Lightened from 62%, which measured 4.30:1 on its own 12% tint. 66% gives 4.79:1.
+     The other three dark tones already cleared AA (5.02–6.56:1) and are unchanged. */
+  --status-error: 0 74% 66%;
   --status-info: 217 92% 66%;
 
   --ring: 217 92% 62%;

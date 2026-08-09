@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   api,
+  Badge,
   Button,
   ButtonLink,
   Card,
@@ -24,6 +25,39 @@ import {
 } from '@eticketsgo/web-kit';
 
 const SCREEN_TYPES = ['2D', '3D', 'IMAX', '4DX', 'Dolby Atmos', 'Recliner'];
+
+/**
+ * Operational states, mirroring the backend enum exactly. There is no second screen-state
+ * system: these strings are the ones the API accepts.
+ */
+type ScreenStatusValue = 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';
+
+const STATUS_LABEL: Record<ScreenStatusValue, string> = {
+  ACTIVE: 'In service',
+  MAINTENANCE: 'Maintenance',
+  INACTIVE: 'Out of use',
+};
+
+const STATUS_TONE: Record<ScreenStatusValue, 'success' | 'warning' | 'neutral'> = {
+  ACTIVE: 'success',
+  MAINTENANCE: 'warning',
+  INACTIVE: 'neutral',
+};
+
+/** What each state actually does, stated in the confirmation so nobody has to guess. */
+const STATUS_EFFECT: Record<ScreenStatusValue, string[]> = {
+  ACTIVE: ['New shows can be scheduled on this screen again.'],
+  MAINTENANCE: [
+    'New shows cannot be scheduled on this screen.',
+    'Shows already scheduled are NOT cancelled — they stay on sale and need your review.',
+    'Nothing is refunded and no customer is notified by this change.',
+  ],
+  INACTIVE: [
+    'The screen cannot be used for any new scheduling.',
+    'Shows already scheduled are NOT cancelled.',
+    'All past bookings and history are kept.',
+  ],
+};
 
 interface ScreenDraft {
   name: string;
@@ -159,6 +193,42 @@ export default function CinemaDetailPage() {
     saveScreen.mutate();
   };
 
+  /**
+   * Take a screen in or out of service.
+   *
+   * Deliberately its own mutation rather than folded into the edit form: the edit form is
+   * about what a screen IS (name, type, capacity), and this is about whether it can be
+   * used. Mixing them would let a rename quietly change operational state.
+   */
+  const [statusTarget, setStatusTarget] = useState<Screen | null>(null);
+  const [nextStatus, setNextStatus] = useState<ScreenStatusValue>('MAINTENANCE');
+  const [statusReason, setStatusReason] = useState('');
+
+  const changeStatus = useMutation({
+    mutationFn: () =>
+      api.cinemas.updateScreen(statusTarget!.id, {
+        name: statusTarget!.name,
+        screenType: statusTarget!.screenType,
+        capacity: statusTarget!.capacity,
+        status: nextStatus,
+        statusReason: statusReason.trim() || undefined,
+      }),
+    onSuccess: () => {
+      toast.push(
+        `${statusTarget?.name} is now ${STATUS_LABEL[nextStatus].toLowerCase()}.`,
+        'success',
+      );
+      setStatusTarget(null);
+      setStatusReason('');
+      qc.invalidateQueries({ queryKey: ['cinema', id, 'screens'] });
+    },
+    onError: (e) => {
+      toast.push(errorMessage(e), 'error');
+      // A timeout does not mean the write did not land; re-read rather than guess.
+      qc.invalidateQueries({ queryKey: ['cinema', id, 'screens'] });
+    },
+  });
+
   const removeScreen = useMutation({
     mutationFn: (screenId: string) => api.cinemas.removeScreen(screenId),
     onSuccess: () => {
@@ -175,6 +245,26 @@ export default function CinemaDetailPage() {
     { key: 'type', header: 'Type', render: (s) => s.screenType },
     { key: 'capacity', header: 'Capacity', render: (s) => s.capacity },
     {
+      key: 'status',
+      header: 'Status',
+      // Text, not a coloured dot: an operator scanning a list of screens must be able to
+      // read the state without relying on hue.
+      render: (s) => {
+        const value = (s.status ?? 'ACTIVE') as ScreenStatusValue;
+        const future = s.futureShowsRequiringAttention ?? 0;
+        return (
+          <span className="flex flex-col gap-0.5">
+            <Badge tone={STATUS_TONE[value]}>{STATUS_LABEL[value]}</Badge>
+            {value !== 'ACTIVE' && future > 0 ? (
+              <span className="text-caption text-text-muted">
+                {future} future show{future === 1 ? '' : 's'} need review
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
       key: 'actions',
       header: '',
       render: (s) => (
@@ -188,6 +278,18 @@ export default function CinemaDetailPage() {
           </ButtonLink>
           <Button variant="ghost" size="sm" onClick={() => openEdit(s)}>
             Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStatusTarget(s);
+              setNextStatus((s.status ?? 'ACTIVE') === 'ACTIVE' ? 'MAINTENANCE' : 'ACTIVE');
+              setStatusReason('');
+            }}
+            aria-label={`Change status for ${s.name}`}
+          >
+            Change status
           </Button>
           <Button
             variant="ghost"
@@ -369,6 +471,84 @@ export default function CinemaDetailPage() {
       >
         This permanently removes the screen {removing ? `"${removing.name}"` : ''} from{' '}
         {cinema.name}. This cannot be undone.
+      </Dialog>
+
+      {/*
+        Taking a screen out of service is high-impact but NOT destructive, and the dialog
+        says so explicitly. The single most important sentence here is that existing shows
+        are not cancelled — an operator who assumes otherwise will not go and deal with them.
+      */}
+      <Dialog
+        open={!!statusTarget}
+        onClose={() => setStatusTarget(null)}
+        title={statusTarget ? `Change status for ${statusTarget.name}` : 'Change status'}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setStatusTarget(null)}
+              disabled={changeStatus.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              loading={changeStatus.isPending}
+              disabled={changeStatus.isPending}
+              onClick={() => changeStatus.mutate()}
+            >
+              {`Set ${STATUS_LABEL[nextStatus]}`}
+            </Button>
+          </>
+        }
+      >
+        {statusTarget ? (
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="screen-status" className="mb-1 block text-sm font-medium">
+                New status
+              </label>
+              <Select
+                id="screen-status"
+                value={nextStatus}
+                onChange={(e) => setNextStatus(e.target.value as ScreenStatusValue)}
+              >
+                <option value="ACTIVE">{STATUS_LABEL.ACTIVE}</option>
+                <option value="MAINTENANCE">{STATUS_LABEL.MAINTENANCE}</option>
+                <option value="INACTIVE">{STATUS_LABEL.INACTIVE}</option>
+              </Select>
+            </div>
+
+            {(statusTarget.futureShowsRequiringAttention ?? 0) > 0 && nextStatus !== 'ACTIVE' ? (
+              <p className="rounded-md bg-status-warning/10 p-3 text-sm" role="alert">
+                <strong>
+                  {statusTarget.name} has {statusTarget.futureShowsRequiringAttention} future show
+                  {statusTarget.futureShowsRequiringAttention === 1 ? '' : 's'}.
+                </strong>{' '}
+                Changing it to {STATUS_LABEL[nextStatus].toLowerCase()} blocks new scheduling but
+                will not cancel them. Review each one and cancel or move it yourself.
+              </p>
+            ) : null}
+
+            <ul className="list-disc space-y-1 pl-5 text-sm text-text-secondary">
+              {STATUS_EFFECT[nextStatus].map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+
+            <div>
+              <label htmlFor="screen-status-reason" className="mb-1 block text-sm font-medium">
+                Reason (optional)
+              </label>
+              <Input
+                id="screen-status-reason"
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                placeholder="e.g. projector replacement"
+              />
+              <p className="mt-1 text-caption text-text-muted">Recorded in the audit trail.</p>
+            </div>
+          </div>
+        ) : null}
       </Dialog>
     </div>
   );

@@ -1,0 +1,15 @@
+-- Adds PAUSED to SessionStatus so an operator can stop sales for one show without
+-- cancelling it.
+--
+-- Purely additive: every existing row keeps the value it has, nothing is rewritten, and
+-- code that has not been taught about PAUSED continues to behave correctly because both
+-- the booking path and the public showtime query already test for SCHEDULED explicitly
+-- rather than testing for "not cancelled".
+--
+-- ADD VALUE is safe inside Prisma's migration transaction on PostgreSQL 12+, provided the
+-- new value is not itself used in the same transaction. It is not: this migration only
+-- declares it.
+--
+-- IF NOT EXISTS makes re-running a no-op, so a database that already has the value (for
+-- instance one restored from a later dump) does not fail the deploy.
+ALTER TYPE "SessionStatus" ADD VALUE IF NOT EXISTS 'PAUSED' AFTER 'SCHEDULED';

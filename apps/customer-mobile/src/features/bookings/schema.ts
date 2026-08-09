@@ -90,6 +90,11 @@ export function bookingTone(status: string): 'success' | 'warning' | 'error' | '
     case 'PENDING':
     case 'HELD':
     case 'AWAITING_PAYMENT':
+    // PENDING_PAYMENT is the status the API actually emits for an unpaid hold; the three
+    // above are older or hypothetical spellings. Without it, the one state that genuinely
+    // needs the user to act rendered in the neutral grey reserved for statuses this app
+    // has never heard of. Seen on a real QA booking, not in a fixture.
+    case 'PENDING_PAYMENT':
       return 'warning';
     case 'CANCELLED':
     case 'EXPIRED':
@@ -98,5 +103,29 @@ export function bookingTone(status: string): 'success' | 'warning' | 'error' | '
       return 'error';
     default:
       return 'neutral';
+  }
+}
+
+/**
+ * Whether a booking is still something the customer holds, rather than a dead record.
+ *
+ * Drives the Upcoming/Past split. The split is otherwise by session time, which is right
+ * for live bookings — but a lapsed hold for a future date is not "upcoming" in any sense
+ * a person means it. On a real QA account this put two EXPIRED holds in the Upcoming tab
+ * and counted them in the badge, so the tab read "Upcoming (3)" when exactly one ticket
+ * existed. An overstated count on the surface people open to check they have a ticket is
+ * worse than a slightly over-full Past tab.
+ *
+ * Matched by exclusion so an unrecognised status from a newer API stays visible as live
+ * rather than silently vanishing from both tabs.
+ */
+export function isLiveBooking(status: string): boolean {
+  switch (status.toUpperCase()) {
+    case 'CANCELLED':
+    case 'EXPIRED':
+    case 'FAILED':
+      return false;
+    default:
+      return true;
   }
 }

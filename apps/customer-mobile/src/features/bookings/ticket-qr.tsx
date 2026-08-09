@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as Brightness from 'expo-brightness';
@@ -79,7 +79,26 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
  * neither should stop a ticket being shown.
  */
 function useMaxBrightnessWhileVisible() {
-  const [restore, setRestore] = useState<number | null>(null);
+  /**
+   * The previous brightness lives in a REF, not in state, and that is the whole fix.
+   *
+   * It was `useState`, and the cleanup read it directly. An effect's cleanup closes over
+   * the render in which the effect ran — the first one — where the value was still null.
+   * The async work then set it a moment later, but the cleanup was already holding the
+   * stale null, so `if (restore != null)` never passed and the brightness was NEVER put
+   * back. Excluding it from the deps (which the old comment defended) is what made the
+   * closure stale in the first place; adding it to the deps would instead re-run the
+   * effect and immediately undo the boost. A ref is the only option that is correct in
+   * both directions: stable identity, current value at cleanup time.
+   *
+   * Caught on a physical Android runtime, not in review. After leaving the ticket
+   * screen, `dumpsys display` still reported `mBrightnessReason=override` — the screen
+   * stayed at 100% for the rest of the session, and only dropped back when the app was
+   * backgrounded and Android reclaimed the window. Burning a phone's battery at full
+   * brightness is at its worst precisely where this screen gets used: at a venue, on a
+   * nearly-flat phone, with a ticket still to show at the gate.
+   */
+  const previousBrightness = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +108,7 @@ function useMaxBrightnessWhileVisible() {
         if (Platform.OS === 'web') return;
         const previous = await Brightness.getBrightnessAsync();
         if (cancelled) return;
-        setRestore(previous);
+        previousBrightness.current = previous;
         await Brightness.setBrightnessAsync(1);
       } catch {
         // Brightness is a nicety; a ticket that displays dim still gets someone in.
@@ -98,12 +117,11 @@ function useMaxBrightnessWhileVisible() {
 
     return () => {
       cancelled = true;
-      if (restore != null) {
-        Brightness.setBrightnessAsync(restore).catch(() => undefined);
+      const previous = previousBrightness.current;
+      previousBrightness.current = null;
+      if (previous != null) {
+        Brightness.setBrightnessAsync(previous).catch(() => undefined);
       }
     };
-    // `restore` is intentionally excluded: including it would re-run the effect the
-    // moment the previous brightness is recorded, and immediately undo itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

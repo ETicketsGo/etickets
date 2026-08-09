@@ -76,6 +76,37 @@ const envSchema = z.object({
   // this is abandoned as a failure (isolated + logged), never blocking other handlers.
   DOMAIN_EVENT_HANDLER_TIMEOUT_MS: z.coerce.number().default(5000),
 
+  /**
+   * How long an unpaid booking holds its inventory, in minutes.
+   *
+   * This was a `const HOLD_MINUTES = 10` in BookingsService with no way to change it. A
+   * hold window is a commercial decision, not a code constant: cinemas run tighter windows
+   * than festivals, and a release-day house may want it tighter still. Changing it should
+   * not need a deploy, and it must be settable per environment so QA can exercise
+   * expiry quickly without waiting out the production window.
+   *
+   * The client is NOT told the duration — it renders the server's `holdExpiresAt`, so the
+   * countdown follows this automatically and cannot drift from what the server enforces.
+   *
+   * Bounded deliberately: under a minute cannot survive a slow card page and would strand
+   * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
+   */
+  BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+
+  /**
+   * Minimum gap between two shows on the same screen, in minutes.
+   *
+   * A cinema cannot run back-to-back: the room has to empty, be cleaned and refill.
+   * Scheduling 14:00–16:00 followed by 16:00–18:00 looks correct in a spreadsheet and is
+   * not runnable. This is a property of how a venue operates — a multiplex with cleaning
+   * staff per screen turns around faster than a single-screen house — so it is
+   * configuration rather than a constant.
+   *
+   * Zero is permitted: some operators schedule the gap into the advertised runtime and do
+   * not want a second one imposed on top.
+   */
+  SHOW_TURNAROUND_MINUTES: z.coerce.number().int().min(0).max(240).default(15),
+
   // Transactional outbox (ADR-041). DEFAULTS PRESERVE P2 in-process behaviour. Mode
   // `in_process` = current P2. `outbox` = record durably in the business tx + dispatch
   // from the outbox (no direct post-commit publish). `dual_write_shadow` = record

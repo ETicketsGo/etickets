@@ -39,7 +39,15 @@ const LIMITED_THRESHOLD = 15;
  */
 const MAX_SHOWS = 200;
 
-export type ShowAvailability = 'AVAILABLE' | 'LIMITED' | 'SOLD_OUT';
+/**
+ * Customer-facing bookability.
+ *
+ * SALES_PAUSED was added alongside the original three rather than as a separate flag, so a
+ * client keeps reading one field to decide whether to show a Book button. A paused show
+ * stays in the listing: one that simply vanished looks like a bug to someone who was about
+ * to book it, and "sales are paused" is information they can act on.
+ */
+export type ShowAvailability = 'AVAILABLE' | 'LIMITED' | 'SOLD_OUT' | 'SALES_PAUSED';
 export type SeatingType = 'RESERVED' | 'GENERAL_ADMISSION';
 
 export interface PublicShowDto {
@@ -345,7 +353,10 @@ export class PublicMoviesService {
     const from = filters.from && filters.from > now ? filters.from : now;
 
     const where = {
-      status: SessionStatus.SCHEDULED,
+      // PAUSED is included so the show is still listed, marked unbookable. CANCELLED and
+      // COMPLETED stay excluded: those are not upcoming screenings a customer can plan
+      // around, and listing them would clutter the grid with things that will not happen.
+      status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
       startsAt: { gte: from, ...(filters.to ? { lt: filters.to } : {}) },
       event: {
         movieId: movie.id,
@@ -449,13 +460,17 @@ export class PublicMoviesService {
         currency: cheapest?.currency ?? 'INR',
         fromPriceMinor: cheapest?.priceMinor ?? null,
         seatingType: reserved ? ('RESERVED' as const) : ('GENERAL_ADMISSION' as const),
-        // Nothing on sale is sold out from a customer's point of view, whatever the cause.
+        // Paused outranks seat counts: a closed show should not advertise seats it will
+        // not sell. Otherwise, nothing on sale is sold out from a customer's point of
+        // view, whatever the cause.
         availability:
-          !cheapest || remaining <= 0
-            ? ('SOLD_OUT' as const)
-            : remaining <= LIMITED_THRESHOLD
-              ? ('LIMITED' as const)
-              : ('AVAILABLE' as const),
+          session.status === SessionStatus.PAUSED
+            ? ('SALES_PAUSED' as const)
+            : !cheapest || remaining <= 0
+              ? ('SOLD_OUT' as const)
+              : remaining <= LIMITED_THRESHOLD
+                ? ('LIMITED' as const)
+                : ('AVAILABLE' as const),
         seatsAvailable,
         seatsTotal,
       };

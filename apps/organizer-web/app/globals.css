@@ -13,7 +13,14 @@ html {
 body {
   background-color: hsl(var(--background-canvas));
   color: hsl(var(--text-primary));
-  font-family: var(--font-inter), Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    var(--font-inter),
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
   font-size: 1rem;
   line-height: 1.6;
 }

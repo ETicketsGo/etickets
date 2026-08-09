@@ -89,6 +89,23 @@ export async function getPermissionState(): Promise<PermissionState> {
  * Returns null rather than throwing on every failure path. Push is an enhancement: a
  * missing project id, a denied permission or an unreachable server must not stop anyone
  * using the app, and there is nothing a customer could do about any of them.
+ *
+ * ── NOT CURRENTLY REACHED ─────────────────────────────────────────────────────────
+ * NOTHING IN THE APP CALLS THIS, and nothing calls `requestPermission()` either. Both
+ * were verified unreferenced, and the consequence was measured on a device: after
+ * registering an account, POST_NOTIFICATIONS was still `granted=false` and
+ * `GET /users/me/devices` returned `[]`.
+ *
+ * It is deliberately still unwired rather than hooked up blind, because Android cannot
+ * produce a token in this build regardless. The APK ships no `google-services.json`, so
+ * logcat reports "Default FirebaseApp failed to initialize because no default options
+ * were found" and `getExpoPushTokenAsync` has no FCM registration to ask. Calling this
+ * after sign-in today would prompt for notification permission and then fail at the token
+ * step — asking for a permission the build cannot honour is worse than not asking.
+ *
+ * Wiring it up is one call after authentication, and should land together with the FCM
+ * credential (an owner step: create the Firebase project, upload the FCM key to EAS).
+ * See docs/PUSH-NOTIFICATIONS.md.
  */
 export async function registerDevice(): Promise<RegisteredDevice | null> {
   try {
@@ -105,9 +122,10 @@ export async function registerDevice(): Promise<RegisteredDevice | null> {
     }
 
     /**
-     * getExpoPushTokenAsync needs an EAS project id. None is configured yet (`eas init`
-     * is an owner step), so this throws in a bare build — caught and reported as "no
-     * token" rather than surfacing as a server failure.
+     * getExpoPushTokenAsync needs an EAS project id. One IS configured now (app.config.ts
+     * carries extra.eas.projectId), so the earlier note here saying otherwise is no longer
+     * true. On Android it still throws, for a different reason: the build has no FCM
+     * registration. Caught and reported as "no token" rather than a server failure.
      */
     const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)
       ?.eas?.projectId;

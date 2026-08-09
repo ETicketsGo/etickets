@@ -8,7 +8,7 @@ import { useTheme } from '@/theme';
 import { useNow } from '@/hooks/use-now';
 import { formatDateTime, formatMoney } from '@/services/locale';
 import { useBookings } from './api';
-import { bookingTone, type Booking } from './schema';
+import { bookingTone, isLiveBooking, type Booking } from './schema';
 
 type Filter = 'upcoming' | 'past';
 
@@ -18,12 +18,15 @@ type Filter = 'upcoming' | 'past';
  * The split is by SESSION time, not by booking status: a confirmed booking for last
  * month and a confirmed booking for tomorrow are the same status but the user is
  * looking for exactly one of them, and it is always the upcoming one.
+ *
+ * With one exception, added after seeing it on a real device: a booking whose hold lapsed
+ * or was cancelled is never "upcoming", whatever its session date says. See isLiveBooking.
  */
 export function BookingList() {
   const router = useRouter();
   const { colors } = useTheme();
   const [filter, setFilter] = useState<Filter>('upcoming');
-  const { data, isPending, isError, refetch, isRefetching } = useBookings();
+  const { data, isPending, isError, isPaused, refetch, isRefetching } = useBookings();
 
   // A minute's granularity is ample for an upcoming/past split, and keeps this list
   // from re-partitioning once a second while the user scrolls it.
@@ -33,15 +36,22 @@ export function BookingList() {
     const all = data?.data ?? [];
     return {
       upcoming: all
-        .filter((b) => new Date(b.eventSession.startsAt).getTime() >= now)
+        .filter(
+          (b) => new Date(b.eventSession.startsAt).getTime() >= now && isLiveBooking(b.status),
+        )
         .sort(
           (a, b) =>
             new Date(a.eventSession.startsAt).getTime() -
             new Date(b.eventSession.startsAt).getTime(),
         ),
       // Most recent first — the thing someone wants a receipt for is the last one.
+      // The exact complement of `upcoming`, deliberately: a dead hold for a future date
+      // is excluded from Upcoming, and if Past also filtered on time alone it would fall
+      // out of both tabs and be unreachable.
       past: all
-        .filter((b) => new Date(b.eventSession.startsAt).getTime() < now)
+        .filter(
+          (b) => !(new Date(b.eventSession.startsAt).getTime() >= now && isLiveBooking(b.status)),
+        )
         .sort(
           (a, b) =>
             new Date(b.eventSession.startsAt).getTime() -
@@ -49,6 +59,29 @@ export function BookingList() {
         ),
     };
   }, [data, now]);
+
+  /**
+   * Offline with nothing fetched yet is NOT a loading state, and showing skeletons for it
+   * is a lie that never resolves.
+   *
+   * TanStack Query's default networkMode pauses a query while the device is offline, so it
+   * sits at `status: 'pending'` with `fetchStatus: 'paused'` indefinitely — it is not
+   * waiting on a slow server, it is waiting on a network that is not coming back until the
+   * user does something. Observed on a device in aeroplane mode after a cold start: three
+   * skeleton cards, forever, with no way to tell whether the app was working.
+   *
+   * The check is on `isPaused` rather than a general offline flag, so a genuinely slow
+   * request still gets skeletons.
+   */
+  if (isPending && isPaused) {
+    return (
+      <ErrorState
+        title="You're offline"
+        message="Your bookings will appear once you're back online. Tickets you've already opened stay available on this device."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
 
   if (isPending) {
     return (

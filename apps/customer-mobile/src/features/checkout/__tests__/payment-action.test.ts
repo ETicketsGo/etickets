@@ -43,9 +43,28 @@ describe('followPaymentAction', () => {
       'etickets://booking/bk_1',
     );
 
-    expect(mockPost).toHaveBeenCalledWith('/payments/bk_1/mock-pay');
+    expect(mockPost).toHaveBeenCalledWith('/payments/bk_1/mock-pay', {});
     expect(mockOpenAuthSession).not.toHaveBeenCalled();
     expect(result).toEqual({ kind: 'completed' });
+  });
+
+  /**
+   * REGRESSION: this call used to be `apiClient.post(path)` with no second argument, so
+   * axios sent no request body. Nest then hands `@Body()` `undefined`, and a Zod object
+   * schema rejects undefined even when every field in it has a default — the gateway's
+   * `{ outcome: enum.default('succeeded') }` 400d before any payment logic ran.
+   *
+   * The whole booking flow died there on a real Android device: seats held, money not
+   * taken, and "The request failed validation." on screen. The previous version of the
+   * test above asserted `toHaveBeenCalledWith(path)` with no body, so it pinned the
+   * broken shape rather than catching it. An explicit body assertion is the fix.
+   */
+  it('sends an empty object body, because a bodyless POST fails server validation', async () => {
+    await followPaymentAction(intent('/api/payments/bk_1/mock-pay'), 'etickets://booking/bk_1');
+
+    const [, body] = mockPost.mock.calls[0];
+    expect(body).toBeDefined();
+    expect(body).toEqual({});
   });
 
   it('opens an absolute https provider page in the system browser', async () => {

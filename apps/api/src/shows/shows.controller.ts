@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
+  bulkScheduleShowsSchema,
+  cancelShowSchema,
+  copyScheduleSchema,
+  rescheduleShowSchema,
+  showSalesActionSchema,
   generateSeatMapSchema,
   scheduleShowSchema,
+  type BulkScheduleShowsInput,
+  type CancelShowInput,
+  type CopyScheduleInput,
+  type RescheduleShowInput,
+  type ShowSalesActionInput,
   type GenerateSeatMapInput,
   type ScheduleShowInput,
 } from '@eticketsgo/validation';
@@ -40,6 +50,115 @@ export class ShowsController {
     @Body(new ZodValidationPipe(scheduleShowSchema)) body: ScheduleShowInput,
   ) {
     return this.shows.scheduleShow(user, movieId, body);
+  }
+
+  /**
+   * Schedule a day, a week or a run in one request.
+   *
+   * Extends the existing scheduling surface rather than introducing a competing one: the
+   * single-show POST above stays the simple path, and this is the same operation applied to
+   * a grid of times. Defaults to a dry run, so a mistaken call previews rather than creates.
+   */
+  @Post('movies/:movieId/shows/bulk')
+  @ApiOperation({
+    summary: 'Preview or create many shows at once (dry run by default).',
+  })
+  bulkScheduleShows(
+    @CurrentUser() user: RequestUser,
+    @Param('movieId') movieId: string,
+    @Body(new ZodValidationPipe(bulkScheduleShowsSchema)) body: BulkScheduleShowsInput,
+  ) {
+    return this.shows.bulkScheduleShows(user, movieId, body);
+  }
+
+  /**
+   * Copy a screen's day onto another date and/or another screen. Dry run by default.
+   *
+   * One endpoint for both, because they are the same operation: the target screen simply
+   * defaults to the source. Splitting them would duplicate every compatibility check.
+   */
+  @Post('movies/:movieId/shows/copy')
+  @ApiOperation({ summary: 'Copy a day’s schedule to another date and/or screen.' })
+  copySchedule(
+    @CurrentUser() user: RequestUser,
+    @Param('movieId') movieId: string,
+    @Body(new ZodValidationPipe(copyScheduleSchema)) body: CopyScheduleInput,
+  ) {
+    return this.shows.copySchedule(user, movieId, body);
+  }
+
+  /**
+   * Sales control for one show. Separate verbs rather than a generic status PATCH: each has
+   * different preconditions, and "set status to CANCELLED" hides that cancelling is a
+   * different kind of act from pausing.
+   */
+  @Post('shows/:sessionId/pause')
+  @ApiOperation({ summary: 'Stop selling a show without cancelling it.' })
+  pauseSales(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(showSalesActionSchema)) body: ShowSalesActionInput,
+  ) {
+    return this.shows.pauseSales(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/reopen')
+  @ApiOperation({ summary: 'Put a paused show back on sale.' })
+  reopenSales(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(showSalesActionSchema)) body: ShowSalesActionInput,
+  ) {
+    return this.shows.reopenSales(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/cancel')
+  @ApiOperation({
+    summary: 'Cancel a show. Returns bookings that need the refund workflow.',
+  })
+  cancelShow(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(cancelShowSchema)) body: CancelShowInput,
+  ) {
+    return this.shows.cancelShow(user, sessionId, body.reason);
+  }
+
+  @Post('shows/:sessionId/reschedule')
+  @ApiOperation({ summary: 'Move a future show to a new start time.' })
+  rescheduleShow(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(rescheduleShowSchema)) body: RescheduleShowInput,
+  ) {
+    return this.shows.rescheduleShow(user, sessionId, body);
+  }
+
+  /**
+   * A cinema's schedule for one local day — the organizer's landing view.
+   *
+   * Additive: the per-movie listing below is unchanged. An operator thinks "what is on
+   * Screen 2 today", not "where is this film playing", and assembling that client-side from
+   * every film would be slow and let the two views disagree.
+   */
+  @Get('cinemas/:cinemaId/schedule')
+  @ApiOperation({
+    summary: 'Shows on a cinema’s screens for one local day, or an inclusive local range.',
+  })
+  cinemaSchedule(
+    @CurrentUser() user: RequestUser,
+    @Param('cinemaId') cinemaId: string,
+    @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('timezone') timezone?: string,
+  ) {
+    return this.shows.cinemaSchedule(user, cinemaId, {
+      date,
+      from,
+      to,
+      timezone: timezone || 'Asia/Kolkata',
+    });
   }
 
   @Get('movies/:movieId/shows')
