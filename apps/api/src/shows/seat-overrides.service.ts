@@ -355,7 +355,7 @@ export class SeatOverridesService {
   async expireLapsedOverrides(
     now = new Date(),
     batchSize = SeatOverridesService.EXPIRY_BATCH_SIZE,
-  ): Promise<{ released: number; more: boolean }> {
+  ): Promise<{ released: number; more: boolean; sessionIds: string[] }> {
     /*
       Bounded, and safe to run from several workers at once.
 
@@ -369,8 +369,55 @@ export class SeatOverridesService {
       outer UPDATE re-checks `status = 'BLOCKED'` so a seat re-blocked between the select and
       the write is left alone. Sold and held seats are unreachable — neither is BLOCKED.
     */
-    const released = await this.prisma.$executeRaw`
-      UPDATE "ShowSeat"
+    if (!Number.isInteger(batchSize) || batchSize < 1) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Expiry batch size must be a positive whole number.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    /*
+      The victim set is chosen ONCE, in a CTE, and the UPDATE touches exactly that set.
+
+      ── WHY NOT `WHERE id IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` ──────────────
+      That was the previous shape and it is NOT reliably bounded. Whether the sub-SELECT is
+      evaluated once or re-executed is the PLANNER'S choice: locally it materialised behind a
+      HashAggregate and every run released exactly `n`, while CI chose a different plan and a
+      single call with n=2 released 4. A bound that depends on the query plan is not a bound.
+
+      A CTE containing FOR UPDATE is never inlined by PostgreSQL, so `victims` is evaluated
+      exactly once and `LIMIT` caps the statement rather than one execution of a subplan. The
+      bound is now structural, not something the planner may opt out of.
+
+      ── ORDERING ────────────────────────────────────────────────────────────────────
+      `overrideExpiresAt ASC, id ASC` — oldest first so a backlog drains in the order it
+      accumulated and nothing starves, with `id` breaking ties so successive ticks and
+      concurrent workers behave predictably.
+
+      ── SAFETY IS RE-CHECKED AT THE WRITE ───────────────────────────────────────────
+      The join back to `ShowSeat` repeats the eligibility predicate. A victim that was sold,
+      re-blocked with a new deadline, or already released between selection and update simply
+      fails to match and is skipped — the tick returns FEWER than `batchSize` rather than
+      reaching for a replacement. Safety beats filling the batch.
+
+      ── COUNTING ────────────────────────────────────────────────────────────────────
+      Counted from RETURNING ids, not from a driver-reported row count, because the released
+      ids are also what any audit must be derived from. Deriving them from a second query
+      after the write would pick up rows released by another worker's tick.
+    */
+    const releasedRows = await this.prisma.$queryRaw<{ id: string; eventSessionId: string }[]>`
+      WITH victims AS (
+        SELECT "id"
+          FROM "ShowSeat"
+         WHERE "status" = 'BLOCKED'
+           AND "overrideExpiresAt" IS NOT NULL
+           AND "overrideExpiresAt" <= ${now}
+         ORDER BY "overrideExpiresAt" ASC, "id" ASC
+         FOR UPDATE SKIP LOCKED
+         LIMIT ${batchSize}
+      )
+      UPDATE "ShowSeat" AS s
          SET "status" = 'AVAILABLE',
              "overrideKind" = NULL,
              "overrideReason" = NULL,
@@ -379,18 +426,57 @@ export class SeatOverridesService {
              "overrideExpiresAt" = NULL,
              "version" = "version" + 1,
              "updatedAt" = NOW()
-       WHERE "id" IN (
-         SELECT "id" FROM "ShowSeat"
-          WHERE "status" = 'BLOCKED'
-            AND "overrideExpiresAt" IS NOT NULL
-            AND "overrideExpiresAt" <= ${now}
-          ORDER BY "overrideExpiresAt" ASC
-          LIMIT ${batchSize}
-          FOR UPDATE SKIP LOCKED
-       )
-         AND "status" = 'BLOCKED'
+        FROM victims v
+       WHERE s."id" = v."id"
+         AND s."status" = 'BLOCKED'
+         AND s."overrideExpiresAt" IS NOT NULL
+         AND s."overrideExpiresAt" <= ${now}
+      RETURNING s."id", s."eventSessionId"
     `;
-    return { released, more: released >= batchSize };
+
+    const released = releasedRows.length;
+
+    /*
+      Audit is derived from the rows the UPDATE actually returned — never from a follow-up
+      "what is expired" query, which would sweep in rows another worker released on its own
+      tick and credit them to this one. A victim that lost the race is absent from
+      `releasedRows`, so it produces no entry; a tick that released nothing writes nothing;
+      and two concurrent workers hold disjoint sets, so neither can log the other's seats.
+
+      One entry per affected show rather than per seat, matching how operator overrides are
+      recorded: "what happened to tonight's 9pm" is the question an auditor asks.
+    */
+    if (released > 0) {
+      const byShow = new Map<string, number>();
+      for (const r of releasedRows)
+        byShow.set(r.eventSessionId, (byShow.get(r.eventSessionId) ?? 0) + 1);
+
+      const shows = await this.prisma.eventSession.findMany({
+        where: { id: { in: [...byShow.keys()] } },
+        select: { id: true, screenId: true, event: { select: { organizationId: true } } },
+      });
+      for (const show of shows) {
+        await this.audit?.record({
+          // No actor: the clock did this, not a person. Attributing it to whoever set the
+          // block would misread as them releasing it.
+          actorUserId: null,
+          organizationId: show.event.organizationId,
+          action: 'SHOW_SEATS_EXPIRED',
+          entityType: 'EventSession',
+          entityId: show.id,
+          metadata: { screenId: show.screenId, seatCount: byShow.get(show.id) ?? 0 },
+        });
+      }
+    }
+
+    return {
+      released,
+      // Only a full batch implies there may be more waiting. A short tick means either the
+      // backlog is drained or the remainder is locked by another worker, and either way the
+      // next tick picks it up.
+      more: released >= batchSize,
+      sessionIds: [...new Set(releasedRows.map((r) => r.eventSessionId))],
+    };
   }
 
   /**

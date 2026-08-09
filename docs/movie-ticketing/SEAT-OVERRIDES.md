@@ -141,20 +141,71 @@ stops earning.
 `expireLapsedOverrides()` sweeps only rows that are still `BLOCKED` with an elapsed deadline,
 so a seat re-blocked for a different reason in the meantime is left alone. Idempotent.
 
-**Scheduled on the worker's existing hold-expiry tick, every 60 seconds.** It is the same
-operational question at the same cadence, so it shares that repeatable job rather than adding
-a second queue key and a second retry policy to keep an eye on. Isolated in its own try/catch,
-so a failing sweep can never undo the hold release that runs before it; a failure is simply
-retried next tick.
+**Scheduled on the worker's existing hold-expiry tick, every 60 seconds**
+(`HOLD_EXPIRY_INTERVAL_MS`). It is the same operational question at the same cadence, so it
+shares that repeatable job rather than adding a second queue key and retry policy. The job id
+is fixed, so several worker instances register one repeat between them. Isolated in its own
+try/catch: a failing sweep can never undo the hold release that runs before it, and the
+remaining rows are simply picked up next tick. **Exactly one sweep per scheduled execution** —
+it is deliberately not a `while (backlog) sweep()` loop, because bounding the work per tick is
+the entire point.
 
-Bounded at **500 seats per tick**, reporting whether a backlog remains. A chain that withheld a
-tier for a fortnight can have thousands come due in one minute, and an unbounded UPDATE would
-hold locks across all of them and stall checkouts on unrelated shows. The selection uses
-`FOR UPDATE SKIP LOCKED`, so two workers take disjoint slices instead of blocking on each
-other, and the outer UPDATE re-checks `status = 'BLOCKED'` — a seat re-blocked for a new reason
-between select and write keeps its new block.
+### The bound is structural, not plan-dependent
 
-Cadence is `HOLD_EXPIRY_INTERVAL_MS` (default 60s).
+Each worker releases **at most `batchSize` overrides per sweep** (default 500). Victims are
+chosen in a CTE:
+
+```sql
+WITH victims AS (
+  SELECT "id" FROM "ShowSeat"
+   WHERE "status" = 'BLOCKED'
+     AND "overrideExpiresAt" IS NOT NULL AND "overrideExpiresAt" <= $now
+   ORDER BY "overrideExpiresAt" ASC, "id" ASC
+   FOR UPDATE SKIP LOCKED
+   LIMIT $batchSize
+)
+UPDATE "ShowSeat" AS s SET … FROM victims v
+ WHERE s."id" = v."id" AND s."status" = 'BLOCKED' AND s."overrideExpiresAt" <= $now
+RETURNING s."id", s."eventSessionId"
+```
+
+> **Why not `WHERE id IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)`.** That was the original
+> shape and it is **not reliably bounded**. Whether the sub-SELECT is evaluated once or
+> re-executed is the planner's choice: locally it materialised behind a HashAggregate and
+> every run released exactly `n`, while CI chose a different plan and a single call with
+> `n = 2` released **4**. A bound that depends on the query plan is not a bound. A CTE
+> containing `FOR UPDATE` is never inlined, so `victims` is evaluated exactly once.
+
+**Ordering** is `overrideExpiresAt ASC, id ASC` — oldest first, so a backlog drains in the
+order it accumulated and nothing starves behind a trickle of newer blocks; `id` breaks ties so
+successive ticks and concurrent workers behave predictably.
+
+**Counting** comes from `RETURNING` ids, not a driver-reported row count. Those same ids are
+what the audit entry is derived from, so it cannot credit this tick with a row another worker
+released.
+
+**Concurrent workers** take disjoint slices via `SKIP LOCKED`; each is independently bounded,
+so two workers at `batchSize = 2` release at most four between them and nothing is released
+twice. Whatever they do not take remains for a later tick.
+
+**When a victim becomes unsafe** between selection and write — sold, re-blocked with a new
+deadline, already released — the join's repeated predicate simply skips it. The tick returns
+**fewer** than `batchSize` rather than reaching for a replacement. Safety beats filling the
+batch.
+
+**Audit**: one `SHOW_SEATS_EXPIRED` entry per affected show per sweep, with no actor (the
+clock did this, not a person). A tick that releases nothing writes nothing.
+
+**Batch size is validated** — a non-integer or non-positive value is rejected rather than
+silently sweeping everything.
+
+> **What the falsification tests do and do not prove.** Removing the `LIMIT`, or reverting to
+> the unbounded `IN (SELECT …)` predicate, each fails five tests — the bound is genuinely
+> proven. Removing the outer safety re-check, or `SKIP LOCKED`, fails **nothing**: the former
+> is unreachable in a single statement because `FOR UPDATE` already re-evaluates the predicate
+> under PostgreSQL's EvalPlanQual, and the latter is a liveness property (workers do not block
+> on each other) rather than a correctness one. Both are kept as defence in depth, and neither
+> is claimed as tested.
 
 ## Accessibility
 

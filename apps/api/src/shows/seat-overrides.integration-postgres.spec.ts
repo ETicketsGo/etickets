@@ -695,78 +695,191 @@ describe('integration-real-postgres: show seat overrides', () => {
     expect((await statusOf(seatIds[2])).status).toBe('BLOCKED');
   });
 
-  maybe('the sweep is bounded, and drains a backlog over successive ticks', async () => {
-    /*
-      Asserts the BOUND, not a global count.
+  // -- Bounded expiry sweep ---------------------------------------------------------
+  //
+  // These exist because a bound that depends on the query PLAN is not a bound. The previous
+  // shape - WHERE id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED) - released exactly n
+  // locally and 4 for n=2 in CI, because whether that sub-SELECT is evaluated once or
+  // re-executed is the planner's choice. The victim set is now picked in a CTE, which
+  // PostgreSQL never inlines when it contains FOR UPDATE, so it is evaluated exactly once.
 
-      `expireLapsedOverrides` sweeps every session in the database, so on a shared test
-      database other suites' lapsed overrides consume part of the same batch. An earlier
-      version of this test expected exactly 2 released per call and passed locally on an
-      empty database while failing in CI — the invariant is that a tick never exceeds its
-      budget and that the backlog drains, not that this suite owns the whole batch.
-    */
+  maybe('a tick never exceeds its batch size, whatever the backlog', async () => {
     const past = new Date(Date.now() - 60_000);
     await overrides.blockSeats(OPERATOR, sessionId, {
-      seatIds: seatIds.slice(0, 4),
+      seatIds: seatIds.slice(0, 6),
       kind: 'MAINTENANCE',
       reason: 'deep clean',
       expiresAt: past,
     });
 
-    const mineStillBlocked = async () =>
-      db!.showSeat.count({
-        where: {
-          eventSessionId: sessionId,
-          seatId: { in: seatIds.slice(0, 4) },
-          status: 'BLOCKED',
-        },
-      });
-    expect(await mineStillBlocked()).toBe(4);
-
-    // A tick can never exceed its budget, however much work is waiting.
-    const first = await overrides.expireLapsedOverrides(new Date(), 2);
-    expect(first.released).toBeLessThanOrEqual(2);
-    expect(first.more).toBe(true);
-
-    // And the backlog drains over successive ticks rather than being abandoned.
-    for (let i = 0; i < 10 && (await mineStillBlocked()) > 0; i += 1) {
-      const tick = await overrides.expireLapsedOverrides(new Date(), 2);
-      expect(tick.released).toBeLessThanOrEqual(2);
+    for (const size of [1, 2, 3]) {
+      const tick = await overrides.expireLapsedOverrides(new Date(), size);
+      // The whole point. Asserted for several sizes because a plan that happens to bound one
+      // value is not evidence about another.
+      expect(tick.released).toBeLessThanOrEqual(size);
     }
-    expect(await mineStillBlocked()).toBe(0);
   });
 
-  maybe('two workers sweeping at once release each seat exactly once', async () => {
-    /*
-      SKIP LOCKED is what makes this safe: concurrent ticks take DISJOINT slices instead of
-      blocking on each other or double-counting. Two independent clients, because two
-      transactions from one client can share a pooled connection and serialise for the wrong
-      reason.
-    */
+  maybe('drains a backlog larger than the batch over successive ticks', async () => {
     const past = new Date(Date.now() - 60_000);
     await overrides.blockSeats(OPERATOR, sessionId, {
-      seatIds: seatIds.slice(0, 6),
+      seatIds: seatIds.slice(0, 5),
       kind: 'MAINTENANCE',
-      reason: 'cleaning',
+      reason: 'deep clean',
       expiresAt: past,
     });
 
-    const other = new SeatOverridesService(db2 as never, allowAll, {
-      record: async () => undefined,
-    } as never);
+    const mineBlocked = () =>
+      db!.showSeat.count({
+        where: {
+          eventSessionId: sessionId,
+          seatId: { in: seatIds.slice(0, 5) },
+          status: 'BLOCKED',
+        },
+      });
+    expect(await mineBlocked()).toBe(5);
 
-    const [a, b] = await Promise.all([
-      overrides.expireLapsedOverrides(new Date(), 6),
-      other.expireLapsedOverrides(new Date(), 6),
-    ]);
-
-    // Every seat released once in total — never twice, never missed.
-    expect(a.released + b.released).toBe(6);
-    const stillBlocked = await db!.showSeat.count({
-      where: { eventSessionId: sessionId, status: 'BLOCKED' },
-    });
-    expect(stillBlocked).toBe(0);
+    let ticks = 0;
+    while ((await mineBlocked()) > 0 && ticks < 20) {
+      const tick = await overrides.expireLapsedOverrides(new Date(), 2);
+      expect(tick.released).toBeLessThanOrEqual(2);
+      ticks += 1;
+    }
+    expect(await mineBlocked()).toBe(0);
+    // Five rows at two per tick cannot be done in fewer than three.
+    expect(ticks).toBeGreaterThanOrEqual(3);
   });
+
+  maybe('a backlog smaller than the batch drains in one tick', async () => {
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[0]],
+      kind: 'MAINTENANCE',
+      reason: 'one only',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const tick = await overrides.expireLapsedOverrides(new Date(), 5);
+    expect(tick.released).toBeGreaterThanOrEqual(1);
+    expect(tick.released).toBeLessThanOrEqual(5);
+    expect((await statusOf(seatIds[0])).status).toBe('AVAILABLE');
+  });
+
+  maybe('batch size 1 releases one seat at a time', async () => {
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: seatIds.slice(0, 3),
+      kind: 'MAINTENANCE',
+      reason: 'one by one',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    for (let i = 0; i < 3; i += 1) {
+      const tick = await overrides.expireLapsedOverrides(new Date(), 1);
+      expect(tick.released).toBeLessThanOrEqual(1);
+    }
+  });
+
+  maybe('releases the oldest expiry first', async () => {
+    // Deterministic ordering keeps a backlog draining in the order it accumulated, so
+    // nothing starves behind a steady trickle of newer blocks.
+    const old = new Date(Date.now() - 3_600_000);
+    const recent = new Date(Date.now() - 60_000);
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[1]],
+      kind: 'MAINTENANCE',
+      reason: 'recent',
+      expiresAt: recent,
+    });
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: [seatIds[0]],
+      kind: 'MAINTENANCE',
+      reason: 'old',
+      expiresAt: old,
+    });
+
+    await overrides.expireLapsedOverrides(new Date(), 1);
+    expect((await statusOf(seatIds[0])).status).toBe('AVAILABLE');
+    expect((await statusOf(seatIds[1])).status).toBe('BLOCKED');
+  });
+
+  maybe('rejects a nonsensical batch size rather than sweeping everything', async () => {
+    for (const bad of [0, -1, 1.5]) {
+      await expect(overrides.expireLapsedOverrides(new Date(), bad)).rejects.toThrow(
+        /positive whole number/i,
+      );
+    }
+  });
+
+  maybe('writes one audit entry per affected show, and none for an empty tick', async () => {
+    await overrides.blockSeats(OPERATOR, sessionId, {
+      seatIds: seatIds.slice(0, 2),
+      kind: 'MAINTENANCE',
+      reason: 'lapsing',
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    audited.length = 0;
+
+    await overrides.expireLapsedOverrides(new Date(), 10);
+    const first = audited.filter((a) => a.action === 'SHOW_SEATS_EXPIRED');
+    expect(first).toHaveLength(1);
+    expect(first[0].metadata).toMatchObject({ seatCount: 2, screenId });
+
+    // A second sweep has nothing to do, so it must not log again.
+    audited.length = 0;
+    await overrides.expireLapsedOverrides(new Date(), 10);
+    expect(audited.filter((a) => a.action === 'SHOW_SEATS_EXPIRED')).toHaveLength(0);
+  });
+
+  maybe(
+    'two concurrent workers claim disjoint batches and neither exceeds its own bound',
+    async () => {
+      /*
+        SKIP LOCKED is what makes this safe: concurrent ticks take DISJOINT slices instead of
+        blocking on each other or releasing the same seat twice. Two independent clients,
+        because two transactions from one client can share a pooled connection and serialise
+        for the wrong reason.
+      */
+      const past = new Date(Date.now() - 60_000);
+      await overrides.blockSeats(OPERATOR, sessionId, {
+        seatIds: seatIds.slice(0, 6),
+        kind: 'MAINTENANCE',
+        reason: 'cleaning',
+        expiresAt: past,
+      });
+
+      const other = new SeatOverridesService(db2 as never, allowAll, {
+        record: async () => undefined,
+      } as never);
+
+      const [a, b] = await Promise.all([
+        overrides.expireLapsedOverrides(new Date(), 2),
+        other.expireLapsedOverrides(new Date(), 2),
+      ]);
+
+      // Per-worker bound holds under contention...
+      expect(a.released).toBeLessThanOrEqual(2);
+      expect(b.released).toBeLessThanOrEqual(2);
+      // ...and no seat is released twice: the remaining backlog is exactly what was not taken.
+      const mineBlocked = await db!.showSeat.count({
+        where: {
+          eventSessionId: sessionId,
+          seatId: { in: seatIds.slice(0, 6) },
+          status: 'BLOCKED',
+        },
+      });
+      expect(mineBlocked).toBe(6 - (a.released + b.released));
+
+      // And the rest drains on later ticks rather than being stranded.
+      for (let i = 0; i < 10; i += 1) await overrides.expireLapsedOverrides(new Date(), 2);
+      expect(
+        await db!.showSeat.count({
+          where: {
+            eventSessionId: sessionId,
+            seatId: { in: seatIds.slice(0, 6) },
+            status: 'BLOCKED',
+          },
+        }),
+      ).toBe(0);
+    },
+    60_000,
+  );
 
   maybe('the sweep never touches a sold or held seat', async () => {
     // Neither is BLOCKED, so neither is reachable — asserted rather than assumed, because
