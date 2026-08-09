@@ -80,7 +80,41 @@ export class CinemasService {
   }
 
   async update(user: RequestUser, id: string, patch: UpdateCinemaInput) {
-    await this.loadOwnedCinema(user, id);
+    const cinema = await this.loadOwnedCinema(user, id);
+
+    /*
+      Changing the timezone of a cinema that already has shows is REFUSED.
+
+      Show start times are stored as absolute instants, resolved through the venue's zone at
+      the moment they were scheduled. Re-pointing the zone does not move them — it changes
+      what those instants are ADVERTISED as. A 10:00 Hyderabad show becomes a 04:30 show if
+      the cinema is re-declared as Europe/London, and every ticket already sold now names a
+      time the customer will not turn up for.
+
+      Silently reinterpreting them is the one outcome that must not happen, so this refuses
+      rather than guessing. Correcting a genuinely wrong zone on a trading cinema is a data
+      migration — the sessions have to be re-resolved deliberately — and that is a decision
+      for a person, not a side effect of a form save.
+
+      An empty cinema can be corrected freely, which is the case that actually matters during
+      onboarding: an operator who picks the wrong zone before scheduling anything can fix it.
+    */
+    if (patch.timezone !== undefined && patch.timezone !== cinema.timezone) {
+      const sessionCount = await this.prisma.eventSession.count({
+        where: { screen: { cinemaId: id } },
+      });
+      if (sessionCount > 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `This cinema has ${sessionCount} scheduled show${
+            sessionCount === 1 ? '' : 's'
+          }. Changing its timezone would re-advertise every one of them at a different local time, including shows that are already sold. Cancel or move them first, or contact support to migrate the schedule.`,
+          HttpStatus.CONFLICT,
+          { reason: 'TIMEZONE_LOCKED_BY_SHOWS', sessionCount },
+        );
+      }
+    }
+
     return this.prisma.cinema.update({
       where: { id },
       data: patch,
