@@ -64,6 +64,16 @@ export class CinemasService {
         address: input.address,
         latitude: input.latitude,
         longitude: input.longitude,
+        /*
+          Explicitly persisted, and this list is why.
+
+          `create` enumerates its fields rather than spreading `input`, so a new field is
+          silently dropped until somebody adds it here — which is exactly what happened: a
+          Sydney cinema was created and stored as Asia/Kolkata, because the column default
+          filled in for the value the caller actually supplied. It was invisible to every
+          India fixture, where the default and the intended value are the same string.
+        */
+        timezone: input.timezone,
       },
       include: { screens: true },
     });

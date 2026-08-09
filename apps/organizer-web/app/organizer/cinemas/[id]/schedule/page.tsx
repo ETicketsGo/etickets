@@ -230,6 +230,16 @@ export default function CinemaSchedulePage() {
             </Select>
           </div>
         </div>
+
+        {/*
+          State the clock being used. Every date and time on this page is local to the venue,
+          and an operator working across cinemas has no other way to tell which one they are
+          reading — the difference between a Hyderabad and a Sydney day is not visible from
+          the numbers alone.
+        */}
+        <p className="mt-3 text-caption text-text-muted">
+          Times are local to the cinema ({timezone}).
+        </p>
       </Card>
 
       {mode === 'week' ? (
