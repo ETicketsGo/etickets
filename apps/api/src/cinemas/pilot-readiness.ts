@@ -245,8 +245,11 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
       code: 'NO_FEE_RULE',
       level: 'WARNING',
       message:
-        'No active convenience fee rule. Tickets will sell with no booking fee — intended for a pilot, but confirm it.',
-      fixPath: '/admin/fees',
+        'No active convenience fee rule. Tickets will sell with no booking fee — intended for a pilot, but confirm it with ETicketsGo before opening.',
+      // No organizer-reachable screen exists. This previously pointed at `/admin/fees`, which
+      // is not a route at all AND lives in an application a theater operator cannot open — a
+      // dead link dressed up as an action. Null is honest: the UI says who owns this instead.
+      fixPath: null,
     });
   } else {
     c.push(ok('FEES', 'FEE_RULES_ACTIVE', `${f.activeFeeRules} fee rule(s) active.`));
@@ -272,8 +275,11 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
       section: 'PAYMENTS',
       code: 'NO_INR_ROUTE',
       level: 'BLOCKED',
-      message: 'No INR payment route is configured, so checkout cannot complete.',
-      fixPath: '/admin/payments',
+      message:
+        'No INR payment route is configured, so checkout cannot complete. ETicketsGo configures payment routing — contact support.',
+      // Platform configuration, not the theater's. Linking an operator into the admin app
+      // they cannot sign in to is worse than telling them who to ask.
+      fixPath: null,
     });
   } else {
     c.push(ok('PAYMENTS', 'INR_ROUTE', 'An INR payment route is available.'));
@@ -285,8 +291,8 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
       code: 'PROVIDER_NOT_CONFIGURED',
       level: 'BLOCKED',
       message:
-        'The payment provider has no usable credentials in this environment, so no payment can be taken.',
-      fixPath: '/admin/payments',
+        'The payment provider has no usable credentials in this environment, so no payment can be taken. ETicketsGo configures this — contact support.',
+      fixPath: null,
     });
   }
 

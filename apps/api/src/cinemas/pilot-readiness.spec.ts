@@ -109,9 +109,21 @@ describe('what blocks a launch', () => {
     ).filter((c) => c.level === 'BLOCKED');
 
     expect(blocked.length).toBeGreaterThan(4);
-    // A checklist that says "something is wrong" and offers no route is a support ticket.
-    // Asserted as a list so a failure names the offending codes rather than just the first.
-    expect(blocked.filter((b) => !b.fixPath).map((b) => b.code)).toEqual([]);
+
+    /*
+      Every blocker must be ACTIONABLE — but "actionable" is not always a link.
+
+      Payment routing and provider credentials are platform configuration: the theater cannot
+      fix them at all, and the old version of this test demanded a fixPath for them, which is
+      what produced links into an admin app no operator can open. The honest invariant is that
+      a blocker either offers a route OR names who owns it.
+
+      Asserted as lists so a failure names the offending codes rather than just the first.
+    */
+    const unactionable = blocked
+      .filter((b) => !b.fixPath && !/contact support|ETicketsGo/i.test(b.message))
+      .map((b) => b.code);
+    expect(unactionable).toEqual([]);
     expect(blocked.filter((b) => b.message.length <= 20).map((b) => b.code)).toEqual([]);
   });
 });
@@ -161,6 +173,62 @@ describe('overallReadiness', () => {
     // learn to route around, and then it stops being read at all.
     const f = facts({ activeFeeRules: 0, hasCancellationPolicy: false, unpricedCategories: 1 });
     expect(overallReadiness(evaluatePilotReadiness(f))).toBe('WARNING');
+  });
+});
+
+describe('fix paths must be followable by the operator who sees them', () => {
+  /*
+    Found by a QA rehearsal, not by reasoning.
+
+    Two checks pointed at `/admin/fees` and `/admin/payments`. `/admin/fees` is not a route at
+    all, and BOTH live in the admin application — a theater operator has no account there and
+    cannot open either. A dead link presented as "Fix this" is worse than no link: it spends
+    the operator's trust and then strands them.
+
+    Those checks now carry `fixPath: null` and say who owns the task instead. This test stops
+    the class of defect returning, rather than just the two instances.
+  */
+  const everyCheck = () =>
+    evaluatePilotReadiness(
+      facts({
+        organization: { status: 'SUSPENDED', contactEmail: null, contactPhone: null },
+        cinema: { timezone: '', status: 'INACTIVE', address: null, city: 'Hyd' },
+        activeScreens: 0,
+        totalScreens: 2,
+        activeScreensWithoutPublishedLayout: ['S1'],
+        operatorCount: 0,
+        pricedCategories: 0,
+        unpricedCategories: 1,
+        activeFeeRules: 0,
+        hasCancellationPolicy: false,
+        hasInrPaymentRoute: false,
+        paymentProviderConfigured: false,
+        futurePublishedShows: 0,
+        publicCatalogueReachable: false,
+      }),
+    );
+
+  it('never sends an organizer into the admin application', () => {
+    const crossApp = everyCheck()
+      .filter((c) => c.fixPath?.startsWith('/admin'))
+      .map((c) => c.code);
+    expect(crossApp).toEqual([]);
+  });
+
+  it('only ever points at the organizer app', () => {
+    const foreign = everyCheck()
+      .filter((c) => c.fixPath !== null && !c.fixPath.startsWith('/organizer/'))
+      .map((c) => `${c.code} -> ${c.fixPath}`);
+    expect(foreign).toEqual([]);
+  });
+
+  it('a check with no fix path still says who owns the task', () => {
+    // Otherwise the operator is told something is wrong and given no route at all.
+    const unactionable = everyCheck()
+      .filter((c) => c.level !== 'READY' && c.fixPath === null)
+      .filter((c) => !/contact support|ETicketsGo/i.test(c.message))
+      .map((c) => c.code);
+    expect(unactionable).toEqual([]);
   });
 });
 
