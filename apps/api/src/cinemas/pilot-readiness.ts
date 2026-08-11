@@ -12,6 +12,8 @@
  * stable code the UI turns into a link to the page that fixes it.
  */
 
+import { evaluatePaymentProvider, type PaymentReadinessFacts } from './payment-readiness';
+
 export type ReadinessLevel = 'READY' | 'WARNING' | 'BLOCKED';
 
 export type ReadinessSection =
@@ -85,8 +87,14 @@ export interface ReadinessFacts {
   hasCancellationPolicy: boolean;
   /** An INR payment route the booking engine can actually select. */
   hasInrPaymentRoute: boolean;
-  /** Provider credentials resolvable in this environment (never the values themselves). */
-  paymentProviderConfigured: boolean;
+  /**
+   * What this environment can actually charge with.
+   *
+   * Deliberately a structure, not a boolean. The old `paymentProviderConfigured: boolean`
+   * flattened "which gateway", "which environment" and "test or live" into one bit, and the
+   * bit was computed from a variable that does not exist. See `payment-readiness.ts`.
+   */
+  payments: PaymentReadinessFacts;
   /** Future shows already on sale. */
   futurePublishedShows: number;
   /** Whether the public catalogue can serve this cinema's films. */
@@ -361,16 +369,7 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
     c.push(ok('PAYMENTS', 'INR_ROUTE', 'An INR payment route is available.'));
   }
 
-  if (!f.paymentProviderConfigured) {
-    c.push({
-      section: 'PAYMENTS',
-      code: 'PROVIDER_NOT_CONFIGURED',
-      level: 'BLOCKED',
-      message:
-        'The payment provider has no usable credentials in this environment, so no payment can be taken. ETicketsGo configures this — contact support.',
-      fixPath: null,
-    });
-  }
+  c.push(...evaluatePaymentProvider(f.payments));
 
   // ── Shows ─────────────────────────────────────────────────────────────────────
   if (f.futurePublishedShows === 0) {

@@ -1,4 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { resolvePaymentEnv } from '../payments/configuration/payment-environment';
+import type { PaymentReadinessFacts } from './payment-readiness';
 import { Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -38,7 +41,36 @@ export class PilotReadinessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
+    private readonly config: ConfigService,
   ) {}
+
+  /*
+    What this environment can charge with — presence and mode only, never a value.
+
+    Read from ConfigService rather than `process.env` so it goes through the same validated
+    schema the payment module uses. The previous version read `process.env.PAYMENTS_MOCK_MODE`,
+    a variable that exists nowhere else in this system: it was not in the schema, so it was
+    never validated, and its only effect anywhere was to turn this check green.
+
+    `PAYMENT_PROVIDER_NAME` is the switch that actually selects a gateway. The similarly named
+    `PAYMENT_PROVIDER` is declared in the schema but read by no runtime code — reading it
+    would have produced the same class of wrong answer.
+  */
+  private paymentFacts(): PaymentReadinessFacts {
+    const nonEmpty = (key: string) => Boolean(this.config.get<string>(key)?.trim());
+    return {
+      environment: resolvePaymentEnv(this.config.get<string>('APP_ENV')),
+      provider:
+        this.config.get<PaymentReadinessFacts['provider']>('PAYMENT_PROVIDER_NAME') ?? 'mock',
+      razorpay: {
+        hasKeyId: nonEmpty('RAZORPAY_KEY_ID'),
+        hasKeySecret: nonEmpty('RAZORPAY_KEY_SECRET'),
+        hasWebhookSecret: nonEmpty('RAZORPAY_WEBHOOK_SECRET'),
+        mode: this.config.get<string>('RAZORPAY_MODE') === 'live' ? 'live' : 'test',
+      },
+      liveEnabled: this.config.get<string>('PAYMENT_LIVE_ENABLED') === 'true',
+    };
+  }
 
   async evaluate(user: RequestUser, cinemaId: string): Promise<PilotReadinessReport> {
     const cinema = await this.prisma.cinema.findUnique({
@@ -157,11 +189,7 @@ export class PilotReadinessService {
       activeFeeRules,
       hasCancellationPolicy: policyEvents > 0,
       hasInrPaymentRoute: inrRoutes > 0,
-      // Non-secret: whether the environment can resolve credentials at all. The values are
-      // never read here and must never appear in a readiness response.
-      paymentProviderConfigured: Boolean(
-        process.env.RAZORPAY_KEY_ID || process.env.PAYMENTS_MOCK_MODE === 'true',
-      ),
+      payments: this.paymentFacts(),
       futurePublishedShows: futureShows,
       publicCatalogueReachable,
     };

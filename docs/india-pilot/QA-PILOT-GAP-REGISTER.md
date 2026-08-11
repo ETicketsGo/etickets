@@ -142,16 +142,29 @@ without a path must name its owner.
 
 ## Open, and owned elsewhere
 
-### GAP-05 — No INR payment route or resolvable credentials · EXTERNAL_OWNER_ACTION · **P0** · OBSERVED
+### GAP-05 — No INR payment route · EXTERNAL_OWNER_ACTION · **P0** · OBSERVED · still open
 
-The only blocker still standing at the end of the walk, and the correct one to be standing:
-it names ETicketsGo and offers no route.
+The blocker still standing at the end of the walk, and the correct one to be standing: no
+`PaymentRoute` row exists for INR, so checkout has no provider to select. It names ETicketsGo
+and offers no route, because a theater cannot fix it.
 
-Worth noting for staging: the check is **stricter than the runtime**. It requires
-`RAZORPAY_KEY_ID` or `PAYMENTS_MOCK_MODE=true`, while `PAYMENT_PROVIDER=mock` alone will
-happily take a mock payment — as it did in this walk. Conservative in the safe direction, but
-the two should be reconciled before staging, or a pilot environment will report a blocker it
-does not have.
+### GAP-16 — Payment readiness was reading a variable that does not exist · **PRODUCT_DEFECT** · P1 · FIXED
+
+The check was `RAZORPAY_KEY_ID || PAYMENTS_MOCK_MODE === 'true'`. **`PAYMENTS_MOCK_MODE` is
+not a variable this system has** — absent from the config schema, every `.env`, CI and every
+deploy manifest. Its only effect anywhere was to turn this check green: a flag whose sole
+power is to silence a payment warning.
+
+The reported inconsistency ("`PAYMENT_PROVIDER=mock` takes a payment but readiness says no
+provider") had a second cause: **`PAYMENT_PROVIDER` is read by no runtime code either.**
+It is declared in the schema; the switch that actually selects a gateway is
+`PAYMENT_PROVIDER_NAME`. Both statements were true, about different variables.
+
+Fixed by deferring to the payment module's existing model (`APP_ENV` → `PaymentEnvName`,
+`isDummyAllowed`, `isLiveAllowed`) instead of a second policy that could disagree with it.
+**The simulated gateway is now never READY in any environment** — it warns where the module
+already permits it and blocks anywhere a pilot could run. 33 tests cover every
+environment × provider × mode combination. See [RAZORPAY-SANDBOX.md](./RAZORPAY-SANDBOX.md).
 
 ### GAP-07 — No GSTIN, registered address or finance contact · BUSINESS_DECISION · P1 · OBSERVED
 
