@@ -54,10 +54,44 @@ export class CinemasService {
         );
       }
     }
+    /*
+      A cinema with no venue gets one of its own, made from its own details.
+
+      This is not bookkeeping. `ensureMovieEvent` needs a venue to hang the movie Event on,
+      and when the cinema has none it falls back to ANY venue in the organization — or
+      refuses with "No venue is available for this organization." if there are none.
+
+      That refusal is what a brand-new theater actually hits. Found by running the
+      onboarding path end to end on a fresh organization: cinema created, screen created,
+      layout published, film published, and then scheduling the first show fails naming a
+      concept the operator has never seen, cannot create (there is no venue endpoint in this
+      API), and which no readiness check mentions. The onboarding checklist went green over
+      a cinema that could not sell a ticket.
+
+      Creating the venue here also stops the fallback being load-bearing. Borrowing another
+      city's venue record is worse than the error: a Bengaluru show would be filed against a
+      Mumbai venue and the public listing would say so.
+
+      Cinemas created before this, and callers passing an explicit `venueId`, are untouched.
+    */
+    const venueId =
+      input.venueId ??
+      (
+        await this.prisma.venue.create({
+          data: {
+            organizationId,
+            name: input.name,
+            city: input.city,
+            address: input.address,
+          },
+          select: { id: true },
+        })
+      ).id;
+
     return this.prisma.cinema.create({
       data: {
         organizationId,
-        venueId: input.venueId,
+        venueId,
         name: input.name,
         brand: input.brand,
         city: input.city,

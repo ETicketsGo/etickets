@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   bulkScheduleShowsSchema,
@@ -8,6 +8,7 @@ import {
   showSalesActionSchema,
   generateSeatMapSchema,
   scheduleShowSchema,
+  updateShowPricingSchema,
   type BulkScheduleShowsInput,
   type CancelShowInput,
   type CopyScheduleInput,
@@ -15,6 +16,7 @@ import {
   type ShowSalesActionInput,
   type GenerateSeatMapInput,
   type ScheduleShowInput,
+  type UpdateShowPricingInput,
 } from '@eticketsgo/validation';
 import { ShowsService } from './shows.service';
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
@@ -122,6 +124,24 @@ export class ShowsController {
     @Body(new ZodValidationPipe(cancelShowSchema)) body: CancelShowInput,
   ) {
     return this.shows.cancelShow(user, sessionId, body.reason);
+  }
+
+  @Get('shows/:sessionId/pricing')
+  @ApiOperation({ summary: 'What one show charges per seat category, and what is locked.' })
+  showPricing(@CurrentUser() user: RequestUser, @Param('sessionId') sessionId: string) {
+    return this.shows.getShowPricing(user, sessionId);
+  }
+
+  @Patch('shows/:sessionId/pricing')
+  @ApiOperation({
+    summary: 'Reprice a future show. All categories in one transaction; sold ones are fixed.',
+  })
+  updateShowPricing(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(updateShowPricingSchema)) body: UpdateShowPricingInput,
+  ) {
+    return this.shows.updateShowPricing(user, sessionId, body);
   }
 
   @Post('shows/:sessionId/reschedule')

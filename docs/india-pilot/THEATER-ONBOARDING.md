@@ -28,20 +28,20 @@ Leaving and returning always shows current state, because there is no state to g
 
 ## Steps
 
-| #   | Step             | Where the work happens                |
-| --- | ---------------- | ------------------------------------- |
-| 1   | Business         | `/organizer/settings`                 |
-| 2   | Cinema           | Cinema edit page                      |
-| 3   | Screens          | Cinema page                           |
-| 4   | Seat layouts     | Layout versions page                  |
-| 5   | Staff            | `/organizer/team`                     |
-| 6   | Pricing          | Cinema page (no dedicated editor yet) |
-| 7   | Fees             | **No self-service screen**            |
-| 8   | Policies         | **No self-service screen**            |
-| 9   | Payments         | **No self-service screen**            |
-| 10  | Shows            | Scheduling workspace                  |
-| 11  | Live operations  | Live ops                              |
-| 12  | Launch readiness | Readiness page                        |
+| #   | Step             | Where the work happens                 |
+| --- | ---------------- | -------------------------------------- |
+| 1   | Business         | `/organizer/settings`                  |
+| 2   | Cinema           | Cinema edit page                       |
+| 3   | Screens          | Cinema page                            |
+| 4   | Seat layouts     | Layout versions page                   |
+| 5   | Staff            | `/organizer/team`                      |
+| 6   | Pricing          | Schedule → a show's **Pricing** action |
+| 7   | Fees             | **No self-service screen**             |
+| 8   | Policies         | **No self-service screen**             |
+| 9   | Payments         | **No self-service screen**             |
+| 10  | Shows            | Scheduling workspace                   |
+| 11  | Live operations  | Live ops                               |
+| 12  | Launch readiness | Readiness page                         |
 
 Steps with no destination **say so and say who owns it** rather than linking nowhere. An
 operator told "configure fees" with no way to do it is worse off than one told the screen does
@@ -60,13 +60,29 @@ form save.
 
 An empty cinema can be corrected freely — the case that matters during onboarding.
 
+## Pricing belongs to the show
+
+Set per showing, not per room. Two showings of the same film on the same screen can be priced
+differently, and changing a price never touches the seat layout — the layout's own prices are
+only the default a newly scheduled show inherits.
+
+A category that has **sold** is fixed for that show; held seats lock nothing, because the
+buyer's line was snapshotted when they held it. See
+[PRICING-AUDIT.md](./PRICING-AUDIT.md).
+
+## A cinema brings its own venue
+
+`Venue` is an internal join between the movie and events domains, and there is no endpoint to
+create one. A cinema now creates its own at creation time. Before that, a brand-new
+organization completed every visible step and then could not schedule its first show:
+`No venue is available for this organization.`
+
 ## Not built
 
 - Organization profile fields beyond what exists. `Organization` has name, slug, status,
   contact email/phone and public profile fields only — **no GSTIN, registered address, finance
   or settlement contact**.
 - Fee, policy and payment configuration screens.
-- A pricing editor.
 - Cinema activation workflow.
 - Admin pilot command centre.
 - QA pilot seed and full rehearsal.

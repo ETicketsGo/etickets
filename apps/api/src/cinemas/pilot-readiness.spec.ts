@@ -14,7 +14,7 @@ import {
  */
 const facts = (over: Partial<ReadinessFacts> = {}): ReadinessFacts => ({
   cinemaId: 'cin1',
-  organization: { status: 'ACTIVE', contactEmail: 'ops@t.test', contactPhone: '+91' },
+  organization: { status: 'APPROVED', contactEmail: 'ops@t.test', contactPhone: '+91' },
   cinema: { timezone: 'Asia/Kolkata', status: 'ACTIVE', address: '1 Road', city: 'Hyderabad' },
   activeScreens: 2,
   totalScreens: 2,
@@ -22,6 +22,8 @@ const facts = (over: Partial<ReadinessFacts> = {}): ReadinessFacts => ({
   operatorCount: 3,
   pricedCategories: 2,
   unpricedCategories: 0,
+  futureShowsWithZeroPrice: 0,
+  futureShowsPriced: 12,
   activeFeeRules: 4,
   hasCancellationPolicy: true,
   hasInrPaymentRoute: true,
@@ -54,7 +56,17 @@ describe('what blocks a launch', () => {
   it.each([
     [
       'a suspended organization',
-      { organization: { status: 'SUSPENDED', contactEmail: 'a@b.c', contactPhone: null } },
+      { organization: { status: 'SUSPENDED' as const, contactEmail: 'a@b.c', contactPhone: null } },
+      'ORG_NOT_ACTIVE',
+    ],
+    [
+      'an organization still awaiting approval',
+      { organization: { status: 'PENDING' as const, contactEmail: 'a@b.c', contactPhone: null } },
+      'ORG_NOT_ACTIVE',
+    ],
+    [
+      'a rejected organization',
+      { organization: { status: 'REJECTED' as const, contactEmail: 'a@b.c', contactPhone: null } },
       'ORG_NOT_ACTIVE',
     ],
     ['no screens in service', { activeScreens: 0, totalScreens: 0 }, 'NO_ACTIVE_SCREEN'],
@@ -65,6 +77,11 @@ describe('what blocks a launch', () => {
     ],
     ['nobody to operate it', { operatorCount: 0 }, 'NO_OPERATOR'],
     ['no priced seat category', { pricedCategories: 0 }, 'NO_PRICING'],
+    [
+      'an upcoming show that would sell for nothing',
+      { futureShowsWithZeroPrice: 1 },
+      'SHOWS_PRICED_AT_ZERO',
+    ],
     ['no INR payment route', { hasInrPaymentRoute: false }, 'NO_INR_ROUTE'],
     ['no provider credentials', { paymentProviderConfigured: false }, 'PROVIDER_NOT_CONFIGURED'],
     ['nothing scheduled', { futurePublishedShows: 0 }, 'NO_FUTURE_SHOWS'],
@@ -78,6 +95,66 @@ describe('what blocks a launch', () => {
     const f = facts(over as Partial<ReadinessFacts>);
     expect(find(f, code)?.level).toBe('BLOCKED');
     expect(overallReadiness(evaluatePilotReadiness(f))).toBe('BLOCKED');
+  });
+
+  /*
+    The seat category's price is a template for scheduling; the show's ticket type is what a
+    customer pays. Checking only the template is how a cinema reports READY over a show that
+    would give the seat away, which is what these two cases pin down.
+  */
+  it('a priced layout does NOT excuse an upcoming show priced at zero', () => {
+    const f = facts({ pricedCategories: 2, unpricedCategories: 0, futureShowsWithZeroPrice: 3 });
+    expect(find(f, 'SHOWS_PRICED_AT_ZERO')?.level).toBe('BLOCKED');
+    expect(find(f, 'SHOWS_PRICED_AT_ZERO')?.message).toContain('3 upcoming shows');
+    // And it does not also claim everything is fine.
+    expect(codes(f)).not.toContain('PRICING_SET');
+  });
+
+  it('an unpriced layout only WARNS while every upcoming show carries a price', () => {
+    // The template misprices shows that do not exist yet. Nothing on sale is affected, so
+    // refusing to launch over it would be refusing over a future hypothetical.
+    const f = facts({ unpricedCategories: 1, futureShowsWithZeroPrice: 0, futureShowsPriced: 5 });
+    expect(find(f, 'UNPRICED_CATEGORIES')?.level).toBe('WARNING');
+    expect(overallReadiness(evaluatePilotReadiness(f))).toBe('WARNING');
+  });
+
+  it('the blocker points at the schedule, where a show price is actually changed', () => {
+    // Not the cinema page: the price that is wrong belongs to a show, and the layout is the
+    // one place it is NOT editable.
+    const f = facts({ futureShowsWithZeroPrice: 1 });
+    expect(find(f, 'SHOWS_PRICED_AT_ZERO')?.fixPath).toBe('/organizer/cinemas/cin1/schedule');
+  });
+
+  /*
+    The states are the ones the DATABASE has, not ones invented here.
+
+    This rule used to test `status !== 'ACTIVE'`, and `OrganizationStatus` is
+    PENDING | APPROVED | REJECTED | SUSPENDED — so every organization on the platform was
+    permanently blocked and no cinema could ever reach READY. The fixture said 'ACTIVE' too,
+    so the tests agreed with the code and both were wrong. Found by walking a real
+    organization through onboarding.
+
+    The union type on `ReadinessFacts` now makes the same mistake a compile error; this
+    covers the behaviour.
+  */
+  it('an APPROVED organization does not block — the only state that means "yes"', () => {
+    expect(
+      find(
+        facts({ organization: { status: 'APPROVED', contactEmail: 'a@b.c', contactPhone: null } }),
+        'ORG_ACTIVE',
+      )?.level,
+    ).toBe('READY');
+  });
+
+  it('a pending organization is told who approves it, not sent to its own settings', () => {
+    // Approval is an admin review. The old fix path pointed at /organizer/settings, which
+    // edits the public profile and cannot change status.
+    const check = find(
+      facts({ organization: { status: 'PENDING', contactEmail: 'a@b.c', contactPhone: null } }),
+      'ORG_NOT_ACTIVE',
+    );
+    expect(check?.fixPath).toBeNull();
+    expect(check?.message).toMatch(/ETicketsGo/);
   });
 
   it('names the screens that are unusable, not just the count', () => {
@@ -132,7 +209,7 @@ describe('what only warns', () => {
   it.each([
     [
       'no support email',
-      { organization: { status: 'ACTIVE', contactEmail: null, contactPhone: null } },
+      { organization: { status: 'APPROVED' as const, contactEmail: null, contactPhone: null } },
       'NO_SUPPORT_EMAIL',
     ],
     [
