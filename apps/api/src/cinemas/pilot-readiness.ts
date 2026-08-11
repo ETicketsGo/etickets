@@ -43,7 +43,14 @@ export interface ReadinessCheck {
 export interface ReadinessFacts {
   cinemaId: string;
   organization: {
-    status: string;
+    /**
+     * The real enum, not `string`.
+     *
+     * `string` is how this rule came to compare against 'ACTIVE' — a value the column has
+     * never been able to hold — and block every organization on the platform for months.
+     * Naming the four states makes that particular mistake a compile error.
+     */
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
     contactEmail: string | null;
     contactPhone: string | null;
   };
@@ -60,9 +67,18 @@ export interface ReadinessFacts {
   activeScreensWithoutPublishedLayout: string[];
   /** Members of the owning organization who could operate this cinema. */
   operatorCount: number;
-  /** Seat categories across published layouts that carry a price. */
+  /**
+   * Seat categories across published layouts that carry a price.
+   *
+   * This is the TEMPLATE a newly scheduled show is created from, not what anything sells
+   * for. See `futureShowsWithZeroPrice` for the question that actually blocks.
+   */
   pricedCategories: number;
   unpricedCategories: number;
+  /** Upcoming shows with at least one on-sale ticket type priced at or below zero. */
+  futureShowsWithZeroPrice: number;
+  /** Upcoming shows whose on-sale ticket types all carry a real price. */
+  futureShowsPriced: number;
   /** Active fee rules that could apply to an INR ticket. */
   activeFeeRules: number;
   /** Whether any cancellation/refund policy text is configured for this cinema's events. */
@@ -95,18 +111,45 @@ const ok = (section: ReadinessSection, code: string, message: string): Readiness
 export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
   const c: ReadinessCheck[] = [];
   const cinemaPath = `/organizer/cinemas/${f.cinemaId}`;
+  const schedulePath = `${cinemaPath}/schedule`;
 
-  // ── Business ──────────────────────────────────────────────────────────────────
-  if (f.organization.status !== 'ACTIVE') {
+  /*
+    ── Business ──────────────────────────────────────────────────────────────────
+
+    APPROVED, not ACTIVE. `OrganizationStatus` is PENDING | APPROVED | REJECTED | SUSPENDED
+    and has never had an ACTIVE member, so the old comparison against 'ACTIVE' was true for
+    EVERY organization on the platform — including fully approved ones. No cinema could reach
+    READY, ever.
+
+    It survived because the unit fixture said `status: 'ACTIVE'`, a value the column cannot
+    hold. The same shape of mistake as the timezone work: a fixture that agrees with the code
+    rather than with the database proves only that the two agree. It took a live walk through
+    a real organization to see it.
+
+    Approval is also NOT the theater's to grant — only an admin review sets the status — so
+    this names its owner rather than sending them to a settings page that cannot do it. The
+    old fix path pointed at `/organizer/settings`, which can edit the public profile and
+    nothing else.
+  */
+  if (f.organization.status === 'PENDING') {
     c.push({
       section: 'BUSINESS',
       code: 'ORG_NOT_ACTIVE',
       level: 'BLOCKED',
-      message: `The organization is ${f.organization.status.toLowerCase()}, so nothing it owns can sell tickets.`,
-      fixPath: '/organizer/settings',
+      message:
+        'This organization has not been approved yet. ETicketsGo reviews and approves it — contact support if it has been pending for long.',
+      fixPath: null,
+    });
+  } else if (f.organization.status !== 'APPROVED') {
+    c.push({
+      section: 'BUSINESS',
+      code: 'ORG_NOT_ACTIVE',
+      level: 'BLOCKED',
+      message: `This organization is ${f.organization.status.toLowerCase()}. ETicketsGo owns that decision — contact support to discuss it.`,
+      fixPath: null,
     });
   } else {
-    c.push(ok('BUSINESS', 'ORG_ACTIVE', 'Organization is active.'));
+    c.push(ok('BUSINESS', 'ORG_ACTIVE', 'Organization is approved.'));
   }
 
   if (!f.organization.contactEmail) {
@@ -213,8 +256,31 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
     c.push(ok('STAFF', 'OPERATORS_PRESENT', `${f.operatorCount} people can operate this cinema.`));
   }
 
-  // ── Pricing ───────────────────────────────────────────────────────────────────
-  if (f.pricedCategories === 0) {
+  /*
+    ── Pricing ───────────────────────────────────────────────────────────────────
+
+    What a customer pays is the SHOW's price, not the layout's. A seat category's
+    `basePriceMinor` is only the default a new show is created from; once scheduled, the
+    show carries its own price and can be changed without touching the room.
+
+    So the blocking question is about future sellable shows, not about the template. A
+    cinema whose layout says ₹200 while tomorrow's show sells at ₹0 was previously reported
+    READY here — the check was looking at the wrong row.
+
+    The template still matters, because it is what the NEXT show will be created from, but
+    an unpriced template only warns: it misprices shows that do not exist yet.
+  */
+  if (f.futureShowsWithZeroPrice > 0) {
+    c.push({
+      section: 'PRICING',
+      code: 'SHOWS_PRICED_AT_ZERO',
+      level: 'BLOCKED',
+      message: `${f.futureShowsWithZeroPrice} upcoming show${
+        f.futureShowsWithZeroPrice === 1 ? '' : 's'
+      } would sell a seat for nothing. Set a price before those shows open.`,
+      fixPath: schedulePath,
+    });
+  } else if (f.pricedCategories === 0) {
     c.push({
       section: 'PRICING',
       code: 'NO_PRICING',
@@ -229,11 +295,21 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
       level: 'WARNING',
       message: `${f.unpricedCategories} seat categor${
         f.unpricedCategories === 1 ? 'y has' : 'ies have'
-      } no price and will sell at zero.`,
+      } no default price, so shows scheduled from ${
+        f.unpricedCategories === 1 ? 'it' : 'them'
+      } would start at zero.`,
       fixPath: cinemaPath,
     });
   } else {
-    c.push(ok('PRICING', 'PRICING_SET', 'Every seat category is priced.'));
+    c.push(
+      ok(
+        'PRICING',
+        'PRICING_SET',
+        f.futureShowsPriced > 0
+          ? `Every seat category is priced, and all ${f.futureShowsPriced} upcoming shows carry a price.`
+          : 'Every seat category is priced.',
+      ),
+    );
   }
 
   // ── Fees ──────────────────────────────────────────────────────────────────────

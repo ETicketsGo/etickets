@@ -227,6 +227,35 @@ export const copyScheduleSchema = z.object({
 });
 export type CopyScheduleInput = z.infer<typeof copyScheduleSchema>;
 
+/**
+ * Set what one show charges, per seat category.
+ *
+ * Prices belong to the SHOW, not to the room: the seat layout describes where people sit and
+ * the ticket type describes what that seat costs tonight. Two showings of the same film in
+ * the same room can be priced differently, and changing a price never touches the layout.
+ *
+ * Whole-show, not one category at a time. An operator repricing a house is making one
+ * commercial decision, and applying it as three independent writes is how a screen ends up
+ * half at the old price after a failure.
+ *
+ * Minor units, integers only. Money never travels as a float, and `₹250.50` is 25050.
+ */
+export const updateShowPricingSchema = z.object({
+  prices: z
+    .array(
+      z.object({
+        ticketTypeId: z.string().cuid(),
+        // Zero is allowed here and refused by readiness rather than by the schema: a free
+        // preview is a real thing, and a show that is on sale for nothing is a launch
+        // decision, not a malformed request.
+        priceMinor: z.number().int().min(0).max(100_000_00),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type UpdateShowPricingInput = z.infer<typeof updateShowPricingSchema>;
+
 // ── Seat layout versioning ────────────────────────────────────────────────────────
 
 /** Clone an existing layout version into a new editable draft. */

@@ -32,6 +32,7 @@ import {
 import { BulkScheduler } from './bulk-scheduler';
 import { CopyScheduleDialog } from './copy-schedule';
 import { EditShowDialog } from './edit-show';
+import { ShowPricingDialog } from './show-pricing';
 import { WeekView } from './week-view';
 
 /**
@@ -381,6 +382,7 @@ function ShowRowItem({
   const [cancelling, setCancelling] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pricing, setPricing] = useState(false);
 
   /**
    * Every mutation re-reads the day afterwards rather than patching local state.
@@ -464,6 +466,21 @@ function ShowRowItem({
             Move
           </Button>
         ) : null}
+        {/*
+          Offered on any show that has not started. Unlike Move, a sold show can still be
+          repriced in the categories that have NOT sold, so the button stays available and
+          the dialog explains per category what is fixed.
+        */}
+        {actions.edit ? (
+          <Button
+            variant="secondary"
+            disabled={run.isPending}
+            onClick={() => setPricing(true)}
+            aria-label={`Set prices for ${show.movieTitle ?? 'show'} at ${formatLocalTime(show.startsAt, timezone)}`}
+          >
+            Pricing
+          </Button>
+        ) : null}
         {actions.cancel ? (
           <Button
             variant="secondary"
@@ -483,6 +500,18 @@ function ShowRowItem({
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
+            onChanged();
+          }}
+        />
+      ) : null}
+
+      {pricing ? (
+        <ShowPricingDialog
+          show={show}
+          timezone={timezone}
+          onClose={() => setPricing(false)}
+          onSaved={() => {
+            setPricing(false);
             onChanged();
           }}
         />

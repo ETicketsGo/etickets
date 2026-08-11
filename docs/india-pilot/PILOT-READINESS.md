@@ -26,8 +26,14 @@ Every check carries:
 | `message` | One sentence an operator can act on, written by the server    |
 | `fixPath` | Where to go to fix it                                         |
 
-A blocker with no `fixPath` is a test failure. "Something is wrong" with no route is a support
-ticket.
+A blocker must be **actionable**, which is not always a link: some are ETicketsGo's to fix,
+and those name their owner instead. A blocker that is neither is a test failure.
+
+Two rounds of rehearsal produced three dead ends here — `/admin/fees` (a 404), `/admin/payments`
+(an app operators cannot open), and `/organizer/settings` for organization approval (a page
+that edits the public profile and cannot change status). The guard test forbids any path
+outside `/organizer/`; it cannot detect the third kind, where the route exists and the
+capability does not.
 
 ## Sections
 
@@ -39,7 +45,7 @@ red one is a checklist nobody reads to the bottom of.
 
 ## What blocks
 
-Organization not active · no screen in service · an in-service screen with no published layout
+Organization not APPROVED · no screen in service · an in-service screen with no published layout
 (named individually, not counted) · nobody able to operate the cinema · no priced seat category
 · no INR payment route · no resolvable payment credentials · nothing scheduled · nothing
 publicly discoverable · cinema not active.
@@ -47,7 +53,22 @@ publicly discoverable · cinema not active.
 ## What only warns
 
 No support email · no street address · **a single operator** · **no fee rule** · no cancellation
-policy · some unpriced categories.
+policy · some unpriced seat categories.
+
+### Pricing checks the show, not the room
+
+`SeatCategory.basePriceMinor` is the TEMPLATE a new show is created from; `TicketType.priceMinor`
+is what a customer pays. Reading only the template reported a cinema satisfied while tomorrow's
+show sold for nothing — observed live. A future show priced at zero now BLOCKS; an unpriced
+template only warns, because it misprices shows that do not exist yet.
+
+### APPROVED, not ACTIVE
+
+`OrganizationStatus` is PENDING | APPROVED | REJECTED | SUSPENDED. The rule used to compare
+against `'ACTIVE'`, a value the column cannot hold, so **every** organization was blocked and no
+cinema could ever reach READY — with a unit fixture that said `'ACTIVE'` too, so the tests
+agreed with the code and both were wrong. The facts type is now the real union, which makes
+that mistake a compile error.
 
 ### Two pilot policy decisions, made deliberately
 
@@ -94,8 +115,9 @@ need; wiring it is separate work.
 - **No activation workflow** (above).
 - **No self-service UI** for fees, cancellation policy or payment routing. The onboarding shell
   states this per step rather than linking nowhere.
-- **Pricing has no dedicated editor.** Prices are set per seat category when a layout is
-  generated; the step links to the screen as the closest honest destination.
+- ~~Pricing has no dedicated editor.~~ **Built.** Prices belong to the SHOW, not the layout —
+  proven live — and every future show now has a **Pricing** action in the schedule day view.
+  See [PRICING-AUDIT.md](./PRICING-AUDIT.md).
 - **GST/tax is not represented.** See below.
 
 > ### Tax readiness: incomplete, and not implied anywhere

@@ -14,6 +14,7 @@ import type {
   GenerateSeatMapInput,
   RescheduleShowInput,
   ScheduleShowInput,
+  UpdateShowPricingInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -547,38 +548,7 @@ export class ShowsService {
         );
       }
 
-      let event = await tx.event.findFirst({
-        where: { movieId, experienceType: ExperienceType.MOVIE },
-      });
-      if (!event) {
-        let venueId = screen.cinema.venueId;
-        if (!venueId) {
-          const fallback = await tx.venue.findFirst({
-            where: { organizationId: movie.organizationId },
-          });
-          if (!fallback) {
-            throw new AppException(
-              ErrorCodes.CONFLICT,
-              'No venue is available for this organization.',
-              HttpStatus.CONFLICT,
-            );
-          }
-          venueId = fallback.id;
-        }
-        event = await tx.event.create({
-          data: {
-            organizationId: movie.organizationId,
-            venueId,
-            experienceType: ExperienceType.MOVIE,
-            movieId,
-            title: movie.title,
-            slug: slugify(movie.title),
-            category: 'Movie',
-            status: EventStatus.PUBLISHED,
-            publishedAt: new Date(),
-          },
-        });
-      }
+      const event = await this.ensureMovieEvent(tx, movie, screen);
 
       const session = await tx.eventSession.create({
         data: {
@@ -681,6 +651,15 @@ export class ShowsService {
     user: RequestUser,
     movieId: string,
     input: BulkScheduleShowsInput,
+    /**
+     * Internal, not part of the request contract: a price for one wall-clock slot and one
+     * category, consulted when the caller supplied no explicit `pricing` for that category.
+     *
+     * `copySchedule` uses it to carry the source day's real prices forward. The key is the
+     * wall-clock time string this batch was expanded from, so a day whose matinee and evening
+     * are priced differently copies as two different prices rather than one average of them.
+     */
+    priceForSlot?: (time: string, category: { id: string; name: string }) => number | undefined,
   ): Promise<{
     dryRun: boolean;
     turnaroundMinutes: number;
@@ -824,6 +803,7 @@ export class ShowsService {
             status: SessionStatus.SCHEDULED,
           },
         });
+        const slot = instantToZonedWallClock(show.startsAt, timezone);
         for (const category of seatMap.categories) {
           const quantityTotal = countByCategory.get(category.id) ?? 0;
           await tx.ticketType.create({
@@ -831,7 +811,10 @@ export class ShowsService {
               eventSessionId: session.id,
               seatCategoryId: category.id,
               name: category.name,
-              priceMinor: priceByCategory.get(category.id) ?? category.basePriceMinor,
+              priceMinor:
+                priceByCategory.get(category.id) ??
+                priceForSlot?.(slot, category) ??
+                category.basePriceMinor,
               currency: 'INR',
               quantityTotal,
               maxPerOrder: 10,
@@ -886,27 +869,55 @@ export class ShowsService {
   private async ensureMovieEvent(
     tx: Prisma.TransactionClient,
     movie: { id: string; title: string; organizationId: string },
-    screen: { cinema: { venueId: string | null } },
+    screen: {
+      cinema: {
+        id: string;
+        venueId: string | null;
+        name: string;
+        city: string;
+        address: string | null;
+      };
+    },
   ) {
     const existing = await tx.event.findFirst({
       where: { movieId: movie.id, experienceType: ExperienceType.MOVIE },
     });
     if (existing) return existing;
 
-    let venueId = screen.cinema.venueId;
-    if (!venueId) {
-      const fallback = await tx.venue.findFirst({
-        where: { organizationId: movie.organizationId },
-      });
-      if (!fallback) {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          'No venue is available for this organization.',
-          HttpStatus.CONFLICT,
-        );
-      }
-      venueId = fallback.id;
+    /*
+      A cinema with no venue gets one made from itself, rather than borrowing.
+
+      This used to refuse — "No venue is available for this organization." — and a brand-new
+      theater hit it on its very first show, after cinema, screen, layout and film were all
+      done and green. Venue is an internal join between the movie domain and the events
+      domain; there is no endpoint to create one and no readiness check that mentions it, so
+      the operator was told to supply something they had never heard of and could not make.
+
+      Borrowing another venue in the organization, which is what it did when one existed, is
+      the quieter version of the same bug: a Bengaluru cinema's shows get filed under a
+      Mumbai venue, and the public listing repeats it. Deriving from the cinema is the only
+      answer that is right rather than merely available.
+
+      `CinemasService.create` now links a venue at creation, so this is the repair path for
+      cinemas that predate it. Both write the same thing.
+    */
+    const venueId =
+      screen.cinema.venueId ??
+      (
+        await tx.venue.create({
+          data: {
+            organizationId: movie.organizationId,
+            name: screen.cinema.name,
+            city: screen.cinema.city,
+            address: screen.cinema.address,
+          },
+          select: { id: true },
+        })
+      ).id;
+    if (!screen.cinema.venueId) {
+      await tx.cinema.update({ where: { id: screen.cinema.id }, data: { venueId } });
     }
+
     return tx.event.create({
       data: {
         organizationId: movie.organizationId,
@@ -983,7 +994,10 @@ export class ShowsService {
         startsAt: { gte: dayStart, lt: dayEnd },
         event: { movieId },
       },
-      select: { startsAt: true },
+      select: {
+        startsAt: true,
+        ticketTypes: { select: { name: true, priceMinor: true, status: true } },
+      },
       orderBy: { startsAt: 'asc' },
     });
 
@@ -1005,18 +1019,54 @@ export class ShowsService {
       ...new Set(sourceSessions.map((s) => instantToZonedWallClock(s.startsAt, timezone))),
     ].sort();
 
-    const result = await this.bulkScheduleShows(user, movieId, {
-      screenId: targetScreenId,
-      dates: [input.targetDate],
-      times,
-      // The source sessions already include whatever padding was applied when they were
-      // created; re-adding it would stretch each copied show a little further every time a
-      // day was copied forward.
-      padMinutes: 0,
-      timezone: input.timezone,
-      pricing: input.pricing,
-      dryRun: input.dryRun,
-    });
+    /*
+      Copy the day's PRICES, not just its times.
+
+      Without this the copies were created at the layout's base price, so a day trading at
+      ₹350 was reproduced at ₹200 and nothing said so. Observed live during the pilot
+      rehearsal: a 43% price cut, applied silently, by an operation whose whole purpose is
+      "do tomorrow what we did today".
+
+      Keyed by wall-clock slot AND category, so a day whose matinee and evening are priced
+      differently copies as two prices rather than one of them winning. Category is matched
+      by NAME because the target screen is a different room with different category rows —
+      the id is meaningless across layouts, the name is what the operator set.
+
+      An explicit `pricing` argument still wins: asking for a price is a stronger statement
+      than inheriting one.
+    */
+    const sourcePrices = new Map<string, Map<string, number>>();
+    for (const s of sourceSessions) {
+      const slot = instantToZonedWallClock(s.startsAt, timezone);
+      if (!sourcePrices.has(slot)) sourcePrices.set(slot, new Map());
+      for (const t of s.ticketTypes) {
+        if (t.status === 'ACTIVE') sourcePrices.get(slot)?.set(t.name, t.priceMinor);
+      }
+    }
+
+    const result = await this.bulkScheduleShows(
+      user,
+      movieId,
+      {
+        screenId: targetScreenId,
+        dates: [input.targetDate],
+        times,
+        // The source sessions already include whatever padding was applied when they were
+        // created; re-adding it would stretch each copied show a little further every time a
+        // day was copied forward.
+        padMinutes: 0,
+        timezone: input.timezone,
+        pricing: input.pricing,
+        dryRun: input.dryRun,
+      },
+      /*
+        The target zone may not be the source zone. bulkScheduleShows resolves the slot
+        string in ITS OWN zone, which is exactly the string it was handed in `times` — so
+        an 18:00 Chennai show copies to an 18:00 show in the target's room, and the price
+        travels with the label rather than with an instant that would have drifted.
+      */
+      (slot, category) => sourcePrices.get(slot)?.get(category.name),
+    );
 
     if (!input.dryRun) {
       await this.audit?.record({
@@ -1066,6 +1116,155 @@ export class ShowsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
     return session;
+  }
+
+  /**
+   * What one show charges, per seat category.
+   *
+   * The organizer's view of pricing is per SHOW because that is where the price lives. A
+   * seat category's `basePriceMinor` is only the default a new show is created from; this
+   * returns it alongside so an operator can see when tonight differs from the house price.
+   *
+   * `soldCount` is reported per category because it is what makes a price immovable, and a
+   * disabled field with no reason next to it is just a broken form.
+   */
+  async getShowPricing(user: RequestUser, sessionId: string) {
+    const session = await this.loadOwnedSession(user, sessionId);
+    const ticketTypes = await this.prisma.ticketType.findMany({
+      where: { eventSessionId: sessionId },
+      include: { inventory: true, seatCategory: true },
+      orderBy: [{ seatCategory: { sortOrder: 'asc' } }, { name: 'asc' }],
+    });
+    const movie = session.event.movieId
+      ? await this.prisma.movie.findUnique({
+          where: { id: session.event.movieId },
+          select: { title: true },
+        })
+      : null;
+
+    return {
+      sessionId,
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      status: session.status,
+      screenName: session.screen?.name ?? null,
+      cinemaId: session.screen?.cinemaId ?? null,
+      /** The cinema's zone, so the client formats the show time without guessing. */
+      timezone: session.screen
+        ? ((
+            await this.prisma.cinema.findUnique({
+              where: { id: session.screen.cinemaId },
+              select: { timezone: true },
+            })
+          )?.timezone ?? null)
+        : null,
+      movieTitle: movie?.title ?? null,
+      categories: ticketTypes.map((t) => ({
+        ticketTypeId: t.id,
+        seatCategoryId: t.seatCategoryId,
+        name: t.name,
+        colorHex: t.seatCategory?.colorHex ?? null,
+        currency: t.currency,
+        priceMinor: t.priceMinor,
+        /** The layout default this show was created from, for comparison only. */
+        basePriceMinor: t.seatCategory?.basePriceMinor ?? null,
+        seatCount: t.quantityTotal,
+        soldCount: t.inventory?.quantitySold ?? 0,
+        heldCount: t.inventory?.quantityHeld ?? 0,
+        /** A sold seat freezes this category's price. Nothing else does. */
+        locked: (t.inventory?.quantitySold ?? 0) > 0,
+      })),
+    };
+  }
+
+  /**
+   * Reprice one show, all categories together.
+   *
+   * ONE transaction. Repricing a house is a single commercial decision, and applying it as
+   * three independent writes is how a screen ends up half at the old price after a failure.
+   *
+   * Refused once a category has SOLD, which is the same rule the ticket-type editor already
+   * enforces and for the same reason: a price somebody has paid is history, not a setting.
+   * A held seat does NOT lock the price — the buyer's line was snapshotted when they held it
+   * and moves with nothing.
+   *
+   * Refused for a show that has already started or been cancelled. Neither can sell another
+   * ticket, so a price change there is either a mistake or a rewrite of the past.
+   */
+  async updateShowPricing(user: RequestUser, sessionId: string, input: UpdateShowPricingInput) {
+    const session = await this.loadOwnedSession(user, sessionId);
+    if (session.status === SessionStatus.CANCELLED) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This show is cancelled and cannot be repriced.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (session.startsAt <= new Date()) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This show has already started. Only future shows can be repriced.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const existing = await this.prisma.ticketType.findMany({
+      where: { eventSessionId: sessionId },
+      include: { inventory: true },
+    });
+    const byId = new Map(existing.map((t) => [t.id, t]));
+
+    for (const p of input.prices) {
+      const tt = byId.get(p.ticketTypeId);
+      if (!tt) {
+        // Cross-show ids are a tenancy question, not a typo: refusing by name would tell a
+        // caller whether someone else's ticket type exists.
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'One or more price categories do not belong to this show.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if ((tt.inventory?.quantitySold ?? 0) > 0 && tt.priceMinor !== p.priceMinor) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `${tt.name} has already sold ${tt.inventory?.quantitySold} seats, so its price is fixed for this show.`,
+          HttpStatus.CONFLICT,
+          { ticketTypeId: tt.id, soldCount: tt.inventory?.quantitySold ?? 0 },
+        );
+      }
+    }
+
+    const changed = input.prices.filter(
+      (p) => byId.get(p.ticketTypeId)!.priceMinor !== p.priceMinor,
+    );
+    if (changed.length > 0) {
+      await this.prisma.$transaction(
+        changed.map((p) =>
+          this.prisma.ticketType.update({
+            where: { id: p.ticketTypeId },
+            data: { priceMinor: p.priceMinor },
+          }),
+        ),
+      );
+      await this.audit?.record({
+        actorUserId: user.id,
+        organizationId: session.event.organizationId,
+        action: 'SHOW_REPRICED',
+        entityType: 'EventSession',
+        entityId: sessionId,
+        metadata: {
+          changes: changed.map((p) => ({
+            ticketTypeId: p.ticketTypeId,
+            name: byId.get(p.ticketTypeId)!.name,
+            fromMinor: byId.get(p.ticketTypeId)!.priceMinor,
+            toMinor: p.priceMinor,
+          })),
+        },
+      });
+    }
+
+    return this.getShowPricing(user, sessionId);
   }
 
   /**

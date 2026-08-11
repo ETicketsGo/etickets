@@ -551,6 +551,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    /** What one show charges per seat category, and which categories are frozen by a sale. */
+    pricing: (sessionId: string) => request<ShowPricing>(`/shows/${sessionId}/pricing`),
+    /**
+     * Reprice a future show. Every category goes in one request because the server applies
+     * them in one transaction — sending them one at a time is how a screen ends up half at
+     * the old price.
+     */
+    updatePricing: (sessionId: string, prices: { ticketTypeId: string; priceMinor: number }[]) =>
+      request<ShowPricing>(`/shows/${sessionId}/pricing`, {
+        method: 'PATCH',
+        body: JSON.stringify({ prices }),
+      }),
     pause: (sessionId: string, reason?: string) =>
       request<ShowSalesResult>(`/shows/${sessionId}/pause`, {
         method: 'POST',
@@ -1773,6 +1785,38 @@ export interface ShowRow {
   salesEndAt: string | null;
   seatsSold: number;
   seatsTotal: number;
+}
+
+/**
+ * A show's own prices.
+ *
+ * Prices belong to the SHOW, not the seat layout: the layout says where people sit, the
+ * ticket type says what that seat costs tonight. `basePriceMinor` is the layout default the
+ * show was created from and is shown only so an operator can see when tonight differs.
+ */
+export interface ShowPricing {
+  sessionId: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  screenName: string | null;
+  cinemaId: string | null;
+  timezone: string | null;
+  movieTitle: string | null;
+  categories: {
+    ticketTypeId: string;
+    seatCategoryId: string | null;
+    name: string;
+    colorHex: string | null;
+    currency: string;
+    priceMinor: number;
+    basePriceMinor: number | null;
+    seatCount: number;
+    soldCount: number;
+    heldCount: number;
+    /** A sold seat fixes this category's price for this show. Nothing else does. */
+    locked: boolean;
+  }[];
 }
 
 export interface BulkScheduleBody {

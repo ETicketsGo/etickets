@@ -94,6 +94,31 @@ export class PilotReadinessService {
       ]);
 
     /*
+      What upcoming shows would actually charge.
+
+      Seat-category prices are a template for scheduling; the show's own ticket types are
+      what a customer pays, and they can be edited afterwards without touching the layout.
+      Reading only the template reported a cinema READY while tomorrow's show sold for
+      nothing, so both are gathered and the show is the one that blocks.
+
+      PAUSED shows count: a paused show is still scheduled and will resume, and finding out
+      it is priced at zero the moment sales reopen is the failure this is here to prevent.
+    */
+    const futureTicketTypes = await this.prisma.eventSession.findMany({
+      where: { screen: { cinemaId }, startsAt: { gte: now }, status: { not: 'CANCELLED' } },
+      select: {
+        id: true,
+        ticketTypes: { where: { status: 'ACTIVE' }, select: { priceMinor: true } },
+      },
+    });
+    const futureShowsWithZeroPrice = futureTicketTypes.filter(
+      (s) => s.ticketTypes.length > 0 && s.ticketTypes.some((t) => t.priceMinor <= 0),
+    ).length;
+    const futureShowsPriced = futureTicketTypes.filter(
+      (s) => s.ticketTypes.length > 0 && s.ticketTypes.every((t) => t.priceMinor > 0),
+    ).length;
+
+    /*
       "Discoverable" means a PUBLISHED film actually has a future show here. Shows can exist
       against a draft film, in which case the schedule looks healthy and the public listing is
       empty — a failure that is invisible from the organizer side.
@@ -127,6 +152,8 @@ export class PilotReadinessService {
       operatorCount,
       pricedCategories: categories.filter((c) => c.basePriceMinor > 0).length,
       unpricedCategories: categories.filter((c) => c.basePriceMinor <= 0).length,
+      futureShowsWithZeroPrice,
+      futureShowsPriced,
       activeFeeRules,
       hasCancellationPolicy: policyEvents > 0,
       hasInrPaymentRoute: inrRoutes > 0,
