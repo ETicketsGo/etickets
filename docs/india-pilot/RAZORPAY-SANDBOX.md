@@ -107,11 +107,24 @@ These need a Razorpay account and cannot be done from this repository.
 1. **Razorpay Dashboard → Settings → API Keys**, in **Test Mode**. Generate a key pair. The
    id starts `rzp_test_`; the secret is shown once.
 2. **Settings → Webhooks → Add New Webhook.**
-   - URL: `https://<api host>/api/payments/webhook/razorpay`
+   - URL: `https://<api host>/api/payments/webhooks/razorpay` — **plural `webhooks`**.
    - Secret: choose a string that is **not** the API key secret (boot validation refuses them
      being equal).
-   - Events: `payment.captured`, `payment.failed`, `order.paid`, `refund.processed`,
+   - Events: `payment.captured`, `payment.failed`, `order.paid`, `refund.created`,
+     `refund.processed`, `payment.dispute.created`, `payment.dispute.won`,
      `payment.dispute.lost`.
+
+> **The plural matters.** There are two Razorpay routes one character apart:
+>
+> | Route                                             | Behaviour                                                                                                                                                                                                                                          |
+> | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | `POST /api/payments/webhooks/razorpay`            | **Use this one.** Durable and idempotent: verifies the HMAC, persists a `WebhookEvent` keyed on `X-Razorpay-Event-Id`, and classifies asynchronously. Events it does not act on are recorded `IGNORED`, so registering an extra event is harmless. |
+> | `POST …/payments/webhook/razorpay` (**singular**) | The generic multi-provider router. Synchronous, and its Razorpay adapter accepts **only** `payment.captured` and `payment.failed` — everything else is a 4xx.                                                                                      |
+>
+> Pointing the dashboard at the singular route with the full event list makes Razorpay retry
+> and then disable the endpoint, and refunds never reconcile. Two deployment documents and
+> three environment templates named the singular route; all are corrected.
+
 3. **Store the three values as environment variables** on the target environment's services
    (API and worker). Never in git, never in a PR, never in a log.
 4. **Create the INR payment route** — `POST /api/admin/payments/routes` with

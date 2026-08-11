@@ -142,6 +142,27 @@ without a path must name its owner.
 
 ## Open, and owned elsewhere
 
+### GAP-17 — Provisioning docs named the wrong Razorpay webhook route · **DOC_DEFECT** · P1 · OBSERVED · FIXED
+
+Two Razorpay routes exist, one character apart:
+
+| Route                                     | Behaviour                                                                                                                                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/payments/webhooks/razorpay`    | Durable + idempotent. Verifies the HMAC over the raw bytes, persists a `WebhookEvent` keyed on `X-Razorpay-Event-Id`, classifies asynchronously; unhandled events are recorded `IGNORED`. |
+| the same path with **singular** `webhook` | The generic multi-provider router. Its Razorpay adapter accepts **only** `payment.captured` and `payment.failed`; everything else is a 4xx.                                               |
+
+`QA_FIRST_DEPLOYMENT.md`, `RAILWAY_GO_LIVE_CHECKLIST.md` and all three
+`deploy/railway/env/*.example` templates named the **singular** route — the documents an
+operator actually follows when provisioning an environment. Registering the full event list
+there would have made Razorpay retry `order.paid`, `refund.processed` and the dispute events
+until it disabled the endpoint, and **refunds would never have reconciled**.
+
+Nothing would have failed loudly. The configuration would simply have been wrong.
+
+All five files corrected, and a test now walks `docs/` and `deploy/` and fails if any
+operator-facing file names the singular route again — a typo in prose cannot be caught by a
+unit test of the handler.
+
 ### GAP-05 — No INR payment route · EXTERNAL_OWNER_ACTION · **P0** · OBSERVED · still open
 
 The blocker still standing at the end of the walk, and the correct one to be standing: no
@@ -203,12 +224,12 @@ an answer.
 
 ## Priority summary
 
-| Priority | Count | Items                                                                       |
-| -------- | ----- | --------------------------------------------------------------------------- |
-| **P0**   | 3     | GAP-05 payment routing (open, external) · GAP-10 ✅ fixed · GAP-11 ✅ fixed |
-| **P1**   | 5     | GAP-01 ✅ · GAP-02 ✅ · GAP-12 ✅ · GAP-13 ✅ · GAP-07 open · GAP-08 open   |
-| **P2**   | 4     | GAP-03 · GAP-04 · GAP-14 ✅ fixed · GAP-15 open (decision)                  |
-| **P3**   | 1     | GAP-09 activation                                                           |
+| Priority | Count | Items                                                                                             |
+| -------- | ----- | ------------------------------------------------------------------------------------------------- |
+| **P0**   | 3     | GAP-05 payment routing (open, external) · GAP-10 ✅ fixed · GAP-11 ✅ fixed                       |
+| **P1**   | 7     | GAP-01 ✅ · GAP-02 ✅ · GAP-12 ✅ · GAP-13 ✅ · GAP-16 ✅ · GAP-17 ✅ · GAP-07 open · GAP-08 open |
+| **P2**   | 4     | GAP-03 · GAP-04 · GAP-14 ✅ fixed · GAP-15 open (decision)                                        |
+| **P3**   | 1     | GAP-09 activation                                                                                 |
 
 **GAP-06 is resolved and removed from the open list.**
 

@@ -2,9 +2,35 @@
 
 How to rehearse an India pilot against Razorpay sandbox, and what has to exist first.
 
-**Status: BLOCKED on owner action.** No Razorpay sandbox credentials and no UAT Railway
-environment are available to this repository, so steps 3 onward have not been executed. Every
-step that could be done without them has been.
+**Status: BLOCKED on owner action.** The Railway CLI is not authenticated, no `uat` GitHub
+Environment exists, and no Razorpay credentials are reachable from this repository. Nothing in
+sections 3–7 below has been executed against a real environment, and none of it is claimed.
+
+Everything that does not need those credentials has been done, including one thing worth
+calling out: **the webhook receiver is now proven over real HTTP**, which is where the
+integration risk actually lives.
+
+### What has been proven without Razorpay
+
+Delivered to a running API at `POST /api/payments/webhooks/razorpay` with a synthetic,
+test-shaped webhook secret. This is **not** sandbox proof — no Razorpay service was contacted
+— but it exercises the half of the contract a unit test with a mocked provider cannot reach:
+
+| Delivery                            | Result                                                               |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| Correctly signed `payment.captured` | `201 {received: true, duplicate: false}`, persisted                  |
+| Same `X-Razorpay-Event-Id` again    | `201 {duplicate: true}` — claimed once, not reprocessed              |
+| Wrong signature                     | `400 PAYMENT_WEBHOOK_INVALID`, nothing written                       |
+| Body edited after signing           | `400` — the amount cannot be altered in flight                       |
+| Identical JSON, keys re-ordered     | `400` — verification is over the **raw bytes**, not the parsed value |
+| `payment.pending` (not acted on)    | `201`, persisted as `IGNORED` — never dropped, and no retry storm    |
+
+The re-ordered-keys case is the one that matters most. If anything re-serialised the payload
+before the HMAC check, every genuine Razorpay webhook would fail signature verification in
+production, and no unit test that hands `verifyWebhook` a string could catch it.
+
+**Still unproven, and only Razorpay can prove it:** that a real order can be created, that
+Razorpay's own signature format matches on live traffic, its retry cadence, and a real refund.
 
 ---
 

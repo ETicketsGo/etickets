@@ -22,6 +22,7 @@ import {
   SessionStatus,
   TicketStatus,
 } from '@prisma/client';
+import { routesFor } from './payment-routing-policy';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -207,30 +208,15 @@ async function seedPaymentPlatform() {
 
   // 2) Editable routing policy. Local family routes everything to dummy; higher
   //    envs route India→Razorpay (failover Stripe) and everything else→Stripe.
-  const dummyRoutes = localEnvs.map((env) => ({
-    env,
-    country: '*',
-    currency: '*',
-    method: '*',
-    provider: 'dummy',
-    priority: 100,
-  }));
-  const realRoutes = [PaymentEnv.UAT, ...liveEnvs].flatMap((env) => [
-    // INR settles via Razorpay (failover Stripe); everything else via Stripe.
-    // Currency-based so it routes without depending on venue country formatting.
-    {
-      env,
-      country: '*',
-      currency: 'INR',
-      method: '*',
-      provider: 'razorpay',
-      failoverProvider: 'stripe',
-      priority: 10,
-    },
-    { env, country: '*', currency: '*', method: '*', provider: 'stripe', priority: 100 },
-  ]);
+  /*
+    Routing policy is SHARED with `prisma/payment-routes.ts`, the idempotent bootstrap used
+    on deployed environments. This file deletes every payment route before it runs; that one
+    only upserts. If the two described routing separately they would eventually disagree,
+    and the disagreement would surface as a checkout with no provider.
+  */
+  const routes = [...localEnvs, ...[PaymentEnv.UAT, ...liveEnvs]].flatMap(routesFor);
 
-  for (const route of [...dummyRoutes, ...realRoutes]) {
+  for (const route of routes) {
     await prisma.paymentRoute.upsert({
       where: {
         env_country_currency_method: {
