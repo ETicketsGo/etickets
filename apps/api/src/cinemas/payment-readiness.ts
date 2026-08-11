@@ -3,7 +3,7 @@ import {
   isLiveAllowed,
   type PaymentEnvName,
 } from '../payments/configuration/payment-environment';
-import type { ReadinessCheck } from './pilot-readiness';
+import type { ReadinessCheck } from './readiness-types';
 
 /**
  * Whether THIS ENVIRONMENT can take the payment a pilot needs.

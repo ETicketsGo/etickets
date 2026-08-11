@@ -14,32 +14,8 @@
 
 import { evaluatePaymentProvider, type PaymentReadinessFacts } from './payment-readiness';
 
-export type ReadinessLevel = 'READY' | 'WARNING' | 'BLOCKED';
-
-export type ReadinessSection =
-  | 'BUSINESS'
-  | 'CINEMA'
-  | 'SCREENS'
-  | 'LAYOUTS'
-  | 'STAFF'
-  | 'PRICING'
-  | 'FEES'
-  | 'POLICIES'
-  | 'PAYMENTS'
-  | 'SHOWS'
-  | 'CUSTOMER'
-  | 'OPERATIONS';
-
-export interface ReadinessCheck {
-  section: ReadinessSection;
-  /** Stable identifier. The UI maps this to a fix link; never match on the message. */
-  code: string;
-  level: ReadinessLevel;
-  /** One sentence an operator can act on, naming what is actually missing. */
-  message: string;
-  /** Where to go to fix it, relative to the organizer app. Null when there is nowhere useful. */
-  fixPath: string | null;
-}
+export type { ReadinessCheck, ReadinessLevel, ReadinessSection } from './readiness-types';
+import type { ReadinessCheck, ReadinessLevel, ReadinessSection } from './readiness-types';
 
 /** Everything the rules need, gathered by the service in one pass. */
 export interface ReadinessFacts {
