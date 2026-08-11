@@ -11,6 +11,7 @@ import {
   type UpdateScreenInput,
 } from '@eticketsgo/validation';
 import { CinemasService } from './cinemas.service';
+import { PilotReadinessService } from './pilot-readiness.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -20,7 +21,18 @@ const createCinemaBody = createCinemaSchema.extend({ organizationId: z.string().
 @ApiBearerAuth()
 @Controller('cinemas')
 export class CinemasController {
-  constructor(private readonly cinemas: CinemasService) {}
+  constructor(
+    private readonly cinemas: CinemasService,
+    private readonly readiness: PilotReadinessService,
+  ) {}
+
+  @Get(':id/pilot-readiness')
+  @ApiOperation({
+    summary: 'Whether this cinema can open, and precisely what is stopping it.',
+  })
+  pilotReadiness(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.readiness.evaluate(user, id);
+  }
 
   @Post()
   @ApiOperation({ summary: 'Create a cinema for an organization.' })

@@ -371,6 +371,63 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     expect(local).toBe('09:30');
   });
 
+  maybe('the timezone cannot be changed once the cinema has shows', async () => {
+    /*
+      Show start times are stored as absolute INSTANTS, resolved through the venue's zone when
+      they were scheduled. Re-pointing the zone does not move them — it changes what they are
+      advertised as. A 10:00 Hyderabad show becomes 04:30 if the cinema is re-declared as
+      Europe/London, and every ticket already sold names a time nobody will turn up for.
+
+      Silently reinterpreting them is the one outcome that must not happen, so the write is
+      refused and the operator is told how many shows are in the way.
+    */
+    const { CinemasService } = await import('../cinemas/cinemas.service');
+    const cinemas = new CinemasService(db as never, allowAll, undefined as never);
+
+    await shows.bulkScheduleShows(ORGANIZER, movieId, {
+      screenId: sydneyScreenId,
+      dates: ['2026-08-20'],
+      times: ['10:00'],
+      padMinutes: 0,
+      dryRun: false,
+    } as never);
+
+    await expect(
+      cinemas.update(ORGANIZER, sydneyCinemaId, { timezone: 'Europe/London' } as never),
+    ).rejects.toMatchObject({ details: { reason: 'TIMEZONE_LOCKED_BY_SHOWS' } });
+
+    // Unchanged, and the shows are untouched.
+    const after = await db!.cinema.findUniqueOrThrow({ where: { id: sydneyCinemaId } });
+    expect(after.timezone).toBe('Australia/Sydney');
+  });
+
+  maybe('an EMPTY cinema can have its timezone corrected', async () => {
+    // The case that actually matters during onboarding: an operator picks the wrong zone
+    // before scheduling anything and must be able to fix it themselves.
+    const { CinemasService } = await import('../cinemas/cinemas.service');
+    const cinemas = new CinemasService(db as never, allowAll, undefined as never);
+
+    const fresh = await db!.cinema.create({
+      data: {
+        organizationId: orgId,
+        venueId,
+        name: `Empty ${suffix}`,
+        city: 'Perth',
+        timezone: 'Australia/Sydney',
+      },
+    });
+    const updated = await cinemas.update(ORGANIZER, fresh.id, {
+      timezone: 'Australia/Perth',
+    } as never);
+    expect(updated.timezone).toBe('Australia/Perth');
+
+    // Saving other fields without touching the zone is always fine.
+    const renamed = await cinemas.update(ORGANIZER, fresh.id, { city: 'Fremantle' } as never);
+    expect(renamed.timezone).toBe('Australia/Perth');
+
+    await db!.cinema.delete({ where: { id: fresh.id } });
+  });
+
   maybe('an unresolvable stored zone is impossible to create through the API layer', async () => {
     // The database would happily hold "Middle/Earth"; the write path must not.
     const { createCinemaSchema } = await import('@eticketsgo/validation');

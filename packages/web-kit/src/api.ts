@@ -483,6 +483,13 @@ export const api = {
   cinemas: {
     list: (organizationId: string) => request<Cinema[]>(`/cinemas${qs({ organizationId })}`),
     get: (id: string) => request<Cinema>(`/cinemas/${id}`),
+    /**
+     * Whether this cinema can open, and precisely what is stopping it.
+     *
+     * The server decides. The client renders the verdict and never re-derives a rule — a
+     * second implementation here is how a page ends up saying READY while the API refuses.
+     */
+    pilotReadiness: (id: string) => request<PilotReadinessReport>(`/cinemas/${id}/pilot-readiness`),
     create: (body: CinemaBody & { organizationId: string }) =>
       request<Cinema>('/cinemas', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CinemaBody>) =>
@@ -3354,4 +3361,30 @@ export interface LayoutComparison {
   capacityDelta: number;
   from: SeatLayoutSummary;
   to: SeatLayoutSummary;
+}
+
+// ── Pilot readiness ───────────────────────────────────────────────────────────────
+
+export type PilotReadinessLevel = 'READY' | 'WARNING' | 'BLOCKED';
+
+export interface PilotReadinessCheck {
+  section: string;
+  /** Stable identifier. Map this to an icon or a link; never match on the message. */
+  code: string;
+  level: PilotReadinessLevel;
+  /** One sentence an operator can act on, written by the server. */
+  message: string;
+  /** Where to go to fix it, relative to the organizer app. Null when there is nowhere useful. */
+  fixPath: string | null;
+}
+
+export interface PilotReadinessReport {
+  cinemaId: string;
+  cinemaName: string;
+  timezone: string;
+  overall: PilotReadinessLevel;
+  blockers: number;
+  warnings: number;
+  sections: { section: string; level: PilotReadinessLevel; checks: PilotReadinessCheck[] }[];
+  evaluatedAt: string;
 }
