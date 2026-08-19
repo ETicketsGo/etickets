@@ -158,19 +158,55 @@ describe('selectSecretManager', () => {
     expect(sm.provider).toBe('env');
   });
 
-  it('rejects the env backend in PRODUCTION (fail closed)', () => {
-    expect(() =>
-      selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'env', APP_ENV: 'PRODUCTION' })),
-    ).toThrow(/not permitted in PRODUCTION/);
+  it('rejects the env backend where LIVE credentials can exist', () => {
+    // The environments `isLiveAllowed` permits. This is the control's actual purpose:
+    // keep money-moving secrets out of a dashboard variable.
+    for (const APP_ENV of ['STAGING', 'PRODUCTION']) {
+      expect(() => selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'env', APP_ENV }))).toThrow(
+        /not permitted where live credentials can exist/,
+      );
+    }
   });
 
-  it('rejects the env backend in STAGING and UAT', () => {
-    expect(() =>
-      selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'env', APP_ENV: 'STAGING' })),
-    ).toThrow();
-    expect(() =>
-      selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'env', APP_ENV: 'UAT' })),
-    ).toThrow();
+  /*
+    UAT is allowed the env backend, and that is a deliberate correction rather than a
+    relaxation. UAT may NEVER hold a live key — boot rejects `rzp_live_`/`sk_live_` there —
+    so requiring a managed vault asked it to guard credentials it cannot have. The two
+    controls contradicted each other, and the losing side was an environment that started
+    and immediately died with an error naming a variable no template mentioned.
+  */
+  it('allows the env backend in UAT, which cannot hold a live key', () => {
+    expect(
+      selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'env', APP_ENV: 'UAT' })).provider,
+    ).toBe('env');
+  });
+
+  it.each(['LOCAL', 'DEV', 'QA', 'UAT'])(
+    '%s refuses the env backend once live keys are deliberately allowed there',
+    (APP_ENV) => {
+      /*
+        The hole the name-based rule left open: with this override on, a live key could be
+        loaded into QA or DEV and read straight from an env var, because neither was on the
+        forbidden list. Now the rule follows the credential, not the label.
+      */
+      expect(() =>
+        selectSecretManager(
+          cfg({
+            SECRET_MANAGER_PROVIDER: 'env',
+            APP_ENV,
+            PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV: 'true',
+          }),
+        ),
+      ).toThrow(/not permitted where live credentials can exist/);
+    },
+  );
+
+  it('a managed store is still accepted anywhere', () => {
+    // Nothing stops an operator using a vault in UAT if they have one; it is simply no
+    // longer the only way to boot.
+    expect(
+      selectSecretManager(cfg({ SECRET_MANAGER_PROVIDER: 'azure', APP_ENV: 'UAT' })).provider,
+    ).toBe('azure');
   });
 
   it('selects cloud backends by configuration', () => {
