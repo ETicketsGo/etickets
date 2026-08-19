@@ -56,33 +56,87 @@ export const MAX_SCHEDULE_RANGE_DAYS = 14;
  * `new Date(`${date}T${time}`)` uses the SERVER's zone, so a container in UTC would
  * schedule every Indian show 5h30m late.
  *
- * Derives the zone's offset for that specific instant via Intl rather than assuming a fixed
- * one, so a market that observes DST stays correct across the transition.
+ * ── WHY TWO PASSES ────────────────────────────────────────────────────────────────
+ * The offset has to be measured AT THE ANSWER, and the answer is what we are solving for.
+ * A single pass measures it at the wall-clock read as if it were UTC, which is a different
+ * instant — and on a DST-transition day the two can sit on opposite sides of the change.
+ *
+ * Sydney, 2026-10-04, the morning clocks go forward: the first pass measured +11 (the zone
+ * had already switched at 02:00 local) and produced 13:30Z, which reads back as 23:30 on
+ * OCTOBER 3 — an hour early, on the wrong local day. 00:30 is before the 02:00 jump, so the
+ * correct offset is +10. India never observes DST, so nothing in the launch market showed
+ * it; the Sydney fixture exists precisely because an India-only fixture cannot.
+ *
+ * So: estimate, then re-measure the offset at the estimate and correct. One correction is
+ * enough for every real zone — offsets change by at most a couple of hours and the second
+ * measurement is taken within that distance of the answer. A third pass is run only as a
+ * cheap guard, and it converges or we keep the closest candidate.
+ *
+ * ── THE HOUR THAT DOES NOT EXIST ──────────────────────────────────────────────────
+ * On a spring-forward day 02:30 is skipped entirely. No instant reads back as 02:30, so
+ * this returns the instant the clock jumps TO — 03:00 local, the same convention as
+ * scheduling software people already use. It never throws: refusing to schedule would be a
+ * worse answer than the next real minute.
  */
 export function zonedWallClockToInstant(date: string, time: string, timeZone: string): Date {
-  const naive = new Date(`${date}T${time}:00Z`);
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(naive);
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? '0');
-  // What the zone calls that UTC instant, read back as if it were UTC. The difference is
-  // the zone's offset at that moment.
-  const asZone = Date.UTC(
-    get('year'),
-    get('month') - 1,
-    get('day'),
-    get('hour') === 24 ? 0 : get('hour'),
-    get('minute'),
-    get('second'),
-  );
-  return new Date(naive.getTime() - (asZone - naive.getTime()));
+  const naive = new Date(`${date}T${time}:00Z`).getTime();
+
+  /** What `instant` reads as in the zone, expressed as a UTC-epoch of those wall fields. */
+  const wallAt = (instant: number): number => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(instant));
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? '0');
+    return Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      get('hour') === 24 ? 0 : get('hour'),
+      get('minute'),
+      get('second'),
+    );
+  };
+
+  /*
+    Two candidates, then decide between them.
+
+    The offset has to be measured AT THE ANSWER, and the answer is what we are solving for.
+    Measuring once at the naive instant is right on an ordinary day and wrong on a
+    transition day, where the two sit on opposite sides of the change.
+  */
+  // Candidate 1: offset measured at the naive instant.
+  const first = naive - (wallAt(naive) - naive);
+  // Candidate 2: offset re-measured AT candidate 1, which is within an offset's distance of
+  // the answer. On an ordinary day the two agree and this costs one extra Intl format.
+  const secondCandidate = naive - (wallAt(first) - first);
+
+  const firstIsReal = wallAt(first) === naive;
+  const secondIsReal = wallAt(secondCandidate) === naive;
+
+  if (firstIsReal && secondIsReal) {
+    // AMBIGUOUS — a fall-back day, where this wall-clock time happens twice. Both instants
+    // are defensible; take the EARLIER, which is the first time the clock reads it.
+    return new Date(Math.min(first, secondCandidate));
+  }
+  if (firstIsReal) return new Date(first);
+  if (secondIsReal) return new Date(secondCandidate);
+
+  /*
+    NEITHER is real — a spring-forward gap, where this wall-clock time never happens. There
+    is no correct answer, only a least-bad one: take the LATER candidate, which is the
+    instant the clock jumps to. 02:30 on a day that skips 02:00-03:00 becomes 03:30.
+
+    Deliberately not an error. An operator picking a time from a dropdown has no way to know
+    it will be skipped, and refusing to save is a worse answer than the next real minute.
+  */
+  return new Date(Math.max(first, secondCandidate));
 }
 
 /**
