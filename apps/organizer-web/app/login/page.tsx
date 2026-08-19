@@ -8,6 +8,9 @@ export default function OrganizerLogin() {
       title="Organizer sign in"
       subtitle="Manage your events, orders, and payouts."
       defaultRedirect="/organizer"
+      // Credentials were right; the account just has no organization yet. Previously this
+      // refused them and cleared the session, which left no way to ever get in.
+      roleMismatchRedirect="/start"
       allowedRoles={[
         'ORGANIZER_OWNER',
         'ORGANIZER_MANAGER',

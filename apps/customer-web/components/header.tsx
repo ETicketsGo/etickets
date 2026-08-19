@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Ticket, Compass, LogOut, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
+import { Ticket, Compass, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { useIsAuthenticated } from '@eticketsgo/web-kit';
 import { ButtonLink } from '@/components/ui';
+import { AccountMenu } from '@/components/account-menu';
 import { currentUserId } from '@/lib/offline/identity';
 import { purgeUser } from '@/lib/offline/wallet-store';
 
@@ -94,10 +95,12 @@ export function Header() {
                   </span>
                 )}
               </Link>
-              <button onClick={logout} aria-label="Sign out" className={navLink}>
-                <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">Sign out</span>
-              </button>
+              {/*
+                Identity, not just an exit. The corner used to hold a bare "Sign out", so a
+                signed-in customer could not tell which account they were on — and had no
+                route to their profile or to becoming an organizer.
+              */}
+              <AccountMenu onSignOut={logout} />
             </>
           ) : (
             <>

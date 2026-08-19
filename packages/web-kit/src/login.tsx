@@ -15,12 +15,26 @@ export function LoginForm({
   defaultEmail = '',
   defaultRedirect = '/',
   allowedRoles,
+  roleMismatchRedirect,
   subtitle,
 }: {
   title?: string;
   defaultEmail?: string;
   defaultRedirect?: string;
   allowedRoles?: string[];
+  /**
+   * Where to send someone who signed in correctly but lacks a role this console needs.
+   *
+   * Without it the only outcome is "This account cannot access this console" AND the
+   * session is thrown away — which is what a brand-new organizer hit. They registered
+   * meaning to sell tickets, arrived with the CUSTOMER role every account starts with, and
+   * were refused by the one screen that could have set them up. The role is granted by
+   * creating an organization, and that page lives behind this door.
+   *
+   * When set, the credentials were still valid, so the session is KEPT and they are sent
+   * somewhere that can fix the gap.
+   */
+  roleMismatchRedirect?: string;
   subtitle?: string;
 }) {
   const router = useRouter();
@@ -40,6 +54,12 @@ export function LoginForm({
       if (allowedRoles) {
         const me = await api.auth.me();
         if (!me.roles.some((r) => allowedRoles.includes(r))) {
+          if (roleMismatchRedirect) {
+            // Signed in fine, just not set up for this console yet. Keep the session —
+            // clearing it here is what made the gap unrecoverable.
+            router.push(roleMismatchRedirect);
+            return;
+          }
           tokenStore.clear();
           setError('This account cannot access this console.');
           setLoading(false);

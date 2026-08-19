@@ -83,8 +83,11 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   await expect(page).toHaveURL(/\/account\/tickets/);
   await expect(page.getByRole('link', { name: /View ticket/ })).toBeVisible({ timeout: 20_000 });
 
-  // A signs out (purges their cached wallet)
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  // A signs out (purges their cached wallet). Sign out now lives inside the account menu,
+  // which is where it belongs — the header shows WHO is signed in, so a shared device shows
+  // the thing that makes signing out worth doing.
+  await page.getByTestId('account-menu-trigger').click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(`${CUSTOMER}/`);
 
   // A second user registers and opens the wallet — must not see A's ticket

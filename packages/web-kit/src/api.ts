@@ -239,6 +239,24 @@ export const api = {
         auth: false,
       }),
     me: () => request<AuthUser>('/auth/me'),
+    /**
+     * Exchange the refresh token for a new pair, explicitly.
+     *
+     * `request` already refreshes on a 401, but that only helps once the access token is
+     * REJECTED. A role granted mid-session — creating an organization promotes a customer to
+     * ORGANIZER_OWNER — is not a 401: the old token is still valid, it just describes a
+     * person who no longer exists. Without this, the new organizer keeps being told they
+     * cannot access the organizer console until their token happens to expire.
+     *
+     * The server re-reads roles from the database when it rotates, so the new pair carries
+     * the new role.
+     */
+    refresh: (refreshToken: string) =>
+      request<AuthTokens>('/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+        auth: false,
+      }),
   },
 
   users: {

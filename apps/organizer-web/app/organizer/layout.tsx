@@ -36,6 +36,10 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
   return (
     <RequireAuth
       roles={['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ADMIN', 'SUPER_ADMIN']}
+      // A signed-in account without an organizer role is not an intruder, it is somebody who
+      // has not created their organization yet — the step that grants the role. Sending them
+      // there beats telling them their account cannot access the area that would fix it.
+      roleMismatchRedirect="/start"
     >
       <AppShell brand="Organizer" nav={nav}>
         <OrgProvider>
