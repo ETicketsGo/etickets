@@ -257,9 +257,14 @@ const REQUIRED_VARS = [
 ];
 
 const ENV_TEMPLATES = [
-  { file: 'qa.env.example', appEnv: 'QA', allowDummyGateway: true },
-  { file: 'uat.env.example', appEnv: 'UAT', allowDummyGateway: false },
-  { file: 'production.env.example', appEnv: 'PRODUCTION', allowDummyGateway: false },
+  { file: 'qa.env.example', appEnv: 'QA', allowDummyGateway: true, envSecretsAllowed: true },
+  { file: 'uat.env.example', appEnv: 'UAT', allowDummyGateway: false, envSecretsAllowed: false },
+  {
+    file: 'production.env.example',
+    appEnv: 'PRODUCTION',
+    allowDummyGateway: false,
+    envSecretsAllowed: false,
+  },
 ];
 
 /** Parse `KEY=value` lines, ignoring comments. Returns a Map of uncommented assignments. */
@@ -318,6 +323,30 @@ function validateEnvTemplate(tpl) {
     where,
     'PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV must default to false — it is the only way a live key can boot in a lower environment',
   );
+
+  /*
+    The env-var secret backend is REFUSED at boot in UAT/STAGING/PRODUCTION (ADR-024), and
+    `env` is the default when the variable is absent. A template that omits it therefore
+    describes an environment that starts and immediately dies with
+
+      Error: SECRET_MANAGER_PROVIDER=env is not permitted in UAT.
+
+    which is exactly what a freshly provisioned UAT did. 197 checks passed and none of them
+    looked at the one variable that decided whether the thing could boot.
+  */
+  const secretBackend = vars.get('SECRET_MANAGER_PROVIDER');
+  if (!tpl.envSecretsAllowed) {
+    check(
+      secretBackend !== undefined,
+      where,
+      `missing SECRET_MANAGER_PROVIDER — it defaults to \`env\`, which ${tpl.appEnv} refuses at boot`,
+    );
+    check(
+      secretBackend !== 'env',
+      where,
+      `SECRET_MANAGER_PROVIDER=env is refused at boot in ${tpl.appEnv} — use azure | aws | gcp`,
+    );
+  }
   if (tpl.appEnv !== 'PRODUCTION') {
     check(
       vars.get('PAYMENT_LIVE_ENABLED') === 'false',
