@@ -45,3 +45,11 @@ Thumbs.db
 razorpay_*api*key*
 *api*keys*.csv
 !apps/e2e/**/*.csv
+
+# Credential drops. A token pasted into the working tree is one `git add -A` away from
+# being published, and a Railway token reaches infrastructure. Ignored so it cannot be
+# staged by accident; it still should not live here — keep it outside the repo.
+Railway_UAT_Token.txt
+*_TOKEN.txt
+*_token.txt
+*.token

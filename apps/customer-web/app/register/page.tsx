@@ -6,8 +6,6 @@ import Link from 'next/link';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 
-const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';
-
 function RegisterForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -33,9 +31,16 @@ function RegisterForm() {
       const tokens = await api.register({ fullName, email, password });
       tokenStore.set(tokens);
       if (organizerIntent) {
-        // Straight to the organizer console, where the organization is created. Sending an
-        // organizer to the ticket wallet is what made the two-step flow feel broken.
-        window.location.href = ORGANIZER_URL;
+        /*
+          To the page that can actually set them up — NOT straight to the organizer console.
+
+          The tokens just written live in THIS origin's localStorage. The organizer app is a
+          different origin, so it would have seen a signed-out visitor, sent them to its own
+          login, and refused the brand-new account for lacking a role that only creating an
+          organization grants. Nothing was broken in isolation; the three steps composed into
+          a loop with no exit.
+        */
+        router.push('/account/become-organizer');
         return;
       }
       router.push('/account/tickets');

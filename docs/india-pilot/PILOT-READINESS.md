@@ -101,8 +101,25 @@ rather than only painted. Status is carried by a word and a glyph, never colour 
 
 ## Payments
 
-Readiness reports only **whether** credentials resolve in this environment. No key, secret or
-webhook secret is read or returned. Production credentials are not required for QA readiness.
+Readiness asks **what this environment can actually charge with** — not whether some variable
+is set.
+
+The old check was `RAZORPAY_KEY_ID || PAYMENTS_MOCK_MODE === 'true'`, and
+`PAYMENTS_MOCK_MODE` **was not a variable this system has**: absent from the config schema,
+every `.env`, CI and every deploy manifest. Its only effect anywhere was to turn this check
+green. Meanwhile `PAYMENT_PROVIDER` is declared in the schema and read by no runtime code, so
+a local box could take a mock payment while readiness insisted no payment was possible.
+
+It now reads the payment module's own model — `APP_ENV` → `PaymentEnvName`, plus
+`isDummyAllowed` / `isLiveAllowed` — rather than a second policy that could disagree with it.
+
+**The simulated gateway is never READY, in any environment.** It confirms every booking it is
+asked to, which is exactly what makes it useless as evidence. It warns where the payment
+module already permits it (LOCAL/DEV/QA) and blocks everywhere a pilot could run.
+
+Presence and declared mode only. No key, secret or webhook secret is read or returned, and
+the facts structure has no field that could hold one. Full matrix:
+[RAZORPAY-SANDBOX.md](./RAZORPAY-SANDBOX.md).
 
 ## Activation
 

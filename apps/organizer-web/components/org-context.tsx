@@ -6,6 +6,7 @@ import {
   api,
   EmptyState,
   ErrorState,
+  ButtonLink,
   Select,
   Spinner,
   type Organization,
@@ -59,7 +60,12 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     return (
       <EmptyState
         title="No organization yet"
-        hint="Your account is not a member of any organization. Ask an owner to invite you, or create one via the API."
+        hint="Set one up to start selling, or ask an owner to invite you to theirs."
+        action={
+          <ButtonLink href="/start" data-testid="create-organization">
+            Set up your organization
+          </ButtonLink>
+        }
       />
     );
   }

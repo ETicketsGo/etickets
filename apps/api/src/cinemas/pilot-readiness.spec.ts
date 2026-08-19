@@ -27,7 +27,15 @@ const facts = (over: Partial<ReadinessFacts> = {}): ReadinessFacts => ({
   activeFeeRules: 4,
   hasCancellationPolicy: true,
   hasInrPaymentRoute: true,
-  paymentProviderConfigured: true,
+  // Razorpay sandbox in staging: the state a pilot rehearsal actually runs in. Not a
+  // boolean, because "can this environment take a payment" is not a yes/no question — see
+  // payment-readiness.spec.ts for the full environment matrix.
+  payments: {
+    environment: 'STAGING',
+    provider: 'razorpay',
+    razorpay: { hasKeyId: true, hasKeySecret: true, hasWebhookSecret: true, mode: 'test' },
+    liveEnabled: false,
+  },
   futurePublishedShows: 12,
   publicCatalogueReachable: true,
   ...over,
@@ -83,7 +91,23 @@ describe('what blocks a launch', () => {
       'SHOWS_PRICED_AT_ZERO',
     ],
     ['no INR payment route', { hasInrPaymentRoute: false }, 'NO_INR_ROUTE'],
-    ['no provider credentials', { paymentProviderConfigured: false }, 'PROVIDER_NOT_CONFIGURED'],
+    [
+      'a staging environment still on the simulated gateway',
+      {
+        payments: {
+          environment: 'STAGING' as const,
+          provider: 'mock' as const,
+          razorpay: {
+            hasKeyId: false,
+            hasKeySecret: false,
+            hasWebhookSecret: false,
+            mode: 'test' as const,
+          },
+          liveEnabled: false,
+        },
+      },
+      'PAYMENT_MOCK_ONLY',
+    ],
     ['nothing scheduled', { futurePublishedShows: 0 }, 'NO_FUTURE_SHOWS'],
     ['nothing discoverable', { publicCatalogueReachable: false }, 'CATALOGUE_UNREACHABLE'],
     [
@@ -279,7 +303,17 @@ describe('fix paths must be followable by the operator who sees them', () => {
         activeFeeRules: 0,
         hasCancellationPolicy: false,
         hasInrPaymentRoute: false,
-        paymentProviderConfigured: false,
+        payments: {
+          environment: 'STAGING' as const,
+          provider: 'mock' as const,
+          razorpay: {
+            hasKeyId: false,
+            hasKeySecret: false,
+            hasWebhookSecret: false,
+            mode: 'test' as const,
+          },
+          liveEnabled: false,
+        },
         futurePublishedShows: 0,
         publicCatalogueReachable: false,
       }),

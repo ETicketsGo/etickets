@@ -12,32 +12,10 @@
  * stable code the UI turns into a link to the page that fixes it.
  */
 
-export type ReadinessLevel = 'READY' | 'WARNING' | 'BLOCKED';
+import { evaluatePaymentProvider, type PaymentReadinessFacts } from './payment-readiness';
 
-export type ReadinessSection =
-  | 'BUSINESS'
-  | 'CINEMA'
-  | 'SCREENS'
-  | 'LAYOUTS'
-  | 'STAFF'
-  | 'PRICING'
-  | 'FEES'
-  | 'POLICIES'
-  | 'PAYMENTS'
-  | 'SHOWS'
-  | 'CUSTOMER'
-  | 'OPERATIONS';
-
-export interface ReadinessCheck {
-  section: ReadinessSection;
-  /** Stable identifier. The UI maps this to a fix link; never match on the message. */
-  code: string;
-  level: ReadinessLevel;
-  /** One sentence an operator can act on, naming what is actually missing. */
-  message: string;
-  /** Where to go to fix it, relative to the organizer app. Null when there is nowhere useful. */
-  fixPath: string | null;
-}
+export type { ReadinessCheck, ReadinessLevel, ReadinessSection } from './readiness-types';
+import type { ReadinessCheck, ReadinessLevel, ReadinessSection } from './readiness-types';
 
 /** Everything the rules need, gathered by the service in one pass. */
 export interface ReadinessFacts {
@@ -85,8 +63,14 @@ export interface ReadinessFacts {
   hasCancellationPolicy: boolean;
   /** An INR payment route the booking engine can actually select. */
   hasInrPaymentRoute: boolean;
-  /** Provider credentials resolvable in this environment (never the values themselves). */
-  paymentProviderConfigured: boolean;
+  /**
+   * What this environment can actually charge with.
+   *
+   * Deliberately a structure, not a boolean. The old `paymentProviderConfigured: boolean`
+   * flattened "which gateway", "which environment" and "test or live" into one bit, and the
+   * bit was computed from a variable that does not exist. See `payment-readiness.ts`.
+   */
+  payments: PaymentReadinessFacts;
   /** Future shows already on sale. */
   futurePublishedShows: number;
   /** Whether the public catalogue can serve this cinema's films. */
@@ -361,16 +345,7 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
     c.push(ok('PAYMENTS', 'INR_ROUTE', 'An INR payment route is available.'));
   }
 
-  if (!f.paymentProviderConfigured) {
-    c.push({
-      section: 'PAYMENTS',
-      code: 'PROVIDER_NOT_CONFIGURED',
-      level: 'BLOCKED',
-      message:
-        'The payment provider has no usable credentials in this environment, so no payment can be taken. ETicketsGo configures this — contact support.',
-      fixPath: null,
-    });
-  }
+  c.push(...evaluatePaymentProvider(f.payments));
 
   // ── Shows ─────────────────────────────────────────────────────────────────────
   if (f.futurePublishedShows === 0) {

@@ -178,7 +178,7 @@ or object-storage code path exists. Railway's filesystem is ephemeral.
 | #    | Check                                                        | Method                                             | BLOCKER | Result |
 | ---- | ------------------------------------------------------------ | -------------------------------------------------- | :-----: | ------ |
 | 15.1 | Stripe endpoint registered for **this** environment          | `$BASE/api/payments/webhook/stripe`                |   ✅    |        |
-| 15.2 | Razorpay endpoint registered for **this** environment        | `$BASE/api/payments/webhook/razorpay`              |   ✅    |        |
+| 15.2 | Razorpay endpoint registered for **this** environment        | `$BASE/api/payments/webhooks/razorpay`             |   ✅    |        |
 | 15.3 | Endpoints are distinct per environment with distinct secrets | provider dashboards                                |   ✅    |        |
 | 15.4 | A test event is accepted and verified                        | provider dashboard shows 2xx                       |   ✅    |        |
 | 15.5 | An event with a **wrong signature is rejected**              | replay a QA-signed event at production → rejected  |   ✅    |        |

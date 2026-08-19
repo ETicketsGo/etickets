@@ -288,10 +288,10 @@ credential checks, and namespaces every Redis key this environment writes.
 
 ### Webhook endpoints to register in the provider dashboards
 
-| Provider | QA endpoint                                                   |
-| -------- | ------------------------------------------------------------- |
-| Stripe   | `https://api-qa.eticketsgo.com/api/payments/webhook/stripe`   |
-| Razorpay | `https://api-qa.eticketsgo.com/api/payments/webhook/razorpay` |
+| Provider | QA endpoint                                                    |
+| -------- | -------------------------------------------------------------- |
+| Stripe   | `https://api-qa.eticketsgo.com/api/payments/webhook/stripe`    |
+| Razorpay | `https://api-qa.eticketsgo.com/api/payments/webhooks/razorpay` |
 
 Separate endpoints with separate signing secrets per environment — a shared secret would
 let a QA replay authenticate against production.

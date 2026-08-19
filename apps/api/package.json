@@ -24,7 +24,8 @@
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts",
     "db:pilot": "ts-node --transpile-only prisma/pilot-fixture.ts",
-    "db:demo-commerce": "ts-node --transpile-only prisma/demo-commerce-seed.ts"
+    "db:demo-commerce": "ts-node --transpile-only prisma/demo-commerce-seed.ts",
+    "db:payment-routes": "ts-node --transpile-only prisma/payment-routes.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"

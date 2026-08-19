@@ -918,3 +918,19 @@ export function useToast() {
   const ctx = useContext(ToastContext);
   return ctx ?? { push: () => undefined };
 }
+
+/**
+ * Initials for an avatar, from a name if there is one and the email local-part otherwise.
+ *
+ * Separated from the component so the edges are testable: a single name, a name with a
+ * middle name, an email-only account, and the empty case that must not render "undefined"
+ * into the corner of every page.
+ */
+export function initialsOf(name: string | undefined, email: string | undefined): string {
+  const source = (name ?? '').trim() || (email ?? '').split('@')[0] || '';
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  // First and LAST, so "Ravi Kumar Iyer" is RI rather than RK.
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}

@@ -41,10 +41,21 @@ export function RequireAuth({
   roles,
   children,
   loginPath = '/login',
+  roleMismatchRedirect,
 }: {
   roles?: string[];
   children: ReactNode;
   loginPath?: string;
+  /**
+   * Where to send a signed-in user who lacks `roles`, instead of a dead-end "Access denied".
+   *
+   * "Access denied" is the right answer when the gap cannot be closed — a customer trying to
+   * reach the admin console. It is the wrong answer when it CAN be: a new organizer holds
+   * only the CUSTOMER role until they create an organization, and that page sits behind this
+   * guard. They were told their account could not access the area that was going to grant
+   * them access to it.
+   */
+  roleMismatchRedirect?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -65,6 +76,10 @@ export function RequireAuth({
     );
   }
 
+  if (roles && user && !user.roles.some((r) => roles.includes(r)) && roleMismatchRedirect) {
+    return <RoleMismatchRedirect to={roleMismatchRedirect} />;
+  }
+
   if (roles && user && !user.roles.some((r) => roles.includes(r))) {
     return (
       <div className="mx-auto max-w-md p-10 text-center">
@@ -74,6 +89,22 @@ export function RequireAuth({
     );
   }
   return <>{children}</>;
+}
+
+/**
+ * Redirect on mount. A separate component because the decision to redirect happens after the
+ * early returns above, and hooks cannot be called conditionally.
+ */
+function RoleMismatchRedirect({ to }: { to: string }) {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(to);
+  }, [router, to]);
+  return (
+    <div className="flex h-64 items-center justify-center text-text-muted">
+      <Spinner />
+    </div>
+  );
 }
 
 export function hasAnyRole(user: AuthUser | null, roles: string[]): boolean {
