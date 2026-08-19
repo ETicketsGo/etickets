@@ -47,18 +47,29 @@ const describeViolations = (
     )
     .join('\n');
 
-/** A future instant at a given IST wall-clock time, built without trusting the runner's zone. */
-function istInstant(daysAhead: number, hour: number, minute = 0): string {
-  const d = new Date(Date.now() + daysAhead * 864e5);
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour - 5, minute - 30),
-  ).toISOString();
-}
+/** The cinema-local (IST) calendar date `daysAhead` from now. The single source of truth. */
+const istDate = (daysAhead: number): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(
+    new Date(Date.now() + daysAhead * 864e5),
+  );
 
-const istDate = (daysAhead: number): string => {
-  const d = new Date(Date.now() + daysAhead * 864e5);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d);
-};
+/**
+ * A future instant at a given IST wall-clock time on `istDate(daysAhead)`.
+ *
+ * Derived from that same date STRING, deliberately. The first version took its year/month/day
+ * from the UTC fields of `Date.now() + n days` while `istDate` took them from the IST
+ * calendar — and IST is UTC+5:30, so from 18:30 UTC onwards they name different days. The
+ * show was scheduled on one date and the test opened the schedule on another, so the day view
+ * was legitimately empty.
+ *
+ * It passed every run before 18:30 UTC and failed at 19:19, which is the same trap the Sydney
+ * timezone fixture fell into: a test whose fixture depends on the hour it happens to run.
+ */
+function istInstant(daysAhead: number, hour: number, minute = 0): string {
+  const [y, m, d] = istDate(daysAhead).split('-').map(Number);
+  // IST is UTC+5:30, and India observes no DST, so the offset is a constant.
+  return new Date(Date.UTC(y, m - 1, d, hour - 5, minute - 30)).toISOString();
+}
 
 async function buildCinema(request: APIRequestContext, token: string): Promise<Fixture> {
   const auth = { Authorization: `Bearer ${token}` };
