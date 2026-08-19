@@ -99,7 +99,8 @@ const SERVICES = [
     file: 'db-seed.railway.json',
     dockerfile: 'apps/api/Dockerfile',
     workdir: 'apps/api',
-    start: "npx ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/seed.ts",
+    start:
+      'npx ts-node --transpile-only --compiler-options \'{"module":"commonjs","moduleResolution":"node"}\' prisma/seed.ts',
     health: undefined,
     expectMigrations: false,
     oneShot: true,
@@ -258,7 +259,9 @@ const REQUIRED_VARS = [
 
 const ENV_TEMPLATES = [
   { file: 'qa.env.example', appEnv: 'QA', allowDummyGateway: true, envSecretsAllowed: true },
-  { file: 'uat.env.example', appEnv: 'UAT', allowDummyGateway: false, envSecretsAllowed: false },
+  // UAT may never hold a live key, so the env backend is permitted there. See
+  // apps/api/src/secrets/secret-manager.factory.ts for why that is the real invariant.
+  { file: 'uat.env.example', appEnv: 'UAT', allowDummyGateway: false, envSecretsAllowed: true },
   {
     file: 'production.env.example',
     appEnv: 'PRODUCTION',
@@ -296,7 +299,11 @@ function validateEnvTemplate(tpl) {
 
   for (const p of SECRET_PATTERNS) {
     const hit = text.match(p.re);
-    check(!hit, where, `contains what looks like a real ${p.name} ("${hit?.[0]}") — never commit credentials`);
+    check(
+      !hit,
+      where,
+      `contains what looks like a real ${p.name} ("${hit?.[0]}") — never commit credentials`,
+    );
   }
 
   check(
@@ -345,6 +352,14 @@ function validateEnvTemplate(tpl) {
       secretBackend !== 'env',
       where,
       `SECRET_MANAGER_PROVIDER=env is refused at boot in ${tpl.appEnv} — use azure | aws | gcp`,
+    );
+  } else if (vars.get('PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV') === 'true') {
+    // Turning that override on is the one way a live credential reaches a lower
+    // environment, and boot then refuses the env backend there too.
+    check(
+      secretBackend !== undefined && secretBackend !== 'env',
+      where,
+      'PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV=true admits live keys, so SECRET_MANAGER_PROVIDER must be a managed store',
     );
   }
   if (tpl.appEnv !== 'PRODUCTION') {
@@ -485,7 +500,9 @@ function validateNextPublicBuildArgs() {
         const p = join(dir, entry.name);
         if (entry.isDirectory()) walk(p);
         else if (/\.(ts|tsx)$/.test(entry.name)) {
-          for (const m of readFileSync(p, 'utf8').matchAll(/process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g))
+          for (const m of readFileSync(p, 'utf8').matchAll(
+            /process\.env\.(NEXT_PUBLIC_[A-Z0-9_]+)/g,
+          ))
             used.add(m[1]);
         }
       }
