@@ -126,6 +126,16 @@ jobs:
 
       - name: Install Playwright browser
         # Always install OS deps; download the browser only on a cache miss.
+        #
+        # BOUNDED, and non-interactive. `--with-deps` shells out to apt-get, which on a
+        # hosted runner can block indefinitely on a dpkg lock held by unattended-upgrades.
+        # Observed twice: two parallel deploys both sat on this step for forty minutes
+        # against a commit whose own PR had finished in twenty. Without a timeout a hung
+        # apt burns an hour of runner time and the deploy never reports either way, which
+        # is worse than a clear failure — a red step can be re-run, a hang cannot be read.
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
             npx playwright install-deps chromium
