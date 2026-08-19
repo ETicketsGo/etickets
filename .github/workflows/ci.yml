@@ -138,7 +138,15 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps chromium
+            # Cache hit: the browser is already on disk, and `ubuntu-latest` ships Chromium's
+            # shared libraries. `install-deps` here is a pure apt-get call that installs
+            # nothing new — and it is the one thing that hangs, blocking on a mirror or a
+            # dpkg lock held by unattended-upgrades. Skipping it removes the failure mode
+            # rather than merely bounding it.
+            #
+            # If a library ever IS missing, the e2e step fails with a browser-launch error
+            # naming the library, which is diagnosable. A silent apt stall is not.
+            echo "Browser restored from cache; skipping apt (runner image provides the libraries)."
           else
             npx playwright install --with-deps chromium
           fi

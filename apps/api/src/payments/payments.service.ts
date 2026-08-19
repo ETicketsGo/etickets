@@ -24,6 +24,7 @@ import {
 } from './provider/payment-provider.interface';
 import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { isDummyAllowed, resolvePaymentEnv } from './configuration/payment-environment';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
@@ -90,9 +91,33 @@ export class PaymentsService {
     return this.orchestrator.refund({ providerRef, amountMinor, reason, currency }, { provider });
   }
 
-  /** Whether the mock "simulate payment" path is allowed (dev/test only). */
+  /**
+   * Whether the mock "simulate payment" path is allowed.
+   *
+   * ── WHY NOT NODE_ENV ──────────────────────────────────────────────────────────────
+   * This used to read `NODE_ENV !== 'production'`, which conflates "built for production"
+   * with "IS the production environment". Every deployed environment runs a production
+   * build, so QA — which deliberately runs the simulated gateway — had mock payments
+   * refused. Checkout handed the browser a `mock-pay` URL and the server then answered 403
+   * "Mock payments are disabled in this environment": NO booking could be paid on QA at
+   * all, and the buyer was told "Payment could not be completed. Please try again."
+   *
+   * `APP_ENV` is the question actually being asked, and `isDummyAllowed` already answers it
+   * for the rest of the payment module (LOCAL/DEV/QA). Using it here means one source of
+   * truth rather than two that disagree.
+   *
+   * ── STILL FAIL-CLOSED ─────────────────────────────────────────────────────────────
+   * Both conditions must hold, so this is TIGHTER than the old check, not looser:
+   *   - the environment permits a simulated gateway at all, and
+   *   - the active gateway really is the mock.
+   * A production box that forgot to set APP_ENV would fall back to LOCAL on the first
+   * condition, but its PAYMENT_PROVIDER_NAME is a real gateway, so the second still refuses.
+   * `PAYMENTS_MOCK_ENABLED=false` remains an explicit kill switch.
+   */
   private readonly mockEnabled =
-    process.env.PAYMENTS_MOCK_ENABLED !== 'false' && process.env.NODE_ENV !== 'production';
+    process.env.PAYMENTS_MOCK_ENABLED !== 'false' &&
+    isDummyAllowed(resolvePaymentEnv(process.env.APP_ENV)) &&
+    (process.env.PAYMENT_PROVIDER_NAME ?? 'mock') === 'mock';
 
   /** Create a payment intent for a pending booking (owner or platform admin only). */
   async createIntent(bookingId: string, user?: RequestUser) {
