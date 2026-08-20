@@ -6,6 +6,7 @@ import { useState } from 'react';
 import {
   api,
   Badge,
+  ButtonLink,
   Button,
   Card,
   Dialog,
@@ -42,7 +43,7 @@ const STATUS_HINT: Record<SeatLayoutStatus, string> = {
 };
 
 export default function SeatLayoutsPage() {
-  const { screenId } = useParams<{ id: string; screenId: string }>();
+  const { id: cinemaId, screenId } = useParams<{ id: string; screenId: string }>();
   const qc = useQueryClient();
 
   const [publishing, setPublishing] = useState<SeatLayoutSummary | null>(null);
@@ -115,7 +116,12 @@ export default function SeatLayoutsPage() {
       ) : layouts.length === 0 ? (
         <EmptyState
           title="This screen has no seat layout yet"
-          hint="Generate one from the seat map designer first."
+          hint="Until it has one, this screen cannot hold a show — there are no seats to sell."
+          action={
+            <ButtonLink href={`/organizer/cinemas/${cinemaId}/screens/${screenId}/seatmap`}>
+              Design the seat layout
+            </ButtonLink>
+          }
         />
       ) : (
         <ul className="space-y-3">
