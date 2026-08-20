@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -203,7 +205,23 @@ export default function EditMoviePage() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  /*
+    What is actually stopping this dialog from working.
+
+    A brand-new organizer arrives here from the movie page with no cinema and no screen, so
+    the Cinema dropdown holds only its placeholder, Screen stays disabled at "Pick a cinema
+    first", and submitting said "Pick a screen." — an instruction that cannot be followed
+    from this dialog, about a list that is empty for a reason the dialog never mentions.
+
+    So the dialog now names the missing thing and links to where it is created.
+  */
+  const noCinemas = !cinemasQ.isLoading && (cinemasQ.data ?? []).length === 0;
+  const noScreens = !!sched.cinemaId && !screensQ.isLoading && (screensQ.data ?? []).length === 0;
+  const cannotSchedule = noCinemas || noScreens;
+
   const submitSchedule = () => {
+    if (noCinemas) return setSchedError('Create a cinema first — there is nowhere to play this.');
+    if (noScreens) return setSchedError('This cinema has no screens yet. Add one first.');
     if (!sched.screenId) return setSchedError('Pick a screen.');
     if (!sched.startsAt || !sched.endsAt) return setSchedError('Set start and end times.');
     if (new Date(sched.startsAt).getTime() < Date.now())
@@ -410,20 +428,59 @@ export default function EditMoviePage() {
             >
               Cancel
             </Button>
-            <Button loading={schedule.isPending} onClick={submitSchedule}>
+            <Button
+              loading={schedule.isPending}
+              // Nothing to schedule onto: the button would only ever produce an error.
+              disabled={schedule.isPending || cannotSchedule}
+              onClick={submitSchedule}
+            >
               Schedule
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {noCinemas ? (
+            <div className="rounded-md border border-status-warning/30 bg-status-warning/5 p-3">
+              <p className="text-caption font-medium text-text-primary">You have no cinemas yet.</p>
+              <p className="mt-1 text-caption text-text-muted">
+                A show plays on a screen inside a cinema, so that comes first. It takes a minute.
+              </p>
+              <Link
+                href="/organizer/cinemas/new"
+                className="mt-2 inline-block text-caption font-medium text-action-primary"
+              >
+                Create a cinema →
+              </Link>
+            </div>
+          ) : null}
+
+          {noScreens ? (
+            <div className="rounded-md border border-status-warning/30 bg-status-warning/5 p-3">
+              <p className="text-caption font-medium text-text-primary">
+                This cinema has no screens yet.
+              </p>
+              <p className="mt-1 text-caption text-text-muted">
+                Add a screen and publish its seat layout, then this show can be scheduled on it.
+              </p>
+              <Link
+                href={`/organizer/cinemas/${sched.cinemaId}`}
+                className="mt-2 inline-block text-caption font-medium text-action-primary"
+              >
+                Add a screen →
+              </Link>
+            </div>
+          ) : null}
+
           <Select
             id="schedCinema"
             label="Cinema"
             value={sched.cinemaId}
             onChange={(e) => setSched({ ...sched, cinemaId: e.target.value, screenId: '' })}
           >
-            <option value="">Select a cinema…</option>
+            <option value="">
+              {cinemasQ.isLoading ? 'Loading…' : noCinemas ? 'No cinemas yet' : 'Select a cinema…'}
+            </option>
             {(cinemasQ.data ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} · {c.city}
@@ -441,7 +498,15 @@ export default function EditMoviePage() {
             }}
             disabled={!sched.cinemaId || screensQ.isLoading}
           >
-            <option value="">{sched.cinemaId ? 'Select a screen…' : 'Pick a cinema first'}</option>
+            <option value="">
+              {!sched.cinemaId
+                ? 'Pick a cinema first'
+                : screensQ.isLoading
+                  ? 'Loading…'
+                  : noScreens
+                    ? 'No screens in this cinema'
+                    : 'Select a screen…'}
+            </option>
             {(screensQ.data ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} · {s.screenType}

@@ -7,6 +7,7 @@ import {
   api,
   Badge,
   Button,
+  ButtonLink,
   Card,
   Dialog,
   EmptyState,
@@ -271,7 +272,8 @@ export default function CinemaSchedulePage() {
       ) : screens.length === 0 && emptyScreens.length === 0 ? (
         <EmptyState
           title="No screens yet"
-          hint="Add a screen to this cinema before scheduling shows."
+          hint="A show plays on a screen, so that comes first. Add one and publish its seat layout."
+          action={<ButtonLink href={`/organizer/cinemas/${cinemaId}`}>Add a screen</ButtonLink>}
         />
       ) : (
         <div className="space-y-4">
