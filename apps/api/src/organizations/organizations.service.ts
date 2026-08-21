@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import { OrganizationStatus, Role } from '@eticketsgo/shared-types';
+import { NotificationType, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
   InviteMemberInput,
@@ -10,6 +10,7 @@ import type {
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
@@ -27,6 +28,7 @@ export class OrganizationsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly audience: AdminAudienceService,
   ) {}
 
   async register(user: RequestUser, input: CreateOrganizationInput) {
@@ -55,6 +57,25 @@ export class OrganizationsService {
       entityType: 'Organization',
       entityId: org.id,
     });
+
+    /*
+      Tell the admins something is waiting.
+
+      A new organization is PENDING and cannot sell a ticket until a human approves it. The
+      audit entry above recorded that it happened; nothing told anyone to look. So an
+      organizer signed up, saw "awaiting approval", and waited on a queue no one had been
+      paged about.
+
+      Never throws — see AdminAudienceService. The organization is committed by this point
+      and losing it to a mail outage would be far worse than a missed email.
+    */
+    await this.audience.notifyAdmins(NotificationType.ORGANIZATION_REGISTERED, {
+      organizationId: org.id,
+      organizationName: org.name,
+      contactEmail: org.contactEmail ?? user.email,
+      registeredByUserId: user.id,
+    });
+
     return org;
   }
 
@@ -193,6 +214,22 @@ export class OrganizationsService {
       entityId: orgId,
       metadata: { note: input.note },
     });
+
+    /*
+      Close the loop with the organizer.
+
+      Approval is the moment they can start selling, and rejection is the moment they need to
+      know why. Neither was communicated — the status changed in a table and the person who
+      had been waiting was left refreshing a page.
+    */
+    await this.audience.notifyOrganizationOwners(
+      orgId,
+      input.decision === 'APPROVE'
+        ? NotificationType.ORGANIZATION_APPROVED
+        : NotificationType.ORGANIZATION_REJECTED,
+      { organizationId: orgId, organizationName: updated.name, reason: input.note ?? '' },
+    );
+
     return updated;
   }
 }

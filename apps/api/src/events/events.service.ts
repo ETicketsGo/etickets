@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
-import { EventStatus, Role } from '@eticketsgo/shared-types';
+import { EventStatus, Role, NotificationType } from '@eticketsgo/shared-types';
 import type {
   CreateEventInput,
   CreateSessionInput,
@@ -13,6 +13,7 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
+import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
@@ -35,6 +36,7 @@ export class EventsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly audience: AdminAudienceService,
     private readonly config: ConfigService,
   ) {}
 
@@ -477,6 +479,24 @@ export class EventsService {
       entityType: 'Event',
       entityId: id,
     });
+
+    /*
+      Page the reviewers. An event sitting in UNDER_REVIEW cannot sell a ticket, and until
+      now nothing told an admin it was there — the organizer's launch date depended on
+      somebody happening to open the admin queue.
+    */
+    const org = await this.prisma.organization.findUnique({
+      where: { id: event.organizationId },
+      select: { name: true },
+    });
+    await this.audience.notifyAdmins(NotificationType.EVENT_SUBMITTED, {
+      eventId: id,
+      eventTitle: updated.title,
+      organizationId: event.organizationId,
+      organizationName: org?.name ?? 'An organizer',
+      submittedByUserId: user.id,
+    });
+
     return updated;
   }
 
@@ -543,6 +563,18 @@ export class EventsService {
       entityId: id,
       metadata: { note: input.note },
     });
+
+    /*
+      And tell the organizer the outcome. A rejection carries the reviewer's note, because
+      "not approved" on its own gives them nothing to change and turns into a support
+      ticket asking what to fix.
+    */
+    await this.audience.notifyOrganizationOwners(
+      event.organizationId,
+      approve ? NotificationType.EVENT_APPROVED : NotificationType.EVENT_REJECTED,
+      { eventId: id, eventTitle: updated.title, reason: input.note ?? '' },
+    );
+
     return updated;
   }
 

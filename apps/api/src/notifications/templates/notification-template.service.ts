@@ -84,6 +84,53 @@ const EN: LocaleTemplates = {
     subject: 'Share access revoked',
     body: `Access to ticket ${str(p, 'ticketId', '')} has been revoked.`,
   }),
+
+  /*
+    Onboarding and approval.
+
+    Every one of these names the thing waiting and who it is waiting on. Without a template
+    the generic fallback renders the raw payload as JSON — technically a notification, and
+    useless as an email to a person deciding whether a business may sell tickets.
+  */
+  [NotificationType.ORGANIZATION_REGISTERED]: (p) => ({
+    subject: `New organizer awaiting approval: ${str(p, 'organizationName', 'an organization')}`,
+    body:
+      `${str(p, 'organizationName', 'An organization')} has registered and is waiting for review. ` +
+      `Contact: ${str(p, 'contactEmail', 'not provided')}. ` +
+      `They cannot sell tickets until an admin approves them.`,
+  }),
+  [NotificationType.ORGANIZATION_APPROVED]: (p) => ({
+    subject: `${str(p, 'organizationName', 'Your organization')} is approved`,
+    body:
+      `${str(p, 'organizationName', 'Your organization')} has been approved and can now sell tickets. ` +
+      `Set up your venue, screens and showtimes in the organizer console.`,
+  }),
+  [NotificationType.ORGANIZATION_REJECTED]: (p) => ({
+    subject: `${str(p, 'organizationName', 'Your organization')} was not approved`,
+    body:
+      `${str(p, 'organizationName', 'Your organization')} has not been approved.` +
+      // The reason is the whole value of this message: "rejected" with no cause leaves
+      // somebody unable to act, and support answering the same question every time.
+      (str(p, 'reason') ? ` Reason: ${str(p, 'reason')}.` : '') +
+      ` Contact support if you would like to discuss it.`,
+  }),
+  [NotificationType.EVENT_SUBMITTED]: (p) => ({
+    subject: `Event awaiting review: ${str(p, 'eventTitle', 'an event')}`,
+    body:
+      `${str(p, 'organizationName', 'An organizer')} submitted "${str(p, 'eventTitle', 'an event')}" ` +
+      `for review. It cannot go on sale until an admin approves it.`,
+  }),
+  [NotificationType.EVENT_APPROVED]: (p) => ({
+    subject: `"${str(p, 'eventTitle', 'Your event')}" is approved`,
+    body: `"${str(p, 'eventTitle', 'Your event')}" has been approved and is now published.`,
+  }),
+  [NotificationType.EVENT_REJECTED]: (p) => ({
+    subject: `"${str(p, 'eventTitle', 'Your event')}" needs changes`,
+    body:
+      `"${str(p, 'eventTitle', 'Your event')}" was not approved.` +
+      (str(p, 'reason') ? ` Reason: ${str(p, 'reason')}.` : '') +
+      ` Make the changes and submit it again.`,
+  }),
 };
 
 /** Registry of templates keyed by locale. Add locales here as they land. */

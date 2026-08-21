@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { NotificationService } from './notification.service';
+import { AdminAudienceService } from './admin-audience.service';
 import { WebPushController } from './web-push/web-push.controller';
 import { WebPushService } from './web-push/web-push.service';
 import { WEB_PUSH_DISPATCHER, selectWebPushDispatcher } from './web-push/web-push.dispatcher';
@@ -28,6 +29,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     WebPushService,
     { provide: WEB_PUSH_DISPATCHER, inject: [ConfigService], useFactory: selectWebPushDispatcher },
     NotificationService,
+    AdminAudienceService,
     NotificationTemplateService,
     NotificationPreferencesService,
     NotificationChannelRegistry,
@@ -45,6 +47,6 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     { provide: WHATSAPP_TRANSPORT, inject: [ConfigService], useFactory: selectWhatsAppTransport },
     { provide: PUSH_TRANSPORT, inject: [ConfigService], useFactory: selectPushTransport },
   ],
-  exports: [NotificationService, NotificationPreferencesService],
+  exports: [NotificationService, NotificationPreferencesService, AdminAudienceService],
 })
 export class NotificationsModule {}

@@ -46,6 +46,9 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
   let shows: ShowsService;
 
   const suffix = `tz-${Date.now()}`;
+
+  /** The day every exact-instant assertion is written against. Sydney is AEST (+10) here. */
+  const PINNED_DAY = '2026-09-15';
   let orgId = '';
   let venueId = '';
   /** Sydney — deliberately not India, and it observes DST. */
@@ -218,6 +221,33 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     expect(c.timezone).toBe('Australia/Sydney');
   });
 
+  /*
+    The pinned dates below have an expiry, and this makes it say so.
+
+    Every assertion here names an exact UTC instant, which is the point — "10:00 in Sydney"
+    is only a meaningful claim if the stored instant is checked against a known offset. That
+    requires a fixed calendar date, and a fixed date eventually falls into the past.
+
+    When it does, bulk scheduling rejects the day as IN_THE_PAST and the layout fixture
+    (effective from "yesterday") no longer covers it, so six tests fail with
+    "No published seat layout is in effect for that date" — an error about layouts that has
+    nothing to do with layouts. That cost a real debugging session.
+
+    So: fail with the actual instruction instead. Keep the replacement inside Sydney's AEST
+    window (before DST begins in early October) and every expected instant stays correct.
+  */
+  maybe('the pinned fixture dates have not expired', async () => {
+    const pinned = new Date(`${PINNED_DAY}T00:00:00Z`);
+    if (pinned.getTime() <= Date.now()) {
+      throw new Error(
+        `This suite pins ${PINNED_DAY}, which is now in the PAST, so bulk scheduling rejects ` +
+          `it as IN_THE_PAST and the layout fixture no longer covers it. Move PINNED_DAY and ` +
+          `its neighbours forward to a future date that is still AEST in Sydney (before early ` +
+          `October) — every expected instant then stays exactly as written.`,
+      );
+    }
+  });
+
   maybe('scheduling uses the CINEMA zone when the caller names none', async () => {
     /*
       The core assertion. A 10:00 show at a Sydney cinema is 10:00 in Sydney — which in
@@ -226,7 +256,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     */
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['10:00'],
       padMinutes: 0,
       dryRun: false,
@@ -242,21 +272,21 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
       hour12: false,
     }).format(session.startsAt);
     expect(sydneyLocal).toBe('10:00');
-    expect(session.startsAt.toISOString()).toBe('2026-08-20T00:00:00.000Z');
+    expect(session.startsAt.toISOString()).toBe('2026-09-15T00:00:00.000Z');
   });
 
   maybe('the same wall-clock time means different instants at two cinemas', async () => {
     // Proof the zone is per-venue rather than global: same date, same time, two rooms.
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['18:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: indiaScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['18:00'],
       padMinutes: 0,
       dryRun: false,
@@ -264,8 +294,8 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     const syd = await db!.eventSession.findFirstOrThrow({ where: { screenId: sydneyScreenId } });
     const ind = await db!.eventSession.findFirstOrThrow({ where: { screenId: indiaScreenId } });
-    expect(syd.startsAt.toISOString()).toBe('2026-08-20T08:00:00.000Z');
-    expect(ind.startsAt.toISOString()).toBe('2026-08-20T12:30:00.000Z');
+    expect(syd.startsAt.toISOString()).toBe('2026-09-15T08:00:00.000Z');
+    expect(ind.startsAt.toISOString()).toBe('2026-09-15T12:30:00.000Z');
     // 4h30m apart, which is exactly the Sydney/Kolkata difference in August.
     expect(ind.startsAt.getTime() - syd.startsAt.getTime()).toBe(4.5 * 3_600_000);
   });
@@ -310,17 +340,17 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     // under the wrong day and the operator sees an empty morning.
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['08:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
 
-    const onTheDay = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, { date: '2026-08-20' });
+    const onTheDay = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, { date: '2026-09-15' });
     expect(onTheDay).toHaveLength(1);
 
     const dayBefore = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, {
-      date: '2026-08-19',
+      date: '2026-09-14',
     });
     expect(dayBefore).toHaveLength(0);
   });
@@ -329,14 +359,14 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     // Honoured deliberately: it is how somebody asks "what does this look like in UTC".
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['08:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
 
     const inUtc = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, {
-      date: '2026-08-19',
+      date: '2026-09-14',
       timezone: 'UTC',
     });
     expect(inUtc).toHaveLength(1);
@@ -345,7 +375,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
   maybe('copying a day uses the source cinema zone', async () => {
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['09:30'],
       padMinutes: 0,
       dryRun: false,
@@ -353,8 +383,8 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     await shows.copySchedule(ORGANIZER, movieId, {
       sourceScreenId: sydneyScreenId,
-      sourceDate: '2026-08-20',
-      targetDate: '2026-08-21',
+      sourceDate: '2026-09-15',
+      targetDate: '2026-09-16',
       dryRun: false,
     } as never);
 
@@ -386,7 +416,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-08-20'],
+      dates: ['2026-09-15'],
       times: ['10:00'],
       padMinutes: 0,
       dryRun: false,

@@ -315,6 +315,13 @@ export const NotificationType = {
   PAYMENT_DISPUTE_OPENED: 'PAYMENT_DISPUTE_OPENED',
   PAYMENT_DISPUTE_CLOSED: 'PAYMENT_DISPUTE_CLOSED',
   TRANSFER_FAILED: 'TRANSFER_FAILED',
+  // Onboarding + approval lifecycle (admin-directed, and their organizer replies).
+  ORGANIZATION_REGISTERED: 'ORGANIZATION_REGISTERED',
+  ORGANIZATION_APPROVED: 'ORGANIZATION_APPROVED',
+  ORGANIZATION_REJECTED: 'ORGANIZATION_REJECTED',
+  EVENT_SUBMITTED: 'EVENT_SUBMITTED',
+  EVENT_APPROVED: 'EVENT_APPROVED',
+  EVENT_REJECTED: 'EVENT_REJECTED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 
