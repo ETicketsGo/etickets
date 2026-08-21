@@ -94,6 +94,19 @@ export default function ProfileScreen() {
           </Section>
 
           {isAuthenticated ? (
+            <Section title="Selling">
+              {/* Where somebody realises they want it. Previously reachable only from the
+                  website, so an existing customer on a phone had nowhere to start. */}
+              <ListRow
+                label="Become an organizer"
+                icon="briefcase-outline"
+                accessibilityHint="Set up an organization so you can sell tickets"
+                onPress={() => router.push('/account/become-organizer')}
+              />
+            </Section>
+          ) : null}
+
+          {isAuthenticated ? (
             <Section title="Account">
               <ListRow
                 label="Delete account"

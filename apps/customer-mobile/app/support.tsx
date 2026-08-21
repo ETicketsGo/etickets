@@ -40,6 +40,19 @@ export default function SupportScreen() {
     setSubmitting(true);
     try {
       await apiClient.post('/support', {
+        /*
+          REQUIRED, and its absence made this form fail for every user who ever used it.
+
+          `submitFeedbackSchema` has `kind: z.nativeEnum(FeedbackKind)` with no default, so
+          a payload without it is rejected before any support logic runs — the sender saw
+          "The request failed validation." and their message was never recorded. Nothing
+          failed loudly enough to notice: the endpoint answers 400, the screen shows its
+          generic error, and a support form that silently swallows support requests is the
+          one form nobody can report a bug about.
+
+          CONTACT is the kind this screen is: a person writing to a human.
+        */
+        kind: 'CONTACT',
         email: email.trim(),
         subject: subject.trim(),
         message: `${message.trim()}\n\n---\nETicketsGo mobile ${
