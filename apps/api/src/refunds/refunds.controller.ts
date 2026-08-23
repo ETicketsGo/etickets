@@ -45,6 +45,29 @@ export class RefundsController {
   }
 }
 
+@ApiTags('organizer')
+@ApiBearerAuth()
+@Controller('organizations/:organizationId/refunds')
+export class OrganizationRefundsController {
+  constructor(private readonly refunds: RefundsService) {}
+
+  @Get()
+  @Roles(Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: "List one organization's refunds." })
+  list(
+    @CurrentUser() user: RequestUser,
+    @Param('organizationId') organizationId: string,
+    @Query(
+      new ZodValidationPipe(
+        paginationSchema.extend({ status: z.nativeEnum(RefundStatus).optional() }),
+      ),
+    )
+    q: { page: number; pageSize: number; status?: RefundStatus },
+  ) {
+    return this.refunds.listForOrganization(user, organizationId, q);
+  }
+}
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)

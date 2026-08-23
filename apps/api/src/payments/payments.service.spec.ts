@@ -100,6 +100,7 @@ function setup(opts: {
     new AddOnInventoryService(),
     new MetricsService(),
     new BookingReferenceService(),
+    { issueForBooking: jest.fn().mockResolvedValue(undefined) } as never,
     config as never,
     settlements as never,
     razorpayOrders as never,

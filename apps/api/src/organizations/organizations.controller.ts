@@ -7,10 +7,12 @@ import {
   inviteMemberSchema,
   paginationSchema,
   reviewDecisionSchema,
+  updateOrganizationLegalIdentitySchema,
   updateOrganizationProfileSchema,
   type CreateOrganizationInput,
   type InviteMemberInput,
   type ReviewDecisionInput,
+  type UpdateOrganizationLegalIdentityInput,
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
@@ -53,6 +55,24 @@ export class OrganizationsController {
     body: UpdateOrganizationProfileInput,
   ) {
     return this.orgs.updateProfile(user, id, body);
+  }
+
+  @Get(':id/legal-identity')
+  @ApiOperation({ summary: "The seller's legal + tax identity, and what is still missing." })
+  legalIdentity(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.orgs.legalIdentityStatus(user, id);
+  }
+
+  @Patch(':id/legal-identity')
+  @Roles(Role.ORGANIZER_OWNER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: "Update the seller's legal + tax identity (owner only)." })
+  updateLegalIdentity(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateOrganizationLegalIdentitySchema))
+    body: UpdateOrganizationLegalIdentityInput,
+  ) {
+    return this.orgs.updateLegalIdentity(user, id, body);
   }
 
   @Get(':id/members')

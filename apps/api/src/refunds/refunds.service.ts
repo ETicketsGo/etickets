@@ -10,6 +10,7 @@ import {
 import type { RefundRequestInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
+import { ReceiptsService } from '../receipts/receipts.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,12 +37,13 @@ export class RefundsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly metrics: MetricsService,
+    private readonly receipts: ReceiptsService,
   ) {}
 
   async request(user: RequestUser, input: RefundRequestInput) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: input.bookingId },
-      include: { eventSession: { select: { startsAt: true } }, tickets: true },
+      include: { eventSession: { select: { startsAt: true } }, tickets: true, taxLines: true },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -94,10 +96,30 @@ export class RefundsService {
     const targetTickets = refundable;
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
     const priceByType = new Map(items.map((i) => [i.ticketTypeId, i.unitPriceMinor]));
-    const amountMinor = targetTickets.reduce(
+    const ticketsMinor = targetTickets.reduce(
       (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
       0,
     );
+
+    /*
+      Tax charged on the tickets being returned goes back with them.
+
+      Booking and payment fees do NOT — that is the platform's long-standing policy and this
+      change does not touch it. Tax is different in kind: it was collected because a taxable
+      supply happened, and undoing the supply undoes the reason for collecting it. Keeping it
+      would mean the customer paid tax on a ticket they no longer hold.
+
+      Each rate is re-applied to the amount actually being returned rather than apportioned
+      out of the original total, so the arithmetic on the credit note is reproducible from the
+      rate and the base exactly as it was on the invoice. Nothing here decides WHAT rate
+      applies — that is TaxRule configuration, and with none active this whole block is zero.
+    */
+    const taxMinor = (booking.taxLines ?? []).reduce(
+      (sum, line) =>
+        sum + Math.round((Math.min(ticketsMinor, line.baseMinor) * line.rateBasisPoints) / 10_000),
+      0,
+    );
+    const amountMinor = ticketsMinor + taxMinor;
 
     // Never let cumulative refunds exceed what was paid.
     const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
@@ -114,6 +136,7 @@ export class RefundsService {
         bookingId: booking.id,
         organizationId: booking.organizationId,
         amountMinor,
+        taxMinor,
         reason: input.reason,
         status: RefundStatus.REQUESTED,
         ticketIds: targetTickets.map((t) => t.id),
@@ -151,6 +174,49 @@ export class RefundsService {
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: { booking: { select: { buyerEmail: true, eventId: true } } },
+      }),
+    ]);
+    return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
+  }
+
+  /**
+   * One organization's refunds.
+   *
+   * `adminList` above is deliberately unscoped — it is the platform's queue. An organizer
+   * reaching for it would see every seller's refunds, so this is a separate query with the
+   * tenant filter applied in the WHERE clause rather than after the fact. Membership is
+   * asserted first, so a caller cannot read another organization's book by passing its id.
+   */
+  async listForOrganization(
+    user: RequestUser,
+    organizationId: string,
+    opts: { status?: RefundStatus; page?: number; pageSize?: number } = {},
+  ) {
+    await this.access.assertMember(user, organizationId);
+    const page = Math.max(1, opts.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+    const where = { organizationId, ...(opts.status ? { status: opts.status } : {}) };
+    const [total, data] = await this.prisma.$transaction([
+      this.prisma.refund.count({ where }),
+      this.prisma.refund.findMany({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          booking: {
+            select: {
+              id: true,
+              reference: true,
+              buyerName: true,
+              buyerEmail: true,
+              currency: true,
+              totalMinor: true,
+              event: { select: { title: true } },
+            },
+          },
+          creditNote: { select: { id: true, number: true } },
+        },
       }),
     ]);
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
@@ -293,6 +359,11 @@ export class RefundsService {
           providerRef: providerResult.providerRef,
         },
       });
+
+      // The refund is reversed with a credit note, in the same transaction that completes
+      // it. The original receipt is never edited — it recorded a sale that genuinely
+      // happened, and rewriting it would destroy the audit trail the pair exists to provide.
+      await this.receipts.issueCreditNote(tx, refundId);
     });
 
     await this.notifications.send({

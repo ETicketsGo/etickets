@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { BellPlus, CalendarPlus, Check, Share2 } from 'lucide-react';
+import { BellPlus, CalendarPlus, Check, ReceiptText, Share2 } from 'lucide-react';
 import { RatingStars, Stepper, buildIcsDataUrl, useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
@@ -34,6 +34,14 @@ export default function ConfirmationPage() {
     queryKey: ['events', 'upcoming'],
     queryFn: () => api.listEvents({ pageSize: '3' }),
   });
+  // The document is issued in the same transaction that confirms the booking, so it exists
+  // by the time the status flips — but only then. Gate the query on CONFIRMED rather than
+  // polling for a document that cannot yet exist.
+  const receipts = useQuery({
+    queryKey: ['booking', id, 'receipts'],
+    queryFn: () => api.bookingReceipts(id),
+    enabled: booking?.status === 'CONFIRMED',
+  });
 
   if (isError)
     return (
@@ -46,6 +54,9 @@ export default function ConfirmationPage() {
     return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
 
   const confirmed = booking.status === 'CONFIRMED';
+  // The sale document. A credit note may also be present after a refund; the confirmation
+  // screen shows the sale.
+  const receipt = receipts.data?.find((r) => r.kind !== 'CREDIT_NOTE');
   const ics = buildIcsDataUrl({
     title: booking.event.title,
     description: 'Your ETicketsGo booking',
@@ -101,10 +112,40 @@ export default function ConfirmationPage() {
             <span className="font-mono font-medium text-text-primary">{booking.reference}</span>
           </div>
         )}
+        {/*
+          Tax is shown line by line, matching the receipt exactly. A buyer comparing the two
+          should never have to reconcile a different breakdown of the same amount.
+        */}
+        {(booking.taxLines ?? []).map((t) => (
+          <div
+            key={`${t.label}-${t.rateBasisPoints}`}
+            className="flex justify-between text-[0.9375rem]"
+          >
+            <span className="text-text-secondary">
+              {t.label} ({(t.rateBasisPoints / 100).toFixed(t.rateBasisPoints % 100 === 0 ? 0 : 2)}
+              %)
+            </span>
+            <span className="text-text-primary">{money(t.amountMinor)}</span>
+          </div>
+        ))}
         <div className="flex justify-between border-t border-border pt-3 text-[0.9375rem]">
           <span className="text-text-secondary">Total paid</span>
           <span className="font-semibold text-text-primary">{money(booking.totalMinor)}</span>
         </div>
+        {receipt && (
+          <a
+            href={api.receiptHtmlUrl(receipt.id)}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between border-t border-border pt-3 text-[0.9375rem] text-brand hover:underline"
+          >
+            <span className="inline-flex items-center gap-2">
+              <ReceiptText className="h-4 w-4" />
+              {receipt.kind === 'TAX_INVOICE' ? 'Tax invoice' : 'Receipt'} {receipt.number}
+            </span>
+            <span>View</span>
+          </a>
+        )}
       </Card>
 
       {confirmed && (

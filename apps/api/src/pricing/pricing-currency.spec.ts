@@ -20,10 +20,14 @@ describe('PricingService currency isolation', () => {
     { minMinor: 1_000, maxMinor: null, feeMinor: 199, currency: 'USD' },
   ];
 
-  function make(rows: typeof INR) {
+  function make(rows: typeof INR, taxRows: unknown[] = []) {
     const findMany = jest.fn().mockResolvedValue(rows);
-    const prisma = { feeRule: { findMany } } as unknown as PrismaService;
-    return { svc: new PricingService(prisma), findMany };
+    const taxFindMany = jest.fn().mockResolvedValue(taxRows);
+    const prisma = {
+      feeRule: { findMany },
+      taxRule: { findMany: taxFindMany },
+    } as unknown as PrismaService;
+    return { svc: new PricingService(prisma), findMany, taxFindMany };
   }
 
   it('queries only the requested currency', async () => {
@@ -55,5 +59,24 @@ describe('PricingService currency isolation', () => {
     const res = await svc.quote(10_000, 'PASS_THROUGH' as never, 0, 'CAD');
     // DEFAULT_FEE_TIERS: 0–19 900 -> 500.
     expect(res.bookingFeeMinor).toBe(500);
+  });
+
+  // Tax rules are currency-scoped for exactly the same reason fee tiers are: a 1_800 basis
+  // point rate is currency-neutral, but a rule row seeded for one market must not be picked
+  // up by another. '*' is the deliberate "any currency" escape hatch.
+  it('queries tax rules for the requested currency plus the wildcard', async () => {
+    const { svc, taxFindMany } = make(USD);
+    await svc.quote(5_000, 'PASS_THROUGH' as never, 0, 'USD');
+    expect(taxFindMany.mock.calls[0][0].where).toEqual({
+      active: true,
+      currency: { in: ['USD', '*'] },
+    });
+  });
+
+  it('charges no tax when the table is empty, which is the shipped default', async () => {
+    const { svc } = make(INR);
+    const res = await svc.quote(100_000, 'PASS_THROUGH' as never);
+    expect(res.taxMinor).toBe(0);
+    expect(res.taxLines).toEqual([]);
   });
 });

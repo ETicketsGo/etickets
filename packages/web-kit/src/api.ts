@@ -436,6 +436,17 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
+    legalIdentity: (id: string) =>
+      request<OrganizationLegalIdentity>(`/organizations/${id}/legal-identity`),
+    updateLegalIdentity: (id: string, body: OrganizationLegalIdentityInput) =>
+      request<Organization>(`/organizations/${id}/legal-identity`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    receipts: (id: string, params: PageParams & { from?: string; to?: string } = {}) =>
+      request<ReceiptListPage>(`/organizations/${id}/receipts${qs(params)}`),
+    refunds: (id: string, params: PageParams & { status?: string } = {}) =>
+      request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<OrgMember>(`/organizations/${id}/members`, {
@@ -826,6 +837,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ decision }),
       }),
+  },
+
+  receipts: {
+    forBooking: (bookingId: string) => request<ReceiptSummary[]>(`/receipts/booking/${bookingId}`),
+    get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
+    /**
+     * Printable URL for one document. Returned as a string rather than fetched, because the
+     * page is meant to be opened in a tab and printed — pulling the HTML through the JSON
+     * client and injecting it would strip the print stylesheet and the browser's own
+     * save-as-PDF path.
+     */
+    htmlUrl: (id: string) => `${API_URL}/receipts/${id}/html`,
   },
 
   payouts: {
@@ -1324,6 +1347,9 @@ export interface BookingResult {
     customerFeeMinor: number;
     totalMinor: number;
     discountMinor: number;
+    /** Zero unless the seller's market has a configured tax rule. */
+    taxMinor: number;
+    taxLines: ReceiptTaxLine[];
   };
   payment: { id: string; status: string };
 }
@@ -1337,6 +1363,9 @@ export interface BookingDetail {
   bookingFeeMinor: number;
   paymentFeeMinor: number;
   discountMinor: number;
+  /** Zero unless the seller's market has a configured tax rule. */
+  taxMinor: number;
+  taxLines?: ReceiptTaxLine[];
   currency: string;
   buyerName: string;
   buyerEmail: string;
@@ -2307,6 +2336,131 @@ export interface RefundRow {
   ticketIds: string[];
   createdAt: string;
   booking?: { buyerEmail: string; eventId: string };
+}
+
+/** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
+export interface OrganizationLegalIdentity {
+  legalName: string | null;
+  taxRegistrationKind: string | null;
+  taxRegistrationNumber: string | null;
+  registeredAddressLine1: string | null;
+  registeredCity: string | null;
+  registeredCountry: string | null;
+  financeContactEmail: string | null;
+  canIssueTaxInvoice: boolean;
+  /** Human-readable labels of the fields still blank. */
+  missing: string[];
+}
+
+export interface OrganizationLegalIdentityInput {
+  legalName?: string;
+  taxRegistrationKind?: string;
+  taxRegistrationNumber?: string;
+  registeredAddressLine1?: string;
+  registeredAddressLine2?: string;
+  registeredCity?: string;
+  registeredRegion?: string;
+  registeredPostalCode?: string;
+  registeredCountry?: string;
+  financeContactName?: string;
+  financeContactEmail?: string;
+  financeContactPhone?: string;
+}
+
+export type ReceiptKind = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';
+
+export interface ReceiptSummary {
+  id: string;
+  number: string;
+  kind: ReceiptKind;
+  issuedAt: string;
+  currency: string;
+  totalMinor: number;
+  taxMinor: number;
+}
+
+export interface ReceiptListRow extends ReceiptSummary {
+  subtotalMinor: number;
+  feeMinor: number;
+  booking: { id: string; reference: string | null; buyerName: string };
+}
+
+export interface ReceiptListPage {
+  items: ReceiptListRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ReceiptTaxLine {
+  label: string;
+  rateBasisPoints: number;
+  baseMinor: number;
+  amountMinor: number;
+}
+
+/** The frozen document snapshot, exactly as it was issued. */
+export interface ReceiptDocument {
+  version: number;
+  kind: ReceiptKind;
+  number: string;
+  issuedAt: string;
+  currency: string;
+  seller: {
+    name: string;
+    legalName: string | null;
+    taxRegistrationKind: string | null;
+    taxRegistrationNumber: string | null;
+    address: Record<string, string | null>;
+    contactEmail: string | null;
+  };
+  buyer: { name: string | null; email: string | null };
+  order: {
+    bookingId: string;
+    reference: string | null;
+    eventTitle: string | null;
+    sessionStartsAt: string | null;
+    venue: string | null;
+  };
+  lines: {
+    description: string;
+    quantity: number;
+    unitPriceMinor: number;
+    lineTotalMinor: number;
+  }[];
+  taxLines: ReceiptTaxLine[];
+  totals: {
+    subtotalMinor: number;
+    discountMinor: number;
+    feeMinor: number;
+    taxMinor: number;
+    totalMinor: number;
+  };
+  notes: string[];
+  reverses: { number: string; issuedAt: string } | null;
+  reason: string | null;
+}
+
+/**
+ * A refund as the organizer console lists it.
+ *
+ * `Omit<RefundRow, 'booking'>` rather than a plain extend: the organizer endpoint returns a
+ * richer booking (reference, name, currency, event) than the admin queue's minimal
+ * projection, and widening a field while extending is not something TypeScript allows.
+ */
+export interface OrganizationRefundRow extends Omit<RefundRow, 'booking'> {
+  organizationId: string;
+  processedByUserId: string | null;
+  booking?: {
+    id: string;
+    reference: string | null;
+    buyerName: string;
+    buyerEmail: string;
+    currency: string;
+    totalMinor: number;
+    event?: { title: string } | null;
+  };
+  creditNote?: { id: string; number: string } | null;
 }
 
 export interface Payout {

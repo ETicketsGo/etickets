@@ -14,6 +14,8 @@ import {
   LifeBuoy,
   TicketPercent,
   Bell,
+  ReceiptText,
+  Undo2,
 } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 
@@ -25,6 +27,8 @@ const nav: NavItem[] = [
   { label: 'Cinemas', href: '/organizer/cinemas', icon: Building2 },
   { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
+  { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
+  { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
   { label: 'Notifications', href: '/organizer/notifications', icon: Bell },
   { label: 'Team', href: '/organizer/team', icon: Users },
   { label: 'Premium', href: '/organizer/premium', icon: Sparkles },

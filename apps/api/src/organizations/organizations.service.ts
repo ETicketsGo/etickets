@@ -6,6 +6,7 @@ import type {
   CreateOrganizationInput,
   InviteMemberInput,
   ReviewDecisionInput,
+  UpdateOrganizationLegalIdentityInput,
   UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -125,6 +126,91 @@ export class OrganizationsService {
       metadata: { fields: Object.keys(data) },
     });
     return updated;
+  }
+
+  /**
+   * Update the seller's legal + tax identity.
+   *
+   * Restricted to the OWNER, unlike the public profile a manager can edit. These fields are
+   * printed on financial documents and reported against payouts — changing a tax
+   * registration number is a materially different act from changing a bio, and is audited
+   * with the old and new values so a later dispute can be reconstructed.
+   */
+  async updateLegalIdentity(
+    user: RequestUser,
+    id: string,
+    input: UpdateOrganizationLegalIdentityInput,
+  ) {
+    await this.access.assertMember(user, id, [Role.ORGANIZER_OWNER]);
+    const before = await this.prisma.organization.findUnique({
+      where: { id },
+      select: { legalName: true, taxRegistrationKind: true, taxRegistrationNumber: true },
+    });
+    const data: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
+      if (value === undefined) continue;
+      data[key] = value === '' ? null : value;
+    }
+    const updated = await this.prisma.organization.update({ where: { id }, data });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: id,
+      action: 'ORGANIZATION_LEGAL_IDENTITY_UPDATED',
+      entityType: 'Organization',
+      entityId: id,
+      metadata: {
+        fields: Object.keys(data),
+        // Documents already issued keep the old values — they are snapshots. Recording the
+        // change here is what lets anyone explain why two invoices name the seller
+        // differently.
+        previousTaxRegistrationNumber: before?.taxRegistrationNumber ?? null,
+        newTaxRegistrationNumber: updated.taxRegistrationNumber ?? null,
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * What is still missing before this organization can issue a tax invoice.
+   *
+   * Reports the gap; does not decide policy. Whether an organizer is ALLOWED to sell without
+   * a tax registration is a launch decision for each market, not something this method
+   * asserts — it only says truthfully what is and is not on file.
+   */
+  async legalIdentityStatus(user: RequestUser, id: string) {
+    await this.access.assertMember(user, id);
+    const org = await this.prisma.organization.findUnique({
+      where: { id },
+      select: {
+        legalName: true,
+        taxRegistrationKind: true,
+        taxRegistrationNumber: true,
+        registeredAddressLine1: true,
+        registeredCity: true,
+        registeredCountry: true,
+        financeContactEmail: true,
+      },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+    const missing = (
+      [
+        ['legalName', 'Registered legal name'],
+        ['registeredAddressLine1', 'Registered address'],
+        ['registeredCity', 'City'],
+        ['registeredCountry', 'Country'],
+        ['financeContactEmail', 'Finance contact email'],
+      ] as const
+    )
+      .filter(([field]) => !org[field])
+      .map(([, label]) => label);
+
+    return {
+      ...org,
+      canIssueTaxInvoice: Boolean(org.taxRegistrationNumber?.trim()) && missing.length === 0,
+      missing,
+    };
   }
 
   async listMembers(user: RequestUser, orgId: string) {

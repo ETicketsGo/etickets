@@ -32,6 +32,7 @@ import { SharingModule } from './sharing/sharing.module';
 import { CheckinsModule } from './checkins/checkins.module';
 import { OfflineCheckinModule } from './checkins/offline/offline-checkin.module';
 import { RefundsModule } from './refunds/refunds.module';
+import { ReceiptsModule } from './receipts/receipts.module';
 import { PayoutsModule } from './payouts/payouts.module';
 import { ReportsModule } from './reports/reports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -113,6 +114,7 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     CheckinsModule,
     OfflineCheckinModule,
     RefundsModule,
+    ReceiptsModule,
     PayoutsModule,
     ReportsModule,
     AnalyticsModule,
