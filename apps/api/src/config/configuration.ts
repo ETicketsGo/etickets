@@ -437,7 +437,20 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
 
   // --- Push (recipient = payload.pushToken / payload.pushTokens) ---
-  PUSH_PROVIDER: z.enum(['log', 'fcm']).default('log'),
+  /*
+    `expo` is the transport that matches what the MOBILE APP registers.
+
+    `expo-notifications`' `getExpoPushTokenAsync` issues `ExponentPushToken[...]`, and every
+    row in `UserDevice` is one. FCM cannot deliver to those, so with PUSH_PROVIDER=fcm the
+    app's own devices were unreachable — registration succeeded and nothing ever arrived.
+
+    Choose `fcm` only if the app is changed to register native FCM tokens instead.
+  */
+  PUSH_PROVIDER: z.enum(['log', 'fcm', 'expo']).default('log'),
+  // Expo (PUSH_PROVIDER=expo). NO credential is required for ordinary sends — the device
+  // token itself authorises delivery. This is only needed once "enhanced security for push
+  // notifications" is enabled in the Expo dashboard.
+  EXPO_ACCESS_TOKEN: z.string().optional(),
   FCM_PROJECT_ID: z.string().optional(),
   FCM_CLIENT_EMAIL: z.string().optional(),
   FCM_PRIVATE_KEY: z.string().optional(),
