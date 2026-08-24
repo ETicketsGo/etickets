@@ -229,6 +229,20 @@ export default function PaymentPage() {
           )}
           <Row label="Booking fee" value={money(booking.bookingFeeMinor)} />
           <Row label="Payment fee" value={money(booking.paymentFeeMinor)} />
+          {/*
+            Tax is itemised rather than folded into the total. Several jurisdictions charge
+            two taxes at once at different rates, and a single "Tax" line makes the amount
+            impossible for the buyer to check.
+          */}
+          {(booking.taxLines ?? []).map((t) => (
+            <Row
+              key={`${t.label}-${t.rateBasisPoints}`}
+              label={`${t.label} (${(t.rateBasisPoints / 100).toFixed(
+                t.rateBasisPoints % 100 === 0 ? 0 : 2,
+              )}%)`}
+              value={money(t.amountMinor)}
+            />
+          ))}
         </div>
         <div className="border-t border-border pt-3">
           <Row label="Total payable" value={money(booking.totalMinor)} strong />

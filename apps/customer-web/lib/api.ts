@@ -62,6 +62,10 @@ export const api = {
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
+  // Financial documents for a booking. The list is JSON; the printable page is opened
+  // directly by URL so the browser's own print / save-as-PDF path stays intact.
+  bookingReceipts: wk.receipts.forBooking,
+  receiptHtmlUrl: wk.receipts.htmlUrl,
   // Alias for the pay call — returns { providerRef, clientActionUrl }. For real
   // Stripe the URL is an external hosted Checkout page; the local mock returns a
   // same-origin path handled by mockPay.

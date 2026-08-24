@@ -27,6 +27,7 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { isDummyAllowed, resolvePaymentEnv } from './configuration/payment-environment';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { ReceiptsService } from '../receipts/receipts.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
 import { SettlementService } from './settlement/settlement.service';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
@@ -56,6 +57,7 @@ export class PaymentsService {
     private readonly addOnInventory: AddOnInventoryService,
     private readonly metrics: MetricsService,
     private readonly bookingReference: BookingReferenceService,
+    private readonly receipts: ReceiptsService,
     private readonly config: ConfigService,
     private readonly settlements: SettlementService,
     private readonly razorpayOrders: RazorpayOrderService,
@@ -419,6 +421,12 @@ export class PaymentsService {
         at: new Date(),
       });
       await tx.booking.update({ where: { id: booking.id }, data: { reference } });
+
+      // Issue the receipt (or tax invoice) in the SAME transaction that confirms the
+      // booking, so "the customer was charged" and "the customer has a document for it"
+      // cannot come apart. Issuing afterwards would leave a window — and, on a crash, a
+      // permanent gap — where money moved and nothing recorded it.
+      await this.receipts.issueForBooking(tx, booking.id);
 
       // Settle inventory (held → sold) via the experience's strategy, which returns
       // the exact tickets to issue (one per unit, or one per seat). See ADR-010/013.

@@ -384,7 +384,7 @@ model User {
   feedback                Feedback[]
   checkIns                CheckIn[]                @relation("CheckInActor")
   auditLogs               AuditLog[]
-  seatOverrides           ShowSeat[]              @relation("SeatOverrideActor")
+  seatOverrides           ShowSeat[]               @relation("SeatOverrideActor")
   reviews                 Review[]
 
   @@index([status])
@@ -509,10 +509,41 @@ model Organization {
   twitterUrl    String?
   instagramUrl  String?
   facebookUrl   String?
+  /// ── Legal + tax identity ──────────────────────────────────────────────────
+  /// Everything an invoice must name, and everything a payout has to be reported
+  /// against. All optional: an organization can exist and sell nothing while these are
+  /// blank, and a pilot in a market with no tax registration should not be forced to
+  /// invent one. Readiness decides when they become required, not the column.
+
+  /// The registered legal entity, when it differs from the trading name customers see.
+  /// An invoice names this one.
+  legalName             String?
+  /// Tax registration: GSTIN in India, sales-tax permit or EIN in the US, GST/HST number
+  /// in Canada. Deliberately ONE free-text field plus a kind, rather than a column per
+  /// country — the format is a jurisdiction's business and hardcoding a regex here would
+  /// mean shipping code every time a market is added.
+  taxRegistrationKind   String?
+  taxRegistrationNumber String?
+
+  /// Registered address, structured because an invoice needs the parts separately.
+  registeredAddressLine1 String?
+  registeredAddressLine2 String?
+  registeredCity         String?
+  /// State / province. Also the input a regional tax rule matches on.
+  registeredRegion       String?
+  registeredPostalCode   String?
+  /// ISO-3166 alpha-2. Decides which tax rules can apply to this organizer's sales.
+  registeredCountry      String?
+
+  /// Who to reach about money, as opposed to `contactEmail`, which customers see.
+  financeContactName  String?
+  financeContactEmail String?
+  financeContactPhone String?
+
   // Verification badge is a manual/admin placeholder for now (no automated flow).
-  verified      Boolean            @default(false)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   members                 OrganizationMember[]
   venues                  Venue[]
@@ -525,6 +556,7 @@ model Organization {
   organizerPaymentAccount OrganizerPaymentAccount[]
   settlements             Settlement[]
   disputes                Dispute[]
+  receipts                Receipt[]
 
   @@index([status])
 }
@@ -654,16 +686,16 @@ model Cinema {
 }
 
 model Screen {
-  id         String   @id @default(cuid())
+  id         String       @id @default(cuid())
   cinemaId   String
-  cinema     Cinema   @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
+  cinema     Cinema       @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
   name       String
-  screenType String   @default("2D") // 2D, 3D, IMAX, 4DX
+  screenType String       @default("2D") // 2D, 3D, IMAX, 4DX
   capacity   Int
   /// Operational state. Existing rows default ACTIVE, so this is purely additive.
   status     ScreenStatus @default(ACTIVE)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
 
   sessions EventSession[]
   /// A screen has MANY layout versions over its life, not one. See SeatMap.
@@ -689,9 +721,9 @@ model Screen {
 /// and cannot reach backwards into a show that has already sold. Immutability is structural,
 /// not a rule someone has to remember to enforce.
 model SeatMap {
-  id       String @id @default(cuid())
+  id       String  @id @default(cuid())
   screenId String
-  screen   Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  screen   Screen  @relation(fields: [screenId], references: [id], onDelete: Cascade)
   name     String?
 
   /// Monotonic per screen, starting at 1. Human-facing: "Screen 3, layout v4".
@@ -995,11 +1027,15 @@ model Booking {
 
   // Immutable money snapshot (minor units) so historical bookings never drift.
   subtotalMinor     Int
-  bookingFeeMinor   Int @default(0)
-  paymentFeeMinor   Int @default(0)
-  discountMinor     Int @default(0)
-  customerFeeMinor  Int @default(0)
-  organizerFeeMinor Int @default(0)
+  bookingFeeMinor   Int              @default(0)
+  paymentFeeMinor   Int              @default(0)
+  discountMinor     Int              @default(0)
+  customerFeeMinor  Int              @default(0)
+  organizerFeeMinor Int              @default(0)
+  /// Tax the CUSTOMER pays, summed from `taxLines`. Zero until somebody activates a
+  /// TaxRule — no rate is assumed anywhere in this codebase.
+  taxMinor          Int              @default(0)
+  taxLines          BookingTaxLine[]
   totalMinor        Int
 
   holdExpiresAt  DateTime
@@ -1016,6 +1052,7 @@ model Booking {
   tickets Ticket[]
   payment Payment?
   refunds Refund[]
+  Receipt Receipt[]
 
   @@index([organizationId])
   @@index([eventId])
@@ -1307,12 +1344,20 @@ model Refund {
   organizationId    String
   organization      Organization @relation(fields: [organizationId], references: [id])
   amountMinor       Int
+  /// The portion of `amountMinor` that is tax being returned.
+  ///
+  /// Recorded rather than re-derived: the credit note has to state the tax component exactly,
+  /// and apportioning it back out of a total afterwards reintroduces rounding error into a
+  /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
+  /// every refund where no tax was charged — which is the default.
+  taxMinor          Int          @default(0)
   status            RefundStatus @default(REQUESTED)
   reason            String
   ticketIds         String[]     @default([])
   requestedByUserId String?
   processedByUserId String?
   providerRef       String?
+  creditNote        Receipt?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -1680,6 +1725,87 @@ model FeeRule {
   updatedAt DateTime @updatedAt
 
   @@index([active])
+}
+
+/// What a tax rule is levied on.
+///
+/// Split because the answer differs by jurisdiction and is a question for a tax advisor,
+/// not for this codebase: some places tax the admission only, some also tax the booking
+/// fee, and the two can carry different rates.
+enum TaxBase {
+  TICKETS
+  FEES
+  TICKETS_AND_FEES
+}
+
+/// One tax a customer may be charged, entirely configuration.
+///
+/// ── WHY THIS IS DATA AND NOT CODE ──────────────────────────────────────────────────
+/// Rates, thresholds and what is taxable are a jurisdiction's business and they change.
+/// Encoding "18%" or "GST" as a literal anywhere would mean shipping a release every time
+/// a rate moves or a market is added, and would make this repository a place where tax law
+/// is asserted by engineers. So the platform can REPRESENT any of the three launch markets'
+/// taxes and asserts none of them.
+///
+/// `active` defaults to FALSE. An empty or unconfigured table charges nothing and every
+/// total is exactly what it is today — the only safe default when the alternative is
+/// silently over- or under-charging a customer.
+///
+/// Several rules can apply at once, which is the normal case in Canada (federal plus
+/// provincial) and the US (state plus city). Each produces its own BookingTaxLine so a
+/// receipt can itemise them and an auditor can reconstruct the arithmetic.
+model TaxRule {
+  id    String @id @default(cuid())
+  /// Shown to the customer and printed on the receipt, e.g. "GST", "HST", "Sales tax".
+  label String
+
+  /// Rate in BASIS POINTS: 1800 = 18.00%. Integers only, because a float rate reintroduces
+  /// exactly the rounding drift that integer minor units exist to prevent.
+  rateBasisPoints Int
+  appliesTo       TaxBase @default(TICKETS)
+
+  /// Matching, most specific first. '*' matches anything.
+  country  String @default("*")
+  /// State / province, for the second tax layer the US and Canada both have.
+  region   String @default("*")
+  currency String @default("*")
+
+  /// Lower runs first. Only matters for presentation order on a receipt; each line is
+  /// computed on its own base, so no rule compounds on another.
+  priority Int     @default(100)
+  active   Boolean @default(false)
+
+  /// When this rate came into force and when it stopped. A rate change is a NEW rule with
+  /// a later `effectiveFrom`, never an edit — editing would silently rewrite the tax on
+  /// bookings already taken.
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, country, region])
+}
+
+/// One tax actually charged on one booking, snapshotted at checkout.
+///
+/// A copy, not a reference: the rule it came from may later be deactivated or superseded,
+/// and a receipt reprinted a year afterwards must show what the customer was charged on the
+/// day — not what the rules say now.
+model BookingTaxLine {
+  id        String  @id @default(cuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  label           String
+  rateBasisPoints Int
+  /// The amount this rate was applied to, so the arithmetic is reproducible from the row.
+  baseMinor       Int
+  amountMinor     Int
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
 }
 
 // ─────────────────── Runtime payment configuration (ADR-020) ───────────────────
@@ -2085,27 +2211,27 @@ enum InventoryOwnershipMode {
 /// externalEventId); when the provider has no stable id, a deterministic idempotency key
 /// derived from normalized fields + payload hash is used (never the receipt timestamp).
 model RawProviderEvent {
-  id               String          @id @default(cuid())
-  providerCode     String
-  providerTenantId String          @default("")
-  externalEventId  String
-  eventType        String
-  eventVersion     Int?
-  externalEntityId String?
-  receivedAt       DateTime        @default(now())
+  id                 String          @id @default(cuid())
+  providerCode       String
+  providerTenantId   String          @default("")
+  externalEventId    String
+  eventType          String
+  eventVersion       Int?
+  externalEntityId   String?
+  receivedAt         DateTime        @default(now())
   providerOccurredAt DateTime?
-  signatureStatus  String          @default("UNVERIFIED")
-  processingStatus SyncEventStatus @default(RECEIVED)
-  attemptCount     Int             @default(0)
-  payloadHash      String
-  payloadJson      Json?
-  headersMetadata  Json?
-  correlationId    String?
-  lastErrorCode    String?
-  lastErrorMessage String?
-  processedAt      DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  signatureStatus    String          @default("UNVERIFIED")
+  processingStatus   SyncEventStatus @default(RECEIVED)
+  attemptCount       Int             @default(0)
+  payloadHash        String
+  payloadJson        Json?
+  headersMetadata    Json?
+  correlationId      String?
+  lastErrorCode      String?
+  lastErrorMessage   String?
+  processedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
   @@unique([providerCode, providerTenantId, externalEventId])
   @@index([processingStatus])
@@ -2119,21 +2245,21 @@ model RawProviderEvent {
 /// MANUAL_REVIEW and fails safe. `externalVersion` guards against stale/out-of-order
 /// updates. `ownershipMode` selects the sync rules that apply.
 model ProviderMapping {
-  id                 String                 @id @default(cuid())
-  providerCode       String
-  providerTenantId   String                 @default("")
-  externalEntityType String
-  externalEntityId   String
-  internalEntityType String?
-  internalEntityId   String?
-  externalVersion    Int?
-  ownershipMode      InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
+  id                    String                 @id @default(cuid())
+  providerCode          String
+  providerTenantId      String                 @default("")
+  externalEntityType    String
+  externalEntityId      String
+  internalEntityType    String?
+  internalEntityId      String?
+  externalVersion       Int?
+  ownershipMode         InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
   lastProviderUpdatedAt DateTime?
-  lastSyncedAt       DateTime?
-  status             ProviderMappingStatus  @default(UNMAPPED)
-  mappingMetadata    Json?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  lastSyncedAt          DateTime?
+  status                ProviderMappingStatus  @default(UNMAPPED)
+  mappingMetadata       Json?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   @@unique([providerCode, providerTenantId, externalEntityType, externalEntityId])
   @@index([status])
@@ -2144,19 +2270,19 @@ model ProviderMapping {
 /// only advanced AFTER all records in a page are durably accepted. A lease column
 /// records the current owner + expiry so only one node polls a resource at a time.
 model ProviderSyncCheckpoint {
-  id               String    @id @default(cuid())
-  providerCode     String
-  providerTenantId String    @default("")
-  resource         String
-  cursor           String?
-  watermark        DateTime?
+  id                   String    @id @default(cuid())
+  providerCode         String
+  providerTenantId     String    @default("")
+  resource             String
+  cursor               String?
+  watermark            DateTime?
   lastSuccessfulPollAt DateTime?
-  nextPollAt       DateTime?
-  leaseOwner       String?
-  leaseExpiresAt   DateTime?
-  failureCount     Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  nextPollAt           DateTime?
+  leaseOwner           String?
+  leaseExpiresAt       DateTime?
+  failureCount         Int       @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@unique([providerCode, providerTenantId, resource])
   @@index([nextPollAt])
@@ -2166,28 +2292,28 @@ model ProviderSyncCheckpoint {
 /// This is an imported VIEW of provider-owned stock — it NEVER overwrites authoritative
 /// local inventory (ShowSeat / TicketInventory). `version` enforces monotonic ordering.
 model ProviderInventoryState {
-  id               String   @id @default(cuid())
-  providerCode     String
-  providerTenantId String   @default("")
+  id                String                 @id @default(cuid())
+  providerCode      String
+  providerTenantId  String                 @default("")
   externalSessionId String
-  ownershipMode    InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
+  ownershipMode     InventoryOwnershipMode @default(PROVIDER_AUTHORITATIVE)
   /// Per-seat advisory state keyed by stable external seat id.
-  seatStates       Json?
-  layoutVersion    String?
+  seatStates        Json?
+  layoutVersion     String?
   providerRemaining Int?
   providerCapacity  Int?
   /// pending local provider-confirmations tracked separately from provider availability.
-  pendingLocal     Int      @default(0)
+  pendingLocal      Int                    @default(0)
   /// Authoritative ALLOCATED-inventory consumption (ADR-042 P5.3A.1). Maintained
   /// transactionally: held on initiate (guarded so heldLocal+confirmedLocal never exceeds
   /// providerCapacity), moved held→confirmed on confirmation, released on expire/unpaid-cancel.
-  heldLocal        Int      @default(0)
-  confirmedLocal   Int      @default(0)
-  safetyBuffer     Int      @default(0)
-  version          Int      @default(0)
+  heldLocal         Int                    @default(0)
+  confirmedLocal    Int                    @default(0)
+  safetyBuffer      Int                    @default(0)
+  version           Int                    @default(0)
   providerUpdatedAt DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
 
   @@unique([providerCode, providerTenantId, externalSessionId])
   @@index([externalSessionId])
@@ -2210,38 +2336,38 @@ enum OutboxStatus {
 /// DomainEventBus with at-least-once semantics. Preserves the P2 DomainEvent envelope
 /// exactly. No secrets, card data, provider credentials, or unnecessary PII.
 model OutboxEvent {
-  id            String       @id @default(cuid())
-  eventId       String       @unique
-  eventType     String
-  eventVersion  Int
-  aggregateType String
-  aggregateId   String
-  occurredAt    DateTime
-  correlationId String?
-  causationId   String?
-  actorId       String?
-  tenantId      String?
-  payloadJson   Json
-  metadataJson  Json?
-  payloadHash   String
-  status        OutboxStatus @default(PENDING)
-  priority      Int          @default(0)
+  id               String       @id @default(cuid())
+  eventId          String       @unique
+  eventType        String
+  eventVersion     Int
+  aggregateType    String
+  aggregateId      String
+  occurredAt       DateTime
+  correlationId    String?
+  causationId      String?
+  actorId          String?
+  tenantId         String?
+  payloadJson      Json
+  metadataJson     Json?
+  payloadHash      String
+  status           OutboxStatus @default(PENDING)
+  priority         Int          @default(0)
   /// Shadow rows (dual_write_shadow mode) are recorded for comparison and NEVER
   /// delivered to production handlers by the dispatcher.
-  shadow        Boolean      @default(false)
-  availableAt   DateTime     @default(now())
-  attemptCount  Int          @default(0)
-  maxAttempts   Int          @default(12)
-  lockedAt      DateTime?
-  lockedBy      String?
-  lockExpiresAt DateTime?
-  lastAttemptAt DateTime?
-  deliveredAt   DateTime?
-  failedAt      DateTime?
-  lastErrorCode String?
+  shadow           Boolean      @default(false)
+  availableAt      DateTime     @default(now())
+  attemptCount     Int          @default(0)
+  maxAttempts      Int          @default(12)
+  lockedAt         DateTime?
+  lockedBy         String?
+  lockExpiresAt    DateTime?
+  lastAttemptAt    DateTime?
+  deliveredAt      DateTime?
+  failedAt         DateTime?
+  lastErrorCode    String?
   lastErrorMessage String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   // Claim ordering + stale-lease recovery + aggregate/correlation lookups.
   @@index([status, availableAt, priority, createdAt])
@@ -2262,15 +2388,15 @@ enum HandlerDeliveryStatus {
 /// FAILED row may be re-claimed for retry. Handler identity must be stable across
 /// deploys (renaming a handler is a migration concern).
 model ProcessedDomainEvent {
-  id           String                @id @default(cuid())
-  eventId      String
-  handlerName  String
-  status       HandlerDeliveryStatus @default(PROCESSING)
-  attemptCount Int                   @default(1)
-  processedAt  DateTime?
+  id            String                @id @default(cuid())
+  eventId       String
+  handlerName   String
+  status        HandlerDeliveryStatus @default(PROCESSING)
+  attemptCount  Int                   @default(1)
+  processedAt   DateTime?
   lastErrorCode String?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   @@unique([eventId, handlerName])
   @@index([eventId])
@@ -2321,58 +2447,58 @@ enum BookingOwnerType {
 /// fencingToken) for full bidirectional reconciliation, the selected provider + ownership
 /// mode, and provider/payment references. No secrets or raw provider payloads.
 model BookingWorkflow {
-  id                   String               @id @default(cuid())
-  bookingId            String               @unique
-  workflowType         String               @default("BOOKING")
-  state                BookingWorkflowState @default(DRAFT)
-  version              Int                  @default(0)
-  selectedProviderCode String?
-  inventoryOwnershipMode InventoryOwnershipMode @default(LOCAL_AUTHORITATIVE)
+  id                             String                 @id @default(cuid())
+  bookingId                      String                 @unique
+  workflowType                   String                 @default("BOOKING")
+  state                          BookingWorkflowState   @default(DRAFT)
+  version                        Int                    @default(0)
+  selectedProviderCode           String?
+  inventoryOwnershipMode         InventoryOwnershipMode @default(LOCAL_AUTHORITATIVE)
   /// Durable server-decided ownership (ADR-042 P5.2A). ownerId is the user id for USER,
   /// the SHA-256 hash of the anonymous session token for ANONYMOUS_SESSION (never the raw
   /// token), or a trusted service identity for INTERNAL. Every customer operation validates
   /// the request owner against these fields — a valid bookingId alone never suffices.
-  ownerType            BookingOwnerType?
-  ownerId              String?
+  ownerType                      BookingOwnerType?
+  ownerId                        String?
   /// Tenant (organization) + organizer scope captured at initiation for isolation checks.
-  tenantId             String?
-  organizerId          String?
-  lockId               String?
-  fencingToken         Int?
-  paymentProvider      String?
-  providerReservationId String?
-  providerBookingId    String?
-  providerStatus       String?
+  tenantId                       String?
+  organizerId                    String?
+  lockId                         String?
+  fencingToken                   Int?
+  paymentProvider                String?
+  providerReservationId          String?
+  providerBookingId              String?
+  providerStatus                 String?
   /// External booking provider lifecycle (ADR-042 §9, P5.2B). Durable enough to safely
   /// continue and reconcile a PROVIDER_AUTHORITATIVE workflow across restarts. No provider
   /// secrets or raw response payloads are stored here — only summarized state.
-  providerRequestIdempotencyKey String?
-  providerReservationExpiresAt  DateTime?
-  providerVersion               Int?
-  providerLastAttemptAt         DateTime?
-  providerAttemptCount          Int      @default(0)
-  providerLastErrorCode         String?
-  providerLastResponseCategory  String?
-  providerConfirmedAt           DateTime?
-  providerCancelledAt           DateTime?
-  providerReconciliationRequired Boolean @default(false)
+  providerRequestIdempotencyKey  String?
+  providerReservationExpiresAt   DateTime?
+  providerVersion                Int?
+  providerLastAttemptAt          DateTime?
+  providerAttemptCount           Int                    @default(0)
+  providerLastErrorCode          String?
+  providerLastResponseCategory   String?
+  providerConfirmedAt            DateTime?
+  providerCancelledAt            DateTime?
+  providerReconciliationRequired Boolean                @default(false)
   /// ALLOCATED-inventory accounting linkage + exactly-once marker (ADR-042 P5.3A.1). The
   /// marker guards the held→confirmed move and the held release so each happens exactly once
   /// per booking even under duplicate callbacks / repeated sweeps.
-  allocationProviderCode        String?
-  allocationExternalRef         String?
-  allocationHeldQty             Int?
-  allocationAccountingState     String   @default("NONE") // NONE | HELD | CONFIRMED | RELEASED
-  attemptCount         Int                  @default(0)
-  nextActionAt         DateTime?
-  lastErrorCode        String?
-  manualReviewReason   String?
-  correlationId        String?
+  allocationProviderCode         String?
+  allocationExternalRef          String?
+  allocationHeldQty              Int?
+  allocationAccountingState      String                 @default("NONE") // NONE | HELD | CONFIRMED | RELEASED
+  attemptCount                   Int                    @default(0)
+  nextActionAt                   DateTime?
+  lastErrorCode                  String?
+  manualReviewReason             String?
+  correlationId                  String?
   /// Idempotency key from the initiating request (same key ⇒ same workflow/booking).
-  idempotencyKey       String?
-  requestFingerprint   String?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  idempotencyKey                 String?
+  requestFingerprint             String?
+  createdAt                      DateTime               @default(now())
+  updatedAt                      DateTime               @updatedAt
 
   @@unique([workflowType, idempotencyKey])
   /// A provider reservation reference is unique within its provider scope (idempotent reserve).
@@ -2421,44 +2547,44 @@ enum CompensationState {
 }
 
 model BookingCompensation {
-  id               String            @id @default(cuid())
-  bookingId        String
-  workflowId       String?
-  tenantId         String?
-  compensationType CompensationType
-  state            CompensationState @default(PLANNED)
-  version          Int               @default(0)
-  reasonCode       String
+  id                    String            @id @default(cuid())
+  bookingId             String
+  workflowId            String?
+  tenantId              String?
+  compensationType      CompensationType
+  state                 CompensationState @default(PLANNED)
+  version               Int               @default(0)
+  reasonCode            String
   /// The concrete target this action operates on (payment ref, reservation id, lock id, …).
   /// Part of the idempotency identity so one action per target is enforced by the DB.
-  targetReference  String            @default("")
+  targetReference       String            @default("")
   /// Bumps only when an authoritative new generation of a booking's recovery is required.
-  generation       Int               @default(1)
-  paymentProvider  String?
-  paymentReference String?
-  externalProviderCode String?
+  generation            Int               @default(1)
+  paymentProvider       String?
+  paymentReference      String?
+  externalProviderCode  String?
   providerReservationId String?
-  providerBookingId String?
-  amountMinor      Int?
-  currency         String?
+  providerBookingId     String?
+  amountMinor           Int?
+  currency              String?
   /// Server-generated stable key for the executor's provider/payment idempotency.
-  idempotencyKey   String
-  autoExecutable   Boolean           @default(false)
-  attemptCount     Int               @default(0)
-  maxAttempts      Int               @default(5)
-  availableAt      DateTime          @default(now())
-  lockedBy         String?
-  lockedAt         DateTime?
-  lockExpiresAt    DateTime?
-  lastAttemptAt    DateTime?
-  completedAt      DateTime?
-  failedAt         DateTime?
-  lastErrorCode    String?
-  lastErrorMessage String?
-  manualReviewReason String?
-  correlationId    String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  idempotencyKey        String
+  autoExecutable        Boolean           @default(false)
+  attemptCount          Int               @default(0)
+  maxAttempts           Int               @default(5)
+  availableAt           DateTime          @default(now())
+  lockedBy              String?
+  lockedAt              DateTime?
+  lockExpiresAt         DateTime?
+  lastAttemptAt         DateTime?
+  completedAt           DateTime?
+  failedAt              DateTime?
+  lastErrorCode         String?
+  lastErrorMessage      String?
+  manualReviewReason    String?
+  correlationId         String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   /// Idempotency: one action per (booking, type, target, generation). A concurrent planner
   /// loses the unique race and re-reads the existing record.
@@ -2471,4 +2597,84 @@ model BookingCompensation {
   @@index([bookingId])
   @@index([tenantId])
   @@index([lockExpiresAt])
+}
+
+/// What kind of document this is.
+///
+/// The distinction is not cosmetic. A TAX_INVOICE can only be issued by a seller who has a
+/// tax registration to put on it — issuing one without a registration number is a document
+/// that claims something untrue. So the platform issues a plain RECEIPT until an organizer
+/// records their registration, and upgrades from there. Nothing about this decides what tax
+/// is owed; it only decides what the document is honestly called.
+enum ReceiptKind {
+  RECEIPT
+  TAX_INVOICE
+  CREDIT_NOTE
+}
+
+/// An issued financial document: a receipt or tax invoice for a sale, or a credit note for a
+/// refund.
+///
+/// ── WHY THIS IS A ROW AND NOT A RENDERED VIEW ─────────────────────────────────────────
+/// Rendering a receipt on demand from the live booking looks equivalent and is not. The
+/// seller's legal name changes; the platform's fee structure changes; a tax rule is
+/// superseded. A document reprinted two years later must show what was true on the day it
+/// was issued, so the whole thing is snapshotted into `documentJson` at issue time and never
+/// recomputed.
+///
+/// Numbering is sequential and gapless per organization, because a numbering scheme with
+/// holes in it is the first thing an auditor asks about.
+model Receipt {
+  id     String      @id @default(cuid())
+  /// Human-readable, e.g. "INV-2026-000042". Unique within the ISSUING ORGANIZATION, which
+  /// is the only scope in which an invoice number means anything — a seller's books are
+  /// numbered independently of every other seller's. Making it globally unique would force
+  /// the platform's identity into the number and give each organizer a series full of holes.
+  number String
+  kind   ReceiptKind
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  bookingId      String
+  booking        Booking      @relation(fields: [bookingId], references: [id])
+
+  /// Set to the booking id on a sale document, null on a credit note. This is how "at most
+  /// one receipt per booking" becomes a DATABASE constraint rather than a hope: a nullable
+  /// unique column ignores the nulls, so any number of credit notes can coexist with exactly
+  /// one sale document. Two concurrent confirmations cannot both issue.
+  saleForBookingId String?   @unique
+  /// Set on a credit note, and unique, so a retried refund cannot issue a second one.
+  refundId         String?   @unique
+  refund           Refund?   @relation(fields: [refundId], references: [id])
+  /// The sale document a credit note reverses.
+  reversesId       String?
+  reverses         Receipt?  @relation("ReceiptReversal", fields: [reversesId], references: [id])
+  reversedBy       Receipt[] @relation("ReceiptReversal")
+
+  issuedAt DateTime @default(now())
+  currency String
+
+  /// Denormalised for listing and reconciliation without parsing JSON. Credit notes carry
+  /// NEGATIVE amounts, so summing a period's documents gives net revenue directly.
+  subtotalMinor Int
+  discountMinor Int
+  feeMinor      Int
+  taxMinor      Int
+  totalMinor    Int
+
+  /// The immutable rendered document: seller identity, buyer, lines, tax breakdown, totals.
+  documentJson Json
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, number])
+  @@index([organizationId, issuedAt])
+  @@index([bookingId])
+}
+
+/// Per-scope gapless counter behind `Receipt.number`, incremented inside the issuing
+/// transaction. Same mechanism as BookingReferenceCounter.
+model ReceiptCounter {
+  scope String @id
+  value Int    @default(0)
 }

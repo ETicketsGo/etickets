@@ -111,7 +111,13 @@ async function reset() {
   await prisma.ticket.deleteMany();
   await prisma.paymentAttempt.deleteMany();
   await prisma.payment.deleteMany();
+  // Issued financial documents come out before the refunds and bookings they reference.
+  // The foreign keys deliberately do NOT cascade: in production a booking with an invoice
+  // against it must not be deletable by accident, so the seed has to be explicit here.
+  await prisma.receipt.deleteMany();
+  await prisma.receiptCounter.deleteMany();
   await prisma.refund.deleteMany();
+  await prisma.bookingTaxLine.deleteMany();
   await prisma.bookingItem.deleteMany();
   await prisma.booking.deleteMany();
   await prisma.ticketInventory.deleteMany();
@@ -137,6 +143,8 @@ async function reset() {
   await prisma.organization.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.feeRule.deleteMany();
+  // Tax is configuration, and a reseed must not leave a rule active that nobody set.
+  await prisma.taxRule.deleteMany();
   await prisma.merchantAccount.deleteMany();
   await prisma.paymentProviderConfig.deleteMany();
   await prisma.paymentRoute.deleteMany();

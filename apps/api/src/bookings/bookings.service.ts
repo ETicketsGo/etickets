@@ -104,7 +104,19 @@ export class BookingsService {
 
     const session = await this.prisma.eventSession.findUnique({
       where: { id: input.eventSessionId },
-      include: { event: true },
+      include: {
+        event: {
+          include: {
+            // Tax jurisdiction, for whenever an owner configures a TaxRule. The venue is
+            // the place of supply for an admission — the sale happens where the show is,
+            // not where the company is registered — so it is consulted first, and the
+            // organization's registered address is only the fallback for an event with no
+            // venue on file.
+            venue: { select: { country: true } },
+            organization: { select: { registeredCountry: true, registeredRegion: true } },
+          },
+        },
+      },
     });
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
@@ -221,7 +233,13 @@ export class BookingsService {
 
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
     const feeMode = session.event.feeMode as FeeMode;
-    const fees = await this.pricing.quote(subtotal, feeMode, discountMinor);
+    const taxPlace = {
+      country:
+        session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
+      region: session.event.organization?.registeredRegion ?? null,
+      at: now,
+    };
+    const fees = await this.pricing.quote(subtotal, feeMode, discountMinor, 'INR', taxPlace);
 
     const holdExpiresAt = new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
@@ -257,6 +275,18 @@ export class BookingsService {
           discountMinor: fees.discountMinor,
           customerFeeMinor: fees.customerFeeMinor,
           organizerFeeMinor: fees.organizerFeeMinor,
+          // Snapshotted, like every other money field on this row: the rule that produced
+          // each line may be deactivated or superseded later, and a receipt reprinted next
+          // year must show what this customer was charged today.
+          taxMinor: fees.taxMinor,
+          taxLines: {
+            create: fees.taxLines.map((t) => ({
+              label: t.label,
+              rateBasisPoints: t.rateBasisPoints,
+              baseMinor: t.baseMinor,
+              amountMinor: t.amountMinor,
+            })),
+          },
           totalMinor: fees.totalMinor,
           holdExpiresAt,
           idempotencyKey: idempotencyKey ?? null,
@@ -626,6 +656,11 @@ export class BookingsService {
         },
         payment: true,
         tickets: true,
+        // Itemised tax, so the customer's own view of what they paid matches the receipt
+        // line for line rather than presenting one opaque total.
+        taxLines: {
+          select: { label: true, rateBasisPoints: true, baseMinor: true, amountMinor: true },
+        },
         event: { select: { title: true, slug: true } },
         eventSession: { select: { startsAt: true } },
       },

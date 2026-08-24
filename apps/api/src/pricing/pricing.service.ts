@@ -7,6 +7,7 @@ import {
   type FeeCalcResult,
   type FeeTier,
 } from './fee-calculator';
+import type { TaxPlace, TaxRuleInput } from './tax-calculator';
 
 @Injectable()
 export class PricingService {
@@ -36,16 +37,57 @@ export class PricingService {
   }
 
   /**
-   * Compute fees for a quote using the currently active DB fee rules for `currency`.
-   * Defaults to INR so existing callers that do not pass one behave exactly as before.
+   * Active tax rules that could apply to this sale.
+   *
+   * Queries only `active: true`, and the column defaults to FALSE — so an untouched
+   * installation returns nothing here and charges no tax. Rate matching by country/region
+   * happens in the pure calculator; this query casts a slightly wider net (wildcards live
+   * in the same column as real values) and lets `selectTaxRules` do the precise work.
+   */
+  private async loadTaxRules(currency: string): Promise<TaxRuleInput[]> {
+    const rules = await this.prisma.taxRule.findMany({
+      where: { active: true, currency: { in: [currency, '*'] } },
+      orderBy: { priority: 'asc' },
+    });
+    return rules.map((r) => ({
+      label: r.label,
+      rateBasisPoints: r.rateBasisPoints,
+      appliesTo: r.appliesTo as TaxRuleInput['appliesTo'],
+      country: r.country,
+      region: r.region,
+      currency: r.currency,
+      priority: r.priority,
+      active: r.active,
+      effectiveFrom: r.effectiveFrom,
+      effectiveTo: r.effectiveTo,
+    }));
+  }
+
+  /**
+   * Compute fees (and any configured tax) for a quote using the currently active DB rules
+   * for `currency`. Defaults to INR so existing callers that do not pass one behave exactly
+   * as before — and with no tax rules configured, the result is identical to before tax
+   * existed in this codebase.
    */
   async quote(
     subtotalMinor: number,
     feeMode: FeeMode,
     discountMinor = 0,
     currency = 'INR',
+    taxPlace: TaxPlace = {},
   ): Promise<FeeCalcResult> {
-    const tiers = await this.loadTiers(currency);
-    return calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+    const [tiers, taxRules] = await Promise.all([
+      this.loadTiers(currency),
+      this.loadTaxRules(currency),
+    ]);
+    return calculateFees({
+      subtotalMinor,
+      feeMode,
+      discountMinor,
+      tiers,
+      currency,
+      taxRules,
+      taxPlace,
+    });
   }
 }

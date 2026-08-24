@@ -1,4 +1,5 @@
 import { FeeMode } from '@eticketsgo/shared-types';
+import { computeTax, type TaxLine, type TaxPlace, type TaxRuleInput } from './tax-calculator';
 
 /** A tiered platform booking-fee rule. All money in minor units (paise). */
 export interface FeeTier {
@@ -27,6 +28,13 @@ export interface FeeCalcInput {
   paymentFeeBps?: number;
   /** ISO 4217 currency; flows through to the result. Defaults to INR (seed market). */
   currency?: string;
+  /**
+   * Tax rules to apply, already loaded from configuration. Omitted or empty means no tax,
+   * which is the shipped default — see tax-calculator.ts for why nothing is assumed.
+   */
+  taxRules?: TaxRuleInput[];
+  /** Where/when the sale happens, for matching those rules. */
+  taxPlace?: TaxPlace;
 }
 
 export interface FeeCalcResult {
@@ -41,7 +49,11 @@ export interface FeeCalcResult {
   customerFeeMinor: number;
   /** Fee amount the organizer absorbs. */
   organizerFeeMinor: number;
-  /** Amount charged to the customer. */
+  /** Itemised tax, one entry per applicable rule. Empty unless tax is configured. */
+  taxLines: TaxLine[];
+  /** Total tax the customer pays, the sum of `taxLines`. Zero unless tax is configured. */
+  taxMinor: number;
+  /** Amount charged to the customer, tax included. */
   totalMinor: number;
 }
 
@@ -84,6 +96,16 @@ export function calculateFees(input: FeeCalcInput): FeeCalcResult {
       break;
   }
 
+  // Tax comes last because it is levied on what the customer is actually charged: the
+  // discounted ticket price plus whatever share of the fees they bear. Computing it earlier
+  // would tax money the customer never pays.
+  const { taxLines, taxMinor } = computeTax({
+    netSubtotalMinor,
+    customerFeeMinor,
+    rules: input.taxRules ?? [],
+    place: { currency: input.currency ?? 'INR', ...(input.taxPlace ?? {}) },
+  });
+
   return {
     currency: input.currency ?? 'INR',
     subtotalMinor,
@@ -93,6 +115,8 @@ export function calculateFees(input: FeeCalcInput): FeeCalcResult {
     paymentFeeMinor,
     customerFeeMinor,
     organizerFeeMinor,
-    totalMinor: netSubtotalMinor + customerFeeMinor,
+    taxLines,
+    taxMinor,
+    totalMinor: netSubtotalMinor + customerFeeMinor + taxMinor,
   };
 }

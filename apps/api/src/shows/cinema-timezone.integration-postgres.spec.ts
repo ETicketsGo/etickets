@@ -31,6 +31,41 @@ function loadDatabaseUrl(): string | undefined {
   return undefined;
 }
 
+/**
+ * A fixed calendar date, in a year far enough ahead that it is always in the future.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────────
+ * Every assertion below names an exact UTC instant, and those instants are only correct for
+ * a date with known DST properties: mid-August is AEST (UTC+10) in Sydney, and India has no
+ * DST at all. So the MONTH AND DAY must stay pinned — computing "30 days from now" would
+ * eventually land inside Sydney's summer time and silently change the expected offset by an
+ * hour, turning a correct implementation into a red test.
+ *
+ * What must NOT stay pinned is the year. Scheduling refuses slots in the past, so a fixture
+ * dated 2026-08-20 stops working the day after it — quietly, by creating zero shows rather
+ * than by failing loudly. That is what happened here. Rolling the year forward keeps the
+ * calendar properties and removes the expiry.
+ *
+ * AUG is chosen because both zones are on standard time; SEP/OCT are the pair either side of
+ * Sydney's daylight-saving start, which is the transition the DST test exists to prove.
+ */
+function futureYear(month: number, day: number): number {
+  const now = new Date();
+  const thisYear = now.getUTCFullYear();
+  // 45 days of headroom so a run near the boundary cannot schedule into the past.
+  const cutoff = new Date(now.getTime() + 45 * 86_400_000);
+  return Date.UTC(thisYear, month - 1, day) > cutoff.getTime() ? thisYear : thisYear + 1;
+}
+
+/** Sydney's DST start is the first Sunday of October, so SEP/OCT must share one year. */
+const YEAR = futureYear(9, 20);
+const AUG_YEAR = futureYear(8, 20);
+const AUG_20 = `${AUG_YEAR}-08-20`;
+const AUG_19 = `${AUG_YEAR}-08-19`;
+const AUG_21 = `${AUG_YEAR}-08-21`;
+const SEP_20 = `${YEAR}-09-20`;
+const OCT_20 = `${YEAR}-10-20`;
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require('@prisma/client');
 type Client = InstanceType<typeof PrismaClient>;
@@ -47,8 +82,6 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
   const suffix = `tz-${Date.now()}`;
 
-  /** The day every exact-instant assertion is written against. Sydney is AEST (+10) here. */
-  const PINNED_DAY = '2026-09-15';
   let orgId = '';
   let venueId = '';
   /** Sydney — deliberately not India, and it observes DST. */
@@ -70,7 +103,11 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
         version: 1,
         status: 'PUBLISHED',
         publishedAt: new Date(),
-        effectiveFrom: new Date(Date.now() - 86_400_000),
+        // Pinned, NOT derived from Date.now(). Every show date in this file is a fixed
+        // calendar date chosen for its DST properties (August is AEST in Sydney, October is
+        // AEDT), so a layout whose effective date moves with the wall clock will drift past
+        // them and start failing on a date nobody chose. That is exactly what happened.
+        effectiveFrom: new Date('2026-01-01T00:00:00Z'),
       },
     });
     const cat = await db!.seatCategory.create({
@@ -222,31 +259,47 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
   });
 
   /*
-    The pinned dates below have an expiry, and this makes it say so.
+    The fixture dates must stay in the future AND keep their daylight-saving properties.
 
-    Every assertion here names an exact UTC instant, which is the point — "10:00 in Sydney"
-    is only a meaningful claim if the stored instant is checked against a known offset. That
-    requires a fixed calendar date, and a fixed date eventually falls into the past.
+    Two different kinds of rot were fixed here, and this guard covers what is left of both.
 
-    When it does, bulk scheduling rejects the day as IN_THE_PAST and the layout fixture
-    (effective from "yesterday") no longer covers it, so six tests fail with
-    "No published seat layout is in effect for that date" — an error about layouts that has
-    nothing to do with layouts. That cost a real debugging session.
+    The first: a pinned date eventually falls into the past, at which point bulk scheduling
+    rejects the day as IN_THE_PAST and the layout fixture no longer covers it — and six tests
+    fail with "No published seat layout is in effect for that date", an error about layouts
+    that has nothing to do with layouts. That cost a real debugging session. `futureYear`
+    removes that failure mode by rolling the YEAR forward while keeping the month and day.
 
-    So: fail with the actual instruction instead. Keep the replacement inside Sydney's AEST
-    window (before DST begins in early October) and every expected instant stays correct.
+    The second is what the year cannot fix: every expected instant below is only correct for a
+    date with known offsets. August and September are AEST (UTC+10) in Sydney; late October is
+    AEDT (UTC+11); India has no daylight saving at all. Change a month and the assertions
+    quietly become wrong rather than failing honestly. So the offsets are checked directly,
+    against the same dates the tests use.
   */
-  maybe('the pinned fixture dates have not expired', async () => {
-    const pinned = new Date(`${PINNED_DAY}T00:00:00Z`);
-    if (pinned.getTime() <= Date.now()) {
-      throw new Error(
-        `This suite pins ${PINNED_DAY}, which is now in the PAST, so bulk scheduling rejects ` +
-          `it as IN_THE_PAST and the layout fixture no longer covers it. Move PINNED_DAY and ` +
-          `its neighbours forward to a future date that is still AEST in Sydney (before early ` +
-          `October) — every expected instant then stays exactly as written.`,
+  maybe(
+    'the fixture dates are in the future and in the offsets the assertions assume',
+    async () => {
+      const offsetMinutes = (isoDate: string, timeZone: string): number => {
+        const at = new Date(`${isoDate}T00:00:00Z`);
+        const named = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+          .formatToParts(at)
+          .find((p) => p.type === 'timeZoneName')!.value; // e.g. "GMT+10:00"
+        const [, sign, h, m] = /GMT([+-])(\d{2}):(\d{2})/.exec(named)!;
+        return (sign === '-' ? -1 : 1) * (Number(h) * 60 + Number(m));
+      };
+
+      const stale = [AUG_19, AUG_20, AUG_21, SEP_20, OCT_20].filter(
+        (d) => new Date(`${d}T00:00:00Z`).getTime() <= Date.now(),
       );
-    }
-  });
+      expect(stale).toEqual([]);
+
+      // AEST before Sydney's DST begins on the first Sunday of October, AEDT after.
+      expect(offsetMinutes(AUG_20, 'Australia/Sydney')).toBe(600);
+      expect(offsetMinutes(SEP_20, 'Australia/Sydney')).toBe(600);
+      expect(offsetMinutes(OCT_20, 'Australia/Sydney')).toBe(660);
+      // India, year-round.
+      expect(offsetMinutes(AUG_20, 'Asia/Kolkata')).toBe(330);
+    },
+  );
 
   maybe('scheduling uses the CINEMA zone when the caller names none', async () => {
     /*
@@ -256,7 +309,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     */
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['10:00'],
       padMinutes: 0,
       dryRun: false,
@@ -272,21 +325,21 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
       hour12: false,
     }).format(session.startsAt);
     expect(sydneyLocal).toBe('10:00');
-    expect(session.startsAt.toISOString()).toBe('2026-09-15T00:00:00.000Z');
+    expect(session.startsAt.toISOString()).toBe(`${AUG_20}T00:00:00.000Z`);
   });
 
   maybe('the same wall-clock time means different instants at two cinemas', async () => {
     // Proof the zone is per-venue rather than global: same date, same time, two rooms.
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['18:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: indiaScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['18:00'],
       padMinutes: 0,
       dryRun: false,
@@ -294,21 +347,21 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     const syd = await db!.eventSession.findFirstOrThrow({ where: { screenId: sydneyScreenId } });
     const ind = await db!.eventSession.findFirstOrThrow({ where: { screenId: indiaScreenId } });
-    expect(syd.startsAt.toISOString()).toBe('2026-09-15T08:00:00.000Z');
-    expect(ind.startsAt.toISOString()).toBe('2026-09-15T12:30:00.000Z');
+    expect(syd.startsAt.toISOString()).toBe(`${AUG_20}T08:00:00.000Z`);
+    expect(ind.startsAt.toISOString()).toBe(`${AUG_20}T12:30:00.000Z`);
     // 4h30m apart, which is exactly the Sydney/Kolkata difference in August.
     expect(ind.startsAt.getTime() - syd.startsAt.getTime()).toBe(4.5 * 3_600_000);
   });
 
   maybe('survives a daylight-saving transition that a fixed offset would not', async () => {
     /*
-      Sydney leaves daylight saving on 2026-04-05 and re-enters on 2026-10-04. A 10:00 show
+      Sydney leaves daylight saving in early April and re-enters on the first Sunday of October. A 10:00 show
       either side is 10:00 LOCAL both times, but the UTC instants differ by an hour. A stored
       "+10:00" or "+11:00" offset gets exactly one of these right.
     */
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-20', '2026-10-20'],
+      dates: [SEP_20, OCT_20],
       times: ['10:00'],
       padMinutes: 0,
       dryRun: false,
@@ -320,8 +373,8 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     });
     expect(sessions).toHaveLength(2);
     // AEST (UTC+10) before the change, AEDT (UTC+11) after.
-    expect(sessions[0].startsAt.toISOString()).toBe('2026-09-20T00:00:00.000Z');
-    expect(sessions[1].startsAt.toISOString()).toBe('2026-10-19T23:00:00.000Z');
+    expect(sessions[0].startsAt.toISOString()).toBe(`${SEP_20}T00:00:00.000Z`);
+    expect(sessions[1].startsAt.toISOString()).toBe(`${YEAR}-10-19T23:00:00.000Z`);
 
     const localTimes = sessions.map((s: { startsAt: Date }) =>
       new Intl.DateTimeFormat('en-GB', {
@@ -340,17 +393,17 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     // under the wrong day and the operator sees an empty morning.
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['08:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
 
-    const onTheDay = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, { date: '2026-09-15' });
+    const onTheDay = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, { date: AUG_20 });
     expect(onTheDay).toHaveLength(1);
 
     const dayBefore = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, {
-      date: '2026-09-14',
+      date: AUG_19,
     });
     expect(dayBefore).toHaveLength(0);
   });
@@ -359,14 +412,14 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     // Honoured deliberately: it is how somebody asks "what does this look like in UTC".
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['08:00'],
       padMinutes: 0,
       dryRun: false,
     } as never);
 
     const inUtc = await shows.cinemaSchedule(ORGANIZER, sydneyCinemaId, {
-      date: '2026-09-14',
+      date: AUG_19,
       timezone: 'UTC',
     });
     expect(inUtc).toHaveLength(1);
@@ -375,7 +428,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
   maybe('copying a day uses the source cinema zone', async () => {
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['09:30'],
       padMinutes: 0,
       dryRun: false,
@@ -383,13 +436,13 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     await shows.copySchedule(ORGANIZER, movieId, {
       sourceScreenId: sydneyScreenId,
-      sourceDate: '2026-09-15',
-      targetDate: '2026-09-16',
+      sourceDate: AUG_20,
+      targetDate: AUG_21,
       dryRun: false,
     } as never);
 
     const copied = await db!.eventSession.findFirstOrThrow({
-      where: { screenId: sydneyScreenId, startsAt: { gte: new Date('2026-08-20T14:00:00Z') } },
+      where: { screenId: sydneyScreenId, startsAt: { gte: new Date(`${AUG_20}T14:00:00Z`) } },
     });
     const local = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Australia/Sydney',
@@ -416,7 +469,7 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
 
     await shows.bulkScheduleShows(ORGANIZER, movieId, {
       screenId: sydneyScreenId,
-      dates: ['2026-09-15'],
+      dates: [AUG_20],
       times: ['10:00'],
       padMinutes: 0,
       dryRun: false,

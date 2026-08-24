@@ -100,6 +100,10 @@ function setupProcess(opts: ProcessOpts = {}) {
   const access = accessStub();
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const receipts = {
+    issueCreditNote: jest.fn().mockResolvedValue(undefined),
+    issueForBooking: jest.fn().mockResolvedValue(undefined),
+  };
 
   const service = new RefundsService(
     prisma as never,
@@ -109,8 +113,9 @@ function setupProcess(opts: ProcessOpts = {}) {
     audit as never,
     notifications as never,
     new MetricsService(),
+    receipts as never,
   );
-  return { service, prisma, tx, strategy, payments, access, audit, notifications };
+  return { service, prisma, tx, strategy, payments, access, audit, notifications, receipts };
 }
 
 describe('RefundsService.process', () => {
@@ -224,6 +229,8 @@ describe('RefundsService.process', () => {
 // ---------------------------------------------------------------------------
 
 interface RequestOpts {
+  /** Tax lines snapshotted on the booking. Empty by default — the shipped state. */
+  taxLines?: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[];
   bookingTickets: Array<{ id: string; status: string; ticketTypeId: string }>;
   ticketIds?: string[];
   priorRefunds?: Array<{ ticketIds: string[]; amountMinor: number; status: string }>;
@@ -241,6 +248,7 @@ function setupRequest(opts: RequestOpts) {
     // Session far in the future → passes the 48h refund-window policy.
     eventSession: { startsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30) },
     tickets: opts.bookingTickets,
+    taxLines: opts.taxLines ?? [],
   };
   const prisma = {
     booking: { findUnique: jest.fn().mockResolvedValue(booking) },
@@ -264,6 +272,7 @@ function setupRequest(opts: RequestOpts) {
     audit as never,
     { send: jest.fn() } as never,
     new MetricsService(),
+    { issueCreditNote: jest.fn() } as never,
   );
   return { service, prisma };
 }
@@ -298,6 +307,83 @@ describe('RefundsService.request hardening', () => {
     await expect(service.request(ADMIN, { bookingId: 'b1' } as never)).rejects.toMatchObject({
       code: ErrorCodes.REFUND_NOT_ELIGIBLE,
     });
+  });
+
+  /*
+    Tax charged on a returned ticket goes back with it.
+
+    Platform FEES are not refunded — that is long-standing policy and these tests pin it so a
+    future change has to be deliberate. Tax is different in kind: it was collected because a
+    taxable supply happened, and undoing the supply undoes the reason to hold it. Keeping it
+    would leave the customer paying tax on a ticket they no longer own.
+  */
+  it('returns no tax when none was charged, which is the shipped default', async () => {
+    const { service, prisma } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      totalMinor: 100000,
+      items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    expect(prisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ amountMinor: 5000, taxMinor: 0 }),
+      }),
+    );
+  });
+
+  it('returns the tax charged on the ticket alongside it', async () => {
+    const { service, prisma } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      totalMinor: 100000,
+      items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
+      // 10% is a fixture rate, not a claim about any jurisdiction.
+      taxLines: [
+        { label: 'Fixture tax', rateBasisPoints: 1000, baseMinor: 6000, amountMinor: 600 },
+      ],
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    // The rate re-applied to the 5000 actually being returned — 500, not the full 600 that
+    // was charged on a base that also included the non-refunded fee.
+    expect(prisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ amountMinor: 5500, taxMinor: 500 }),
+      }),
+    );
+  });
+
+  it('never returns more tax than was charged on the line', async () => {
+    // A refund larger than the taxed base (possible when the base was fee-only) must be
+    // capped at the base, or the platform hands back tax it never collected.
+    const { service, prisma } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      totalMinor: 100000,
+      items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
+      taxLines: [
+        { label: 'Fee-only tax', rateBasisPoints: 1000, baseMinor: 1000, amountMinor: 100 },
+      ],
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    expect(prisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ taxMinor: 100 }) }),
+    );
+  });
+
+  it('sums several taxes independently, as a two-tax jurisdiction charges them', async () => {
+    const { service, prisma } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      totalMinor: 100000,
+      items: [{ ticketTypeId: 't1', unitPriceMinor: 5000 }],
+      taxLines: [
+        { label: 'Federal', rateBasisPoints: 500, baseMinor: 5000, amountMinor: 250 },
+        { label: 'Provincial', rateBasisPoints: 700, baseMinor: 5000, amountMinor: 350 },
+      ],
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    expect(prisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ amountMinor: 5600, taxMinor: 600 }),
+      }),
+    );
   });
 
   it('creates a refund for genuinely refundable tickets', async () => {

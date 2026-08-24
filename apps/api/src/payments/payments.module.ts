@@ -43,6 +43,7 @@ import { RazorpayConnectService } from './razorpay/razorpay-connect.service';
 import { RazorpayConnectController } from './razorpay/razorpay-connect.controller';
 import { InventoryModule } from '../inventory/inventory.module';
 import { BookingReferenceModule } from '../bookings/booking-reference.module';
+import { ReceiptsModule } from '../receipts/receipts.module';
 import { CommerceModule } from '../commerce/commerce.module';
 
 @Module({
@@ -52,6 +53,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     OpsModule,
     BookingReferenceModule,
     CommerceModule,
+    ReceiptsModule,
   ],
   controllers: [
     PaymentsController,

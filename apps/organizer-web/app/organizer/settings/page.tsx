@@ -14,6 +14,7 @@ import {
   StatusBadge,
   useToast,
   errorMessage,
+  type OrganizationLegalIdentityInput,
   type OrganizationProfileInput,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
@@ -31,6 +32,52 @@ const PROFILE_FIELDS: {
   { key: 'twitterUrl', label: 'X / Twitter', placeholder: 'https://x.com/…' },
   { key: 'instagramUrl', label: 'Instagram', placeholder: 'https://instagram.com/…' },
   { key: 'facebookUrl', label: 'Facebook', placeholder: 'https://facebook.com/…' },
+];
+
+/**
+ * Everything an invoice has to name.
+ *
+ * `taxRegistrationKind` is free text on purpose — it labels whatever number the organizer
+ * holds (GSTIN in India, EIN in the US, GST/HST in Canada) without this form deciding which
+ * markets exist. The placeholder suggests; it does not constrain.
+ */
+const LEGAL_FIELDS: {
+  key: keyof OrganizationLegalIdentityInput;
+  label: string;
+  placeholder?: string;
+  hint?: string;
+  wide?: boolean;
+}[] = [
+  {
+    key: 'legalName',
+    label: 'Registered legal name',
+    placeholder: 'Aurora Live Entertainment Pvt Ltd',
+    hint: 'The entity name as registered. Printed on every invoice.',
+    wide: true,
+  },
+  {
+    key: 'taxRegistrationKind',
+    label: 'Tax registration type',
+    placeholder: 'GSTIN / EIN / GST-HST',
+  },
+  {
+    key: 'taxRegistrationNumber',
+    label: 'Tax registration number',
+    placeholder: 'As issued to you',
+  },
+  { key: 'registeredAddressLine1', label: 'Registered address', wide: true },
+  { key: 'registeredAddressLine2', label: 'Address line 2', wide: true },
+  { key: 'registeredCity', label: 'City' },
+  { key: 'registeredRegion', label: 'State / province' },
+  { key: 'registeredPostalCode', label: 'Postal code' },
+  { key: 'registeredCountry', label: 'Country', placeholder: 'India' },
+  { key: 'financeContactName', label: 'Finance contact name' },
+  {
+    key: 'financeContactEmail',
+    label: 'Finance contact email',
+    placeholder: 'finance@example.com',
+  },
+  { key: 'financeContactPhone', label: 'Finance contact phone' },
 ];
 
 export default function SettingsPage() {
@@ -67,6 +114,44 @@ export default function SettingsPage() {
     mutationFn: () => api.organizations.updateProfile(activeOrg.id, form),
     onSuccess: () => {
       toast.push('Organizer profile updated.', 'success');
+      qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  // ── Legal + tax identity ──────────────────────────────────────────────────────────
+  const legalQuery = useQuery({
+    queryKey: ['organizations', activeOrg.id, 'legal-identity'],
+    queryFn: () => api.organizations.legalIdentity(activeOrg.id),
+  });
+  const [legal, setLegal] = useState<OrganizationLegalIdentityInput>({});
+  const [legalTouched, setLegalTouched] = useState(false);
+  useEffect(() => {
+    // Only seed from the server while the operator has not started typing, so a background
+    // refetch cannot overwrite half-finished input.
+    if (legalTouched) return;
+    const d = legalQuery.data;
+    if (!d) return;
+    setLegal({
+      legalName: d.legalName ?? '',
+      taxRegistrationKind: d.taxRegistrationKind ?? '',
+      taxRegistrationNumber: d.taxRegistrationNumber ?? '',
+      registeredAddressLine1: d.registeredAddressLine1 ?? '',
+      registeredCity: d.registeredCity ?? '',
+      registeredCountry: d.registeredCountry ?? '',
+      financeContactEmail: d.financeContactEmail ?? '',
+    });
+  }, [legalQuery.data, legalTouched]);
+  const setLegalField = (key: keyof OrganizationLegalIdentityInput, value: string) => {
+    setLegalTouched(true);
+    setLegal((f) => ({ ...f, [key]: value }));
+  };
+  const saveLegal = useMutation({
+    mutationFn: () => api.organizations.updateLegalIdentity(activeOrg.id, legal),
+    onSuccess: () => {
+      setLegalTouched(false);
+      toast.push('Legal and tax details saved.', 'success');
+      qc.invalidateQueries({ queryKey: ['organizations', activeOrg.id, 'legal-identity'] });
       qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -166,6 +251,67 @@ export default function SettingsPage() {
             Save organizer profile
           </Button>
         </div>
+      </Card>
+
+      <Card title="Legal and tax details">
+        <p className="-mt-2 mb-4 text-caption text-text-secondary">
+          These appear on the receipts and invoices your customers receive, and on the records your
+          payouts are reported against. They are never shown on your public page.
+        </p>
+
+        {legalQuery.data ? (
+          <div
+            className={`mb-4 rounded-md border px-3 py-2 text-caption ${
+              legalQuery.data.canIssueTaxInvoice
+                ? 'border-success/40 bg-success/10 text-text-primary'
+                : 'border-warning/40 bg-warning/10 text-text-primary'
+            }`}
+          >
+            {legalQuery.data.canIssueTaxInvoice ? (
+              <>
+                Complete. Sales are documented as <strong>tax invoices</strong> naming{' '}
+                {legalQuery.data.taxRegistrationKind ?? 'your registration'}{' '}
+                {legalQuery.data.taxRegistrationNumber}.
+              </>
+            ) : (
+              <>
+                Incomplete. Customers still get a <strong>receipt</strong> for every sale, but it
+                cannot be called a tax invoice until you add
+                {legalQuery.data.taxRegistrationNumber ? '' : ' a tax registration number'}
+                {legalQuery.data.missing.length > 0 && (
+                  <>
+                    {legalQuery.data.taxRegistrationNumber ? ' ' : ', plus '}
+                    {legalQuery.data.missing.join(', ').toLowerCase()}
+                  </>
+                )}
+                .
+              </>
+            )}
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {LEGAL_FIELDS.map((f) => (
+            <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
+              <Input
+                id={`legal-${f.key}`}
+                label={f.label}
+                placeholder={f.placeholder}
+                value={(legal[f.key] as string) ?? ''}
+                onChange={(e) => setLegalField(f.key, e.target.value)}
+              />
+              {f.hint ? <p className="mt-1 text-caption text-text-muted">{f.hint}</p> : null}
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-caption text-text-muted">
+          We record your registration number exactly as you enter it and print it unchanged. We do
+          not validate its format — that varies by country and is set by your tax authority, not by
+          us. Documents already issued keep the details they were issued with.
+        </p>
+        <Button className="mt-4" loading={saveLegal.isPending} onClick={() => saveLegal.mutate()}>
+          Save legal and tax details
+        </Button>
       </Card>
     </div>
   );
