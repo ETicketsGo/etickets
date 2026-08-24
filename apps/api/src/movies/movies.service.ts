@@ -9,7 +9,9 @@ import {
 } from '@eticketsgo/shared-types';
 import type { CreateMovieInput, UpdateMovieInput } from '@eticketsgo/validation';
 import { Prisma } from '@prisma/client';
+import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { CacheService } from '../cache/cache.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -213,6 +215,8 @@ export class PublicMoviesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CacheService,
+    // What a LISTING advertises, per PRICE_DISPLAY_MODE. Pass-through by default.
+    private readonly advertised: AdvertisedPriceService,
   ) {}
 
   /** PUBLISHED movies as browse cards. */
@@ -438,6 +442,31 @@ export class PublicMoviesService {
       }
     }
 
+    /*
+      Advertised prices resolved up front, keyed by session.
+
+      A showtime card and an event card must never quote different numbers for the same
+      ticket — two surfaces disagreeing is the exposure the all-in display rules exist to
+      address. Precomputed rather than awaited inside the map so the shape of this method
+      stays synchronous, and so a listing of thirty showtimes does not become thirty
+      sequential awaits.
+    */
+    const advertisedBySession = new Map<string, number | null>(
+      await Promise.all(
+        sessions.map(
+          async (session) =>
+            [
+              session.id,
+              await this.advertised.forTicket(
+                session.ticketTypes[0]?.priceMinor ?? null,
+                session.event.feeMode as FeeMode,
+                session.ticketTypes[0]?.currency ?? 'INR',
+              ),
+            ] as const,
+        ),
+      ),
+    );
+
     const shows: PublicShowDto[] = sessions.map((session) => {
       const reserved = Boolean(session.screenId);
       const cheapest = session.ticketTypes[0] ?? null;
@@ -487,7 +516,7 @@ export class PublicMoviesService {
         format: session.screen?.screenType ?? null,
         language: movie.language,
         currency: cheapest?.currency ?? 'INR',
-        fromPriceMinor: cheapest?.priceMinor ?? null,
+        fromPriceMinor: advertisedBySession.get(session.id) ?? null,
         seatingType: reserved ? ('RESERVED' as const) : ('GENERAL_ADMISSION' as const),
         // Paused outranks seat counts: a closed show should not advertise seats it will
         // not sell. Otherwise, nothing on sale is sold out from a customer's point of

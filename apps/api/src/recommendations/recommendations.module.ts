@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PricingModule } from '../pricing/pricing.module';
 import { AiModule } from '../ai/ai.module';
 import { EventsModule } from '../events/events.module';
 import { RecommendationsController } from './recommendation.controller';
@@ -26,7 +27,7 @@ import { AiRecommendationStrategy } from './strategies/ai.recommendation-strateg
  * recommender = registering another strategy (no composer change).
  */
 @Module({
-  imports: [AiModule, EventsModule],
+  imports: [PricingModule, AiModule, EventsModule],
   controllers: [RecommendationsController],
   providers: [
     RecommendationService,

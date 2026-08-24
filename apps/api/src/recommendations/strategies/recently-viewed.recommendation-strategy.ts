@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AdvertisedPriceService } from '../../pricing/advertised-price.service';
 import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
@@ -27,6 +28,8 @@ export class RecentlyViewedRecommendationStrategy implements RecommendationStrat
   constructor(
     private readonly prisma: PrismaService,
     private readonly trending: TrendingRecommendationStrategy,
+    // Threaded so a carousel never quotes a different price from the listing beside it.
+    private readonly advertised: AdvertisedPriceService,
   ) {}
 
   async recommend(ctx: RecommendationContext): Promise<PublicEventCardLike[]> {
@@ -55,6 +58,7 @@ export class RecentlyViewedRecommendationStrategy implements RecommendationStrat
       this.prisma,
       { category: { in: categories } },
       ctx.limit + exclude.size,
+      this.advertised,
     );
     return excludeAndCap(cards, exclude, ctx.limit);
   }

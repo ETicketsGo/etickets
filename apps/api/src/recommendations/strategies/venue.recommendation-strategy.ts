@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AdvertisedPriceService } from '../../pricing/advertised-price.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   PublicEventCardLike,
@@ -21,7 +22,11 @@ import {
 export class VenueRecommendationStrategy implements RecommendationStrategy {
   readonly key = 'venue';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Threaded so a carousel never quotes a different price from the listing beside it.
+    private readonly advertised: AdvertisedPriceService,
+  ) {}
 
   async recommend(ctx: RecommendationContext): Promise<PublicEventCardLike[]> {
     if (!ctx.seedEventId) return [];
@@ -33,6 +38,7 @@ export class VenueRecommendationStrategy implements RecommendationStrategy {
       this.prisma,
       { venueId: seed.venueId, sessions: { some: { startsAt: { gte: ctx.now } } } },
       ctx.limit + exclude.size,
+      this.advertised,
     );
     return excludeAndCap(cards, exclude, ctx.limit);
   }

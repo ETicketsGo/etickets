@@ -546,9 +546,20 @@ function assertProductionHardening(cfg: AppConfig): void {
  * that guessed would be worse than none. Those steps live in docs/go-live/DELIVERY.md.
  */
 function assertDeliverabilityHardening(cfg: AppConfig): void {
-  const isProdLike =
-    cfg.NODE_ENV === 'production' || ['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV);
-  if (!isProdLike) return;
+  /*
+    Keyed on APP_ENV alone, NOT on NODE_ENV.
+
+    QA and UAT both run with NODE_ENV=production — they build and serve production bundles,
+    which is the point of them. Reusing the `isProdLike` test that the security guards use
+    would therefore have refused to boot QA and UAT for having a log mail transport, which
+    is exactly what they are supposed to have: their bookings are test bookings, and real
+    mail to real inboxes is the failure there, not the fix.
+
+    This is the same mistake the secret-store rule made and had corrected: it keyed on an
+    environment NAME rather than on the condition that actually matters. Here the condition
+    is "are real customers being served", and only APP_ENV knows that.
+  */
+  if (!['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV)) return;
   // One legitimate exception: bringing an environment up to run migrations or a smoke
   // check before the mail provider exists. It has to be typed out on purpose, and its
   // name says what it is giving up.

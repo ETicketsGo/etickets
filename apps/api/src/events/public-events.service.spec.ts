@@ -1,4 +1,14 @@
 import { PublicEventsService } from './public-events.service';
+import { AdvertisedPriceService } from '../pricing/advertised-price.service';
+
+// PRICE_DISPLAY_MODE defaults to `itemised`, in which the advertised-price service returns
+// prices exactly as stored and never touches the database. Passing the real service (rather
+// than a stub returning a fixed number) keeps these tests honest about the default: if the
+// default ever changed to all_in, the price assertions here would move and say so.
+const advertised = new AdvertisedPriceService(
+  { feeRule: { findMany: async () => [] } } as never,
+  { get: () => undefined } as never,
+);
 
 describe('PublicEventsService.list search', () => {
   function makeService() {
@@ -8,7 +18,7 @@ describe('PublicEventsService.list search', () => {
       event: { count, findMany },
       $transaction: jest.fn().mockResolvedValue([0, []]),
     };
-    return { service: new PublicEventsService(prisma as never), count, findMany };
+    return { service: new PublicEventsService(prisma as never, advertised), count, findMany };
   }
 
   it('matches q against title, organizer name, and venue name/city', async () => {
@@ -51,7 +61,7 @@ describe('PublicEventsService.categoriesWithCounts', () => {
         ]),
       },
     };
-    const service = new PublicEventsService(prisma as never);
+    const service = new PublicEventsService(prisma as never, advertised);
 
     const result = await service.categoriesWithCounts();
 

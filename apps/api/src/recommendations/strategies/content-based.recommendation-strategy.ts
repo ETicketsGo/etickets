@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AdvertisedPriceService } from '../../pricing/advertised-price.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PublicEventsService } from '../../events/public-events.service';
 import type {
@@ -30,6 +31,8 @@ export class ContentBasedRecommendationStrategy implements RecommendationStrateg
   constructor(
     private readonly prisma: PrismaService,
     private readonly publicEvents: PublicEventsService,
+    // Threaded so a carousel never quotes a different price from the listing beside it.
+    private readonly advertised: AdvertisedPriceService,
   ) {}
 
   async recommend(ctx: RecommendationContext): Promise<PublicEventCardLike[]> {
@@ -43,6 +46,7 @@ export class ContentBasedRecommendationStrategy implements RecommendationStrateg
         this.prisma,
         { category: { equals: seed.category, mode: 'insensitive' } },
         take,
+        this.advertised,
       );
       return excludeAndCap(cards, exclude, ctx.limit);
     }
@@ -52,7 +56,12 @@ export class ContentBasedRecommendationStrategy implements RecommendationStrateg
       .slice(0, POPULAR_CATEGORIES)
       .map((c) => c.category);
     if (categories.length === 0) return [];
-    const cards = await fetchEventCards(this.prisma, { category: { in: categories } }, take);
+    const cards = await fetchEventCards(
+      this.prisma,
+      { category: { in: categories } },
+      take,
+      this.advertised,
+    );
     return excludeAndCap(cards, exclude, ctx.limit);
   }
 }

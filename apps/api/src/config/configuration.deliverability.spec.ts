@@ -68,11 +68,20 @@ describe('loadConfig deliverability hardening', () => {
     expect(() => loadConfig()).toThrow(/SENDS NOTHING/);
   });
 
-  it('leaves lower environments alone', () => {
-    // A developer must not need a SendGrid key to run the app, and QA deliberately uses the
-    // log transport so test bookings do not send mail to real inboxes.
+  it('leaves lower environments alone EVEN THOUGH they run NODE_ENV=production', () => {
+    /*
+      The regression this pins. QA and UAT both deploy with NODE_ENV=production — they
+      serve production builds, which is their whole purpose. An earlier version of this
+      guard reused the `isProdLike` test the security checks use (NODE_ENV OR APP_ENV) and
+      would have refused to boot both of them for having a log mail transport, which is
+      exactly the transport they are supposed to have: their bookings are test bookings,
+      and mailing real inboxes is the failure there.
+
+      NODE_ENV is deliberately left at 'production' here. Setting it to 'development' would
+      make this test pass against the broken guard too, and prove nothing.
+    */
     for (const appEnv of ['LOCAL', 'DEV', 'QA', 'UAT']) {
-      process.env = base({ APP_ENV: appEnv, NODE_ENV: 'development' });
+      process.env = base({ APP_ENV: appEnv, NODE_ENV: 'production' });
       expect(() => loadConfig()).not.toThrow();
     }
   });

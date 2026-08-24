@@ -1,6 +1,8 @@
 import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
+import type { FeeMode } from '@eticketsgo/shared-types';
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { AdvertisedPriceService } from '../../pricing/advertised-price.service';
 import type {
   PublicEventCardLike,
   RecommendationContext,
@@ -46,10 +48,21 @@ export async function loadSeedEvent(
  * (identical to `PublicEventsService.list`). Ordered newest-published first for
  * a deterministic baseline that a ranker/port can later reorder.
  */
+/**
+ * Candidate cards for a recommendation strategy.
+ *
+ * `advertised` is threaded in rather than omitted because a recommendation carousel sits
+ * beside a browse listing on the same page. If one applied the all-in display rule and the
+ * other did not, the platform would show two different prices for the same ticket — which
+ * is worse than showing the bare price everywhere, and is the exact failure the all-in
+ * rules exist to address. It is optional only so the pure-function tests can call this
+ * without constructing a Nest provider; every real caller passes it.
+ */
 export async function fetchEventCards(
   prisma: PrismaService,
   where: Prisma.EventWhereInput,
   take: number = CANDIDATE_POOL,
+  advertised?: AdvertisedPriceService,
 ): Promise<PublicEventCardLike[]> {
   const events = await prisma.event.findMany({
     where: { ...PUBLISHED_EVENTS, ...where },
@@ -65,17 +78,25 @@ export async function fetchEventCards(
       },
     },
   });
-  return events.map((e) => ({
-    id: e.id,
-    title: e.title,
-    slug: e.slug,
-    category: e.category,
-    venue: e.venue,
-    organizer: e.organization.name,
-    nextSessionAt: e.sessions[0]?.startsAt ?? null,
-    fromPriceMinor: e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
-    currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
-  }));
+  return Promise.all(
+    events.map(async (e) => {
+      const currency = e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR';
+      const base = e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null;
+      return {
+        id: e.id,
+        title: e.title,
+        slug: e.slug,
+        category: e.category,
+        venue: e.venue,
+        organizer: e.organization.name,
+        nextSessionAt: e.sessions[0]?.startsAt ?? null,
+        fromPriceMinor: advertised
+          ? await advertised.forTicket(base, e.feeMode as FeeMode, currency)
+          : base,
+        currency,
+      };
+    }),
+  );
 }
 
 /** The set of event ids a strategy must never return: the seed + explicit excludes. */
