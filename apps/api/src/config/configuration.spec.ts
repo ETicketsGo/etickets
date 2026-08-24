@@ -16,6 +16,12 @@ describe('loadConfig production hardening', () => {
     QR_SIGNING_SECRET: STRONG,
     PAYMENT_WEBHOOK_SECRET: STRONG,
     CORS_ORIGINS: 'https://app.eticketsgo.com',
+    // A prod-like baseline must be able to DELIVER. Since assertDeliverabilityHardening,
+    // EMAIL_PROVIDER=log (the default) is refused wherever customers are served, because a
+    // platform that takes money and silently drops the ticket is worse than one that will
+    // not start. Every production fixture therefore names a real transport.
+    EMAIL_PROVIDER: 'sendgrid',
+    EMAIL_FROM: 'tickets@eticketsgo.com',
   });
 
   beforeEach(() => {

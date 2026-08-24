@@ -416,6 +416,12 @@ const envSchema = z.object({
 
   // --- Email (recipient = notification.toEmail) ---
   EMAIL_PROVIDER: z.enum(['log', 'sendgrid', 'ses']).default('log'),
+  /**
+   * Permits a prod-like environment to boot with no working mail transport. For
+   * migrations and smoke checks against an environment whose mail provider is not live
+   * yet. Never set it while serving customers — see assertDeliverabilityHardening.
+   */
+  ALLOW_UNDELIVERABLE_NOTIFICATIONS: z.enum(['true', 'false']).default('false'),
   EMAIL_FROM: z.string().optional(),
   // SendGrid (EMAIL_PROVIDER=sendgrid)
   SENDGRID_API_KEY: z.string().optional(),
@@ -516,6 +522,53 @@ function assertProductionHardening(cfg: AppConfig): void {
   }
   if (errors.length) {
     throw new Error(`Insecure production configuration:\n${errors.join('\n')}`);
+  }
+}
+
+/**
+ * A production that cannot deliver a ticket must not start.
+ *
+ * ── THE FAILURE THIS EXISTS TO PREVENT ─────────────────────────────────────────────
+ * `EMAIL_PROVIDER` defaults to `log`, which writes the message to the service log and
+ * sends nothing. That default is right everywhere else — a developer should not need an
+ * API key to run the app — and catastrophic in production, because the platform boots
+ * clean, reports healthy, takes the money, and the customer never receives their ticket.
+ * Nothing in the system looks wrong; the log even records a cheerful line saying the email
+ * was sent. It is the worst shape a defect can take: invisible to every check we have, and
+ * visible only to the customer who paid.
+ *
+ * So delivery is treated exactly like a payment credential — refused at boot rather than
+ * discovered at the first sale. A service that will not start is recoverable in minutes; a
+ * week of silently undelivered tickets is not.
+ *
+ * Deliberately NOT enforced here: whether the sending domain is verified, and whether an
+ * SES account is out of the sandbox. Neither can be read from this process, and a check
+ * that guessed would be worse than none. Those steps live in docs/go-live/DELIVERY.md.
+ */
+function assertDeliverabilityHardening(cfg: AppConfig): void {
+  const isProdLike =
+    cfg.NODE_ENV === 'production' || ['STAGING', 'PRODUCTION'].includes(cfg.APP_ENV);
+  if (!isProdLike) return;
+  // One legitimate exception: bringing an environment up to run migrations or a smoke
+  // check before the mail provider exists. It has to be typed out on purpose, and its
+  // name says what it is giving up.
+  if (cfg.ALLOW_UNDELIVERABLE_NOTIFICATIONS === 'true') return;
+
+  const errors: string[] = [];
+  if (cfg.EMAIL_PROVIDER === 'log') {
+    errors.push(
+      '  - EMAIL_PROVIDER=log writes to the service log and SENDS NOTHING. Customers would ' +
+        'be charged and never receive a ticket. Set EMAIL_PROVIDER=sendgrid or ses.',
+    );
+  } else if (!cfg.EMAIL_FROM) {
+    errors.push(`  - EMAIL_FROM is required when EMAIL_PROVIDER=${cfg.EMAIL_PROVIDER}.`);
+  }
+  if (errors.length) {
+    throw new Error(
+      `Notifications cannot be delivered in this environment:\n${errors.join('\n')}\n` +
+        `  Set ALLOW_UNDELIVERABLE_NOTIFICATIONS=true only to boot deliberately without ` +
+        `mail (migrations, smoke checks) — never to serve customers.`,
+    );
   }
 }
 
@@ -817,6 +870,7 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
   assertProductionHardening(parsed.data);
+  assertDeliverabilityHardening(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPlatformConfigConsistency(parsed.data);

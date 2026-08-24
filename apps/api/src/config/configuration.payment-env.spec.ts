@@ -28,6 +28,12 @@ describe('loadConfig payment environment key safety', () => {
     ...base('PRODUCTION'),
     NODE_ENV: 'production',
     PAYMENT_PROVIDER_NAME: 'stripe',
+    // A prod-like baseline must be able to DELIVER. Since assertDeliverabilityHardening,
+    // EMAIL_PROVIDER=log (the default) is refused wherever customers are served, because a
+    // platform that takes money and silently drops the ticket is worse than one that will
+    // not start. Every production fixture therefore names a real transport.
+    EMAIL_PROVIDER: 'sendgrid',
+    EMAIL_FROM: 'tickets@eticketsgo.com',
   });
 
   beforeEach(() => {
@@ -112,6 +118,8 @@ describe('loadConfig payment environment key safety', () => {
     process.env = {
       ...base('STAGING'),
       NODE_ENV: 'production',
+      EMAIL_PROVIDER: 'sendgrid',
+      EMAIL_FROM: 'tickets@eticketsgo.com',
       STRIPE_SECRET_KEY: 'sk_test_abc123',
       PAYMENT_PROVIDER_NAME: 'stripe',
     };
