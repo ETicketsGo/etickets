@@ -1,5 +1,6 @@
 import { PricingService } from './pricing.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import { ManualTaxProvider } from '../tax/providers/manual-tax.provider';
 
 /**
  * Fee tiers must be resolved per currency.
@@ -27,7 +28,11 @@ describe('PricingService currency isolation', () => {
       feeRule: { findMany },
       taxRule: { findMany: taxFindMany },
     } as unknown as PrismaService;
-    return { svc: new PricingService(prisma), findMany, taxFindMany };
+    // Tax now arrives through the provider seam. The MANUAL provider is the shipped
+    // default and reads the same taxRule rows, so it is the one exercised here — a stub
+    // returning zero would prove the seam works and prove nothing about the rules.
+    const tax = new ManualTaxProvider(prisma);
+    return { svc: new PricingService(prisma, tax), findMany, taxFindMany };
   }
 
   it('queries only the requested currency', async () => {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TaxModule } from '../tax/tax.module';
 import { PricingService } from './pricing.service';
 import {
   FlatPricingStrategy,
@@ -8,6 +9,7 @@ import {
 import { PricingStrategiesService } from './pricing-strategies.service';
 
 @Module({
+  imports: [TaxModule],
   providers: [
     PricingService, // fee calculation (unchanged)
     FlatPricingStrategy,
