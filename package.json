@@ -2,7 +2,7 @@
   "name": "eticketsgo",
   "version": "0.1.0",
   "private": true,
-  "description": "ETicketsGo — a global event operating system for customers, organizers, and administrators.",
+  "description": "ETicketsGo \u2014 a global event operating system for customers, organizers, and administrators.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.35",
+    "eslint-config-next": "^15.5.23",
     "madge": "^8.0.0",
     "prettier": "^3.3.3",
     "turbo": "^2.1.3",
