@@ -10,8 +10,21 @@ export function generateStaticParams() {
   return POSTS.map((p) => ({ slug: p.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const post = getPost(params.slug);
+/*
+  `params` is a Promise from Next 15 onward.
+
+  The App Router now resolves route parameters asynchronously so a page can start rendering
+  before they are known. The practical consequence is small but not optional: every server
+  component that reads `params` has to await it, and the build refuses to compile if it does
+  not — which is how this was found rather than guessed at.
+*/
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const post = getPost(slug);
   if (!post) return { title: 'Article not found' };
   return {
     title: post.title,
@@ -21,8 +34,9 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function BlogPostPage({ params }: { params: { slug: string } }) {
-  const post = getPost(params.slug);
+export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const post = getPost(slug);
   if (!post) notFound();
   const related = relatedPosts(post.slug, post.category);
 
