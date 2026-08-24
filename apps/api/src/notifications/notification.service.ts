@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationTemplateService } from './templates/notification-template.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
+import { MarketingConsentService } from './marketing-consent.service';
+import { isTransactional, messageClassOf } from './message-class';
 import { ChannelKey, RenderedNotification } from './channels/notification-channel.interface';
 
 /**
@@ -49,6 +51,7 @@ export class NotificationService {
     private readonly templates: NotificationTemplateService,
     private readonly preferences: NotificationPreferencesService,
     private readonly channels: NotificationChannelRegistry,
+    private readonly consent: MarketingConsentService,
   ) {}
 
   /**
@@ -247,7 +250,37 @@ export class NotificationService {
     );
     // Drop any unknown channel keys so delivery never dereferences a missing
     // channel; keep declared order.
-    return enabled.filter((c): c is ChannelKey => this.channels.has(c));
+    const known = enabled.filter((c): c is ChannelKey => this.channels.has(c));
+
+    /*
+      A transactional message goes out on every channel the person left enabled. It is
+      about a transaction they entered into, and withholding a ticket, a refund
+      confirmation or a cancellation because of a marketing preference would be a product
+      failure dressed up as a legal precaution.
+
+      A commercial message needs an affirmative consent record per channel, and the
+      absence of a record means NO. That default is the whole point: read the other way,
+      the first promotional message ever added would go to everyone who ever bought a
+      ticket. Filtering here rather than at each call site means a new marketing message
+      cannot forget to ask.
+    */
+    if (isTransactional(input.type)) return known;
+
+    const allowed: ChannelKey[] = [];
+    for (const channel of known) {
+      const ok = await this.consent.mayReceiveMarketing(
+        { userId: input.userId, email: input.toEmail },
+        channel,
+      );
+      if (ok) allowed.push(channel);
+    }
+    if (allowed.length < known.length) {
+      this.logger.log(
+        `suppressed ${messageClassOf(input.type)} ${input.type} on ` +
+          `${known.length - allowed.length} channel(s): no consent on file`,
+      );
+    }
+    return allowed;
   }
 
   /** Renders a template for a single channel into a RenderedNotification. */

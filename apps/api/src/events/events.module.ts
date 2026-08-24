@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PricingModule } from '../pricing/pricing.module';
 import {
   AdminEventsController,
   EventsController,
@@ -10,6 +11,7 @@ import { EventsService } from './events.service';
 import { PublicEventsService } from './public-events.service';
 
 @Module({
+  imports: [PricingModule],
   controllers: [
     EventsController,
     PublicEventsController,

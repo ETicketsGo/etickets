@@ -386,6 +386,7 @@ model User {
   auditLogs               AuditLog[]
   seatOverrides           ShowSeat[]               @relation("SeatOverrideActor")
   reviews                 Review[]
+  marketingConsents       MarketingConsent[]
 
   @@index([status])
 }
@@ -2677,4 +2678,43 @@ model Receipt {
 model ReceiptCounter {
   scope String @id
   value Int    @default(0)
+}
+
+/// An affirmative, provable record that somebody agreed to receive commercial messages.
+///
+/// ── WHY THIS IS NOT A BOOLEAN ON USER ─────────────────────────────────────────────
+/// Canada's anti-spam law expects a sender to be able to PRODUCE the consent — when it was
+/// given, through what, and by whom. A boolean answers "are they subscribed now" and
+/// nothing else: it cannot show that consent was ever given rather than defaulted on, it
+/// is destroyed by the next write, and a withdrawal leaves no trace that it happened.
+///
+/// So consent is an append-only log. The current state is the newest row for a
+/// (subject, channel); a withdrawal is a new row with `granted = false`, never an edit.
+/// `source` records HOW it was obtained, because "checkbox at checkout" and "imported from
+/// a spreadsheet" are not the same thing and only one of them is defensible.
+///
+/// Keyed on EMAIL as well as user id: guests buy tickets without an account, and consent
+/// belongs to the person, not to whether they happen to have registered.
+model MarketingConsent {
+  id      String  @id @default(cuid())
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Lower-cased. The stable subject when there is no account.
+  email   String
+  /// 'email' | 'push' | 'sms' | 'whatsapp' — matches the notification channel keys.
+  channel String
+
+  granted   Boolean
+  /// Free text describing how it was obtained, e.g. 'checkout-optin', 'account-settings',
+  /// 'withdrawn-by-user', 'unsubscribe-link'. Recorded verbatim; never inferred.
+  source    String
+  /// Retained only for consent provenance, and only when the request carried it.
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  /// Newest row per subject+channel is the current state, so the read is an index scan.
+  @@index([email, channel, createdAt])
+  @@index([userId, channel, createdAt])
 }

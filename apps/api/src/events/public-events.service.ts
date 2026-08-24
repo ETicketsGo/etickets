@@ -1,7 +1,9 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
+import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 
@@ -17,7 +19,12 @@ export interface PublicEventFilters {
 
 @Injectable()
 export class PublicEventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // What a LISTING advertises, per PRICE_DISPLAY_MODE. Returns prices unchanged in the
+    // default `itemised` mode without touching the database.
+    private readonly advertised: AdvertisedPriceService,
+  ) {}
 
   async list(filters: PublicEventFilters) {
     const where: Prisma.EventWhereInput = {
@@ -71,17 +78,26 @@ export class PublicEventsService {
       }),
     ]);
 
-    const data = events.map((e) => ({
-      id: e.id,
-      title: e.title,
-      slug: e.slug,
-      category: e.category,
-      venue: e.venue,
-      organizer: e.organization.name,
-      nextSessionAt: e.sessions[0]?.startsAt ?? null,
-      fromPriceMinor: e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
-      currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
-    }));
+    const data = await Promise.all(
+      events.map(async (e) => {
+        const currency = e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR';
+        return {
+          id: e.id,
+          title: e.title,
+          slug: e.slug,
+          category: e.category,
+          venue: e.venue,
+          organizer: e.organization.name,
+          nextSessionAt: e.sessions[0]?.startsAt ?? null,
+          fromPriceMinor: await this.advertised.forTicket(
+            e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+            e.feeMode as FeeMode,
+            currency,
+          ),
+          currency,
+        };
+      }),
+    );
 
     return {
       data,
@@ -203,6 +219,25 @@ export class PublicEventsService {
         },
       },
     });
+    // Advertised prices resolved before the map, so the organizer page quotes the same
+    // number the browse listing does. Two surfaces showing different prices for the same
+    // ticket is the exact failure the all-in rules exist to address.
+    const advertisedByEvent = new Map<string, number | null>(
+      await Promise.all(
+        events.map(
+          async (e) =>
+            [
+              e.id,
+              await this.advertised.forTicket(
+                e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+                e.feeMode as FeeMode,
+                e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+              ),
+            ] as const,
+        ),
+      ),
+    );
+
     return {
       id: org.id,
       name: org.name,
@@ -226,7 +261,7 @@ export class PublicEventsService {
         venue: e.venue,
         organizer: org.name,
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
-        fromPriceMinor: e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
+        fromPriceMinor: advertisedByEvent.get(e.id) ?? null,
         currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
       })),
     };

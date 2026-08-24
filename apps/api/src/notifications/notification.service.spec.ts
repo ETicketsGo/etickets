@@ -70,13 +70,19 @@ function setup(
       .fn()
       .mockImplementation((c: string) => (KNOWN.has(c) ? { key: c, deliver } : undefined)),
   };
+  // Every type this suite sends is TRANSACTIONAL, so consent is never consulted; the stub
+  // returns false to prove that. If a future change made a transactional message ask for
+  // consent, these tests would go silent rather than pass — which is the failure worth
+  // catching, so `mayReceiveMarketing` is asserted as un-called in its own test below.
+  const consent = { mayReceiveMarketing: jest.fn().mockResolvedValue(false) };
   const service = new NotificationService(
     prisma as never,
     templates as never,
     preferences as never,
     channels as never,
+    consent as never,
   );
-  return { service, prisma, templates, preferences, channels, deliver };
+  return { service, prisma, templates, preferences, channels, deliver, consent };
 }
 
 describe('NotificationService.send (backward compatibility)', () => {

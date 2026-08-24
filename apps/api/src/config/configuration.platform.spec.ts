@@ -20,6 +20,12 @@ const PROD_BASE: Record<string, string> = {
   NODE_ENV: 'production',
   CORS_ORIGINS: 'https://app.eticketsgo.example',
   PAYMENT_PROVIDER_NAME: 'stripe',
+  // A prod-like baseline must be able to DELIVER. Since assertDeliverabilityHardening,
+  // EMAIL_PROVIDER=log (the default) is refused wherever customers are served, because a
+  // platform that takes money and silently drops the ticket is worse than one that will
+  // not start. Every production fixture therefore names a real transport.
+  EMAIL_PROVIDER: 'sendgrid',
+  EMAIL_FROM: 'tickets@eticketsgo.example',
 };
 
 function withEnv(base: Record<string, string>, extra: Record<string, string> = {}) {

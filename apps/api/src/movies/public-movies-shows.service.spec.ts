@@ -1,5 +1,6 @@
 import { PublicMoviesService } from './movies.service';
 import { AppException } from '../common/errors';
+import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 
 /**
  * These tests are mostly about what the endpoint REFUSES to return. It is
@@ -82,7 +83,16 @@ function makeService(opts: {
   const cache = { getOrSet: jest.fn() };
 
   return {
-    service: new PublicMoviesService(prisma as never, cache as never),
+    // Real service, default mode: PRICE_DISPLAY_MODE=itemised passes prices through
+    // untouched and never queries. A stub would hide a change to that default.
+    service: new PublicMoviesService(
+      prisma as never,
+      cache as never,
+      new AdvertisedPriceService(
+        { feeRule: { findMany: async () => [] } } as never,
+        { get: () => undefined } as never,
+      ),
+    ),
     findUnique,
     count,
     groupBy,

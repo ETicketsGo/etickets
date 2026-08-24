@@ -10,6 +10,15 @@ import { VenueRecommendationStrategy } from './venue.recommendation-strategy';
 import { RecentlyViewedRecommendationStrategy } from './recently-viewed.recommendation-strategy';
 import { CollaborativeRecommendationStrategy } from './collaborative.recommendation-strategy';
 import { AiRecommendationStrategy } from './ai.recommendation-strategy';
+import { AdvertisedPriceService } from '../../pricing/advertised-price.service';
+
+// Real service in its default mode: PRICE_DISPLAY_MODE=itemised returns prices exactly as
+// stored and never queries. Using the real one rather than a stub keeps these tests honest
+// about the default — if it ever changed to all_in, the price assertions here would move.
+const advertised = new AdvertisedPriceService(
+  { feeRule: { findMany: async () => [] } } as never,
+  { get: () => undefined } as never,
+);
 
 const NOW = new Date('2026-07-13T12:00:00.000Z');
 
@@ -92,7 +101,11 @@ describe('ContentBasedRecommendationStrategy', () => {
       },
     };
     const publicEvents = { categoriesWithCounts: jest.fn() };
-    const strategy = new ContentBasedRecommendationStrategy(prisma as never, publicEvents as never);
+    const strategy = new ContentBasedRecommendationStrategy(
+      prisma as never,
+      publicEvents as never,
+      advertised,
+    );
 
     const out = await strategy.recommend({ seedEventId: 'seed', limit: 5, now: NOW });
 
@@ -127,7 +140,11 @@ describe('ContentBasedRecommendationStrategy', () => {
         { category: 'Comedy', count: 3 },
       ]),
     };
-    const strategy = new ContentBasedRecommendationStrategy(prisma as never, publicEvents as never);
+    const strategy = new ContentBasedRecommendationStrategy(
+      prisma as never,
+      publicEvents as never,
+      advertised,
+    );
 
     const out = await strategy.recommend({ limit: 5, now: NOW });
 
@@ -144,7 +161,7 @@ describe('ContentBasedRecommendationStrategy', () => {
 describe('OrganizerRecommendationStrategy', () => {
   it('returns nothing without a seed', async () => {
     const prisma = { event: { findUnique: jest.fn(), findMany: jest.fn() } };
-    const strategy = new OrganizerRecommendationStrategy(prisma as never);
+    const strategy = new OrganizerRecommendationStrategy(prisma as never, advertised);
 
     const out = await strategy.recommend({ limit: 5, now: NOW });
 
@@ -183,7 +200,7 @@ describe('OrganizerRecommendationStrategy', () => {
         ]),
       },
     };
-    const strategy = new OrganizerRecommendationStrategy(prisma as never);
+    const strategy = new OrganizerRecommendationStrategy(prisma as never, advertised);
 
     const out = await strategy.recommend({ seedEventId: 'seed', limit: 5, now: NOW });
 
@@ -218,7 +235,7 @@ describe('VenueRecommendationStrategy', () => {
         ]),
       },
     };
-    const strategy = new VenueRecommendationStrategy(prisma as never);
+    const strategy = new VenueRecommendationStrategy(prisma as never, advertised);
 
     const out = await strategy.recommend({ seedEventId: 'seed', limit: 3, now: NOW });
 
@@ -233,7 +250,11 @@ describe('RecentlyViewedRecommendationStrategy', () => {
   it('falls back to trending when no recent/seed ids are supplied', async () => {
     const trending = { recommend: jest.fn().mockResolvedValue([card('t1')]) };
     const prisma = { event: { findMany: jest.fn() } };
-    const strategy = new RecentlyViewedRecommendationStrategy(prisma as never, trending as never);
+    const strategy = new RecentlyViewedRecommendationStrategy(
+      prisma as never,
+      trending as never,
+      advertised,
+    );
 
     const out = await strategy.recommend({ limit: 5, now: NOW });
 
@@ -271,7 +292,11 @@ describe('RecentlyViewedRecommendationStrategy', () => {
       },
     };
     const trending = { recommend: jest.fn() };
-    const strategy = new RecentlyViewedRecommendationStrategy(prisma as never, trending as never);
+    const strategy = new RecentlyViewedRecommendationStrategy(
+      prisma as never,
+      trending as never,
+      advertised,
+    );
 
     const out = await strategy.recommend({ recentEventIds: ['r1'], limit: 5, now: NOW });
 
@@ -327,10 +352,10 @@ describe('strategy keys', () => {
     const keys: string[] = (
       [
         new TrendingRecommendationStrategy({} as never, {} as never),
-        new ContentBasedRecommendationStrategy({} as never, {} as never),
-        new OrganizerRecommendationStrategy({} as never),
-        new VenueRecommendationStrategy({} as never),
-        new RecentlyViewedRecommendationStrategy({} as never, {} as never),
+        new ContentBasedRecommendationStrategy({} as never, {} as never, advertised),
+        new OrganizerRecommendationStrategy({} as never, advertised),
+        new VenueRecommendationStrategy({} as never, advertised),
+        new RecentlyViewedRecommendationStrategy({} as never, {} as never, advertised),
         new CollaborativeRecommendationStrategy({} as never),
         new AiRecommendationStrategy({} as never, {} as never),
       ] as RecommendationStrategy[]

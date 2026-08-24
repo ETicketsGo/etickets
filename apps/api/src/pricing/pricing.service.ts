@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -7,11 +7,15 @@ import {
   type FeeCalcResult,
   type FeeTier,
 } from './fee-calculator';
-import type { TaxPlace, TaxRuleInput } from './tax-calculator';
+import type { TaxPlace } from './tax-calculator';
+import { TAX_PROVIDER, type TaxProvider } from '../tax/tax-provider.interface';
 
 @Injectable()
 export class PricingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(TAX_PROVIDER) private readonly tax: TaxProvider,
+  ) {}
 
   /**
    * Active fee tiers for one currency, cheapest band first.
@@ -37,33 +41,6 @@ export class PricingService {
   }
 
   /**
-   * Active tax rules that could apply to this sale.
-   *
-   * Queries only `active: true`, and the column defaults to FALSE — so an untouched
-   * installation returns nothing here and charges no tax. Rate matching by country/region
-   * happens in the pure calculator; this query casts a slightly wider net (wildcards live
-   * in the same column as real values) and lets `selectTaxRules` do the precise work.
-   */
-  private async loadTaxRules(currency: string): Promise<TaxRuleInput[]> {
-    const rules = await this.prisma.taxRule.findMany({
-      where: { active: true, currency: { in: [currency, '*'] } },
-      orderBy: { priority: 'asc' },
-    });
-    return rules.map((r) => ({
-      label: r.label,
-      rateBasisPoints: r.rateBasisPoints,
-      appliesTo: r.appliesTo as TaxRuleInput['appliesTo'],
-      country: r.country,
-      region: r.region,
-      currency: r.currency,
-      priority: r.priority,
-      active: r.active,
-      effectiveFrom: r.effectiveFrom,
-      effectiveTo: r.effectiveTo,
-    }));
-  }
-
-  /**
    * Compute fees (and any configured tax) for a quote using the currently active DB rules
    * for `currency`. Defaults to INR so existing callers that do not pass one behave exactly
    * as before — and with no tax rules configured, the result is identical to before tax
@@ -76,18 +53,34 @@ export class PricingService {
     currency = 'INR',
     taxPlace: TaxPlace = {},
   ): Promise<FeeCalcResult> {
-    const [tiers, taxRules] = await Promise.all([
-      this.loadTiers(currency),
-      this.loadTaxRules(currency),
-    ]);
-    return calculateFees({
-      subtotalMinor,
-      feeMode,
-      discountMinor,
-      tiers,
-      currency,
-      taxRules,
-      taxPlace,
+    const tiers = await this.loadTiers(currency);
+    // Fees first, with no tax, because tax is levied on what the customer is actually
+    // charged — the discounted ticket price plus their share of the fees.
+    const fees = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+
+    /*
+      Tax comes from the configured provider rather than from a rule table read inline.
+
+      With TAX_PROVIDER=manual — the default — the provider reads exactly the same TaxRule
+      rows this method used to read, so the result is unchanged. The indirection buys the
+      thing that matters later: swapping to a tax service for the US market becomes a
+      configuration change and an adapter, with no edit to the money model, the booking, the
+      receipt or the refund path.
+    */
+    const { taxLines, taxMinor } = await this.tax.quote({
+      // Spread first, then pin the currency: `taxPlace.currency` is nullable and a caller
+      // leaving it unset must not blank out the currency the quote is actually priced in.
+      context: { ...taxPlace, currency },
+      netSubtotalMinor: fees.netSubtotalMinor,
+      customerFeeMinor: fees.customerFeeMinor,
+      lines: [{ reference: 'tickets', kind: 'admission', amountMinor: fees.netSubtotalMinor }],
     });
+
+    return {
+      ...fees,
+      taxLines,
+      taxMinor,
+      totalMinor: fees.netSubtotalMinor + fees.customerFeeMinor + taxMinor,
+    };
   }
 }
