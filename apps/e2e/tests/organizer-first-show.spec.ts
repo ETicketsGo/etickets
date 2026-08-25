@@ -80,7 +80,12 @@ test.describe('the first show', () => {
 
     // The state the screenshot showed. Now named rather than left to be inferred from an
     // empty dropdown.
-    await expect(page.getByText('You have no cinemas yet.')).toBeVisible();
+    // Reworded after a QA report: "You have no cinemas yet." in a warning box, read
+    // quickly, looked like the MOVIE had failed to save. It says what is and is not
+    // blocked now, and the test pins that distinction rather than the old phrasing.
+    await expect(
+      page.getByText('Your movie is saved. To put it on sale it needs a cinema.'),
+    ).toBeVisible();
     await expect(page.getByRole('link', { name: /Create a cinema/ })).toBeVisible();
 
     // And the dropdown itself stops pretending there is something to choose.
@@ -133,6 +138,100 @@ test.describe('the first show', () => {
     await expect(
       page.getByRole('dialog').getByRole('button', { name: 'Schedule', exact: true }),
     ).toBeDisabled();
+  });
+
+  test('8b-8d: with a screen but no seat map, it says THAT — and links to the fix', async ({
+    page,
+  }) => {
+    /*
+      The third dead end in the same chain, and the one that was left out when the first two
+      were fixed.
+
+      Reported from QA: the dialog printed "Generate one from the cinema page before
+      scheduling" — prose naming a page it did not link to — and left Schedule ENABLED. The
+      API then correctly refused ("The screen has no seat map; generate one before scheduling
+      shows"), so the organizer got a server error for following the only affordance the
+      dialog offered, and was still stranded.
+    */
+    const { token, organizationId, stamp } = await freshOrganizer(page);
+    const movieId = await createMovie(page, token, organizationId, stamp);
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const cinema = await (
+      await page.request.post(`${API}/cinemas`, {
+        headers: auth,
+        data: {
+          organizationId,
+          name: `Mapless Cinema ${stamp}`,
+          city: 'Bengaluru',
+          timezone: 'Asia/Kolkata',
+        },
+      })
+    ).json();
+    // A screen, deliberately with no seat map.
+    const screen = await (
+      await page.request.post(`${API}/cinemas/${cinema.id}/screens`, {
+        headers: auth,
+        data: { name: 'Screen 1', screenType: '2D', capacity: 20 },
+      })
+    ).json();
+
+    await openScheduleDialog(page, movieId);
+    await page.getByLabel('Cinema').selectOption(cinema.id);
+    await page.getByLabel('Screen').selectOption(screen.id);
+
+    await expect(page.getByText('This screen has no seat map yet.')).toBeVisible();
+
+    // The way out, which is the whole point — prose that names a page is not a way out.
+    const link = page.getByRole('link', { name: /Generate the seat map/ });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute(
+      'href',
+      `/organizer/cinemas/${cinema.id}/screens/${screen.id}/seatmap`,
+    );
+
+    // And it must not invite a submit that the API is going to refuse.
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: 'Schedule', exact: true }),
+    ).toBeDisabled();
+  });
+
+  test('8e: that link lands on a page that can actually generate the map', async ({ page }) => {
+    const { token, organizationId, stamp } = await freshOrganizer(page);
+    const movieId = await createMovie(page, token, organizationId, stamp);
+    const auth = { Authorization: `Bearer ${token}` };
+
+    const cinema = await (
+      await page.request.post(`${API}/cinemas`, {
+        headers: auth,
+        data: {
+          organizationId,
+          name: `Mapless Two ${stamp}`,
+          city: 'Bengaluru',
+          timezone: 'Asia/Kolkata',
+        },
+      })
+    ).json();
+    const screen = await (
+      await page.request.post(`${API}/cinemas/${cinema.id}/screens`, {
+        headers: auth,
+        data: { name: 'Screen 1', screenType: '2D', capacity: 20 },
+      })
+    ).json();
+
+    await openScheduleDialog(page, movieId);
+    await page.getByLabel('Cinema').selectOption(cinema.id);
+    await page.getByLabel('Screen').selectOption(screen.id);
+    await page.getByRole('link', { name: /Generate the seat map/ }).click();
+
+    await expect(page).toHaveURL(
+      new RegExp(`/organizer/cinemas/${cinema.id}/screens/${screen.id}/seatmap`),
+      { timeout: 20_000 },
+    );
+    // Not merely "a page loaded" — the control that resolves the dead end is present.
+    await expect(page.getByRole('button', { name: 'Generate seat map', exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
   });
 
   test('9: once a screen with a layout exists, scheduling works', async ({ page }) => {

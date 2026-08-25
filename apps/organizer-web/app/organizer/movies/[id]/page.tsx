@@ -217,12 +217,29 @@ export default function EditMoviePage() {
   */
   const noCinemas = !cinemasQ.isLoading && (cinemasQ.data ?? []).length === 0;
   const noScreens = !!sched.cinemaId && !screensQ.isLoading && (screensQ.data ?? []).length === 0;
-  const cannotSchedule = noCinemas || noScreens;
+  /*
+    The third missing thing, and the one this dialog used to only mutter about.
+
+    A screen with no seat map cannot host a movie show: the API refuses with "The screen has
+    no seat map; generate one before scheduling shows." Until now the dialog printed a
+    sentence saying so, left the Schedule button ENABLED, and offered no way to fix it — so
+    the organizer clicked Schedule, got a server error, and was still stranded, because the
+    sentence named "the cinema page" without linking to it.
+
+    That is the same defect the cinema and screen cases already had fixed. Seat maps were
+    simply left out of it. Now all three behave identically: name the missing thing, link
+    straight to where it is created, and refuse to submit rather than sending somebody into
+    an error they cannot act on.
+  */
+  const noSeatMap = !!sched.screenId && !schedMapQ.isLoading && !schedMapQ.data;
+  const cannotSchedule = noCinemas || noScreens || noSeatMap;
 
   const submitSchedule = () => {
     if (noCinemas) return setSchedError('Create a cinema first — there is nowhere to play this.');
     if (noScreens) return setSchedError('This cinema has no screens yet. Add one first.');
     if (!sched.screenId) return setSchedError('Pick a screen.');
+    if (noSeatMap)
+      return setSchedError('This screen has no seat map yet — generate one before scheduling.');
     if (!sched.startsAt || !sched.endsAt) return setSchedError('Set start and end times.');
     if (new Date(sched.startsAt).getTime() < Date.now())
       return setSchedError('Start time must be in the future.');
@@ -442,9 +459,19 @@ export default function EditMoviePage() {
         <div className="space-y-4">
           {noCinemas ? (
             <div className="rounded-md border border-status-warning/30 bg-status-warning/5 p-3">
-              <p className="text-caption font-medium text-text-primary">You have no cinemas yet.</p>
+              {/*
+                Says what is and is NOT blocked. Read quickly, "You have no cinemas yet" in a
+                warning box looks like the movie failed to save — one organizer reported
+                exactly that. The movie is already saved; it is the SHOWTIME that needs
+                somewhere to play.
+              */}
+              <p className="text-caption font-medium text-text-primary">
+                Your movie is saved. To put it on sale it needs a cinema.
+              </p>
               <p className="mt-1 text-caption text-text-muted">
-                A show plays on a screen inside a cinema, so that comes first. It takes a minute.
+                A show plays on a screen inside a cinema, so that comes first. It takes a minute,
+                and you only do it once — after that this movie and every other one can be scheduled
+                on it.
               </p>
               <Link
                 href="/organizer/cinemas/new"
@@ -554,10 +581,21 @@ export default function EditMoviePage() {
                 ))}
               </div>
             ) : (
-              <p className="rounded-md bg-status-warning/10 p-3 text-caption text-text-secondary">
-                This screen has no seat map yet. Generate one from the cinema page before
-                scheduling, or the show will have no bookable seats.
-              </p>
+              <div className="rounded-md border border-status-warning/30 bg-status-warning/5 p-3">
+                <p className="text-caption font-medium text-text-primary">
+                  This screen has no seat map yet.
+                </p>
+                <p className="mt-1 text-caption text-text-muted">
+                  A movie show sells reserved seats, so the screen needs a seat layout before it can
+                  host one. Generating it takes a minute and you only do it once per screen.
+                </p>
+                <Link
+                  href={`/organizer/cinemas/${sched.cinemaId}/screens/${sched.screenId}/seatmap`}
+                  className="mt-2 inline-block text-caption font-medium text-action-primary"
+                >
+                  Generate the seat map →
+                </Link>
+              </div>
             ))}
 
           {schedError && (
