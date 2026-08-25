@@ -475,8 +475,18 @@ export const api = {
   },
 
   notifications: {
-    inbox: (params: { limit?: number; before?: string } = {}) =>
-      request<NotificationInbox>(`/notifications${qs(params)}`),
+    /**
+     * `audience` picks the stream: the organizer console asks for ORGANIZER, the customer
+     * site for CUSTOMER. One person can hold both roles, and their payout notices and their
+     * own ticket purchases belong on different screens. Omitted returns everything.
+     */
+    inbox: (
+      params: {
+        limit?: number;
+        before?: string;
+        audience?: 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
+      } = {},
+    ) => request<NotificationInbox>(`/notifications${qs(params)}`),
     unreadCount: () => request<{ unreadCount: number }>('/notifications/unread-count'),
     markRead: (id: string) =>
       request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
@@ -839,16 +849,42 @@ export const api = {
       }),
   },
 
+  bookingCoupon: {
+    /** Apply a code, or clear it by passing null. Returns the re-priced fees. */
+    set: (bookingId: string, code: string | null) =>
+      request<{ applied: boolean; code: string | null; fees: BookingResult['fees'] }>(
+        `/bookings/${bookingId}/coupon`,
+        { method: 'POST', body: JSON.stringify({ code }) },
+      ),
+  },
+
   receipts: {
     forBooking: (bookingId: string) => request<ReceiptSummary[]>(`/receipts/booking/${bookingId}`),
     get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
     /**
-     * Printable URL for one document. Returned as a string rather than fetched, because the
-     * page is meant to be opened in a tab and printed — pulling the HTML through the JSON
-     * client and injecting it would strip the print stylesheet and the browser's own
-     * save-as-PDF path.
+     * Open the printable document in a new tab.
+     *
+     * ── WHY THIS IS NOT AN href ────────────────────────────────────────────────────
+     * It was, and it returned 401. Authentication here is a bearer token held in
+     * localStorage, so a plain link opens a tab that sends no Authorization header — the
+     * browser has no idea the token exists. Reported from QA as "getting the error when
+     * trying to view the receipt", and it would have failed for every customer.
+     *
+     * Fetching with the token and handing the browser a blob keeps the document behind the
+     * same auth as everything else, with no second credential path to get wrong: no cookie
+     * to scope, no signed URL that works for anyone who copies it out of a chat. Print and
+     * save-as-PDF still work, because it is the same HTML in a real tab.
      */
-    htmlUrl: (id: string) => `${API_URL}/receipts/${id}/html`,
+    openHtml: async (id: string): Promise<void> => {
+      const res = await fetch(`${API_URL}/receipts/${id}/html`, {
+        headers: tokenStore.access ? { authorization: `Bearer ${tokenStore.access}` } : {},
+      });
+      if (!res.ok) throw new Error(`Could not load the document (${res.status}).`);
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank', 'noopener');
+      // Released on the next tick: revoking immediately can beat the new tab to the load.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
   },
 
   payouts: {
@@ -1679,6 +1715,8 @@ export interface Screen extends ScreenBody {
   status?: string;
   /** Returned when a status change is made, so the UI can warn before committing. */
   futureShowsRequiringAttention?: number;
+  /** False until a seat layout is published. A screen without one cannot host a show. */
+  hasSeatMap?: boolean;
 }
 
 export interface CinemaBody {

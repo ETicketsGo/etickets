@@ -12,8 +12,10 @@ export default function NotificationsPage() {
   const toast = useToast();
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['notifications', 'inbox'],
-    queryFn: () => api.notificationsInbox({ limit: 50 }),
+    queryKey: ['notifications', 'inbox', 'customer'],
+    // CUSTOMER only — the mirror of the organizer console's filter, so a person with both
+    // roles sees their tickets here and their payouts there.
+    queryFn: () => api.notificationsInbox({ limit: 50, audience: 'CUSTOMER' }),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['notifications'] });

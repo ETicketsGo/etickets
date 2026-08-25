@@ -200,9 +200,29 @@ export class CinemasService {
       _count: { _all: true },
     });
     const byScreen = new Map(counts.map((c) => [c.screenId, c._count._all]));
+
+    /*
+      Whether each screen can actually host a show.
+
+      A screen with no published seat layout cannot take a movie booking — scheduling one is
+      refused. Until now nothing said so until the refusal, so the Schedule dialog listed
+      every screen identically and the operator picked one by name and hoped. Reported from
+      QA as not being able to tell the screens apart.
+
+      One grouped query for the cinema, like the show counts above, rather than one per
+      screen.
+    */
+    const mapped = await this.prisma.seatMap.groupBy({
+      by: ['screenId'],
+      where: { screenId: { in: screens.map((s) => s.id) }, status: 'PUBLISHED' },
+      _count: { _all: true },
+    });
+    const hasMap = new Set(mapped.map((m) => m.screenId));
+
     return screens.map((s) => ({
       ...s,
       futureShowsRequiringAttention: byScreen.get(s.id) ?? 0,
+      hasSeatMap: hasMap.has(s.id),
     }));
   }
 

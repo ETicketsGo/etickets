@@ -18,6 +18,13 @@ async function ownerToken(request: APIRequestContext) {
   return apiLogin(request, OWNER);
 }
 
+async function call(path: string, request: APIRequestContext, token: string) {
+  const res = await request.get(`${API}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return (await res.json()) as { items?: { id: string }[] };
+}
+
 async function orgId(request: APIRequestContext, token: string): Promise<string> {
   const res = await request.get(`${API}/organizations`, {
     headers: { authorization: `Bearer ${token}` },
@@ -114,7 +121,7 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     expect((await still.json()).legalName).not.toBe('Manager Overwrite Ltd');
   });
 
-  test('9-11: the receipts page lists issued documents and links to a printable one', async ({
+  test('9-11: the receipts page lists issued documents and opens a printable one', async ({
     page,
     context,
     request,
@@ -135,8 +142,37 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     if (await table.isVisible()) {
       // A document number is the one thing every row must carry.
       await expect(page.getByText(/^(RCT|INV|CRN)-\d{4}-\d{6}$/).first()).toBeVisible();
-      const open = page.getByRole('link', { name: /Open/ }).first();
-      await expect(open).toHaveAttribute('href', /\/receipts\/[^/]+\/html$/);
+
+      /*
+        A BUTTON, not a link — and this assertion used to demand the opposite.
+
+        It asserted an `href` straight at the API, which is exactly what shipped and exactly
+        what returned 401 in QA: authentication is a bearer token in localStorage, so a plain
+        link opens a tab carrying no Authorization header. The document is now fetched with
+        the token and handed to the browser as a blob.
+
+        So the test pins the REASON rather than the markup: the endpoint must refuse an
+        unauthenticated request and serve an authenticated one.
+      */
+      await expect(page.getByRole('button', { name: /Open/ }).first()).toBeVisible();
+
+      const id = (
+        await call(
+          `/organizations/${await orgId(request, tokens.accessToken)}/receipts?pageSize=1`,
+          request,
+          tokens.accessToken,
+        )
+      ).items?.[0]?.id;
+      expect(id, 'expected at least one issued document').toBeTruthy();
+
+      const anonymous = await request.get(`${API}/receipts/${id}/html`);
+      expect(anonymous.status(), 'an unauthenticated fetch must be refused').toBe(401);
+
+      const authed = await request.get(`${API}/receipts/${id}/html`, {
+        headers: { authorization: `Bearer ${tokens.accessToken}` },
+      });
+      expect(authed.status()).toBe(200);
+      expect(await authed.text()).toContain('<!doctype html>');
     }
   });
 

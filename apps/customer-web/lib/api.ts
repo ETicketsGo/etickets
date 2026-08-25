@@ -62,10 +62,12 @@ export const api = {
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
-  // Financial documents for a booking. The list is JSON; the printable page is opened
-  // directly by URL so the browser's own print / save-as-PDF path stays intact.
+  setBookingCoupon: wk.bookingCoupon.set,
+  // Financial documents for a booking. The printable page is FETCHED with the access token
+  // and opened as a blob — a plain link would open a tab carrying no Authorization header,
+  // which is exactly the 401 this used to produce.
   bookingReceipts: wk.receipts.forBooking,
-  receiptHtmlUrl: wk.receipts.htmlUrl,
+  openReceipt: wk.receipts.openHtml,
   // Alias for the pay call — returns { providerRef, clientActionUrl }. For real
   // Stripe the URL is an external hosted Checkout page; the local mock returns a
   // same-origin path handled by mockPay.
@@ -143,8 +145,11 @@ export const api = {
   }) => wk.push.subscribe(body),
   pushUnsubscribe: (endpoint: string) => wk.push.unsubscribe(endpoint),
   // Notification center (v1.2 WS8): in-app inbox + read state.
-  notificationsInbox: (params?: { limit?: number; before?: string }) =>
-    wk.notifications.inbox(params),
+  notificationsInbox: (params?: {
+    limit?: number;
+    before?: string;
+    audience?: 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
+  }) => wk.notifications.inbox(params),
   notificationsUnreadCount: () => wk.notifications.unreadCount(),
   markNotificationRead: (id: string) => wk.notifications.markRead(id),
   markAllNotificationsRead: () => wk.notifications.markAllRead(),

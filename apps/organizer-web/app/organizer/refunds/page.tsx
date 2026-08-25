@@ -103,14 +103,17 @@ export default function RefundsPage() {
       header: 'Credit note',
       render: (r) =>
         r.creditNote ? (
-          <a
-            href={api.receipts.htmlUrl(r.creditNote.id)}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() =>
+              api.receipts
+                .openHtml(r.creditNote!.id)
+                .catch((e) => toast.push(errorMessage(e), 'error'))
+            }
             className="inline-flex items-center gap-1 text-caption text-brand hover:underline"
           >
             {r.creditNote.number} <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          </button>
         ) : (
           <span className="text-caption text-text-muted">—</span>
         ),

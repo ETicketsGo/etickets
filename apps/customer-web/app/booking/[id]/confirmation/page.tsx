@@ -133,18 +133,17 @@ export default function ConfirmationPage() {
           <span className="font-semibold text-text-primary">{money(booking.totalMinor)}</span>
         </div>
         {receipt && (
-          <a
-            href={api.receiptHtmlUrl(receipt.id)}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between border-t border-border pt-3 text-[0.9375rem] text-brand hover:underline"
+          <button
+            type="button"
+            onClick={() => void api.openReceipt(receipt.id)}
+            className="flex w-full items-center justify-between border-t border-border pt-3 text-left text-[0.9375rem] text-brand hover:underline"
           >
             <span className="inline-flex items-center gap-2">
               <ReceiptText className="h-4 w-4" />
               {receipt.kind === 'TAX_INVOICE' ? 'Tax invoice' : 'Receipt'} {receipt.number}
             </span>
             <span>View</span>
-          </a>
+          </button>
         )}
       </Card>
 

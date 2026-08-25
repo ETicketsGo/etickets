@@ -534,9 +534,17 @@ export default function EditMoviePage() {
                     ? 'No screens in this cinema'
                     : 'Select a screen…'}
             </option>
+            {/*
+              Readiness on the face of the option.
+
+              Every screen used to look identical here, so an operator picked one by name and
+              only discovered it had no seat layout after submitting. Saying it up front turns
+              a refusal into a choice.
+            */}
             {(screensQ.data ?? []).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} · {s.screenType}
+                {s.hasSeatMap === false ? ' — no seat map yet' : ''}
               </option>
             ))}
           </Select>

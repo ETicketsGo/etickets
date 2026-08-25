@@ -34,6 +34,10 @@ test('customer books a movie seat and pays', async ({ page }) => {
   expect(chosen, `expected a row-qualified seat name, got "${seatAria}"`).not.toBe('');
   await seat.click();
 
+  // The summary panel must name the ROW, not just the number. It listed "11, 12" and left
+  // the buyer to work out which row from a map they had clicked away from.
+  await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible({ timeout: 10_000 });
+
   // Proceed to the (shared) payment flow
   await page.getByRole('button', { name: /Proceed to pay/i }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
@@ -45,6 +49,20 @@ test('customer books a movie seat and pays', async ({ page }) => {
   */
   await expect(page.getByText(/^Seats?$/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(chosen, { exact: false })).toBeVisible();
+
+  /*
+    Somewhere to put a discount code.
+
+    Reported from QA: an organizer created a promotion and found nowhere in the buying flow
+    to use it. The API had always accepted one — but only at booking CREATION, while the
+    buyer is picking seats rather than looking at a total.
+  */
+  const codeBox = page.getByLabel('Discount code');
+  await expect(codeBox).toBeVisible();
+  await codeBox.fill('DEFINITELY-NOT-A-CODE');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  // A box that accepts anything and changes nothing would be worse than one that says no.
+  await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole('button', { name: /Pay/ }).click();
 

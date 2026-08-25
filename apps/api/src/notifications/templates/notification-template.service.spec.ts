@@ -76,6 +76,61 @@ describe('NotificationTemplateService', () => {
       expect(out.body).not.toMatch(/\son\s\./);
     });
 
+    /*
+      Reported from QA: the ticket said 9:28 pm and the notification said 8:58 am the next
+      day. Both rendered the same instant — the pages use the reader's browser zone, and this
+      template had Asia/Kolkata hardcoded. A showtime is not a fact about the reader.
+    */
+    it('quotes the time at the VENUE, and names the zone', () => {
+      const out = svc.render(NotificationType.BOOKING_CONFIRMED, 'en', {
+        reference: 'ETG-IND-2026-000011',
+        eventTitle: 'Movie 1',
+        startsAt: '2026-08-26T03:28:00.000Z',
+        timeZone: 'Asia/Kolkata',
+        tickets: 2,
+      });
+      expect(out.body).toContain('26 Aug 2026');
+      expect(out.body).toContain('8:58');
+      // Unlabelled is the ambiguity that produced the report in the first place.
+      expect(out.body).toMatch(/\((GMT\+5:30|IST)\)/);
+    });
+
+    it('renders the same instant differently for a venue in another zone', () => {
+      // The property that matters: the clock follows the cinema, not the server.
+      const at = '2026-08-26T03:28:00.000Z';
+      const ist = svc.render(NotificationType.BOOKING_CONFIRMED, 'en', {
+        startsAt: at,
+        timeZone: 'Asia/Kolkata',
+        tickets: 1,
+      }).body;
+      const chicago = svc.render(NotificationType.BOOKING_CONFIRMED, 'en', {
+        startsAt: at,
+        timeZone: 'America/Chicago',
+        tickets: 1,
+      }).body;
+      expect(ist).not.toBe(chicago);
+      expect(ist).toContain('26 Aug 2026');
+      expect(chicago).toContain('25 Aug 2026');
+    });
+
+    it('falls back to UTC and says so rather than guessing the server zone', () => {
+      const out = svc.render(NotificationType.BOOKING_CONFIRMED, 'en', {
+        startsAt: '2026-08-26T03:28:00.000Z',
+        tickets: 1,
+      });
+      expect(out.body).toContain('(UTC)');
+    });
+
+    it('survives an unresolvable timezone rather than losing the confirmation', () => {
+      const out = svc.render(NotificationType.BOOKING_CONFIRMED, 'en', {
+        startsAt: '2026-08-26T03:28:00.000Z',
+        timeZone: 'Mars/Olympus_Mons',
+        tickets: 1,
+      });
+      expect(out.body).toContain('(UTC)');
+      expect(out.body).toContain('1 ticket confirmed');
+    });
+
     it('shows a refund as money, not as minor units', () => {
       const out = svc.render(NotificationType.REFUND_COMPLETED, 'en', {
         reference: 'ETG-IND-2026-000123',

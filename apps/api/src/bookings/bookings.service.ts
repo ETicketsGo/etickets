@@ -403,6 +403,112 @@ export class BookingsService {
     return result;
   }
 
+  /**
+   * Apply or clear a discount code on a booking that has not been paid for yet.
+   *
+   * ── WHY THIS EXISTS AT CHECKOUT AND NOT ONLY AT BOOKING TIME ───────────────────────
+   * A code could always be passed when the booking was CREATED, which is the moment the
+   * buyer is picking seats — not the moment they are thinking about money. Reported from
+   * QA: an organizer made a promotion and then found nowhere in the customer flow to use
+   * it. A discount box belongs on the screen showing the total.
+   *
+   * ── WHAT MAKES THIS SAFE TO DO AFTER THE FACT ──────────────────────────────────────
+   * Re-pricing a booking is only safe while nothing downstream has acted on the old price.
+   * Two conditions are checked, and both are refusals rather than warnings:
+   *
+   *   - the booking is still PENDING_PAYMENT, so no ticket has been issued;
+   *   - the payment has not been handed to a provider yet (no providerRef, still
+   *     REQUIRES_PAYMENT). Once an intent exists at the gateway it holds an amount, and
+   *     changing ours behind it is how a charge and a booking come to disagree.
+   *
+   * The Payment row is updated in the same transaction as the booking, because a total and
+   * the amount to be charged that disagree is the one outcome worth crashing to avoid.
+   */
+  async applyCoupon(user: RequestUser | null, bookingId: string, code: string | null) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        payment: true,
+        event: { select: { feeMode: true } },
+      },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    if (user && booking.userId && booking.userId !== user.id) {
+      throw new AppException(ErrorCodes.FORBIDDEN, 'Forbidden.', HttpStatus.FORBIDDEN);
+    }
+    if (booking.status !== BookingStatus.PENDING_PAYMENT) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This booking can no longer be re-priced.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (
+      booking.payment &&
+      (booking.payment.status !== PaymentStatus.REQUIRES_PAYMENT || booking.payment.providerRef)
+    ) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Payment has already started for this booking, so the price is fixed. Cancel and rebook to use a code.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const trimmed = code?.trim() ? code.trim() : undefined;
+    const { discountMinor, couponId } = await this.resolveCoupon(trimmed, booking.subtotalMinor);
+    // An unrecognised code is told to the buyer rather than silently ignored: a discount box
+    // that accepts anything and changes nothing is worse than one that says no.
+    if (trimmed && !couponId) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'That code is not valid for this booking.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const fees = await this.pricing.quote(
+      booking.subtotalMinor,
+      booking.feeMode as FeeMode,
+      discountMinor,
+      booking.currency,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          couponId,
+          discountMinor: fees.discountMinor,
+          bookingFeeMinor: fees.bookingFeeMinor,
+          paymentFeeMinor: fees.paymentFeeMinor,
+          customerFeeMinor: fees.customerFeeMinor,
+          organizerFeeMinor: fees.organizerFeeMinor,
+          taxMinor: fees.taxMinor,
+          totalMinor: fees.totalMinor,
+          // Re-priced from scratch, so any previous tax lines are replaced rather than
+          // added to — leaving stale ones would double-count on the receipt.
+          taxLines: {
+            deleteMany: {},
+            create: fees.taxLines.map((t) => ({
+              label: t.label,
+              rateBasisPoints: t.rateBasisPoints,
+              baseMinor: t.baseMinor,
+              amountMinor: t.amountMinor,
+            })),
+          },
+        },
+      });
+      await tx.payment.updateMany({
+        where: { bookingId: booking.id },
+        data: { amountMinor: fees.totalMinor },
+      });
+    });
+
+    return { applied: Boolean(couponId), code: trimmed ?? null, fees };
+  }
+
   private async resolveCoupon(code: string | undefined, subtotal: number) {
     if (!code) return { discountMinor: 0, couponId: null as string | null };
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
