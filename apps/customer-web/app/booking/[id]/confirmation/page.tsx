@@ -37,6 +37,24 @@ export default function ConfirmationPage() {
   // The document is issued in the same transaction that confirms the booking, so it exists
   // by the time the status flips — but only then. Gate the query on CONFIRMED rather than
   // polling for a document that cannot yet exist.
+  /*
+    The tickets themselves, on the confirmation screen.
+
+    Requested from QA: "once booking confirmed, along with confirmation show the tickets, do
+    not need to click on view tickets". The QR is the thing the buyer came for and the thing
+    they need at the door — putting it one click away on a page they have already reached is
+    a step that earns nothing.
+
+    Gated on CONFIRMED because tickets are minted at confirmation; before that there is
+    nothing to fetch. The wallet returns every ticket the account holds, so it is filtered to
+    this booking rather than showing somebody their whole history on a confirmation page.
+  */
+  const ticketsQ = useQuery({
+    queryKey: ['tickets', 'wallet'],
+    queryFn: () => api.wallet(),
+    enabled: booking?.status === 'CONFIRMED',
+  });
+
   const receipts = useQuery({
     queryKey: ['booking', id, 'receipts'],
     queryFn: () => api.bookingReceipts(id),
@@ -57,6 +75,7 @@ export default function ConfirmationPage() {
   // The sale document. A credit note may also be present after a refund; the confirmation
   // screen shows the sale.
   const receipt = receipts.data?.find((r) => r.kind !== 'CREDIT_NOTE');
+  const tickets = (ticketsQ.data ?? []).filter((t) => t.bookingId === id);
   const ics = buildIcsDataUrl({
     title: booking.event.title,
     description: 'Your ETicketsGo booking',
@@ -149,9 +168,45 @@ export default function ConfirmationPage() {
 
       {confirmed && (
         <>
+          {/*
+            The QR, right here. It is what the buyer came for and what the door scans.
+          */}
+          {tickets.length > 0 ? (
+            <div className="space-y-3">
+              {tickets.map((t) => (
+                <Card key={t.id} className="flex items-center gap-4">
+                  <img
+                    src={t.qrDataUrl}
+                    alt={`Entry QR code for ticket ${t.serial}`}
+                    className="h-28 w-28 shrink-0 rounded-md bg-white p-1"
+                  />
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-semibold text-text-primary">{booking.event.title}</p>
+                    <p className="text-[0.9375rem] text-text-muted">
+                      {dateTime(booking.eventSession.startsAt)}
+                    </p>
+                    {t.seatLabel ? (
+                      <p className="text-[0.9375rem] text-text-primary">
+                        Seat <strong>{t.seatLabel}</strong>
+                        {t.screenName ? ` · ${t.screenName}` : ''}
+                      </p>
+                    ) : null}
+                    <p className="font-mono text-caption text-text-muted">{t.serial}</p>
+                  </div>
+                </Card>
+              ))}
+              <p className="text-caption text-text-muted">
+                Show this at the door. It is also saved in your tickets, and a copy is on its way to{' '}
+                {booking.buyerEmail}.
+              </p>
+            </div>
+          ) : ticketsQ.isLoading ? (
+            <div className="h-32 animate-pulse rounded-lg bg-background-subtle" />
+          ) : null}
+
           <div className="flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/account/tickets" className="flex-1">
-              View my ticket
+              All my tickets
             </ButtonLink>
             <a
               href={ics}

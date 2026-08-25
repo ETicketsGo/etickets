@@ -41,6 +41,27 @@ export const createBookingSchema = z
   });
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
+/**
+ * Price a cart WITHOUT creating anything.
+ *
+ * The buyer's cart, minus the buyer. A quote holds no seats, writes no rows and redeems no
+ * coupon — it exists so the seat screen can show fees and tax before the customer commits,
+ * instead of the total appearing for the first time one screen later.
+ */
+export const quoteBookingSchema = z
+  .object({
+    eventSessionId: z.string().cuid(),
+    items: z.array(bookingItemSchema).max(50).default([]),
+    addOns: z.array(addOnItemSchema).max(50).optional(),
+    bundles: z.array(bundleItemInputSchema).max(20).optional(),
+    couponCode: z.string().trim().max(40).optional(),
+  })
+  .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
+    message: 'Add at least one item to price.',
+    path: ['items'],
+  });
+export type QuoteBookingInput = z.infer<typeof quoteBookingSchema>;
+
 export const createPaymentSchema = z.object({
   bookingId: z.string().cuid(),
 });

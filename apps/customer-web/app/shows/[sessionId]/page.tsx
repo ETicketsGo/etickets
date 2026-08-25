@@ -35,6 +35,16 @@ function readableTextOn(hex?: string): string {
   return luminance > 0.6 ? 'var(--text-primary)' : '#ffffff';
 }
 
+/** One line of the price breakdown. Mirrors the payment screen so the two read alike. */
+function Line({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-[0.9375rem]">
+      <span className="text-text-secondary">{label}</span>
+      <span className="text-text-primary">{value}</span>
+    </div>
+  );
+}
+
 export default function SeatSelectionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
@@ -113,6 +123,52 @@ export default function SeatSelectionPage() {
     return byCat;
   }, [selected, seatsById, seatLabelById]);
 
+  /*
+    Price the cart here, not on the next screen.
+
+    Reported from QA: this panel showed a ticket subtotal and the words "transparent fees
+    shown on the next step", so the number the buyer actually pays first appeared AFTER they
+    had committed to seats. The quote endpoint holds nothing and writes nothing, so it is
+    safe to call on every change to the selection or the code.
+  */
+  const [code, setCode] = useState('');
+  const [appliedCode, setAppliedCode] = useState<string | null>(null);
+
+  // The seat category already names the ticket type that sells it, which is what the
+  // booking call uses too — so a quote and the booking price the identical cart.
+  const items = useMemo(
+    () =>
+      Array.from(grouped.entries()).map(([catId, entry]) => ({
+        ticketTypeId: categoriesById.get(catId)?.ticketTypeId ?? '',
+        quantity: entry.seatIds.length,
+        seatIds: entry.seatIds,
+      })),
+    [grouped, categoriesById],
+  );
+
+  const quoteQ = useQuery({
+    queryKey: ['quote', sessionId, items, appliedCode],
+    queryFn: () =>
+      api.quoteBooking({
+        eventSessionId: sessionId,
+        items,
+        ...(appliedCode ? { couponCode: appliedCode } : {}),
+      }),
+    enabled: items.length > 0 && items.every((i) => i.ticketTypeId),
+    // A stale price is worse than a brief spinner: this is the number the buyer is agreeing
+    // to, and the fee tiers it comes from are per-order.
+    staleTime: 0,
+  });
+  const quote = quoteQ.data?.fees;
+  const codeRejected = Boolean(appliedCode) && quoteQ.data?.coupon.applied === false;
+
+  /** Offers the organizer chose to advertise. Private codes are typed, never listed. */
+  const offersQ = useQuery({
+    queryKey: ['offers', sessionId],
+    queryFn: () => api.sessionOffers(sessionId),
+    staleTime: 300_000,
+  });
+
   const total = useMemo(() => {
     let sum = 0;
     grouped.forEach((entry, catId) => {
@@ -147,6 +203,9 @@ export default function SeatSelectionPage() {
       return api.createBooking({
         eventSessionId: sessionId,
         items,
+        // Carried through, so the price quoted on this screen is the price booked. Without
+        // this the buyer would watch a discount they applied vanish on the next step.
+        ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
         buyerName: me.fullName,
         buyerEmail: me.email,
       });
@@ -386,15 +445,125 @@ export default function SeatSelectionPage() {
               </div>
             )}
 
+            {/*
+              A discount code, and the offers worth advertising.
+
+              The dropdown lists only codes the organizer PUBLISHED. Listing every active code
+              would leak the ones whose whole value is that not everyone has them — so private
+              codes are still typed into the box beside it.
+            */}
+            {selected.length > 0 && (
+              <div className="mt-4 border-t border-border pt-4">
+                {appliedCode && !codeRejected ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[0.9375rem] text-text-secondary">
+                      Code <strong className="text-text-primary">{appliedCode}</strong> applied
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAppliedCode(null);
+                        setCode('');
+                      }}
+                      className="text-caption text-text-muted underline hover:text-text-primary"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(offersQ.data?.length ?? 0) > 0 && (
+                      <select
+                        aria-label="Available offers"
+                        value=""
+                        onChange={(e) => {
+                          if (!e.target.value) return;
+                          setCode(e.target.value);
+                          setAppliedCode(e.target.value);
+                        }}
+                        className="w-full rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <option value="">Available offers…</option>
+                        {offersQ.data!.map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.code} — {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex items-start gap-2">
+                      <input
+                        aria-label="Discount code"
+                        placeholder="Have a code?"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.toUpperCase())}
+                        className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      />
+                      <button
+                        type="button"
+                        disabled={!code.trim()}
+                        onClick={() => setAppliedCode(code.trim())}
+                        className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {codeRejected && (
+                      <p role="alert" className="text-caption text-status-error">
+                        That code is not valid for this booking.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/*
+              The full breakdown, here rather than one screen later.
+
+              The line this replaced read "Transparent fees shown on the next step" — an
+              apology for showing the buyer a number that was not what they would pay. The
+              quote is priced by the same code the booking uses, so the two cannot disagree.
+            */}
             <div className="mt-4 border-t border-border pt-4">
-              <div className="flex items-center justify-between">
+              {quote ? (
+                <div className="space-y-1" data-testid="price-breakdown">
+                  <Line label="Tickets" value={money(quote.subtotalMinor)} />
+                  {quote.discountMinor > 0 && (
+                    <Line label="Discount" value={`- ${money(quote.discountMinor)}`} />
+                  )}
+                  {quote.bookingFeeMinor > 0 && (
+                    <Line label="Booking fee" value={money(quote.bookingFeeMinor)} />
+                  )}
+                  {quote.paymentFeeMinor > 0 && (
+                    <Line label="Payment fee" value={money(quote.paymentFeeMinor)} />
+                  )}
+                  {(quote.taxLines ?? []).map((t) => (
+                    <Line
+                      key={`${t.label}-${t.rateBasisPoints}`}
+                      label={`${t.label} (${(t.rateBasisPoints / 100).toFixed(
+                        t.rateBasisPoints % 100 === 0 ? 0 : 2,
+                      )}%)`}
+                      value={money(t.amountMinor)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
                 <span className="text-[0.9375rem] text-text-secondary">
                   Total ({selected.length} seat{selected.length === 1 ? '' : 's'})
                 </span>
-                <span className="text-title font-bold text-text-primary">{money(total)}</span>
+                <span className="text-title font-bold text-text-primary">
+                  {money(quote ? quote.totalMinor : total)}
+                </span>
               </div>
               <p className="mt-1 text-caption text-text-muted">
-                Transparent fees shown on the next step.
+                {quote
+                  ? 'This is the full amount you will pay.'
+                  : quoteQ.isFetching
+                    ? 'Working out fees…'
+                    : 'Fees are added once you pick a seat.'}
               </p>
             </div>
 

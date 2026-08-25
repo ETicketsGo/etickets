@@ -38,6 +38,26 @@ test('customer books a movie seat and pays', async ({ page }) => {
   // the buyer to work out which row from a map they had clicked away from.
   await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible({ timeout: 10_000 });
 
+  /*
+    The full price, on THIS screen.
+
+    It used to show a ticket subtotal and the words "transparent fees shown on the next
+    step" — so the number the buyer actually pays first appeared after they had committed to
+    seats. The quote holds nothing, so it can be shown before anything is reserved.
+  */
+  const breakdown = page.getByTestId('price-breakdown');
+  await expect(breakdown).toBeVisible({ timeout: 20_000 });
+  await expect(breakdown.getByText('Tickets')).toBeVisible();
+  await expect(breakdown.getByText('Booking fee')).toBeVisible();
+  await expect(page.getByText(/full amount you will pay/i)).toBeVisible();
+
+  // A code box lives here too, and a private code is typed rather than listed.
+  const seatCode = page.getByLabel('Discount code');
+  await expect(seatCode).toBeVisible();
+  await seatCode.fill('DEFINITELY-NOT-A-CODE');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+
   // Proceed to the (shared) payment flow
   await page.getByRole('button', { name: /Proceed to pay/i }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
@@ -68,4 +88,16 @@ test('customer books a movie seat and pays', async ({ page }) => {
 
   // Confirmation
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
+
+  /*
+    The ticket itself, without a second click.
+
+    The QR is what the buyer came for and what the door scans; putting it one navigation away
+    from a page they have already reached earns nothing.
+  */
+  const qr = page.getByRole('img', { name: /Entry QR code/i }).first();
+  await expect(qr).toBeVisible({ timeout: 30_000 });
+  await expect(qr).toHaveAttribute('src', /^data:image\//);
+  // And the seat is named on it, so the buyer knows where to sit without opening anything.
+  await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible();
 });

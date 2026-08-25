@@ -4,7 +4,9 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   createBookingSchema,
   paginationSchema,
+  quoteBookingSchema,
   type CreateBookingInput,
+  type QuoteBookingInput,
 } from '@eticketsgo/validation';
 import { BookingsService } from './bookings.service';
 import { BookingExecutionRouter } from './orchestration/booking-execution-router.service';
@@ -50,6 +52,20 @@ export class BookingsController {
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     return this.router.getStatus({ user, bookingId: id, correlationId });
+  }
+
+  @Post('quote')
+  @Public()
+  @ApiOperation({ summary: 'Price a cart without creating a booking or holding seats.' })
+  quote(@Body(new ZodValidationPipe(quoteBookingSchema)) body: QuoteBookingInput) {
+    return this.bookings.quote(body);
+  }
+
+  @Get('offers/:eventSessionId')
+  @Public()
+  @ApiOperation({ summary: 'Discount codes an organizer has published for this session.' })
+  offers(@Param('eventSessionId') eventSessionId: string) {
+    return this.bookings.publicOffers(eventSessionId);
   }
 
   @Post(':id/coupon')

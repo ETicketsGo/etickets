@@ -849,6 +849,27 @@ export const api = {
       }),
   },
 
+  /**
+   * Price a cart before committing to it. Holds nothing, writes nothing, redeems nothing —
+   * so it is safe to call on every change to the selection or the code.
+   */
+  bookingQuote: {
+    price: (body: {
+      eventSessionId: string;
+      items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+      couponCode?: string;
+    }) =>
+      request<{
+        fees: BookingResult['fees'];
+        coupon: { code: string | null; applied: boolean };
+      }>('/bookings/quote', { method: 'POST', body: JSON.stringify(body), auth: false }),
+    /** Codes the organizer chose to advertise. Private codes are never listed. */
+    offers: (eventSessionId: string) =>
+      request<{ code: string; label: string }[]>(`/bookings/offers/${eventSessionId}`, {
+        auth: false,
+      }),
+  },
+
   bookingCoupon: {
     /** Apply a code, or clear it by passing null. Returns the re-priced fees. */
     set: (bookingId: string, code: string | null) =>
@@ -1658,6 +1679,9 @@ export interface Coupon {
   status: string;
   createdAt: string;
   updatedAt: string;
+  /** Whether buyers are shown this code at checkout. */
+  isPublic?: boolean;
+  publicLabel?: string | null;
 }
 export interface CreateCouponBody {
   organizationId: string;
@@ -1665,12 +1689,17 @@ export interface CreateCouponBody {
   type: CouponType;
   value: number;
   maxRedemptions?: number;
+  /** Show this code to every buyer at checkout. Off unless deliberately set. */
+  isPublic?: boolean;
+  publicLabel?: string;
   startsAt?: string;
   endsAt?: string;
 }
 export interface UpdateCouponBody {
   value?: number;
   maxRedemptions?: number | null;
+  isPublic?: boolean;
+  publicLabel?: string | null;
   startsAt?: string | null;
   endsAt?: string | null;
   status?: 'ACTIVE' | 'INACTIVE';

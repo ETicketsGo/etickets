@@ -29,6 +29,8 @@ interface FormState {
   maxRedemptions: string;
   startsAt: string;
   endsAt: string;
+  isPublic: boolean;
+  publicLabel: string;
 }
 const EMPTY: FormState = {
   code: '',
@@ -37,6 +39,10 @@ const EMPTY: FormState = {
   maxRedemptions: '',
   startsAt: '',
   endsAt: '',
+  // Private by default. A code mailed to lapsed customers or given to one partner is worth
+  // exactly its scarcity, and a buyer cannot un-see one that was shown by accident.
+  isPublic: false,
+  publicLabel: '',
 };
 
 export default function PromotionsPage() {
@@ -86,6 +92,8 @@ export default function PromotionsPage() {
           maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : undefined,
           startsAt: iso(form.startsAt),
           endsAt: iso(form.endsAt),
+          isPublic: form.isPublic,
+          publicLabel: form.publicLabel.trim() || undefined,
         });
       }
       return api.coupons.update(editing!.id, {
@@ -93,6 +101,8 @@ export default function PromotionsPage() {
         maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
         startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
         endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
+        isPublic: form.isPublic,
+        publicLabel: form.publicLabel.trim() || null,
       });
     },
     onSuccess: () => {
@@ -139,6 +149,8 @@ export default function PromotionsPage() {
       type: c.type,
       value: String(c.value),
       maxRedemptions: c.maxRedemptions != null ? String(c.maxRedemptions) : '',
+      isPublic: Boolean(c.isPublic),
+      publicLabel: c.publicLabel ?? '',
       startsAt: c.startsAt ? c.startsAt.slice(0, 10) : '',
       endsAt: c.endsAt ? c.endsAt.slice(0, 10) : '',
     });
@@ -172,6 +184,18 @@ export default function PromotionsPage() {
         c.startsAt || c.endsAt
           ? `${c.startsAt ? dateOnly(c.startsAt) : '…'} – ${c.endsAt ? dateOnly(c.endsAt) : '…'}`
           : 'Always',
+    },
+    {
+      key: 'visibility',
+      header: 'Visibility',
+      // Worth a column of its own: whether a code is being advertised is the difference
+      // between a promotion and a leak, and it should be readable at a glance rather than
+      // only by opening the edit dialog.
+      render: (c) => (
+        <span className="text-caption text-text-secondary">
+          {c.isPublic ? 'Shown at checkout' : 'Private — typed only'}
+        </span>
+      ),
     },
     { key: 'status', header: 'Status', render: (c) => <StatusBadge status={c.status} /> },
     {
@@ -300,6 +324,45 @@ export default function PromotionsPage() {
               onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
             />
           </div>
+
+          {/*
+            Publishing is opt-in, and worth pausing over.
+
+            A code you mailed to lapsed customers, gave to one partner, or handed an
+            influencer is worth exactly its scarcity. Showing it to every buyer destroys that
+            silently, and there is no undo — a code people have already seen cannot be unseen.
+            Unpublished codes still work perfectly; buyers type them.
+          */}
+          <div className="rounded-md border border-border p-3">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={form.isPublic}
+                onChange={(e) => setForm({ ...form, isPublic: e.target.checked })}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
+              />
+              <span>
+                <span className="text-[0.9375rem] font-medium text-text-primary">
+                  Show this code to every buyer at checkout
+                </span>
+                <span className="mt-0.5 block text-caption text-text-muted">
+                  Off by default. Leave it off for a code you sent to specific people — it still
+                  works when they type it, and stays worth something.
+                </span>
+              </span>
+            </label>
+            {form.isPublic && (
+              <Input
+                id="publicLabel"
+                className="mt-3"
+                label="How to describe it (optional)"
+                placeholder="e.g. 10% off your first booking"
+                value={form.publicLabel}
+                onChange={(e) => setForm({ ...form, publicLabel: e.target.value })}
+              />
+            )}
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setDialog(null)}>
               Cancel

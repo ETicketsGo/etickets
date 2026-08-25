@@ -35,10 +35,20 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
 
   // Confirmation
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await expect(page.getByRole('link', { name: 'View my ticket' })).toBeVisible({ timeout: 20_000 });
+  /*
+    The QR is on the confirmation itself now — no second click.
+
+    This used to assert only that a link to the wallet existed, which is a weaker claim: it
+    proved a route was reachable, not that the buyer had their ticket. Both tickets from this
+    two-ticket booking must be here.
+  */
+  const qrs = page.getByRole('img', { name: /Entry QR code/i });
+  await expect(qrs.first()).toBeVisible({ timeout: 30_000 });
+  await expect(qrs).toHaveCount(2);
+  await expect(qrs.first()).toHaveAttribute('src', /^data:image\//);
 
   // Ticket wallet: the multi-ticket booking shows as ONE booking group card
-  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);
   await expect(page.getByRole('article')).toHaveCount(1);
   await expect(page.getByText('2 tickets')).toBeVisible({ timeout: 20_000 });
@@ -96,7 +106,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: 'All my tickets' }).click();
 
   // Open the ticket viewer and invite an attendee by email
   await page.getByRole('link', { name: /View ticket/ }).click();
@@ -147,7 +157,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
   await page.getByRole('button', { name: /Pay/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/confirmation/, { timeout: 20_000 });
-  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: 'All my tickets' }).click();
   await page.getByRole('link', { name: /View ticket/ }).click();
   await expect(page).toHaveURL(/\/account\/bookings\/.+\/tickets/);
   const viewerUrl = page.url();

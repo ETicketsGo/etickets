@@ -60,6 +60,10 @@ export class CouponsService {
           maxRedemptions: input.maxRedemptions,
           startsAt: input.startsAt,
           endsAt: input.endsAt,
+          // Private unless deliberately published — see the schema comment. Publishing is a
+          // one-way door in practice: a code buyers have already seen cannot be unseen.
+          isPublic: input.isPublic ?? false,
+          publicLabel: input.publicLabel,
           status: 'ACTIVE',
         },
       });
@@ -69,7 +73,12 @@ export class CouponsService {
         action: 'COUPON_CREATED',
         entityType: 'Coupon',
         entityId: coupon.id,
-        metadata: { code: coupon.code, type: coupon.type, value: coupon.value },
+        metadata: {
+          code: coupon.code,
+          type: coupon.type,
+          value: coupon.value,
+          isPublic: coupon.isPublic,
+        },
       });
       return coupon;
     } catch (e) {
@@ -94,6 +103,8 @@ export class CouponsService {
         startsAt: input.startsAt === undefined ? undefined : input.startsAt,
         endsAt: input.endsAt === undefined ? undefined : input.endsAt,
         status: input.status ?? undefined,
+        isPublic: input.isPublic ?? undefined,
+        publicLabel: input.publicLabel === undefined ? undefined : input.publicLabel,
       },
     });
     await this.audit.record({
