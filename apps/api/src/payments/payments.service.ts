@@ -349,7 +349,12 @@ export class PaymentsService {
       where: { id: event.bookingId },
       include: {
         items: true,
-        event: { select: { experienceType: true, venue: { select: { country: true } } } },
+        // `title` and the session start are read only so the confirmation notification can
+        // name what the customer is going to, instead of quoting a database id at them.
+        event: {
+          select: { title: true, experienceType: true, venue: { select: { country: true } } },
+        },
+        eventSession: { select: { startsAt: true } },
       },
     });
     if (!booking)
@@ -398,6 +403,13 @@ export class PaymentsService {
     const expectedUnits = ticketItems.reduce((s, i) => s + i.quantity, 0);
     const ticketCount = booking.items.reduce((s, i) => s + i.quantity, 0);
     let alreadyConfirmed = false;
+    // Captured out of the transaction so the notification can name the booking the way the
+    // customer sees it, rather than by its database id.
+    let assignedReference: string | null = null;
+    // Collected as the tickets are minted, rather than read back afterwards: the seat labels
+    // are already in hand at that point, and a second query would be asking the database to
+    // repeat something this method just decided.
+    let issuedSeatLabels: string[] = [];
     // The BookingConfirmed fact, built + durably recorded inside the confirm tx (ADR-041).
     let confirmedEvent: DomainEvent | null = null;
 
@@ -420,6 +432,7 @@ export class PaymentsService {
         country: booking.event.venue?.country,
         at: new Date(),
       });
+      assignedReference = reference;
       await tx.booking.update({ where: { id: booking.id }, data: { reference } });
 
       // Issue the receipt (or tax invoice) in the SAME transaction that confirms the
@@ -449,6 +462,11 @@ export class PaymentsService {
           { bookingId: booking.id },
         );
       }
+      issuedSeatLabels = specs
+        .map((spec) => spec.seatLabel)
+        .filter((l): l is string => Boolean(l))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
       for (const spec of specs) {
         await tx.ticket.create({
           data: {
@@ -519,11 +537,30 @@ export class PaymentsService {
       return { status: 'already_confirmed', bookingId: booking.id };
     }
 
+    /*
+      What the customer is actually told.
+
+      Reported from QA: the confirmation read "Your booking cmt83vftr007l912we33eldkp is
+      confirmed for 2 ticket(s)." A cuid is a database identity; it means nothing to the
+      person who bought the ticket, cannot be read aloud to support, and is not what is
+      printed on their receipt or their booking reference.
+
+      So the payload now carries the things a human recognises — the reference, what they are
+      going to, and when. The id is still included as a fallback for the rare case where a
+      reference could not be assigned, but it is no longer the headline.
+    */
     await this.notifications.send({
       type: NotificationType.BOOKING_CONFIRMED,
       userId: booking.userId,
       toEmail: booking.buyerEmail,
-      payload: { bookingId: booking.id, tickets: ticketCount },
+      payload: {
+        bookingId: booking.id,
+        reference: assignedReference ?? booking.reference ?? '',
+        eventTitle: booking.event?.title ?? '',
+        startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
+        seats: issuedSeatLabels.join(', '),
+        tickets: ticketCount,
+      },
     });
     await this.audit.record({
       organizationId: booking.organizationId,

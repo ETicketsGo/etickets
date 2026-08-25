@@ -1382,6 +1382,12 @@ export interface BookingDetail {
   }[];
   tickets: { id: string; status: string }[];
   payment: { status: string } | null;
+  /**
+   * Seats bought, for a reserved-seating show. Held seats before payment, ticketed seats
+   * after — so the label list reads the same either side of the transaction. Empty for
+   * general-admission events, which have no seats to name.
+   */
+  seatLabels?: string[];
 }
 export interface BookingSummary {
   id: string;

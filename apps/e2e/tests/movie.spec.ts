@@ -21,14 +21,31 @@ test('customer books a movie seat and pays', async ({ page }) => {
   await showtime.click();
   await expect(page).toHaveURL(/\/shows\/.+/);
 
-  // Select the first available seat
+  // Select the first available seat, remembering WHICH one — the checkout has to name it.
   const seat = page.locator('button[aria-label^="Seat"][aria-label*="available" i]').first();
   await expect(seat).toBeVisible({ timeout: 20_000 });
+  const seatAria = (await seat.getAttribute('aria-label')) ?? '';
+  /*
+    The accessible name carries the ROW as well as the number — "Seat A1", not "Seat 1".
+    That was a defect this test found: without the row, every row's first seat announced
+    identically to a screen reader, and the two were indistinguishable.
+  */
+  const chosen = /Seat\s+([A-Z]+\d+)/i.exec(seatAria)?.[1] ?? '';
+  expect(chosen, `expected a row-qualified seat name, got "${seatAria}"`).not.toBe('');
   await seat.click();
 
   // Proceed to the (shared) payment flow
   await page.getByRole('button', { name: /Proceed to pay/i }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+
+  /*
+    Reported from QA: this screen showed "2 x A" — a count and a ticket-type name — and never
+    said which seats were being bought. For reserved seating that is the one detail the buyer
+    is checking, and the last moment a mistake is free to fix.
+  */
+  await expect(page.getByText(/^Seats?$/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(chosen, { exact: false })).toBeVisible();
+
   await page.getByRole('button', { name: /Pay/ }).click();
 
   // Confirmation

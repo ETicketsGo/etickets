@@ -214,6 +214,24 @@ export default function PaymentPage() {
           </p>
         </div>
         <div className="space-y-1 border-t border-border pt-3">
+          {/*
+            The seats, named, before the money moves.
+
+            Reported from QA: this screen showed "2 x A" — a count and a ticket-type name —
+            so a buyer choosing reserved seats had no way to confirm they were buying the
+            ones they picked. It is the last point where a mistake is free to fix.
+          */}
+          {(booking.seatLabels?.length ?? 0) > 0 ? (
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border pb-3">
+              <span className="text-[0.9375rem] text-text-secondary">
+                {booking.seatLabels!.length === 1 ? 'Seat' : 'Seats'}
+              </span>
+              <span className="font-medium text-text-primary">
+                {booking.seatLabels!.join(', ')}
+              </span>
+            </div>
+          ) : null}
+
           {booking.items.map((i, idx) => (
             <Row
               key={idx}

@@ -20,17 +20,82 @@ function str(p: Record<string, unknown>, key: string, fallback = ''): string {
 }
 
 /**
+ * A booking as a human refers to it.
+ *
+ * Prefers the public reference (`ETG-IND-2026-000123`) — the string printed on the receipt
+ * and the one somebody can read down a phone to support. Falls back to the database id only
+ * when no reference exists, which is a booking that was never confirmed.
+ */
+function bookingName(p: Record<string, unknown>): string {
+  const reference = str(p, 'reference').trim();
+  return reference || str(p, 'bookingId', 'your booking');
+}
+
+/**
+ * Money, as money.
+ *
+ * The refund notice used to read "A refund of 31600 (minor units)". Minor units are how the
+ * platform stores money so it never rounds; they are not how anyone reads it. `Intl` also
+ * knows which currencies have no decimal place, which a hand-rolled divide-by-100 does not.
+ */
+function money(p: Record<string, unknown>, key: string, currencyKey = 'currency'): string {
+  const minor = Number(str(p, key, '0')) || 0;
+  const currency = str(p, currencyKey, 'INR') || 'INR';
+  try {
+    const fmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency });
+    const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
+    return fmt.format(minor / 10 ** digits);
+  } catch {
+    return `${currency} ${(minor / 100).toFixed(2)}`;
+  }
+}
+
+/** "on 25 Aug 2026, 9:28 pm" — empty when the payload carries no start time. */
+function whenClause(p: Record<string, unknown>): string {
+  const raw = str(p, 'startsAt').trim();
+  if (!raw) return '';
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return '';
+  return ` on ${at.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  })}`;
+}
+
+/**
  * English templates for every NotificationType. Kept pure and synchronous so
  * they can be rendered anywhere (send path, scheduled dispatch, tests).
  */
 const EN: LocaleTemplates = {
-  [NotificationType.BOOKING_CONFIRMED]: (p) => ({
-    subject: 'Your booking is confirmed',
-    body: `Your booking ${str(p, 'bookingId', '')} is confirmed for ${str(p, 'tickets', '0')} ticket(s).`,
-  }),
+  /*
+    Reported from QA: this read "Your booking cmt83vftr007l912we33eldkp is confirmed for 2
+    ticket(s)." A cuid is a database identity — it means nothing to the buyer, cannot be read
+    aloud to support, and is not what appears on their receipt.
+
+    It now names the event, the time, the seats and the public reference. Each piece is
+    omitted rather than printed empty when the payload lacks it, so an older queued
+    notification still renders as a sentence instead of one with holes in it.
+  */
+  [NotificationType.BOOKING_CONFIRMED]: (p) => {
+    const tickets = Number(str(p, 'tickets', '0')) || 0;
+    const event = str(p, 'eventTitle').trim();
+    const seats = str(p, 'seats').trim();
+    const count = `${tickets} ticket${tickets === 1 ? '' : 's'}`;
+    return {
+      subject: event ? `Your tickets for ${event}` : 'Your booking is confirmed',
+      body:
+        `${count} confirmed${event ? ` for ${event}` : ''}${whenClause(p)}.` +
+        (seats ? ` Seats ${seats}.` : '') +
+        ` Booking reference ${bookingName(p)}.`,
+    };
+  },
   [NotificationType.PAYMENT_FAILED]: (p) => ({
     subject: 'Payment failed',
-    body: `We could not process the payment for booking ${str(p, 'bookingId', '')}. Please try again.`,
+    body: `We could not process the payment for booking ${bookingName(p)}. Please try again.`,
   }),
   [NotificationType.EVENT_REMINDER]: (p) => ({
     subject: 'Reminder: your event is coming up',
@@ -40,15 +105,11 @@ const EN: LocaleTemplates = {
   }),
   [NotificationType.BOOKING_CANCELLED]: (p) => ({
     subject: 'Your booking was cancelled',
-    body: `Your booking ${str(p, 'bookingId', '')} has been cancelled.`,
+    body: `Your booking ${bookingName(p)} has been cancelled.`,
   }),
   [NotificationType.REFUND_COMPLETED]: (p) => ({
     subject: 'Your refund is complete',
-    body: `A refund of ${str(p, 'amountMinor', '0')} (minor units) for booking ${str(
-      p,
-      'bookingId',
-      '',
-    )} has been completed.`,
+    body: `A refund of ${money(p, 'amountMinor')} for booking ${bookingName(p)} has been completed. It usually reaches your account within a few working days.`,
   }),
   [NotificationType.TICKET_CHECKED_IN]: (p) => ({
     subject: 'Ticket checked in',

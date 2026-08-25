@@ -234,9 +234,19 @@ export default function SeatSelectionPage() {
                                         type="button"
                                         disabled={!available}
                                         aria-pressed={isSelected}
-                                        aria-label={`Seat ${seat.label}${priceLabel ? `, ${priceLabel}` : ''}, ${seat.status.toLowerCase()}`}
+                                        /*
+                                          The ROW is part of the seat's name.
+
+                                          `seat.label` is only the number within the row, so
+                                          the accessible name was "Seat 1" for the first seat
+                                          of every row — A1 and B1 announced identically, and
+                                          a screen-reader user had no way to tell which row
+                                          they were in. The visible grid conveys it by
+                                          position, which conveys nothing to a screen reader.
+                                        */
+                                        aria-label={`Seat ${row.label}${seat.label}${priceLabel ? `, ${priceLabel}` : ''}, ${seat.status.toLowerCase()}`}
                                         onClick={() => toggle(seat.id, seat.status)}
-                                        title={`${seat.label}${cat ? ` · ${cat.name}` : ''}`}
+                                        title={`${row.label}${seat.label}${cat ? ` · ${cat.name}` : ''}`}
                                         style={
                                           available && !isSelected && color
                                             ? { borderColor: color, color }

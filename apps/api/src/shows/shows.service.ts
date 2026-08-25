@@ -387,10 +387,25 @@ export class ShowsService {
         const seatSection = await tx.seatSection.create({
           data: { seatMapId: seatMap.id, name: section.name, sortOrder: index },
         });
+        /*
+          Seats that are not ordinary seats, indexed by row and 1-based position.
+
+          Built once per section rather than searched per seat: a 40-row section at 60 across
+          is 2,400 seats, and scanning the override list for each of them turns layout
+          generation into an O(seats x overrides) walk for no reason.
+        */
+        const kindByRow = new Map<string, Map<number, string>>();
+        for (const override of section.seatKinds ?? []) {
+          const forRow = kindByRow.get(override.rowLabel) ?? new Map<number, string>();
+          for (const position of override.seats) forRow.set(position, override.kind);
+          kindByRow.set(override.rowLabel, forRow);
+        }
+
         for (const [rowIndex, rowLabel] of section.rowLabels.entries()) {
           const row = await tx.seatRow.create({
             data: { sectionId: seatSection.id, label: rowLabel, sortOrder: rowIndex },
           });
+          const overrides = kindByRow.get(rowLabel);
           await tx.seat.createMany({
             data: Array.from({ length: section.seatsPerRow }, (_unused, i) => ({
               seatMapId: seatMap.id,
@@ -398,7 +413,9 @@ export class ShowsService {
               seatCategoryId: category.id,
               label: String(i + 1),
               colIndex: i + 1,
-              kind: 'SEAT',
+              // A position named for a row that does not exist is simply never applied —
+              // the generator does not invent seats to satisfy an override.
+              kind: overrides?.get(i + 1) ?? 'SEAT',
             })),
           });
         }
