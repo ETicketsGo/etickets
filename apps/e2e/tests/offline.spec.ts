@@ -24,7 +24,7 @@ test('offline wallet: a cached pass stays accessible without connectivity', asyn
   context,
 }) => {
   await registerAndBook(page, 'Offline User', uniqueEmail('offline'), '2');
-  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets$/);
   await expect(page.getByRole('heading', { name: 'My experiences' })).toBeVisible({
     timeout: 20_000,
@@ -79,7 +79,7 @@ test('offline wallet: a cached pass stays accessible without connectivity', asyn
 test('offline privacy: logout clears cache and a second user cannot see it', async ({ page }) => {
   // User A books + loads their wallet (caches it)
   await registerAndBook(page, 'User A', uniqueEmail('userA'), '1');
-  await page.getByRole('link', { name: 'View my ticket' }).click();
+  await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);
   await expect(page.getByRole('link', { name: /View ticket/ })).toBeVisible({ timeout: 20_000 });
 

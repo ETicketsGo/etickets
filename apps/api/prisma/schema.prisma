@@ -997,10 +997,28 @@ model Coupon {
   startsAt       DateTime?
   endsAt         DateTime?
   status         String     @default("ACTIVE")
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+
+  /// Whether buyers are SHOWN this code, as opposed to having to know it.
+  ///
+  /// ── WHY THIS DEFAULTS TO FALSE ────────────────────────────────────────────────────
+  /// Listing every active code at checkout would publish codes that were never meant to be
+  /// public — a win-back offer mailed to lapsed customers, a rate given to one partner, an
+  /// influencer's code. Those are worth exactly as much as their scarcity, and a platform
+  /// that leaks them by default destroys their value silently and irreversibly.
+  ///
+  /// So a code is private unless an organizer deliberately publishes it. Private codes still
+  /// work perfectly — the buyer types them, which is the point of having them.
+  isPublic    Boolean @default(false)
+  /// Shown beside the code in the offers list, e.g. "10% off your first booking". Falls back
+  /// to a description generated from the discount when blank.
+  publicLabel String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   bookings Booking[]
+
+  @@index([isPublic, status])
 }
 
 model Booking {

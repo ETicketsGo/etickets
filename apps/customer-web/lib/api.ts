@@ -63,6 +63,8 @@ export const api = {
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
   setBookingCoupon: wk.bookingCoupon.set,
+  quoteBooking: wk.bookingQuote.price,
+  sessionOffers: wk.bookingQuote.offers,
   // Financial documents for a booking. The printable page is FETCHED with the access token
   // and opened as a blob — a plain link would open a tab carrying no Authorization header,
   // which is exactly the 401 this used to produce.

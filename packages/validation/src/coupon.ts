@@ -16,6 +16,17 @@ export const createCouponSchema = z
     maxRedemptions: z.number().int().positive().optional(),
     startsAt: z.coerce.date().optional(),
     endsAt: z.coerce.date().optional(),
+    /**
+     * Show this code to every buyer at checkout, rather than requiring them to know it.
+     *
+     * Defaults to false. A code mailed to lapsed customers, given to one partner, or handed
+     * to an influencer is worth exactly its scarcity — publishing it by default would
+     * destroy that silently, and there is no way to un-publish something buyers have already
+     * seen. Private codes still work; the buyer types them.
+     */
+    isPublic: z.boolean().optional(),
+    /** Shown beside the code in the offers list, e.g. "10% off your first booking". */
+    publicLabel: z.string().trim().max(80).optional(),
   })
   .refine((c) => c.type !== 'PERCENT' || c.value <= 100, {
     message: 'A percentage discount must be between 1 and 100.',
@@ -35,6 +46,8 @@ export const updateCouponSchema = z
     startsAt: z.coerce.date().nullable().optional(),
     endsAt: z.coerce.date().nullable().optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    isPublic: z.boolean().optional(),
+    publicLabel: z.string().trim().max(80).nullable().optional(),
   })
   .refine((c) => !c.startsAt || !c.endsAt || c.endsAt >= c.startsAt, {
     message: 'End must be on or after start.',

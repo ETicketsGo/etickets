@@ -12,7 +12,7 @@ import {
   priceBundle,
 } from '@eticketsgo/shared-types';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
-import type { CreateBookingInput } from '@eticketsgo/validation';
+import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { PricingStrategiesService } from '../pricing/pricing-strategies.service';
@@ -401,6 +401,158 @@ export class BookingsService {
     }
 
     return result;
+  }
+
+  /**
+   * Price a cart without creating anything.
+   *
+   * ── WHY THIS EXISTS SEPARATELY FROM create() ───────────────────────────────────────
+   * Reported from QA: the seat screen showed a ticket subtotal and the words "transparent
+   * fees shown on the next step", so the number a buyer actually pays first appeared one
+   * screen after they had committed to seats. Showing it earlier needs the fee arithmetic
+   * before a booking exists.
+   *
+   * Deliberately inert: this holds no seats, writes no rows, redeems no coupon and creates
+   * no payment. It reads the same ticket types and commerce lines `create()` reads, and runs
+   * the same pricing, so a quote and the booking that follows cannot disagree about money.
+   *
+   * It also does NOT check availability. A quote is about price; whether the seats are still
+   * free is settled atomically at booking time, and answering it here would be a promise this
+   * method cannot keep for the seconds between the two calls.
+   */
+  /**
+   * Offers a buyer may be SHOWN for this session.
+   *
+   * ── WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────────────────────
+   * Every other active code. Listing them all would publish offers that were never meant to
+   * be public — a win-back rate mailed to lapsed customers, a partner's code, an
+   * influencer's. Those are worth exactly their scarcity, and leaking them is silent and
+   * irreversible.
+   *
+   * So this returns only codes an organizer deliberately published, and private codes keep
+   * working by being typed, which is what they are for.
+   *
+   * Scoped to the selling organization plus platform-wide offers: one organizer's promotion
+   * must not advertise itself on another's checkout.
+   */
+  async publicOffers(eventSessionId: string) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: eventSessionId },
+      select: { event: { select: { organizationId: true } } },
+    });
+    if (!session) return [];
+
+    const now = new Date();
+    const rows = await this.prisma.coupon.findMany({
+      where: {
+        isPublic: true,
+        status: 'ACTIVE',
+        OR: [{ organizationId: session.event.organizationId }, { organizationId: null }],
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+
+    return (
+      rows
+        // An exhausted code is not an offer. Showing one that cannot be redeemed is a worse
+        // experience than showing nothing.
+        .filter((c) => c.maxRedemptions === null || c.redemptions < c.maxRedemptions)
+        .map((c) => ({
+          code: c.code,
+          label:
+            c.publicLabel?.trim() ||
+            (c.type === 'PERCENT' ? `${c.value}% off` : `${c.value / 100} off`),
+        }))
+    );
+  }
+
+  async quote(input: QuoteBookingInput) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: input.eventSessionId },
+      include: {
+        event: {
+          include: {
+            venue: { select: { country: true } },
+            organization: { select: { registeredCountry: true, registeredRegion: true } },
+          },
+        },
+      },
+    });
+    if (!session) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
+    }
+
+    const ticketTypes = await this.prisma.ticketType.findMany({
+      where: {
+        id: { in: input.items.map((i) => i.ticketTypeId) },
+        eventSessionId: input.eventSessionId,
+      },
+    });
+    const byId = new Map(ticketTypes.map((t) => [t.id, t]));
+    for (const item of input.items) {
+      if (!byId.has(item.ticketTypeId)) {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'One or more ticket types are invalid for this session.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    const now = new Date();
+    const priceQuote = this.pricingStrategies.quote({
+      experienceType: session.event.experienceType,
+      sessionStartsAt: session.startsAt,
+      now,
+      lines: input.items.map((i) => {
+        const tt = byId.get(i.ticketTypeId)!;
+        return {
+          ticketTypeId: i.ticketTypeId,
+          quantity: i.quantity,
+          basePriceMinor: tt.priceMinor,
+          seatCategoryId: tt.seatCategoryId,
+        };
+      }),
+    });
+
+    const isSeatBased = session.event.experienceType === ExperienceType.MOVIE;
+    // Resolves add-on and bundle lines. Read-only — it returns the holds a booking WOULD
+    // take rather than taking them.
+    const commerce = await this.resolveCommerceLines(
+      session,
+      input as unknown as CreateBookingInput,
+      now,
+      isSeatBased,
+    );
+    const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
+
+    const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
+    const fees = await this.pricing.quote(
+      subtotal,
+      session.event.feeMode as FeeMode,
+      discountMinor,
+      'INR',
+      {
+        country:
+          session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
+        region: session.event.organization?.registeredRegion ?? null,
+        at: now,
+      },
+    );
+
+    return {
+      fees,
+      // Stated rather than inferred from a zero discount: "the code you typed was not
+      // recognised" and "you typed no code" are different answers and the screen says which.
+      coupon: input.couponCode
+        ? { code: input.couponCode, applied: Boolean(couponId) }
+        : { code: null, applied: false },
+    };
   }
 
   /**
