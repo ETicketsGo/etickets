@@ -8,6 +8,11 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 const inboxQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
   before: z.coerce.date().optional(),
+  /**
+   * Which stream to show. The organizer console asks for `ORGANIZER`, the customer site for
+   * `CUSTOMER`. Omitted returns everything, so existing callers are unchanged.
+   */
+  audience: z.enum(['CUSTOMER', 'ORGANIZER', 'ADMIN']).optional(),
 });
 
 @ApiTags('notifications')
@@ -20,7 +25,8 @@ export class NotificationsController {
   @ApiOperation({ summary: 'In-app notification inbox for the current user.' })
   inbox(
     @CurrentUser() user: RequestUser,
-    @Query(new ZodValidationPipe(inboxQuerySchema)) q: { limit?: number; before?: Date },
+    @Query(new ZodValidationPipe(inboxQuerySchema))
+    q: { limit?: number; before?: Date; audience?: 'CUSTOMER' | 'ORGANIZER' | 'ADMIN' },
   ) {
     return this.notifications.inbox(user.id, { limit: q.limit, before: q.before });
   }

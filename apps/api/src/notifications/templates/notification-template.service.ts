@@ -50,20 +50,51 @@ function money(p: Record<string, unknown>, key: string, currencyKey = 'currency'
   }
 }
 
-/** "on 25 Aug 2026, 9:28 pm" — empty when the payload carries no start time. */
+/**
+ * "on 25 Aug 2026, 9:28 pm (IST)" — empty when the payload carries no start time.
+ *
+ * ── WHICH CLOCK ────────────────────────────────────────────────────────────────────
+ * Reported from QA: the ticket said 9:28 pm and the notification said 8:58 am the next
+ * day. Both were rendering the same instant — the pages render in the READER'S browser
+ * zone, and this template had `Asia/Kolkata` hardcoded. Eleven and a half hours apart, and
+ * neither number was wrong on its own terms.
+ *
+ * A showtime is not a fact about the reader. "The film starts at 9:28 pm" means 9:28 pm at
+ * the cinema, whoever is reading and wherever they are. So the venue's own timezone is what
+ * gets quoted, and it is NAMED — an unlabelled time is exactly the ambiguity that produced
+ * this report.
+ *
+ * With no timezone on the payload it falls back to UTC and says so, rather than silently
+ * picking the server's zone, which would make the output depend on where it happens to run.
+ */
 function whenClause(p: Record<string, unknown>): string {
   const raw = str(p, 'startsAt').trim();
   if (!raw) return '';
   const at = new Date(raw);
   if (Number.isNaN(at.getTime())) return '';
-  return ` on ${at.toLocaleString('en-IN', {
+  const timeZone = str(p, 'timeZone').trim() || 'UTC';
+  const opts: Intl.DateTimeFormatOptions = {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  })}`;
+    timeZone,
+  };
+  let when: string;
+  let zone: string;
+  try {
+    when = at.toLocaleString('en-IN', opts);
+    zone =
+      new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'short' })
+        .formatToParts(at)
+        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+  } catch {
+    // An unresolvable zone must not cost the customer their confirmation.
+    when = at.toLocaleString('en-IN', { ...opts, timeZone: 'UTC' });
+    zone = 'UTC';
+  }
+  return ` on ${when} (${zone})`;
 }
 
 /**

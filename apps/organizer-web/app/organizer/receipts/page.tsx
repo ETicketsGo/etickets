@@ -14,6 +14,8 @@ import {
   Skeleton,
   money,
   dateOnly,
+  useToast,
+  errorMessage,
   type Column,
   type ReceiptListRow,
 } from '@eticketsgo/web-kit';
@@ -27,6 +29,7 @@ const KIND_LABEL: Record<string, string> = {
 
 export default function ReceiptsPage() {
   const { activeOrg } = useOrg();
+  const toast = useToast();
   const [page, setPage] = useState(1);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -88,14 +91,17 @@ export default function ReceiptsPage() {
       key: 'open',
       header: '',
       render: (r) => (
-        <a
-          href={api.receipts.htmlUrl(r.id)}
-          target="_blank"
-          rel="noreferrer"
+        // Fetched with the bearer token rather than linked: a plain href opens a tab that
+        // sends no Authorization header, which is why this used to 401.
+        <button
+          type="button"
+          onClick={() =>
+            api.receipts.openHtml(r.id).catch((e) => toast.push(errorMessage(e), 'error'))
+          }
           className="inline-flex items-center gap-1 text-caption text-brand hover:underline"
         >
           Open <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        </button>
       ),
     },
   ];

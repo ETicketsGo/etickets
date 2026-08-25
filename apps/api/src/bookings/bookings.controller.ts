@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { z } from 'zod';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   createBookingSchema,
@@ -49,6 +50,17 @@ export class BookingsController {
     @Headers('x-correlation-id') correlationId?: string,
   ) {
     return this.router.getStatus({ user, bookingId: id, correlationId });
+  }
+
+  @Post(':id/coupon')
+  @ApiOperation({ summary: 'Apply or clear a discount code on an unpaid booking.' })
+  applyCoupon(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ code: z.string().trim().max(60).nullable() })))
+    body: { code: string | null },
+  ) {
+    return this.bookings.applyCoupon(user, id, body.code);
   }
 
   @Post(':id/pay')

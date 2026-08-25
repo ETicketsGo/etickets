@@ -6,7 +6,12 @@ import { NotificationTemplateService } from './templates/notification-template.s
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
 import { MarketingConsentService } from './marketing-consent.service';
-import { isTransactional, messageClassOf } from './message-class';
+import {
+  isTransactional,
+  messageClassOf,
+  typesForAudience,
+  type MessageAudience,
+} from './message-class';
 import { ChannelKey, RenderedNotification } from './channels/notification-channel.interface';
 
 /**
@@ -186,13 +191,25 @@ export class NotificationService {
    * newest first, each rendered to a subject/body via the template service.
    * `before` (a createdAt cursor) pages backwards; `limit` is capped at 50.
    */
-  async inbox(userId: string, opts: { limit?: number; before?: Date } = {}) {
+  async inbox(
+    userId: string,
+    opts: { limit?: number; before?: Date; audience?: MessageAudience } = {},
+  ) {
     const take = Math.min(Math.max(opts.limit ?? 20, 1), 50);
+    /*
+      Filtering by audience is what stops the organizer console showing its operator's own
+      ticket purchases — reported from QA, and caused by keying the inbox on user id alone.
+      One person can hold both roles; the streams still belong on different screens.
+
+      Omitting `audience` returns everything, which keeps every existing caller working and
+      leaves the door open for a combined view later.
+    */
     const rows = await this.prisma.notification.findMany({
       where: {
         userId,
         channel: 'in_app',
         status: 'SENT',
+        ...(opts.audience ? { type: { in: typesForAudience(opts.audience) } } : {}),
         ...(opts.before ? { createdAt: { lt: opts.before } } : {}),
       },
       orderBy: { createdAt: 'desc' },

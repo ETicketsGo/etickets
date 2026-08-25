@@ -81,6 +81,24 @@ export default function SeatSelectionPage() {
     });
   };
 
+  /*
+    Seat id → the label a human uses, which includes the ROW.
+
+    `seat.label` on its own is the number within the row, so the summary listed "11, 12" and
+    left the buyer to work out which row from the map they had just clicked away from.
+    Reported from QA. It is also genuinely ambiguous here: the seat CATEGORY in this layout
+    is called "A", so "A / 11, 12" read as row A.
+  */
+  const seatLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    layout?.sections.forEach((sec) =>
+      sec.rows.forEach((row) =>
+        row.seats.forEach((seat) => map.set(seat.id, `${row.label}${seat.label}`)),
+      ),
+    );
+    return map;
+  }, [layout]);
+
   // Group the current selection by seat category for the summary + booking items.
   const grouped = useMemo(() => {
     const byCat = new Map<string, { seatIds: string[]; labels: string[] }>();
@@ -89,11 +107,11 @@ export default function SeatSelectionPage() {
       if (!seat) continue;
       const entry = byCat.get(seat.categoryId) ?? { seatIds: [], labels: [] };
       entry.seatIds.push(id);
-      entry.labels.push(seat.label);
+      entry.labels.push(seatLabelById.get(id) ?? seat.label);
       byCat.set(seat.categoryId, entry);
     }
     return byCat;
-  }, [selected, seatsById]);
+  }, [selected, seatsById, seatLabelById]);
 
   const total = useMemo(() => {
     let sum = 0;
@@ -354,7 +372,9 @@ export default function SeatSelectionPage() {
                       <div>
                         <p className="font-medium text-text-primary">{cat?.name ?? 'Seats'}</p>
                         <p className="text-caption text-text-muted">
-                          {[...entry.labels].sort().join(', ')}
+                          {[...entry.labels]
+                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                            .join(', ')}
                         </p>
                       </div>
                       <span className="whitespace-nowrap text-[0.9375rem] text-text-secondary">

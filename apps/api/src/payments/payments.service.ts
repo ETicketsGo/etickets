@@ -354,7 +354,15 @@ export class PaymentsService {
         event: {
           select: { title: true, experienceType: true, venue: { select: { country: true } } },
         },
-        eventSession: { select: { startsAt: true } },
+        // The screen's cinema carries the timezone. A showtime means the time AT THE
+        // CINEMA, so that is what a confirmation has to quote — not the server's zone and
+        // not the reader's.
+        eventSession: {
+          select: {
+            startsAt: true,
+            screen: { select: { cinema: { select: { timezone: true } } } },
+          },
+        },
       },
     });
     if (!booking)
@@ -558,6 +566,7 @@ export class PaymentsService {
         reference: assignedReference ?? booking.reference ?? '',
         eventTitle: booking.event?.title ?? '',
         startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
+        timeZone: booking.eventSession?.screen?.cinema?.timezone ?? '',
         seats: issuedSeatLabels.join(', '),
         tickets: ticketCount,
       },

@@ -64,6 +64,27 @@ export default function PaymentPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [couponError, setCouponError] = useState<string | null>(null);
+
+  /*
+    Re-prices the booking. `null` clears the code.
+
+    An invalid code is surfaced rather than swallowed: a box that accepts anything and
+    changes nothing is worse than one that says no. The server refuses outright once payment
+    has started with the provider, because a total and a gateway amount that disagree is the
+    outcome worth failing loudly to avoid.
+  */
+  const coupon = useMutation({
+    mutationFn: (next: string | null) => api.setBookingCoupon(id, next),
+    onSuccess: (_r, next) => {
+      setCouponError(null);
+      if (next === null) setCode('');
+      qc.invalidateQueries({ queryKey: ['booking', id] });
+    },
+    onError: (e: unknown) =>
+      setCouponError(e instanceof Error ? e.message : 'That code could not be applied.'),
+  });
 
   const {
     data: booking,
@@ -240,6 +261,56 @@ export default function PaymentPage() {
             />
           ))}
         </div>
+        {/*
+          Somewhere to put a code.
+
+          Reported from QA: an organizer created a promotion and found nowhere in the buying
+          flow to use it. The API had accepted a code since the beginning — but only when the
+          booking was CREATED, which is while the buyer is picking seats and not thinking
+          about money. A discount box belongs on the screen showing the total.
+        */}
+        <div className="mb-3 border-t border-border pt-3">
+          {booking.discountMinor > 0 ? (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[0.9375rem] text-text-secondary">Discount code applied</span>
+              <button
+                type="button"
+                onClick={() => coupon.mutate(null)}
+                disabled={coupon.isPending}
+                className="text-caption text-text-muted underline hover:text-text-primary disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <input
+                aria-label="Discount code"
+                placeholder="Discount code"
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.toUpperCase());
+                  setCouponError(null);
+                }}
+                className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              />
+              <button
+                type="button"
+                disabled={!code.trim() || coupon.isPending}
+                onClick={() => coupon.mutate(code)}
+                className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+              >
+                {coupon.isPending ? 'Applying…' : 'Apply'}
+              </button>
+            </div>
+          )}
+          {couponError && (
+            <p role="alert" className="mt-1.5 text-caption text-status-error">
+              {couponError}
+            </p>
+          )}
+        </div>
+
         <div className="space-y-1 border-t border-border pt-3">
           <Row label="Subtotal" value={money(booking.subtotalMinor)} />
           {booking.discountMinor > 0 && (

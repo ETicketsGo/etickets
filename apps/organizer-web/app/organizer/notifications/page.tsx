@@ -20,8 +20,11 @@ export default function NotificationsPage() {
   const toast = useToast();
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['notifications', 'inbox'],
-    queryFn: () => api.notifications.inbox({ limit: 50 }),
+    queryKey: ['notifications', 'inbox', 'organizer'],
+    // ORGANIZER only. Reported from QA: this list showed the operator's own ticket
+    // purchases, because the inbox was keyed on user id alone and one person holds both
+    // roles. Their bookings belong on the customer site, where they made them.
+    queryFn: () => api.notifications.inbox({ limit: 50, audience: 'ORGANIZER' }),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['notifications'] });

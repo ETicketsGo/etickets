@@ -107,3 +107,71 @@ export function isTransactional(type: NotificationType): boolean {
 export const MARKETING_TYPES: NotificationType[] = (
   Object.keys(MESSAGE_CLASS) as NotificationType[]
 ).filter((t) => MESSAGE_CLASS[t] === 'MARKETING');
+
+/**
+ * Which hat somebody is wearing when a message is for them.
+ *
+ * ── WHY THIS IS A SECOND AXIS ──────────────────────────────────────────────────────
+ * Reported from QA: the organizer console's notification list showed the operator's own
+ * ticket purchases. One person, one account, two roles — and the inbox was keyed on user id
+ * alone, so both streams arrived in both places.
+ *
+ * This is orthogonal to MessageClass. "Transactional vs commercial" answers *may we send
+ * this*; audience answers *where does it belong once sent*. A payout notice and a ticket
+ * confirmation are both transactional and belong on entirely different screens.
+ *
+ * ADMIN is separate from ORGANIZER rather than folded into it: platform moderation queues
+ * are not an organizer's business even when the same person holds both roles.
+ */
+export type MessageAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
+
+export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
+  // ── The person who bought, holds, or was given a ticket ─────────────────────────
+  [NotificationType.BOOKING_CONFIRMED]: 'CUSTOMER',
+  [NotificationType.PAYMENT_FAILED]: 'CUSTOMER',
+  [NotificationType.BOOKING_CANCELLED]: 'CUSTOMER',
+  [NotificationType.REFUND_COMPLETED]: 'CUSTOMER',
+  [NotificationType.EVENT_REMINDER]: 'CUSTOMER',
+  [NotificationType.TICKET_CHECKED_IN]: 'CUSTOMER',
+  [NotificationType.TICKET_TRANSFERRED]: 'CUSTOMER',
+  [NotificationType.ATTENDEE_INVITED]: 'CUSTOMER',
+  [NotificationType.ATTENDEE_ACCEPTED]: 'CUSTOMER',
+  [NotificationType.ATTENDEE_DECLINED]: 'CUSTOMER',
+  [NotificationType.SHARE_CREATED]: 'CUSTOMER',
+  [NotificationType.SHARE_VIEWED]: 'CUSTOMER',
+  [NotificationType.SHARE_REVOKED]: 'CUSTOMER',
+
+  // ── Somebody running events: their money, their applications ────────────────────
+  [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'ORGANIZER',
+  [NotificationType.SETTLEMENT_RELEASED]: 'ORGANIZER',
+  [NotificationType.PAYMENT_DISPUTE_OPENED]: 'ORGANIZER',
+  [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'ORGANIZER',
+  [NotificationType.TRANSFER_FAILED]: 'ORGANIZER',
+  [NotificationType.ORGANIZATION_APPROVED]: 'ORGANIZER',
+  [NotificationType.ORGANIZATION_REJECTED]: 'ORGANIZER',
+  [NotificationType.EVENT_APPROVED]: 'ORGANIZER',
+  [NotificationType.EVENT_REJECTED]: 'ORGANIZER',
+
+  // ── The platform's own moderation queue ─────────────────────────────────────────
+  [NotificationType.ORGANIZATION_REGISTERED]: 'ADMIN',
+  [NotificationType.EVENT_SUBMITTED]: 'ADMIN',
+};
+
+/**
+ * Falls back to CUSTOMER for an unclassified type.
+ *
+ * The opposite of the MessageClass default, and for the same reason: the risk here is
+ * HIDING something from the person it concerns, not over-sending. A message that turns up in
+ * the wrong inbox is noticed and reported — this very report. One that turns up in no inbox
+ * is not.
+ */
+export function audienceOf(type: NotificationType): MessageAudience {
+  return MESSAGE_AUDIENCE[type] ?? 'CUSTOMER';
+}
+
+/** The notification types belonging to one audience, for an inbox query. */
+export function typesForAudience(audience: MessageAudience): NotificationType[] {
+  return (Object.keys(MESSAGE_AUDIENCE) as NotificationType[]).filter(
+    (t) => MESSAGE_AUDIENCE[t] === audience,
+  );
+}
