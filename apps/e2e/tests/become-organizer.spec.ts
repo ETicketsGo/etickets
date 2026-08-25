@@ -112,6 +112,42 @@ test.describe('become an organizer', () => {
     expect(after.roles).toContain('ORGANIZER_OWNER');
   });
 
+  test('7b-7d: once they ARE an organizer, the menu stops inviting them to become one', async ({
+    page,
+  }) => {
+    /*
+      Reported from QA: after creating an organization, the customer profile menu still
+      offered "Become an organizer". The reporter clicked it again, assuming the first
+      attempt had silently failed.
+
+      An offer to do something already done reads as a failure. What somebody wants at that
+      point is the way back into the thing they just made — so the invitation is replaced by
+      a route to it, labelled with the organization so it is obvious which account it opens.
+    */
+    const who = disposable('already');
+    await registerAndSignIn(page, who);
+
+    await page.goto(`${CUSTOMER}/`);
+    await page.getByTestId('account-menu-trigger').click();
+    await expect(page.getByTestId('become-organizer')).toBeVisible();
+
+    const orgName = `Repeat Cinemas ${Date.now()}`;
+    await page.goto(`${CUSTOMER}/account/become-organizer`);
+    await page.getByLabel('Organization name').fill(orgName);
+    await page.getByRole('button', { name: 'Create my organization' }).click();
+    await expect(page.getByTestId('open-organizer-console')).toBeVisible({ timeout: 20_000 });
+
+    // Back to the header menu — the state that was wrong.
+    await page.goto(`${CUSTOMER}/`);
+    await page.getByTestId('account-menu-trigger').click();
+    const menu = page.getByTestId('account-menu');
+    await expect(menu.getByTestId('open-organizer-console')).toBeVisible({ timeout: 20_000 });
+    await expect(menu.getByTestId('become-organizer')).toHaveCount(0);
+
+    // Named, so it is clear which organization it opens — useful the moment there are two.
+    await expect(menu.getByText(orgName)).toBeVisible();
+  });
+
   test('8-9: the organizer console admits them, and its link carries the email', async ({
     page,
   }) => {
