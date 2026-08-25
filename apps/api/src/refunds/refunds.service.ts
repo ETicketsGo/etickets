@@ -370,7 +370,14 @@ export class RefundsService {
       type: NotificationType.REFUND_COMPLETED,
       userId: booking.userId,
       toEmail: booking.buyerEmail,
-      payload: { bookingId: booking.id, amountMinor: refund.amountMinor },
+      // The reference and currency travel with it so the notice can name the booking the way
+      // the customer knows it, and show the amount as money rather than minor units.
+      payload: {
+        bookingId: booking.id,
+        reference: booking.reference ?? '',
+        currency: booking.currency,
+        amountMinor: refund.amountMinor,
+      },
     });
     await this.audit.record({
       actorUserId: user.id,

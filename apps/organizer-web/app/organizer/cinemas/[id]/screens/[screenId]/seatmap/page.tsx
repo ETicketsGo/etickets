@@ -17,15 +17,13 @@ import {
   money,
   type GenerateSeatMapBody,
 } from '@eticketsgo/web-kit';
-
-interface SectionDraft {
-  name: string;
-  categoryName: string;
-  colorHex: string;
-  basePrice: string; // rupees, converted to minor on submit
-  rowLabels: string; // comma-separated
-  seatsPerRow: string;
-}
+import {
+  expandRowLabels,
+  previewSection,
+  seatKindsFor,
+  type SeatKind,
+  type SectionDraft,
+} from '@/lib/seat-layout';
 
 const emptySection: SectionDraft = {
   name: '',
@@ -34,13 +32,18 @@ const emptySection: SectionDraft = {
   basePrice: '',
   rowLabels: '',
   seatsPerRow: '',
+  wheelchairSeats: '',
+  companionSeats: '',
+  gapSeats: '',
 };
 
-const splitList = (v: string): string[] =>
-  v
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** Colour per seat kind in the preview. Kind is also written out, never colour alone. */
+const KIND_STYLE: Record<SeatKind, string> = {
+  SEAT: 'bg-background-subtle text-text-muted border-border',
+  WHEELCHAIR: 'bg-action-primary/15 text-action-primary border-action-primary/40 font-semibold',
+  COMPANION: 'bg-action-primary/5 text-action-primary/80 border-action-primary/25',
+  GAP: 'bg-transparent text-transparent border-transparent',
+};
 
 export default function ScreenSeatMapPage() {
   const { id, screenId } = useParams<{ id: string; screenId: string }>();
@@ -61,8 +64,19 @@ export default function ScreenSeatMapPage() {
   const [sections, setSections] = useState<SectionDraft[]>([{ ...emptySection }]);
   const [errors, setErrors] = useState<string | null>(null);
 
-  const setSection = (idx: number, patch: Partial<SectionDraft>) =>
+  const setSection = (idx: number, patch: Partial<SectionDraft>) => {
+    /*
+      Clearing the error on edit is the fix for a reported bug, not tidiness.
+
+      `errors` was only ever written on submit and never cleared, so after a failed submit
+      the message stayed on screen while the operator corrected the field — producing
+      "Section 1: category name is required." sitting directly beneath a Category name box
+      containing "A". The screen contradicted itself, and the only way to clear it was to
+      submit again and hope.
+    */
+    setErrors(null);
     setSections((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
   const addSection = () => setSections((prev) => [...prev, { ...emptySection }]);
   const removeSection = (idx: number) =>
     setSections((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
@@ -76,8 +90,9 @@ export default function ScreenSeatMapPage() {
           categoryName: s.categoryName.trim(),
           colorHex: s.colorHex || undefined,
           basePriceMinor: Math.round(Number(s.basePrice) * 100),
-          rowLabels: splitList(s.rowLabels),
+          rowLabels: expandRowLabels(s.rowLabels),
           seatsPerRow: Number(s.seatsPerRow),
+          seatKinds: seatKindsFor(s),
         })),
       };
       return api.shows.generateSeatMap(screenId, body);
@@ -97,7 +112,8 @@ export default function ScreenSeatMapPage() {
       const price = Number(s.basePrice);
       if (!s.basePrice || !Number.isFinite(price) || price < 0)
         return `Section ${n}: enter a valid base price.`;
-      if (splitList(s.rowLabels).length === 0) return `Section ${n}: add at least one row label.`;
+      if (expandRowLabels(s.rowLabels).length === 0)
+        return `Section ${n}: add at least one row — a letter, or a range like A-T.`;
       const spr = Number(s.seatsPerRow);
       if (!s.seatsPerRow || !Number.isFinite(spr) || spr < 1)
         return `Section ${n}: seats per row must be at least 1.`;
@@ -113,6 +129,7 @@ export default function ScreenSeatMapPage() {
   };
 
   const seatMap = seatMapQ.data;
+  const totalSellable = sections.reduce((n, sec) => n + previewSection(sec).sellable, 0);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -203,77 +220,175 @@ export default function ScreenSeatMapPage() {
               onChange={(e) => setName(e.target.value)}
             />
 
-            {sections.map((s, i) => (
-              <div key={i} className="space-y-4 rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-text-primary">Section {i + 1}</p>
-                  {sections.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-status-error"
-                      onClick={() => removeSection(i)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input
-                    id={`sec-${i}-name`}
-                    label="Section name"
-                    placeholder="e.g. Balcony"
-                    value={s.name}
-                    onChange={(e) => setSection(i, { name: e.target.value })}
-                  />
-                  <Input
-                    id={`sec-${i}-cat`}
-                    label="Category name"
-                    placeholder="e.g. Premium"
-                    value={s.categoryName}
-                    onChange={(e) => setSection(i, { categoryName: e.target.value })}
-                  />
-                  <Input
-                    id={`sec-${i}-price`}
-                    label="Base price (₹)"
-                    type="number"
-                    min={0}
-                    value={s.basePrice}
-                    onChange={(e) => setSection(i, { basePrice: e.target.value })}
-                  />
-                  <div>
-                    <label
-                      htmlFor={`sec-${i}-color`}
-                      className="mb-1.5 block text-caption font-medium text-text-secondary"
-                    >
-                      Colour
-                    </label>
-                    <input
-                      id={`sec-${i}-color`}
-                      type="color"
-                      value={s.colorHex}
-                      onChange={(e) => setSection(i, { colorHex: e.target.value })}
-                      className="h-10 w-full cursor-pointer rounded-md border border-border bg-background-surface p-1"
+            {sections.map((s, i) => {
+              const preview = previewSection(s);
+              return (
+                <div key={i} className="space-y-4 rounded-lg border border-border p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-text-primary">Section {i + 1}</p>
+                    {sections.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-status-error"
+                        onClick={() => removeSection(i)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input
+                      id={`sec-${i}-name`}
+                      label="Section name"
+                      placeholder="e.g. Balcony"
+                      value={s.name}
+                      onChange={(e) => setSection(i, { name: e.target.value })}
+                    />
+                    <Input
+                      id={`sec-${i}-cat`}
+                      label="Category name"
+                      placeholder="e.g. Premium"
+                      value={s.categoryName}
+                      onChange={(e) => setSection(i, { categoryName: e.target.value })}
+                    />
+                    <Input
+                      id={`sec-${i}-price`}
+                      label="Base price (₹)"
+                      type="number"
+                      min={0}
+                      value={s.basePrice}
+                      onChange={(e) => setSection(i, { basePrice: e.target.value })}
+                    />
+                    <div>
+                      <label
+                        htmlFor={`sec-${i}-color`}
+                        className="mb-1.5 block text-caption font-medium text-text-secondary"
+                      >
+                        Colour
+                      </label>
+                      <input
+                        id={`sec-${i}-color`}
+                        type="color"
+                        value={s.colorHex}
+                        onChange={(e) => setSection(i, { colorHex: e.target.value })}
+                        className="h-10 w-full cursor-pointer rounded-md border border-border bg-background-surface p-1"
+                      />
+                    </div>
+                    <Input
+                      id={`sec-${i}-rows`}
+                      label="Rows"
+                      hint="A range like A-T, or a list like A, B, C. Mix them freely."
+                      placeholder="A-T"
+                      value={s.rowLabels}
+                      onChange={(e) => setSection(i, { rowLabels: e.target.value })}
+                    />
+                    <Input
+                      id={`sec-${i}-spr`}
+                      label="Seats per row"
+                      type="number"
+                      min={1}
+                      placeholder="20"
+                      value={s.seatsPerRow}
+                      onChange={(e) => setSection(i, { seatsPerRow: e.target.value })}
                     />
                   </div>
-                  <Input
-                    id={`sec-${i}-rows`}
-                    label="Row labels"
-                    hint="Comma-separated, e.g. A, B, C"
-                    value={s.rowLabels}
-                    onChange={(e) => setSection(i, { rowLabels: e.target.value })}
-                  />
-                  <Input
-                    id={`sec-${i}-spr`}
-                    label="Seats per row"
-                    type="number"
-                    min={1}
-                    value={s.seatsPerRow}
-                    onChange={(e) => setSection(i, { seatsPerRow: e.target.value })}
-                  />
+
+                  {/*
+                  Accessible seating, which the data model always supported and the product
+                  never let anyone create. One input describes every row in the section,
+                  because an accessible bay runs down the same side of a block — twenty
+                  inputs for twenty rows would be the same unusable shape as typing the row
+                  labels out by hand.
+                */}
+                  <details className="mt-4 rounded-md border border-border">
+                    <summary className="cursor-pointer px-3 py-2 text-caption font-medium text-text-secondary">
+                      Accessible seating and aisles
+                      {preview.wheelchair + preview.companion + preview.gaps > 0
+                        ? ` · ${preview.wheelchair} wheelchair, ${preview.companion} companion, ${preview.gaps} gap`
+                        : ' · none set'}
+                    </summary>
+                    <div className="grid gap-4 border-t border-border p-3 sm:grid-cols-3">
+                      <Input
+                        id={`sec-${i}-wheel`}
+                        label="Wheelchair spaces"
+                        hint="Seat numbers, e.g. 1-2"
+                        value={s.wheelchairSeats}
+                        onChange={(e) => setSection(i, { wheelchairSeats: e.target.value })}
+                      />
+                      <Input
+                        id={`sec-${i}-companion`}
+                        label="Companion seats"
+                        hint="Beside a wheelchair space"
+                        value={s.companionSeats}
+                        onChange={(e) => setSection(i, { companionSeats: e.target.value })}
+                      />
+                      <Input
+                        id={`sec-${i}-gap`}
+                        label="Aisle gaps"
+                        hint="Positions that are not seats"
+                        value={s.gapSeats}
+                        onChange={(e) => setSection(i, { gapSeats: e.target.value })}
+                      />
+                    </div>
+                  </details>
+
+                  {/*
+                  The preview is what makes a large room manageable. Typing `A-T` and `20` is
+                  fast, but nobody can tell from those two fields whether they have just
+                  described the 400-seat house they meant — so the room is drawn, and counted.
+                */}
+                  {preview.total > 0 ? (
+                    <div className="mt-4 rounded-md border border-border bg-background-subtle/40 p-3">
+                      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="text-caption font-medium text-text-primary">
+                          {preview.rows.length} row{preview.rows.length === 1 ? '' : 's'} ·{' '}
+                          {preview.sellable} bookable seat{preview.sellable === 1 ? '' : 's'}
+                        </span>
+                        {preview.wheelchair > 0 ? (
+                          <span className="text-caption text-text-muted">
+                            includes {preview.wheelchair} wheelchair space
+                            {preview.wheelchair === 1 ? '' : 's'}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="max-h-56 overflow-auto">
+                        <div className="inline-block min-w-full space-y-1">
+                          {preview.rows.map((row) => (
+                            <div key={row.label} className="flex items-center gap-1">
+                              <span className="w-6 shrink-0 text-right text-[0.625rem] font-medium text-text-muted">
+                                {row.label}
+                              </span>
+                              {row.seats.map((seat) => (
+                                <span
+                                  key={seat.position}
+                                  title={`${row.label}${seat.position} · ${seat.kind.toLowerCase()}`}
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[2px] border text-[0.5rem] ${KIND_STYLE[seat.kind]}`}
+                                >
+                                  {seat.kind === 'WHEELCHAIR' ? '♿' : ''}
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-caption text-text-muted">
+                        Aisle gaps are drawn as blanks and sell nothing. Screen is at the top.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
+            {/* One number for the whole room, which is the figure an operator actually knows. */}
+            {totalSellable > 0 ? (
+              <p className="text-caption text-text-secondary">
+                This screen will have <strong className="text-text-primary">{totalSellable}</strong>{' '}
+                bookable seats across {sections.length} section
+                {sections.length === 1 ? '' : 's'}.
+              </p>
+            ) : null}
 
             <Button variant="outline" size="sm" onClick={addSection}>
               Add section

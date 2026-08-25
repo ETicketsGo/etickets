@@ -667,6 +667,30 @@ export class BookingsService {
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+
+    /*
+      Which seats these are.
+
+      Reported from QA: the payment screen said "2 x A" — the ticket-type name and a count —
+      and never named the seats being bought. For a reserved-seating cinema that is the one
+      detail the buyer is checking before they pay, and the last chance to catch a mistake.
+
+      Tickets do not exist yet at this point; they are minted on confirmation. The held
+      seats live on ShowSeat, bound to this booking by `holdBookingId`, so that is where the
+      labels come from before payment. After confirmation the tickets carry their own
+      labels, and both are exposed so the screen reads the same either side of the payment.
+    */
+    const heldSeats = await this.prisma.showSeat.findMany({
+      where: { holdBookingId: booking.id },
+      select: { seat: { select: { label: true, row: { select: { label: true } } } } },
+    });
+    const seatLabels = [
+      ...new Set([
+        ...booking.tickets.map((t) => t.seatLabel).filter((l): l is string => Boolean(l)),
+        ...heldSeats.map((s) => `${s.seat.row.label}${s.seat.label}`),
+      ]),
+    ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
     const isOwner = booking.userId === user.id;
     const isAdmin =
       user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
@@ -677,7 +701,7 @@ export class BookingsService {
         HttpStatus.FORBIDDEN,
       );
     }
-    return booking;
+    return { ...booking, seatLabels };
   }
 
   async listForUser(user: RequestUser, page: number, pageSize: number) {

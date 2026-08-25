@@ -82,6 +82,31 @@ export const generateSeatMapSchema = z.object({
         basePriceMinor: z.number().int().min(0),
         rowLabels: z.array(z.string().trim().min(1).max(4)).min(1).max(40),
         seatsPerRow: z.number().int().min(1).max(60),
+        /*
+          Seats in this section that are not ordinary seats.
+
+          The Seat model has always carried a `kind` — SEAT | GAP | WHEELCHAIR | COMPANION —
+          and the generator has always hardcoded 'SEAT', so a room with a wheelchair bay
+          could be described in the database but not created through the product. This is
+          the missing input.
+
+          Accessibility is deliberately a property of the LAYOUT rather than of a showing:
+          a wheelchair bay is a fact about the room, and putting it on the show would let it
+          differ between two screenings of the same film.
+
+          Positions are 1-based and refer to the seat number within the row, so they line up
+          with what is printed on the seat.
+        */
+        seatKinds: z
+          .array(
+            z.object({
+              rowLabel: z.string().trim().min(1).max(4),
+              seats: z.array(z.number().int().min(1)).min(1),
+              kind: z.enum(['WHEELCHAIR', 'COMPANION', 'GAP']),
+            }),
+          )
+          .max(200)
+          .optional(),
       }),
     )
     .min(1)
