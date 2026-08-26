@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   TIME_OPTIONS,
   addDays,
@@ -68,8 +68,15 @@ export function DateTimeField({
   disabled?: boolean;
 }) {
   const { date, time } = split(value);
-  const reactId = useId();
-  const timeId = `${id}-time-${reactId}`;
+  /*
+    Ids derived from the field's own id, not from `useId()`.
+
+    The three controls need distinguishing from outside — by a label, by a test, by anything
+    that has to point at one of them — and a React-generated id changes between renders and
+    between builds. `ss0-time` is stable and readable, and the caller already owns `ss0`.
+  */
+  const timeId = `${id}-time`;
+  const exactId = `${id}-exact`;
   const described = describe(value);
 
   const shortcuts = useMemo(() => {
@@ -89,25 +96,43 @@ export function DateTimeField({
     return [
       { label: 'Today', date: today, time: time || '19:00' },
       { label: 'Tomorrow', date: addDays(today, 1), time: time || '19:00' },
-      { label: 'Next week', date: addDays(today, 7), time: time || '19:00' },
+      /*
+        "In a week", not "Next week".
+
+        The wizard this sits in has a "Next" button a few centimetres below, and two
+        adjacent controls both starting with "Next" is a genuine misread — a person
+        skim-clicking the wrong one changes the date instead of advancing the step. It
+        showed up first as an ambiguous test selector, which is the same problem wearing
+        a different hat.
+      */
+      { label: 'In a week', date: addDays(today, 7), time: time || '19:00' },
     ];
   }, [relativeTo, time]);
 
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-caption font-medium text-text-secondary">
-        {label}
-      </label>
+    /*
+      A fieldset, because this is one question answered by three controls.
+
+      The first version gave each control a label starting with the field name — "Starts
+      at", "Starts at — time", "Starts at — exact time" — which announces as three separate
+      fields and is genuinely ambiguous. An end-to-end test asking for the control labelled
+      "Starts at" found three of them and could go no further, which is precisely the
+      confusion a person using a screen reader would have had. The legend names the question
+      once; each control says only what it contributes to the answer.
+    */
+    <fieldset className="space-y-1.5 border-0 p-0">
+      <legend className="mb-1.5 block text-caption font-medium text-text-secondary">{label}</legend>
 
       <div className="flex flex-wrap gap-2">
         <input
           id={id}
           type="date"
+          aria-label="Date"
           value={date}
           min={min ? split(min).date : undefined}
           disabled={disabled}
           onChange={(e) => onChange(join(e.target.value, time))}
-          className={`${inputClass} flex-1 min-w-[9rem]`}
+          className={`${inputClass} min-w-[9rem] flex-1`}
           aria-invalid={error ? true : undefined}
         />
         {/*
@@ -117,7 +142,7 @@ export function DateTimeField({
         */}
         <select
           id={timeId}
-          aria-label={`${label} — time`}
+          aria-label="Time"
           value={TIME_OPTIONS.some((o) => o.value === time) ? time : ''}
           disabled={disabled}
           onChange={(e) => onChange(join(date, e.target.value))}
@@ -136,8 +161,9 @@ export function DateTimeField({
           ))}
         </select>
         <input
+          id={exactId}
           type="time"
-          aria-label={`${label} — exact time`}
+          aria-label="Exact time"
           value={time}
           disabled={disabled}
           onChange={(e) => onChange(join(date, e.target.value))}
@@ -180,6 +206,6 @@ export function DateTimeField({
           {error}
         </p>
       ) : null}
-    </div>
+    </fieldset>
   );
 }
