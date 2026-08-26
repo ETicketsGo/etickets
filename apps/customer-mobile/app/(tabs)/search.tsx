@@ -8,6 +8,8 @@ import { Chip, Field, Text } from '@/ui';
 import { useTheme } from '@/theme';
 import { useCategories, useEventSearch } from '@/features/discovery/api';
 import { EventRow } from '@/features/discovery/event-card';
+import { useCityPreference } from '@/features/location/api';
+import { CityChip, CitySuggestionBar } from '@/features/location/city-picker';
 
 /**
  * Search across published events, filtered by category.
@@ -22,9 +24,11 @@ export default function SearchScreen() {
   const [category, setCategory] = useState<string | undefined>();
   const debouncedTerm = useDebounced(term, 300);
 
+  // The city applies to the search too, so results match the chip the customer can see.
+  const location = useCityPreference();
   const filters = useMemo(
-    () => ({ q: debouncedTerm.trim() || undefined, category }),
-    [debouncedTerm, category],
+    () => ({ q: debouncedTerm.trim() || undefined, category, city: location.city ?? undefined }),
+    [debouncedTerm, category, location.city],
   );
 
   const { data: categories } = useCategories();
@@ -38,10 +42,15 @@ export default function SearchScreen() {
     <Screen padded={false}>
       {!online ? <OfflineBanner /> : null}
 
+      <CitySuggestionBar preference={location} />
+
       <View className="gap-3 px-5 pb-3 pt-2">
-        <Text variant="largeTitle" accessibilityRole="header">
-          Search
-        </Text>
+        <View className="flex-row items-center justify-between gap-3">
+          <Text variant="largeTitle" accessibilityRole="header">
+            Search
+          </Text>
+          <CityChip preference={location} />
+        </View>
         <Field
           label="Find an event"
           placeholder="Event, artist, venue or city"
@@ -118,7 +127,11 @@ export default function SearchScreen() {
                 message={
                   filters.q || filters.category
                     ? 'Try a different search or clear the filters.'
-                    : 'Nothing is published yet.'
+                    : filters.city
+                      ? // Naming the city matters: without it this reads as "the platform
+                        // is empty" rather than "this city is", and the fix is one tap away.
+                        `Nothing on sale in ${filters.city} yet. Try another city.`
+                      : 'Nothing is published yet.'
                 }
               />
             </View>

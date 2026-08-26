@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { isSignedIn } from '@/lib/auth-flag';
+import { CitySuggestionBar } from '@eticketsgo/web-kit';
 import { Header } from '@/components/header';
 import { FeedbackWidget } from '@/components/feedback-widget';
 import { BottomNav } from '@/components/bottom-nav';
@@ -61,6 +62,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
+      <CitySuggestionBar />
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
       <main className="mx-auto max-w-6xl px-4 py-10 pb-24 sm:px-6 lg:pb-10">{children}</main>
       <footer className="mt-16 border-t border-border py-8 text-center text-caption text-text-muted">

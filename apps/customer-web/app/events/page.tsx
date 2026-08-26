@@ -2,12 +2,13 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import {
   parseSearchQuery,
   emptyResultSuggestions,
   type SearchIntent,
 } from '@eticketsgo/shared-types';
+import { useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Input } from '@/components/ui';
@@ -32,7 +33,18 @@ export default function EventsPage() {
     [items],
   );
 
-  // Honour deep links from the home page (?q= / ?category= / ?city=).
+  /*
+    Where this page starts.
+
+    Three things can name a city and they are ranked, not merged: a link that says
+    ?city= is the most specific intent there is, then the city chip in the header, then
+    nothing. Preferring the URL matters because a shared link to "events in Pune" has to
+    open in Pune for somebody whose header says Mumbai.
+  */
+  const preference = useCity();
+  // Set once the page has decided its starting city, so the async header city cannot come
+  // back later and overwrite whatever the customer has typed since.
+  const seeded = useRef(false);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const initial = {
@@ -48,7 +60,19 @@ export default function EventsPage() {
       city: initial.city || undefined,
       category: initial.category || undefined,
     });
+    // A URL city is an explicit intent and settles it; otherwise the header city, once it
+    // arrives, gets one chance to seed the page.
+    if (initial.city) seeded.current = true;
   }, []);
+
+  // The header city resolves asynchronously, so it is usually not known when the effect
+  // above runs. This applies it exactly once, and never after the customer has searched.
+  useEffect(() => {
+    if (seeded.current || !preference.city) return;
+    seeded.current = true;
+    setCity(preference.city);
+    setApplied((prev) => ({ ...prev, city: preference.city ?? undefined }));
+  }, [preference.city]);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['events', applied, page],
@@ -67,11 +91,17 @@ export default function EventsPage() {
     // rest as the title search. Explicit fields still win over interpretation.
     const parsed = parseSearchQuery(q, { categories: categoryNames, cities, now: new Date() });
     setIntent(parsed);
+    const nextCity = city || parsed.city || undefined;
     setApplied({
       q: parsed.text || undefined,
-      city: city || parsed.city || undefined,
+      city: nextCity,
       category: category || parsed.category || undefined,
     });
+    // Write through to the header, so the app has ONE answer to "which city am I in".
+    // Without this, filtering to Delhi here and returning to the homepage would silently
+    // show Mumbai again.
+    seeded.current = true;
+    if ((nextCity ?? null) !== preference.city) preference.setCity(nextCity ?? null);
   };
   const hasFilters = Boolean(applied.q || applied.city || applied.category);
   const clearFilters = () => {

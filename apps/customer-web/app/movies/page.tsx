@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Film, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { MovieCard } from '@/components/movie-card';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
@@ -21,9 +22,12 @@ export default function MoviesPage() {
     setApplied({ q: initial.q || undefined, genre: initial.genre || undefined });
   }, []);
 
+  // Scoped to the city in the header. Genres below stay unfiltered on purpose — a genre
+  // list that shrinks with the city makes the filter look broken.
+  const { city } = useCity();
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['movies', applied],
-    queryFn: () => api.listMovies(applied),
+    queryKey: ['movies', applied, city],
+    queryFn: () => api.listMovies({ ...applied, city: city ?? undefined }),
   });
 
   // Genre options for the filter come from an unfiltered baseline fetch so the

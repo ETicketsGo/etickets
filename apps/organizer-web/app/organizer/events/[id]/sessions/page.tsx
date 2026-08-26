@@ -7,7 +7,6 @@ import {
   api,
   Button,
   Card,
-  Input,
   DataTable,
   StatusBadge,
   useToast,
@@ -15,6 +14,7 @@ import {
   dateTime,
   type Column,
   type EventSession,
+  DateTimeField,
 } from '@eticketsgo/web-kit';
 
 export default function SessionsTab() {
@@ -71,19 +71,19 @@ export default function SessionsTab() {
       </div>
       <Card title="Add session">
         <div className="space-y-3">
-          <Input
+          <DateTimeField
             id="s"
             label="Starts at"
-            type="datetime-local"
             value={form.startsAt}
-            onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+            onChange={(v) => setForm({ ...form, startsAt: v })}
           />
-          <Input
+          <DateTimeField
             id="e"
             label="Ends at"
-            type="datetime-local"
             value={form.endsAt}
-            onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+            relativeTo={form.startsAt}
+            min={form.startsAt}
+            onChange={(v) => setForm({ ...form, endsAt: v })}
             error={endBeforeStart ? 'End must be after start.' : undefined}
           />
           <Button

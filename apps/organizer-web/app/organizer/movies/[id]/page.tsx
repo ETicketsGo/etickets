@@ -26,6 +26,7 @@ import {
   type MovieStatusValue,
   type ShowRow,
   type ScheduleShowBody,
+  DateTimeField,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 
@@ -550,20 +551,22 @@ export default function EditMoviePage() {
           </Select>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input
+            <DateTimeField
               id="schedStart"
               label="Starts at"
-              type="datetime-local"
               min={localDateTimeValue(new Date())}
               value={sched.startsAt}
-              onChange={(e) => setSched({ ...sched, startsAt: e.target.value })}
+              onChange={(v) => setSched({ ...sched, startsAt: v })}
             />
-            <Input
+            <DateTimeField
               id="schedEnd"
               label="Ends at"
-              type="datetime-local"
+              // A film's runtime is the obvious answer here, so the shortcuts offer it
+              // relative to the start rather than making anyone add hours in their head.
+              relativeTo={sched.startsAt}
+              min={sched.startsAt}
               value={sched.endsAt}
-              onChange={(e) => setSched({ ...sched, endsAt: e.target.value })}
+              onChange={(v) => setSched({ ...sched, endsAt: v })}
             />
           </div>
 

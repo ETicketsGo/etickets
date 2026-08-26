@@ -3,9 +3,11 @@ import { AiModule } from '../ai/ai.module';
 import { EventsModule } from '../events/events.module';
 import { MoviesModule } from '../movies/movies.module';
 import { DiscoveryController } from './discovery.controller';
+import { LocationController } from './location.controller';
 import { CapabilitiesController } from './capabilities.controller';
 import { DiscoveryService } from './discovery.service';
 import { DiscoverySectionsService } from './discovery-sections.service';
+import { LocationService } from './location.service';
 import {
   DISCOVERY_STRATEGIES,
   type DiscoveryStrategy,
@@ -31,10 +33,11 @@ import { RecommendedStrategy } from './strategies/recommended.strategy';
  */
 @Module({
   imports: [AiModule, EventsModule, MoviesModule],
-  controllers: [DiscoveryController, CapabilitiesController],
+  controllers: [DiscoveryController, CapabilitiesController, LocationController],
   providers: [
     DiscoveryService,
     DiscoverySectionsService,
+    LocationService,
     TrendingStrategy,
     PopularStrategy,
     WeekendStrategy,

@@ -18,9 +18,37 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   await page.getByLabel('Venue').selectOption({ index: 1 });
   await page.getByRole('button', { name: 'Next' }).click();
 
-  // Step 3 — sessions
-  await page.getByLabel('Starts at').fill(futureLocal(30, 18));
-  await page.getByLabel('Ends at').fill(futureLocal(30, 22));
+  /*
+    Step 3 — sessions.
+
+    Date and time are now two controls under one "Starts at" legend, not a single
+    datetime-local. Driven by id rather than by label because both fieldsets contain a
+    control labelled "Date": inside a group that is unambiguous to a screen reader, and
+    ambiguous to a page-wide query. The ids are the wizard's own and are stable.
+  */
+  const [startDate, startTime] = futureLocal(30, 18).split('T');
+  const [endDate, endTime] = futureLocal(30, 22).split('T');
+  await page.locator('#ss0').fill(startDate);
+  await page.locator('#se0').fill(endDate);
+  // The half-hour select, which is what an organizer actually clicks. Targeted by id
+  // because both fieldsets contain a control labelled "Time" — unambiguous inside its
+  // group to a screen reader, ambiguous to a page-wide query.
+  await page.locator('#ss0-time').selectOption(startTime);
+  await page.locator('#se0-time').selectOption(endTime);
+
+  /*
+    The readback is the whole reason the field exists: it is what catches a mistyped year
+    before an audience does.
+
+    Asserted on the paragraph inside the group, not on the text anywhere on the page — the
+    select's own <option> also reads "6:00 PM" and is hidden, so a looser query passes
+    against a closed dropdown while the readback is missing entirely.
+  */
+  await expect(
+    page.getByRole('group', { name: 'Starts at' }).getByRole('paragraph').filter({
+      hasText: '6:00 PM',
+    }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
 
   // Step 4 — ticket types (defaults are prefilled)
