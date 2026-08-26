@@ -934,6 +934,9 @@ export class BookingsService {
             // never agreed to give.
             refundsEnabled: true,
             refundCutoffHours: true,
+            // The venue's clock, for events that are not cinema showings — which is most
+            // of them, and which the first pass at this missed entirely.
+            venue: { select: { timezone: true } },
           },
         },
         eventSession: {
@@ -986,7 +989,9 @@ export class BookingsService {
     return {
       ...booking,
       seatLabels,
-      timeZone: booking.eventSession?.screen?.cinema?.timezone ?? null,
+      // Cinema first (a screen's own zone is the most specific fact), then the venue.
+      timeZone:
+        booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? null,
       tickets: booking.tickets.map((t) => ({
         ...t,
         seatLabel: t.seatLabel ?? (t.seat ? `${t.seat.row.label}${t.seat.label}` : null),

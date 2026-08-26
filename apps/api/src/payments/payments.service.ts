@@ -352,7 +352,11 @@ export class PaymentsService {
         // `title` and the session start are read only so the confirmation notification can
         // name what the customer is going to, instead of quoting a database id at them.
         event: {
-          select: { title: true, experienceType: true, venue: { select: { country: true } } },
+          select: {
+            title: true,
+            experienceType: true,
+            venue: { select: { country: true, timezone: true } },
+          },
         },
         // The screen's cinema carries the timezone. A showtime means the time AT THE
         // CINEMA, so that is what a confirmation has to quote — not the server's zone and
@@ -566,7 +570,10 @@ export class PaymentsService {
         reference: assignedReference ?? booking.reference ?? '',
         eventTitle: booking.event?.title ?? '',
         startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
-        timeZone: booking.eventSession?.screen?.cinema?.timezone ?? '',
+        // Cinema first, then the venue. Without the fallback every non-cinema event fell
+        // back to UTC in the confirmation while the page showed the reader's own zone.
+        timeZone:
+          booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
         seats: issuedSeatLabels.join(', '),
         tickets: ticketCount,
       },

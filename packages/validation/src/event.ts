@@ -5,6 +5,27 @@ export const createVenueSchema = z.object({
   name: z.string().trim().min(2).max(160),
   city: z.string().trim().min(1).max(120),
   country: z.string().trim().min(2).max(120).default('India'),
+  /**
+   * IANA zone, e.g. "Asia/Kolkata". A start time means the time AT THE VENUE, so this is
+   * what every showtime is rendered in. Validated against the runtime's own zone database
+   * rather than a hand-maintained list — a list here would go stale and reject real zones.
+   */
+  timezone: z
+    .string()
+    .trim()
+    .max(64)
+    .refine(
+      (tz) => {
+        try {
+          new Intl.DateTimeFormat('en', { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Enter a valid IANA timezone, e.g. Asia/Kolkata.' },
+    )
+    .optional(),
   address: z.string().trim().max(400).optional(),
   capacity: z.number().int().min(1).optional(),
 });
