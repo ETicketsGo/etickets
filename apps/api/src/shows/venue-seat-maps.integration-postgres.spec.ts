@@ -397,5 +397,34 @@ describe('integration-real-postgres: venue seat maps', () => {
       },
       120_000,
     );
+
+    maybe(
+      'still sends an overview when the show has no pinned layout',
+      async () => {
+        /*
+          The one route through which a fourteen-thousand-seat payload could still escape.
+
+          `EventSession.seatMapId` is a record of a decision, not the ground truth — any path
+          that creates a session without going through `scheduleShow` leaves it null, and the
+          seed does exactly that. The read falls back to the seats' own map, and the FIRST
+          version of this feature decided GRID-or-SECTIONED from the pin alone: an unpinned
+          show on a sectioned venue was therefore called a cinema and sent whole.
+        */
+        await db!.eventSession.update({
+          where: { id: sessionId },
+          data: { seatMapId: null },
+        });
+
+        const layout = await shows.getPublicSeatLayout(sessionId);
+        expect(layout.view).toBe('overview');
+        if (layout.view !== 'overview') throw new Error('expected an overview');
+        expect(layout.sections.every((s) => !('rows' in s))).toBe(true);
+        // And the same is true one level down: asking for a block gets that block, not the house.
+        const detail = await shows.getPublicSeatLayout(sessionId, sectionId);
+        if (detail.view !== 'seats') throw new Error('expected seats');
+        expect(detail.sections).toHaveLength(1);
+      },
+      180_000,
+    );
   });
 });

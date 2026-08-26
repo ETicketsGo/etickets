@@ -1756,7 +1756,10 @@ export class ShowsService {
    * The authoritative answer when `EventSession.seatMapId` was never set. One seat is enough:
    * a session's ShowSeat rows are materialised from a single layout in one transaction.
    */
-  private async layoutFromShowSeats(sessionId: string) {
+  private async layoutFromShowSeats(
+    sessionId: string,
+    options: { withSeats: boolean; sectionId?: string } = { withSeats: true },
+  ) {
     const anySeat = await this.prisma.showSeat.findFirst({
       where: { eventSessionId: sessionId },
       select: { seat: { select: { seatMapId: true } } },
@@ -1768,15 +1771,44 @@ export class ShowsService {
         categories: { orderBy: { sortOrder: 'asc' } },
         sections: {
           orderBy: { sortOrder: 'asc' },
-          include: {
-            rows: {
-              orderBy: { sortOrder: 'asc' },
-              include: { seats: { orderBy: { colIndex: 'asc' } } },
-            },
-          },
+          // Mirrors the pinned-layout query above: no seats for an overview, one block's
+          // when a block was named. A fallback that always loaded everything would make
+          // this the one route through which a fourteen-thousand-seat payload still escapes.
+          ...(options.withSeats
+            ? {
+                include: {
+                  rows: {
+                    orderBy: { sortOrder: 'asc' },
+                    include: { seats: { orderBy: { colIndex: 'asc' } } },
+                  },
+                },
+              }
+            : {}),
+          ...(options.sectionId ? { where: { id: options.sectionId } } : {}),
         },
       },
     });
+  }
+
+  /**
+   * Is this show's layout sectioned, whichever way we end up finding it?
+   *
+   * Asked before the main query, because the answer decides how much of the layout to load.
+   * It has to follow the SAME fallback the read itself does: a session created outside
+   * `scheduleShow` has no `seatMapId` — the seed makes several — and consulting only the pin
+   * would call such a show GRID and send its whole venue.
+   */
+  private async resolveLayoutKind(sessionId: string): Promise<string | null> {
+    const pinned = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      select: { seatMap: { select: { layoutKind: true } } },
+    });
+    if (pinned?.seatMap) return pinned.seatMap.layoutKind;
+    const anySeat = await this.prisma.showSeat.findFirst({
+      where: { eventSessionId: sessionId },
+      select: { seat: { select: { seatMap: { select: { layoutKind: true } } } } },
+    });
+    return anySeat?.seat.seatMap?.layoutKind ?? null;
   }
 
   /**
@@ -1814,18 +1846,19 @@ export class ShowsService {
       one row per block. So the shape of the layout is read first, cheaply, and the heavy
       include only happens for the reads that genuinely need every seat.
     */
-    const shape = await this.prisma.eventSession.findUnique({
+    const exists = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, seatMapId: true, seatMap: { select: { layoutKind: true } } },
+      select: { id: true },
     });
-    if (!shape) {
+    if (!exists) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
         'Show not found or has no seat layout.',
         HttpStatus.NOT_FOUND,
       );
     }
-    const isSectionedOverview = shape.seatMap?.layoutKind === 'SECTIONED' && !sectionId;
+    const isSectionedOverview =
+      (await this.resolveLayoutKind(sessionId)) === 'SECTIONED' && !sectionId;
 
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
@@ -1876,7 +1909,12 @@ export class ShowsService {
       pre-existing shows, so old rows, seeded rows and scheduled rows all resolve identically
       and no future caller can forget.
     */
-    const seatMap = session.seatMap ?? (await this.layoutFromShowSeats(sessionId));
+    const seatMap =
+      session.seatMap ??
+      (await this.layoutFromShowSeats(sessionId, {
+        withSeats: !isSectionedOverview,
+        sectionId,
+      }));
     if (!seatMap) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
