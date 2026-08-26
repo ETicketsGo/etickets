@@ -574,9 +574,17 @@ export const api = {
   },
 
   publicShows: {
-    /** Seat layout + per-seat availability for one show (session). */
-    seats: (sessionId: string) =>
-      request<SeatLayout>(`/public/shows/${sessionId}/seats`, { auth: false }),
+    /**
+     * The seat layout for one show.
+     *
+     * A cinema comes back whole. A sectioned venue comes back as an overview until a
+     * `section` is named, at which point that one block's seats arrive. Check `view` before
+     * reading `rows` — the type will not let you do otherwise.
+     */
+    seats: (sessionId: string, section?: string) =>
+      request<SeatLayoutResponse>(`/public/shows/${sessionId}/seats${qs({ section })}`, {
+        auth: false,
+      }),
   },
 
   shows: {
@@ -690,6 +698,31 @@ export const api = {
       }),
     updateDraft: (layoutId: string, body: UpdateSeatLayoutBody) =>
       request<{ id: string; status: string }>(`/seat-layouts/${layoutId}/draft`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /**
+     * Fill a draft from a venue template.
+     *
+     * Replaces everything in the draft — the whole point is to start from a shape rather
+     * than build one, so a half-applied template would be worse than none.
+     */
+    applyVenueTemplate: (
+      layoutId: string,
+      body: {
+        template: VenueTemplateKey;
+        rows?: number;
+        seatsPerRow?: number;
+        basePriceMinor: number;
+      },
+    ) =>
+      request<{
+        id: string;
+        status: string;
+        layoutKind: 'GRID' | 'SECTIONED';
+        sections: number;
+        seats: number;
+      }>(`/seat-layouts/${layoutId}/from-template`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -1901,21 +1934,83 @@ export interface SeatLayoutSeat {
   status: SeatStatus;
 }
 
-export interface SeatLayout {
+/** The venue shapes an organizer can start a layout from. */
+export type VenueTemplateKey =
+  'CINEMA' | 'PROSCENIUM' | 'AMPHITHEATRE' | 'ARENA' | 'STADIUM' | 'IN_THE_ROUND';
+
+/** A point in the venue map's abstract 0–1000 square, y increasing downward. */
+export type VenuePoint = [number, number];
+
+/** What the audience faces, and where it sits on the map. */
+export interface VenueFocalPoint {
+  kind: 'SCREEN' | 'STAGE_END' | 'STAGE_THRUST' | 'STAGE_CENTRE' | 'FIELD';
+  /** "SCREEN", "STAGE", "PITCH" — what to write on it. */
+  label: string;
+  shape: VenuePoint[] | null;
+}
+
+interface SeatLayoutBase {
   sessionId: string;
   /** `id` is the seat category id; `ticketTypeId` is the session's price tier for it. */
   categories: {
     id: string;
-    ticketTypeId: string;
+    ticketTypeId: string | null;
     name: string;
     colorHex: string | null;
     priceMinor: number;
   }[];
+  focal: VenueFocalPoint;
+  layoutKind: 'GRID' | 'SECTIONED';
+}
+
+/** One block on the venue overview: an outline, what is left in it, and what it costs. */
+export interface VenueSectionSummary {
+  id: string;
+  name: string;
+  shape: VenuePoint[] | null;
+  labelX: number | null;
+  labelY: number | null;
+  tier: string | null;
+  rotationDeg: number;
+  availableCount: number;
+  totalCount: number;
+  priceMinorFrom: number | null;
+  priceMinorTo: number | null;
+}
+
+/**
+ * The map of a large venue, with no seats in it.
+ *
+ * Sent for a SECTIONED layout when no section was asked for. A stadium is fourteen thousand
+ * seats and several megabytes of JSON; this is a few dozen polygons.
+ */
+export interface VenueOverview extends SeatLayoutBase {
+  view: 'overview';
+  layoutKind: 'SECTIONED';
+  sections: VenueSectionSummary[];
+}
+
+/** Seats to pick from: a whole cinema, or one block of a large venue. */
+export interface SeatLayout extends SeatLayoutBase {
+  view: 'seats';
   sections: {
+    id: string;
     name: string;
+    shape: VenuePoint[] | null;
+    tier: string | null;
+    rotationDeg: number;
     rows: { label: string; seats: SeatLayoutSeat[] }[];
   }[];
 }
+
+/**
+ * Either shape, discriminated by `view`.
+ *
+ * A union rather than one type with optional rows, so a client that reaches for seats on an
+ * overview fails to compile — instead of rendering an empty grid and telling the customer
+ * the block is sold out.
+ */
+export type SeatLayoutResponse = VenueOverview | SeatLayout;
 
 export interface SeatMap {
   id: string;

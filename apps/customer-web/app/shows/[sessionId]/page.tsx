@@ -2,9 +2,9 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
-import { MonitorPlay, Armchair, X, Clock } from 'lucide-react';
-import { useToast } from '@eticketsgo/web-kit';
+import { useEffect, useMemo, useState } from 'react';
+import { MonitorPlay, Armchair, X, Clock, ChevronLeft } from 'lucide-react';
+import { useToast, VenueMap } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
@@ -50,6 +50,15 @@ export default function SeatSelectionPage() {
   const router = useRouter();
   const toast = useToast();
 
+  /*
+    Which block of a large venue is open, if any.
+
+    Null means "show me the venue". A cinema never leaves null — its layout comes back whole
+    and the map step does not exist for it, which is right: a room of two hundred seats does
+    not need an overview to choose from.
+  */
+  const [sectionId, setSectionId] = useState<string | null>(null);
+
   const {
     data: layout,
     isLoading,
@@ -57,20 +66,43 @@ export default function SeatSelectionPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['seats', sessionId],
-    queryFn: () => api.showSeats(sessionId),
+    queryKey: ['seats', sessionId, sectionId],
+    queryFn: () => api.showSeats(sessionId, sectionId ?? undefined),
   });
 
   // Selected seat ids.
   const [selected, setSelected] = useState<string[]>([]);
 
-  // Fast lookup: seatId → its seat record; and categoryId → category.
-  const seatsById = useMemo(() => {
-    const map = new Map<string, SeatLayout['sections'][number]['rows'][number]['seats'][number]>();
-    layout?.sections.forEach((sec) =>
-      sec.rows.forEach((row) => row.seats.forEach((seat) => map.set(seat.id, seat))),
-    );
-    return map;
+  /*
+    What we know about every seat the customer has SEEN, not just the block on screen.
+
+    This has to accumulate. A large venue is read one block at a time, so a customer who
+    takes two seats in the stalls and then opens the balcony would otherwise have the
+    stalls seats vanish from their basket the moment the payload changed — the summary,
+    the price and the booking call all derive from this map. Accumulating means their
+    selection survives moving around the venue, which is the whole point of being able to.
+  */
+  const [known, setKnown] = useState<
+    Map<string, { label: string; rowLabel: string; categoryId: string }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!layout || layout.view !== 'seats') return;
+    setKnown((prev) => {
+      const next = new Map(prev);
+      for (const section of layout.sections) {
+        for (const row of section.rows) {
+          for (const seat of row.seats) {
+            next.set(seat.id, {
+              label: seat.label,
+              rowLabel: row.label,
+              categoryId: seat.categoryId,
+            });
+          }
+        }
+      }
+      return next;
+    });
   }, [layout]);
 
   const categoriesById = useMemo(() => {
@@ -101,19 +133,17 @@ export default function SeatSelectionPage() {
   */
   const seatLabelById = useMemo(() => {
     const map = new Map<string, string>();
-    layout?.sections.forEach((sec) =>
-      sec.rows.forEach((row) =>
-        row.seats.forEach((seat) => map.set(seat.id, `${row.label}${seat.label}`)),
-      ),
-    );
+    // Built from everything seen so far, so a seat chosen in another block still has a name
+    // in the summary after the customer has moved on.
+    known.forEach((seat, id) => map.set(id, `${seat.rowLabel}${seat.label}`));
     return map;
-  }, [layout]);
+  }, [known]);
 
   // Group the current selection by seat category for the summary + booking items.
   const grouped = useMemo(() => {
     const byCat = new Map<string, { seatIds: string[]; labels: string[] }>();
     for (const id of selected) {
-      const seat = seatsById.get(id);
+      const seat = known.get(id);
       if (!seat) continue;
       const entry = byCat.get(seat.categoryId) ?? { seatIds: [], labels: [] };
       entry.seatIds.push(id);
@@ -121,7 +151,7 @@ export default function SeatSelectionPage() {
       byCat.set(seat.categoryId, entry);
     }
     return byCat;
-  }, [selected, seatsById, seatLabelById]);
+  }, [selected, known, seatLabelById]);
 
   /*
     Price the cart here, not on the next screen.
@@ -236,6 +266,56 @@ export default function SeatSelectionPage() {
       <EmptyState title="Seat map unavailable" hint="This show has no seat map." icon={Armchair} />
     );
 
+  /*
+    The venue overview: blocks around a stage, with no seats in them.
+
+    Rendered instead of the seat grid, never alongside it. A page that showed both would be
+    asking the customer to choose in two places at once, and on a phone the grid would be
+    below the fold anyway.
+  */
+  if (layout.view === 'overview') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-h2 font-bold tracking-tight text-text-primary">Choose your area</h1>
+          <p className="mt-1.5 text-[0.9375rem] text-text-muted">
+            Pick where you&apos;d like to sit — you&apos;ll choose exact seats next.
+          </p>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <Card>
+              <VenueMap
+                focal={layout.focal}
+                sections={layout.sections}
+                onSelect={(id) => setSectionId(id)}
+                formatPrice={(minor) => money(minor)}
+                pendingSectionId={isFetching ? sectionId : null}
+              />
+            </Card>
+          </div>
+          {selected.length > 0 ? (
+            /*
+              The basket stays visible on the map.
+
+              Someone who has taken two seats in the stalls and gone back to look at the
+              balcony must be able to see they still hold those two — otherwise the natural
+              reading of an empty sidebar is that browsing away discarded them.
+            */
+            <div className="lg:col-span-1">
+              <Card title="Your seats so far">
+                <p className="text-[0.9375rem] text-text-secondary">
+                  {selected.length} seat{selected.length === 1 ? '' : 's'} held in your basket.
+                  Choose an area to add more, or open the area you were in to review them.
+                </p>
+              </Card>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   const hasSeats = layout.sections.some((s) => s.rows.some((r) => r.seats.length > 0));
   const hasSold = layout.sections.some((s) =>
     s.rows.some((r) => r.seats.some((seat) => seat.status === 'SOLD')),
@@ -243,11 +323,26 @@ export default function SeatSelectionPage() {
   const hasHeld = layout.sections.some((s) =>
     s.rows.some((r) => r.seats.some((seat) => seat.status === 'HELD')),
   );
+  // True only when the customer arrived here from a venue map, which is the only case
+  // where "back to the map" is a place they can actually return to.
+  const cameFromMap = sectionId !== null;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Select seats</h1>
+        {cameFromMap ? (
+          <button
+            type="button"
+            onClick={() => setSectionId(null)}
+            className="mb-2 inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back to the venue map
+          </button>
+        ) : null}
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
+          {cameFromMap ? (layout.sections[0]?.name ?? 'Select seats') : 'Select seats'}
+        </h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">
           Tap available seats to add them to your booking.
         </p>

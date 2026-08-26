@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { z } from 'zod';
 import {
   bulkScheduleShowsSchema,
   cancelShowSchema,
@@ -197,8 +198,15 @@ export class PublicShowsController {
 
   @Public()
   @Get(':sessionId/seats')
-  @ApiOperation({ summary: 'Get the seat layout for a show.' })
-  seats(@Param('sessionId') sessionId: string) {
-    return this.shows.getPublicSeatLayout(sessionId);
+  @ApiOperation({
+    summary:
+      'Seat layout for a show. Sectioned venues return an overview; pass ?section= for one block.',
+  })
+  seats(
+    @Param('sessionId') sessionId: string,
+    @Query(new ZodValidationPipe(z.object({ section: z.string().trim().min(1).optional() })))
+    q: { section?: string },
+  ) {
+    return this.shows.getPublicSeatLayout(sessionId, q.section);
   }
 }

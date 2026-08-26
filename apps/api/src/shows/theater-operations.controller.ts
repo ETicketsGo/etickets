@@ -6,11 +6,13 @@ import {
   publishSeatLayoutSchema,
   releaseSeatsSchema,
   updateSeatLayoutSchema,
+  applyVenueTemplateSchema,
   type BlockSeatsInput,
   type CloneSeatLayoutInput,
   type PublishSeatLayoutInput,
   type ReleaseSeatsInput,
   type UpdateSeatLayoutInput,
+  type ApplyVenueTemplateInput,
 } from '@eticketsgo/validation';
 import { SeatLayoutsService } from './seat-layouts.service';
 import { SeatOverridesService } from './seat-overrides.service';
@@ -64,6 +66,16 @@ export class TheaterOperationsController {
     @Body(new ZodValidationPipe(updateSeatLayoutSchema)) body: UpdateSeatLayoutInput,
   ) {
     return this.layouts.updateDraft(user, layoutId, body);
+  }
+
+  @Post('seat-layouts/:layoutId/from-template')
+  @ApiOperation({ summary: 'Fill a draft layout from a venue template (arena, theatre, …).' })
+  applyTemplate(
+    @CurrentUser() user: RequestUser,
+    @Param('layoutId') layoutId: string,
+    @Body(new ZodValidationPipe(applyVenueTemplateSchema)) body: ApplyVenueTemplateInput,
+  ) {
+    return this.layouts.applyTemplate(user, layoutId, body);
   }
 
   @Post('seat-layouts/:layoutId/publish')

@@ -15,3 +15,4 @@ export * from './login';
 export * from './city';
 export * from './datetime-field';
 export * from './datetime-value';
+export * from './venue-map';

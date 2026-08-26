@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Role } from '@eticketsgo/shared-types';
 import type {
   CloneSeatLayoutInput,
@@ -19,8 +20,43 @@ import {
   type LayoutStatus,
   type LayoutVersion,
 } from './seat-layout-versioning';
+import {
+  generateVenue,
+  seatCount as templateSeatCount,
+  type TemplateSection,
+  type VenueTemplateKey,
+} from './venue-templates';
+
+/**
+ * Empty a draft layout before rewriting it, in the only order the database allows.
+ *
+ * ── THE BUG THIS FIXES ─────────────────────────────────────────────────────────────
+ * The obvious order — categories, then sections, then seats — is the one that was here, and
+ * it cannot work: `Seat.seatCategoryId` is a required relation with no cascade, so deleting
+ * a category that still has seats pointing at it is a foreign-key violation. Re-saving any
+ * draft that already had seats therefore failed outright. It went unnoticed because the
+ * usual path is "generate once, publish", and the second save is the rare one.
+ *
+ * Seats go first. That releases the references to both categories and rows, after which
+ * sections can go (cascading their rows) and categories last. Written once and shared, so
+ * the template path and the editor cannot drift back apart.
+ */
+async function clearLayoutContents(tx: Prisma.TransactionClient, layoutId: string): Promise<void> {
+  await tx.seat.deleteMany({ where: { seatMapId: layoutId } });
+  await tx.seatSection.deleteMany({ where: { seatMapId: layoutId } });
+  await tx.seatCategory.deleteMany({ where: { seatMapId: layoutId } });
+}
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+
+/**
+ * Seats per INSERT when filling a template.
+ *
+ * Postgres accepts at most 65535 bind parameters in one statement and a seat row binds six,
+ * so the hard ceiling is around ten thousand. Two thousand leaves generous headroom for the
+ * day a column is added, and is still few enough statements that a stadium writes in seconds.
+ */
+const SEAT_INSERT_CHUNK = 2000;
 
 export interface LayoutSummary {
   id: string;
@@ -397,10 +433,7 @@ export class SeatLayoutsService {
     await this.authorize(layout, 'EDIT');
 
     await this.prisma.$transaction(async (tx) => {
-      // Cascades clear categories, sections, rows and seats.
-      await tx.seatCategory.deleteMany({ where: { seatMapId: layoutId } });
-      await tx.seatSection.deleteMany({ where: { seatMapId: layoutId } });
-      await tx.seat.deleteMany({ where: { seatMapId: layoutId } });
+      await clearLayoutContents(tx, layoutId);
 
       if (input.name !== undefined) {
         await tx.seatMap.update({ where: { id: layoutId }, data: { name: input.name } });
@@ -441,6 +474,138 @@ export class SeatLayoutsService {
       sections: input.sections.length,
     });
     return { id: layoutId, status: 'DRAFT' as const };
+  }
+
+  /**
+   * Fill a draft layout from a venue template.
+   *
+   * ── WHY THIS IS NOT `updateDraft` ──────────────────────────────────────────────
+   * The existing editor describes a section as "these row labels, this many seats each",
+   * which is exactly right for a cinema and cannot express an arena: rows that widen towards
+   * the back, blocks turned to face a stage, and an outline to draw the block as. Bending
+   * that DTO to carry geometry would make every cinema pay for a shape it does not have.
+   *
+   * ── WHY IT WRITES IN BULK ──────────────────────────────────────────────────────
+   * A stadium template is about fourteen thousand seats across five hundred rows. Created
+   * one row at a time — which is what the cinema path does, correctly, for twelve rows —
+   * that is five hundred sequential round trips inside one transaction, and it times out
+   * long before it finishes. `createManyAndReturn` gets the generated ids back in one
+   * statement per level, and seats go in chunked because Postgres takes at most 65535 bind
+   * parameters per statement and fourteen thousand seats is well past that.
+   */
+  async applyTemplate(
+    user: RequestUser,
+    layoutId: string,
+    input: {
+      template: VenueTemplateKey;
+      rows?: number;
+      seatsPerRow?: number;
+      basePriceMinor: number;
+    },
+  ) {
+    const layout = await this.loadOwnedLayout(user, layoutId);
+    // Same gate as any other edit: a published version can never change underneath a show
+    // that has already been sold from it.
+    await this.authorize(layout, 'EDIT');
+
+    const venue = generateVenue(input.template, {
+      rows: input.rows,
+      seatsPerRow: input.seatsPerRow,
+    });
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await clearLayoutContents(tx, layoutId);
+
+        await tx.seatMap.update({
+          where: { id: layoutId },
+          data: {
+            layoutKind: venue.layoutKind,
+            focalPoint: venue.focalPoint,
+            focalShape: venue.focalShape,
+            focalLabel: venue.focalLabel,
+          },
+        });
+
+        const categories = await tx.seatCategory.createManyAndReturn({
+          data: venue.categories.map((c) => ({
+            seatMapId: layoutId,
+            name: c.name,
+            colorHex: c.colorHex,
+            sortOrder: c.sortOrder,
+            // The template carries a relative weight, never money. What a front-row seat
+            // costs is the organizer's decision; all the template knows is that it is worth
+            // more than the back.
+            basePriceMinor: Math.round(input.basePriceMinor * c.priceWeight),
+          })),
+        });
+        const categoryByName = new Map(categories.map((c) => [c.name, c.id]));
+
+        const sections = await tx.seatSection.createManyAndReturn({
+          data: venue.sections.map((sec) => ({
+            seatMapId: layoutId,
+            name: sec.name,
+            sortOrder: sec.sortOrder,
+            shape: sec.shape,
+            labelX: sec.labelX,
+            labelY: sec.labelY,
+            tier: sec.tier,
+            rotationDeg: sec.rotationDeg,
+          })),
+        });
+        // Matched by name, which the generator guarantees is unique per venue and a test
+        // pins. Matching by array position would be quietly wrong the first time the
+        // database returned rows in another order.
+        const sectionByName = new Map(sections.map((sec) => [sec.name, sec.id]));
+
+        const rows = await tx.seatRow.createManyAndReturn({
+          data: venue.sections.flatMap((sec) =>
+            sec.rows.map((row) => ({
+              sectionId: sectionByName.get(sec.name) as string,
+              label: row.label,
+              sortOrder: row.sortOrder,
+            })),
+          ),
+        });
+        const rowIdBySectionAndLabel = new Map<string, string>();
+        for (const row of rows) rowIdBySectionAndLabel.set(`${row.sectionId}|${row.label}`, row.id);
+
+        const seatData = venue.sections.flatMap((sec: TemplateSection) => {
+          const sectionId = sectionByName.get(sec.name) as string;
+          const categoryId = categoryByName.get(sec.categoryName) as string;
+          return sec.rows.flatMap((row) =>
+            row.seats.map((seat) => ({
+              seatMapId: layoutId,
+              rowId: rowIdBySectionAndLabel.get(`${sectionId}|${row.label}`) as string,
+              seatCategoryId: categoryId,
+              label: seat.label,
+              colIndex: seat.colIndex,
+              kind: seat.kind,
+            })),
+          );
+        });
+        for (let i = 0; i < seatData.length; i += SEAT_INSERT_CHUNK) {
+          await tx.seat.createMany({ data: seatData.slice(i, i + SEAT_INSERT_CHUNK) });
+        }
+      },
+      // A stadium takes real time to write. The default five seconds would abort it after
+      // the sections landed and before the seats did, leaving a draft that looks like a
+      // venue and cannot sell anything.
+      { timeout: 120_000, maxWait: 10_000 },
+    );
+
+    await this.record(user, layout, 'SEAT_LAYOUT_TEMPLATE_APPLIED', {
+      template: input.template,
+      sections: venue.sections.length,
+      seats: templateSeatCount(venue),
+    });
+    return {
+      id: layoutId,
+      status: 'DRAFT' as const,
+      layoutKind: venue.layoutKind,
+      sections: venue.sections.length,
+      seats: templateSeatCount(venue),
+    };
   }
 
   /**
