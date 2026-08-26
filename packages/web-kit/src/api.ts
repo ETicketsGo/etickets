@@ -1426,7 +1426,13 @@ export interface BookingDetail {
   currency: string;
   buyerName: string;
   buyerEmail: string;
-  event: { title: string; slug: string };
+  event: {
+    title: string;
+    slug: string;
+    /** The organizer's terms. False means no refund is offered for this event. */
+    refundsEnabled?: boolean;
+    refundCutoffHours?: number;
+  };
   eventSession: { startsAt: string };
   items: {
     kind?: string;
@@ -1437,8 +1443,19 @@ export interface BookingDetail {
     addOn?: { name: string; type: string } | null;
     bundle?: { name: string; type: string } | null;
   }[];
-  tickets: { id: string; status: string }[];
+  tickets: {
+    id: string;
+    status: string;
+    /** e.g. "F13". Null for general admission, which has no seat to name. */
+    seatLabel?: string | null;
+    ticketTypeName?: string | null;
+  }[];
   payment: { status: string } | null;
+  /**
+   * The VENUE's timezone. A showtime is the time at the cinema, not in the reader's
+   * browser — rendering it locally is how a ticket and its confirmation disagreed.
+   */
+  timeZone?: string | null;
   /**
    * Seats bought, for a reserved-seating show. Held seats before payment, ticketed seats
    * after — so the label list reads the same either side of the transaction. Empty for

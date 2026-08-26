@@ -43,7 +43,14 @@ export class RefundsService {
   async request(user: RequestUser, input: RefundRequestInput) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: input.bookingId },
-      include: { eventSession: { select: { startsAt: true } }, tickets: true, taxLines: true },
+      include: {
+        // The organizer's policy travels with the booking, so eligibility is decided by
+        // their terms rather than by a constant in platform code.
+        eventSession: { select: { startsAt: true } },
+        event: { select: { refundsEnabled: true, refundCutoffHours: true } },
+        tickets: true,
+        taxLines: true,
+      },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -59,6 +66,8 @@ export class RefundsService {
       bookingStatus: booking.status as BookingStatus,
       sessionStartsAt: booking.eventSession.startsAt,
       now: new Date(),
+      refundsEnabled: booking.event?.refundsEnabled,
+      policyHours: booking.event?.refundCutoffHours,
     });
     if (!eligibility.eligible) {
       throw new AppException(

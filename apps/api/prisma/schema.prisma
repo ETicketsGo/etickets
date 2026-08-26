@@ -860,27 +860,43 @@ model ShowSeat {
 }
 
 model Event {
-  id               String         @id @default(cuid())
-  organizationId   String
-  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  venueId          String
-  venue            Venue          @relation(fields: [venueId], references: [id])
-  experienceType   ExperienceType @default(EVENT)
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venueId        String
+  venue          Venue          @relation(fields: [venueId], references: [id])
+  experienceType ExperienceType @default(EVENT)
   // Set only for MOVIE experiences: the film this bookable listing screens.
-  movieId          String?
-  movie            Movie?         @relation(fields: [movieId], references: [id])
-  title            String
-  slug             String         @unique
-  category         String
-  description      String?
-  status           EventStatus    @default(DRAFT)
-  feeMode          FeeMode        @default(CUSTOMER_PAYS)
-  refundPolicy     String?
-  publishedAt      DateTime?
-  reviewedByUserId String?
-  reviewNote       String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  movieId        String?
+  movie          Movie?         @relation(fields: [movieId], references: [id])
+  title          String
+  slug           String         @unique
+  category       String
+  description    String?
+  status         EventStatus    @default(DRAFT)
+  feeMode        FeeMode        @default(CUSTOMER_PAYS)
+  /// Free text shown to buyers. Describes the policy; does not enforce it.
+  refundPolicy   String?
+
+  /// Whether this event offers refunds at all, and until when.
+  ///
+  /// ── WHY THE ORGANIZER OWNS THIS ────────────────────────────────────────────────
+  /// The cut-off used to be a constant in platform code: 48 hours, for everybody. That is
+  /// the platform deciding an organizer's cancellation terms on their behalf, and then
+  /// showing buyers a refund button the organizer never agreed to honour. If a request is
+  /// granted that the organizer would have refused, the money still leaves — so the
+  /// platform was quietly underwriting a promise it had no right to make.
+  ///
+  /// Defaults preserve today's behaviour exactly (refunds on, 48 hours), so nothing changes
+  /// for an event nobody has touched.
+  refundsEnabled    Boolean   @default(true)
+  /// Hours before the session start after which refunds close. 0 means "up to start time".
+  refundCutoffHours Int       @default(48)
+  publishedAt       DateTime?
+  reviewedByUserId  String?
+  reviewNote        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   sessions    EventSession[]
   bookings    Booking[]

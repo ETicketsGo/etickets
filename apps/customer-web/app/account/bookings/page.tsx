@@ -18,7 +18,7 @@ import {
   useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
-import { money, dateTime } from '@/lib/format';
+import { money, dateTime, zoneAbbrev } from '@/lib/format';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
@@ -131,7 +131,14 @@ export default function BookingsPage() {
                 <StatusBadge status={b.status} />
               </div>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {dateTime(b.eventSession.startsAt)}
+                {/* The cinema's clock, named — see the API comment on `timeZone`. */}
+                {dateTime(b.eventSession.startsAt, undefined, b.timeZone ?? undefined)}
+                {b.timeZone ? (
+                  <span className="text-text-muted">
+                    {' '}
+                    ({zoneAbbrev(b.eventSession.startsAt, b.timeZone)})
+                  </span>
+                ) : null}
               </p>
               {b.reference && (
                 <p className="mt-1 font-mono text-caption text-text-muted">Ref {b.reference}</p>
@@ -168,13 +175,30 @@ export default function BookingsPage() {
                 Tickets ({b.tickets.length})
               </p>
               <ul className="space-y-1.5">
+                {/*
+                  A ticket a person can recognise.
+
+                  This listed a truncated cuid — "cmt9co5zc0…" — which identifies a row to
+                  the database and nothing at all to the buyer holding it. The seat is what
+                  they care about; the id is a last resort for a general-admission ticket
+                  that genuinely has nothing else to show.
+                */}
                 {b.tickets.map((t) => (
                   <li
                     key={t.id}
-                    className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-[0.9375rem]"
+                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-[0.9375rem]"
                   >
-                    <span className="font-mono text-caption text-text-muted">
-                      {t.id.slice(0, 10)}…
+                    <span className="min-w-0 text-text-primary">
+                      {t.seatLabel ? (
+                        <>
+                          Seat <strong>{t.seatLabel}</strong>
+                        </>
+                      ) : (
+                        (t.ticketTypeName ?? 'General admission')
+                      )}
+                      {t.seatLabel && t.ticketTypeName ? (
+                        <span className="text-text-muted"> · {t.ticketTypeName}</span>
+                      ) : null}
                     </span>
                     <StatusBadge status={t.status} />
                   </li>
@@ -202,32 +226,78 @@ export default function BookingsPage() {
               </div>
             )}
 
-            {/* Request refund */}
-            {REFUNDABLE.includes(b.status) && b.tickets.some((t) => t.status === 'ACTIVE') && (
-              <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                <p className="font-medium text-text-primary">Request a refund</p>
-                <p className="mt-1 text-caption text-text-muted">
-                  Eligibility follows the event’s refund policy. We’ll review your request.
-                </p>
-                <Textarea
-                  id="reason"
-                  className="mt-3"
-                  rows={3}
-                  placeholder="Reason for the refund…"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-                <Button
-                  variant="danger"
-                  className="mt-3 w-full"
-                  loading={requestRefund.isPending}
-                  disabled={reason.trim().length < 3}
-                  onClick={() => requestRefund.mutate()}
-                >
-                  Request refund
-                </Button>
-              </div>
-            )}
+            {/*
+              Whether to offer a refund at all.
+
+              Three reasons not to, all reported from QA:
+
+                - A request is already open. Asking again does nothing except create a second
+                  request for the organizer to work through, and it reads as though the first
+                  one failed.
+                - The booking cost nothing. There is no money to return, and offering to
+                  return it is confusing at best.
+                - The organizer does not offer refunds for this event. Showing the button
+                  anyway means the platform advertising terms the organizer never agreed to.
+            */}
+            {(() => {
+              const openRefund = (refunds.data ?? []).find((r) =>
+                ['REQUESTED', 'PROCESSING'].includes(r.status),
+              );
+              const free = b.totalMinor <= 0;
+              const offered = b.event.refundsEnabled !== false;
+              const hasActive = b.tickets.some((t) => t.status === 'ACTIVE');
+              const canAsk =
+                REFUNDABLE.includes(b.status) && hasActive && !openRefund && !free && offered;
+
+              if (openRefund) {
+                return (
+                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
+                    <p className="font-medium text-text-primary">Refund requested</p>
+                    <p className="mt-1 text-caption text-text-muted">
+                      {money(openRefund.amountMinor)} is with the organizer to review. We will email
+                      you when they decide — there is nothing else to do.
+                    </p>
+                  </div>
+                );
+              }
+              if (!offered && REFUNDABLE.includes(b.status) && hasActive) {
+                return (
+                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
+                    <p className="font-medium text-text-primary">Refunds not offered</p>
+                    <p className="mt-1 text-caption text-text-muted">
+                      The organizer does not offer refunds for this event.
+                      {b.event.title ? ' Contact them directly if something has gone wrong.' : ''}
+                    </p>
+                  </div>
+                );
+              }
+              if (!canAsk) return null;
+              return (
+                <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
+                  <p className="font-medium text-text-primary">Request a refund</p>
+                  <p className="mt-1 text-caption text-text-muted">
+                    Eligibility follows the event’s refund policy. We’ll review your request.
+                  </p>
+                  <Textarea
+                    id="reason"
+                    className="mt-3"
+                    rows={3}
+                    placeholder="Reason for the refund…"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                  <Button
+                    variant="danger"
+                    className="mt-3 w-full"
+                    loading={requestRefund.isPending}
+                    disabled={reason.trim().length < 3}
+                    onClick={() => requestRefund.mutate()}
+                  >
+                    Request refund
+                  </Button>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Drawer>

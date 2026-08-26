@@ -1,1 +1,1 @@
-export { money, dateTime, dateOnly, titleCase } from '@eticketsgo/web-kit';
+export { money, dateTime, dateOnly, titleCase, zoneAbbrev } from '@eticketsgo/web-kit';

@@ -913,14 +913,38 @@ export class BookingsService {
           },
         },
         payment: true,
-        tickets: true,
+        // Tickets a person can recognise. The account page listed truncated cuids —
+        // "cmt9co5zc0…" — which identifies a row to the database and nothing to the buyer.
+        tickets: {
+          include: {
+            ticketType: { select: { name: true } },
+            seat: { select: { label: true, row: { select: { label: true } } } },
+          },
+        },
         // Itemised tax, so the customer's own view of what they paid matches the receipt
         // line for line rather than presenting one opaque total.
         taxLines: {
           select: { label: true, rateBasisPoints: true, baseMinor: true, amountMinor: true },
         },
-        event: { select: { title: true, slug: true } },
-        eventSession: { select: { startsAt: true } },
+        event: {
+          select: {
+            title: true,
+            slug: true,
+            // The organizer's terms, so the buyer is not offered a refund the organizer
+            // never agreed to give.
+            refundsEnabled: true,
+            refundCutoffHours: true,
+          },
+        },
+        eventSession: {
+          select: {
+            startsAt: true,
+            // A showtime means the time AT THE CINEMA. Without this the page renders it in
+            // the reader's own zone, which is how a ticket and its confirmation email came
+            // to disagree by eleven and a half hours.
+            screen: { select: { cinema: { select: { timezone: true } } } },
+          },
+        },
       },
     });
     if (!booking)
@@ -959,7 +983,16 @@ export class BookingsService {
         HttpStatus.FORBIDDEN,
       );
     }
-    return { ...booking, seatLabels };
+    return {
+      ...booking,
+      seatLabels,
+      timeZone: booking.eventSession?.screen?.cinema?.timezone ?? null,
+      tickets: booking.tickets.map((t) => ({
+        ...t,
+        seatLabel: t.seatLabel ?? (t.seat ? `${t.seat.row.label}${t.seat.label}` : null),
+        ticketTypeName: t.ticketType?.name ?? null,
+      })),
+    };
   }
 
   async listForUser(user: RequestUser, page: number, pageSize: number) {

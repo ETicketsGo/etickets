@@ -377,9 +377,23 @@ function NewEventWizard() {
                     )
                   }
                 >
-                  {sessions.map((_, si) => (
+                  {/*
+                    Named by when it starts, not by its index.
+
+                    "Session 1" identifies nothing — with three showings on one day an
+                    organizer cannot tell which is which, and it reads as though only one
+                    session exists. The date is the thing they actually chose.
+                  */}
+                  {sessions.map((sess, si) => (
                     <option key={si} value={si}>
-                      Session {si + 1}
+                      {sess.startsAt
+                        ? new Date(sess.startsAt).toLocaleString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })
+                        : `Session ${si + 1} — no time set`}
                     </option>
                   ))}
                 </Select>
