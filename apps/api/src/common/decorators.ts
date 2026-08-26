@@ -1,7 +1,14 @@
 import { createParamDecorator, ExecutionContext, SetMetadata } from '@nestjs/common';
-import type { Role } from '@eticketsgo/shared-types';
+import type { AdminPermission, Role } from '@eticketsgo/shared-types';
 
 export const ROLES_KEY = 'roles';
+/**
+ * Metadata key for the back-office capability a route requires.
+ *
+ * Declared here beside ROLES_KEY rather than in the guard, so the decorator does not have
+ * to import the guard — which imports this file for RequestUser, and would make a cycle.
+ */
+export const ADMIN_PERMISSION_KEY = 'adminPermission';
 /** Restrict a route to the given platform/organization roles. */
 export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
 
@@ -24,3 +31,13 @@ export const CurrentUser = createParamDecorator(
     return data && user ? user[data] : user;
   },
 );
+
+/**
+ * The back-office capability (or capabilities) a route requires.
+ *
+ * ALL listed capabilities are required, not any of them — a route needing two needs both.
+ * Reading it as "any" would let the weaker capability open the door, which is backwards for
+ * the whole point of separating duties.
+ */
+export const RequiresAdmin = (...permissions: AdminPermission[]) =>
+  SetMetadata(ADMIN_PERMISSION_KEY, permissions);

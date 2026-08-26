@@ -387,6 +387,8 @@ model User {
   seatOverrides           ShowSeat[]               @relation("SeatOverrideActor")
   reviews                 Review[]
   marketingConsents       MarketingConsent[]
+  adminGrants             AdminGrant[]             @relation("AdminGrantHolder")
+  adminGrantsIssued       AdminGrant[]             @relation("AdminGrantIssuer")
 
   @@index([status])
 }
@@ -2765,4 +2767,36 @@ model MarketingConsent {
   /// Newest row per subject+channel is the current state, so the read is an index scan.
   @@index([email, channel, createdAt])
   @@index([userId, channel, createdAt])
+}
+
+/// One back-office capability held by one account.
+///
+/// ── WHY A ROW PER GRANT, NOT A COLUMN OF ROLES ────────────────────────────────────
+/// A grant has provenance: who gave it, when, and — when it ends — who took it away. A
+/// role column answers "what can they do now" and destroys the answer to "who decided
+/// that", which is the question asked after something goes wrong. Splitting back-office
+/// duties is pointless if nobody can reconstruct who held which duty on the day.
+///
+/// Revocation deletes the row and the audit log records it, so the live table stays a
+/// simple answer to "what can this person do right now" while the history lives where
+/// history belongs.
+model AdminGrant {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("AdminGrantHolder", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// A member of the AdminPermission catalogue in shared-types. Stored as text rather than
+  /// a Prisma enum so adding a capability is a code change and not a migration — the
+  /// catalogue is the source of truth and an unknown value simply grants nothing.
+  permission String
+
+  grantedByUserId String?
+  grantedBy       User?   @relation("AdminGrantIssuer", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+  /// Free text from whoever granted it: which ticket, which approval, which rota.
+  note            String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
 }

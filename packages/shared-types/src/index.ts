@@ -15,3 +15,4 @@ export * from './event-summary';
 export * from './growth-recommendations';
 export * from './risk-signals';
 export * from './search-intent';
+export * from './admin-permissions';

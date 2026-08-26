@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import {
+  AdminPermission,
   BookingStatus,
   NotificationType,
   PaymentStatus,
@@ -232,11 +233,45 @@ export class RefundsService {
   }
 
   /** Admin (or organizer owner) decides a refund; on approval, money + tickets settle. */
+  /**
+   * Platform staff need REFUND_APPROVE to decide a refund.
+   *
+   * A super admin holds it by role. Everyone else needs the grant — which is the whole
+   * point of the split: a refund desk can investigate a request and cannot pay it out.
+   */
+  private async assertMayApproveAsStaff(user: RequestUser) {
+    if (user.roles.includes(Role.SUPER_ADMIN)) return;
+    const held = await this.prisma.adminGrant.findFirst({
+      where: { userId: user.id, permission: AdminPermission.REFUND_APPROVE },
+      select: { id: true },
+    });
+    if (!held) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'Approving a refund needs the REFUND_APPROVE permission.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
   async process(user: RequestUser, refundId: string, decision: 'APPROVE' | 'REJECT') {
     const refund = await this.prisma.refund.findUnique({ where: { id: refundId } });
     if (!refund)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Refund not found.', HttpStatus.NOT_FOUND);
-    if (!this.access.isPlatformAdmin(user)) {
+    /*
+      Two audiences, two different questions.
+
+      An organizer refunding their own customer needs to own the booking — their money,
+      their decision. A member of platform staff needs the REFUND_APPROVE capability, which
+      the refund desk deliberately does not hold: reviewing a request moves no money and
+      approving one does, irreversibly.
+
+      Checked here rather than with a route decorator because a decorator applies to every
+      caller, and gating the route locked organizers out of their own console.
+    */
+    if (this.access.isPlatformAdmin(user)) {
+      await this.assertMayApproveAsStaff(user);
+    } else {
       await this.access.assertMember(user, refund.organizationId, [Role.ORGANIZER_OWNER]);
     }
     if (refund.status !== RefundStatus.REQUESTED) {

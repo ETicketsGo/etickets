@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import {
   listFeedbackSchema,
   submitFeedbackSchema,
@@ -11,7 +11,7 @@ import {
 } from '@eticketsgo/validation';
 import { SupportService } from './support.service';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
-import { CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @ApiTags('support')
@@ -36,6 +36,7 @@ export class SupportController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.BOOKING_READ)
 @Controller('admin/support')
 export class AdminSupportController {
   constructor(private readonly support: SupportService) {}

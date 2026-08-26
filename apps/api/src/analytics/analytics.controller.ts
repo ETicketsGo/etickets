@@ -1,9 +1,9 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { AnalyticsService } from './analytics.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const organizerQuery = z.object({ organizationId: z.string().min(1) });
@@ -42,6 +42,7 @@ export class AnalyticsController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.FINANCE_READ)
 @Controller('admin/analytics')
 export class AdminAnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}

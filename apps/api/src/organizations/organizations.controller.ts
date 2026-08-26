@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { OrganizationStatus, Role } from '@eticketsgo/shared-types';
+import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import {
   createOrganizationSchema,
   inviteMemberSchema,
@@ -16,7 +16,7 @@ import {
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @ApiTags('organizations')
@@ -95,6 +95,7 @@ export class OrganizationsController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.ORGANIZER_REVIEW)
 @Controller('admin/organizers')
 export class AdminOrganizationsController {
   constructor(private readonly orgs: OrganizationsService) {}

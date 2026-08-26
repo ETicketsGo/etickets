@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AuditService } from '../audit/audit.service';
 import { OpsService } from './ops.service';
@@ -22,6 +22,7 @@ const maintenanceSchema = z.object({
 @ApiTags('ops')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.OPS_READ)
 @Controller('admin/ops')
 export class OpsController {
   constructor(

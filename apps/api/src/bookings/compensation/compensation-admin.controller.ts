@@ -1,8 +1,14 @@
 import { Body, Controller, Get, Ip, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { z } from 'zod';
-import { CurrentUser, Public, Roles, type RequestUser } from '../../common/decorators';
+import {
+  RequiresAdmin,
+  CurrentUser,
+  Public,
+  Roles,
+  type RequestUser,
+} from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { CompensationAdminService, type AdminScope } from './compensation-admin.service';
 import { CompensationHealthService } from './compensation-health.service';
@@ -41,6 +47,7 @@ const reasonSchema = z.object({ reason: z.string().min(1).max(200) }).strict();
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.FINANCE_READ)
 @Controller('admin/compensations')
 export class CompensationAdminController {
   constructor(private readonly admin: CompensationAdminService) {}

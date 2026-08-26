@@ -2,11 +2,11 @@ import { Controller, Get, HttpStatus, Param, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { ReportsService } from './reports.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AppException, ErrorCodes } from '../common/errors';
 
@@ -62,6 +62,7 @@ export class ReportsController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.BOOKING_READ)
 @Controller('admin')
 export class AdminReportsController {
   constructor(

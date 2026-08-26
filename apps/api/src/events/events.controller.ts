@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { EventStatus, Role } from '@eticketsgo/shared-types';
+import { AdminPermission, EventStatus, Role } from '@eticketsgo/shared-types';
 import {
   createEventSchema,
   createSessionSchema,
@@ -16,7 +16,7 @@ import {
 } from '@eticketsgo/validation';
 import { EventsService } from './events.service';
 import { PublicEventsService } from './public-events.service';
-import { CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
@@ -236,6 +236,7 @@ export class PublicOrganizersController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.EVENT_REVIEW)
 @Controller('admin/events')
 export class AdminEventsController {
   constructor(private readonly events: EventsService) {}

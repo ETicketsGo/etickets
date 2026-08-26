@@ -56,6 +56,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { AdminPermissionGuard } from './auth/admin-permission.guard';
 import { MaintenanceGuard } from './ops/maintenance.guard';
 import { LoggingInterceptor } from './common/logging.interceptor';
 
@@ -145,6 +146,9 @@ import { LoggingInterceptor } from './common/logging.interceptor';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Runs after RolesGuard: a route is first checked for "are you staff at all", then for
+    // "may you do this specific thing". Both must pass.
+    { provide: APP_GUARD, useClass: AdminPermissionGuard },
   ],
 })
 export class AppModule implements NestModule {

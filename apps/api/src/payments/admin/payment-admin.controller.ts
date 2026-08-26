@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Ip, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PaymentConfigService } from '../configuration/payment-config.service';
@@ -63,6 +63,7 @@ const routePatchSchema = routeSchema.partial();
 @ApiTags('admin-payments')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYMENT_ADMIN)
 @Controller('admin/payments')
 export class PaymentAdminController {
   constructor(

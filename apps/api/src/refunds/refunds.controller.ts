@@ -8,7 +8,8 @@ import {
   type RefundRequestInput,
 } from '@eticketsgo/validation';
 import { RefundsService } from './refunds.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { AdminPermission } from '@eticketsgo/shared-types';
+import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @ApiTags('refunds')
@@ -34,6 +35,17 @@ export class RefundsController {
 
   @Post(':id/process')
   @Roles(Role.ORGANIZER_OWNER, Role.ADMIN, Role.SUPER_ADMIN)
+  /*
+    Deliberately NOT decorated with a required capability.
+
+    This route serves two audiences. An ORGANIZER_OWNER refunding their own customer is not
+    exercising a platform capability — it is their money and their decision, checked by
+    tenancy. A decorator applies to every caller, so gating the route locked organizers out
+    of their own refund console; the e2e caught it.
+
+    The requirement belongs where the two audiences are already told apart, which is inside
+    the service. See `RefundsService.process`.
+  */
   @ApiOperation({ summary: 'Approve or reject a refund.' })
   process(
     @CurrentUser() user: RequestUser,
@@ -71,6 +83,7 @@ export class OrganizationRefundsController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.REFUND_REVIEW)
 @Controller('admin/refunds')
 export class AdminRefundsController {
   constructor(private readonly refunds: RefundsService) {}

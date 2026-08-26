@@ -72,6 +72,12 @@ function setupProcess(opts: ProcessOpts = {}) {
   };
 
   const prisma = {
+    // Platform staff need REFUND_APPROVE to decide a refund. The ADMIN fixture is a plain
+    // admin, not a super admin, so the grant is genuinely looked up — held here so this
+    // suite keeps testing the MONEY path. Refusal without it is covered separately below.
+    adminGrant: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'grant-1' }),
+    },
     refund: {
       findUnique: jest.fn().mockResolvedValue(refund),
       updateMany: jest
@@ -398,5 +404,32 @@ describe('RefundsService.request hardening', () => {
         data: expect.objectContaining({ amountMinor: 5000, ticketIds: ['tk1'] }),
       }),
     );
+  });
+});
+
+/*
+  The split that motivated the permission model: a refund desk may investigate a request and
+  may not pay it out. Under one ADMIN role this was inexpressible — anybody who could open
+  the console could approve money.
+*/
+describe('RefundsService.process — platform staff need REFUND_APPROVE', () => {
+  it('refuses an admin who holds no grant', async () => {
+    const { service, prisma } = setupProcess({ approveClaimCount: 1 });
+    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toThrow(/REFUND_APPROVE/);
+  });
+
+  it('refuses them for a rejection too, since both are deciding the request', async () => {
+    const { service, prisma } = setupProcess({ approveClaimCount: 1 });
+    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    await expect(service.process(ADMIN, 'rf-1', 'REJECT')).rejects.toThrow(/REFUND_APPROVE/);
+  });
+
+  it('lets a super admin through without any grant row', async () => {
+    // By role, not by rows — the recovery path must not be lockable away.
+    const { service, prisma } = setupProcess({ approveClaimCount: 1 });
+    (prisma.adminGrant.findFirst as jest.Mock).mockResolvedValue(null);
+    const superAdmin = { ...ADMIN, roles: ['ADMIN', 'SUPER_ADMIN'] as never };
+    await expect(service.process(superAdmin, 'rf-1', 'APPROVE')).resolves.toBeDefined();
   });
 });

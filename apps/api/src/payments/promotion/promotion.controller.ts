@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Ip, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PromotionService } from './promotion.service';
@@ -22,6 +22,7 @@ const createSchema = z.object({
 @ApiTags('admin-payment-promotion')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYMENT_ADMIN)
 @Controller('admin/payments/promotion')
 export class PromotionController {
   constructor(private readonly promotion: PromotionService) {}
