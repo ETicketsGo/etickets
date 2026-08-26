@@ -24,7 +24,10 @@ export default function MoviesPage() {
 
   // Scoped to the city in the header. Genres below stay unfiltered on purpose — a genre
   // list that shrinks with the city makes the filter look broken.
-  const { city } = useCity();
+  const { city, setCity } = useCity();
+  /** Empty because of the city alone — not because of something the customer typed. */
+  const cityOnly = Boolean(city) && !applied.q && !applied.genre;
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['movies', applied, city],
     queryFn: () => api.listMovies({ ...applied, city: city ?? undefined }),
@@ -105,7 +108,26 @@ export default function MoviesPage() {
           </div>
         </>
       ) : (
-        <EmptyState title="No movies match your search" hint="Try clearing filters." icon={Film} />
+        /*
+          Same reasoning as Browse: an empty page must name its cause.
+
+          The city is the cause nobody guesses, because it was chosen once in the header and
+          then forgotten. On this platform today the films are in Bengaluru and Hyderabad
+          and the events are in Mumbai — so a customer filtered to Mumbai opens Movies and
+          sees a blank page that reads as "no films anywhere".
+        */
+        <EmptyState
+          title={cityOnly ? `No films in ${city} just yet` : 'No movies match your search'}
+          hint={cityOnly ? 'Other cities have films showing.' : 'Try clearing filters.'}
+          icon={Film}
+          action={
+            cityOnly ? (
+              <Button variant="secondary" onClick={() => setCity(null)}>
+                Show all cities
+              </Button>
+            ) : undefined
+          }
+        />
       )}
     </div>
   );
