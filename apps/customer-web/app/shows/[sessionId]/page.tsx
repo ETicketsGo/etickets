@@ -3,13 +3,33 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { MonitorPlay, Armchair, X, Clock, ChevronLeft } from 'lucide-react';
+import { MonitorPlay, Armchair, X, Clock, ChevronLeft, Accessibility } from 'lucide-react';
 import { useToast, VenueMap } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 
 const MAX_SEATS = 10;
+
+/**
+ * How an accessible seat is described and drawn.
+ *
+ * ── WHY THE CUSTOMER NEEDS THIS AND DID NOT HAVE IT ────────────────────────────────
+ * `Seat.kind` has always existed and the organizer's own seat map has always shown it. The
+ * customer's did not — the API never sent it — so a wheelchair bay rendered as an ordinary
+ * seat. Two people are failed by that at once: the customer who needs the space cannot find
+ * it, and the customer who does not need it takes it without ever knowing.
+ *
+ * Marked with an icon AND named in the accessible label, because a symbol alone is invisible
+ * to a screen reader and a label alone is invisible to everyone else.
+ */
+const SEAT_KIND_LABEL: Record<string, string> = {
+  WHEELCHAIR: 'wheelchair space',
+  COMPANION: 'companion seat',
+};
+
+/** True for the seats that need marking. Ordinary seats are the overwhelming majority. */
+const isAccessible = (kind: string) => kind === 'WHEELCHAIR' || kind === 'COMPANION';
 
 /**
  * Pick a readable foreground for a selected seat filled with an arbitrary
@@ -323,6 +343,9 @@ export default function SeatSelectionPage() {
   const hasHeld = layout.sections.some((s) =>
     s.rows.some((r) => r.seats.some((seat) => seat.status === 'HELD')),
   );
+  const hasAccessible = layout.sections.some((s) =>
+    s.rows.some((r) => r.seats.some((seat) => isAccessible(seat.kind))),
+  );
   // True only when the customer arrived here from a venue map, which is the only case
   // where "back to the map" is a place they can actually return to.
   const cameFromMap = sectionId !== null;
@@ -359,54 +382,67 @@ export default function SeatSelectionPage() {
                 icon={Armchair}
               />
             ) : (
-              <div className="space-y-8">
-                {/* Screen indicator */}
-                <div className="mx-auto max-w-xl">
-                  <div className="mx-auto h-2 w-3/4 rounded-t-[100%] bg-gradient-to-b from-action-primary/40 to-transparent" />
-                  <p className="mt-1 flex items-center justify-center gap-2 text-caption font-medium uppercase tracking-widest text-text-muted">
-                    <MonitorPlay className="h-3.5 w-3.5" />
-                    Screen this way
-                  </p>
-                </div>
+              <div className="overflow-x-auto">
+                {/*
+                  The screen and the seating are ONE column, sized by the seating.
 
-                {/* Sections */}
-                <div className="space-y-6 overflow-x-auto">
-                  {layout.sections.map((section) => (
-                    <div key={section.name}>
-                      <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                        {section.name}
-                      </p>
-                      <div className="space-y-1.5">
-                        {section.rows.map((row) => {
-                          const sorted = [...row.seats].sort((a, b) => a.colIndex - b.colIndex);
-                          return (
-                            <div key={row.label} className="flex items-center gap-2">
-                              <span className="w-6 shrink-0 text-center text-caption font-medium text-text-muted">
-                                {row.label}
-                              </span>
-                              <div className="flex gap-1.5">
-                                {sorted.map((seat, i) => {
-                                  // Insert an aisle gap where column indices jump.
-                                  const gap =
-                                    i > 0 ? seat.colIndex - sorted[i - 1].colIndex - 1 : 0;
-                                  const cat = categoriesById.get(seat.categoryId);
-                                  const color = cat?.colorHex ?? undefined;
-                                  const isSelected = selected.includes(seat.id);
-                                  const available = seat.status === 'AVAILABLE';
-                                  const priceLabel = cat ? money(cat.priceMinor) : '';
-                                  return (
-                                    <span key={seat.id} className="flex">
-                                      {gap > 0 && (
-                                        <span
-                                          aria-hidden
-                                          style={{ width: `${Math.min(gap, 3) * 0.75}rem` }}
-                                        />
-                                      )}
-                                      <button
-                                        type="button"
-                                        disabled={!available}
-                                        aria-pressed={isSelected}
-                                        /*
+                  They used to be laid out independently: the screen was centred in the card
+                  and capped at a fixed width, while the rows were left-aligned and as wide as
+                  the room needed. So the arc floated off to one side of the seats it was
+                  supposed to be in front of, and a wide room overflowed it entirely — which
+                  is exactly the "seating doesn't match the screen" an organizer reported.
+
+                  `w-fit` makes this wrapper exactly as wide as the widest row, `mx-auto`
+                  centres the pair, and the arc below takes its width from the wrapper. The
+                  left padding is the row-label gutter, so the arc spans the SEATS rather than
+                  the labels beside them.
+                */}
+                <div className="mx-auto w-fit space-y-8">
+                  <div className="pl-8">
+                    <div className="mx-auto h-2 w-full rounded-t-[100%] bg-gradient-to-b from-action-primary/40 to-transparent" />
+                    <p className="mt-1 flex items-center justify-center gap-2 text-caption font-medium uppercase tracking-widest text-text-muted">
+                      <MonitorPlay className="h-3.5 w-3.5" />
+                      Screen this way
+                    </p>
+                  </div>
+
+                  <div className="space-y-6">
+                    {layout.sections.map((section) => (
+                      <div key={section.name}>
+                        <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                          {section.name}
+                        </p>
+                        <div className="space-y-1.5">
+                          {section.rows.map((row) => {
+                            const sorted = [...row.seats].sort((a, b) => a.colIndex - b.colIndex);
+                            return (
+                              <div key={row.label} className="flex items-center gap-2">
+                                <span className="w-6 shrink-0 text-center text-caption font-medium text-text-muted">
+                                  {row.label}
+                                </span>
+                                <div className="flex gap-1.5">
+                                  {sorted.map((seat, i) => {
+                                    // Insert an aisle gap where column indices jump.
+                                    const gap =
+                                      i > 0 ? seat.colIndex - sorted[i - 1].colIndex - 1 : 0;
+                                    const cat = categoriesById.get(seat.categoryId);
+                                    const color = cat?.colorHex ?? undefined;
+                                    const isSelected = selected.includes(seat.id);
+                                    const available = seat.status === 'AVAILABLE';
+                                    const priceLabel = cat ? money(cat.priceMinor) : '';
+                                    return (
+                                      <span key={seat.id} className="flex">
+                                        {gap > 0 && (
+                                          <span
+                                            aria-hidden
+                                            style={{ width: `${Math.min(gap, 3) * 0.75}rem` }}
+                                          />
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={!available}
+                                          aria-pressed={isSelected}
+                                          /*
                                           The ROW is part of the seat's name.
 
                                           `seat.label` is only the number within the row, so
@@ -416,50 +452,70 @@ export default function SeatSelectionPage() {
                                           they were in. The visible grid conveys it by
                                           position, which conveys nothing to a screen reader.
                                         */
-                                        aria-label={`Seat ${row.label}${seat.label}${priceLabel ? `, ${priceLabel}` : ''}, ${seat.status.toLowerCase()}`}
-                                        onClick={() => toggle(seat.id, seat.status)}
-                                        title={`${row.label}${seat.label}${cat ? ` · ${cat.name}` : ''}`}
-                                        style={
-                                          available && !isSelected && color
-                                            ? { borderColor: color, color }
-                                            : isSelected && color
-                                              ? {
-                                                  backgroundColor: color,
-                                                  borderColor: color,
-                                                  color: readableTextOn(color),
-                                                }
-                                              : undefined
-                                        }
-                                        className={`flex h-9 w-9 items-center justify-center rounded-md border text-[0.625rem] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-7 sm:w-7 ${
-                                          !available
-                                            ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted/60'
-                                            : isSelected
-                                              ? 'bg-action-primary text-action-primary-foreground ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface hover:scale-110'
-                                              : 'bg-background-surface hover:scale-110'
-                                        }`}
-                                      >
-                                        {available ? (
-                                          seat.label.replace(/^[A-Za-z]+/, '')
-                                        ) : seat.status === 'SOLD' ? (
-                                          <X className="h-3.5 w-3.5" aria-hidden />
-                                        ) : (
-                                          <Clock className="h-3 w-3" aria-hidden />
-                                        )}
-                                      </button>
-                                    </span>
-                                  );
-                                })}
+                                          aria-label={`Seat ${row.label}${seat.label}${
+                                            SEAT_KIND_LABEL[seat.kind]
+                                              ? `, ${SEAT_KIND_LABEL[seat.kind]}`
+                                              : ''
+                                          }${priceLabel ? `, ${priceLabel}` : ''}, ${seat.status.toLowerCase()}`}
+                                          onClick={() => toggle(seat.id, seat.status)}
+                                          title={`${row.label}${seat.label}${cat ? ` · ${cat.name}` : ''}${
+                                            SEAT_KIND_LABEL[seat.kind]
+                                              ? ` · ${SEAT_KIND_LABEL[seat.kind]}`
+                                              : ''
+                                          }`}
+                                          style={
+                                            available && !isSelected && color
+                                              ? { borderColor: color, color }
+                                              : isSelected && color
+                                                ? {
+                                                    backgroundColor: color,
+                                                    borderColor: color,
+                                                    color: readableTextOn(color),
+                                                  }
+                                                : undefined
+                                          }
+                                          className={`flex h-9 w-9 items-center justify-center rounded-md border text-[0.625rem] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-7 sm:w-7 ${
+                                            !available
+                                              ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted/60'
+                                              : isSelected
+                                                ? 'bg-action-primary text-action-primary-foreground ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface hover:scale-110'
+                                                : 'bg-background-surface hover:scale-110'
+                                          }`}
+                                        >
+                                          {/*
+                                          The mark wins over the number on an accessible
+                                          seat. A customer scanning for somewhere they can
+                                          sit needs to spot it at a glance; the number is
+                                          still in the tooltip, the accessible name and the
+                                          basket.
+                                        */}
+                                          {!available ? (
+                                            seat.status === 'SOLD' ? (
+                                              <X className="h-3.5 w-3.5" aria-hidden />
+                                            ) : (
+                                              <Clock className="h-3 w-3" aria-hidden />
+                                            )
+                                          ) : isAccessible(seat.kind) ? (
+                                            <Accessibility className="h-3.5 w-3.5" aria-hidden />
+                                          ) : (
+                                            seat.label.replace(/^[A-Za-z]+/, '')
+                                          )}
+                                        </button>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
 
                 {/* Legend — status is conveyed by shape/icon, not colour alone. */}
-                <div className="space-y-3 border-t border-border pt-4 text-caption text-text-secondary">
+                <div className="mt-8 space-y-3 border-t border-border pt-4 text-caption text-text-secondary">
                   {/* Available seats, by price tier */}
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                     <span className="font-medium text-text-muted">Available</span>
@@ -496,6 +552,19 @@ export default function SeatSelectionPage() {
                           <Clock className="h-2.5 w-2.5" aria-hidden />
                         </span>
                         Held
+                      </span>
+                    )}
+                    {/*
+                      Only shown when the room actually has one. A legend entry for something
+                      that is not on the map teaches the customer to expect a mark they will
+                      never find.
+                    */}
+                    {hasAccessible && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border">
+                          <Accessibility className="h-2.5 w-2.5" aria-hidden />
+                        </span>
+                        Wheelchair space or companion seat
                       </span>
                     )}
                   </div>

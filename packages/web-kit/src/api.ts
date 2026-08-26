@@ -1926,11 +1926,26 @@ export interface DiscoverySection {
 
 export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD';
 
+/**
+ * What sort of seat this is.
+ *
+ * GAP never reaches a customer — an aisle is not inventory and the API drops it — but the
+ * value exists because the ORGANIZER's read uses the same vocabulary to describe the room.
+ */
+export type SeatKind = 'SEAT' | 'WHEELCHAIR' | 'COMPANION' | 'GAP';
+
 export interface SeatLayoutSeat {
   id: string;
   label: string;
   colIndex: number;
   categoryId: string;
+  /**
+   * Present so a wheelchair space can be found by the person who needs one.
+   *
+   * It was missing, and a bay rendered as an ordinary seat: unfindable by the customer who
+   * needs it, and quietly taken by one who does not.
+   */
+  kind: SeatKind;
   status: SeatStatus;
 }
 
