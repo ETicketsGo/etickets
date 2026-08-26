@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
+import { useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import type {
   DiscoverySection,
@@ -211,11 +212,15 @@ export default function ExplorePage() {
     queryFn: () => api.discovery(),
   });
 
-  // Composed strategy sections (organizers/venues/nearby/new-releases/…).
+  // Composed strategy sections (organizers/venues/nearby/new-releases/…), scoped to the
+  // city in the header. The feed reports what it actually applied, because a city with no
+  // inventory falls back to everywhere and the customer deserves to be told that.
+  const { city } = useCity();
   const sectionsQuery = useQuery({
-    queryKey: ['discovery-sections'],
-    queryFn: () => api.discoverySections(),
+    queryKey: ['discovery-sections', city],
+    queryFn: () => api.discoverySectionFeed(city ?? undefined),
   });
+  const feed = sectionsQuery.data;
 
   // Client-only personalisation from the localStorage recent store. Read after
   // mount to avoid a hydration mismatch (localStorage is unavailable on server).
@@ -332,8 +337,15 @@ export default function ExplorePage() {
           )}
 
           {/* Composed strategy sections (organizer/venue spotlights, new releases, …). */}
-          {sectionsQuery.data
-            ?.filter((s) => s.key !== 'trending' && s.key !== 'weekend')
+          {feed?.fellBackToAllCities ? (
+            <p className="rounded-lg border border-border bg-background-subtle px-4 py-3 text-[0.9375rem] text-text-secondary">
+              Nothing on sale in <strong className="text-text-primary">{city}</strong> just yet —
+              showing everywhere instead.
+            </p>
+          ) : null}
+
+          {feed?.sections
+            .filter((s) => s.key !== 'trending' && s.key !== 'weekend')
             .map((section) => (
               <DynamicSection key={section.key} section={section} />
             ))}

@@ -16,6 +16,7 @@ import {
   useToast,
   errorMessage,
   money,
+  DateTimeField,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { getTemplate } from '@/lib/templates';
@@ -302,27 +303,25 @@ function NewEventWizard() {
                 key={i}
                 className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2"
               >
-                <Input
+                <DateTimeField
                   id={`ss${i}`}
                   label="Starts at"
-                  type="datetime-local"
                   value={s.startsAt}
-                  onChange={(e) =>
-                    setSessions(
-                      sessions.map((x, j) => (j === i ? { ...x, startsAt: e.target.value } : x)),
-                    )
+                  onChange={(v) =>
+                    setSessions(sessions.map((x, j) => (j === i ? { ...x, startsAt: v } : x)))
                   }
                   error={fieldErrors[`s${i}Start`]}
                 />
-                <Input
+                <DateTimeField
                   id={`se${i}`}
                   label="Ends at"
-                  type="datetime-local"
                   value={s.endsAt}
-                  onChange={(e) =>
-                    setSessions(
-                      sessions.map((x, j) => (j === i ? { ...x, endsAt: e.target.value } : x)),
-                    )
+                  // Anchored to the start, so the shortcuts read "+2h" instead of asking
+                  // the organizer to work out what two hours after 7:30pm is.
+                  relativeTo={s.startsAt}
+                  min={s.startsAt}
+                  onChange={(v) =>
+                    setSessions(sessions.map((x, j) => (j === i ? { ...x, endsAt: v } : x)))
                   }
                   error={fieldErrors[`s${i}End`]}
                 />

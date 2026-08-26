@@ -214,10 +214,32 @@ const discovery = Object.assign(() => request<Discovery>('/public/discovery', { 
     request<{ sections: DiscoverySection[] }>(`/public/discovery/sections${qs({ city })}`, {
       auth: false,
     }).then((r) => r.sections),
+  /**
+   * The same feed, keeping what the filter actually did.
+   *
+   * `sections()` above throws that away, and a caller who only has the array cannot tell a
+   * quiet city from a quiet platform. New callers should use this one.
+   */
+  sectionFeed: (city?: string) =>
+    request<SectionFeed>(`/public/discovery/sections${qs({ city })}`, { auth: false }),
 });
 
 export const api = {
   request,
+
+  /** Where the caller is, and where we can sell them something. Both are public. */
+  location: {
+    cities: () => request<SellableCity[]>('/public/location/cities', { auth: false }),
+    resolve: (hint?: { latitude?: number; longitude?: number; region?: string }) =>
+      request<ResolvedLocation>(
+        `/public/location/resolve${qs({
+          lat: hint?.latitude,
+          lng: hint?.longitude,
+          region: hint?.region,
+        })}`,
+        { auth: false },
+      ),
+  },
 
   auth: {
     register: (body: { email: string; password: string; fullName: string }) =>
@@ -1012,6 +1034,31 @@ export const api = {
 
   admin: {
     dashboard: () => request<AdminDashboard>('/admin/dashboard'),
+
+    /** Back-office staff and what each of them may do. Needs ADMIN_MANAGE. */
+    staff: {
+      catalogue: () =>
+        request<{
+          permissions: string[];
+          presets: { key: string; label: string; description: string; grants: string[] }[];
+        }>('/admin/staff/catalogue'),
+      list: () => request<AdminStaffMember[]>('/admin/staff'),
+      setPermissions: (userId: string, permissions: string[], note?: string) =>
+        request<{ userId: string; permissions: string[] }>(`/admin/staff/${userId}/permissions`, {
+          method: 'PUT',
+          body: JSON.stringify({ permissions, note }),
+        }),
+      /** Turn an existing account into a back-office one, with its duties in one step. */
+      grantAdminRole: (userId: string, permissions: string[]) =>
+        request<{ userId: string; permissions: string[] }>(`/admin/staff/${userId}/admin-role`, {
+          method: 'PUT',
+          body: JSON.stringify({ permissions }),
+        }),
+      revoke: (userId: string) =>
+        request<{ userId: string; removed: boolean }>(`/admin/staff/${userId}/admin-role`, {
+          method: 'DELETE',
+        }),
+    },
     platformAnalytics: () => request<PlatformAnalytics>('/admin/analytics/platform'),
     aiStatus: () => request<AiStatus>('/admin/ai/status'),
     aiUsage: () => request<AiUsageSummary>('/admin/ai/usage'),
@@ -2551,6 +2598,43 @@ export interface OrganizationRefundRow extends Omit<RefundRow, 'booking'> {
     event?: { title: string } | null;
   };
   creditNote?: { id: string; number: string } | null;
+}
+
+export interface AdminStaffMember {
+  id: string;
+  email: string;
+  fullName: string;
+  status: string;
+  /** Holds every permission by role, not by grants — the list is filled in for display. */
+  isSuperAdmin: boolean;
+  permissions: string[];
+}
+
+/** Cities the platform can actually sell in right now, derived from live inventory. */
+export interface SellableCity {
+  city: string;
+  country: string;
+  eventCount: number;
+}
+
+/** How a location guess was arrived at. See the API's LocationService for what each means. */
+export type LocationSource = 'coordinates' | 'network' | 'device-region' | 'none';
+
+export interface ResolvedLocation {
+  country: string | null;
+  city: string | null;
+  source: LocationSource;
+  /** True only for a coordinate fix. Anything else is a suggestion to confirm, not apply. */
+  confident: boolean;
+  cities: SellableCity[];
+}
+
+export interface SectionFeed {
+  sections: DiscoverySection[];
+  /** What was really used — not what was asked for. */
+  appliedCity: string | null;
+  /** The requested city had nothing, so this feed covers everywhere. Say so in the UI. */
+  fellBackToAllCities: boolean;
 }
 
 export interface Payout {

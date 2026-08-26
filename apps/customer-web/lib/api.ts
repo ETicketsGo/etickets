@@ -121,6 +121,9 @@ export const api = {
   discovery: () => wk.discovery(),
   // Discovery Platform sprint: composed strategy sections + category counts.
   discoverySections: (city?: string) => wk.discovery.sections(city),
+  // Same feed, keeping whether the city filter actually matched anything — so a quiet
+  // city can be told apart from a quiet platform.
+  discoverySectionFeed: (city?: string) => wk.discovery.sectionFeed(city),
   // Recommendation Platform: "you might also like" events for an event page.
   recommendations: (params?: { eventId?: string; limit?: number; strategy?: string }) =>
     wk.recommendations(params),

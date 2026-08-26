@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Ticket, Compass, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
-import { useIsAuthenticated } from '@eticketsgo/web-kit';
+import { CityPicker, useIsAuthenticated } from '@eticketsgo/web-kit';
 import { ButtonLink } from '@/components/ui';
 import { AccountMenu } from '@/components/account-menu';
 import { currentUserId } from '@/lib/offline/identity';
@@ -41,18 +41,25 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-        <Link
-          href="/"
-          aria-label="ETicketsGo home"
-          className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-        >
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
-            <Ticket className="h-4 w-4" />
-          </span>
-          <span className="text-[1.05rem]">
-            ETickets<span className="text-action-primary">Go</span>
-          </span>
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href="/"
+            aria-label="ETicketsGo home"
+            className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
+              <Ticket className="h-4 w-4" />
+            </span>
+            <span className="text-[1.05rem]">
+              ETickets<span className="text-action-primary">Go</span>
+            </span>
+          </Link>
+          {/*
+            Beside the logo, not buried in a filter panel. Someone filtered to Delhi who
+            cannot see that they are will report the Mumbai show as missing.
+          */}
+          <CityPicker />
+        </div>
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
           <Link href="/explore" aria-label="Explore" className={navLink}>
             <Sparkles className="h-4 w-4" />
