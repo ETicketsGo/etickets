@@ -695,12 +695,23 @@ export function Dialog({
   title,
   children,
   footer,
+  size = 'md',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  /**
+   * How wide the panel is.
+   *
+   * Almost every dialog is a confirmation or a short form and `md` is right for those —
+   * narrow keeps a question readable. `lg` exists for the few that are genuinely a working
+   * surface rather than a prompt: the run scheduler lays out days, times and a conflict list
+   * side by side, and at `md` the day chips wrapped mid-week and the preview needed
+   * scrolling to read at all.
+   */
+  size?: 'md' | 'lg';
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -772,7 +783,9 @@ export function Dialog({
             aria-label={title}
             tabIndex={-1}
             onKeyDown={onPanelKeyDown}
-            className="flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none"
+            className={`flex max-h-[90vh] w-full flex-col rounded-2xl border border-border bg-background-elevated p-6 shadow-lg focus:outline-none ${
+              size === 'lg' ? 'max-w-2xl' : 'max-w-md'
+            }`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

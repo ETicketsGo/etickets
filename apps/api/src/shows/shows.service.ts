@@ -768,6 +768,17 @@ export class ShowsService {
     dryRun: boolean;
     turnaroundMinutes: number;
     proposed: number;
+    /**
+     * The zone the wall-clock times were interpreted in.
+     *
+     * Echoed because the request may omit it and the server then falls back to the cinema's
+     * own zone — so without this the caller cannot render its own results correctly. A
+     * client formatting a returned instant in the READER's zone shows a 14:30 show as 09:00,
+     * which is the timezone mistake this product has already shipped more than once.
+     */
+    timezone: string;
+    /** Every window the batch can place. Populated on a dry run too — that is its point. */
+    creatable: { startsAt: Date; endsAt: Date }[];
     created: { sessionId: string; startsAt: Date; endsAt: Date }[];
     rejected: {
       startsAt: Date;
@@ -859,11 +870,26 @@ export class ShowsService {
     });
 
     const rejected = describeRejections(decision);
+    /*
+      What the batch WOULD create, in both modes.
+
+      A dry run used to report only `proposed` and `rejected`, so a caller wanting to say
+      "this will create 24 shows" had to compute it as proposed minus rejected — the client
+      re-deriving a decision the server had already made, and the first time the two
+      disagreed the operator would believe the wrong one. The set is right here in the
+      decision; sending it costs nothing and removes the arithmetic.
+
+      No session ids, because nothing has been created. `created` stays as it was and is
+      still the only field carrying ids.
+    */
+    const creatable = decision.creatable.map((c) => ({ startsAt: c.startsAt, endsAt: c.endsAt }));
     if (input.dryRun) {
       return {
         dryRun: true,
         turnaroundMinutes: this.turnaroundMinutes,
+        timezone,
         proposed: proposed.length,
+        creatable,
         created: [],
         rejected,
       };
@@ -958,7 +984,9 @@ export class ShowsService {
     return {
       dryRun: false,
       turnaroundMinutes: this.turnaroundMinutes,
+      timezone,
       proposed: proposed.length,
+      creatable,
       created,
       rejected,
     };
