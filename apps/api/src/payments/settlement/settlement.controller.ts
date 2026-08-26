@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import {
   settlementBlockSchema,
   settlementListSchema,
@@ -10,12 +10,13 @@ import {
   type SettlementReleaseInput,
 } from '@eticketsgo/validation';
 import { SettlementService } from './settlement.service';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYOUT_MANAGE)
 @Controller('admin/settlements')
 export class SettlementController {
   constructor(private readonly settlements: SettlementService) {}

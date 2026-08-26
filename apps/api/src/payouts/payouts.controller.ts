@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { PayoutsService } from './payouts.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @ApiTags('payouts')
@@ -41,6 +41,7 @@ export class PayoutsController {
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYOUT_MANAGE)
 @Controller('admin/payouts')
 export class AdminPayoutsController {
   constructor(private readonly payouts: PayoutsService) {}

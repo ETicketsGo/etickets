@@ -2,9 +2,9 @@ import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { BusinessReportsService, resolveRange } from './business-reports.service';
-import { Roles } from '../common/decorators';
+import { RequiresAdmin, Roles } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const rangeQuery = z.object({
@@ -36,6 +36,7 @@ function sendCsv(
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.FINANCE_READ)
 @Controller('admin/reports')
 export class AdminBusinessReportsController {
   constructor(private readonly reports: BusinessReportsService) {}

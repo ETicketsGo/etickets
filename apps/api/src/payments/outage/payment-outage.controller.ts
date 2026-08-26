@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Ip, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PaymentOutageService } from './payment-outage.service';
 
@@ -16,6 +16,7 @@ const suspendSchema = z.object({ suspended: z.boolean() });
 @ApiTags('admin-payment-outage')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYMENT_ADMIN)
 @Controller('admin/payments/outage')
 export class PaymentOutageController {
   constructor(private readonly outage: PaymentOutageService) {}

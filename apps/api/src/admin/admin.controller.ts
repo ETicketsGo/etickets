@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { MovieStatus, Role } from '@eticketsgo/shared-types';
+import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { AdminService } from './admin.service';
 import { MoviesService } from '../movies/movies.service';
-import { CurrentUser, Roles } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 /**
@@ -48,6 +48,7 @@ type FeeRuleCreate = z.infer<typeof feeRuleCreateSchema>;
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.BOOKING_READ)
 @Controller('admin')
 export class AdminController {
   constructor(

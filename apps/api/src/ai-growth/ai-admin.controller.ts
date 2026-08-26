@@ -1,11 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { AiConfigService } from '../ai/ai-config.service';
 import { AiUsageService } from '../ai/ai-usage.service';
 import { PromptRegistry } from '../ai/prompts/prompt-registry';
 import { RiskService } from './risk.service';
-import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 
 /**
  * AI operations console (v2.0 WS9) + risk signals (WS8), admin-only. Reports provider
@@ -15,6 +15,7 @@ import { CurrentUser, Roles, type RequestUser } from '../common/decorators';
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
 @Controller('admin/ai')
 export class AiAdminController {
   constructor(

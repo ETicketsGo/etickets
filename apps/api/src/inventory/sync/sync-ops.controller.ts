@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { SyncOpsService } from './sync-ops.service';
 
 /**
@@ -12,6 +12,7 @@ import { SyncOpsService } from './sync-ops.service';
 @ApiTags('admin:inventory-sync')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.OPS_READ)
 @Controller('admin/inventory-sync')
 export class SyncOpsController {
   constructor(private readonly ops: SyncOpsService) {}

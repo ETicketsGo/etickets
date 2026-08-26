@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Ip, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../common/decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { PAYMENT_ENVS } from '../configuration/payment-environment';
 import type { OnboardingStatus } from './merchant-onboarding.checklist';
@@ -53,6 +53,7 @@ const reasonSchema = z.object({ reason: z.string().min(1) });
 @ApiTags('admin-merchant-onboarding')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.PAYMENT_ADMIN)
 @Controller('admin/payments/onboarding')
 export class MerchantOnboardingController {
   constructor(

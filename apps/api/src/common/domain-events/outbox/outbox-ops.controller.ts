@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { OutboxStatus } from '@prisma/client';
-import { Role } from '@eticketsgo/shared-types';
-import { CurrentUser, Roles, type RequestUser } from '../../decorators';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../../decorators';
 import { OutboxOpsService } from './outbox-ops.service';
 import { OutboxHealthService } from './outbox-health.service';
 
@@ -13,6 +13,7 @@ import { OutboxHealthService } from './outbox-health.service';
 @ApiTags('admin:outbox')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@RequiresAdmin(AdminPermission.OPS_READ)
 @Controller('admin/outbox')
 export class OutboxOpsController {
   constructor(
