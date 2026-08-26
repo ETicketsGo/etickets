@@ -291,6 +291,20 @@ export interface ShowRowView {
   seatsTotal: number;
 }
 
+/**
+ * What to call the thing the audience faces, when a venue has not said.
+ *
+ * A fallback rather than a default column value: most venues call it exactly this, and the
+ * ones that do not ("PITCH", "RING", "ALTAR") set `focalLabel` and this is never consulted.
+ */
+const DEFAULT_FOCAL_LABEL: Record<string, string> = {
+  SCREEN: 'SCREEN',
+  STAGE_END: 'STAGE',
+  STAGE_THRUST: 'STAGE',
+  STAGE_CENTRE: 'STAGE',
+  FIELD: 'FIELD',
+};
+
 @Injectable()
 export class ShowsService {
   constructor(
@@ -1765,7 +1779,21 @@ export class ShowsService {
     });
   }
 
-  async getPublicSeatLayout(sessionId: string) {
+  /**
+   * The seat layout a customer picks from.
+   *
+   * ── TWO SHAPES, FOR ONE REASON ─────────────────────────────────────────────────
+   * A cinema is a couple of hundred seats and is sent whole, exactly as it always was.
+   * A stadium is fourteen thousand, and sending that to a phone is not a slow page — it is
+   * several megabytes of JSON before anything is drawn, on the screen where most tickets
+   * are bought.
+   *
+   * So a SECTIONED venue is read in two steps: an overview of blocks with their outlines
+   * and how much is left in each, then the seats of the one block the customer picked.
+   * `sectionId` selects the second. GRID layouts ignore it entirely and keep returning
+   * everything, so nothing that already works changes shape.
+   */
+  async getPublicSeatLayout(sessionId: string, sectionId?: string) {
     /*
       Reads the layout version PINNED TO THE SHOW, not the screen's current one.
 
@@ -1778,22 +1806,51 @@ export class ShowsService {
       `session.seatMap` is set at scheduling time and backfilled for every pre-existing show,
       so the answer is always the room the show is actually being played in.
     */
+    /*
+      What to load depends on the answer, and it has to be decided before the query.
+
+      Including `showSeats: true` is fourteen thousand rows for a stadium — pulled even to
+      answer "how many are left in each block", where a grouped count does the same job in
+      one row per block. So the shape of the layout is read first, cheaply, and the heavy
+      include only happens for the reads that genuinely need every seat.
+    */
+    const shape = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, seatMapId: true, seatMap: { select: { layoutKind: true } } },
+    });
+    if (!shape) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Show not found or has no seat layout.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const isSectionedOverview = shape.seatMap?.layoutKind === 'SECTIONED' && !sectionId;
+
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
       include: {
         ticketTypes: true,
-        showSeats: true,
+        // Skipped for the overview: a grouped count answers it without the rows.
+        showSeats: !isSectionedOverview,
         seatMap: {
           include: {
             categories: { orderBy: { sortOrder: 'asc' } },
             sections: {
               orderBy: { sortOrder: 'asc' },
-              include: {
-                rows: {
-                  orderBy: { sortOrder: 'asc' },
-                  include: { seats: { orderBy: { colIndex: 'asc' } } },
-                },
-              },
+              // One block's seats when a block was asked for, none for an overview, and
+              // everything for a cinema.
+              ...(isSectionedOverview
+                ? {}
+                : {
+                    include: {
+                      rows: {
+                        orderBy: { sortOrder: 'asc' },
+                        include: { seats: { orderBy: { colIndex: 'asc' } } },
+                      },
+                    },
+                  }),
+              ...(sectionId ? { where: { id: sectionId } } : {}),
             },
           },
         },
@@ -1833,22 +1890,97 @@ export class ShowsService {
         .filter((t) => t.seatCategoryId)
         .map((t) => [t.seatCategoryId as string, t]),
     );
+
+    /** What a seat in this category actually costs tonight: the show's price, else the base. */
+    const priceFor = (categoryId: string, basePriceMinor: number) =>
+      ticketTypeByCategory.get(categoryId)?.priceMinor ?? basePriceMinor;
+
+    const categories = seatMap.categories.map((c) => ({
+      id: c.id,
+      ticketTypeId: ticketTypeByCategory.get(c.id)?.id ?? null,
+      name: c.name,
+      colorHex: c.colorHex,
+      priceMinor: priceFor(c.id, c.basePriceMinor),
+    }));
+
+    const focal = {
+      kind: seatMap.focalPoint,
+      label: seatMap.focalLabel ?? DEFAULT_FOCAL_LABEL[seatMap.focalPoint] ?? 'STAGE',
+      shape: seatMap.focalShape ?? null,
+    };
+
+    if (isSectionedOverview) {
+      const summaries = await this.sectionAvailability(sessionId);
+      return {
+        sessionId: session.id,
+        /*
+          The discriminant, and it is `view` rather than `layoutKind` on purpose.
+
+          What a caller needs to know is whether this payload contains seats, and layoutKind
+          cannot answer that — a SECTIONED venue returns an overview OR one block's seats
+          depending on what was asked for. Naming the view says it directly, so a client
+          that reaches for `rows` on an overview fails to compile instead of rendering an
+          empty grid and telling the customer the block is sold out.
+        */
+        view: 'overview' as const,
+        layoutKind: 'SECTIONED' as const,
+        focal,
+        categories,
+        // No `sections[].rows` at all, deliberately: the client cannot accidentally render
+        // a half-loaded seat grid, because there is nothing there to half-render.
+        sections: seatMap.sections.map((sec) => {
+          const summary = summaries.get(sec.id);
+          const prices = (summary?.categoryIds ?? []).map((id) => {
+            const category = seatMap.categories.find((c) => c.id === id);
+            return category ? priceFor(category.id, category.basePriceMinor) : null;
+          });
+          const known = prices.filter((p): p is number => p !== null);
+          return {
+            id: sec.id,
+            name: sec.name,
+            shape: sec.shape ?? null,
+            labelX: sec.labelX,
+            labelY: sec.labelY,
+            tier: sec.tier,
+            rotationDeg: sec.rotationDeg,
+            availableCount: summary?.available ?? 0,
+            totalCount: summary?.total ?? 0,
+            priceMinorFrom: known.length > 0 ? Math.min(...known) : null,
+            priceMinorTo: known.length > 0 ? Math.max(...known) : null,
+          };
+        }),
+      };
+    }
+
     const statusBySeat = new Map(session.showSeats.map((ss) => [ss.seatId, ss.status]));
+
+    /*
+      The include above is conditional, so TypeScript sees a union: sections with rows, and
+      sections without. Only the overview produces the latter and it returned two blocks
+      ago, so this narrows to the shape that actually arrived — rather than widening every
+      downstream type with an optional `rows` that is never actually absent here.
+    */
+    type DetailedSection = (typeof seatMap.sections)[number] & {
+      rows: {
+        label: string;
+        seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[];
+      }[];
+    };
 
     return {
       sessionId: session.id,
-      categories: seatMap.categories.map((c) => {
-        const ticketType = ticketTypeByCategory.get(c.id);
-        return {
-          id: c.id,
-          ticketTypeId: ticketType?.id ?? null,
-          name: c.name,
-          colorHex: c.colorHex,
-          priceMinor: ticketType?.priceMinor ?? c.basePriceMinor,
-        };
-      }),
-      sections: seatMap.sections.map((s) => ({
+      view: 'seats' as const,
+      layoutKind: seatMap.layoutKind,
+      focal,
+      categories,
+      sections: (seatMap.sections as DetailedSection[]).map((s) => ({
+        // Newly exposed so the client can ask for one block by id and, on the way back,
+        // know which block it is looking at.
+        id: s.id,
         name: s.name,
+        shape: s.shape ?? null,
+        tier: s.tier,
+        rotationDeg: s.rotationDeg,
         rows: s.rows.map((r) => ({
           label: r.label,
           seats: r.seats.map((seat) => ({
@@ -1861,5 +1993,54 @@ export class ShowsService {
         })),
       })),
     };
+  }
+
+  /**
+   * How much is left in each block, counted in the database.
+   *
+   * One grouped statement rather than loading every ShowSeat and counting in Node. For a
+   * stadium that is the difference between a few dozen rows and fourteen thousand, on the
+   * request that renders first and is therefore the one people wait for.
+   *
+   * GAP seats are excluded: an aisle is not capacity, and counting it makes a sold-out
+   * block look like it has space.
+   */
+  private async sectionAvailability(sessionId: string) {
+    const rows = await this.prisma.$queryRaw<
+      { sectionId: string; status: string; seatCategoryId: string; count: bigint }[]
+    >`
+      SELECT r."sectionId"        AS "sectionId",
+             ss."status"          AS "status",
+             s."seatCategoryId"   AS "seatCategoryId",
+             COUNT(*)             AS "count"
+        FROM "ShowSeat" ss
+        JOIN "Seat" s     ON s.id = ss."seatId"
+        JOIN "SeatRow" r  ON r.id = s."rowId"
+       WHERE ss."eventSessionId" = ${sessionId}
+         AND s."kind" <> 'GAP'
+       GROUP BY 1, 2, 3
+    `;
+
+    const bySection = new Map<
+      string,
+      { available: number; total: number; categoryIds: string[] }
+    >();
+    for (const row of rows) {
+      const entry = bySection.get(row.sectionId) ?? {
+        available: 0,
+        total: 0,
+        categoryIds: [] as string[],
+      };
+      const n = Number(row.count);
+      entry.total += n;
+      // Only AVAILABLE counts as available. HELD is somebody mid-checkout and BLOCKED is an
+      // operator decision; showing either as free is how two people reach for one seat.
+      if (row.status === 'AVAILABLE') entry.available += n;
+      if (!entry.categoryIds.includes(row.seatCategoryId)) {
+        entry.categoryIds.push(row.seatCategoryId);
+      }
+      bySection.set(row.sectionId, entry);
+    }
+    return bySection;
   }
 }

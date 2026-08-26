@@ -1,5 +1,20 @@
 import { ShowsService } from './shows.service';
 
+/**
+ * The seat view, or a failure that says so.
+ *
+ * `getPublicSeatLayout` returns a discriminated union — an overview for a sectioned venue,
+ * seats for everything else — so a test that wants rows has to say which it expected. That
+ * is the point of the discriminant: reaching for `rows` on an overview is a compile error
+ * rather than an empty grid telling a customer the block is sold out.
+ */
+function expectSeatView<T extends { view: string }>(layout: T): Extract<T, { view: 'seats' }> {
+  if (layout.view !== 'seats') {
+    throw new Error(`expected a seat view, got "${layout.view}"`);
+  }
+  return layout as Extract<T, { view: 'seats' }>;
+}
+
 describe('ShowsService.getPublicSeatLayout', () => {
   const seatMap = {
     categories: [
@@ -58,7 +73,7 @@ describe('ShowsService.getPublicSeatLayout', () => {
       priceMinor: 25_000,
     });
 
-    const seats = layout.sections[0].rows[0].seats;
+    const seats = expectSeatView(layout).sections[0].rows[0].seats;
     expect(seats.map((s) => s.status)).toEqual(['SOLD', 'HELD']);
     expect(seats.every((s) => s.categoryId === 'cat1')).toBe(true);
   });
@@ -72,7 +87,7 @@ describe('ShowsService.getPublicSeatLayout', () => {
     });
 
     const layout = await service.getPublicSeatLayout('sess1');
-    const seats = layout.sections[0].rows[0].seats;
+    const seats = expectSeatView(layout).sections[0].rows[0].seats;
     expect(seats.map((s) => s.status)).toEqual(['SOLD', 'AVAILABLE']);
   });
 
@@ -113,8 +128,9 @@ describe('ShowsService.getPublicSeatLayout', () => {
     });
 
     const layout = await service.getPublicSeatLayout('sess1');
-    expect(layout.sections[0].name).toBe('Normal');
-    expect(layout.sections[0].rows[0].seats.map((s) => s.id)).toEqual(['s1', 's2']);
+    const seatView = expectSeatView(layout);
+    expect(seatView.sections[0].name).toBe('Normal');
+    expect(seatView.sections[0].rows[0].seats.map((s) => s.id)).toEqual(['s1', 's2']);
     // The pinned layout's own categories — emphatically not the screen's newer 'catX'.
     expect(layout.categories.map((c) => c.id)).toEqual(['cat1', 'cat2']);
   });

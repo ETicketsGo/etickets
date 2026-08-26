@@ -76,6 +76,36 @@ enum ScreenStatus {
 ///
 /// Only DRAFT is editable. Publishing is the point of no return, and it is deliberately
 /// one-way: once a version can be attached to a show it must never change underneath one.
+/// How a seat map is laid out, and therefore how it is drawn and read.
+///
+/// GRID is every layout that existed before venue maps: rows of seats facing a screen, drawn
+/// as a grid, small enough to send whole. It stays the default so no existing cinema changes
+/// behaviour by having this column added.
+///
+/// SECTIONED is the arena/theatre/stadium shape. The audience is divided into blocks arranged
+/// around a focal point, and those blocks carry geometry so they can be drawn as a map rather
+/// than as a list. The practical difference is not cosmetic: a sectioned venue can hold twenty
+/// thousand seats, which is far too many to send to a phone at once, so it is read as an
+/// overview first and one section at a time after that.
+enum VenueLayoutKind {
+  GRID
+  SECTIONED
+}
+
+/// What the audience is facing. Drives where the focal shape is drawn and how sections curve.
+enum FocalPointKind {
+  /// A cinema screen across one end.
+  SCREEN
+  /// A proscenium stage at one end — a theatre, a concert hall, an amphitheatre.
+  STAGE_END
+  /// A stage projecting into the audience, seated on three sides.
+  STAGE_THRUST
+  /// In the round: the audience surrounds the performance.
+  STAGE_CENTRE
+  /// A pitch, court or arena floor with stands on all sides.
+  FIELD
+}
+
 enum SeatLayoutStatus {
   /// Editable, invisible to scheduling. A layout being worked on.
   DRAFT
@@ -759,6 +789,26 @@ model SeatMap {
   publishedAt   DateTime?
   archivedAt    DateTime?
 
+  /// GRID (a room of rows) or SECTIONED (blocks arranged around a focal point).
+  ///
+  /// Defaulted to GRID so every layout that already exists keeps rendering and selling
+  /// exactly as it did. Nothing reads the geometry columns below unless this says SECTIONED.
+  layoutKind VenueLayoutKind @default(GRID)
+
+  /// What the audience faces, and where it sits on the map.
+  focalPoint FocalPointKind @default(SCREEN)
+
+  /// The focal shape's outline, as [[x, y], ...] in the same 0–1000 space as sections.
+  ///
+  /// Null means "derive it from focalPoint", which is right for the overwhelming majority of
+  /// venues — a bar across the top for an end stage, a rectangle in the middle for a pitch.
+  /// It is stored rather than always derived because real rooms have odd stages, and a venue
+  /// whose map is subtly wrong is one customers do not trust.
+  focalShape Json?
+
+  /// What to call it on the map: "SCREEN", "STAGE", "PITCH". Null falls back to focalPoint.
+  focalLabel String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -793,6 +843,33 @@ model SeatSection {
   seatMap   SeatMap @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
   name      String
   sortOrder Int     @default(0)
+
+  /// The block's outline on the venue map, as [[x, y], ...] in an abstract 0–1000 square
+  /// with y increasing downward.
+  ///
+  /// Abstract rather than metres, because the map is a diagram for finding your seat, not a
+  /// survey — and a unitless square renders identically on a phone and a wall display.
+  ///
+  /// Null on GRID layouts, which have no map. A SECTIONED layout without a shape is drawn in
+  /// a fallback strip rather than dropped: a section the customer cannot see is a section
+  /// whose seats cannot be sold.
+  shape Json?
+
+  /// Where the block's name sits. Null means the polygon's centroid, which is right until a
+  /// section is L-shaped or a horseshoe and the centroid lands outside it.
+  labelX Int?
+  labelY Int?
+
+  /// FLOOR, LOWER, CLUB, UPPER, LAWN — free text on purpose.
+  ///
+  /// Every venue names its decks differently and an enum would need a migration each time a
+  /// new one is onboarded. Used to group the legend and to select a whole deck when pricing,
+  /// never to decide what anything costs.
+  tier String?
+
+  /// How far the seats inside are turned, in degrees clockwise, so a side block's rows face
+  /// the stage instead of the top of the screen.
+  rotationDeg Int @default(0)
 
   rows SeatRow[]
 

@@ -30,6 +30,10 @@ export type {
   PublicMovie,
   SeatLayout,
   SeatLayoutSeat,
+  SeatLayoutResponse,
+  VenueSectionSummary,
+  VenueFocalPoint,
+  VenuePoint,
   SeatStatus,
   Discovery,
   DiscoverySection,
@@ -133,7 +137,9 @@ export const api = {
   listMovies: (params?: { city?: string; genre?: string; q?: string }) =>
     wk.publicMovies.list(params),
   getMovie: (slug: string) => wk.publicMovies.get(slug),
-  showSeats: (sessionId: string) => wk.publicShows.seats(sessionId),
+  // `section` is only meaningful for a sectioned venue; a cinema ignores it and returns
+  // the whole room either way.
+  showSeats: (sessionId: string, section?: string) => wk.publicShows.seats(sessionId, section),
   // Analytics Platform: the signed-in customer's own booking analytics.
   analytics: () => wk.analytics.customer(),
   // Customer Success: contact, bug report, feature request, feedback, CSAT.

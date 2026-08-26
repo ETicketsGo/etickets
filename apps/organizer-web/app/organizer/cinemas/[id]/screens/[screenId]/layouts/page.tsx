@@ -21,6 +21,7 @@ import {
   type SeatLayoutStatus,
   type SeatLayoutSummary,
 } from '@eticketsgo/web-kit';
+import { VENUE_TEMPLATES, type VenueTemplateKey } from '@eticketsgo/shared-types';
 
 /**
  * Seat layout versions for one screen.
@@ -51,6 +52,9 @@ export default function SeatLayoutsPage() {
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [compareTo, setCompareTo] = useState<string | null>(null);
+  const [templating, setTemplating] = useState<SeatLayoutSummary | null>(null);
+  const [template, setTemplate] = useState<VenueTemplateKey>('PROSCENIUM');
+  const [basePrice, setBasePrice] = useState('500');
 
   const layoutsQ = useQuery({
     queryKey: ['screen', screenId, 'layouts'],
@@ -65,6 +69,7 @@ export default function SeatLayoutsPage() {
       refresh();
       setPublishing(null);
       setArchiving(null);
+      setTemplating(null);
       setError(null);
     },
     // Refusals here carry a policy code and a written explanation; showing the server's
@@ -162,6 +167,19 @@ export default function SeatLayoutsPage() {
                     >
                       Clone
                     </Button>
+                    {l.status === 'DRAFT' ? (
+                      <Button
+                        variant="outline"
+                        disabled={run.isPending}
+                        aria-label={`Start version ${l.version} from a venue shape`}
+                        onClick={() => {
+                          setError(null);
+                          setTemplating(l);
+                        }}
+                      >
+                        Start from a shape
+                      </Button>
+                    ) : null}
                     {l.status === 'DRAFT' ? (
                       <Button
                         disabled={run.isPending}
@@ -272,6 +290,104 @@ export default function SeatLayoutsPage() {
                 they were built against.
               </p>
             </div>
+            {error ? (
+              <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </Dialog>
+      ) : null}
+
+      {templating ? (
+        <Dialog
+          open
+          onClose={() => setTemplating(null)}
+          title={`Start v${templating.version} from a venue shape`}
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setTemplating(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={run.isPending || !Number.isFinite(Number(basePrice))}
+                onClick={() =>
+                  run.mutate(() =>
+                    api.theaterOps.applyVenueTemplate(templating.id, {
+                      template,
+                      // Rupees/dollars in the box, minor units on the wire. Money is integer
+                      // minor units everywhere behind this line.
+                      basePriceMinor: Math.round(Number(basePrice) * 100),
+                    }),
+                  )
+                }
+              >
+                Build it
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm">
+              This replaces everything in the draft. Pick the shape closest to your venue and adjust
+              it afterwards — getting to &ldquo;wrong in one place&rdquo; is much faster than
+              starting from an empty room.
+            </p>
+
+            <div className="space-y-2">
+              {VENUE_TEMPLATES.map((t) => (
+                <label
+                  key={t.key}
+                  className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border p-2.5 hover:bg-background-subtle"
+                >
+                  <input
+                    type="radio"
+                    name="venue-template"
+                    checked={template === t.key}
+                    onChange={() => setTemplate(t.key)}
+                    className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-action-primary"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-text-primary">
+                      {t.label}
+                      {/*
+                        The seat count is the thing an organizer actually chooses on, so it
+                        is stated rather than left to be discovered after the build. It is
+                        measured by a test against the real generator, not estimated.
+                      */}
+                      <span className="ml-2 font-normal text-text-muted">
+                        ≈{t.approximateSeats.toLocaleString()} seats
+                      </span>
+                    </span>
+                    <span className="block text-caption text-text-muted">{t.description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div>
+              <label htmlFor="base-price" className="mb-1 block text-sm font-medium">
+                Cheapest seat
+              </label>
+              <Input
+                id="base-price"
+                type="number"
+                min="0"
+                step="1"
+                value={basePrice}
+                onChange={(e) => setBasePrice(e.target.value)}
+              />
+              <p className="mt-1 text-caption text-text-muted">
+                {/*
+                  The template knows that a front-row seat is worth more than the back; it does
+                  not know what either costs. Saying so here stops the derived numbers reading
+                  as a recommendation.
+                */}
+                Every other price band is scaled from this. They are a starting point — set the real
+                prices per show afterwards.
+              </p>
+            </div>
+
             {error ? (
               <p role="alert" className="rounded-md bg-status-error/10 p-3 text-sm">
                 {error}

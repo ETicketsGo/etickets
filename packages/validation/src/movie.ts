@@ -324,6 +324,26 @@ export const updateSeatLayoutSchema = z.object({
 });
 export type UpdateSeatLayoutInput = z.infer<typeof updateSeatLayoutSchema>;
 
+/**
+ * Fill a draft from a venue template.
+ *
+ * The bounds are not decoration. `rows` and `seatsPerRow` are multiplied across every block
+ * a template defines, so a stadium asked for 500 rows of 500 would try to write about four
+ * million seats — a request that costs one line to send and takes the database down. Fifty
+ * hundred-seat rows per block is larger than any real stand.
+ */
+export const applyVenueTemplateSchema = z.object({
+  template: z.enum(['CINEMA', 'PROSCENIUM', 'AMPHITHEATRE', 'ARENA', 'STADIUM', 'IN_THE_ROUND']),
+  rows: z.number().int().min(1).max(60).optional(),
+  seatsPerRow: z.number().int().min(1).max(100).optional(),
+  /**
+   * What the cheapest band costs. Every other band is derived from it by the template's
+   * relative weights, and the organizer edits the numbers afterwards.
+   */
+  basePriceMinor: z.number().int().min(0),
+});
+export type ApplyVenueTemplateInput = z.infer<typeof applyVenueTemplateSchema>;
+
 /** Publish a draft, optionally dated to take effect in the future. */
 export const publishSeatLayoutSchema = z.object({
   /**
