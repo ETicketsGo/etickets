@@ -93,6 +93,26 @@ function contains(points: Point[], [px, py]: Point): boolean {
   return inside;
 }
 
+/**
+ * Do two polygons share any area?
+ *
+ * Bounding boxes are not enough here: a ring segment's box covers the middle of the arena,
+ * where the stage is, without the segment itself going anywhere near it. So this checks
+ * what actually matters — whether any edges cross, and whether either shape is wholly
+ * inside the other.
+ */
+function polygonsOverlap(a: Point[], b: Point[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsCross(a[i], a[(i + 1) % a.length], b[j], b[(j + 1) % b.length])) {
+        return true;
+      }
+    }
+  }
+  // Containment with no crossing: one shape entirely swallowed by the other.
+  return contains(a, b[0]) || contains(b, a[0]);
+}
+
 function boundingBox(points: Point[]) {
   const xs = points.map((p) => p[0]);
   const ys = points.map((p) => p[1]);
@@ -194,6 +214,36 @@ describe('venue templates', () => {
       );
       expect(kinds).toContain('WHEELCHAIR');
       expect(kinds).toContain('COMPANION');
+    });
+
+    it('gives every block a name short enough to fit inside it', () => {
+      /*
+        The label is drawn INSIDE the polygon at a fixed size, and SVG text does not wrap.
+
+        "North west corner" ran clear across the stand beside it and collided with that
+        stand's own label; "Front Right centre" bled into two neighbouring wedges. Both
+        looked fine in every assertion about geometry, because the geometry WAS fine — it
+        was the words that did not fit.
+      */
+      // Twelve fits the narrowest block any template produces — a stadium stand split into
+      // four is about ninety units wide, and a character is roughly nine at this font size.
+      const tooLong = venue.sections.filter((s) => s.name.length > 12).map((s) => s.name);
+      expect(tooLong).toEqual([]);
+    });
+
+    it('never draws seating on top of the stage', () => {
+      /*
+        The bug this exists for, found by looking at a rendered map rather than at a number.
+
+        The arena put its stage in the middle of the floor and then laid two of the four
+        floor blocks across it — seating drawn over the performance, with the word STAGE
+        half-hidden behind them. Every geometry assertion passed: they all compared sections
+        with other sections, and nothing ever compared a section with the focal shape.
+      */
+      const onTopOfTheStage = venue.sections
+        .filter((s) => polygonsOverlap(s.shape, venue.focalShape))
+        .map((s) => s.name);
+      expect(onTopOfTheStage).toEqual([]);
     });
 
     it('is deterministic — the same template twice is the same venue', () => {
