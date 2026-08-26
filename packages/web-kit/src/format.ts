@@ -8,4 +8,4 @@
  * the locale and timeZone parameters shared-types adds are optional and default to
  * what this module always did.
  */
-export { money, dateTime, dateOnly, titleCase } from '@eticketsgo/shared-types';
+export { money, dateTime, dateOnly, titleCase, zoneAbbrev } from '@eticketsgo/shared-types';

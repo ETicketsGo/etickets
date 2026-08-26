@@ -123,7 +123,7 @@ export default function ConfirmationPage() {
           <StatusBadge status={booking.status} />
         </div>
         <p className="text-[0.9375rem] text-text-muted">
-          {dateTime(booking.eventSession.startsAt)}
+          {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
         </p>
         {booking.reference && (
           <div className="flex items-center justify-between text-[0.9375rem]">
@@ -183,7 +183,11 @@ export default function ConfirmationPage() {
                   <div className="min-w-0 space-y-1">
                     <p className="font-semibold text-text-primary">{booking.event.title}</p>
                     <p className="text-[0.9375rem] text-text-muted">
-                      {dateTime(booking.eventSession.startsAt)}
+                      {dateTime(
+                        booking.eventSession.startsAt,
+                        undefined,
+                        booking.timeZone ?? undefined,
+                      )}
                     </p>
                     {t.seatLabel ? (
                       <p className="text-[0.9375rem] text-text-primary">

@@ -66,3 +66,26 @@ export function dateOnly(
 export function titleCase(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/**
+ * The short name of a timezone at a given instant — "IST", "GMT+5:30", "CDT".
+ *
+ * Used beside a showtime. A time without its zone is exactly the ambiguity that let a
+ * ticket and its confirmation email disagree by eleven and a half hours while both were
+ * technically correct: one rendered in the reader's browser zone, the other in the venue's.
+ *
+ * Returns the raw zone name if the runtime cannot resolve it, and an empty string for no
+ * zone at all — never a wrong abbreviation.
+ */
+export function zoneAbbrev(value: string | Date | null | undefined, timeZone?: string): string {
+  if (!value || !timeZone) return '';
+  try {
+    return (
+      new Intl.DateTimeFormat('en-GB', { timeZone, timeZoneName: 'short' })
+        .formatToParts(new Date(value))
+        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone
+    );
+  } catch {
+    return timeZone;
+  }
+}

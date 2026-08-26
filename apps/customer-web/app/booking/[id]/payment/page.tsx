@@ -231,7 +231,7 @@ export default function PaymentPage() {
         <div>
           <p className="font-semibold text-text-primary">{booking.event.title}</p>
           <p className="text-[0.9375rem] text-text-muted">
-            {dateTime(booking.eventSession.startsAt)}
+            {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
           </p>
         </div>
         <div className="space-y-1 border-t border-border pt-3">
