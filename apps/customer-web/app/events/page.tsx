@@ -104,6 +104,13 @@ export default function EventsPage() {
     if ((nextCity ?? null) !== preference.city) preference.setCity(nextCity ?? null);
   };
   const hasFilters = Boolean(applied.q || applied.city || applied.category);
+  /**
+   * Empty, and the ONLY thing narrowing it is the city.
+   *
+   * Distinguished from "empty with a search term in the box", where the customer already
+   * knows what they typed and a city message would be a red herring.
+   */
+  const appliedCityOnly = Boolean(applied.city) && !applied.q && !applied.category;
   const clearFilters = () => {
     setQ('');
     setCity('');
@@ -211,18 +218,46 @@ export default function EventsPage() {
           )}
         </>
       ) : (
+        /*
+          An empty page has to name its cause, and the city is the cause the customer is
+          least likely to guess.
+
+          The city chip lives in the header and is set once, so by the time somebody opens
+          Browse a fortnight later they have forgotten it is there. "No events match your
+          search" then reads as "this platform has nothing", when the truth is "nothing in
+          Bengaluru" — a real state on this platform today, where the events are in Mumbai
+          and the films are in Bengaluru. The way out is one click, and it is offered here
+          rather than left to be found back in the header.
+        */
         <EmptyState
-          title="No events match your search"
+          title={
+            appliedCityOnly
+              ? `Nothing on in ${applied.city} just yet`
+              : 'No events match your search'
+          }
           hint={
-            hasFilters
-              ? intent
-                ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' · ')
-                : 'Try clearing your filters.'
-              : 'Check back soon for new events.'
+            appliedCityOnly
+              ? 'Other cities have events on sale.'
+              : hasFilters
+                ? intent
+                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' · ')
+                  : 'Try clearing your filters.'
+                : 'Check back soon for new events.'
           }
           icon={Search}
           action={
-            hasFilters ? (
+            appliedCityOnly ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setCity('');
+                  setApplied((prev) => ({ ...prev, city: undefined }));
+                  preference.setCity(null);
+                }}
+              >
+                Show all cities
+              </Button>
+            ) : hasFilters ? (
               <Button variant="secondary" onClick={clearFilters}>
                 Clear filters
               </Button>

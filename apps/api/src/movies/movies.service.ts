@@ -229,22 +229,43 @@ export class PublicMoviesService {
   }
 
   private async query(filters: PublicMovieFilters) {
+    /*
+      A film is in the catalogue when you can actually buy a ticket for it.
+
+      This used to ask only whether the MOVIE was published, and — when a city was named —
+      whether it had any movie-experience event at a venue there. Neither clause looked at
+      the event's own status or at whether a single showing was still to come, so the
+      catalogue listed films whose run had finished and films whose events were still
+      drafts. On QA that was four of seven: a customer taps a poster, lands on a page with
+      no showtimes, and concludes the site is broken.
+
+      It was always wrong and it became visible when discovery started filtering by city,
+      which is a smaller pool and so a much higher chance of landing on a dead one.
+
+      The predicate is deliberately the same one `LocationService.cities()` uses to decide
+      which cities to offer, so the picker and the catalogue cannot disagree about what is
+      on sale.
+    */
+    const bookable: Prisma.EventWhereInput = {
+      experienceType: ExperienceType.MOVIE,
+      status: EventStatus.PUBLISHED,
+      sessions: { some: { startsAt: { gte: new Date() } } },
+    };
+
     const where: Prisma.MovieWhereInput = {
       status: MovieStatus.PUBLISHED,
       ...(filters.q ? { title: { contains: filters.q, mode: 'insensitive' } } : {}),
       ...(filters.genre ? { genres: { has: filters.genre } } : {}),
-      // A movie is discoverable in a city when it has a movie-experience show
-      // playing at a venue in that city.
-      ...(filters.city
-        ? {
-            events: {
-              some: {
-                experienceType: ExperienceType.MOVIE,
-                venue: { city: { equals: filters.city, mode: 'insensitive' } },
-              },
-            },
-          }
-        : {}),
+      events: {
+        some: {
+          ...bookable,
+          // A film is discoverable IN A CITY when one of those bookable showings is at a
+          // venue there.
+          ...(filters.city
+            ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } }
+            : {}),
+        },
+      },
     };
     const movies = await this.prisma.movie.findMany({
       where,
