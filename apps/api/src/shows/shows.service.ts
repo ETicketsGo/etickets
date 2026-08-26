@@ -305,6 +305,24 @@ const DEFAULT_FOCAL_LABEL: Record<string, string> = {
   FIELD: 'FIELD',
 };
 
+/**
+ * The seats a show can actually sell.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ * `Seat.kind` distinguishes a real seat from a GAP — an aisle, a pillar, a walkway — and
+ * scheduling ignored it completely. Every seat in the layout became an AVAILABLE ShowSeat
+ * and counted towards the ticket type's quantity, so a five-gap balcony advertised fifty
+ * seats when it had forty-two, and a customer could buy seat A5 and turn up to a corridor.
+ * That was reproduced end to end before this was written: the booking succeeded.
+ *
+ * WHEELCHAIR and COMPANION stay in. They are real seats that somebody sits in; they are
+ * merely seats a customer needs to be able to IDENTIFY, which is a rendering concern and
+ * handled by returning `kind` to the client.
+ */
+function sellableSeats<T extends { kind: string }>(seats: T[]): T[] {
+  return seats.filter((seat) => seat.kind !== 'GAP');
+}
+
 @Injectable()
 export class ShowsService {
   constructor(
@@ -608,7 +626,7 @@ export class ShowsService {
       (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
     );
     const countByCategory = new Map<string, number>();
-    for (const seat of seatMap.seats) {
+    for (const seat of sellableSeats(seatMap.seats)) {
       countByCategory.set(seat.seatCategoryId, (countByCategory.get(seat.seatCategoryId) ?? 0) + 1);
     }
 
@@ -668,7 +686,8 @@ export class ShowsService {
       }
 
       await tx.showSeat.createMany({
-        data: seatMap.seats.map((seat) => ({
+        // Gaps are not inventory: an aisle with a ShowSeat row is an aisle somebody can buy.
+        data: sellableSeats(seatMap.seats).map((seat) => ({
           eventSessionId: session.id,
           seatId: seat.id,
           status: 'AVAILABLE',
@@ -854,7 +873,7 @@ export class ShowsService {
       (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
     );
     const countByCategory = new Map<string, number>();
-    for (const seat of seatMap.seats) {
+    for (const seat of sellableSeats(seatMap.seats)) {
       countByCategory.set(seat.seatCategoryId, (countByCategory.get(seat.seatCategoryId) ?? 0) + 1);
     }
 
@@ -909,7 +928,8 @@ export class ShowsService {
           });
         }
         await tx.showSeat.createMany({
-          data: seatMap.seats.map((seat) => ({
+          // Gaps are not inventory — see `sellableSeats`.
+          data: sellableSeats(seatMap.seats).map((seat) => ({
             eventSessionId: session.id,
             seatId: seat.id,
             status: 'AVAILABLE',
@@ -2001,7 +2021,13 @@ export class ShowsService {
     type DetailedSection = (typeof seatMap.sections)[number] & {
       rows: {
         label: string;
-        seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[];
+        seats: {
+          id: string;
+          label: string;
+          colIndex: number;
+          seatCategoryId: string;
+          kind: string;
+        }[];
       }[];
     };
 
@@ -2021,13 +2047,27 @@ export class ShowsService {
         rotationDeg: s.rotationDeg,
         rows: s.rows.map((r) => ({
           label: r.label,
-          seats: r.seats.map((seat) => ({
-            id: seat.id,
-            label: seat.label,
-            colIndex: seat.colIndex,
-            categoryId: seat.seatCategoryId,
-            status: statusBySeat.get(seat.id) ?? 'AVAILABLE',
-          })),
+          /*
+            Gaps are dropped and `kind` travels with everything else.
+
+            Two separate failures were behind this. A GAP reached the customer as an ordinary
+            available seat, so an aisle could be bought. And a WHEELCHAIR space was
+            indistinguishable from any other seat, so the one customer who needs to find it
+            could not — while somebody who does not need it took it without knowing.
+
+            The organizer's own read has always returned `kind`. Only the customer was kept
+            in the dark.
+          */
+          seats: r.seats
+            .filter((seat) => seat.kind !== 'GAP')
+            .map((seat) => ({
+              id: seat.id,
+              label: seat.label,
+              colIndex: seat.colIndex,
+              categoryId: seat.seatCategoryId,
+              kind: seat.kind,
+              status: statusBySeat.get(seat.id) ?? 'AVAILABLE',
+            })),
         })),
       })),
     };
