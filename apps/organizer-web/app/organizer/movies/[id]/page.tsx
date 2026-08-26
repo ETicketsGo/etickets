@@ -465,9 +465,13 @@ export default function EditMoviePage() {
               Two ways in, because they are two different jobs. One showtime is a correction
               or an extra late screening; a RUN is how a film is actually booked in — a week,
               four times a day, twenty-eight shows nobody wants to type one at a time.
+
+              Both keep the verb. "One show" next to "Schedule a run" read as an odd pair —
+              one a noun, one an instruction — and renaming the existing button also broke
+              every test that had been clicking it for months.
             */}
             <Button size="sm" variant="outline" onClick={openSchedule}>
-              One show
+              Schedule show
             </Button>
             <Button size="sm" onClick={() => setRunOpen(true)} disabled={cannotSchedule}>
               Schedule a run
