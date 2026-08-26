@@ -586,11 +586,25 @@ model Venue {
   name           String
   city           String
   country        String       @default("India")
-  address        String?
-  capacity       Int?
-  status         String       @default("ACTIVE")
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+
+  /// IANA zone for events at this venue, e.g. "Asia/Kolkata", "America/Chicago".
+  ///
+  /// ── WHY A VENUE NEEDS ONE AT ALL ──────────────────────────────────────────────
+  /// A start time means the time AT THE VENUE. Cinemas have carried a zone since the
+  /// theater work; ordinary venues did not, so an event's start time was rendered in
+  /// whatever zone the reader's browser happened to be in — the same defect that made a
+  /// ticket and its confirmation disagree by eleven and a half hours, still live for every
+  /// non-cinema event.
+  ///
+  /// Defaults to the pilot market's zone, matching Cinema, so nothing changes for existing
+  /// venues. An organizer selling outside India has to set it, and cannot be guessed for:
+  /// a country is not a timezone, and several of the launch markets span more than one.
+  timezone  String   @default("Asia/Kolkata")
+  address   String?
+  capacity  Int?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   areas   VenueArea[]
   events  Event[]

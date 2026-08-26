@@ -24,6 +24,9 @@ export class VenuesService {
         name: input.name,
         city: input.city,
         country: input.country,
+        // Omitted leaves the schema default. A country is not a timezone — several launch
+        // markets span more than one — so this is never inferred from `country`.
+        timezone: input.timezone,
         address: input.address,
         capacity: input.capacity,
       },
