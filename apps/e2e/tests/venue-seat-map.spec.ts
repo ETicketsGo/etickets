@@ -155,15 +155,15 @@ test.describe('a venue too big to list', () => {
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
     // The accessible name carries the same three facts the picture does, so the map is not
     // a mouse-only feature.
-    const block = page.getByRole('button', { name: /Ringside North, \d+ of \d+ seats available/ });
+    const block = page.getByRole('button', { name: /Ringside N, \d+ of \d+ seats available/ });
     await expect(block).toBeVisible();
   });
 
   test('3: opening a block shows its seats — and only its seats', async ({ page }) => {
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
-    await page.getByRole('button', { name: /Ringside North/ }).click();
+    await page.getByRole('button', { name: /Ringside N/ }).click();
 
-    await expect(page.getByRole('heading', { name: 'Ringside North' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ringside N' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to the venue map' })).toBeVisible();
     // Row A exists here. If the whole venue had come back, several blocks would each have one.
     await expect(page.getByText('A', { exact: true })).toHaveCount(1);
@@ -179,7 +179,7 @@ test.describe('a venue too big to list', () => {
       and this is what proves it.
     */
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
-    await page.getByRole('button', { name: /Ringside North/ }).click();
+    await page.getByRole('button', { name: /Ringside N/ }).click();
 
     const seat = page.getByRole('button', { name: /^Seat A1\b/ }).first();
     await seat.click();
@@ -191,7 +191,7 @@ test.describe('a venue too big to list', () => {
     await expect(page.getByText(/1 seat held in your basket/)).toBeVisible();
 
     // And still there, still selected, on the way back in.
-    await page.getByRole('button', { name: /Ringside North/ }).click();
+    await page.getByRole('button', { name: /Ringside N/ }).click();
     await expect(page.getByText(/A1/).first()).toBeVisible();
   });
 

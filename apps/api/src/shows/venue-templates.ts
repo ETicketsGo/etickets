@@ -296,13 +296,23 @@ function amphitheatre({ rows = 18, seatsPerRow = 16 }: TemplateParams): Generate
     is 500 + R·cos(15°) across, which reaches the right edge at R ≈ 517.
   */
   const stageCentre: Point = [500, 110];
-  const wedges = [
-    { name: 'Left', from: 105, to: 135 },
-    { name: 'Left centre', from: 135, to: 165 },
-    { name: 'Centre', from: 165, to: 195 },
-    { name: 'Right centre', from: 195, to: 225 },
-    { name: 'Right', from: 225, to: 255 },
-  ];
+  /*
+    Numbered left to right AS DRAWN, which is why the bearings run downwards.
+
+    They were named Left / Left centre / Centre / Right centre / Right, ascending from 105°
+    — and 105° is on the map's RIGHT, so every label sat on the opposite side from the block
+    it named. Nothing caught it: the geometry was correct, only the words were mirrored, and
+    it was visible the moment a real map was rendered and invisible before that.
+
+    Numbering sidesteps the trap rather than restating it. "Left" is ambiguous anyway —
+    house-left and stage-left are opposites, and a customer holding a ticket that says
+    "Front 2" and looking at a map showing "Front 2" needs neither convention.
+  */
+  const wedges = Array.from({ length: 5 }, (_unused, i) => ({
+    index: i + 1,
+    from: 225 - i * 30,
+    to: 255 - i * 30,
+  }));
   const bands: { label: string; inner: number; outer: number; category: string; tier: string }[] = [
     { label: 'Front', inner: 130, outer: 330, category: 'Front', tier: 'LOWER' },
     { label: 'Rear', inner: 340, outer: 500, category: 'Rear', tier: 'UPPER' },
@@ -314,7 +324,7 @@ function amphitheatre({ rows = 18, seatsPerRow = 16 }: TemplateParams): Generate
       const shape = ringSegment(stageCentre, band.inner, band.outer, wedge.from, wedge.to);
       const midDeg = (wedge.from + wedge.to) / 2;
       sections.push({
-        name: `${band.label} ${wedge.name}`,
+        name: `${band.label} ${wedge.index}`,
         sortOrder: bandIndex * wedges.length + wedgeIndex,
         shape,
         ...labelFrom(shape),
@@ -348,15 +358,27 @@ function amphitheatre({ rows = 18, seatsPerRow = 16 }: TemplateParams): Generate
 function arena({ rows = 20, seatsPerRow = 18 }: TemplateParams): GeneratedVenue {
   const sections: TemplateSection[] = [];
 
-  // Floor blocks — a 2x2 grid on the arena floor, closest to the stage and priced for it.
+  /*
+    Floor blocks — a 2x2 grid in front of the stage, which is at the bottom of the bowl.
+
+    The first version put the stage in the middle of the floor at rect(400, 430, 200, 140)
+    and then laid two of the four blocks across it: Floor C and Floor D each overlapped the
+    stage by seventy units, so the map drew seating on top of the performance and the word
+    STAGE came out half-hidden behind them. Every geometry test passed, because they all
+    compared sections with other sections and nothing compared a section with the stage.
+
+    An arena concert seats its floor in FRONT of an end stage, so that is the arrangement:
+    blocks from y=320 to y=545, stage from y=560. Both stay inside the lower bowl's inner
+    radius of 230 — the furthest corner is 208 from the centre.
+  */
   const floor = [
-    { name: 'Floor A', x: 380, y: 300 },
-    { name: 'Floor B', x: 530, y: 300 },
-    { name: 'Floor C', x: 380, y: 430 },
-    { name: 'Floor D', x: 530, y: 430 },
+    { name: 'Floor A', x: 395, y: 320 },
+    { name: 'Floor B', x: 510, y: 320 },
+    { name: 'Floor C', x: 395, y: 440 },
+    { name: 'Floor D', x: 510, y: 440 },
   ];
   floor.forEach((block, i) => {
-    const shape = rect(block.x, block.y, 90, 110);
+    const shape = rect(block.x, block.y, 95, 105);
     sections.push({
       name: block.name,
       sortOrder: i,
@@ -408,7 +430,8 @@ function arena({ rows = 20, seatsPerRow = 18 }: TemplateParams): GeneratedVenue 
   return {
     layoutKind: 'SECTIONED',
     focalPoint: 'FIELD',
-    focalShape: rect(400, 430, 200, 140),
+    // Across the bottom of the bowl, clear of the floor blocks in front of it.
+    focalShape: rect(390, 560, 220, 90),
     focalLabel: 'STAGE',
     categories: [
       { name: 'Floor', colorHex: '#DC2626', sortOrder: 0, priceWeight: 2.4 },
@@ -423,10 +446,12 @@ function arena({ rows = 20, seatsPerRow = 18 }: TemplateParams): GeneratedVenue 
 function stadium({ rows = 30, seatsPerRow = 26 }: TemplateParams): GeneratedVenue {
   const sections: TemplateSection[] = [];
   const stands = [
-    { name: 'North stand', shape: rect(220, 90, 560, 150), tier: 'LOWER', category: 'Sideline' },
-    { name: 'South stand', shape: rect(220, 760, 560, 150), tier: 'LOWER', category: 'Sideline' },
-    { name: 'East stand', shape: rect(770, 250, 150, 500), tier: 'LOWER', category: 'End' },
-    { name: 'West stand', shape: rect(80, 250, 150, 500), tier: 'LOWER', category: 'End' },
+    // Short names, because each of these is split into four blocks about ninety units wide
+    // and the label is drawn inside one of them. "North stand 1" ran over its neighbour.
+    { name: 'North', shape: rect(220, 90, 560, 150), tier: 'LOWER', category: 'Sideline' },
+    { name: 'South', shape: rect(220, 760, 560, 150), tier: 'LOWER', category: 'Sideline' },
+    { name: 'East', shape: rect(770, 250, 150, 500), tier: 'LOWER', category: 'End' },
+    { name: 'West', shape: rect(80, 250, 150, 500), tier: 'LOWER', category: 'End' },
   ];
   stands.forEach((stand, i) => {
     // Split each stand into blocks: a single 8,000-seat polygon is unusable to pick from.
@@ -465,10 +490,12 @@ function stadium({ rows = 30, seatsPerRow = 26 }: TemplateParams): GeneratedVenu
     clear of every stand's bounding box, which is what the overlap test checks.
   */
   const corners: { name: string; at: Point }[] = [
-    { name: 'North west corner', at: [140, 170] },
-    { name: 'North east corner', at: [860, 170] },
-    { name: 'South west corner', at: [140, 830] },
-    { name: 'South east corner', at: [860, 830] },
+    // Abbreviated because the label is drawn INSIDE a 110-wide block: "North west corner"
+    // ran clear across the stand beside it and collided with its label.
+    { name: 'NW corner', at: [140, 170] },
+    { name: 'NE corner', at: [860, 170] },
+    { name: 'SW corner', at: [140, 830] },
+    { name: 'SE corner', at: [860, 830] },
   ];
   corners.forEach((corner, i) => {
     const shape = rect(corner.at[0] - 55, corner.at[1] - 45, 110, 90);
@@ -500,7 +527,9 @@ function stadium({ rows = 30, seatsPerRow = 26 }: TemplateParams): GeneratedVenu
 
 /** In the round: four blocks surrounding a central stage. */
 function inTheRound({ rows = 12, seatsPerRow = 18 }: TemplateParams): GeneratedVenue {
-  const quadrants = ['North', 'East', 'South', 'West'];
+  // Compass letters, not words: the east and west blocks sit side by side across the
+  // narrowest part of the map, and "Outer West" and "Ringside West" ran into each other.
+  const quadrants = ['N', 'E', 'S', 'W'];
   return {
     layoutKind: 'SECTIONED',
     focalPoint: 'STAGE_CENTRE',
@@ -515,7 +544,15 @@ function inTheRound({ rows = 12, seatsPerRow = 18 }: TemplateParams): GeneratedV
       { band: 'Outer', inner: 250, outer: 400, rowCount: Math.round(rows * 0.8) },
     ].flatMap((band, bandIndex) =>
       quadrants.map((quadrant, q) => {
-        const from = q * 90 + 2;
+        /*
+          Each quadrant CENTRED on its compass point, not starting at it.
+
+          Starting at q*90 put North between 2° and 88° — the north-EAST quadrant — so every
+          block was drawn a quarter turn from the direction it was named after. Offsetting by
+          half a quadrant centres North on 0°, which is straight up, which is where somebody
+          reading a map looks for it.
+        */
+        const from = q * 90 - 43;
         const to = from + 86;
         const shape = ringSegment(CENTRE, band.inner, band.outer, from, to);
         const midDeg = (from + to) / 2;
