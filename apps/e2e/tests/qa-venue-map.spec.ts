@@ -46,11 +46,20 @@ test.describe('QA: a venue too big to list', () => {
     const backToMap = page.getByRole('button', { name: 'Back to the venue map' });
     await expect(backToMap).toBeVisible();
 
-    await page
-      .getByRole('button', { name: /^Seat A1\b/ })
-      .first()
-      .click();
-    await expect(page.getByText(/A1/).first()).toBeVisible();
+    /*
+      The first AVAILABLE seat, not seat A1 specifically.
+
+      Naming one seat made this spec depend on nobody having bought it — and the booking spec
+      beside it buys exactly that one. The failure was honest: A1 came back disabled and
+      labelled "sold", which is the inventory working correctly. Taking whatever is free
+      keeps this test about the basket rather than about the seating chart.
+    */
+    const seat = page.locator('button[aria-label^="Seat"][aria-label*="available" i]').first();
+    await expect(seat).toBeVisible({ timeout: 30_000 });
+    const chosen = /Seat\s+([A-Z]+\d+)/i.exec((await seat.getAttribute('aria-label')) ?? '')?.[1];
+    expect(chosen, 'the seat should be named with its row').toBeTruthy();
+    await seat.click();
+    await expect(page.getByText(chosen!, { exact: false }).first()).toBeVisible();
 
     await backToMap.click();
     await expect(page.getByRole('heading', { name: 'Choose your area' })).toBeVisible();
