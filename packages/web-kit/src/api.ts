@@ -2143,7 +2143,16 @@ export interface ScheduleRejection {
 export interface BulkScheduleResult {
   dryRun: boolean;
   turnaroundMinutes: number;
+  /** The zone the wall-clock times were read in — render results with THIS, not the reader's. */
+  timezone: string;
   proposed: number;
+  /**
+   * Every window the batch can place — populated on a DRY RUN too, which is the point of one.
+   *
+   * Without it a caller wanting to say "this will create 24 shows" had to compute proposed
+   * minus rejected, re-deriving a decision the server had already made.
+   */
+  creatable: { startsAt: string; endsAt: string }[];
   created: { sessionId: string; startsAt: string; endsAt: string }[];
   rejected: ScheduleRejection[];
 }
