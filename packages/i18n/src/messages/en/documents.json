@@ -1,0 +1,36 @@
+{
+  "kind": {
+    "TAX_INVOICE": "Tax invoice",
+    "RECEIPT": "Receipt",
+    "CREDIT_NOTE": "Credit note",
+    "FALLBACK": "Document"
+  },
+  "receipt": {
+    "billedTo": "Billed to",
+    "order": "Order",
+    "issued": "Issued",
+    "description": "Description",
+    "qty": "Qty",
+    "unit": "Unit",
+    "amount": "Amount",
+    "subtotal": "Subtotal",
+    "discount": "Discount",
+    "bookingFee": "Booking fee",
+    "total": "Total",
+    "totalRefunded": "Total refunded",
+    "reverses": "Reverses {reference}",
+    "taxRegistration": "Tax registration",
+    "noTaxInvoice": "This is not a tax invoice."
+  },
+  "ticket": {
+    "title": "Ticket",
+    "admitOne": "Admits one",
+    "showAtDoor": "Show this at the door",
+    "seat": "Seat",
+    "generalAdmission": "General admission",
+    "bookingReference": "Booking reference",
+    "holder": "Ticket holder",
+    "doorsOpen": "Doors open",
+    "free": "Free"
+  }
+}

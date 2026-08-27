@@ -64,8 +64,33 @@ export class NotificationService {
    * filtered by user preferences, renders a per-channel template, then for EACH
    * channel persists a SENT row and delivers via the channel.
    */
+
+  /**
+   * The language to write to this person in.
+   *
+   * ── WHY IT IS LOOKED UP HERE AND NOT PASSED IN ─────────────────────────────────────
+   * `NotifyInput.locale` has existed since the beginning and no caller has ever set it, so
+   * every notification the platform has ever sent went out in the default. Leaving it to
+   * callers means thirty call sites each needing to remember, and one that forgets sends a
+   * Quebec customer their booking confirmation in English — which is the specific failure
+   * the Charter of the French Language is about.
+   *
+   * So the recipient's own stored preference wins, an explicit `input.locale` is the
+   * override for the cases that genuinely know better (an admin digest addressed to staff),
+   * and the default is last. A guest booking with no account has no stored preference, which
+   * is why the checkout passes `locale` explicitly for those.
+   */
+  private async localeFor(input: NotifyInput): Promise<string> {
+    if (input.locale) return input.locale;
+    if (!input.userId) return DEFAULT_LOCALE;
+    const user = await this.prisma.user
+      .findUnique({ where: { id: input.userId }, select: { locale: true } })
+      .catch(() => null);
+    return user?.locale ?? DEFAULT_LOCALE;
+  }
+
   async send(input: NotifyInput): Promise<void> {
-    const locale = input.locale ?? DEFAULT_LOCALE;
+    const locale = await this.localeFor(input);
     const resolved = await this.resolveChannelKeys(input);
 
     for (const key of resolved) {
@@ -91,7 +116,15 @@ export class NotificationService {
    * given `scheduledFor`, WITHOUT delivering. Returns the created row ids.
    */
   async schedule(input: NotifyInput, scheduledFor: Date): Promise<string[]> {
-    const locale = input.locale ?? DEFAULT_LOCALE;
+    /*
+      Resolved at SCHEDULE time and stored on the row, not resolved again at send time.
+
+      A reminder queued three weeks ago should arrive in the language the person was using
+      when it was queued. Re-resolving on dispatch would mean a preference changed in between
+      silently rewrites messages that were already composed — and the row already carries
+      `locale` precisely so the dispatcher does not have to guess.
+    */
+    const locale = await this.localeFor(input);
     const resolved = await this.resolveChannelKeys(input);
 
     const ids: string[] = [];

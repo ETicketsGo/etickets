@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1086.0",
+    "@eticketsgo/i18n": "*",
     "@eticketsgo/shared-types": "*",
     "@eticketsgo/validation": "*",
     "@nestjs/common": "^11.1.28",

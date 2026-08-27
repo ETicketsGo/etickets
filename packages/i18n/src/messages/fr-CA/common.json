@@ -1,0 +1,56 @@
+{
+  "action": {
+    "back": "Retour",
+    "next": "Suivant",
+    "cancel": "Annuler",
+    "close": "Fermer",
+    "save": "Enregistrer",
+    "retry": "Réessayer",
+    "search": "Rechercher",
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter",
+    "register": "Créer un compte",
+    "share": "Partager",
+    "copyLink": "Copier le lien",
+    "addToCalendar": "Ajouter au calendrier",
+    "viewAll": "Tout voir",
+    "done": "Terminé"
+  },
+  "state": {
+    "loading": "Chargement",
+    "loadingFailed": "Nous n'avons pas pu charger cette page. Veuillez réessayer.",
+    "empty": "Rien pour l'instant",
+    "soldOut": "Complet",
+    "free": "Gratuit",
+    "from": "À partir de",
+    "notFound": "Introuvable"
+  },
+  "status": {
+    "CONFIRMED": "Confirmée",
+    "PENDING_PAYMENT": "En attente de paiement",
+    "CANCELLED": "Annulée",
+    "EXPIRED": "Expirée",
+    "REFUNDED": "Remboursée",
+    "PARTIALLY_REFUNDED": "Partiellement remboursée",
+    "ACTIVE": "Actif",
+    "CHECKED_IN": "Validé à l'entrée"
+  },
+  "nav": {
+    "explore": "Explorer",
+    "browse": "Parcourir",
+    "movies": "Films",
+    "help": "Aide",
+    "bookings": "Réservations",
+    "tickets": "Billets",
+    "alerts": "Alertes",
+    "account": "Compte",
+    "allCities": "Toutes les villes",
+    "skipToContent": "Aller au contenu",
+    "language": "Langue"
+  },
+  "a11y": {
+    "quantityOf": "Quantité de {name}",
+    "loadingWallet": "Chargement du portefeuille",
+    "openMenu": "Ouvrir le menu"
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "BOOKING_CONFIRMED": {
+    "subjectWithEvent": "Your tickets for {event}",
+    "subject": "Your booking is confirmed",
+    "body": "{count} confirmed{forEvent}{when}.{seats} Booking reference {reference}."
+  },
+  "PAYMENT_FAILED": {
+    "subject": "Payment failed",
+    "body": "We could not process the payment for booking {reference}. Please try again."
+  },
+  "EVENT_REMINDER": {
+    "subject": "Reminder: your event is coming up",
+    "body": "This is a reminder for {event}{startingAt}."
+  },
+  "BOOKING_CANCELLED": {
+    "subject": "Your booking was cancelled",
+    "body": "Your booking {reference} has been cancelled."
+  },
+  "REFUND_COMPLETED": {
+    "subject": "Your refund is complete",
+    "body": "A refund of {amount} for booking {reference} has been completed. It usually reaches your account within a few working days."
+  },
+  "TICKET_CHECKED_IN": {
+    "subject": "Ticket checked in",
+    "body": "Ticket {serial} has been checked in."
+  },
+  "ATTENDEE_INVITED": {
+    "subject": "You’ve been given a ticket",
+    "body": "You have been invited to claim a ticket{ref}. Open the link to accept it into your wallet."
+  },
+  "ATTENDEE_ACCEPTED": {
+    "subject": "Your ticket was claimed",
+    "body": "{attendee} has accepted the ticket you shared."
+  },
+  "ATTENDEE_DECLINED": {
+    "subject": "A ticket invitation was declined",
+    "body": "An invitation for ticket {ticketId} was declined; the ticket is yours to reassign."
+  },
+  "TICKET_TRANSFERRED": {
+    "subject": "Ticket transferred",
+    "body": "Ticket {ticketId} has been transferred to a new holder."
+  },
+  "SHARE_CREATED": {
+    "subject": "Someone shared an experience with you",
+    "body": "You’ve been sent {permission} access. Open the link to view it: {url}"
+  },
+  "SHARE_VIEWED": {
+    "subject": "Your shared link was opened",
+    "body": "A share link for ticket {ticketId} was just opened."
+  },
+  "SHARE_REVOKED": {
+    "subject": "Share access revoked",
+    "body": "Access to ticket {ticketId} has been revoked."
+  },
+  "ORGANIZATION_REGISTERED": {
+    "subject": "New organizer awaiting approval: {organization}",
+    "body": "{organization} has registered and is waiting for review. Contact: {contact}. They cannot sell tickets until an admin approves them."
+  },
+  "ORGANIZATION_APPROVED": {
+    "subject": "{organization} is approved",
+    "body": "{organization} has been approved and can now sell tickets. Set up your venue, screens and showtimes in the organizer console."
+  },
+  "ORGANIZATION_REJECTED": {
+    "subject": "{organization} was not approved",
+    "body": "{organization} has not been approved.{reason} Contact support if you would like to discuss it."
+  },
+  "EVENT_SUBMITTED": {
+    "subject": "Event awaiting review: {event}",
+    "body": "{organization} submitted “{event}” for review. It cannot go on sale until an admin approves it."
+  },
+  "EVENT_APPROVED": {
+    "subject": "“{event}” is approved",
+    "body": "“{event}” has been approved and is now published."
+  },
+  "EVENT_REJECTED": {
+    "subject": "“{event}” needs changes",
+    "body": "“{event}” was not approved.{reason} Make the changes and submit it again."
+  },
+  "generic": {
+    "subject": "Notification: {type}",
+    "body": "You have a new notification ({type})."
+  },
+  "fragments": {
+    "ticketCount": "{count, plural, one {# ticket} other {# tickets}}",
+    "forEvent": " for {event}",
+    "when": " on {when}",
+    "seats": " Seats {seats}.",
+    "startingAt": " starting at {startsAt}",
+    "reason": " Reason: {reason}.",
+    "ref": " ({ref})",
+    "yourBooking": "your booking",
+    "yourEvent": "your event",
+    "theAttendee": "The attendee",
+    "anOrganization": "An organization",
+    "yourOrganization": "Your organization",
+    "anOrganizer": "An organizer",
+    "anEvent": "an event",
+    "notProvided": "not provided"
+  }
+}

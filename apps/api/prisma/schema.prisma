@@ -400,6 +400,19 @@ model User {
   fullName     String
   roles        Role[]     @default([CUSTOMER])
   status       UserStatus @default(ACTIVE)
+
+  /// The language this person is written to in — email, receipts, tickets.
+  ///
+  /// Nullable on purpose, and the null is meaningful: it means "never chose", which is
+  /// different from "chose English". A null falls back to the request's Accept-Language at
+  /// the moment of sending, so somebody who has only ever browsed in French gets French
+  /// email without having found a setting. Once they pick one, this is set and nothing
+  /// overrides it — a preference that a browser header can silently undo is not a preference.
+  ///
+  /// An IETF tag ("en", "fr-CA"), not an enum: adding a locale must not need a migration,
+  /// and an unrecognised value falls back rather than failing.
+  locale       String?
+
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

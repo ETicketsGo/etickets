@@ -1,0 +1,100 @@
+{
+  "BOOKING_CONFIRMED": {
+    "subjectWithEvent": "Vos billets pour {event}",
+    "subject": "Votre réservation est confirmée",
+    "body": "{count} confirmé(s){forEvent}{when}.{seats} Numéro de réservation {reference}."
+  },
+  "PAYMENT_FAILED": {
+    "subject": "Échec du paiement",
+    "body": "Nous n'avons pas pu traiter le paiement de la réservation {reference}. Veuillez réessayer."
+  },
+  "EVENT_REMINDER": {
+    "subject": "Rappel : votre événement approche",
+    "body": "Ceci est un rappel pour {event}{startingAt}."
+  },
+  "BOOKING_CANCELLED": {
+    "subject": "Votre réservation a été annulée",
+    "body": "Votre réservation {reference} a été annulée."
+  },
+  "REFUND_COMPLETED": {
+    "subject": "Votre remboursement est effectué",
+    "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables."
+  },
+  "TICKET_CHECKED_IN": {
+    "subject": "Billet validé à l'entrée",
+    "body": "Le billet {serial} a été validé à l'entrée."
+  },
+  "ATTENDEE_INVITED": {
+    "subject": "Un billet vous a été offert",
+    "body": "Vous avez été invité à récupérer un billet{ref}. Ouvrez le lien pour l'ajouter à votre portefeuille."
+  },
+  "ATTENDEE_ACCEPTED": {
+    "subject": "Votre billet a été récupéré",
+    "body": "{attendee} a accepté le billet que vous avez partagé."
+  },
+  "ATTENDEE_DECLINED": {
+    "subject": "Une invitation à un billet a été refusée",
+    "body": "Une invitation pour le billet {ticketId} a été refusée; le billet vous revient et vous pouvez le réattribuer."
+  },
+  "TICKET_TRANSFERRED": {
+    "subject": "Billet transféré",
+    "body": "Le billet {ticketId} a été transféré à un nouveau titulaire."
+  },
+  "SHARE_CREATED": {
+    "subject": "Quelqu'un a partagé une expérience avec vous",
+    "body": "Un accès {permission} vous a été transmis. Ouvrez le lien pour le consulter : {url}"
+  },
+  "SHARE_VIEWED": {
+    "subject": "Votre lien partagé a été ouvert",
+    "body": "Un lien de partage pour le billet {ticketId} vient d'être ouvert."
+  },
+  "SHARE_REVOKED": {
+    "subject": "Accès partagé révoqué",
+    "body": "L'accès au billet {ticketId} a été révoqué."
+  },
+  "ORGANIZATION_REGISTERED": {
+    "subject": "Nouvel organisateur en attente d'approbation : {organization}",
+    "body": "{organization} s'est inscrit et attend une révision. Contact : {contact}. L'organisateur ne peut pas vendre de billets tant qu'un administrateur ne l'a pas approuvé."
+  },
+  "ORGANIZATION_APPROVED": {
+    "subject": "{organization} est approuvé",
+    "body": "{organization} a été approuvé et peut maintenant vendre des billets. Configurez votre lieu, vos salles et vos horaires dans la console organisateur."
+  },
+  "ORGANIZATION_REJECTED": {
+    "subject": "{organization} n'a pas été approuvé",
+    "body": "{organization} n'a pas été approuvé.{reason} Communiquez avec le soutien si vous souhaitez en discuter."
+  },
+  "EVENT_SUBMITTED": {
+    "subject": "Événement en attente de révision : {event}",
+    "body": "{organization} a soumis « {event} » pour révision. L'événement ne peut pas être mis en vente tant qu'un administrateur ne l'a pas approuvé."
+  },
+  "EVENT_APPROVED": {
+    "subject": "« {event} » est approuvé",
+    "body": "« {event} » a été approuvé et est maintenant publié."
+  },
+  "EVENT_REJECTED": {
+    "subject": "« {event} » doit être modifié",
+    "body": "« {event} » n'a pas été approuvé.{reason} Apportez les changements et soumettez-le de nouveau."
+  },
+  "generic": {
+    "subject": "Notification : {type}",
+    "body": "Vous avez une nouvelle notification ({type})."
+  },
+  "fragments": {
+    "ticketCount": "{count, plural, one {# billet} other {# billets}}",
+    "forEvent": " pour {event}",
+    "when": " le {when}",
+    "seats": " Sièges {seats}.",
+    "startingAt": " à compter de {startsAt}",
+    "reason": " Motif : {reason}.",
+    "ref": " ({ref})",
+    "yourBooking": "votre réservation",
+    "yourEvent": "votre événement",
+    "theAttendee": "Le participant",
+    "anOrganization": "Une organisation",
+    "yourOrganization": "Votre organisation",
+    "anOrganizer": "Un organisateur",
+    "anEvent": "un événement",
+    "notProvided": "non fourni"
+  }
+}

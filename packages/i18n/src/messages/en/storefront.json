@@ -1,0 +1,78 @@
+{
+  "event": {
+    "ticketsHeading": "Tickets",
+    "left": "{count, plural, one {# left} other {# left}}",
+    "subtotal": "Subtotal",
+    "feesNote": "Transparent fees shown on the next step.",
+    "freeNote": "No payment needed — your tickets are issued as soon as you book.",
+    "continueToPayment": "Continue to payment",
+    "getMyTickets": "Get my tickets",
+    "holdingTickets": "Holding tickets…",
+    "couldNotBook": "Could not create booking.",
+    "reviews": "Ratings & reviews",
+    "faq": "Frequently asked questions",
+    "recommendations": "You might also like",
+    "refundPolicy": "Refund policy",
+    "organizedBy": "Organized by"
+  },
+  "seats": {
+    "heading": "Choose your seats",
+    "screen": "Screen",
+    "available": "Available",
+    "selected": "Selected",
+    "taken": "Taken",
+    "wheelchair": "Wheelchair space",
+    "companion": "Companion seat",
+    "seatTaken": "Some seats were just taken. Please pick again.",
+    "selectSeat": "Please select a seat for each ticket."
+  },
+  "checkout": {
+    "heading": "Checkout",
+    "buyerName": "Your name",
+    "buyerEmail": "Email",
+    "couponCode": "Discount code",
+    "applyCoupon": "Apply",
+    "couponApplied": "Discount applied.",
+    "couponRejected": "That code isn’t valid for this booking.",
+    "totalPayable": "Total payable",
+    "pay": "Pay",
+    "payingNow": "Taking you to payment…",
+    "holdExpiresIn": "Your seats are held for {minutes} more minutes.",
+    "holdExpired": "This booking hold has expired."
+  },
+  "confirmation": {
+    "steps": {
+      "tickets": "Tickets",
+      "payment": "Payment",
+      "confirmation": "Confirmation",
+      "ticket": "Ticket"
+    },
+    "youreGoing": "You’re going!",
+    "pending": "Booking pending",
+    "pendingBody": "Your payment has not completed yet.",
+    "sentTo": "{count, plural, one {# ticket} other {# tickets}} sent to {email}.",
+    "bookingReference": "Booking reference",
+    "totalPaid": "Total paid",
+    "cost": "Cost",
+    "receipt": "Receipt {number}",
+    "view": "View",
+    "showAtDoor": "Show this at the door. It is also saved in your tickets, and a copy is on its way to {email}.",
+    "allMyTickets": "All my tickets",
+    "howWasBooking": "How was booking?",
+    "followOrganizer": "Follow organizer"
+  },
+  "account": {
+    "ticketsHeading": "My tickets",
+    "bookingsHeading": "My bookings",
+    "noTickets": "You don’t have any tickets yet.",
+    "noBookings": "You haven’t booked anything yet.",
+    "cancelBooking": "Cancel booking",
+    "requestRefund": "Request a refund",
+    "refundRequested": "Refund requested.",
+    "refundReason": "Why are you cancelling?"
+  },
+  "language": {
+    "switchTo": "Switch to {language}",
+    "current": "Current language: {language}"
+  }
+}

@@ -38,12 +38,21 @@ function setup(
     dueRows?: NotifRow[];
     deliver?: jest.Mock;
     updateManyCount?: number;
+    /** What the recipient has stored as their language; null means "never chose". */
+    userLocale?: string | null;
   } = {},
 ) {
   const deliver = opts.deliver ?? jest.fn().mockResolvedValue(undefined);
 
   let seq = 0;
   const prisma = {
+    /*
+      The recipient's stored language. Every send reads it now — a notification goes out in
+      the language the PERSON chose, not the one the calling code happened to pass, because
+      thirty call sites each remembering is thirty chances to send a Quebec customer their
+      confirmation in English.
+    */
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: opts.userLocale ?? null }) },
     notification: {
       create: jest.fn().mockImplementation(({ data }) => {
         seq += 1;
