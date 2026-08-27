@@ -151,7 +151,7 @@ export default function StaffPage() {
                   <p className="font-medium text-text-primary">
                     {person.fullName}
                     {person.isSuperAdmin ? (
-                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-action-primary/10 px-2 py-0.5 text-caption font-medium text-action-primary">
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-tint-primary px-2 py-0.5 text-caption font-medium text-action-primary">
                         <ShieldCheck className="h-3 w-3" /> Super admin
                       </span>
                     ) : null}

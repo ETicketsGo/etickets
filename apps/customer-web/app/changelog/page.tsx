@@ -84,12 +84,12 @@ export default function ChangelogPage() {
                   <span className="h-2 w-2 rounded-full bg-background-canvas" />
                 </span>
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="inline-flex items-center rounded-full bg-action-primary/10 px-3 py-1 text-caption font-semibold text-action-primary">
+                  <span className="inline-flex items-center rounded-full bg-tint-primary px-3 py-1 text-caption font-semibold text-action-primary">
                     {r.tag}
                   </span>
-                  <span className="text-caption text-text-muted">{r.date}</span>
+                  <span className="text-caption text-text-secondary">{r.date}</span>
                   {r.current && (
-                    <span className="rounded-full bg-status-success/15 px-2.5 py-0.5 text-caption font-medium text-status-success">
+                    <span className="rounded-full bg-tint-success px-2.5 py-0.5 text-caption font-medium text-status-success">
                       Latest
                     </span>
                   )}

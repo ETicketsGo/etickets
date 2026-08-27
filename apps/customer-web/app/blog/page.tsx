@@ -49,7 +49,7 @@ export default function BlogPage() {
           >
             <div className="grid gap-6 p-7 sm:grid-cols-2 sm:items-center sm:p-9">
               <div>
-                <span className="inline-flex items-center rounded-full bg-action-primary/10 px-3 py-1 text-caption font-semibold text-action-primary">
+                <span className="inline-flex items-center rounded-full bg-tint-primary px-3 py-1 text-caption font-semibold text-action-primary">
                   Featured · {featured.category}
                 </span>
                 <h2 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">

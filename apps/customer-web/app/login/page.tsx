@@ -64,7 +64,7 @@ function LoginForm() {
       </form>
       <p className="text-caption text-text-muted">
         No account?{' '}
-        <Link href="/register" className="text-action-primary">
+        <Link href="/register" className="text-action-primary underline">
           Create one
         </Link>
       </p>

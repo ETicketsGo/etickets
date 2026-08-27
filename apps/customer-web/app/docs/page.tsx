@@ -113,7 +113,7 @@ export default function DocsPage() {
                 href={s.href}
                 className="group flex flex-col rounded-2xl border border-border bg-background-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-action-primary/30 hover:shadow-md"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-action-primary/10 text-action-primary transition-colors group-hover:bg-action-primary group-hover:text-action-primary-foreground">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary transition-colors group-hover:bg-action-primary group-hover:text-action-primary-foreground">
                   <s.icon className="h-5 w-5" />
                 </span>
                 <h3 className="mt-4 text-base font-semibold text-text-primary">{s.title}</h3>

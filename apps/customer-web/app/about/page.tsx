@@ -30,7 +30,7 @@ export default function AboutPage() {
         <Container>
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-action-primary/10 text-action-primary">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
                 <Target className="h-5 w-5" />
               </span>
               <h2 className="mt-4 text-xl font-bold tracking-tight text-text-primary">
@@ -43,7 +43,7 @@ export default function AboutPage() {
               </p>
             </div>
             <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-action-primary/10 text-action-primary">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
                 <Eye className="h-5 w-5" />
               </span>
               <h2 className="mt-4 text-xl font-bold tracking-tight text-text-primary">

@@ -139,7 +139,7 @@ export function EventDayMode({
           <div
             role="status"
             aria-live="polite"
-            className="flex flex-col items-center gap-0.5 bg-status-warning/12 px-4 py-1.5 text-center text-caption font-medium text-status-warning"
+            className="flex flex-col items-center gap-0.5 bg-tint-warning px-4 py-1.5 text-center text-caption font-medium text-status-warning"
           >
             <span className="flex items-center gap-2">
               <WifiOff className="h-3.5 w-3.5" /> Offline — last verified{' '}

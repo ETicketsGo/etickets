@@ -17,7 +17,7 @@ export default function PremiumPage() {
           return (
             <Card key={f.flag}>
               <div className="flex items-start justify-between gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-tint-primary text-action-primary">
                   <Sparkles className="h-5 w-5" />
                 </span>
                 <Badge tone={enabled ? 'success' : 'neutral'}>

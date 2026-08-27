@@ -47,8 +47,9 @@ const variants = {
     'bg-action-primary text-action-primary-foreground shadow-sm hover:bg-action-primary-hover hover:shadow-md',
   secondary: 'bg-action-secondary text-action-secondary-foreground hover:bg-action-secondary/70',
   danger: 'bg-action-danger text-action-danger-foreground shadow-sm hover:brightness-105',
+  // Also a control, so also `border-input`: an outline button IS its outline.
   outline:
-    'border border-border bg-background-surface text-text-primary hover:bg-background-subtle hover:border-border-strong',
+    'border border-input bg-background-surface text-text-primary hover:bg-background-subtle hover:border-text-secondary',
   ghost: 'text-text-secondary hover:bg-background-subtle hover:text-text-primary',
 };
 export type ButtonVariant = keyof typeof variants;
@@ -97,8 +98,17 @@ export function ButtonLink({
   );
 }
 
+/*
+  `border-input` rather than `border-border`.
+
+  The old border measured 1.24:1 against the card behind it. WCAG 1.4.11 asks for 3:1 on the
+  visual information that identifies a control, and for a text field that information is the
+  outline — there is nothing else. At 1.24:1 the form was, to a low-vision user, a page with
+  some words on it. `border-border` stays as it was for card edges and table rules, which are
+  decoration and exempt.
+*/
 const fieldBase =
-  'w-full rounded-md border border-border bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
+  'w-full rounded-md border border-input bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
 
 function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNode }) {
   return (
@@ -232,10 +242,18 @@ export function Card({
 }
 
 const badgeTone: Record<string, string> = {
-  success: 'bg-status-success/12 text-status-success',
-  warning: 'bg-status-warning/12 text-status-warning',
-  error: 'bg-status-error/12 text-status-error',
-  info: 'bg-status-info/12 text-status-info',
+  /*
+    Opaque tints, never `bg-status-warning/12`.
+
+    A 12% wash takes its contrast from whatever is behind the badge, so the same badge
+    measured 4.50:1 on a white card and 4.12:1 on a tinted section — and a status badge is
+    read at a glance or not at all. `bg-tint-*` is a solid colour whose ratio against its
+    own foreground is fixed and asserted in `token-contrast.test.ts`.
+  */
+  success: 'bg-tint-success text-status-success',
+  warning: 'bg-tint-warning text-status-warning',
+  error: 'bg-tint-error text-status-error',
+  info: 'bg-tint-info text-status-info',
   neutral: 'bg-background-subtle text-text-secondary',
 };
 export type BadgeTone = keyof typeof badgeTone;
@@ -385,8 +403,17 @@ export function DataTable<T>({
     return <ErrorState message={error} onRetry={onRetry} />;
   }
   if (loading) {
+    /*
+      `role="status"`, not a bare div.
+
+      ARIA forbids an accessible name on an element with no role, so `aria-label` on a plain
+      `<div>` is DISCARDED — the label was written, looked right in the source, and announced
+      nothing. A loading state is the one moment a screen-reader user most needs to be told
+      something is happening, and this was silent. `status` both permits the name and
+      announces it politely, without interrupting whatever is being read.
+    */
     return (
-      <div className="space-y-2.5" aria-busy="true" aria-label="Loading">
+      <div className="space-y-2.5" role="status" aria-busy="true" aria-label="Loading">
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-14 w-full" />
         ))}
@@ -461,27 +488,61 @@ export function DataTable<T>({
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              onKeyDown={
-                onRowClick
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onRowClick(row);
-                      }
-                    }
-                  : undefined
-              }
-              role={onRowClick ? 'button' : undefined}
-              tabIndex={onRowClick ? 0 : undefined}
+              /*
+                A clickable row is a MOUSE convenience, and is not exposed as a control.
+
+                It used to carry `role="button"` and `tabIndex={0}`. Rows contain their own
+                buttons and links — Edit, Approve, a link to the detail page — so that made
+                every row a button containing buttons: `nested-interactive`, WCAG 4.1.2. A
+                screen reader announced "button" and then read the controls inside it, and
+                the inner ones were reachable only by fighting the outer one.
+
+                It also promised something it could not keep. There is no accessible NAME for
+                "the row about the Sunburn Arena event" — the announcement was "button", with
+                the whole row read out as its label.
+
+                So the keyboard and assistive-technology path is the real control inside the
+                row, which every caller already renders, and the row keeps `onClick` and
+                `cursor-pointer` for people using a mouse. Nothing is lost: a keyboard user
+                reaches the same destination through the link in the first cell.
+              */
               className={`border-b border-border/70 last:border-0 transition-colors ${
-                onRowClick
-                  ? `cursor-pointer hover:bg-background-subtle/60 focus-visible:bg-background-subtle/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50`
-                  : ''
+                onRowClick ? 'cursor-pointer hover:bg-background-subtle/60' : ''
               }`}
             >
-              {columns.map((c) => (
+              {columns.map((c, i) => (
                 <td key={c.key} className={`px-5 py-4 text-text-primary ${c.className ?? ''}`}>
-                  {c.render(row)}
+                  {/*
+                    The first cell carries the row's control, when the row has one.
+
+                    A keyboard user needs SOMETHING to press, and it cannot be the row: a row
+                    that opens a page and also contains Edit and Approve buttons announces as
+                    a button containing buttons, and has no accessible name beyond its own
+                    contents read aloud in full.
+
+                    Wrapping the first cell instead gives the action a real name — "Sunburn
+                    Arena — Bengaluru", which is what the cell already says — and leaves the
+                    other controls in the row as siblings rather than descendants. The row
+                    keeps its own `onClick` for mouse users, so nothing changes for them.
+
+                    The first column must therefore not itself be interactive. The
+                    accessibility sweep fails on `nested-interactive` if one ever becomes so.
+                  */}
+                  {onRowClick && i === 0 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        // The row's own handler would otherwise fire a second time.
+                        e.stopPropagation();
+                        onRowClick(row);
+                      }}
+                      className={`-m-1 block w-full rounded p-1 text-left ${focus}`}
+                    >
+                      {c.render(row)}
+                    </button>
+                  ) : (
+                    c.render(row)
+                  )}
                 </td>
               ))}
             </tr>
@@ -621,7 +682,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                   done
                     ? 'bg-action-primary text-action-primary-foreground'
                     : active
-                      ? 'bg-action-primary/15 text-action-primary ring-2 ring-action-primary/30'
+                      ? 'bg-tint-primary text-action-primary ring-2 ring-action-primary/30'
                       : 'bg-background-subtle text-text-muted'
                 }`}
                 aria-current={active ? 'step' : undefined}

@@ -24,9 +24,9 @@ import {
 const TONE_CLASS: Record<SeatTone, string> = {
   // Text is carried in the accessible name and the legend, never by colour alone.
   available: 'bg-background-surface border-border text-text-secondary hover:border-border-strong',
-  held: 'bg-status-warning/15 border-status-warning/50 text-status-warning',
-  sold: 'bg-status-success/15 border-status-success/50 text-status-success',
-  blocked: 'bg-status-error/12 border-status-error/50 text-status-error',
+  held: 'bg-tint-warning border-status-warning/50 text-status-warning',
+  sold: 'bg-tint-success border-status-success/50 text-status-success',
+  blocked: 'bg-tint-error border-status-error/50 text-status-error',
   gap: 'border-transparent bg-transparent',
 };
 

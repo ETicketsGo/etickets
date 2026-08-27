@@ -259,7 +259,7 @@ export default function CinemaSchedulePage() {
           }}
         />
       ) : scheduleQ.isPending ? (
-        <div className="space-y-3" aria-busy="true" aria-label="Loading schedule">
+        <div className="space-y-3" role="status" aria-busy="true" aria-label="Loading schedule">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 w-full" />
           ))}

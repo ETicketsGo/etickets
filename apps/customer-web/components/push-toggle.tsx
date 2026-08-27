@@ -55,7 +55,7 @@ export function PushToggle() {
     <Card>
       <div className="flex items-center gap-3">
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${on ? 'bg-action-primary/10 text-action-primary' : 'bg-background-subtle text-text-muted'}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${on ? 'bg-tint-primary text-action-primary' : 'bg-background-subtle text-text-muted'}`}
         >
           {on ? <BellRing className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
         </span>

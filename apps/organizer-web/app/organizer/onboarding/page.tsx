@@ -144,7 +144,7 @@ export default function OnboardingPage() {
         {/* 1. Organization */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <Building2 className="h-5 w-5" />
             </span>
             <StepBadge done={stepMap.organization?.done ?? true} />
@@ -163,7 +163,7 @@ export default function OnboardingPage() {
         {/* 2. Venue (embedded create) */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <Building2 className="h-5 w-5" />
             </span>
             <StepBadge done={hasVenue} />
@@ -225,7 +225,7 @@ export default function OnboardingPage() {
         {/* 3. Team */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <Users className="h-5 w-5" />
             </span>
             <StepBadge done={stepMap.team?.done ?? false} />
@@ -242,7 +242,7 @@ export default function OnboardingPage() {
         {/* 4. Experience */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <CalendarDays className="h-5 w-5" />
             </span>
             <StepBadge done={stepMap.experience?.done ?? false} />
@@ -276,7 +276,7 @@ export default function OnboardingPage() {
                 href={`/organizer/events/new?template=${t.id}`}
                 className="group flex flex-col rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:border-border-strong hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
                   <Icon className="h-5 w-5" />
                 </span>
                 <p className="mt-3 font-semibold text-text-primary">{t.label}</p>
@@ -295,7 +295,7 @@ export default function OnboardingPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <FlaskConical className="h-5 w-5" />
             </span>
             <div>
@@ -320,7 +320,7 @@ export default function OnboardingPage() {
 
         <Card>
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <LifeBuoy className="h-5 w-5" />
             </span>
             <div>

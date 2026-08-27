@@ -28,9 +28,26 @@
   */
   --text-muted: 220 9% 44%; /* #666D7A */
 
-  /* border */
+  /*
+    border
+
+    `default` and `strong` are DECORATION — card edges, table row rules, dividers. WCAG 1.4.11
+    does not apply to them and they are deliberately faint.
+
+    `input` is not decoration. It is the only thing that tells somebody where a text field
+    begins and ends, which makes it the visual information required to identify a control, and
+    1.4.11 asks for 3:1 against what is behind it. At 91% lightness the old shared border
+    measured 1.24:1 on a white card: to a low-vision user the form was a page with some words
+    on it. Given its own token rather than darkening `--border-default`, because doing that
+    would also have drawn a hard line around every card and table row in three apps to fix a
+    problem that only exists on inputs.
+
+    57% clears 3:1 on all three surfaces a field is placed on — card, canvas and subtle panel
+    — with the panel being the tightest at 3.05:1.
+  */
   --border-default: 220 18% 91%; /* very subtle gray */
   --border-strong: 220 16% 84%;
+  --border-input: 220 16% 57%; /* #7E89A1 — 3.40:1 on a card, 3.05:1 on a subtle panel */
 
   /*
     primary — blue, used sparingly.
@@ -66,10 +83,36 @@
     Amber moves the most. A mid-amber simply cannot pass AA as small text on white — that is
     a property of the colour, not of this palette, and the usual remedy is exactly this.
   */
-  --status-success: 142 68% 28%; /* #17783A — 4.70:1 on tint */
-  --status-warning: 32 92% 32%; /* #9D5707 — 4.68:1 on tint */
-  --status-error: 0 72% 45%; /* #C52020 — 4.78:1 on tint */
-  --status-info: 221 83% 51%; /* #1A5CEA — 4.67:1 on tint */
+  --status-success: 142 68% 28%; /* #17783A */
+  --status-warning: 32 92% 32%; /* #9D5707 */
+  --status-error: 0 72% 45%; /* #C52020 */
+  --status-info: 221 83% 51%; /* #1A5CEA */
+
+  /*
+    tints — SOLID backgrounds for badges, pills and eyebrows.
+
+    ── WHY THESE ARE OPAQUE ──────────────────────────────────────────────────────────
+    Every one of these used to be an alpha wash of its own foreground: `bg-status-warning/15`
+    under `text-status-warning`. The contrast of a wash is a function of WHATEVER IS BEHIND
+    IT, which is not knowable where the colour is defined — so the pair was tuned against
+    white, passed there, and quietly failed anywhere the component was placed on a tinted
+    section. A site-wide axe scan found it on nineteen storefront pages at once, and the
+    comments above record two previous rounds of darkening the foreground to chase it.
+
+    Darkening again would not have fixed it either; it would have moved the failure to the
+    next darker surface. An opaque background ends the whole class: the pair is now two solid
+    tokens, its ratio is a fixed number, and `token-contrast.test.ts` computes it from this
+    file so a future edit that breaks it fails the build rather than a scan months later.
+
+    Values are each colour washed over white at the alpha that was already in use, rounded to
+    clear 4.5:1 with headroom — so on a white card, which is where most of them live, these
+    look the same as they did.
+  */
+  --tint-primary: 221 83% 93.6%; /* #E1EAFC — 4.62:1 under --action-primary */
+  --tint-success: 142 26% 90.6%; /* #E1EDE5 — 4.63:1 under --status-success */
+  --tint-warning: 32 43% 91.2%; /* #F2E9DF — 4.63:1 under --status-warning */
+  --tint-error: 0 59% 92.3%; /* #F7E0E0 — 4.61:1 under --status-error */
+  --tint-info: 221 83% 93.6%; /* #E1EAFC — 4.62:1 under --status-info */
 
   /* focus ring */
   --ring: 221 83% 53%;
@@ -99,6 +142,8 @@
 
   --border-default: 220 16% 20%;
   --border-strong: 220 14% 28%;
+  /* Solved against the dark surfaces, not derived from the light value — see the light block. */
+  --border-input: 220 14% 46%; /* #657086 — 3.52:1 on a card, 3.06:1 on a subtle panel */
 
   --action-primary: 217 92% 62%; /* brighter blue on dark */
   --action-primary-hover: 217 92% 68%;
@@ -107,7 +152,18 @@
   --action-secondary: 220 16% 20%;
   --action-secondary-foreground: 210 24% 98%;
 
-  --action-danger: 0 72% 58%;
+  /*
+    Darkened from 58%, where white-on-danger measured 4.05:1 — a WCAG AA failure on the one
+    button in the product that deletes things. No axe scan had found it, because no scanned
+    page renders a danger button in dark mode; `token-contrast.test.ts` found it on its first
+    run, which is the argument for that file.
+
+    The window is narrower than it looks. White text needs the button DARKER (≥4.5:1 caps it
+    at 54%) and WCAG 1.4.11 needs the button lighter than the page to stay visible as a
+    control (≥3:1 floors it near 44%). 50% sits in the middle: 4.89:1 for the label and
+    3.91:1 against the canvas, so neither is near an edge.
+  */
+  --action-danger: 0 72% 50%;
   --action-danger-foreground: 0 0% 100%;
 
   --status-success: 142 60% 48%;
@@ -116,6 +172,18 @@
      The other three dark tones already cleared AA (5.02–6.56:1) and are unchanged. */
   --status-error: 0 74% 66%;
   --status-info: 217 92% 66%;
+
+  /*
+    Dark-mode tints, solved against the dark foregrounds above rather than derived from the
+    light ones. A tint is not a colour that can be flipped: light mode wants a pale wash of
+    the hue and dark mode wants a deep one, and each has to clear 4.5:1 against a DIFFERENT
+    foreground. `token-contrast.test.ts` checks both modes.
+  */
+  --tint-primary: 217 42% 15.6%; /* #172438 — 4.60:1 under --action-primary */
+  --tint-success: 142 18% 22.5%; /* #2F4437 — 4.61:1 under --status-success */
+  --tint-warning: 34 18% 24.8%; /* #4B4134 — 4.60:1 under --status-warning */
+  --tint-error: 0 42% 19.1%; /* #451C1C — 4.61:1 under --status-error */
+  --tint-info: 217 42% 20.1%; /* #1E2E49 — 4.61:1 under --status-info */
 
   --ring: 217 92% 62%;
 

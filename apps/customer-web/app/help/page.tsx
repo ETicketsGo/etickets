@@ -90,7 +90,7 @@ export default function HelpCenterPage() {
           href="/help/contact"
           className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
             <Mail className="h-4 w-4" />
           </span>
           <p className="mt-3 font-semibold text-text-primary">Contact us</p>
@@ -110,7 +110,7 @@ export default function HelpCenterPage() {
           href="/help/feature"
           className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
             <Lightbulb className="h-4 w-4" />
           </span>
           <p className="mt-3 font-semibold text-text-primary">Request a feature</p>

@@ -41,6 +41,12 @@ const preset: Partial<Config> = {
         border: {
           DEFAULT: hsl('--border-default'),
           strong: hsl('--border-strong'),
+          /*
+            The boundary of a form control, which WCAG 1.4.11 requires to be visible at 3:1.
+            `border-DEFAULT` is decoration and is deliberately far fainter — use this one on
+            anything a person is meant to click or type into.
+          */
+          input: hsl('--border-input'),
         },
         action: {
           primary: hsl('--action-primary'),
@@ -56,6 +62,18 @@ const preset: Partial<Config> = {
           warning: hsl('--status-warning'),
           error: hsl('--status-error'),
           info: hsl('--status-info'),
+        },
+        /*
+          Solid backgrounds for the badge/pill/eyebrow family — `bg-tint-warning`, never
+          `bg-status-warning/15`. A wash takes its contrast from whatever is behind it, so
+          the same badge passed AA on a card and failed on a tinted section. See tokens.css.
+        */
+        tint: {
+          primary: hsl('--tint-primary'),
+          success: hsl('--tint-success'),
+          warning: hsl('--tint-warning'),
+          error: hsl('--tint-error'),
+          info: hsl('--tint-info'),
         },
         ring: hsl('--ring'),
       },

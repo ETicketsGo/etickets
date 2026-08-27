@@ -63,7 +63,7 @@ export default function AccountPage() {
               className="group rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
               <div className="flex items-center justify-between">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-tint-primary text-action-primary">
                   <Icon className="h-5 w-5" />
                 </span>
                 <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />

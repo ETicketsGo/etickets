@@ -263,7 +263,7 @@ export default function CheckinTab() {
             >
               {outcome.result === 'SUCCESS' && (
                 <div className="mb-3 flex flex-col items-center">
-                  <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-status-success/15 text-status-success">
+                  <span className="flex h-16 w-16 animate-scale-in items-center justify-center rounded-full bg-tint-success text-status-success">
                     <CheckCircle2 className="h-9 w-9" strokeWidth={2.25} />
                   </span>
                   <p className="mt-2 text-title font-bold text-status-success">Welcome in!</p>

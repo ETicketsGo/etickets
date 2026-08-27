@@ -43,7 +43,12 @@ export function PageHero({
 /** A dismissible-looking notice banner (static) for placeholder/legal-review notes. */
 export function NoticeBanner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-status-warning/30 bg-status-warning/5 px-5 py-4 text-[0.9375rem] text-text-secondary">
+    /*
+      An opaque tint, so the note carries its own background instead of borrowing the washed
+      marketing section behind it. As `bg-status-warning/5` this measured 3.99:1 — the amber
+      was being read against a gradient nobody had accounted for when the colour was chosen.
+    */
+    <div className="rounded-2xl border border-status-warning/30 bg-tint-warning px-5 py-4 text-[0.9375rem] text-text-primary">
       <span className="font-semibold text-status-warning">Please note:</span> {children}
     </div>
   );

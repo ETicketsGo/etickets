@@ -90,7 +90,7 @@ export function WalletPasses({
             <Wallet className="h-4 w-4" aria-hidden />
             Add to {LABEL[p.provider]}
             {p.mode === 'sandbox' && (
-              <span className="rounded bg-status-warning/15 px-1.5 py-0.5 text-xs font-normal text-status-warning">
+              <span className="rounded bg-tint-warning px-1.5 py-0.5 text-xs font-normal text-status-warning">
                 sandbox
               </span>
             )}

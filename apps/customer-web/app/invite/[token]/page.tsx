@@ -65,7 +65,7 @@ export default function InviteClaimPage() {
 
   return (
     <Wrapper>
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-tint-primary text-action-primary">
         <Ticket className="h-6 w-6" />
       </div>
       <h1 className="mt-4 text-h3 font-bold text-text-primary">You’ve been given a ticket</h1>

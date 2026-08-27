@@ -52,7 +52,7 @@ const emptySection: SectionDraft = {
 /** Colour per seat kind in the preview. Kind is also written out, never colour alone. */
 const KIND_STYLE: Record<SeatKind, string> = {
   SEAT: 'bg-background-subtle text-text-muted border-border',
-  WHEELCHAIR: 'bg-action-primary/15 text-action-primary border-action-primary/40 font-semibold',
+  WHEELCHAIR: 'bg-tint-primary text-action-primary border-action-primary/40 font-semibold',
   COMPANION: 'bg-action-primary/5 text-action-primary/80 border-action-primary/25',
   GAP: 'bg-transparent text-transparent border-transparent',
 };

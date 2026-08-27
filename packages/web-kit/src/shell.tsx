@@ -62,7 +62,7 @@ export function AppShell({
             aria-current={active ? 'page' : undefined}
             className={`flex min-h-[2.75rem] items-center gap-2.5 rounded-md px-3 py-2 text-[0.9375rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0 ${
               active
-                ? 'bg-action-primary/10 font-semibold text-action-primary'
+                ? 'bg-tint-primary font-semibold text-action-primary'
                 : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
             }`}
           >
@@ -108,7 +108,7 @@ export function AppShell({
                   </p>
                   <p className="text-caption leading-tight text-text-muted">{user.email}</p>
                 </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-[0.8125rem] font-semibold text-action-primary">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-[0.8125rem] font-semibold text-action-primary">
                   {initials(user.fullName)}
                 </div>
               </div>
