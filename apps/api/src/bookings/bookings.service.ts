@@ -26,6 +26,7 @@ import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
 import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
+import { PaymentsService } from '../payments/payments.service';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -80,6 +81,15 @@ export class BookingsService {
     // Optional so the many unit tests that construct this service directly are not all
     // forced to supply a ConfigService for one number; holdMinutes falls back safely.
     @Optional() private readonly config?: ConfigService,
+    /*
+      Confirming a free booking, which has no payment to wait for.
+
+      Optional for the same reason as the config: dozens of unit tests build this service by
+      hand and none of them book a free event. A priced booking never reaches it, and a free
+      one without it would sit PENDING_PAYMENT forever — so the free path asserts it is here
+      rather than silently doing nothing.
+    */
+    @Optional() private readonly payments?: PaymentsService,
   ) {}
 
   /**
@@ -241,6 +251,32 @@ export class BookingsService {
     };
     const fees = await this.pricing.quote(subtotal, feeMode, discountMinor, 'INR', taxPlace);
 
+    /*
+      A free event is free all the way down.
+
+      The fee calculator already returns zero for a zero subtotal, so this is not arithmetic
+      — it is a guard. An event DECLARED free whose tickets carry a price is a data error,
+      and the failure mode without this check is the worst kind: the booking would take the
+      free path, skip the payment provider, and hand out tickets somebody owed money for.
+      Refusing loudly is the only safe answer, and the organizer sees why.
+    */
+    const isFree = session.event.isFree;
+    if (isFree && (subtotal !== 0 || fees.totalMinor !== 0)) {
+      await this.audit.record({
+        organizationId: session.event.organizationId,
+        action: 'FREE_EVENT_PRICED_BOOKING_REFUSED',
+        entityType: 'Event',
+        entityId: session.eventId,
+        metadata: { subtotalMinor: subtotal, totalMinor: fees.totalMinor },
+      });
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'This event is marked free but its tickets carry a price. Set every ticket type to zero, or turn off the free-event setting.',
+        HttpStatus.CONFLICT,
+        { subtotalMinor: subtotal, totalMinor: fees.totalMinor },
+      );
+    }
+
     const holdExpiresAt = new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
     // The inventory model is chosen by the experience type — general admission
@@ -302,13 +338,24 @@ export class BookingsService {
               ...commerce.itemCreates,
             ],
           },
-          payment: {
-            create: {
-              provider: 'mock',
-              status: PaymentStatus.REQUIRES_PAYMENT,
-              amountMinor: fees.totalMinor,
-            },
-          },
+          /*
+            No Payment row at all when there is nothing to pay.
+
+            Not a zero-amount one: it would appear in every reconciliation, settlement and
+            payout report as a line that can never balance against a bank statement, because
+            no bank was involved.
+          */
+          ...(isFree
+            ? {}
+            : {
+                payment: {
+                  create: {
+                    provider: 'mock',
+                    status: PaymentStatus.REQUIRES_PAYMENT,
+                    amountMinor: fees.totalMinor,
+                  },
+                },
+              }),
         },
         include: { items: true, payment: true },
       });
@@ -376,13 +423,42 @@ export class BookingsService {
       /* shadow observation must never affect booking creation */
     }
 
+    /*
+      A free booking is finished the moment it is held.
+
+      There is no provider to redirect to and no webhook that will ever arrive, so leaving it
+      PENDING_PAYMENT would mean the hold quietly expires and the customer never gets the
+      ticket they were told was free. Confirming here runs the SAME path a paid booking runs
+      after its webhook — tickets, QR codes, notifications, the confirmation email — so
+      everything downstream of the money is identical. Only the money is absent.
+
+      Deliberately not swallowed: if confirmation fails the caller sees the failure and the
+      held booking expires on its own, which is recoverable. Returning a "free booking" that
+      is silently still pending is not.
+    */
+    let freeStatus: BookingStatus | undefined;
+    if (isFree) {
+      if (!this.payments) {
+        throw new AppException(
+          ErrorCodes.INTERNAL,
+          'Free bookings are not available in this configuration.',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+      const outcome = await this.payments.confirmFreeBooking(booking.id);
+      if (outcome.status === 'confirmed' || outcome.status === 'already_confirmed') {
+        freeStatus = BookingStatus.CONFIRMED;
+      }
+    }
+
     const result = {
       id: booking.id,
-      status: booking.status,
+      status: freeStatus ?? booking.status,
       currency: booking.currency,
       holdExpiresAt: booking.holdExpiresAt,
       fees,
-      payment: { id: booking.payment?.id, status: booking.payment?.status },
+      // A free booking has no Payment row, and says so rather than reporting an empty one.
+      payment: isFree ? null : { id: booking.payment?.id, status: booking.payment?.status },
     };
 
     if (idempotencyKey) {

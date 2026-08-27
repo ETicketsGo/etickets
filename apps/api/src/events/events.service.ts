@@ -30,6 +30,26 @@ function slugify(title: string): string {
     .replace(/(^-|-$)/g, '')}-${randomBytes(3).toString('hex')}`;
 }
 
+/**
+ * A free event's ticket types must cost nothing.
+ *
+ * Guarded here rather than left to the organizer's care because the booking path trusts the
+ * flag: a free event's booking skips the payment provider entirely. A priced ticket type on
+ * a free event would therefore be given away, and the discrepancy would only surface in the
+ * takings. Refused at the point of entry, where the person who typed the price is still
+ * looking at the screen.
+ */
+function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
+  if (isFree && priceMinor !== 0) {
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      'This is a free event, so its tickets must be priced at zero. Turn off the free-event setting to charge for it.',
+      HttpStatus.CONFLICT,
+      { priceMinor },
+    );
+  }
+}
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -74,6 +94,7 @@ export class EventsService {
         description: input.description,
         refundPolicy: input.refundPolicy,
         feeMode: input.feeMode,
+        isFree: input.isFree,
         status: EventStatus.DRAFT,
       },
     });
@@ -114,6 +135,7 @@ export class EventsService {
           category: original.category,
           description: original.description,
           feeMode: original.feeMode,
+          isFree: original.isFree,
           refundPolicy: original.refundPolicy,
           status: EventStatus.DRAFT,
         },
@@ -192,6 +214,40 @@ export class EventsService {
         `An event in status ${event.status} cannot be edited.`,
         HttpStatus.CONFLICT,
       );
+    }
+    /*
+      Turning the free flag over is a change of financial contract, so it is checked against
+      what has already happened rather than just written.
+
+      Turning free ON with priced tickets on file would let a buyer walk past a charge that
+      the ticket types still advertise. Turning it OFF once free bookings exist would leave
+      confirmed bookings with no Payment row inside an event the rest of the system now reads
+      as paid — reconciliation would be looking for money that was never owed. Both are
+      refused with the reason, so the organizer can fix the prices or the event and retry.
+    */
+    if (patch.isFree !== undefined && patch.isFree !== event.isFree) {
+      const bookings = await this.prisma.booking.count({ where: { eventId: id } });
+      if (bookings > 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This event already has bookings, so it cannot be switched between free and paid.',
+          HttpStatus.CONFLICT,
+          { bookings },
+        );
+      }
+      if (patch.isFree) {
+        const priced = await this.prisma.ticketType.count({
+          where: { eventSession: { eventId: id }, priceMinor: { not: 0 } },
+        });
+        if (priced > 0) {
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            `Set all ${priced} priced ticket type${priced === 1 ? '' : 's'} to zero before making this event free.`,
+            HttpStatus.CONFLICT,
+            { pricedTicketTypes: priced },
+          );
+        }
+      }
     }
     return this.prisma.event.update({ where: { id }, data: patch });
   }
@@ -341,6 +397,7 @@ export class EventsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
     }
     await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
+    assertPriceFitsEvent(session.event.isFree, input.priceMinor);
     return this.prisma.ticketType.create({
       data: {
         eventSessionId: input.eventSessionId,
@@ -377,6 +434,9 @@ export class EventsService {
    */
   async updateTicketType(user: RequestUser, id: string, input: UpdateTicketTypeInput) {
     const tt = await this.loadOwnedTicketType(user, id);
+    if (input.priceMinor !== undefined) {
+      assertPriceFitsEvent(tt.eventSession.event.isFree, input.priceMinor);
+    }
     const committed = (tt.inventory?.quantitySold ?? 0) + (tt.inventory?.quantityHeld ?? 0);
     const sold = tt.inventory?.quantitySold ?? 0;
 
@@ -468,27 +528,58 @@ export class EventsService {
         HttpStatus.CONFLICT,
       );
     }
+    const org = await this.prisma.organization.findUnique({
+      where: { id: event.organizationId },
+      select: { name: true, status: true, autoApproveEvents: true },
+    });
+
+    /*
+      Trusted organizers skip the queue.
+
+      "It is hard to approve each and every event — let's have a toggle on the orgs, auto
+      approve if we are getting an event from trusted orgs." Review exists because a new
+      organizer can list anything, and by the time somebody notices a ticket has been sold.
+      That cost is worth paying once; paying it on the two-hundredth event from a cinema
+      chain that has never had one rejected is just a delay.
+
+      A SUSPENDED organization never auto-approves whatever the flag says. Suspension is the
+      platform withdrawing trust, and a stale flag must not outrank a live decision.
+    */
+    const autoApprove = Boolean(org?.autoApproveEvents) && org?.status !== 'SUSPENDED';
+
     const updated = await this.prisma.event.update({
       where: { id },
-      data: { status: EventStatus.UNDER_REVIEW },
+      data: autoApprove
+        ? { status: EventStatus.PUBLISHED, publishedAt: new Date(), reviewNote: null }
+        : { status: EventStatus.UNDER_REVIEW },
     });
     await this.audit.record({
       actorUserId: user.id,
       organizationId: event.organizationId,
-      action: 'EVENT_SUBMITTED_FOR_REVIEW',
+      // Auditied under its own action, never as an approval by the submitting organizer.
+      // An admin asking "what went live without review?" needs a term to search for.
+      action: autoApprove ? 'EVENT_AUTO_APPROVED' : 'EVENT_SUBMITTED_FOR_REVIEW',
       entityType: 'Event',
       entityId: id,
     });
+
+    if (autoApprove) {
+      // The organizer is told it is live, in the same words a reviewer's approval uses —
+      // from their side the outcome is identical, and inventing a second vocabulary for it
+      // would only raise the question of what the difference is.
+      await this.audience.notifyOrganizationOwners(
+        event.organizationId,
+        NotificationType.EVENT_APPROVED,
+        { eventId: id, eventTitle: updated.title, reason: '' },
+      );
+      return updated;
+    }
 
     /*
       Page the reviewers. An event sitting in UNDER_REVIEW cannot sell a ticket, and until
       now nothing told an admin it was there — the organizer's launch date depended on
       somebody happening to open the admin queue.
     */
-    const org = await this.prisma.organization.findUnique({
-      where: { id: event.organizationId },
-      select: { name: true },
-    });
     await this.audience.notifyAdmins(NotificationType.EVENT_SUBMITTED, {
       eventId: id,
       eventTitle: updated.title,

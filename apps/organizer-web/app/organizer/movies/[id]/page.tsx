@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ScheduleRunDialog } from '@/components/schedule-run-dialog';
+import { EditShowDialog } from '@/components/edit-show-dialog';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
@@ -252,26 +253,15 @@ export default function EditMoviePage() {
   };
 
   /*
-    Moving a show that already exists.
+    Editing a show that already exists.
 
-    `POST /shows/:id/reschedule` has existed the whole time and nothing in the console called
-    it, so a showtime typed wrongly could only be cancelled and recreated — which strands
-    anybody who has already bought a seat. Only the START is editable: the end is recomputed
-    from the film's runtime, so a slot can never disagree with the length of what is playing.
+    Reported: "still I don't see edit option for current shows, I see only Move option." That
+    was right — `reschedule`, `pricing`, `pause`, `reopen` and `cancel` all existed in the API
+    and the console called exactly one of them, so the only tool on the row changed the time
+    whether or not that was the problem. One dialog now covers all five.
   */
-  const [moving, setMoving] = useState<ShowRow | null>(null);
-  const [movingTo, setMovingTo] = useState('');
+  const [editing, setEditing] = useState<ShowRow | null>(null);
   const [runOpen, setRunOpen] = useState(false);
-
-  const reschedule = useMutation({
-    mutationFn: () => api.shows.reschedule(moving!.sessionId, new Date(movingTo).toISOString(), 20),
-    onSuccess: () => {
-      toast.push('Showtime moved.', 'success');
-      showsQ.refetch();
-      setMoving(null);
-    },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
-  });
 
   const showColumns: Column<ShowRow>[] = [
     { key: 'startsAt', header: 'Showtime', render: (s) => dateTime(s.startsAt) },
@@ -286,22 +276,22 @@ export default function EditMoviePage() {
       key: 'actions',
       header: '',
       render: (s) => {
-        // A show that has played cannot be moved, and one that is cancelled should not be.
-        const movable = s.status === 'SCHEDULED' && new Date(s.startsAt) > new Date();
-        if (!movable) return null;
+        /*
+          A show that has already played, or is cancelled, has nothing left to edit — its
+          time, its price and its sale state are all settled. Offering the button anyway
+          would only produce a dialog whose every action is refused.
+        */
+        const editable =
+          (s.status === 'SCHEDULED' || s.status === 'PAUSED') && new Date(s.startsAt) > new Date();
+        if (!editable) return null;
         return (
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Move the ${dateTime(s.startsAt)} show`}
-            onClick={() => {
-              setMoving(s);
-              // Prefilled with where it is now, so "move it half an hour later" is an edit
-              // rather than a re-entry.
-              setMovingTo(localDateTimeValue(new Date(s.startsAt)));
-            }}
+            aria-label={`Edit the ${dateTime(s.startsAt)} show`}
+            onClick={() => setEditing(s)}
           >
-            Move
+            Edit
           </Button>
         );
       },
@@ -502,53 +492,11 @@ export default function EditMoviePage() {
         onScheduled={() => showsQ.refetch()}
       />
 
-      <Dialog
-        open={moving !== null}
-        onClose={() => setMoving(null)}
-        title={moving ? `Move the ${dateTime(moving.startsAt)} show` : 'Move show'}
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setMoving(null)}>
-              Cancel
-            </Button>
-            <Button
-              loading={reschedule.isPending}
-              disabled={!movingTo || reschedule.isPending}
-              onClick={() => reschedule.mutate()}
-            >
-              Move it
-            </Button>
-          </>
-        }
-      >
-        {moving ? (
-          <div className="space-y-4">
-            <DateTimeField
-              id="move-to"
-              label="New start time"
-              value={movingTo}
-              min={localDateTimeValue(new Date())}
-              onChange={setMovingTo}
-            />
-            <p className="text-caption text-text-muted">
-              {/*
-                Both facts an operator needs before moving a show that is already selling.
-                The end is not editable — it is recomputed from the film's runtime, so a slot
-                can never disagree with the length of what is playing.
-              */}
-              The end time moves with it, from the film&rsquo;s runtime. The screen must be free,
-              with the usual turnaround either side.
-            </p>
-            {moving.seatsSold > 0 ? (
-              <p className="rounded-md border border-status-warning/30 bg-status-warning/5 p-3 text-caption">
-                <strong>{moving.seatsSold}</strong>{' '}
-                {moving.seatsSold === 1 ? 'seat is' : 'seats are'} already sold for this show.
-                Everyone who booked keeps their seat — tell them the time has changed.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </Dialog>
+      <EditShowDialog
+        show={editing}
+        onClose={() => setEditing(null)}
+        onChanged={() => showsQ.refetch()}
+      />
 
       <Dialog
         open={scheduleOpen}

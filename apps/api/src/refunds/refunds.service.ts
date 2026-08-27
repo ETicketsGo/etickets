@@ -339,19 +339,36 @@ export class RefundsService {
       where: { bookingId: refund.bookingId },
     });
 
+    /*
+      Nothing was captured, so there is nothing to reverse.
+
+      A free booking has no Payment row at all — deliberately, so it never appears in a
+      settlement report that cannot balance. Cancelling one still has to do everything else a
+      cancellation does: void the tickets, hand the seats back, record the refund, notify the
+      customer. Only the gateway leg is absent, and asking a gateway to return zero rupees
+      against a payment it never took would fail loudly for no reason.
+
+      Narrow on purpose: this needs BOTH no payment row and a zero amount. A booking that owes
+      a real refund but has lost its payment row is a fault, and quietly marking it COMPLETED
+      would be the platform keeping a customer's money.
+    */
+    const nothingWasCaptured = !payment && refund.amountMinor === 0;
+
     // Provider call happens exactly once (after the claim). On failure the refund
     // is marked FAILED rather than left stuck in PROCESSING.
     let providerResult: { providerRef: string };
     try {
-      providerResult = await this.payments.refundPayment(
-        payment?.providerRef ?? 'mock',
-        refund.amountMinor,
-        refund.reason,
-        // Keep the refund on the gateway that captured the payment.
-        payment?.provider,
-        // Currency lets PayPal/Square format a partial refund.
-        booking.currency,
-      );
+      providerResult = nothingWasCaptured
+        ? { providerRef: `free:${refund.bookingId}` }
+        : await this.payments.refundPayment(
+            payment?.providerRef ?? 'mock',
+            refund.amountMinor,
+            refund.reason,
+            // Keep the refund on the gateway that captured the payment.
+            payment?.provider,
+            // Currency lets PayPal/Square format a partial refund.
+            booking.currency,
+          );
     } catch (err) {
       await this.prisma.refund
         .update({ where: { id: refundId }, data: { status: RefundStatus.FAILED } })

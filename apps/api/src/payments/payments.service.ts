@@ -128,7 +128,9 @@ export class PaymentsService {
       include: {
         payment: true,
         // organizationId → connected account; country feeds payment routing.
-        event: { select: { organizationId: true, venue: { select: { country: true } } } },
+        event: {
+          select: { organizationId: true, isFree: true, venue: { select: { country: true } } },
+        },
       },
     });
     if (!booking)
@@ -157,6 +159,24 @@ export class PaymentsService {
       throw new AppException(
         ErrorCodes.BOOKING_EXPIRED,
         'This booking hold has expired.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      A free event never reaches a payment provider, and this is where that is made structural
+      rather than merely true by convention.
+
+      The booking path confirms free bookings on the spot, so in practice one is CONFIRMED
+      before anything could call this and the check above already refused it. This is the
+      backstop for the case that survives a partial failure: a free booking left PENDING_PAYMENT
+      because confirmation errored. Without this it would fall through to the routing below and
+      open a zero-rupee Razorpay order — the exact call the whole feature exists to avoid.
+    */
+    if (booking.event?.isFree) {
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This event is free. There is nothing to pay.',
         HttpStatus.CONFLICT,
       );
     }
@@ -344,7 +364,58 @@ export class PaymentsService {
     return this.confirm(event);
   }
 
-  private async confirm(event: PaymentEvent) {
+  /**
+   * Confirm a booking that costs nothing, without involving a payment provider.
+   *
+   * ── WHY NOT A ZERO-AMOUNT CHARGE ───────────────────────────────────────────────
+   * Sending a gateway a request to collect ₹0 is a support ticket waiting to happen: some
+   * providers reject it, some accept and settle nothing, all of them put a row in a
+   * reconciliation report that will never balance against anything. A free event has no
+   * money in it, so it has no payment in it either — no Payment row, no REQUIRES_PAYMENT
+   * state, no provider call.
+   *
+   * ── THE GUARD THAT MATTERS ─────────────────────────────────────────────────────
+   * This method confirms a booking WITHOUT anybody paying, so the one thing it must never
+   * do is confirm a booking that somebody owes money on. The total is re-read from the
+   * database — not taken from the caller — and anything but zero is refused outright. A
+   * bug elsewhere that routed a priced booking here would otherwise hand out free tickets.
+   */
+  async confirmFreeBooking(bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true, totalMinor: true, organizationId: true },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    if (booking.totalMinor !== 0) {
+      await this.audit.record({
+        organizationId: booking.organizationId,
+        action: 'FREE_CONFIRM_REFUSED',
+        entityType: 'Booking',
+        entityId: booking.id,
+        metadata: { totalMinor: booking.totalMinor },
+      });
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This booking has an amount to pay and cannot be confirmed as free.',
+        HttpStatus.CONFLICT,
+        { totalMinor: booking.totalMinor },
+      );
+    }
+    return this.confirm(
+      { type: 'payment.succeeded', providerRef: `free:${bookingId}`, bookingId, amountMinor: 0 },
+      { free: true },
+    );
+  }
+
+  /**
+   * @param options.free A booking with nothing to pay: there is no Payment row to settle
+   *   and no provider amount to reconcile against. Everything else — the reference, the
+   *   receipt, inventory settlement, ticket issue, the domain event, the notification —
+   *   is identical, because none of it is about money.
+   */
+  private async confirm(event: PaymentEvent, options: { free?: boolean } = {}) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
       include: {
@@ -387,7 +458,11 @@ export class PaymentsService {
     // Security: the browser redirect is never trusted, and even a signed webhook must
     // pay the exact booked amount. If the provider-reported amount does not match the
     // server-side total, refuse to issue tickets and flag it for reconciliation.
-    if (event.amountMinor !== booking.totalMinor) {
+    //
+    // A free booking has no provider to disagree with. Its equivalent guard already ran in
+    // `confirmFreeBooking`, which re-read the total from the database and refuses anything
+    // but zero — so the money check has been made, just not against a gateway.
+    if (!options.free && event.amountMinor !== booking.totalMinor) {
       await this.audit.record({
         organizationId: booking.organizationId,
         action: 'PAYMENT_AMOUNT_MISMATCH',
@@ -503,23 +578,33 @@ export class PaymentsService {
           addOnItems.map((i) => ({ addOnId: i.addOnId as string, quantity: i.quantity })),
         );
       }
-      await tx.payment.update({
-        where: { bookingId: booking.id },
-        data: {
-          status: PaymentStatus.SUCCEEDED,
-          providerRef: event.providerRef,
-          providerPaymentIntentId: event.providerRef,
-          paidAt: new Date(),
-        },
-      });
-      await tx.paymentAttempt.create({
-        data: {
-          payment: { connect: { bookingId: booking.id } },
-          status: PaymentAttemptStatus.SUCCEEDED,
-          providerRef: event.providerRef,
-          rawEvent: event as unknown as object,
-        },
-      });
+      /*
+        A free booking has no Payment row to settle, and must not acquire one.
+
+        Writing a zero-amount SUCCEEDED payment would put a line in every reconciliation,
+        settlement and payout report that can never balance against a bank statement,
+        because no bank was involved. `where: { bookingId }` would fail outright anyway —
+        the row was never created.
+      */
+      if (!options.free) {
+        await tx.payment.update({
+          where: { bookingId: booking.id },
+          data: {
+            status: PaymentStatus.SUCCEEDED,
+            providerRef: event.providerRef,
+            providerPaymentIntentId: event.providerRef,
+            paidAt: new Date(),
+          },
+        });
+        await tx.paymentAttempt.create({
+          data: {
+            payment: { connect: { bookingId: booking.id } },
+            status: PaymentAttemptStatus.SUCCEEDED,
+            providerRef: event.providerRef,
+            rawEvent: event as unknown as object,
+          },
+        });
+      }
       if (booking.couponId) {
         await tx.coupon.update({
           where: { id: booking.couponId },

@@ -275,10 +275,70 @@ export class OrganizationsService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
+        // `autoApproveEvents` comes back on the list so the admin queue can show which
+        // organizers bypass review WITHOUT a request per row.
         include: { _count: { select: { members: true, events: true } } },
       }),
     ]);
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
+  }
+
+  /**
+   * Let this organizer's events go live without a reviewer, or stop letting them.
+   *
+   * ── WHY ONLY A PLATFORM ADMIN CAN CALL THIS ────────────────────────────────────────
+   * "It is hard to approve each and every event — let's have a toggle on the orgs, auto
+   * approve if we are getting an event from trusted orgs. We disable auto approve for new
+   * orgs or not trusted ones." Trust is the platform's judgement about the organizer, so it
+   * cannot be a setting the organizer owns; a self-service version is not trust, it is a
+   * checkbox that every organizer ticks on their first day.
+   *
+   * Two conditions beyond the permission, both making "trusted" mean something:
+   *   · the organization must be APPROVED — a pending or suspended one has not earned it;
+   *   · it must have had at least one event approved the ordinary way, so there is a
+   *     history to have been trusted ON. This is the "not for new orgs" half of the ask,
+   *     enforced rather than left to whoever is clicking.
+   *
+   * Turning it OFF has no conditions at all. Withdrawing trust must never be harder than
+   * granting it.
+   */
+  async setAutoApprove(admin: RequestUser, orgId: string, enabled: boolean) {
+    const org = await this.prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+
+    if (enabled) {
+      if (org.status !== OrganizationStatus.APPROVED) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `Only an approved organizer can auto-publish events (this one is ${org.status.toLowerCase()}).`,
+          HttpStatus.CONFLICT,
+        );
+      }
+      const approvedBefore = await this.prisma.event.count({
+        where: { organizationId: orgId, publishedAt: { not: null } },
+      });
+      if (approvedBefore === 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This organizer has never had an event approved. Review their first event, then turn this on.',
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+
+    const updated = await this.prisma.organization.update({
+      where: { id: orgId },
+      data: { autoApproveEvents: enabled },
+    });
+    await this.audit.record({
+      actorUserId: admin.id,
+      organizationId: orgId,
+      action: enabled ? 'ORG_AUTO_APPROVE_ENABLED' : 'ORG_AUTO_APPROVE_DISABLED',
+      entityType: 'Organization',
+      entityId: orgId,
+    });
+    return { id: updated.id, autoApproveEvents: updated.autoApproveEvents };
   }
 
   async review(admin: RequestUser, orgId: string, input: ReviewDecisionInput) {

@@ -41,6 +41,21 @@ export default function OrganizersPage() {
       render: (o) => <span className="font-medium text-text-primary">{o.name}</span>,
     },
     { key: 'status', header: 'Status', render: (o) => <StatusBadge status={o.status} /> },
+    {
+      key: 'review',
+      header: 'Review',
+      /*
+        Which organizers bypass review, visible in the list rather than one page in.
+        "Who can publish without me looking?" is a question about the whole set, and
+        answering it by opening thirty pages is how it stops being asked.
+      */
+      render: (o) =>
+        o.autoApproveEvents ? (
+          <span className="text-caption text-status-warning">Skips review</span>
+        ) : (
+          <span className="text-caption text-text-muted">Reviewed</span>
+        ),
+    },
     { key: 'events', header: 'Events', render: (o) => o._count?.events ?? 0 },
     { key: 'members', header: 'Members', render: (o) => o._count?.members ?? 0 },
     { key: 'created', header: 'Joined', render: (o) => dateOnly(o.createdAt) },

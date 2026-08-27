@@ -77,3 +77,38 @@ export function getTemplate(id: string | null | undefined): ExperienceTemplate |
   if (!id) return undefined;
   return EXPERIENCE_TEMPLATES.find((t) => t.id === id.toLowerCase());
 }
+
+/**
+ * The categories an organizer picks from, instead of typing one.
+ *
+ * `Event.category` is a free-text column and stays one — this list is the input, not a
+ * constraint, and existing events keep whatever they already hold. The reason to have it is
+ * on the CUSTOMER side: the browse page builds its category list with `distinct` over this
+ * exact column, so every typo and case variant an organizer ever typed became its own row on
+ * the front page. "music", "Music " and "Live Music" are three categories to a database and
+ * one to a person.
+ *
+ * "Other" stays available. A list that cannot express what somebody is actually running just
+ * gets the nearest wrong answer picked, which is worse than a new value typed on purpose.
+ */
+export const EVENT_CATEGORIES = [
+  'Music',
+  'Comedy',
+  'Theatre',
+  'Film',
+  'Conference',
+  'Workshop',
+  'Sports',
+  'Exhibition',
+  'Festival',
+  'Food & Drink',
+  'Community',
+  'Kids & Family',
+] as const;
+
+export type EventCategory = (typeof EVENT_CATEGORIES)[number];
+
+/** Whether a stored category is one of the offered options, or a hand-typed one. */
+export function isListedCategory(value: string): boolean {
+  return (EVENT_CATEGORIES as readonly string[]).includes(value);
+}

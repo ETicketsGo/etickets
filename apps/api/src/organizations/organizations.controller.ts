@@ -126,4 +126,17 @@ export class AdminOrganizationsController {
   ) {
     return this.orgs.review(admin, id, body);
   }
+
+  @Patch(':id/auto-approve')
+  @ApiOperation({
+    summary: 'Let a trusted organizer publish events without review, or stop them (admin).',
+  })
+  setAutoApprove(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ enabled: z.boolean() })))
+    body: { enabled: boolean },
+  ) {
+    return this.orgs.setAutoApprove(admin, id, body.enabled);
+  }
 }
