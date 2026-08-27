@@ -42,6 +42,29 @@ export default function OrganizerDetail() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  /*
+    Trusting this organizer to publish without review.
+
+    The API decides whether it is allowed — an organizer that is not APPROVED, or has never
+    had an event approved the ordinary way, is refused. Its refusal is SHOWN rather than
+    pre-empted with a disabled control: "this organizer has never had an event approved,
+    review their first one then turn this on" explains what trust means here, and a greyed-out
+    switch explains nothing.
+  */
+  const autoApprove = useMutation({
+    mutationFn: (enabled: boolean) => api.admin.setOrganizerAutoApprove(id, enabled),
+    onSuccess: (res) => {
+      toast.push(
+        res.autoApproveEvents
+          ? 'Their events will now go live without review.'
+          : 'Their events will go back through review.',
+        'success',
+      );
+      qc.invalidateQueries({ queryKey: ['org', id] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
   const org = orgQ.data;
   const columns: Column<OrgMember>[] = [
     { key: 'name', header: 'Name', render: (m) => m.user.fullName },
@@ -115,6 +138,33 @@ export default function OrganizerDetail() {
           ) : (
             <p className="text-sm text-text-muted">This organizer is {org.status.toLowerCase()}.</p>
           )}
+        </Card>
+
+        <Card title="Publishing">
+          <div className="space-y-3">
+            <p className="text-sm text-text-secondary">
+              {org.autoApproveEvents
+                ? 'Their events go live the moment they are submitted. Nobody reviews them.'
+                : 'Every event they submit waits for a reviewer before it can sell a ticket.'}
+            </p>
+            <p className="text-caption text-text-muted">
+              {/*
+                Both halves stated, because the reason to hesitate and the reason to do it are
+                the same fact seen from two sides.
+              */}
+              Turn this on for organizers you know. It removes a delay on every event they run — and
+              it removes the check that would catch a wrong venue or a mistyped price before
+              somebody buys a ticket.
+            </p>
+            <Button
+              variant={org.autoApproveEvents ? 'danger' : 'primary'}
+              loading={autoApprove.isPending}
+              disabled={autoApprove.isPending}
+              onClick={() => autoApprove.mutate(!org.autoApproveEvents)}
+            >
+              {org.autoApproveEvents ? 'Send their events back to review' : 'Skip review for them'}
+            </Button>
+          </div>
         </Card>
       </div>
 

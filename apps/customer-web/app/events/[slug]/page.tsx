@@ -19,6 +19,7 @@ import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import { Badge, Button, Card, EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
 import { EventCard } from '@/components/event-card';
+import { nextStepAfterBooking } from '@/lib/after-booking';
 
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -181,7 +182,7 @@ export default function EventDetailPage() {
         buyerEmail: me.email,
       });
     },
-    onSuccess: (booking) => router.push(`/booking/${booking.id}/payment`),
+    onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
     onError: (e) => {
       if (e instanceof ApiRequestError) setError(e.message);
       else if ((e as Error).message !== 'login') setError('Could not create booking.');
@@ -500,7 +501,12 @@ export default function EventDetailPage() {
                     <div>
                       <p className="font-medium text-text-primary">{t.name}</p>
                       <p className="text-caption text-text-muted">
-                        {money(t.priceMinor, t.currency)} ·{' '}
+                        {/*
+                          "Free" rather than "₹0.00". A zero with a currency symbol reads as a
+                          price that failed to load, and it is the one thing about this event a
+                          buyer most wants confirmed before they commit to a seat.
+                        */}
+                        {event.isFree ? 'Free' : money(t.priceMinor, t.currency)} ·{' '}
                         {soldOut ? (
                           <span className="text-status-error">Sold out</span>
                         ) : (
@@ -623,10 +629,14 @@ export default function EventDetailPage() {
             <div className="mt-4 border-t border-border pt-4">
               <div className="flex items-center justify-between">
                 <span className="text-[0.9375rem] text-text-secondary">Subtotal</span>
-                <span className="text-title font-bold text-text-primary">{money(subtotal)}</span>
+                <span className="text-title font-bold text-text-primary">
+                  {event.isFree ? 'Free' : money(subtotal)}
+                </span>
               </div>
               <p className="mt-1 text-caption text-text-muted">
-                Transparent fees shown on the next step.
+                {event.isFree
+                  ? 'No payment needed — your tickets are issued as soon as you book.'
+                  : 'Transparent fees shown on the next step.'}
               </p>
             </div>
 
@@ -644,7 +654,11 @@ export default function EventDetailPage() {
                 book.mutate();
               }}
             >
-              {book.isPending ? 'Holding tickets…' : 'Continue to payment'}
+              {book.isPending
+                ? 'Holding tickets…'
+                : event.isFree
+                  ? 'Get my tickets'
+                  : 'Continue to payment'}
             </Button>
           </Card>
         </div>

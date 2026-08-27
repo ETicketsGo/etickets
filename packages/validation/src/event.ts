@@ -38,6 +38,16 @@ export const createEventSchema = z.object({
   venueId: z.string().cuid(),
   refundPolicy: z.string().trim().max(2000).optional(),
   feeMode: z.nativeEnum(FeeMode).default(FeeMode.CUSTOMER_PAYS),
+  /**
+   * Nobody pays anything for this event.
+   *
+   * A declaration by the organizer, not something read off the prices. If it were inferred
+   * from "every ticket type is zero", an event would slip into and out of free as prices were
+   * edited, and a booking taken under one reading could be confirmed under the other. Declared
+   * once, it is a fact the booking, fee, payment and refund paths can all rely on — and the
+   * API holds the two in agreement by refusing a priced ticket type on a free event.
+   */
+  isFree: z.boolean().default(false),
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 

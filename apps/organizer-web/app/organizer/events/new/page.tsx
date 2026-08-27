@@ -19,7 +19,7 @@ import {
   DateTimeField,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { getTemplate } from '@/lib/templates';
+import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 
 const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
 const FEE_MODES = [
@@ -64,6 +64,25 @@ function NewEventWizard() {
     description: template?.description ?? '',
     refundPolicy: '',
   });
+  /*
+    Whether the category is being picked or typed.
+
+    A template can seed a category that is not on the list, so this is derived from the seed
+    rather than defaulting to the dropdown — otherwise the wizard would open showing a select
+    whose value it cannot display, silently losing what the template chose.
+  */
+  const [categoryMode, setCategoryMode] = useState<'list' | 'other'>(
+    template && !isListedCategory(template.category) ? 'other' : 'list',
+  );
+  /*
+    Free events, declared here rather than inferred from the prices on step 4.
+
+    Deriving it would make the event flip between free and paid as somebody edited a number,
+    and free is not a price — it changes what the platform DOES. No payment provider is
+    called, no booking fee and no platform share are taken, and the buyer never sees a
+    checkout. Everything after the money is unchanged: tickets, QR codes, cancellation.
+  */
+  const [isFree, setIsFree] = useState(false);
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
   const [venueId, setVenueId] = useState('');
   const [newVenue, setNewVenue] = useState({ name: '', city: '', country: 'India', capacity: '' });
@@ -106,9 +125,10 @@ function NewEventWizard() {
       tickets.forEach((t, i) => {
         if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
         if (
-          t.priceRupees === '' ||
-          !Number.isFinite(Number(t.priceRupees)) ||
-          Number(t.priceRupees) < 0
+          !isFree &&
+          (t.priceRupees === '' ||
+            !Number.isFinite(Number(t.priceRupees)) ||
+            Number(t.priceRupees) < 0)
         )
           e[`t${i}Price`] = 'Enter a valid price (0 or more).';
         if (Number(t.quantityTotal) < 1) e[`t${i}Qty`] = 'Quantity must be at least 1.';
@@ -156,6 +176,7 @@ function NewEventWizard() {
         description: basics.description || undefined,
         refundPolicy: basics.refundPolicy || undefined,
         feeMode,
+        isFree,
       });
       const sessionIds: string[] = [];
       for (const s of sessions) {
@@ -169,7 +190,10 @@ function NewEventWizard() {
         await api.events.addTicketType({
           eventSessionId: sessionIds[t.sessionIndex] ?? sessionIds[0],
           name: t.name,
-          priceMinor: Math.round(Number(t.priceRupees) * 100),
+          // Zero regardless of what the price box happens to hold: a free event's ticket
+          // types must all be zero and the API refuses anything else, so sending the stale
+          // contents of a disabled field would fail the whole creation with a confusing error.
+          priceMinor: isFree ? 0 : Math.round(Number(t.priceRupees) * 100),
           quantityTotal: Number(t.quantityTotal),
           maxPerOrder: Number(t.maxPerOrder) || 10,
         });
@@ -206,14 +230,40 @@ function NewEventWizard() {
               onChange={(e) => setBasics({ ...basics, title: e.target.value })}
               error={fieldErrors.title}
             />
-            <Input
+            <Select
               id="category"
               label="Category"
-              placeholder="Music, Tech, Comedy…"
-              value={basics.category}
-              onChange={(e) => setBasics({ ...basics, category: e.target.value })}
-              error={fieldErrors.category}
-            />
+              value={categoryMode === 'other' ? '__other' : basics.category}
+              error={categoryMode === 'list' ? fieldErrors.category : undefined}
+              onChange={(e) => {
+                if (e.target.value === '__other') {
+                  setCategoryMode('other');
+                  setBasics((b) => ({ ...b, category: '' }));
+                } else {
+                  setCategoryMode('list');
+                  setBasics((b) => ({ ...b, category: e.target.value }));
+                }
+              }}
+            >
+              <option value="">Select a category…</option>
+              {EVENT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value="__other">Something else…</option>
+            </Select>
+            {categoryMode === 'other' && (
+              <Input
+                id="category-other"
+                label="Your category"
+                autoFocus
+                placeholder="e.g. Poetry reading"
+                value={basics.category}
+                onChange={(e) => setBasics({ ...basics, category: e.target.value })}
+                error={fieldErrors.category}
+              />
+            )}
             <Textarea
               id="desc"
               label="Description"
@@ -228,6 +278,22 @@ function NewEventWizard() {
               value={basics.refundPolicy}
               onChange={(e) => setBasics({ ...basics, refundPolicy: e.target.value })}
             />
+            <label className="flex items-start gap-3 rounded-md border border-border p-3">
+              <input
+                id="is-free"
+                type="checkbox"
+                className="mt-1 h-4 w-4"
+                checked={isFree}
+                onChange={(e) => setIsFree(e.target.checked)}
+              />
+              <span className="text-sm">
+                <span className="font-medium">This is a free event</span>
+                <span className="mt-1 block text-text-muted">
+                  Nobody is charged, so there is no checkout, no booking fee and no platform share.
+                  Attendees still book, get tickets and QR codes, and can cancel.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 
@@ -396,11 +462,19 @@ function NewEventWizard() {
                     </option>
                   ))}
                 </Select>
+                {/*
+                  On a free event the price is not editable, and says why.
+
+                  Disabling it rather than hiding it keeps the row's shape and answers the
+                  obvious question — "where did the price go?" — in the place it was asked.
+                */}
                 <Input
                   id={`tp${i}`}
                   label="Price (₹)"
                   type="number"
-                  value={t.priceRupees}
+                  value={isFree ? '0' : t.priceRupees}
+                  disabled={isFree}
+                  hint={isFree ? 'Free event — attendees pay nothing.' : undefined}
                   error={fieldErrors[`t${i}Price`]}
                   onChange={(e) =>
                     setTickets(
@@ -465,25 +539,40 @@ function NewEventWizard() {
           </div>
         )}
 
-        {step === 4 && (
-          <Select
-            id="feeMode"
-            label="Fee handling"
-            value={feeMode}
-            onChange={(e) => setFeeMode(e.target.value)}
-          >
-            {FEE_MODES.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </Select>
-        )}
+        {step === 4 &&
+          (isFree ? (
+            /*
+              There are no fees to hand to anybody, so asking who pays them would be a
+              question with no true answer. The setting is still stored as it was — it simply
+              never applies while the event is free.
+            */
+            <div className="rounded-md border border-border p-4 text-sm">
+              <p className="font-medium">No fees on a free event</p>
+              <p className="mt-1 text-text-muted">
+                Attendees pay nothing, so there is no booking fee, no payment fee and no platform
+                share to divide.
+              </p>
+            </div>
+          ) : (
+            <Select
+              id="feeMode"
+              label="Fee handling"
+              value={feeMode}
+              onChange={(e) => setFeeMode(e.target.value)}
+            >
+              {FEE_MODES.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </Select>
+          ))}
 
         {step === 5 && (
           <div className="space-y-3 text-sm">
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
+            <Row label="Admission" value={isFree ? 'Free — no payment taken' : 'Paid'} />
             <Row
               label="Venue"
               value={
@@ -492,17 +581,19 @@ function NewEventWizard() {
                   : `${newVenue.name}, ${newVenue.city} (new)`
               }
             />
-            <Row
-              label="Fee handling"
-              value={FEE_MODES.find((f) => f.value === feeMode)?.label ?? feeMode}
-            />
+            {!isFree && (
+              <Row
+                label="Fee handling"
+                value={FEE_MODES.find((f) => f.value === feeMode)?.label ?? feeMode}
+              />
+            )}
             <Row label="Sessions" value={`${sessions.length}`} />
             <Row
               label="Ticket types"
               value={tickets
                 .map(
                   (t) =>
-                    `${t.name} (${money(Math.round(Number(t.priceRupees) * 100))} × ${t.quantityTotal})`,
+                    `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceRupees) * 100))} × ${t.quantityTotal})`,
                 )
                 .join(', ')}
             />

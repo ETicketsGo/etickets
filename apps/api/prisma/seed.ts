@@ -384,6 +384,21 @@ async function main() {
       status: EventStatus.DRAFT,
       venue: arena,
     },
+    /*
+      One event that costs nothing, so the free path is reachable in a seeded environment.
+
+      Free is not a price of zero — it changes what the platform DOES: no payment provider is
+      called, no booking fee and no platform share are taken, and the buyer never sees a
+      checkout. Without a seeded example, the only way to exercise any of that in QA is to
+      build an event by hand first.
+    */
+    {
+      title: 'Community Open Day',
+      category: 'Community',
+      status: EventStatus.PUBLISHED,
+      venue: dome,
+      isFree: true,
+    },
   ];
 
   const createdEvents: {
@@ -407,6 +422,7 @@ async function main() {
         description: `${def.title} — an unmissable ${def.category.toLowerCase()} experience presented by Bengaluru Live.`,
         status: def.status,
         feeMode: i % 2 === 0 ? FeeMode.CUSTOMER_PAYS : FeeMode.SHARED,
+        isFree: def.isFree ?? false,
         refundPolicy: 'Full refund up to 48 hours before the session. No refunds after.',
         publishedAt: def.status === EventStatus.PUBLISHED ? new Date() : null,
       },
@@ -421,11 +437,20 @@ async function main() {
       },
     });
 
-    const tierDefs = [
-      { name: 'General', priceMinor: 79_900, quantityTotal: 500 },
-      { name: 'Gold', priceMinor: 149_900, quantityTotal: 200 },
-      { name: 'VIP', priceMinor: 299_900, quantityTotal: 50 },
-    ];
+    /*
+      A free event's tiers are all zero, and one tier is enough.
+
+      Not a cosmetic choice: the API refuses a priced ticket type on a free event, so seeding
+      Gold and VIP here would fail outright — and tiers are a way of charging different people
+      different amounts, which is a question a free event does not have.
+    */
+    const tierDefs = def.isFree
+      ? [{ name: 'Free entry', priceMinor: 0, quantityTotal: 300 }]
+      : [
+          { name: 'General', priceMinor: 79_900, quantityTotal: 500 },
+          { name: 'Gold', priceMinor: 149_900, quantityTotal: 200 },
+          { name: 'VIP', priceMinor: 299_900, quantityTotal: 50 },
+        ];
     const ticketTypes: { id: string; price: number }[] = [];
     for (const t of tierDefs) {
       const tt = await prisma.ticketType.create({

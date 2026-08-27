@@ -11,6 +11,14 @@ import { EventCard } from '@/components/event-card';
 import { ButtonLink, Card, ErrorState, StatusBadge } from '@/components/ui';
 
 const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
+/*
+  A free booking never had a payment step, so it does not get a ticked one.
+
+  Showing "✓ Payment" over a booking that cost nothing says money changed hands, which is the
+  one thing this whole path exists to avoid claiming — and it invites a support ticket asking
+  what was charged and to which card.
+*/
+const FREE_BOOKING_STEPS = ['Tickets', 'Confirmation', 'Ticket'];
 
 export default function ConfirmationPage() {
   const { id } = useParams<{ id: string }>();
@@ -72,6 +80,14 @@ export default function ConfirmationPage() {
     return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
 
   const confirmed = booking.status === 'CONFIRMED';
+  /*
+    Nothing was owed on this booking.
+
+    Read from the booking's own total and the absence of a payment, not from a flag on the
+    event: a booking is a settled fact and the event's setting can change afterwards. What
+    the buyer is told about THIS booking must come from the booking.
+  */
+  const free = booking.totalMinor === 0 && !booking.payment;
   // The sale document. A credit note may also be present after a refund; the confirmation
   // screen shows the sale.
   const receipt = receipts.data?.find((r) => r.kind !== 'CREDIT_NOTE');
@@ -94,7 +110,10 @@ export default function ConfirmationPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-8">
-      <Stepper steps={BOOKING_STEPS} current={confirmed ? 2 : 1} />
+      <Stepper
+        steps={free ? FREE_BOOKING_STEPS : BOOKING_STEPS}
+        current={free ? 1 : confirmed ? 2 : 1}
+      />
 
       <div className="text-center">
         <div
@@ -148,8 +167,14 @@ export default function ConfirmationPage() {
           </div>
         ))}
         <div className="flex justify-between border-t border-border pt-3 text-[0.9375rem]">
-          <span className="text-text-secondary">Total paid</span>
-          <span className="font-semibold text-text-primary">{money(booking.totalMinor)}</span>
+          {/*
+            "Total paid ₹0" reads as a payment that failed. Nothing was paid because nothing
+            was owed, and those are different things to somebody checking their booking.
+          */}
+          <span className="text-text-secondary">{free ? 'Cost' : 'Total paid'}</span>
+          <span className="font-semibold text-text-primary">
+            {free ? 'Free' : money(booking.totalMinor)}
+          </span>
         </div>
         {receipt && (
           <button

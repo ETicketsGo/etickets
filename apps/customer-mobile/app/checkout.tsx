@@ -131,6 +131,22 @@ export default function CheckoutScreen() {
           idempotencyKey: idempotencyKey.current,
         }));
 
+      /*
+        A free booking is already done.
+
+        The API skipped the payment provider entirely — a free event has nothing to collect
+        and a gateway asked to charge zero is a support ticket, not a payment — and returned
+        the booking CONFIRMED with no payment attached. Calling /pay on it would be refused,
+        and the buyer would be shown a failure over a ticket they already hold.
+
+        Read from the SERVER's status rather than from anything this screen knows about the
+        event, because the server is the only party that knows whether money was skipped.
+      */
+      if (created.status === 'CONFIRMED') {
+        router.replace({ pathname: '/booking/[id]', params: { id: created.id } });
+        return;
+      }
+
       const intent = await startPayment.mutateAsync(created.id);
       const outcome = await followPaymentAction(intent, paymentReturnUrl(created.id));
 

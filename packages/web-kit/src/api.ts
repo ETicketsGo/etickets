@@ -1107,6 +1107,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ decision, note }),
       }),
+    /**
+     * Let a trusted organizer publish events without review, or stop them.
+     *
+     * The API refuses to turn it ON for an organizer that is not approved or has never had
+     * an event approved the ordinary way, so the error is worth showing rather than
+     * pre-empting — it explains what "trusted" means better than a disabled control would.
+     */
+    setOrganizerAutoApprove: (id: string, enabled: boolean) =>
+      request<{ id: string; autoApproveEvents: boolean }>(`/admin/organizers/${id}/auto-approve`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
     events: (params: PageParams & { status?: string }) =>
       request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
@@ -1445,6 +1457,8 @@ export interface PublicEvent {
   description: string | null;
   refundPolicy: string | null;
   feeMode: string;
+  /** Nobody is charged: no checkout, no fees, tickets issued the moment they book. */
+  isFree: boolean;
   venue: { name: string; city: string; country: string; address: string | null };
   organizer: { id: string; name: string };
   sessions: {
@@ -1721,6 +1735,11 @@ export interface Organization {
   instagramUrl?: string | null;
   facebookUrl?: string | null;
   verified?: boolean;
+  /**
+   * This organizer's events go live without a reviewer. Admin-only to change, and off for
+   * every new organization — see the API's Organization.autoApproveEvents.
+   */
+  autoApproveEvents?: boolean;
   _count?: { members: number; events: number; venues?: number };
 }
 export interface OrganizationProfileInput {
@@ -2259,6 +2278,8 @@ export interface OrgEventDetail {
   description: string | null;
   status: string;
   feeMode: string;
+  /** Nobody is charged: no checkout, no booking fee, no platform share. */
+  isFree: boolean;
   refundPolicy: string | null;
   publishedAt: string | null;
   reviewNote: string | null;
@@ -2274,6 +2295,8 @@ export interface CreateEventBody {
   description?: string;
   refundPolicy?: string;
   feeMode: string;
+  /** Declared, never inferred from the ticket prices — see the API's Event.isFree. */
+  isFree?: boolean;
 }
 export interface CreateTicketTypeBody {
   eventSessionId: string;

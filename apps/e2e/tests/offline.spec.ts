@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { CUSTOMER, SEED_PASSWORD, uniqueEmail } from './helpers';
+import { openPaidEvent } from './pick-event';
 
 /** Registers a fresh customer and books `qty` tickets, landing on confirmation. */
 async function registerAndBook(page: Page, name: string, email: string, qty: string) {
@@ -11,7 +12,7 @@ async function registerAndBook(page: Page, name: string, email: string, qty: str
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
-  await page.locator('a[href^="/events/"]').first().click();
+  await openPaidEvent(page);
   await page.locator('select[aria-label^="Quantity"]').first().selectOption(qty);
   await page.getByRole('button', { name: /Continue to payment/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });

@@ -8,6 +8,7 @@ import { useToast, VenueMap } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
+import { nextStepAfterBooking } from '@/lib/after-booking';
 
 const MAX_SEATS = 10;
 
@@ -260,7 +261,7 @@ export default function SeatSelectionPage() {
         buyerEmail: me.email,
       });
     },
-    onSuccess: (booking) => router.push(`/booking/${booking.id}/payment`),
+    onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
     onError: (e) => {
       if ((e as Error).message === 'login') return;
       // A seat may have been taken between load and submit — reset + refetch.

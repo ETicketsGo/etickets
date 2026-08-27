@@ -532,6 +532,20 @@ model Organization {
   name          String
   slug          String             @unique
   status        OrganizationStatus @default(PENDING)
+
+  /// This organizer's events go live without a human reviewing them.
+  ///
+  /// Default OFF, and that default is the feature. Review exists because a new organizer can
+  /// publish anything — a fraudulent listing, a venue they do not have, a price that is a
+  /// typo — and by the time it is noticed somebody has paid for a ticket. What review costs
+  /// is a delay on every event from organizers who have earned trust twenty times over, and
+  /// that is what this removes.
+  ///
+  /// Only a platform admin can set it. An organizer marking themselves trusted is not trust,
+  /// it is a checkbox — and the API refuses to turn it on for an organization that has never
+  /// had an event approved the ordinary way, so "trusted" always means an actual history.
+  autoApproveEvents Boolean @default(false)
+
   contactEmail  String?
   // Public organizer profile (v1.2 WS6). All optional; empty = not shown.
   description   String?
@@ -968,8 +982,23 @@ model Event {
   description    String?
   status         EventStatus    @default(DRAFT)
   feeMode        FeeMode        @default(CUSTOMER_PAYS)
+
+  /// This event costs nothing, and nothing about it touches money.
+  ///
+  /// A DECLARATION, not something inferred from the prices. Deriving it from "every ticket
+  /// type is zero" would flip an event into and out of free as an organizer edited a price,
+  /// and a booking taken under one reading would be confirmed under the other. Declared, it
+  /// is a fact the whole flow can rely on — and one the API enforces: a free event's ticket
+  /// types must all be zero, and its bookings carry no booking fee, no payment fee and no
+  /// platform share.
+  ///
+  /// Free bookings skip the payment provider entirely. There is no Payment row, no
+  /// REQUIRES_PAYMENT state and no zero-amount charge sent to Razorpay or Stripe — a
+  /// gateway asked to collect nothing is a support ticket waiting to happen. Everything
+  /// after the money still runs: tickets, QR codes, notifications, transfers, cancellation.
+  isFree       Boolean @default(false)
   /// Free text shown to buyers. Describes the policy; does not enforce it.
-  refundPolicy   String?
+  refundPolicy String?
 
   /// Whether this event offers refunds at all, and until when.
   ///

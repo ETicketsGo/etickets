@@ -23,9 +23,11 @@ interface Fixture {
 }
 
 /** A film and a screen of their own, so repeated runs never fight over a slot. */
-async function fixture(request: APIRequestContext): Promise<Fixture> {
-  const { accessToken } = await apiLogin(request, ORGANIZER_EMAIL);
-  const auth = { Authorization: `Bearer ${accessToken}` };
+async function fixture(
+  request: APIRequestContext,
+  tokens: { accessToken: string },
+): Promise<Fixture> {
+  const auth = { Authorization: `Bearer ${tokens.accessToken}` };
   const stamp = Date.now();
 
   const orgs = await (await request.get(`${API}/organizations`, { headers: auth })).json();
@@ -93,21 +95,28 @@ const dayOffset = (n: number) => {
 
 test.describe('scheduling a run', () => {
   let fx: Fixture;
+  let sharedTokens: Awaited<ReturnType<typeof apiLogin>>;
   const FIRST = dayOffset(400);
   const LAST = dayOffset(406);
 
   test.beforeAll(async ({ request }) => {
-    fx = await fixture(request);
+    sharedTokens = await apiLogin(request, ORGANIZER_EMAIL);
+    fx = await fixture(request, sharedTokens);
   });
 
-  test.beforeEach(async ({ context, request }) => {
-    // Tokens over the API rather than the login form: this suite opens several pages and
-    // signing in on each trips the auth throttle.
-    const tokens = await apiLogin(request, ORGANIZER_EMAIL);
+  /*
+    One token pair for the whole file.
+
+    Tokens over the login form was already the rule here — this suite opens several pages and
+    signing in on each trips the auth throttle. Minting them per TEST turned out to have the
+    same problem once the file grew and other suites ran alongside it: the throttle counts
+    requests, not forms. `fixture()` already logs in during beforeAll, so this reuses that.
+  */
+  test.beforeEach(async ({ context }) => {
     await context.addInitScript((t) => {
       localStorage.setItem('etg_access', t.accessToken);
       localStorage.setItem('etg_refresh', t.refreshToken);
-    }, tokens);
+    }, sharedTokens);
   });
 
   /** Fill the run form. Times are whatever chips are already on, plus the ones named. */
@@ -145,7 +154,7 @@ test.describe('scheduling a run', () => {
     await expect(dialog).toBeHidden({ timeout: 30_000 });
 
     // And they are really there.
-    await expect(page.getByRole('button', { name: /Move the/ }).first()).toBeVisible({
+    await expect(page.getByRole('button', { name: /Edit the/ }).first()).toBeVisible({
       timeout: 30_000,
     });
   });
@@ -185,22 +194,75 @@ test.describe('scheduling a run', () => {
       who has already bought a seat.
     */
     await page.goto(`${ORGANIZER}/organizer/movies/${fx.movieId}`, { waitUntil: 'networkidle' });
-    const move = page.getByRole('button', { name: /Move the/ }).first();
-    await expect(move).toBeVisible({ timeout: 30_000 });
-    await move.click();
+    const edit = page.getByRole('button', { name: /Edit the/ }).first();
+    await expect(edit).toBeVisible({ timeout: 30_000 });
+    await edit.click();
 
-    const dialog = page.getByRole('dialog', { name: /Move the/ });
+    const dialog = page.getByRole('dialog', { name: /Edit the/ });
     await expect(dialog).toBeVisible();
     // Prefilled with where it is now, so "half an hour later" is an edit not a re-entry.
-    await expect(dialog.locator('#move-to')).not.toHaveValue('');
+    await expect(dialog.locator('#edit-show-start')).not.toHaveValue('');
     // Only the start is editable — the end follows the film's runtime.
     await expect(dialog.getByText(/The end time moves with it/)).toBeVisible();
 
-    await dialog.locator('#move-to').fill(dayOffset(420));
-    await dialog.locator('#move-to-time').selectOption('16:00');
+    await dialog.locator('#edit-show-start').fill(dayOffset(420));
+    await dialog.locator('#edit-show-start-time').selectOption('16:00');
     await dialog.getByRole('button', { name: 'Move it' }).click();
 
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect(page.getByText('Showtime moved.')).toBeVisible({ timeout: 30_000 });
+  });
+
+  test('4: the same dialog can reprice, pause and cancel — not just move', async ({ page }) => {
+    /*
+      The complaint that prompted the rename: "still I don't see edit option for current
+      shows, I see only Move option." Every one of these endpoints already existed; the
+      console called exactly one of them, so an operator who had typed the wrong price had no
+      way to say so and the only button on the row changed the time instead.
+    */
+    await page.goto(`${ORGANIZER}/organizer/movies/${fx.movieId}`, { waitUntil: 'networkidle' });
+    await page
+      .getByRole('button', { name: /Edit the/ })
+      .first()
+      .click();
+    const dialog = page.getByRole('dialog', { name: /Edit the/ });
+    await expect(dialog).toBeVisible();
+
+    await expect(dialog.getByRole('heading', { name: 'When it plays' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'What it charges' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'On sale' })).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Cancel this show' })).toBeVisible();
+
+    // Repricing an unsold show is allowed, and lands.
+    await dialog.getByLabel('Standard (₹)').fill('175');
+    await dialog.getByRole('button', { name: 'Update prices' }).click();
+    await expect(page.getByText('Prices updated.')).toBeVisible({ timeout: 30_000 });
+
+    /*
+      Stopping sales without cancelling — the thing an operator actually needs at 19:40 when
+      a projector fails. Cancelling would strand everyone who has booked; pausing keeps the
+      show and their seats and only closes the door on new bookings.
+    */
+    await dialog.getByRole('button', { name: 'Stop selling' }).click();
+    await expect(page.getByText('Sales paused. The show is still on.')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // And it can be put back, from the same place.
+    await page
+      .getByRole('button', { name: /Edit the/ })
+      .first()
+      .click();
+    await expect(dialog.getByRole('heading', { name: 'Currently off sale' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Put it back on sale' }).click();
+    await expect(page.getByText('Back on sale.')).toBeVisible({ timeout: 30_000 });
+
+    // Cancelling asks for a reason first, and will not proceed without one.
+    await page
+      .getByRole('button', { name: /Edit the/ })
+      .first()
+      .click();
+    await dialog.getByRole('button', { name: 'Cancel this show' }).click();
+    await expect(dialog.getByRole('button', { name: 'Cancel the show' })).toBeDisabled();
   });
 });

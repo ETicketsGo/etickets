@@ -5,6 +5,10 @@ import {
   type BrowserContext,
   type APIRequestContext,
 } from '@playwright/test';
+import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+
+// Deployment-facing: skipped unless asked for. See qa-target.ts for why.
+test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 
 /**
  * Post-deploy validation, run against QA itself rather than a local stack.
@@ -163,7 +167,9 @@ test.describe('QA: picking a date and a time', () => {
   /** Through the wizard as far as the session step, which is where the field lives. */
   async function toSessionStep(page: Page, title: string) {
     await page.getByLabel('Event title').fill(title);
-    await page.getByLabel('Category').fill('Music');
+    // A dropdown now, not a text box: browse builds its category list with `distinct`
+    // over this column, so every typo an organizer typed became its own row on the front page.
+    await page.getByLabel('Category').selectOption('Music');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByLabel('Venue').selectOption({ index: 1 });
     await page.getByRole('button', { name: 'Next', exact: true }).click();

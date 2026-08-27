@@ -157,6 +157,8 @@ export class PublicEventsService {
       description: event.description,
       refundPolicy: event.refundPolicy,
       feeMode: event.feeMode,
+      // So the buyer is told "Free" rather than "₹0.00", and the checkout can skip itself.
+      isFree: event.isFree,
       venue: event.venue,
       organizer: event.organization,
       sessions: event.sessions.map((s) => ({
