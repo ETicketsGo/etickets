@@ -2,5 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false
-  }
+  },
+  /*
+    Tests are not part of the package.
+
+    Compiling them put `dist/validation.spec.js` into the published output — dead weight in
+    every consumer, and CommonJS copies of files that import vitest, which is a devDependency
+    consumers do not have. It also made the build hand vitest a second, stale copy of every
+    suite to discover and run.
+  */
+  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.test.ts"]
 }
