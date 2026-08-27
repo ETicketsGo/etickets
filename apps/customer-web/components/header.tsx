@@ -63,7 +63,7 @@ export function Header() {
             Beside the logo, not buried in a filter panel. Someone filtered to Delhi who
             cannot see that they are will report the Mumbai show as missing.
           */}
-          <CityPicker />
+          <CityPicker allCitiesLabel={t('allCities')} />
         </div>
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
           <Link href="/explore" aria-label={t('explore')} className={navLink}>

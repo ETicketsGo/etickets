@@ -6,8 +6,10 @@ import { Suspense, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 function RegisterForm() {
+  const a = useTranslations('storefront.auth');
   const router = useRouter();
   const params = useSearchParams();
   // `?intent=organizer` comes from the "Start selling tickets" calls to action. It changes
@@ -91,7 +93,7 @@ function RegisterForm() {
       <form className="space-y-4" onSubmit={submit}>
         <Input
           id="name"
-          label="Full name"
+          label={a('fullName')}
           autoFocus
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
@@ -99,7 +101,7 @@ function RegisterForm() {
         />
         <Input
           id="email"
-          label="Email"
+          label={a('email')}
           type="email"
           value={email}
           onChange={(e) => {
@@ -111,7 +113,7 @@ function RegisterForm() {
         />
         <Input
           id="password"
-          label="Password (min 8 chars)"
+          label={a('passwordMin')}
           type="password"
           minLength={8}
           value={password}
@@ -146,14 +148,14 @@ function RegisterForm() {
         )}
 
         <Button type="submit" className="w-full" loading={loading}>
-          {organizerIntent ? 'Create organizer account' : 'Create account'}
+          {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
         </Button>
       </form>
 
       <p className="text-caption text-text-muted">
-        Already have an account?{' '}
+        {a('haveAccount')}{' '}
         <Link href="/login" className="text-action-primary underline">
-          Sign in
+          {a('signIn')}
         </Link>
       </p>
     </Card>

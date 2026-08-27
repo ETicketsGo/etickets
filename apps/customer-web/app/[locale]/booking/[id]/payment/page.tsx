@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { money, dateTime } from '@/lib/format';
 import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 
 const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
 
@@ -61,6 +62,7 @@ function useCountdown(expiresAt: string | undefined) {
 }
 
 export default function PaymentPage() {
+  const k = useTranslations('storefront.checkout');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -83,8 +85,7 @@ export default function PaymentPage() {
       if (next === null) setCode('');
       qc.invalidateQueries({ queryKey: ['booking', id] });
     },
-    onError: (e: unknown) =>
-      setCouponError(e instanceof Error ? e.message : 'That code could not be applied.'),
+    onError: (e: unknown) => setCouponError(e instanceof Error ? e.message : k('codeRejected')),
   });
 
   const {
@@ -144,7 +145,7 @@ export default function PaymentPage() {
             })();
           },
           modal: {
-            ondismiss: () => setError('Payment was cancelled. You can try again.'),
+            ondismiss: () => setError(k('paymentCancelled')),
           },
         });
         checkout.open();
@@ -167,7 +168,7 @@ export default function PaymentPage() {
       setError(
         status === 402
           ? 'Your payment was declined. Please try a different card or payment method.'
-          : 'Payment could not be completed. Please try again.',
+          : k('paymentFailed'),
       );
     },
   });
@@ -200,7 +201,7 @@ export default function PaymentPage() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <Stepper steps={BOOKING_STEPS} current={1} />
-      <h1 className="text-h2 font-bold tracking-tight text-text-primary">Review &amp; pay</h1>
+      <h1 className="text-h2 font-bold tracking-tight text-text-primary">{k('reviewAndPay')}</h1>
 
       {/* Hold timer */}
       <div
@@ -214,7 +215,7 @@ export default function PaymentPage() {
       >
         <span className="flex items-center gap-2 text-[0.9375rem] text-text-secondary">
           <Clock className={`h-4 w-4 ${expired ? 'text-status-error' : 'text-text-muted'}`} />
-          {expired ? 'Your ticket hold has expired.' : 'Tickets held for you'}
+          {expired ? k('holdExpiredTitle') : k('ticketsHeldForYou')}
         </span>
         {!expired && (
           <span
@@ -246,7 +247,7 @@ export default function PaymentPage() {
           {(booking.seatLabels?.length ?? 0) > 0 ? (
             <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border pb-3">
               <span className="text-[0.9375rem] text-text-secondary">
-                {booking.seatLabels!.length === 1 ? 'Seat' : 'Seats'}
+                {booking.seatLabels!.length === 1 ? k('seat') : k('seats')}
               </span>
               <span className="font-medium text-text-primary">
                 {booking.seatLabels!.join(', ')}
@@ -257,7 +258,7 @@ export default function PaymentPage() {
           {booking.items.map((i, idx) => (
             <Row
               key={idx}
-              label={`${i.quantity} × ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? 'Item'}`}
+              label={`${i.quantity} × ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
               value={money(i.unitPriceMinor * i.quantity)}
             />
           ))}
@@ -273,21 +274,21 @@ export default function PaymentPage() {
         <div className="mb-3 border-t border-border pt-3">
           {booking.discountMinor > 0 ? (
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[0.9375rem] text-text-secondary">Discount code applied</span>
+              <span className="text-[0.9375rem] text-text-secondary">{k('discountApplied')}</span>
               <button
                 type="button"
                 onClick={() => coupon.mutate(null)}
                 disabled={coupon.isPending}
                 className="text-caption text-text-muted underline hover:text-text-primary disabled:opacity-50"
               >
-                Remove
+                {k('remove')}
               </button>
             </div>
           ) : (
             <div className="flex items-start gap-2">
               <input
-                aria-label="Discount code"
-                placeholder="Discount code"
+                aria-label={k('discountCode')}
+                placeholder={k('discountCode')}
                 value={code}
                 onChange={(e) => {
                   setCode(e.target.value.toUpperCase());
@@ -301,7 +302,7 @@ export default function PaymentPage() {
                 onClick={() => coupon.mutate(code)}
                 className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
               >
-                {coupon.isPending ? 'Applying…' : 'Apply'}
+                {coupon.isPending ? k('applying') : 'Apply'}
               </button>
             </div>
           )}
@@ -357,15 +358,15 @@ export default function PaymentPage() {
       ) : (
         <>
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending ? 'Processing payment…' : `Pay ${money(booking.totalMinor)}`}
+            {pay.isPending ? k('processing') : `Pay ${money(booking.totalMinor)}`}
           </Button>
 
           {/* Booking confidence */}
           <div className="grid grid-cols-3 gap-2 text-center">
             {[
-              { icon: QrCode, label: 'Instant QR ticket' },
-              { icon: RefreshCcw, label: 'Refundable per policy' },
-              { icon: ShieldCheck, label: 'No hidden fees' },
+              { icon: QrCode, label: k('instantQr') },
+              { icon: RefreshCcw, label: k('refundablePerPolicy') },
+              { icon: ShieldCheck, label: k('noHiddenFees') },
             ].map((c) => (
               <div
                 key={c.label}

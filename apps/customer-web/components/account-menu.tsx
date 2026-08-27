@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
 import { api, initialsOf, useAuthUser } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 /** Where the organizer console lives. Same source the become-organizer page uses. */
 const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';
@@ -29,6 +30,8 @@ const item =
   'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:bg-background-subtle focus-visible:text-text-primary focus-visible:outline-none';
 
 export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
+  const t = useTranslations('common.nav');
+  const a = useTranslations('common.a11y');
   const { user } = useAuthUser();
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -56,7 +59,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
   }, [open]);
 
   const name = user?.fullName?.trim();
-  const label = name || user?.email || 'Account';
+  const label = name || user?.email || t('account');
 
   /*
     Fetched only while the menu is open, and never retried.
@@ -82,7 +85,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={`Account menu for ${label}`}
+        aria-label={a('accountMenuFor', { name: label })}
         data-testid="account-menu-trigger"
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
       >
@@ -98,7 +101,7 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
       {open && (
         <div
           role="menu"
-          aria-label="Account"
+          aria-label={t('account')}
           data-testid="account-menu"
           className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-background-surface py-1 shadow-lg"
         >

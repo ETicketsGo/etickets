@@ -19,10 +19,12 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { useTranslations } from 'next-intl';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
 export default function BookingsPage() {
+  const n = useTranslations('common.nav');
   const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
@@ -111,7 +113,7 @@ export default function BookingsPage() {
           title="No bookings yet"
           hint="When you book an event it will show up here."
           icon={Receipt}
-          action={<ButtonLink href="/events">Browse events</ButtonLink>}
+          action={<ButtonLink href="/events">{n('browseEvents')}</ButtonLink>}
         />
       )}
 

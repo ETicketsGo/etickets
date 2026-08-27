@@ -6,8 +6,10 @@ import { Suspense, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 function LoginForm() {
+  const a = useTranslations('storefront.auth');
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/account/tickets';
@@ -27,7 +29,7 @@ function LoginForm() {
       tokenStore.set(tokens);
       router.push(next);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Login failed.');
+      setError(err instanceof ApiRequestError ? err.message : a('loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -35,11 +37,11 @@ function LoginForm() {
 
   return (
     <Card className="mx-auto max-w-sm space-y-4">
-      <h1 className="text-h2 font-bold text-text-primary">Sign in</h1>
+      <h1 className="text-h2 font-bold text-text-primary">{a('signIn')}</h1>
       <form className="space-y-4" onSubmit={submit}>
         <Input
           id="email"
-          label="Email"
+          label={a('email')}
           type="email"
           autoFocus
           value={email}
@@ -48,7 +50,7 @@ function LoginForm() {
         />
         <Input
           id="password"
-          label="Password"
+          label={a('password')}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -60,13 +62,13 @@ function LoginForm() {
           </p>
         )}
         <Button type="submit" className="w-full" loading={loading}>
-          Sign in
+          {a('signIn')}
         </Button>
       </form>
       <p className="text-caption text-text-muted">
-        No account?{' '}
+        {a('noAccount')}{' '}
         <Link href="/register" className="text-action-primary underline">
-          Create one
+          {a('createOne')}
         </Link>
       </p>
     </Card>

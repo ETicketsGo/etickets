@@ -25,9 +25,12 @@ catalogues diverge the first time somebody fixes a wording in one of them.
 
 | Surface                                                                          | Status                                          |
 | -------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Site chrome — header, marketing nav, footer, skip link, language switcher        | **French**                                      |
+| Site chrome — header, marketing nav, footer, bottom bar, city picker, switcher   | **French**                                      |
 | Event page, ticket selection, free-event copy                                    | **French**                                      |
+| Sign in and create account                                                       | **French**                                      |
+| Checkout — review, discount code, payment states                                 | **French**                                      |
 | Booking confirmation                                                             | **French**                                      |
+| Ticket wallet and ticket detail                                                  | **French**                                      |
 | Transactional email — all 19 notification types                                  | **French**                                      |
 | Receipts, invoices, credit notes, incl. `<html lang>`                            | **French**                                      |
 | Money, dates, plurals                                                            | **`fr-CA` conventions** — `123,45 $`, `25 août` |
@@ -88,6 +91,20 @@ its confirmation eleven and a half hours apart.
 They disagree, and they disagreed before French was added. Unifying them changes how money
 reads on financial documents for every existing Indian customer, which is a product decision
 rather than a side effect of this work. Both are commented with the reason.
+
+## How this is kept honest
+
+Two tests, and they catch different things.
+
+`catalogue.test.ts` proves no message is **missing** from a locale. It cannot prove a page
+actually reaches for one — a component with a hardcoded string passes it.
+
+`french-no-english-left.spec.ts` reads each page on the transactional path and fails on any
+line that is a known English string. That is what found the checkout, the wallet, the login
+form and the whole mobile bottom bar still in English after the first round shipped.
+
+Whole **lines**, never substrings: "Explorer" contains "Explore", and a substring check
+reports correct French as untranslated. Add new strings to the word list as they appear.
 
 ## The French is a first draft
 

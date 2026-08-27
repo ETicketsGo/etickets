@@ -4,6 +4,7 @@ import { ChevronRight, Mail, Bug, Lightbulb, Star } from 'lucide-react';
 import { Card, ButtonLink, RatingStars } from '@/components/ui';
 import { FeedbackForm } from '@/components/feedback-form';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
   {
@@ -75,6 +76,7 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
 ];
 
 export default function HelpCenterPage() {
+  const m = useTranslations('common.marketing');
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
@@ -198,7 +200,7 @@ export default function HelpCenterPage() {
           </div>
           <div className="flex gap-2">
             <ButtonLink href="/events" variant="outline" size="sm">
-              Browse events
+              {m('browseEvents')}
             </ButtonLink>
             <ButtonLink href="/movies" variant="outline" size="sm">
               Browse movies

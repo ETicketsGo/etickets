@@ -194,9 +194,19 @@ export function useCity(): CityPreference {
 export function CityPicker({
   preference,
   className = '',
+  /*
+    The "no city chosen" label, supplied by the caller.
+
+    web-kit is shared with the organizer and admin consoles, which are English-only by
+    design, so the component cannot reach for a translation catalogue of its own. The
+    storefront passes its localised string; everything else keeps the default and changes
+    not at all.
+  */
+  allCitiesLabel = 'All cities',
 }: {
   preference?: CityPreference;
   className?: string;
+  allCitiesLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const fromContext = useCity();
@@ -221,7 +231,7 @@ export function CityPicker({
         className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <MapPin className="h-4 w-4 shrink-0" />
-        <span className="max-w-[9rem] truncate">{city ?? 'All cities'}</span>
+        <span className="max-w-[9rem] truncate">{city ?? allCitiesLabel}</span>
       </button>
 
       {open ? (

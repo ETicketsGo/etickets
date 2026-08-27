@@ -12,10 +12,12 @@ import { useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Input } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 
 const PAGE_SIZE = 24;
 
 export default function EventsPage() {
+  const n = useTranslations('common.nav');
   const [q, setQ] = useState('');
   const [city, setCity] = useState('');
   const [category, setCategory] = useState('');
@@ -122,7 +124,7 @@ export default function EventsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Browse events</h1>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{n('browseEvents')}</h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">
           Search by title, city, or category.
         </p>

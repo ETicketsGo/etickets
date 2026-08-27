@@ -57,6 +57,27 @@ function todayLabel(offsetDays = 0): string {
   );
 }
 
+/**
+ * The day this fixture's show is scheduled on, and the board is pointed at.
+ *
+ * ── WHY TOMORROW AND NOT TODAY ─────────────────────────────────────────────────────
+ * It was today at a hardcoded 23:30, and CI failed on it at 23:57 Kolkata time with "no
+ * published seat layout is in effect for that date". A screen's first layout takes effect
+ * the instant it is created, so a fixture that creates a layout at 23:57 and then asks for a
+ * show at 23:30 the same day is asking for a show that predates the room it plays in.
+ *
+ * Deriving the time from the venue clock fixed that and exposed the next one: the CI browser
+ * runs in UTC, so for the five and a half hours after 18:30 UTC the browser's date and the
+ * venue's date are different days, and "today" means two things in one test.
+ *
+ * Tomorrow removes both. The layout is always in effect by then, the two clocks agree about
+ * which day it is, and nothing is lost — `gotoLive` types the date into the board's own
+ * picker, so the test was never relying on the default. What it checks is that the board
+ * lists the shows for the day you select, which is true on any day.
+ */
+const SHOW_DAY_OFFSET = 1;
+const SHOW_TIME = '19:00';
+
 /** A private cinema with one screen, a published layout, and one show today. */
 async function createFixture(request: APIRequestContext, token: string): Promise<Fixture> {
   const auth = { Authorization: `Bearer ${token}` };
@@ -109,15 +130,15 @@ async function createFixture(request: APIRequestContext, token: string): Promise
     data: { status: 'PUBLISHED' },
   });
 
-  // A show later today, so it appears on the default operations board.
-  const date = todayLabel();
+  // One show on the fixture's day, which the board is then pointed at.
+  const date = todayLabel(SHOW_DAY_OFFSET);
   const seeded = await (
     await request.post(`${API}/movies/${movie.id}/shows/bulk`, {
       headers: auth,
       data: {
         screenId: screen.id,
         dates: [date],
-        times: ['23:30'],
+        times: [SHOW_TIME],
         padMinutes: 0,
         timezone: CINEMA_TZ,
         dryRun: false,
@@ -219,7 +240,7 @@ test.describe('organizer theater operations', () => {
 
   // ── Dashboard ────────────────────────────────────────────────────────────────────
 
-  test('1-2: the operations board lists today’s shows with server-computed occupancy', async ({
+  test('1-2: the operations board lists the selected day’s shows with server-computed occupancy', async ({
     page,
   }) => {
     await gotoLive(page, fixture);

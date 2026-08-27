@@ -46,11 +46,48 @@
     "account": "Account",
     "allCities": "All cities",
     "skipToContent": "Skip to content",
-    "language": "Language"
+    "language": "Language",
+    "home": "Home",
+    "browseEvents": "Browse events"
   },
   "a11y": {
     "quantityOf": "Quantity of {name}",
     "loadingWallet": "Loading wallet",
-    "openMenu": "Open menu"
+    "openMenu": "Open menu",
+    "accountMenuFor": "Account menu for {name}"
+  },
+  "marketing": {
+    "features": "Features",
+    "solutions": "Solutions",
+    "pricing": "Pricing",
+    "forOrganizers": "For organizers",
+    "forAttendees": "For attendees",
+    "docs": "Docs",
+    "goToApp": "Go to app",
+    "getStarted": "Get started",
+    "browseEvents": "Browse events"
+  },
+  "footer": {
+    "columns": {
+      "product": "Product",
+      "audiences": "Audiences",
+      "resources": "Resources",
+      "company": "Company"
+    },
+    "links": {
+      "features": "Features",
+      "pricing": "Pricing",
+      "solutions": "Solutions",
+      "changelog": "Changelog",
+      "browseEvents": "Browse events",
+      "forOrganizers": "For organizers",
+      "forAttendees": "For attendees",
+      "getStarted": "Get started",
+      "signIn": "Sign in",
+      "documentation": "Documentation",
+      "blog": "Blog",
+      "faq": "FAQ",
+      "contact": "Contact"
+    }
   }
 }
