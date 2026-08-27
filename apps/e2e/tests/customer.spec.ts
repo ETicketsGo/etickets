@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { CUSTOMER, SEED_PASSWORD, uniqueEmail } from './helpers';
+import { openPaidEvent } from './pick-event';
 
 test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ page }) => {
   // Register
@@ -10,11 +11,9 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
-  // Browse and open the first event
+  // Browse and open an event that charges for a ticket — this test goes on to pay.
   await page.goto(`${CUSTOMER}/events`);
-  const firstEvent = page.locator('a[href^="/events/"]').first();
-  await expect(firstEvent).toBeVisible();
-  await firstEvent.click();
+  await openPaidEvent(page);
   await expect(page).toHaveURL(/\/events\/.+/);
 
   // Premium event page: reviews + FAQ sections render
@@ -98,7 +97,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
-  await page.locator('a[href^="/events/"]').first().click();
+  await openPaidEvent(page);
   await expect(page).toHaveURL(/\/events\/.+/);
   const qty = page.locator('select[aria-label^="Quantity"]').first();
   await qty.selectOption('1');
@@ -151,7 +150,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
-  await page.locator('a[href^="/events/"]').first().click();
+  await openPaidEvent(page);
   await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
   await page.getByRole('button', { name: /Continue to payment/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
@@ -197,7 +196,7 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
   await page.goto(`${CUSTOMER}/events`);
-  await page.locator('a[href^="/events/"]').first().click();
+  await openPaidEvent(page);
   await page.locator('select[aria-label^="Quantity"]').first().selectOption('1');
   await page.getByRole('button', { name: /Continue to payment/ }).click();
   await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });

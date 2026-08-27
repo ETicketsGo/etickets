@@ -1,4 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
+import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+
+// Deployment-facing: skipped unless asked for. See qa-target.ts for why.
+test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 
 /**
  * What a chosen city does to Browse and Movies, on QA.

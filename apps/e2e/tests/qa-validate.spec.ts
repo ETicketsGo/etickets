@@ -5,6 +5,10 @@ import {
   type BrowserContext,
   type APIRequestContext,
 } from '@playwright/test';
+import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+
+// Deployment-facing: skipped unless asked for. See qa-target.ts for why.
+test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 
 /**
  * Post-deploy validation, run against QA itself rather than a local stack.
