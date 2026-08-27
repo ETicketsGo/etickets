@@ -45,7 +45,17 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+      {/*
+        Wraps rather than overflows.
+
+        The caps below trim the widest items, but trimming is a losing game: the next
+        translation that runs longer than its English source puts the bar over again, and
+        WCAG 1.4.10 is measured at 320px where there is nothing spare. Allowing a second row
+        makes the header correct at any width for any string length, which is what the
+        criterion is actually asking for — content that reflows instead of content that has
+        been made to fit one case.
+      */}
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:flex-nowrap sm:px-6">
         <div className="flex items-center gap-1">
           <Link
             href="/"
@@ -55,7 +65,7 @@ export function Header() {
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
               <Ticket className="h-4 w-4" />
             </span>
-            <span className="text-[1.05rem]">
+            <span className="hidden text-[1.05rem] sm:inline">
               ETickets<span className="text-action-primary">Go</span>
             </span>
           </Link>
@@ -65,20 +75,31 @@ export function Header() {
           */}
           <CityPicker allCitiesLabel={t('allCities')} />
         </div>
+        {/*
+          The icon links are hidden on a phone because `BottomNav` already carries them.
+
+          At 320px — the width WCAG 1.4.10 measures at, a 1280px page zoomed to 400% — this
+          nav was 434px wide inside a 320px viewport, so the page had to be scrolled in two
+          directions to read. Four duplicated destinations were the bulk of it.
+
+          What stays on a small screen is what the bottom bar does NOT provide: signing in,
+          creating an account, the account menu, and the language switcher — which has to
+          stay reachable precisely because the person who needs it cannot read the page.
+        */}
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
-          <Link href="/explore" aria-label={t('explore')} className={navLink}>
+          <Link href="/explore" aria-label={t('explore')} className={`hidden sm:flex ${navLink}`}>
             <Sparkles className="h-4 w-4" />
             <span className="hidden sm:inline">{t('explore')}</span>
           </Link>
-          <Link href="/events" aria-label={t('browse')} className={navLink}>
+          <Link href="/events" aria-label={t('browse')} className={`hidden sm:flex ${navLink}`}>
             <Compass className="h-4 w-4" />
             <span className="hidden sm:inline">{t('browse')}</span>
           </Link>
-          <Link href="/movies" aria-label={t('movies')} className={navLink}>
+          <Link href="/movies" aria-label={t('movies')} className={`hidden sm:flex ${navLink}`}>
             <Film className="h-4 w-4" />
             <span className="hidden sm:inline">{t('movies')}</span>
           </Link>
-          <Link href="/help" aria-label={t('help')} className={navLink}>
+          <Link href="/help" aria-label={t('help')} className={`hidden sm:flex ${navLink}`}>
             <LifeBuoy className="h-4 w-4" />
             <span className="hidden sm:inline">{t('help')}</span>
           </Link>
@@ -122,7 +143,7 @@ export function Header() {
               >
                 {a('signIn')}
               </Link>
-              <ButtonLink href="/register" size="sm">
+              <ButtonLink href="/register" size="sm" className="hidden sm:inline-flex">
                 {a('register')}
               </ButtonLink>
             </>

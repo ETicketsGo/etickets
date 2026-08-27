@@ -41,7 +41,13 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
           const next = e.target.value as Locale;
           router.replace(pathname, { locale: next });
         }}
-        className="rounded-md border border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50"
+        /*
+          Capped on small screens: a native select is as wide as its longest option, and
+          "Français" made this the second-widest thing in a 320px header. The option text
+          clips; the accessible name does not, and the current language is announced
+          separately below.
+        */
+        className="max-w-[4.5rem] rounded-md border border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50 sm:max-w-none"
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>

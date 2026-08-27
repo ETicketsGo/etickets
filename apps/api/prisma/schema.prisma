@@ -1192,6 +1192,19 @@ model Booking {
   buyerName  String
   buyerEmail String
   status     BookingStatus @default(PENDING_PAYMENT)
+
+  /// How many times the buyer has asked for more time on this hold.
+  ///
+  /// WCAG 2.2.1 (Timing Adjustable, Level A) requires that a time limit can be extended, and
+  /// a seat hold is a time limit on a commercial transaction. Counting the extensions rather
+  /// than allowing unlimited ones is the compromise the criterion itself anticipates: it asks
+  /// for "at least ten", which bounds how long one person can hold inventory they have not
+  /// paid for while still giving somebody using a screen reader, a switch, or simply reading
+  /// carefully the time they need.
+  ///
+  /// On the row rather than in a cache because it has to survive a page reload — the person
+  /// most likely to need an extension is the one most likely to have navigated away and back.
+  holdExtensions Int @default(0)
   currency   String        @default("INR")
   feeMode    FeeMode       @default(CUSTOMER_PAYS)
 

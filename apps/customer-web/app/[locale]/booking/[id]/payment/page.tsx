@@ -98,6 +98,20 @@ export default function PaymentPage() {
     queryFn: () => api.getBooking(id),
   });
 
+  /*
+    Extending re-reads the booking rather than patching the countdown locally: the server
+    decides the new deadline, and a client that guessed it would drift from the value the
+    payment guard actually enforces.
+  */
+  const extendHold = useMutation({
+    mutationFn: () => api.extendBookingHold(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['booking', id] });
+      setError(null);
+    },
+    onError: () => setError(k('extendFailed')),
+  });
+
   const countdown = useCountdown(booking?.holdExpiresAt);
 
   const pay = useMutation({
@@ -228,6 +242,46 @@ export default function PaymentPage() {
           </span>
         )}
       </div>
+
+      {/*
+        More time, for anybody who needs it.
+
+        ── WHY THIS IS HERE AT ALL ─────────────────────────────────────────────────────
+        WCAG 2.2.1 (Timing Adjustable) is a Level A criterion and a countdown with no way to
+        stop it is a plain failure of it. For most people the timer is an inconvenience; for
+        somebody reading with a screen reader, typing one-handed, or translating the page as
+        they go, it is the difference between being able to buy a ticket and not.
+
+        The criterion asks for a WARNING before the limit expires and a SIMPLE ACTION to
+        extend. So the offer appears at two minutes — not from the start, where it would read
+        as an invitation to dawdle — and it is one button that takes no input.
+
+        `role="alert"` rather than a polite region: this is the point at which somebody is
+        about to lose their seats, and it should interrupt.
+      */}
+      {!expired && countdown.totalSeconds < 120 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-status-warning/30 bg-tint-warning px-4 py-3"
+        >
+          <span className="text-[0.9375rem] text-text-primary">
+            {extendHold.data?.extensionsRemaining === 0
+              ? k('noMoreExtensions')
+              : `${k('expiringSoon')} ${k('needMoreTime')}`}
+          </span>
+          {extendHold.data?.extensionsRemaining !== 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              loading={extendHold.isPending}
+              disabled={extendHold.isPending}
+              onClick={() => extendHold.mutate()}
+            >
+              {extendHold.isPending ? k('extending') : k('keepMySeats')}
+            </Button>
+          )}
+        </div>
+      )}
 
       <Card className="space-y-3">
         <div>

@@ -231,7 +231,14 @@ export function CityPicker({
         className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <MapPin className="h-4 w-4 shrink-0" />
-        <span className="max-w-[9rem] truncate">{city ?? allCitiesLabel}</span>
+        {/*
+          Narrower on a phone, because at 320px this label was the widest thing in the header.
+          "Toutes les villes" is half again the length of "All cities", which is the general
+          case: a translated string is not the same size as the one it replaces. It truncates
+          rather than wraps — the chip has to stay one line — and the full value is on the
+          control's accessible name either way.
+        */}
+        <span className="max-w-[5.5rem] truncate sm:max-w-[9rem]">{city ?? allCitiesLabel}</span>
       </button>
 
       {open ? (
