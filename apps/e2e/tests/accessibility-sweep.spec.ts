@@ -195,6 +195,38 @@ test.describe('accessibility sweep: the organizer console', () => {
       await scan(page, `${ORGANIZER}${route}`);
     });
   }
+
+  test('a table row is still openable from the keyboard, and has a real name', async ({ page }) => {
+    /*
+      The other half of the `nested-interactive` fix, and the half a scan cannot check.
+
+      Table rows used to be `<tr role="button" tabindex="0">` containing their own Edit and
+      Approve buttons — a button containing buttons. Removing the role fixes the rule and
+      would, on its own, have left keyboard users with NO way to open a row at all, because
+      the first cell was plain text. That is a worse product that passes more rules.
+
+      So the control moved INTO the first cell, where it has an accessible name: the row's
+      own title, rather than "button" followed by the entire row read aloud. This asserts
+      both halves — that the control exists and is reachable, and that it is named.
+    */
+    await page.goto(`${ORGANIZER}/organizer/events`, { waitUntil: 'networkidle' });
+    const firstRow = page.locator('tbody tr').first();
+    await expect(firstRow).toBeVisible({ timeout: 30_000 });
+
+    const cellText = await firstRow.locator('td').first().innerText();
+    const title = cellText.split('\n')[0];
+    /*
+      Matched as a plain substring, not a pattern. Row titles carry dates, dots and brackets,
+      and handing one to `RegExp` turns "Free Talk 1787820625017" into something that matches
+      almost anything — which would let this pass against the wrong control.
+    */
+    const opener = firstRow.getByRole('button', { name: title.slice(0, 20), exact: false });
+    await expect(opener, 'the first cell should carry a named control').toBeVisible();
+
+    await opener.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/organizer\/events\/[^/]+$/, { timeout: 30_000 });
+  });
 });
 
 test.describe('accessibility sweep: the admin console', () => {

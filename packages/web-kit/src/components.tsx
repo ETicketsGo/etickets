@@ -488,27 +488,61 @@ export function DataTable<T>({
             <tr
               key={rowKey(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              onKeyDown={
-                onRowClick
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onRowClick(row);
-                      }
-                    }
-                  : undefined
-              }
-              role={onRowClick ? 'button' : undefined}
-              tabIndex={onRowClick ? 0 : undefined}
+              /*
+                A clickable row is a MOUSE convenience, and is not exposed as a control.
+
+                It used to carry `role="button"` and `tabIndex={0}`. Rows contain their own
+                buttons and links — Edit, Approve, a link to the detail page — so that made
+                every row a button containing buttons: `nested-interactive`, WCAG 4.1.2. A
+                screen reader announced "button" and then read the controls inside it, and
+                the inner ones were reachable only by fighting the outer one.
+
+                It also promised something it could not keep. There is no accessible NAME for
+                "the row about the Sunburn Arena event" — the announcement was "button", with
+                the whole row read out as its label.
+
+                So the keyboard and assistive-technology path is the real control inside the
+                row, which every caller already renders, and the row keeps `onClick` and
+                `cursor-pointer` for people using a mouse. Nothing is lost: a keyboard user
+                reaches the same destination through the link in the first cell.
+              */
               className={`border-b border-border/70 last:border-0 transition-colors ${
-                onRowClick
-                  ? `cursor-pointer hover:bg-background-subtle/60 focus-visible:bg-background-subtle/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50`
-                  : ''
+                onRowClick ? 'cursor-pointer hover:bg-background-subtle/60' : ''
               }`}
             >
-              {columns.map((c) => (
+              {columns.map((c, i) => (
                 <td key={c.key} className={`px-5 py-4 text-text-primary ${c.className ?? ''}`}>
-                  {c.render(row)}
+                  {/*
+                    The first cell carries the row's control, when the row has one.
+
+                    A keyboard user needs SOMETHING to press, and it cannot be the row: a row
+                    that opens a page and also contains Edit and Approve buttons announces as
+                    a button containing buttons, and has no accessible name beyond its own
+                    contents read aloud in full.
+
+                    Wrapping the first cell instead gives the action a real name — "Sunburn
+                    Arena — Bengaluru", which is what the cell already says — and leaves the
+                    other controls in the row as siblings rather than descendants. The row
+                    keeps its own `onClick` for mouse users, so nothing changes for them.
+
+                    The first column must therefore not itself be interactive. The
+                    accessibility sweep fails on `nested-interactive` if one ever becomes so.
+                  */}
+                  {onRowClick && i === 0 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        // The row's own handler would otherwise fire a second time.
+                        e.stopPropagation();
+                        onRowClick(row);
+                      }}
+                      className={`-m-1 block w-full rounded p-1 text-left ${focus}`}
+                    >
+                      {c.render(row)}
+                    </button>
+                  ) : (
+                    c.render(row)
+                  )}
                 </td>
               ))}
             </tr>
