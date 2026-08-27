@@ -64,9 +64,24 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
           </p>
         </div>
         <div className="flex items-center justify-between border-t border-border pt-3">
-          <span className="text-caption text-text-muted">From</span>
+          {/*
+            "From ₹0" reads as a price that failed to load — and it is the single fact most
+            likely to decide whether somebody clicks. Zero already means free everywhere else
+            in this app (the home page groups its free section on exactly this test), so the
+            card says so, and drops the "From" that makes no sense above it.
+
+            Deliberately keyed on the PRICE and not the event's free flag: a paid event whose
+            cheapest tier happens to be zero is also, truthfully, free to get into.
+          */}
+          <span className="text-caption text-text-muted">
+            {event.fromPriceMinor === 0 ? '' : 'From'}
+          </span>
           <span className="text-[1.05rem] font-semibold text-text-primary">
-            {event.fromPriceMinor != null ? money(event.fromPriceMinor, event.currency) : '—'}
+            {event.fromPriceMinor == null
+              ? '—'
+              : event.fromPriceMinor === 0
+                ? 'Free'
+                : money(event.fromPriceMinor, event.currency)}
           </span>
         </div>
       </div>

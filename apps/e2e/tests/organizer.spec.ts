@@ -11,12 +11,14 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
 
   // Step 1 — basic details
   await page.getByLabel('Event title').fill(title);
-  await page.getByLabel('Category').fill('Music');
-  await page.getByRole('button', { name: 'Next' }).click();
+  // A dropdown now, not a text box: browse builds its category list with `distinct`
+  // over this column, so every typo an organizer typed became its own row on the front page.
+  await page.getByLabel('Category').selectOption('Music');
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 2 — venue (pick the first existing venue)
   await page.getByLabel('Venue').selectOption({ index: 1 });
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   /*
     Step 3 — sessions.
@@ -49,13 +51,13 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
       hasText: '6:00 PM',
     }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 4 — ticket types (defaults are prefilled)
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 5 — fee handling
-  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 6 — review & submit
   await expect(page.getByText(title)).toBeVisible();

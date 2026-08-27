@@ -23,9 +23,11 @@ interface Fixture {
 }
 
 /** A film and a screen of their own, so repeated runs never fight over a slot. */
-async function fixture(request: APIRequestContext): Promise<Fixture> {
-  const { accessToken } = await apiLogin(request, ORGANIZER_EMAIL);
-  const auth = { Authorization: `Bearer ${accessToken}` };
+async function fixture(
+  request: APIRequestContext,
+  tokens: { accessToken: string },
+): Promise<Fixture> {
+  const auth = { Authorization: `Bearer ${tokens.accessToken}` };
   const stamp = Date.now();
 
   const orgs = await (await request.get(`${API}/organizations`, { headers: auth })).json();
@@ -93,21 +95,28 @@ const dayOffset = (n: number) => {
 
 test.describe('scheduling a run', () => {
   let fx: Fixture;
+  let sharedTokens: Awaited<ReturnType<typeof apiLogin>>;
   const FIRST = dayOffset(400);
   const LAST = dayOffset(406);
 
   test.beforeAll(async ({ request }) => {
-    fx = await fixture(request);
+    sharedTokens = await apiLogin(request, ORGANIZER_EMAIL);
+    fx = await fixture(request, sharedTokens);
   });
 
-  test.beforeEach(async ({ context, request }) => {
-    // Tokens over the API rather than the login form: this suite opens several pages and
-    // signing in on each trips the auth throttle.
-    const tokens = await apiLogin(request, ORGANIZER_EMAIL);
+  /*
+    One token pair for the whole file.
+
+    Tokens over the login form was already the rule here — this suite opens several pages and
+    signing in on each trips the auth throttle. Minting them per TEST turned out to have the
+    same problem once the file grew and other suites ran alongside it: the throttle counts
+    requests, not forms. `fixture()` already logs in during beforeAll, so this reuses that.
+  */
+  test.beforeEach(async ({ context }) => {
     await context.addInitScript((t) => {
       localStorage.setItem('etg_access', t.accessToken);
       localStorage.setItem('etg_refresh', t.refreshToken);
-    }, tokens);
+    }, sharedTokens);
   });
 
   /** Fill the run form. Times are whatever chips are already on, plus the ones named. */
@@ -229,7 +238,30 @@ test.describe('scheduling a run', () => {
     await dialog.getByRole('button', { name: 'Update prices' }).click();
     await expect(page.getByText('Prices updated.')).toBeVisible({ timeout: 30_000 });
 
+    /*
+      Stopping sales without cancelling — the thing an operator actually needs at 19:40 when
+      a projector fails. Cancelling would strand everyone who has booked; pausing keeps the
+      show and their seats and only closes the door on new bookings.
+    */
+    await dialog.getByRole('button', { name: 'Stop selling' }).click();
+    await expect(page.getByText('Sales paused. The show is still on.')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // And it can be put back, from the same place.
+    await page
+      .getByRole('button', { name: /Edit the/ })
+      .first()
+      .click();
+    await expect(dialog.getByRole('heading', { name: 'Currently off sale' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Put it back on sale' }).click();
+    await expect(page.getByText('Back on sale.')).toBeVisible({ timeout: 30_000 });
+
     // Cancelling asks for a reason first, and will not proceed without one.
+    await page
+      .getByRole('button', { name: /Edit the/ })
+      .first()
+      .click();
     await dialog.getByRole('button', { name: 'Cancel this show' }).click();
     await expect(dialog.getByRole('button', { name: 'Cancel the show' })).toBeDisabled();
   });

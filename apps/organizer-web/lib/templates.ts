@@ -97,6 +97,7 @@ export const EVENT_CATEGORIES = [
   'Theatre',
   'Film',
   'Conference',
+  'Tech',
   'Workshop',
   'Sports',
   'Exhibition',
