@@ -86,7 +86,7 @@ function setup(opts: { amountMinor: number; hasPayment: boolean }) {
   const service = new RefundsService(
     prisma as never,
     payments as never,
-    { forExperienceType: jest.fn().mockReturnValue(strategy) } as never,
+    { forSeating: jest.fn().mockReturnValue(strategy) } as never,
     {
       isPlatformAdmin: () => true,
       assertMember: async () => undefined,

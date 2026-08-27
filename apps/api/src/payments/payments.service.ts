@@ -482,7 +482,15 @@ export class PaymentsService {
       );
     }
 
-    const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+    /*
+      The booking's OWN seating, not its event's kind.
+
+      Confirmation has to settle inventory the same way the hold took it. Re-deriving that
+      from the experience type would settle a seated concert as a counter — and re-deriving
+      it from the session would follow the session if it were ever edited afterwards, which
+      is why the decision is stored on the booking when it is made.
+    */
+    const strategy = this.inventory.forSeating(booking.seatBased);
     // Only ticket-bearing lines issue tickets & settle ticket stock; add-on lines
     // (v1.3) settle their own inventory and never mint tickets.
     const ticketItems = booking.items.filter((i) => i.ticketTypeId);

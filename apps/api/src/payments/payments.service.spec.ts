@@ -80,7 +80,7 @@ function setup(opts: {
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = { send: jest.fn().mockResolvedValue(undefined) };
-  const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
+  const inventory = { forSeating: jest.fn().mockReturnValue(strategy) };
   const config = { get: jest.fn().mockReturnValue('LOCAL') };
   const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
   const razorpayOrders = { createOrder: jest.fn(), verify: jest.fn() };

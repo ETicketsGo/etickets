@@ -748,7 +748,14 @@ export const api = {
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CreateEventBody>) =>
       request<OrgEventDetail>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    addSession: (id: string, body: { startsAt: string; endsAt: string }) =>
+    /** Rooms with a published seat map that an event could be seated in. */
+    seatingRooms: (organizationId: string) =>
+      request<SeatingRoom[]>(`/events/seating-rooms${qs({ organizationId })}`),
+    addSession: (
+      id: string,
+      // `screenId` is the whole difference between reserved seating and general admission.
+      body: { startsAt: string; endsAt: string; screenId?: string },
+    ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -1466,6 +1473,13 @@ export interface PublicEvent {
     startsAt: string;
     endsAt: string;
     status: string;
+    /**
+     * This session sells named seats, so the buyer picks from a map rather than a quantity.
+     *
+     * A fact about the SESSION, not the event: two sessions of the same tour can differ, one
+     * in a seated theatre and one in a standing room.
+     */
+    seatBased?: boolean;
     ticketTypes: {
       id: string;
       name: string;
@@ -2256,7 +2270,20 @@ export interface EventSession {
   startsAt: string;
   endsAt: string;
   status: string;
+  /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
+  screenId?: string | null;
+  screen?: { name: string; cinema: { name: string } } | null;
   ticketTypes?: TicketType[];
+}
+/** A room an event can be seated in — one that has a published seat map. */
+export interface SeatingRoom {
+  id: string;
+  name: string;
+  venueName: string;
+  layoutName: string | null;
+  layoutKind: string;
+  /** Seats that can be sold: aisles and gaps are not counted. */
+  sellableSeats: number;
 }
 export interface TicketType {
   id: string;

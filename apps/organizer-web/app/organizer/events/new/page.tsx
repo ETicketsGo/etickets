@@ -31,6 +31,14 @@ const FEE_MODES = [
 interface SessionDraft {
   startsAt: string;
   endsAt: string;
+  /**
+   * The room this session plays in, or '' for general admission.
+   *
+   * Per SESSION rather than per event, because it genuinely varies: a run of shows can move
+   * from the main auditorium to the studio, and the same event is reserved seating in one
+   * and general admission in the other.
+   */
+  screenId: string;
 }
 interface TicketDraft {
   sessionIndex: number;
@@ -56,6 +64,19 @@ function NewEventWizard() {
   const venuesQ = useQuery({
     queryKey: ['venues', activeOrg.id],
     queryFn: () => api.venues.list(activeOrg.id),
+  });
+  /*
+    The rooms with a published seat map, fetched up front so step 3 can offer reserved
+    seating without a spinner in the middle of the form.
+
+    Answered by the server rather than assembled here, because "which rooms can this be
+    seated in" is the same rule the create call enforces, and two copies of it drift. When
+    the list is empty the step says so plainly instead of hiding the choice — an organizer
+    looking for a seat map needs to know it is missing, not that the feature is.
+  */
+  const roomsQ = useQuery({
+    queryKey: ['seating-rooms', activeOrg.id],
+    queryFn: () => api.events.seatingRooms(activeOrg.id),
   });
 
   const [basics, setBasics] = useState({
@@ -87,7 +108,9 @@ function NewEventWizard() {
   const [venueId, setVenueId] = useState('');
   const [newVenue, setNewVenue] = useState({ name: '', city: '', country: 'India', capacity: '' });
   const [feeMode, setFeeMode] = useState('CUSTOMER_PAYS');
-  const [sessions, setSessions] = useState<SessionDraft[]>([{ startsAt: '', endsAt: '' }]);
+  const [sessions, setSessions] = useState<SessionDraft[]>([
+    { startsAt: '', endsAt: '', screenId: '' },
+  ]);
   const [tickets, setTickets] = useState<TicketDraft[]>([
     {
       sessionIndex: 0,
@@ -97,6 +120,18 @@ function NewEventWizard() {
       maxPerOrder: '6',
     },
   ]);
+
+  /*
+    Sessions that still need ticket types typed by hand.
+
+    A seated session gets one ticket type per seat category the moment it is created, priced
+    from the category, because a seat's price is a fact about where it is in the room. Asking
+    the organizer to invent ticket types for it as well would produce a second, conflicting
+    set of prices — and the room's would win at the point of sale, silently.
+  */
+  const gaSessions = sessions.map((s, i) => ({ s, i })).filter(({ s }) => !s.screenId);
+  const allSeated = sessions.length > 0 && gaSessions.length === 0;
+  const roomById = (screenId: string) => roomsQ.data?.find((r) => r.id === screenId);
 
   const validateStep = (): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -120,9 +155,14 @@ function NewEventWizard() {
           e[`s${i}End`] = 'End must be after start.';
       });
     }
-    if (step === 3) {
-      if (tickets.length === 0) e.form = 'Add at least one ticket type.';
+    if (step === 3 && !allSeated) {
+      // Only the tickets that will actually be sent are judged. One left pointing at a
+      // session that has since been given a room is dropped on submit, so blocking the
+      // organizer on it would be refusing to accept a form because of a field they cannot see.
+      const sent = tickets.filter((t) => !sessions[t.sessionIndex]?.screenId);
+      if (sent.length === 0) e.form = 'Add at least one ticket type.';
       tickets.forEach((t, i) => {
+        if (sessions[t.sessionIndex]?.screenId) return;
         if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
         if (
           !isFree &&
@@ -183,10 +223,18 @@ function NewEventWizard() {
         const created = await api.events.addSession(event.id, {
           startsAt: new Date(s.startsAt).toISOString(),
           endsAt: new Date(s.endsAt).toISOString(),
+          // Omitted rather than sent empty: '' is a room id that does not exist, and the
+          // request would be refused instead of understood as "no room".
+          ...(s.screenId ? { screenId: s.screenId } : {}),
         });
         sessionIds.push(created.id);
       }
-      for (const t of tickets) {
+      /*
+        Seated sessions are skipped. Their ticket types already exist — created from the
+        room's seat categories — and adding more here would put two competing prices on the
+        same night.
+      */
+      for (const t of tickets.filter((x) => !sessions[x.sessionIndex]?.screenId)) {
         await api.events.addTicketType({
           eventSessionId: sessionIds[t.sessionIndex] ?? sessionIds[0],
           name: t.name,
@@ -391,6 +439,58 @@ function NewEventWizard() {
                   }
                   error={fieldErrors[`s${i}End`]}
                 />
+                {/*
+                  Where this session sits, and it is the only thing that decides whether the
+                  event sells named seats. Spanning both columns because the room's name and
+                  its seat count are long, and the explanation underneath is the part that
+                  answers "which should I pick?".
+                */}
+                <div className="sm:col-span-2">
+                  <Select
+                    id={`sr${i}`}
+                    label="Seating"
+                    value={s.screenId}
+                    disabled={roomsQ.isLoading}
+                    onChange={(e) => {
+                      const screenId = e.target.value;
+                      const updated = sessions.map((x, j) => (j === i ? { ...x, screenId } : x));
+                      setSessions(updated);
+                      /*
+                        Move any ticket types that were pointing at this session.
+
+                        Without this they keep an index whose session is no longer offered in
+                        the dropdown on the next step: the control renders blank, the row
+                        looks broken, and the draft is silently dropped on submit. Sending
+                        them to the first session that still needs ticket types is visible
+                        and reversible; leaving them dangling is neither.
+                      */
+                      if (!screenId) return;
+                      const fallback = updated.findIndex((x) => !x.screenId);
+                      if (fallback === -1) return;
+                      setTickets((prev) =>
+                        prev.map((t) =>
+                          t.sessionIndex === i ? { ...t, sessionIndex: fallback } : t,
+                        ),
+                      );
+                    }}
+                  >
+                    <option value="">General admission — no seat map</option>
+                    {(roomsQ.data ?? []).map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.venueName} · {r.name} ({r.sellableSeats} seats)
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-1.5 text-caption text-text-muted">
+                    {roomsQ.isError
+                      ? "We couldn't load your rooms, so only general admission is available here."
+                      : s.screenId
+                        ? `Buyers pick a named seat. Ticket types are created from this room's seat categories and priced from them, so you won't need to add any on the next step.`
+                        : roomsQ.data?.length === 0
+                          ? 'Buyers choose how many tickets they want. To sell numbered seats, publish a seat map for a room first — Venues → Rooms.'
+                          : 'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'}
+                  </p>
+                </div>
                 {sessions.length > 1 && (
                   <Button
                     variant="ghost"
@@ -405,15 +505,38 @@ function NewEventWizard() {
             ))}
             <Button
               variant="outline"
-              onClick={() => setSessions([...sessions, { startsAt: '', endsAt: '' }])}
+              onClick={() => setSessions([...sessions, { startsAt: '', endsAt: '', screenId: '' }])}
             >
               + Add session
             </Button>
           </div>
         )}
 
-        {step === 3 && (
+        {step === 3 && allSeated && (
+          /*
+            Nothing to ask for. Every session is in a room, so the ticket types already exist
+            — one per seat category, priced from the category. Showing an empty form the
+            organizer must fill in and that would then be discarded is worse than saying so.
+          */
+          <div className="rounded-md border border-border p-4 text-sm">
+            <p className="font-medium">Ticket types come from the seat map</p>
+            <p className="mt-1 text-text-muted">
+              {sessions.length === 1 ? 'This session is' : 'Every session is'} in a room with
+              assigned seating, so a ticket type is created for each seat category and priced from
+              it. You can adjust prices per session afterwards from the event&rsquo;s pricing page.
+            </p>
+          </div>
+        )}
+
+        {step === 3 && !allSeated && (
           <div className="space-y-4">
+            {sessions.some((x) => x.screenId) && (
+              // Otherwise the shorter list of sessions in the dropdown below reads as a bug.
+              <p className="text-caption text-text-muted">
+                Sessions with assigned seating are not listed below — their ticket types come from
+                the room&rsquo;s seat categories.
+              </p>
+            )}
             {tickets.map((t, i) => (
               <div
                 key={i}
@@ -449,7 +572,7 @@ function NewEventWizard() {
                     organizer cannot tell which is which, and it reads as though only one
                     session exists. The date is the thing they actually chose.
                   */}
-                  {sessions.map((sess, si) => (
+                  {gaSessions.map(({ s: sess, i: si }) => (
                     <option key={si} value={si}>
                       {sess.startsAt
                         ? new Date(sess.startsAt).toLocaleString('en-IN', {
@@ -525,7 +648,8 @@ function NewEventWizard() {
                 setTickets([
                   ...tickets,
                   {
-                    sessionIndex: 0,
+                    // Not 0: session 0 may be seated, and a row bound to it is discarded.
+                    sessionIndex: gaSessions[0]?.i ?? 0,
                     name: '',
                     priceRupees: '',
                     quantityTotal: '',
@@ -588,14 +712,40 @@ function NewEventWizard() {
               />
             )}
             <Row label="Sessions" value={`${sessions.length}`} />
+            {/*
+              Seating is named here rather than counted. "2 seated" would not tell the
+              organizer WHICH room, and booking a run of shows into the wrong auditorium is
+              the mistake this page exists to catch — after the event is created the seats
+              are already written and the session has to be removed to change it.
+            */}
+            <Row
+              label="Seating"
+              value={
+                allSeated && sessions.length === 1
+                  ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected room'}`
+                  : sessions.every((x) => !x.screenId)
+                    ? 'General admission'
+                    : sessions
+                        .map((x, i) => {
+                          const room = roomById(x.screenId);
+                          return `${i + 1}: ${room ? `${room.venueName} · ${room.name}` : 'general admission'}`;
+                        })
+                        .join(', ')
+              }
+            />
             <Row
               label="Ticket types"
-              value={tickets
-                .map(
-                  (t) =>
-                    `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceRupees) * 100))} × ${t.quantityTotal})`,
-                )
-                .join(', ')}
+              value={
+                allSeated
+                  ? 'From the seat map — one per seat category'
+                  : tickets
+                      .filter((t) => !sessions[t.sessionIndex]?.screenId)
+                      .map(
+                        (t) =>
+                          `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceRupees) * 100))} × ${t.quantityTotal})`,
+                      )
+                      .join(', ')
+              }
             />
           </div>
         )}

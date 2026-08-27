@@ -1069,7 +1069,15 @@ model EventSession {
   id        String        @id @default(cuid())
   eventId   String
   event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  // Set only for movie shows: the screen this session plays on.
+  /// The room this session happens in, when it happens in one with a seat map.
+  ///
+  /// Named `screen` for historical reasons — it began as "the screen a film plays on" — but
+  /// what it actually means is "a room with a seat layout". A concert in a seated theatre
+  /// wants exactly the same thing a cinema does: a map of the room, and a seat per ticket.
+  ///
+  /// Null means general admission. That is the difference the booking path cares about, and
+  /// it is a property of the ROOM rather than of the kind of event: the same concert is
+  /// reserved seating in a theatre and general admission in a standing arena.
   screenId  String?
   screen    Screen?       @relation(fields: [screenId], references: [id])
   /// The seat layout VERSION this show was scheduled against, pinned at scheduling time.
@@ -1192,6 +1200,15 @@ model Booking {
   buyerName  String
   buyerEmail String
   status     BookingStatus @default(PENDING_PAYMENT)
+
+  /// Whether this booking holds named seats, decided when it was created.
+  ///
+  /// Stored rather than re-derived, for the same reason `Event.isFree` is: a booking is a
+  /// settled fact and the session it belongs to can be edited afterwards. If a room were
+  /// ever detached from a session, every booking against it would silently flip to general
+  /// admission — and the confirmation path would then try to settle seat inventory as a
+  /// counter, or the reverse. Reading a value written at the time removes the question.
+  seatBased Boolean @default(false)
   currency   String        @default("INR")
   feeMode    FeeMode       @default(CUSTOMER_PAYS)
 

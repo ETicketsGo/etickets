@@ -97,7 +97,7 @@ function setupProcess(opts: ProcessOpts = {}) {
   };
 
   const strategy = { refund: jest.fn().mockResolvedValue(undefined) };
-  const inventory = { forExperienceType: jest.fn().mockReturnValue(strategy) };
+  const inventory = { forSeating: jest.fn().mockReturnValue(strategy) };
   const payments = {
     refundPayment: opts.providerThrows
       ? jest.fn().mockRejectedValue(new Error('provider down'))

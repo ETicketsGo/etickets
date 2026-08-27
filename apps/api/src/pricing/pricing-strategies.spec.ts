@@ -17,6 +17,9 @@ import type { PricingContext } from './pricing-strategy.interface';
 
 const ctx = (over: Partial<PricingContext> = {}): PricingContext => ({
   experienceType: ExperienceType.EVENT,
+  // Seating follows the room now, not the experience type. These cases are all about the
+  // rule layer, which does not care either way, so the default is the general-admission one.
+  seatBased: false,
   sessionStartsAt: new Date('2026-07-15T12:00:00Z'), // Wednesday
   now: new Date('2026-07-13T00:00:00Z'),
   lines: [
@@ -48,9 +51,15 @@ describe('PricingStrategiesService resolver', () => {
     new TierPricingStrategy(),
     new SeatPricingStrategy(),
   );
-  it('events resolve to TIER, movies to SEAT', () => {
-    expect(svc.forExperience(ExperienceType.EVENT).kind).toBe(PricingStrategyKind.TIER);
-    expect(svc.forExperience(ExperienceType.MOVIE).kind).toBe(PricingStrategyKind.SEAT);
+  it('a seated room resolves to SEAT pricing, an unseated one to TIER', () => {
+    /*
+      This used to read "events resolve to TIER, movies to SEAT", which is precisely the
+      conflation that stopped an event from ever having a seat map. A seat price comes from
+      the seat's category and a tier price from the ticket type; which applies is a fact
+      about the ROOM, and the same concert is seated in a theatre and standing in an arena.
+    */
+    expect(svc.forSeating(false).kind).toBe(PricingStrategyKind.TIER);
+    expect(svc.forSeating(true).kind).toBe(PricingStrategyKind.SEAT);
   });
   it('quote reproduces the original subtotal with no rules applied', () => {
     expect(svc.quote(ctx()).subtotalMinor).toBe(110000);

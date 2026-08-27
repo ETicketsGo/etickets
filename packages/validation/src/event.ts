@@ -55,6 +55,18 @@ export const createSessionSchema = z
   .object({
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
+    /**
+     * The room this session happens in, when it happens in one with a seat map.
+     *
+     * Supplying it makes the session RESERVED SEATING: buyers choose named seats from the
+     * room's published layout, and each ticket is bound to one. Omitting it leaves the
+     * session general admission — buyers choose a quantity.
+     *
+     * A property of the room rather than of the kind of event: the same concert is reserved
+     * seating in a theatre and general admission in a standing arena, which is why this sits
+     * on the SESSION and not on the event.
+     */
+    screenId: z.string().cuid().optional(),
   })
   .refine((v) => v.endsAt > v.startsAt, {
     message: 'Session end must be after its start.',

@@ -48,6 +48,22 @@ export class EventsController {
     return this.events.listForOrg(user, q.organizationId);
   }
 
+  /*
+    Declared before `@Get(':id')` on purpose. Nest matches routes in declaration order, so
+    the reverse would make 'seating-rooms' arrive as an event id and 404.
+  */
+  @Get('seating-rooms')
+  @ApiOperation({
+    summary: 'Rooms an event can be seated in — this org’s rooms with a published seat map.',
+  })
+  seatingRooms(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ organizationId: z.string().cuid() })))
+    q: { organizationId: string },
+  ) {
+    return this.events.listSeatingRooms(user, q.organizationId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get an event with sessions and ticket types.' })
   get(@CurrentUser() user: RequestUser, @Param('id') id: string) {

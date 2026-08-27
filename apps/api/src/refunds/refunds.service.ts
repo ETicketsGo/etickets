@@ -378,7 +378,9 @@ export class RefundsService {
 
     // Only void tickets that are still live; return their stock via the
     // experience's inventory strategy (frees movie seats + decrements counters).
-    const strategy = this.inventory.forExperienceType(booking.event.experienceType);
+    // The booking's own seating, so seats go back to the map they came from and counters
+    // go back to the counter — see the same call in the confirmation path.
+    const strategy = this.inventory.forSeating(booking.seatBased);
     const voided = booking.tickets.filter(
       (t) =>
         refund.ticketIds.includes(t.id) &&

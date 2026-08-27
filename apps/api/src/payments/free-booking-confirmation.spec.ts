@@ -87,7 +87,7 @@ function setup(over: Over = {}) {
     orchestrator as never,
     audit as never,
     notifications as never,
-    { forExperienceType: jest.fn().mockReturnValue(strategy) } as never,
+    { forSeating: jest.fn().mockReturnValue(strategy) } as never,
     new AddOnInventoryService(),
     new MetricsService(),
     new BookingReferenceService(),

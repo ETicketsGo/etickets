@@ -54,6 +54,8 @@ function submitSetup(over: { autoApproveEvents?: boolean; orgStatus?: string } =
     { record } as never,
     { notifyAdmins, notifyOrganizationOwners } as never,
     { get: () => 'http://localhost:3000' } as never,
+    // Seating a session is delegated to ShowsService; none of these cases uses a room.
+    {} as never,
   );
   return { service, eventUpdate, notifyAdmins, notifyOrganizationOwners, record };
 }
