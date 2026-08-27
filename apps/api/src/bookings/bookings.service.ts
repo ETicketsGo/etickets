@@ -45,6 +45,23 @@ interface CommerceResolution {
  */
 const DEFAULT_HOLD_MINUTES = 10;
 
+/**
+ * How many times a buyer may ask for more time before the hold is final.
+ *
+ * ── WHY TEN, AND WHY IT IS CONFIGURABLE ────────────────────────────────────────────
+ * WCAG 2.2.1 (Timing Adjustable, Level A) offers three ways to satisfy it, and the only one
+ * that fits a seat hold is "extend": warn before it expires, let the buyer extend with a
+ * simple action, and allow it at least TEN times. So ten is the compliant default, not a
+ * number somebody liked.
+ *
+ * It is configurable because ten extensions is real inventory risk on a high-demand on-sale,
+ * and that is an operator's judgement rather than ours. Lowering it is a deliberate
+ * trade — see `docs/accessibility/README.md`, which records that going below ten forfeits
+ * the "extend" route and would rest on the criterion's "essential" exception, which is an
+ * argument for an auditor to accept rather than for us to assert.
+ */
+const DEFAULT_MAX_HOLD_EXTENSIONS = 10;
+
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger('Bookings');
@@ -61,6 +78,14 @@ export class BookingsService {
     return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
       ? configured
       : DEFAULT_HOLD_MINUTES;
+  }
+
+  /** See DEFAULT_MAX_HOLD_EXTENSIONS for why ten, and why an operator may change it. */
+  private get maxHoldExtensions(): number {
+    const configured = this.config?.get<number>('BOOKING_HOLD_MAX_EXTENSIONS');
+    return typeof configured === 'number' && Number.isFinite(configured) && configured >= 0
+      ? configured
+      : DEFAULT_MAX_HOLD_EXTENSIONS;
   }
 
   constructor(
@@ -673,6 +698,101 @@ export class BookingsService {
    * The Payment row is updated in the same transaction as the booking, because a total and
    * the amount to be charged that disagree is the one outcome worth crashing to avoid.
    */
+  /**
+   * Give the buyer more time on a hold they already have.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * The seats are held on a timer and there was no way to extend it. For most people that is
+   * an inconvenience; for somebody reading with a screen reader, typing one-handed, or
+   * translating the page as they go, a countdown they cannot stop is the difference between
+   * being able to buy a ticket and not. WCAG 2.2.1 is a Level A criterion and this was a
+   * plain failure of it.
+   *
+   * ── WHAT IT DELIBERATELY DOES NOT DO ───────────────────────────────────────────────
+   * It does not extend indefinitely, and it does not re-check availability. The seats are
+   * already held by this booking — extending is a promise the platform has already made and
+   * is simply keeping for longer. Re-running the availability check here would be able to
+   * FAIL, which would take seats away from somebody who has done nothing wrong.
+   *
+   * The window is measured from NOW rather than added to what is left, so a buyer who asks
+   * with nine minutes remaining does not accumulate nineteen. The purpose is "give me time to
+   * finish", not "let me sit on this".
+   */
+  async extendHold(user: RequestUser | null, bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        holdExpiresAt: true,
+        holdExtensions: true,
+        organizationId: true,
+      },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+
+    /*
+      A guest booking has no owner and is reached by its unguessable id — the same rule the
+      payment path uses. An authenticated user may only extend their own.
+    */
+    if (booking.userId && user && booking.userId !== user.id) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You cannot change this booking.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (booking.status !== BookingStatus.PENDING_PAYMENT) {
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This booking is not waiting for payment, so there is nothing to extend.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      An expired hold is not extended back to life. The seats have already been returned to
+      the pool by the sweeper, or are about to be, and handing them back here would be
+      selling something that may now belong to somebody else.
+    */
+    if (booking.holdExpiresAt <= new Date()) {
+      throw new AppException(
+        ErrorCodes.BOOKING_EXPIRED,
+        'This booking hold has already expired.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const max = this.maxHoldExtensions;
+    if (booking.holdExtensions >= max) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This hold has already been extended ${max} times. Complete the payment or start again.`,
+        HttpStatus.CONFLICT,
+        { holdExtensions: booking.holdExtensions, maxHoldExtensions: max },
+      );
+    }
+
+    const holdExpiresAt = new Date(Date.now() + this.holdMinutes * 60 * 1000);
+    const updated = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { holdExpiresAt, holdExtensions: { increment: 1 } },
+      select: { holdExpiresAt: true, holdExtensions: true },
+    });
+
+    return {
+      holdExpiresAt: updated.holdExpiresAt,
+      holdExtensions: updated.holdExtensions,
+      maxHoldExtensions: max,
+      /** What the UI needs in order to stop offering a button that will now be refused. */
+      extensionsRemaining: Math.max(0, max - updated.holdExtensions),
+    };
+  }
+
   async applyCoupon(user: RequestUser | null, bookingId: string, code: string | null) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },

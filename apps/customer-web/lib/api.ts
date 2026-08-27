@@ -67,6 +67,7 @@ export const api = {
   getBooking: wk.bookings.get,
   createPaymentIntent: wk.bookings.pay,
   setBookingCoupon: wk.bookingCoupon.set,
+  extendBookingHold: wk.bookingHold.extend,
   quoteBooking: wk.bookingQuote.price,
   sessionOffers: wk.bookingQuote.offers,
   // Financial documents for a booking. The printable page is FETCHED with the access token

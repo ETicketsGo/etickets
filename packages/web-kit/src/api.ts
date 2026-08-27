@@ -932,6 +932,23 @@ export const api = {
       }),
   },
 
+  bookingHold: {
+    /**
+     * Ask for more time on a hold that has not expired yet.
+     *
+     * No body — WCAG 2.2.1 asks for a "simple action" to extend a time limit, and the
+     * simplest possible request is one with nothing in it to get wrong. The response says
+     * how many extensions are left so the button can stop offering what will be refused.
+     */
+    extend: (bookingId: string) =>
+      request<{
+        holdExpiresAt: string;
+        holdExtensions: number;
+        maxHoldExtensions: number;
+        extensionsRemaining: number;
+      }>(`/bookings/${bookingId}/extend-hold`, { method: 'POST' }),
+  },
+
   bookingCoupon: {
     /** Apply a code, or clear it by passing null. Returns the re-priced fees. */
     set: (bookingId: string, code: string | null) =>

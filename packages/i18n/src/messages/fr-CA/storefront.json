@@ -59,7 +59,14 @@
     "noHiddenFees": "Aucuns frais cachés",
     "instantQr": "Billet avec code QR instantané",
     "refundablePerPolicy": "Remboursable selon la politique",
-    "item": "Article"
+    "item": "Article",
+    "needMoreTime": "Besoin de plus de temps?",
+    "keepMySeats": "Garder mes sièges",
+    "extending": "Vos sièges sont conservés…",
+    "extended": "Vos sièges sont retenus plus longtemps.",
+    "extendFailed": "Nous n'avons pas pu prolonger la retenue. Veuillez passer au paiement.",
+    "noMoreExtensions": "Cette retenue ne peut plus être prolongée. Complétez le paiement, ou recommencez pour choisir vos sièges de nouveau.",
+    "expiringSoon": "Vos sièges seront bientôt libérés."
   },
   "confirmation": {
     "steps": {
