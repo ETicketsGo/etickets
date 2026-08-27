@@ -219,7 +219,7 @@ export default function OrganizerDashboard() {
                       href={`/organizer/events/${e.eventId}`}
                       className="flex min-w-0 items-center gap-2.5"
                     >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-action-primary/10 text-caption font-semibold text-action-primary">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-tint-primary text-caption font-semibold text-action-primary">
                         {i + 1}
                       </span>
                       <span className="truncate text-[0.9375rem] font-medium text-text-primary hover:text-action-primary">

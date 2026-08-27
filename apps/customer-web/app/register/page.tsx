@@ -78,7 +78,7 @@ function RegisterForm() {
           ) : (
             <>
               This is a customer account for buying tickets. Running events?{' '}
-              <Link href="/register?intent=organizer" className="text-action-primary">
+              <Link href="/register?intent=organizer" className="text-action-primary underline">
                 Create an organizer account
               </Link>
               .
@@ -151,7 +151,7 @@ function RegisterForm() {
 
       <p className="text-caption text-text-muted">
         Already have an account?{' '}
-        <Link href="/login" className="text-action-primary">
+        <Link href="/login" className="text-action-primary underline">
           Sign in
         </Link>
       </p>

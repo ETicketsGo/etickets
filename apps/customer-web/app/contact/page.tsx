@@ -51,7 +51,7 @@ export default function ContactPage() {
                     key={c.title}
                     className="rounded-2xl border border-border bg-background-surface p-5 shadow-sm"
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-action-primary/10 text-action-primary">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-tint-primary text-action-primary">
                       <c.icon className="h-5 w-5" />
                     </span>
                     <h3 className="mt-3 text-[0.9375rem] font-semibold text-text-primary">

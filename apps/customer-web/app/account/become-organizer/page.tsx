@@ -162,7 +162,7 @@ export default function BecomeOrganizerPage() {
 
       <p className="text-caption text-text-muted">
         Changed your mind?{' '}
-        <Link href="/account" className="text-action-primary">
+        <Link href="/account" className="text-action-primary underline">
           Back to your account
         </Link>
       </p>

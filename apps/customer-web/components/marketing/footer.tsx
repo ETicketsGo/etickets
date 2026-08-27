@@ -59,14 +59,14 @@ export function MarketingFooter() {
                 ETickets<span className="text-action-primary">Go</span>
               </span>
             </Link>
-            <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-muted">
+            <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-secondary">
               The experience-commerce platform for selling tickets, checking in guests, and
               understanding your events — online and offline.
             </p>
           </div>
           {COLUMNS.map((col) => (
             <div key={col.title}>
-              <h3 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+              <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
                 {col.title}
               </h3>
               <ul className="mt-4 space-y-2.5">
@@ -84,9 +84,9 @@ export function MarketingFooter() {
             </div>
           ))}
         </div>
-        <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-muted sm:flex-row sm:items-center">
+        <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-secondary sm:flex-row sm:items-center">
           <p>© {2026} ETicketsGo. All rights reserved.</p>
-          <p className="text-text-muted">
+          <p className="text-text-secondary">
             Demo build · contact details &amp; legal terms are placeholders pending finalization.
           </p>
         </div>

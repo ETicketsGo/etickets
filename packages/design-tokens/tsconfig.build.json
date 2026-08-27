@@ -2,5 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false
-  }
+  },
+  /* Tests are not part of the package — see @eticketsgo/validation for what shipping them cost. */
+  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.test.ts"]
 }

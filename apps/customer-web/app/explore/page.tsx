@@ -128,7 +128,7 @@ function SpotlightTile({
       href={href}
       className="group flex items-center gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
         <Icon className="h-5 w-5" />
       </span>
       <span className="min-w-0">

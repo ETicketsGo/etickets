@@ -94,7 +94,7 @@ export default function OrganizerProfilePage() {
                 <h1 className="text-h3 font-bold tracking-tight text-text-primary">{org.name}</h1>
                 {org.verified && (
                   <span
-                    className="inline-flex items-center gap-1 rounded-full bg-status-info/12 px-2 py-0.5 text-caption font-medium text-status-info"
+                    className="inline-flex items-center gap-1 rounded-full bg-tint-info px-2 py-0.5 text-caption font-medium text-status-info"
                     title="Verified organizer"
                   >
                     <BadgeCheck className="h-3.5 w-3.5" /> Verified

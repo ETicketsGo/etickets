@@ -17,7 +17,7 @@ function CheckoutCancel() {
   return (
     <Card className="mx-auto max-w-md space-y-5 text-center">
       <div
-        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-status-warning/15 text-status-warning"
+        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-tint-warning text-status-warning"
         aria-hidden
       >
         <XCircle className="h-8 w-8" />

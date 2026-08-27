@@ -203,7 +203,7 @@ export function MarketingLanding() {
             <div className="flex justify-center">
               <div className="relative w-full max-w-sm rounded-3xl border border-border bg-background-surface p-6 shadow-lg">
                 <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-status-warning/15 px-3 py-1 text-caption font-semibold text-status-warning">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-tint-warning px-3 py-1 text-caption font-semibold text-status-warning">
                     <WifiOff className="h-3.5 w-3.5" /> Offline
                   </span>
                   <span className="text-caption text-text-muted">Gate A</span>
@@ -338,7 +338,7 @@ export function MarketingLanding() {
                   “{t.q}”
                 </blockquote>
                 <figcaption className="mt-5 flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action-primary/10 text-caption font-semibold text-action-primary">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-caption font-semibold text-action-primary">
                     {t.a[0]}
                   </span>
                   <span className="text-caption">
@@ -464,7 +464,7 @@ function HeroPreview() {
       </div>
       <div className="absolute -bottom-5 -left-5 hidden rounded-2xl border border-border bg-background-surface p-3 shadow-md sm:block">
         <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-status-success/15 text-status-success">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-tint-success text-status-success">
             <QrCode className="h-5 w-5" />
           </span>
           <div className="text-caption">

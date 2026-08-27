@@ -186,7 +186,12 @@ export default function ExperienceWalletPage() {
           onRetry={() => refetch()}
         />
       ) : isLoading && !data ? (
-        <div className="grid gap-6 sm:grid-cols-2" aria-busy="true" aria-label="Loading wallet">
+        <div
+          className="grid gap-6 sm:grid-cols-2"
+          role="status"
+          aria-busy="true"
+          aria-label="Loading wallet"
+        >
           {Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="h-56 animate-pulse rounded-lg bg-background-subtle" />
           ))}
@@ -213,7 +218,7 @@ export default function ExperienceWalletPage() {
                       aria-pressed={on}
                       className={`rounded-full border px-3 py-1 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                         on
-                          ? 'border-action-primary bg-action-primary/10 text-action-primary'
+                          ? 'border-action-primary bg-tint-primary text-action-primary'
                           : 'border-border text-text-secondary hover:bg-background-subtle'
                       }`}
                     >

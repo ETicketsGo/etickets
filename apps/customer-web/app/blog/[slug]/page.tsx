@@ -51,7 +51,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         </Link>
 
         <div className="mt-6">
-          <span className="inline-flex items-center rounded-full bg-action-primary/10 px-3 py-1 text-caption font-semibold text-action-primary">
+          <span className="inline-flex items-center rounded-full bg-tint-primary px-3 py-1 text-caption font-semibold text-action-primary">
             {post.category}
           </span>
           <h1 className="mt-4 text-balance text-3xl font-bold leading-tight tracking-tight text-text-primary sm:text-4xl">

@@ -47,8 +47,9 @@ const variants = {
     'bg-action-primary text-action-primary-foreground shadow-sm hover:bg-action-primary-hover hover:shadow-md',
   secondary: 'bg-action-secondary text-action-secondary-foreground hover:bg-action-secondary/70',
   danger: 'bg-action-danger text-action-danger-foreground shadow-sm hover:brightness-105',
+  // Also a control, so also `border-input`: an outline button IS its outline.
   outline:
-    'border border-border bg-background-surface text-text-primary hover:bg-background-subtle hover:border-border-strong',
+    'border border-input bg-background-surface text-text-primary hover:bg-background-subtle hover:border-text-secondary',
   ghost: 'text-text-secondary hover:bg-background-subtle hover:text-text-primary',
 };
 export type ButtonVariant = keyof typeof variants;
@@ -97,8 +98,17 @@ export function ButtonLink({
   );
 }
 
+/*
+  `border-input` rather than `border-border`.
+
+  The old border measured 1.24:1 against the card behind it. WCAG 1.4.11 asks for 3:1 on the
+  visual information that identifies a control, and for a text field that information is the
+  outline — there is nothing else. At 1.24:1 the form was, to a low-vision user, a page with
+  some words on it. `border-border` stays as it was for card edges and table rules, which are
+  decoration and exempt.
+*/
 const fieldBase =
-  'w-full rounded-md border border-border bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
+  'w-full rounded-md border border-input bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
 
 function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNode }) {
   return (
@@ -232,10 +242,18 @@ export function Card({
 }
 
 const badgeTone: Record<string, string> = {
-  success: 'bg-status-success/12 text-status-success',
-  warning: 'bg-status-warning/12 text-status-warning',
-  error: 'bg-status-error/12 text-status-error',
-  info: 'bg-status-info/12 text-status-info',
+  /*
+    Opaque tints, never `bg-status-warning/12`.
+
+    A 12% wash takes its contrast from whatever is behind the badge, so the same badge
+    measured 4.50:1 on a white card and 4.12:1 on a tinted section — and a status badge is
+    read at a glance or not at all. `bg-tint-*` is a solid colour whose ratio against its
+    own foreground is fixed and asserted in `token-contrast.test.ts`.
+  */
+  success: 'bg-tint-success text-status-success',
+  warning: 'bg-tint-warning text-status-warning',
+  error: 'bg-tint-error text-status-error',
+  info: 'bg-tint-info text-status-info',
   neutral: 'bg-background-subtle text-text-secondary',
 };
 export type BadgeTone = keyof typeof badgeTone;
@@ -385,8 +403,17 @@ export function DataTable<T>({
     return <ErrorState message={error} onRetry={onRetry} />;
   }
   if (loading) {
+    /*
+      `role="status"`, not a bare div.
+
+      ARIA forbids an accessible name on an element with no role, so `aria-label` on a plain
+      `<div>` is DISCARDED — the label was written, looked right in the source, and announced
+      nothing. A loading state is the one moment a screen-reader user most needs to be told
+      something is happening, and this was silent. `status` both permits the name and
+      announces it politely, without interrupting whatever is being read.
+    */
     return (
-      <div className="space-y-2.5" aria-busy="true" aria-label="Loading">
+      <div className="space-y-2.5" role="status" aria-busy="true" aria-label="Loading">
         {Array.from({ length: 6 }).map((_, i) => (
           <Skeleton key={i} className="h-14 w-full" />
         ))}
@@ -621,7 +648,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                   done
                     ? 'bg-action-primary text-action-primary-foreground'
                     : active
-                      ? 'bg-action-primary/15 text-action-primary ring-2 ring-action-primary/30'
+                      ? 'bg-tint-primary text-action-primary ring-2 ring-action-primary/30'
                       : 'bg-background-subtle text-text-muted'
                 }`}
                 aria-current={active ? 'step' : undefined}

@@ -119,8 +119,8 @@ export default function ConfirmationPage() {
         <div
           className={`mx-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full ${
             confirmed
-              ? 'bg-status-success/15 text-status-success'
-              : 'bg-status-warning/15 text-status-warning'
+              ? 'bg-tint-success text-status-success'
+              : 'bg-tint-warning text-status-warning'
           }`}
           aria-hidden
         >

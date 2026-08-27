@@ -81,7 +81,7 @@ export function OnboardingChecklist({ progress }: { progress: OnboardingProgress
                 </div>
                 <Link
                   href={s.href}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-caption font-semibold text-action-primary transition-colors hover:bg-action-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-caption font-semibold text-action-primary transition-colors hover:bg-tint-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
                   {s.cta}
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden />
@@ -112,7 +112,7 @@ export function WelcomeCard({ orgId, orgName }: { orgId: string; orgName: string
     <Card className="border-action-primary/30 bg-action-primary/[0.04]">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
             <Rocket className="h-5 w-5" />
           </span>
           <div>

@@ -572,7 +572,7 @@ function TicketStrip({
               }, ${t.status.toLowerCase().replace('_', ' ')}`}
               className={`flex min-w-[3rem] items-center justify-center gap-1 rounded-md border px-3 py-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                 selected
-                  ? 'border-action-primary bg-action-primary/10 text-action-primary'
+                  ? 'border-action-primary bg-tint-primary text-action-primary'
                   : 'border-border text-text-secondary hover:bg-background-subtle'
               } ${dim ? 'opacity-50' : ''}`}
             >

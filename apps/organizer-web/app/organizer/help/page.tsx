@@ -86,7 +86,7 @@ export default function HelpPage() {
               key={g.title}
               className="flex flex-col rounded-lg border border-border bg-background-surface p-4"
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-action-primary/10 text-caption font-semibold text-action-primary">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-tint-primary text-caption font-semibold text-action-primary">
                 {i + 1}
               </span>
               <p className="mt-3 font-semibold text-text-primary">{g.title}</p>
@@ -106,7 +106,7 @@ export default function HelpPage() {
           role="img"
           aria-label="Product walkthrough video — coming soon"
         >
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-tint-primary text-action-primary">
             <PlayCircle className="h-7 w-7" />
           </span>
           <p className="mt-4 font-semibold text-text-primary">Product walkthrough — coming soon</p>
@@ -136,7 +136,7 @@ export default function HelpPage() {
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-primary/10 text-action-primary">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
               <BookOpen className="h-5 w-5" />
             </span>
             <div>
