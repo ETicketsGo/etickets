@@ -82,7 +82,7 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
             {event.fromPriceMinor == null
               ? '—'
               : event.fromPriceMinor === 0
-                ? 'Free'
+                ? t('free')
                 : money(event.fromPriceMinor, event.currency)}
           </span>
         </div>
