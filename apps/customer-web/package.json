@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@eticketsgo/design-tokens": "*",
+    "@eticketsgo/i18n": "*",
     "@eticketsgo/shared-types": "*",
     "@eticketsgo/validation": "*",
     "@eticketsgo/web-kit": "*",
     "@tanstack/react-query": "^5.59.0",
     "eslint-config-next": "^15.5.23",
     "next": "^15.5.23",
+    "next-intl": "^4.13.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

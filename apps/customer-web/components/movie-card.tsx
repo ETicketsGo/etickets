@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { Clock, Film } from 'lucide-react';
 import { gradientFor } from '@eticketsgo/web-kit';
 import type { PublicMovieCard } from '@/lib/api';
 import { Badge } from './ui';
+import { Link } from '@/i18n/navigation';
 
 export function MovieCard({ movie }: { movie: PublicMovieCard }) {
   return (

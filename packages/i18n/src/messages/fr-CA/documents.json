@@ -1,0 +1,36 @@
+{
+  "kind": {
+    "TAX_INVOICE": "Facture",
+    "RECEIPT": "Reçu",
+    "CREDIT_NOTE": "Note de crédit",
+    "FALLBACK": "Document"
+  },
+  "receipt": {
+    "billedTo": "Facturé à",
+    "order": "Commande",
+    "issued": "Émis le",
+    "description": "Description",
+    "qty": "Qté",
+    "unit": "Unitaire",
+    "amount": "Montant",
+    "subtotal": "Sous-total",
+    "discount": "Rabais",
+    "bookingFee": "Frais de réservation",
+    "total": "Total",
+    "totalRefunded": "Total remboursé",
+    "reverses": "Annule {reference}",
+    "taxRegistration": "Numéro de taxe",
+    "noTaxInvoice": "Ceci n'est pas une facture de taxe."
+  },
+  "ticket": {
+    "title": "Billet",
+    "admitOne": "Admet une personne",
+    "showAtDoor": "Présentez ceci à l'entrée",
+    "seat": "Siège",
+    "generalAdmission": "Admission générale",
+    "bookingReference": "Numéro de réservation",
+    "holder": "Titulaire du billet",
+    "doorsOpen": "Ouverture des portes",
+    "free": "Gratuit"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "action": {
+    "back": "Back",
+    "next": "Next",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "retry": "Try again",
+    "search": "Search",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "register": "Create account",
+    "share": "Share",
+    "copyLink": "Copy link",
+    "addToCalendar": "Add to calendar",
+    "viewAll": "View all",
+    "done": "Done"
+  },
+  "state": {
+    "loading": "Loading",
+    "loadingFailed": "We couldn’t load this. Please try again.",
+    "empty": "Nothing here yet",
+    "soldOut": "Sold out",
+    "free": "Free",
+    "from": "From",
+    "notFound": "Not found"
+  },
+  "status": {
+    "CONFIRMED": "Confirmed",
+    "PENDING_PAYMENT": "Awaiting payment",
+    "CANCELLED": "Cancelled",
+    "EXPIRED": "Expired",
+    "REFUNDED": "Refunded",
+    "PARTIALLY_REFUNDED": "Partially refunded",
+    "ACTIVE": "Active",
+    "CHECKED_IN": "Checked in"
+  },
+  "nav": {
+    "explore": "Explore",
+    "browse": "Browse",
+    "movies": "Movies",
+    "help": "Help",
+    "bookings": "Bookings",
+    "tickets": "Tickets",
+    "alerts": "Alerts",
+    "account": "Account",
+    "allCities": "All cities",
+    "skipToContent": "Skip to content",
+    "language": "Language"
+  },
+  "a11y": {
+    "quantityOf": "Quantity of {name}",
+    "loadingWallet": "Loading wallet",
+    "openMenu": "Open menu"
+  }
+}

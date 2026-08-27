@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/i18n/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Ticket, Compass, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
@@ -10,6 +9,9 @@ import { ButtonLink } from '@/components/ui';
 import { AccountMenu } from '@/components/account-menu';
 import { currentUserId } from '@/lib/offline/identity';
 import { purgeUser } from '@/lib/offline/wallet-store';
+import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
+import { LanguageSwitcher } from '@/components/language-switcher';
 
 const navLink =
   'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
@@ -38,6 +40,9 @@ export function Header() {
     router.push('/');
   };
 
+  const t = useTranslations('common.nav');
+  const a = useTranslations('common.action');
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
@@ -61,31 +66,31 @@ export function Header() {
           <CityPicker />
         </div>
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
-          <Link href="/explore" aria-label="Explore" className={navLink}>
+          <Link href="/explore" aria-label={t('explore')} className={navLink}>
             <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">Explore</span>
+            <span className="hidden sm:inline">{t('explore')}</span>
           </Link>
-          <Link href="/events" aria-label="Browse events" className={navLink}>
+          <Link href="/events" aria-label={t('browse')} className={navLink}>
             <Compass className="h-4 w-4" />
-            <span className="hidden sm:inline">Browse</span>
+            <span className="hidden sm:inline">{t('browse')}</span>
           </Link>
-          <Link href="/movies" aria-label="Browse movies" className={navLink}>
+          <Link href="/movies" aria-label={t('movies')} className={navLink}>
             <Film className="h-4 w-4" />
-            <span className="hidden sm:inline">Movies</span>
+            <span className="hidden sm:inline">{t('movies')}</span>
           </Link>
-          <Link href="/help" aria-label="Help center" className={navLink}>
+          <Link href="/help" aria-label={t('help')} className={navLink}>
             <LifeBuoy className="h-4 w-4" />
-            <span className="hidden sm:inline">Help</span>
+            <span className="hidden sm:inline">{t('help')}</span>
           </Link>
           {authed ? (
             <>
-              <Link href="/account/bookings" aria-label="My bookings" className={navLink}>
+              <Link href="/account/bookings" aria-label={t('bookings')} className={navLink}>
                 <Receipt className="h-4 w-4" />
-                <span className="hidden sm:inline">Bookings</span>
+                <span className="hidden sm:inline">{t('bookings')}</span>
               </Link>
-              <Link href="/account/tickets" aria-label="My tickets" className={navLink}>
+              <Link href="/account/tickets" aria-label={t('tickets')} className={navLink}>
                 <Ticket className="h-4 w-4" />
-                <span className="hidden sm:inline">Tickets</span>
+                <span className="hidden sm:inline">{t('tickets')}</span>
               </Link>
               <Link
                 href="/account/notifications"
@@ -95,7 +100,7 @@ export function Header() {
                 className={`relative ${navLink}`}
               >
                 <Bell className="h-4 w-4" />
-                <span className="hidden sm:inline">Alerts</span>
+                <span className="hidden sm:inline">{t('alerts')}</span>
                 {unreadCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-action-primary px-1 text-[0.625rem] font-semibold text-action-primary-foreground">
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -115,13 +120,21 @@ export function Header() {
                 href="/login"
                 className="rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
-                Sign in
+                {a('signIn')}
               </Link>
               <ButtonLink href="/register" size="sm">
-                Sign up
+                {a('register')}
               </ButtonLink>
             </>
           )}
+          {/*
+            In the header, on every page, for everyone — not only after signing in.
+
+            Somebody who cannot read the page cannot be asked to find a setting in an account
+            they have not created yet. This is the control that makes the French half of the
+            product reachable at all.
+          */}
+          <LanguageSwitcher className="ml-1" />
         </nav>
       </div>
     </header>

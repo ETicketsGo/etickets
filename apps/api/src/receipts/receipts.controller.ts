@@ -1,8 +1,9 @@
-import { Controller, Get, Header, HttpStatus, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Headers, HttpStatus, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
+import { resolveLocale } from '@eticketsgo/i18n';
 import { ReceiptsService } from './receipts.service';
 import { renderReceiptHtml } from './receipt-html';
 import { PrismaService } from '../prisma/prisma.service';
@@ -73,8 +74,34 @@ export class ReceiptsController {
   // amount, and the URL alone is not an authorization.
   @Header('Cache-Control', 'private, no-store')
   @ApiOperation({ summary: 'Render one issued document as printable HTML.' })
-  async html(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return renderReceiptHtml(await this.assertMayView(user, id));
+  async html(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Query('locale') localeParam?: string,
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    const document = await this.assertMayView(user, id);
+    /*
+      Which language this document is written in, in the order that respects the reader.
+
+      The `?locale=` parameter exists because this URL is opened from a page that already
+      knows — the storefront links to it from a confirmation that is itself in French, and it
+      would be absurd to render the receipt in English because the browser header disagreed.
+      Then the account's stored preference, then the header, then the default.
+
+      Deliberately re-derived per request rather than frozen onto the document when it was
+      issued: a receipt is a rendering of stored facts, not a stored rendering, so somebody
+      who switches language can reprint last month's receipt in the language they now read.
+      The AMOUNTS come from the document and never move.
+    */
+    const stored = await this.prisma.user
+      .findUnique({ where: { id: user.id }, select: { locale: true } })
+      .catch(() => null);
+    const locale = resolveLocale({
+      stored: localeParam ?? stored?.locale ?? null,
+      acceptLanguage: acceptLanguage ?? null,
+    });
+    return renderReceiptHtml(document, locale);
   }
 }
 

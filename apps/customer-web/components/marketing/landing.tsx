@@ -30,6 +30,7 @@ import {
   SecondaryLink,
   CheckItem,
 } from '@/components/marketing/kit';
+import { Link } from '@/i18n/navigation';
 
 const CATEGORIES = [
   { icon: Film, label: 'Movies' },
@@ -296,9 +297,9 @@ export function MarketingLanding() {
           </div>
           <p className="mt-6 text-center text-caption text-text-muted">
             Illustrative placeholder pricing — see the{' '}
-            <a href="/pricing" className="font-medium text-action-primary hover:underline">
+            <Link href="/pricing" className="font-medium text-action-primary hover:underline">
               full pricing page
-            </a>
+            </Link>
             .
           </p>
         </Container>
@@ -394,9 +395,9 @@ export function MarketingLanding() {
           </div>
           <p className="mt-6 text-center text-caption text-text-muted">
             More in the{' '}
-            <a href="/faq" className="font-medium text-action-primary hover:underline">
+            <Link href="/faq" className="font-medium text-action-primary hover:underline">
               full FAQ
-            </a>
+            </Link>
             .
           </p>
         </Container>
@@ -513,7 +514,7 @@ function PlanCard({
           <CheckItem key={f}>{f}</CheckItem>
         ))}
       </ul>
-      <a
+      <Link
         href={href}
         className={`mt-6 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-[0.9375rem] font-semibold transition-all ${
           featured
@@ -522,7 +523,7 @@ function PlanCard({
         }`}
       >
         {name === 'Enterprise' ? 'Contact sales' : 'Choose ' + name}
-      </a>
+      </Link>
     </div>
   );
 }

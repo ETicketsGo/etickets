@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
 import { gradientFor, useToast } from '@eticketsgo/web-kit';
@@ -8,6 +7,7 @@ import type { PaginatedEvents } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
+import { Link } from '@/i18n/navigation';
 
 export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
   const toast = useToast();

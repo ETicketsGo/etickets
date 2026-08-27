@@ -1,0 +1,79 @@
+{
+  "event": {
+    "ticketsHeading": "Billets",
+    "left": "{count, plural, one {# restant} other {# restants}}",
+    "subtotal": "Sous-total",
+    "feesNote": "Les frais sont indiqués clairement à l'étape suivante.",
+    "freeNote": "Aucun paiement requis — vos billets sont émis dès la réservation.",
+    "continueToPayment": "Passer au paiement",
+    "getMyTickets": "Obtenir mes billets",
+    "holdingTickets": "Réservation des billets…",
+    "couldNotBook": "Impossible de créer la réservation.",
+    "reviews": "Évaluations et commentaires",
+    "faq": "Foire aux questions",
+    "recommendations": "Vous aimerez peut-être aussi",
+    "refundPolicy": "Politique de remboursement",
+    "organizedBy": "Présenté par"
+  },
+  "seats": {
+    "heading": "Choisissez vos sièges",
+    "screen": "Écran",
+    "available": "Libre",
+    "selected": "Sélectionné",
+    "taken": "Occupé",
+    "wheelchair": "Place pour fauteuil roulant",
+    "companion": "Siège d'accompagnement",
+    "seatTaken": "Certains sièges viennent d'être pris. Veuillez choisir de nouveau.",
+    "selectSeat": "Veuillez choisir un siège pour chaque billet."
+  },
+  "checkout": {
+    "heading": "Paiement",
+    "buyerName": "Votre nom",
+    "buyerEmail": "Courriel",
+    "couponCode": "Code de rabais",
+    "applyCoupon": "Appliquer",
+    "couponApplied": "Rabais appliqué.",
+    "couponRejected": "Ce code n'est pas valide pour cette réservation.",
+    "totalPayable": "Total à payer",
+    "pay": "Payer",
+    "payingNow": "Redirection vers le paiement…",
+    "holdExpiresIn": "Vos sièges sont retenus encore {minutes} minutes.",
+    "holdExpired": "La retenue de cette réservation est expirée."
+  },
+  "confirmation": {
+    "steps": {
+      "tickets": "Billets",
+      "payment": "Paiement",
+      "confirmation": "Confirmation",
+      "ticket": "Billet"
+    },
+    "youreGoing": "C'est confirmé!",
+    "pending": "Réservation en attente",
+    "pendingBody": "Votre paiement n'est pas encore terminé.",
+    "sentTo": "{count, plural, one {# billet envoyé} other {# billets envoyés}} à {email}.",
+    "bookingReference": "Numéro de réservation",
+    "totalPaid": "Total payé",
+    "cost": "Coût",
+    "receipt": "Reçu {number}",
+    "view": "Voir",
+    "showAtDoor": "Présentez ceci à l'entrée. C'est aussi enregistré dans vos billets, et une copie est en route vers {email}.",
+    "allMyTickets": "Tous mes billets",
+    "howWasBooking": "Comment s'est passée la réservation?",
+    "followOrganizer": "Suivre l'organisateur",
+    "followingOrganizer": "Organisateur suivi"
+  },
+  "account": {
+    "ticketsHeading": "Mes billets",
+    "bookingsHeading": "Mes réservations",
+    "noTickets": "Vous n'avez pas encore de billets.",
+    "noBookings": "Vous n'avez encore rien réservé.",
+    "cancelBooking": "Annuler la réservation",
+    "requestRefund": "Demander un remboursement",
+    "refundRequested": "Remboursement demandé.",
+    "refundReason": "Pourquoi annulez-vous?"
+  },
+  "language": {
+    "switchTo": "Passer à {language}",
+    "current": "Langue actuelle : {language}"
+  }
+}

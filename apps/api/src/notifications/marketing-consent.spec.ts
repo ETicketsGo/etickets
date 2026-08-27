@@ -22,6 +22,8 @@ function setup(opts: { consentGranted?: boolean } = {}) {
     resolve: () => ({ deliver }),
   };
   const prisma = {
+    // Every send now reads the recipient's stored language before rendering.
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: null }) },
     notification: { create: jest.fn().mockResolvedValue({ id: 'n1' }) },
   };
   const templates = { render: () => ({ subject: 's', body: 'b' }) };
@@ -114,7 +116,10 @@ describe('NotificationService consent enforcement', () => {
       async (_s: unknown, channel: string) => channel === 'email',
     );
     const service = new NotificationService(
-      { notification: { create: jest.fn().mockResolvedValue({ id: 'n' }) } } as never,
+      {
+        user: { findUnique: jest.fn().mockResolvedValue({ locale: null }) },
+        notification: { create: jest.fn().mockResolvedValue({ id: 'n' }) },
+      } as never,
       { render: () => ({ subject: 's', body: 'b' }) } as never,
       { resolveChannels: async (_u: unknown, _t: unknown, req: string[]) => req } as never,
       channels as never,

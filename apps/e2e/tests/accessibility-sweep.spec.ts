@@ -142,6 +142,36 @@ test.describe('accessibility sweep: the public storefront', () => {
   }
 });
 
+test.describe('accessibility sweep: the storefront in French', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  /*
+    The French pages are swept too, not assumed to inherit the English result.
+
+    Two rules genuinely differ per locale. `html-has-lang` and `valid-lang` are about the
+    attribute the locale layout emits, and a hardcoded `lang="en"` on French content passes
+    every English scan while being the single most disabling thing on the page. And French
+    runs 15–20% longer than English, which is where a translated button overflows its
+    container or a label collides with its field.
+
+    A sample rather than all 29: these are the pages with the most text and the most
+    controls, which is where length differences and locale-specific rules actually surface.
+  */
+  const FRENCH_ROUTES = [
+    '/fr-CA',
+    '/fr-CA/events',
+    '/fr-CA/pricing',
+    '/fr-CA/login',
+    '/fr-CA/help',
+  ];
+
+  for (const route of FRENCH_ROUTES) {
+    test(`customer ${route}`, async ({ page }) => {
+      await scan(page, `${CUSTOMER}${route}`);
+    });
+  }
+});
+
 test.describe('accessibility sweep: a signed-in customer', () => {
   test.describe.configure({ mode: 'serial' });
 
