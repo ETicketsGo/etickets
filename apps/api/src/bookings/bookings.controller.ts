@@ -79,6 +79,16 @@ export class BookingsController {
     return this.bookings.applyCoupon(user, id, body.code);
   }
 
+  @Post(':id/extend-hold')
+  @ApiOperation({ summary: 'Give the buyer more time on a hold that has not expired.' })
+  extendHold(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    /*
+      No body. WCAG 2.2.1 asks for a SIMPLE ACTION to extend a time limit — its own example
+      is pressing the space bar — so this takes nothing to get wrong and nothing to validate.
+    */
+    return this.bookings.extendHold(user, id);
+  }
+
   @Post(':id/pay')
   @ApiOperation({ summary: 'Create a payment intent for a booking (owner only).' })
   pay(

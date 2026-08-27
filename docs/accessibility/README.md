@@ -22,8 +22,8 @@ anything requiring a human reading the page. It cannot tell you:
 
 - whether alt text is **accurate** — only that it exists. `alt="image"` passes.
 - whether heading levels describe the **actual** structure, or were chosen for their size.
-- whether a flow can be **completed** with a keyboard. It checks that things are focusable,
-  not that a seat can be picked, a coupon applied and a booking paid for without a mouse.
+- whether a flow can be **completed** with a keyboard. Reaching the checkout by Tab and
+  Enter is now asserted; paying, picking a seat and applying a coupon are not.
 - whether focus order is **sensible**, or whether focus is **trapped** in a dialog and
   **returned** when it closes.
 - whether an error message says what went wrong and how to fix it.
@@ -31,10 +31,30 @@ anything requiring a human reading the page. It cannot tell you:
   a payment succeeding, a hold expiring.
 - whether the seat map, which is the core interaction of this product, is usable at all by
   somebody who cannot see it.
-- anything about **time limits**, and this product has a booking hold that expires.
-- whether content **reflows** at 320px and 400% zoom without loss.
+- whether the extension offered on the hold arrives early enough, and whether ten is the
+  right bound — the mechanism exists and is asserted, the judgement is an auditor's.
+- whether the SEAT MAP and the schedule week-view reflow. The storefront is asserted at
+  320px; those two are not, and they are the likely failures.
 
 Every one of those is in scope for an audit and none of them is covered here.
+
+## The booking hold, and the trade it makes
+
+WCAG 2.2.1 (Timing Adjustable, Level A) offers three routes and only one fits a seat hold:
+warn before it expires, let the buyer extend with a **simple action**, and allow it **at
+least ten times**. That is what is built — a warning at two minutes, one button, ten
+extensions, each granting a fresh full window measured from the moment it is pressed.
+
+The bound is what makes it safe to offer. Without one, a single person could hold a sold-out
+show away from everybody else indefinitely, which is a different harm from the one the
+criterion prevents.
+
+`BOOKING_HOLD_MAX_EXTENSIONS` exists because ten extensions is real inventory risk on a
+high-demand on-sale, and that is an operator's call. **Setting it below ten forfeits the
+"extend" route**, and compliance would then rest on the criterion's "essential" exception —
+the argument that a seat hold's time limit is essential and extending it invalidates the
+activity. That argument is for an auditor to accept, not for us to assert, so the default
+ships compliant.
 
 ## Known judgement calls
 

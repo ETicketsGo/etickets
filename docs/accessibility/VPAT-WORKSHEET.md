@@ -37,43 +37,43 @@ reading order) is its own specialism.
 
 ### Perceivable
 
-| SC     | Name                      | Level | Status                       | Evidence / note                                                                                                                                                                |
-| ------ | ------------------------- | ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1.1.1  | Non-text Content          | A     | Partly automated             | axe finds _missing_ alt; whether alt is accurate is unassessed. The seat map and QR codes need a human.                                                                        |
-| 1.2.x  | Time-based Media          | A/AA  | **Not applicable — confirm** | No audio or video is served today. If marketing adds a hero video this flips.                                                                                                  |
-| 1.3.1  | Info and Relationships    | A     | Partly automated             | Landmarks, lists, table headers and form labels are asserted. Whether the _seat map_ conveys its structure non-visually is unassessed and is the single biggest open question. |
-| 1.3.2  | Meaningful Sequence       | A     | **Needs evaluation**         |                                                                                                                                                                                |
-| 1.3.3  | Sensory Characteristics   | A     | **Needs evaluation**         | Seat availability is currently conveyed by colour **and** by an accessible name; check the rest.                                                                               |
-| 1.3.4  | Orientation               | AA    | **Needs evaluation**         |                                                                                                                                                                                |
-| 1.3.5  | Identify Input Purpose    | AA    | **Needs evaluation**         | `autocomplete` tokens on the checkout and profile forms have not been reviewed.                                                                                                |
-| 1.4.1  | Use of Colour             | A     | Partly automated             | `link-in-text-block` is asserted. Chart and seat-map colour coding is unassessed.                                                                                              |
-| 1.4.3  | Contrast (Minimum)        | AA    | **Automated**                | axe on 67 routes **and** `token-contrast.test.ts` over every declared pair, both themes.                                                                                       |
-| 1.4.4  | Resize Text               | AA    | **Needs evaluation**         |                                                                                                                                                                                |
-| 1.4.5  | Images of Text            | AA    | **Needs evaluation**         |                                                                                                                                                                                |
-| 1.4.10 | Reflow                    | AA    | **Needs evaluation**         | 320px / 400% zoom untested. The seat map and the schedule week-view are the likely failures.                                                                                   |
-| 1.4.11 | Non-text Contrast         | AA    | Partly automated             | Control boundaries asserted via `--border-input`; focus indicator asserted; seat-map states unassessed.                                                                        |
-| 1.4.12 | Text Spacing              | AA    | **Needs evaluation**         |                                                                                                                                                                                |
-| 1.4.13 | Content on Hover or Focus | AA    | **Needs evaluation**         | Tooltips and the account menu.                                                                                                                                                 |
+| SC     | Name                      | Level | Status                       | Evidence / note                                                                                                                                                                                                              |
+| ------ | ------------------------- | ----- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.1.1  | Non-text Content          | A     | Partly automated             | axe finds _missing_ alt; whether alt is accurate is unassessed. The seat map and QR codes need a human.                                                                                                                      |
+| 1.2.x  | Time-based Media          | A/AA  | **Not applicable — confirm** | No audio or video is served today. If marketing adds a hero video this flips.                                                                                                                                                |
+| 1.3.1  | Info and Relationships    | A     | Partly automated             | Landmarks, lists, table headers and form labels are asserted. Whether the _seat map_ conveys its structure non-visually is unassessed and is the single biggest open question.                                               |
+| 1.3.2  | Meaningful Sequence       | A     | **Needs evaluation**         |                                                                                                                                                                                                                              |
+| 1.3.3  | Sensory Characteristics   | A     | **Needs evaluation**         | Seat availability is currently conveyed by colour **and** by an accessible name; check the rest.                                                                                                                             |
+| 1.3.4  | Orientation               | AA    | **Needs evaluation**         |                                                                                                                                                                                                                              |
+| 1.3.5  | Identify Input Purpose    | AA    | **Needs evaluation**         | `autocomplete` tokens on the checkout and profile forms have not been reviewed.                                                                                                                                              |
+| 1.4.1  | Use of Colour             | A     | Partly automated             | `link-in-text-block` is asserted. Chart and seat-map colour coding is unassessed.                                                                                                                                            |
+| 1.4.3  | Contrast (Minimum)        | AA    | **Automated**                | axe on 67 routes **and** `token-contrast.test.ts` over every declared pair, both themes.                                                                                                                                     |
+| 1.4.4  | Resize Text               | AA    | **Needs evaluation**         |                                                                                                                                                                                                                              |
+| 1.4.5  | Images of Text            | AA    | **Needs evaluation**         |                                                                                                                                                                                                                              |
+| 1.4.10 | Reflow                    | AA    | **Automated**                | 320px asserted on seven routes including French; the page must not scroll in two directions. Found and fixed a header that was 685px wide in a 320px viewport. The seat map and the schedule week-view are still unassessed. |
+| 1.4.11 | Non-text Contrast         | AA    | Partly automated             | Control boundaries asserted via `--border-input`; focus indicator asserted; seat-map states unassessed.                                                                                                                      |
+| 1.4.12 | Text Spacing              | AA    | **Needs evaluation**         |                                                                                                                                                                                                                              |
+| 1.4.13 | Content on Hover or Focus | AA    | **Needs evaluation**         | Tooltips and the account menu.                                                                                                                                                                                               |
 
 ### Operable
 
-| SC          | Name                    | Level | Status                                | Evidence / note                                                                                                      |
-| ----------- | ----------------------- | ----- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 2.1.1       | Keyboard                | A     | **Needs evaluation**                  | Nothing verifies that a booking can be _completed_ by keyboard. This is a priority.                                  |
-| 2.1.2       | No Keyboard Trap        | A     | **Needs evaluation**                  | Dialogs are the risk.                                                                                                |
-| 2.1.4       | Character Key Shortcuts | A     | **Needs evaluation**                  |                                                                                                                      |
-| 2.2.1       | Timing Adjustable       | A     | **Needs evaluation — likely finding** | The booking hold expires on a timer with no way to extend or turn it off. This is the criterion most likely to fail. |
-| 2.2.2       | Pause, Stop, Hide       | A     | **Needs evaluation**                  | Skeleton pulses, carousels.                                                                                          |
-| 2.3.1       | Three Flashes           | A     | **Needs evaluation**                  |                                                                                                                      |
-| 2.4.1       | Bypass Blocks           | A     | Partly automated                      | A "Skip to content" link exists and is asserted present.                                                             |
-| 2.4.2       | Page Titled             | A     | **Automated**                         | `document-title` on 67 routes.                                                                                       |
-| 2.4.3       | Focus Order             | A     | **Needs evaluation**                  |                                                                                                                      |
-| 2.4.4       | Link Purpose            | A     | Partly automated                      | axe catches empty links; "Read more" style links need a human.                                                       |
-| 2.4.5       | Multiple Ways           | AA    | **Needs evaluation**                  |                                                                                                                      |
-| 2.4.6       | Headings and Labels     | AA    | Partly automated                      | Presence asserted; descriptiveness unassessed.                                                                       |
-| 2.4.7       | Focus Visible           | AA    | Partly automated                      | Focus ring contrast asserted in `token-contrast.test.ts`; whether it is visible on every control is unassessed.      |
-| 2.5.1–2.5.4 | Pointer                 | A     | **Needs evaluation**                  | Seat map drag-select.                                                                                                |
-| 2.5.3       | Label in Name           | A     | **Needs evaluation**                  | Matters for voice control; several buttons have an `aria-label` richer than the visible text.                        |
+| SC          | Name                    | Level | Status                  | Evidence / note                                                                                                                                                                                                           |
+| ----------- | ----------------------- | ----- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1.1       | Keyboard                | A     | Partly automated        | A booking can now be driven from ticket selection to the checkout with real Tab and Enter presses (`accessibility-judgement.spec.ts`). Payment itself, seat selection and dialogs are still unassessed.                   |
+| 2.1.2       | No Keyboard Trap        | A     | **Needs evaluation**    | Dialogs are the risk.                                                                                                                                                                                                     |
+| 2.1.4       | Character Key Shortcuts | A     | **Needs evaluation**    |                                                                                                                                                                                                                           |
+| 2.2.1       | Timing Adjustable       | A     | **Addressed — confirm** | Was a plain failure. The hold can now be extended: a warning at two minutes, one button, ten extensions, bounded so inventory cannot be held indefinitely. An auditor should confirm the bound and the warning threshold. |
+| 2.2.2       | Pause, Stop, Hide       | A     | **Needs evaluation**    | Skeleton pulses, carousels.                                                                                                                                                                                               |
+| 2.3.1       | Three Flashes           | A     | **Needs evaluation**    |                                                                                                                                                                                                                           |
+| 2.4.1       | Bypass Blocks           | A     | Partly automated        | A "Skip to content" link exists and is asserted present.                                                                                                                                                                  |
+| 2.4.2       | Page Titled             | A     | **Automated**           | `document-title` on 67 routes.                                                                                                                                                                                            |
+| 2.4.3       | Focus Order             | A     | **Needs evaluation**    |                                                                                                                                                                                                                           |
+| 2.4.4       | Link Purpose            | A     | Partly automated        | axe catches empty links; "Read more" style links need a human.                                                                                                                                                            |
+| 2.4.5       | Multiple Ways           | AA    | **Needs evaluation**    |                                                                                                                                                                                                                           |
+| 2.4.6       | Headings and Labels     | AA    | Partly automated        | Presence asserted; descriptiveness unassessed.                                                                                                                                                                            |
+| 2.4.7       | Focus Visible           | AA    | Partly automated        | Focus ring contrast asserted in `token-contrast.test.ts`; whether it is visible on every control is unassessed.                                                                                                           |
+| 2.5.1–2.5.4 | Pointer                 | A     | **Needs evaluation**    | Seat map drag-select.                                                                                                                                                                                                     |
+| 2.5.3       | Label in Name           | A     | **Needs evaluation**    | Matters for voice control; several buttons have an `aria-label` richer than the visible text.                                                                                                                             |
 
 ### Understandable
 
@@ -101,13 +101,18 @@ reading order) is its own specialism.
 
 Ordered by where a real user is most likely to be blocked, not by criterion number:
 
-1. **Book a ticket end to end using only a keyboard**, then again with a screen reader. Seat
-   selection is the interaction to focus on — it is a grid of custom controls and the product
-   does not work without it.
-2. **The booking hold timer** (SC 2.2.1). It expires, and there is no extend.
-3. **Reflow at 320px and 400% zoom** on the seat map and the schedule week-view.
-4. **The receipt, the ticket and the confirmation email** — none of which any tool here scans.
-5. Everything else marked _Needs evaluation_.
+1. **Book a ticket end to end with a screen reader**, and complete the PAYMENT step by
+   keyboard. Reaching the checkout is now covered; what happens after it is not, and seat
+   selection — a grid of custom controls the product does not work without — is untouched.
+2. **The seat map without sight.** The largest open question, and nothing automated can
+   answer it.
+3. **Confirm the hold-extension design** (SC 2.2.1). Implemented rather than open now: a
+   warning at two minutes, one button, ten extensions. Whether ten is right, and whether the
+   warning comes early enough, is a judgement we should not make alone.
+4. **Reflow on the seat map and the schedule week-view.** The storefront is asserted at
+   320px; those two are the likely failures and are not.
+5. **The receipt, the ticket and the confirmation email** — no tool here scans them.
+6. Everything else marked _Needs evaluation_.
 
 ## What to do with the findings
 
