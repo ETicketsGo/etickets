@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
 
 export interface FaqItem {
   q: string;
@@ -46,9 +47,9 @@ export function FaqSearch({ groups }: { groups: FaqGroup[] }) {
         {filtered.length === 0 ? (
           <p className="text-center text-[0.9375rem] text-text-muted">
             No questions match “{query}”. Try a different term or{' '}
-            <a href="/contact" className="font-medium text-action-primary hover:underline">
+            <Link href="/contact" className="font-medium text-action-primary hover:underline">
               contact us
-            </a>
+            </Link>
             .
           </p>
         ) : (

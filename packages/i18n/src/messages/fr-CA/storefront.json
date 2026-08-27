@@ -59,7 +59,8 @@
     "showAtDoor": "Présentez ceci à l'entrée. C'est aussi enregistré dans vos billets, et une copie est en route vers {email}.",
     "allMyTickets": "Tous mes billets",
     "howWasBooking": "Comment s'est passée la réservation?",
-    "followOrganizer": "Suivre l'organisateur"
+    "followOrganizer": "Suivre l'organisateur",
+    "followingOrganizer": "Organisateur suivi"
   },
   "account": {
     "ticketsHeading": "Mes billets",

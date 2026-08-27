@@ -59,7 +59,8 @@
     "showAtDoor": "Show this at the door. It is also saved in your tickets, and a copy is on its way to {email}.",
     "allMyTickets": "All my tickets",
     "howWasBooking": "How was booking?",
-    "followOrganizer": "Follow organizer"
+    "followOrganizer": "Follow organizer",
+    "followingOrganizer": "Following organizer"
   },
   "account": {
     "ticketsHeading": "My tickets",

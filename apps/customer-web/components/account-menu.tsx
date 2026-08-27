@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
 import { api, initialsOf, useAuthUser } from '@eticketsgo/web-kit';
+import { Link } from '@/i18n/navigation';
 
 /** Where the organizer console lives. Same source the become-organizer page uses. */
 const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';

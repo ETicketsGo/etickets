@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { isSignedIn } from '@/lib/auth-flag';
 import { CitySuggestionBar } from '@eticketsgo/web-kit';

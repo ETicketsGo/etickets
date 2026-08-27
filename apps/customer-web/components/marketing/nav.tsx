@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { Ticket, Menu, X } from 'lucide-react';
 import { isSignedIn } from '@/lib/auth-flag';
+import { Link } from '@/i18n/navigation';
+import { LanguageSwitcher } from '@/components/language-switcher';
 
 const LINKS = [
   { href: '/features', label: 'Features' },
@@ -98,6 +99,12 @@ export function MarketingNav() {
               </Link>
             </>
           )}
+          {/*
+            The marketing nav needs the switcher as much as the app header does — more, in
+            fact: the home page is where most people arrive, and somebody who cannot read it
+            has no other way to find French.
+          */}
+          <LanguageSwitcher className="ml-1 hidden sm:inline-flex" />
         </div>
 
         {/* Mobile toggle */}

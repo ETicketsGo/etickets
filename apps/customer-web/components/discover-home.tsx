@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/i18n/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';

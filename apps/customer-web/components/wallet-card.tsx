@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import {
   BadgeCheck,
   Car,
@@ -21,6 +20,7 @@ import {
   type WalletItemType,
 } from '@eticketsgo/web-kit';
 import { dateTime } from '@/lib/format';
+import { Link } from '@/i18n/navigation';
 
 const TYPE_ICON: Record<WalletItemType, LucideIcon> = {
   TICKET: TicketIcon,

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import createNextIntlPlugin from 'next-intl/plugin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,7 @@ const nextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
   transpilePackages: [
     '@eticketsgo/design-tokens',
+    '@eticketsgo/i18n',
     '@eticketsgo/shared-types',
     '@eticketsgo/validation',
     '@eticketsgo/web-kit',
@@ -32,4 +34,9 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+/*
+  The plugin wires `i18n/request.ts` into the server components runtime. Without it
+  `getTranslations` has no config to read and every server-rendered message throws at
+  request time rather than at build time, which is the worst place to find out.
+*/
+export default createNextIntlPlugin('./i18n/request.ts')(nextConfig);

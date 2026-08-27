@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { Ticket } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {

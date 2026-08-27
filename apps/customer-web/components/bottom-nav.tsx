@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { Home, Compass, Ticket, Bell, User } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
+import { Link } from '@/i18n/navigation';
 
 type Item = { href: string; label: string; icon: typeof Home; match: (p: string) => boolean };
 
