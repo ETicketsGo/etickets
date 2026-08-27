@@ -135,13 +135,23 @@ test.describe('trusting an organizer to publish without review', () => {
 
   test.beforeAll(async ({ request }) => {
     adminTokens = await tokens(request, ADMIN_EMAIL);
-    const orgs = await (
-      await request.get(`${API}/admin/organizers?page=1&pageSize=10`, {
-        headers: { Authorization: `Bearer ${adminTokens.accessToken}` },
+    /*
+      The organizer's OWN organization, not whichever one the admin list returns first.
+
+      Both actors have to act on the same organization here — the admin grants the trust and
+      the organizer then submits an event under it. Picking from the admin list happened to
+      line up on a single-org seed and stopped lining up the moment QA had more than one:
+      the organizer had no membership of the org the admin had picked, so it had no venues
+      and no history of approved events, and two tests failed for a reason unrelated to what
+      they check.
+    */
+    const orgTokens = await tokens(request, ORGANIZER_EMAIL);
+    const mine = await (
+      await request.get(`${API}/organizations`, {
+        headers: { Authorization: `Bearer ${orgTokens.accessToken}` },
       })
     ).json();
-    orgId =
-      orgs.data.find((o: { status: string }) => o.status === 'APPROVED')?.id ?? orgs.data[0].id;
+    orgId = (Array.isArray(mine) ? mine : mine.data)[0].id;
   });
 
   test.beforeEach(async ({ context }) => {
