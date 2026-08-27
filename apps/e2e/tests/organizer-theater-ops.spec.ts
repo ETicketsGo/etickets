@@ -57,6 +57,34 @@ function todayLabel(offsetDays = 0): string {
   );
 }
 
+/**
+ * A showtime later today, in the cinema's own clock.
+ *
+ * ── WHY THIS IS NOT JUST '23:30' ───────────────────────────────────────────────────
+ * It was, and CI failed on it at 23:57 Kolkata time with "no published seat layout is in
+ * effect for that date". A screen's first layout takes effect the instant it is created, so
+ * a fixture that creates a layout at 23:57 and then asks for a show at 23:30 is asking for a
+ * show that predates the room it plays in. The scenario was also untrue on its own terms —
+ * "a show LATER today" is not later when it has already started.
+ *
+ * Derived from the venue clock instead, so the show is always ahead of the layout by
+ * construction. Returns null in the last minutes before midnight, where no such time exists
+ * and the honest answer is to skip rather than to schedule something the guard will refuse.
+ */
+function laterTodayAtVenue(minutesAhead = 45): string | null {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: CINEMA_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  const target = hour * 60 + minute + minutesAhead;
+  if (target >= 24 * 60) return null;
+  return `${String(Math.floor(target / 60)).padStart(2, '0')}:${String(target % 60).padStart(2, '0')}`;
+}
+
 /** A private cinema with one screen, a published layout, and one show today. */
 async function createFixture(request: APIRequestContext, token: string): Promise<Fixture> {
   const auth = { Authorization: `Bearer ${token}` };
@@ -111,13 +139,20 @@ async function createFixture(request: APIRequestContext, token: string): Promise
 
   // A show later today, so it appears on the default operations board.
   const date = todayLabel();
+  const showTime = laterTodayAtVenue();
+  if (!showTime) {
+    throw new Error(
+      'It is within 45 minutes of midnight at the venue, so there is no "later today" to ' +
+        'schedule into. Re-run after midnight.',
+    );
+  }
   const seeded = await (
     await request.post(`${API}/movies/${movie.id}/shows/bulk`, {
       headers: auth,
       data: {
         screenId: screen.id,
         dates: [date],
-        times: ['23:30'],
+        times: [showTime],
         padMinutes: 0,
         timezone: CINEMA_TZ,
         dryRun: false,
