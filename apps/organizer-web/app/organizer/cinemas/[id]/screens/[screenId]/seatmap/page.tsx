@@ -24,14 +24,26 @@ import {
   type SeatKind,
   type SectionDraft,
 } from '@/lib/seat-layout';
+import { RoomShapePicker } from '@/components/room-shape-picker';
+import { ROOM_SHAPES, planRoom } from '@/lib/room-plan';
+
+/**
+ * A section starts as a STANDARD SCREEN of its typical size, already planned.
+ *
+ * Not blank. An empty form asking for row labels is the thing organizers reported twice as
+ * too hard; opening on a real, editable room means the common case is "adjust the number"
+ * rather than "work out the arithmetic".
+ */
+const DEFAULT_SHAPE = ROOM_SHAPES[1];
+const DEFAULT_PLAN = planRoom(DEFAULT_SHAPE.typicalSeats, DEFAULT_SHAPE);
 
 const emptySection: SectionDraft = {
   name: '',
   categoryName: '',
   colorHex: '#2563EB',
   basePrice: '',
-  rowLabels: '',
-  seatsPerRow: '',
+  rowLabels: DEFAULT_PLAN.rowLabels.join(', '),
+  seatsPerRow: String(DEFAULT_PLAN.seatsPerRow),
   wheelchairSeats: '',
   companionSeats: '',
   gapSeats: '',
@@ -62,6 +74,18 @@ export default function ScreenSeatMapPage() {
 
   const [name, setName] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ ...emptySection }]);
+  /*
+    The shape and capacity a section was planned FROM, kept alongside the draft.
+
+    Not derived back out of rowLabels: two different shapes can produce the same grid, so
+    reading the intent from the result would make the picker jump to a shape the organizer
+    never chose. This is what they said; the draft is what it produced.
+  */
+  const [plans, setPlans] = useState<{ shapeKey: string; capacity: string }[]>([
+    { shapeKey: DEFAULT_SHAPE.key, capacity: String(DEFAULT_SHAPE.typicalSeats) },
+  ]);
+  /** Which sections have the exact row/seat fields open. Closed by default. */
+  const [exact, setExact] = useState<Set<number>>(new Set());
   const [errors, setErrors] = useState<string | null>(null);
 
   const setSection = (idx: number, patch: Partial<SectionDraft>) => {
@@ -77,9 +101,50 @@ export default function ScreenSeatMapPage() {
     setErrors(null);
     setSections((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
   };
-  const addSection = () => setSections((prev) => [...prev, { ...emptySection }]);
-  const removeSection = (idx: number) =>
+  const addSection = () => {
+    setSections((prev) => [...prev, { ...emptySection }]);
+    setPlans((prev) => [
+      ...prev,
+      { shapeKey: DEFAULT_SHAPE.key, capacity: String(DEFAULT_SHAPE.typicalSeats) },
+    ]);
+  };
+  const removeSection = (idx: number) => {
     setSections((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+    setPlans((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+  };
+
+  /**
+   * Apply a planned room to a section.
+   *
+   * The plan writes the row labels and the row width; everything else the organizer typed —
+   * name, category, price, colour, accessible seating — is left alone. Re-planning must not
+   * discard the rest of their work.
+   */
+  const applyPlan = (
+    idx: number,
+    next: { shapeKey: string; capacity: string; plan: ReturnType<typeof planRoom> },
+  ) => {
+    setPlans((prev) =>
+      prev.map((p, i) => (i === idx ? { shapeKey: next.shapeKey, capacity: next.capacity } : p)),
+    );
+    if (!Number.isFinite(Number(next.capacity)) || Number(next.capacity) < 1) return;
+
+    /*
+      The suggested aisle is written in, but only into an EMPTY box.
+
+      The picker tells the organizer an aisle is suggested, so it has to actually appear —
+      a suggestion that leaves the field blank is just a sentence. Overwriting an aisle they
+      positioned themselves would be worse than never offering one, so a box with anything in
+      it is left exactly as they left it.
+    */
+    const current = sections[idx];
+    const aisle = next.plan.aisle;
+    setSection(idx, {
+      rowLabels: next.plan.rowLabels.join(', '),
+      seatsPerRow: String(next.plan.seatsPerRow),
+      ...(aisle !== null && !current?.gapSeats?.trim() ? { gapSeats: String(aisle) } : {}),
+    });
+  };
 
   const generate = useMutation({
     mutationFn: () => {
@@ -275,24 +340,66 @@ export default function ScreenSeatMapPage() {
                         className="h-10 w-full cursor-pointer rounded-md border border-border bg-background-surface p-1"
                       />
                     </div>
-                    <Input
-                      id={`sec-${i}-rows`}
-                      label="Rows"
-                      hint="A range like A-T, or a list like A, B, C. Mix them freely."
-                      placeholder="A-T"
-                      value={s.rowLabels}
-                      onChange={(e) => setSection(i, { rowLabels: e.target.value })}
-                    />
-                    <Input
-                      id={`sec-${i}-spr`}
-                      label="Seats per row"
-                      type="number"
-                      min={1}
-                      placeholder="20"
-                      value={s.seatsPerRow}
-                      onChange={(e) => setSection(i, { seatsPerRow: e.target.value })}
-                    />
                   </div>
+
+                  {/*
+                    The room, described the way an organizer knows it.
+
+                    This replaced a "Rows" box wanting "A-T" and a "Seats per row" box. Both
+                    are still here, under "Set it exactly" — but nobody has to open them to
+                    describe an ordinary cinema any more.
+                  */}
+                  <RoomShapePicker
+                    shapeKey={plans[i]?.shapeKey ?? DEFAULT_SHAPE.key}
+                    capacity={plans[i]?.capacity ?? ''}
+                    onChange={(next) => applyPlan(i, next)}
+                  />
+
+                  <details
+                    open={exact.has(i)}
+                    onToggle={(e) => {
+                      /*
+                        Read the flag BEFORE the state update, not inside it.
+
+                        React nulls a synthetic event's `currentTarget` once the handler
+                        returns, and a state updater runs after that — so reading it in there
+                        threw, and the whole page fell over with a client-side exception the
+                        moment anyone opened this panel.
+                      */
+                      const isOpen = (e.currentTarget as HTMLDetailsElement).open;
+                      setExact((prev) => {
+                        const nx = new Set(prev);
+                        if (isOpen) nx.add(i);
+                        else nx.delete(i);
+                        return nx;
+                      });
+                    }}
+                    className="rounded-lg border border-border"
+                  >
+                    <summary className="cursor-pointer select-none px-3 py-2 text-caption font-medium text-text-secondary">
+                      Set it exactly — {s.rowLabels ? previewSection(s).rows.length : 0} rows ×{' '}
+                      {s.seatsPerRow || 0}
+                    </summary>
+                    <div className="grid gap-4 border-t border-border p-3 sm:grid-cols-2">
+                      <Input
+                        id={`sec-${i}-rows`}
+                        label="Rows"
+                        hint="A range like A-T, or a list like A, B, C. Mix them freely."
+                        placeholder="A-T"
+                        value={s.rowLabels}
+                        onChange={(e) => setSection(i, { rowLabels: e.target.value })}
+                      />
+                      <Input
+                        id={`sec-${i}-spr`}
+                        label="Seats per row"
+                        type="number"
+                        min={1}
+                        placeholder="20"
+                        value={s.seatsPerRow}
+                        onChange={(e) => setSection(i, { seatsPerRow: e.target.value })}
+                      />
+                    </div>
+                  </details>
 
                   {/*
                   Accessible seating, which the data model always supported and the product
