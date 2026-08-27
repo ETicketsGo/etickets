@@ -38,7 +38,25 @@
     "pay": "Payer",
     "payingNow": "Redirection vers le paiement…",
     "holdExpiresIn": "Vos sièges sont retenus encore {minutes} minutes.",
-    "holdExpired": "La retenue de cette réservation est expirée."
+    "holdExpired": "La retenue de cette réservation est expirée.",
+    "reviewAndPay": "Vérifier et payer",
+    "seat": "Siège",
+    "seats": "Sièges",
+    "discountApplied": "Code de rabais appliqué",
+    "discountCode": "Code de rabais",
+    "remove": "Retirer",
+    "applying": "Application…",
+    "apply": "Appliquer",
+    "codeRejected": "Ce code n'a pas pu être appliqué.",
+    "processing": "Traitement du paiement…",
+    "paymentFailed": "Le paiement n'a pas pu être complété. Veuillez réessayer.",
+    "paymentCancelled": "Le paiement a été annulé. Vous pouvez réessayer.",
+    "holdExpiredTitle": "La retenue de vos billets est expirée.",
+    "ticketsHeldForYou": "Billets retenus pour vous",
+    "noHiddenFees": "Aucuns frais cachés",
+    "instantQr": "Billet avec code QR instantané",
+    "refundablePerPolicy": "Remboursable selon la politique",
+    "item": "Article"
   },
   "confirmation": {
     "steps": {
@@ -75,5 +93,38 @@
   "language": {
     "switchTo": "Passer à {language}",
     "current": "Langue actuelle : {language}"
+  },
+  "wallet": {
+    "heading": "Mes expériences",
+    "empty": "Vous n'avez pas encore de billets.",
+    "upcoming": "À venir",
+    "past": "Passés",
+    "showAtDoor": "Présentez ceci à l'entrée",
+    "seat": "Siège",
+    "generalAdmission": "Admission générale",
+    "transfer": "Transférer",
+    "viewTicket": "Voir le billet",
+    "searchLabel": "Rechercher dans votre portefeuille",
+    "searchPlaceholder": "Rechercher par nom, lieu, référence, siège…",
+    "filterLabel": "Filtrer le portefeuille",
+    "browseEvents": "Parcourir les événements",
+    "ticketStatus": "État du billet",
+    "qrUnavailable": "Code QR indisponible",
+    "loading": "Chargement du portefeuille"
+  },
+  "auth": {
+    "signIn": "Se connecter",
+    "email": "Courriel",
+    "password": "Mot de passe",
+    "passwordMin": "Mot de passe (8 caractères minimum)",
+    "fullName": "Nom complet",
+    "noAccount": "Pas de compte?",
+    "createOne": "En créer un",
+    "haveAccount": "Vous avez déjà un compte?",
+    "loginFailed": "La connexion a échoué.",
+    "createAccount": "Créer un compte",
+    "allCities": "Toutes les villes",
+    "demoFooter": "ETicketsGo — démo. Paiements simulés seulement.",
+    "createOrganizerAccount": "Créer un compte organisateur"
   }
 }

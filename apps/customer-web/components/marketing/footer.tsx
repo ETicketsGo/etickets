@@ -1,37 +1,38 @@
 import { Ticket } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
-    title: 'Product',
+    title: 'product',
     links: [
-      { href: '/features', label: 'Features' },
-      { href: '/pricing', label: 'Pricing' },
-      { href: '/solutions', label: 'Solutions' },
-      { href: '/changelog', label: 'Changelog' },
-      { href: '/events', label: 'Browse events' },
+      { href: '/features', label: 'features' },
+      { href: '/pricing', label: 'pricing' },
+      { href: '/solutions', label: 'solutions' },
+      { href: '/changelog', label: 'changelog' },
+      { href: '/events', label: 'browseEvents' },
     ],
   },
   {
-    title: 'Audiences',
+    title: 'audiences',
     links: [
-      { href: '/organizers', label: 'For organizers' },
-      { href: '/customers', label: 'For attendees' },
-      { href: '/register', label: 'Get started' },
-      { href: '/login', label: 'Sign in' },
+      { href: '/organizers', label: 'forOrganizers' },
+      { href: '/customers', label: 'forAttendees' },
+      { href: '/register', label: 'getStarted' },
+      { href: '/login', label: 'signIn' },
     ],
   },
   {
-    title: 'Resources',
+    title: 'resources',
     links: [
-      { href: '/docs', label: 'Documentation' },
-      { href: '/blog', label: 'Blog' },
-      { href: '/faq', label: 'FAQ' },
-      { href: '/contact', label: 'Contact' },
+      { href: '/docs', label: 'documentation' },
+      { href: '/blog', label: 'blog' },
+      { href: '/faq', label: 'faq' },
+      { href: '/contact', label: 'contact' },
     ],
   },
   {
-    title: 'Company',
+    title: 'company',
     links: [
       { href: '/about', label: 'About' },
       { href: '/privacy', label: 'Privacy' },
@@ -43,6 +44,7 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
 ];
 
 export function MarketingFooter() {
+  const f = useTranslations('common.footer');
   return (
     <footer className="border-t border-border bg-background-subtle/40">
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
@@ -67,7 +69,7 @@ export function MarketingFooter() {
           {COLUMNS.map((col) => (
             <div key={col.title}>
               <h3 className="text-caption font-semibold uppercase tracking-wide text-text-secondary">
-                {col.title}
+                {f(`columns.${col.title}`)}
               </h3>
               <ul className="mt-4 space-y-2.5">
                 {col.links.map((l) => (
@@ -76,7 +78,7 @@ export function MarketingFooter() {
                       href={l.href}
                       className="text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary"
                     >
-                      {l.label}
+                      {f(`links.${l.label}`)}
                     </Link>
                   </li>
                 ))}

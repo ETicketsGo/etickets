@@ -24,6 +24,7 @@ import { WalletCard } from '@/components/wallet-card';
 import { fetchWalletWithOffline, lastSyncedAt, deriveSyncState } from '@/lib/offline/sync';
 import { clearAllOffline } from '@/lib/offline/wallet-store';
 import { requestWalletSync } from '@/lib/push';
+import { useTranslations } from 'next-intl';
 
 function formatSynced(ts: number | null): string {
   if (!ts) return 'not yet';
@@ -69,6 +70,7 @@ function readFlags(): WalletFlags {
 }
 
 export default function ExperienceWalletPage() {
+  const w = useTranslations('storefront.wallet');
   const router = useRouter();
   const toast = useToast();
   const [flags, setFlags] = useState<WalletFlags>(DEFAULT_WALLET_FLAGS);
@@ -142,7 +144,7 @@ export default function ExperienceWalletPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">My experiences</h1>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{w('heading')}</h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">
           Your tickets, passes and more — everything in one wallet.
         </p>
@@ -190,7 +192,7 @@ export default function ExperienceWalletPage() {
           className="grid gap-6 sm:grid-cols-2"
           role="status"
           aria-busy="true"
-          aria-label="Loading wallet"
+          aria-label={w('loading')}
         >
           {Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="h-56 animate-pulse rounded-lg bg-background-subtle" />
@@ -202,13 +204,13 @@ export default function ExperienceWalletPage() {
           <div className="space-y-3">
             <Input
               id="wallet-search"
-              aria-label="Search your wallet"
-              placeholder="Search by name, venue, reference, seat…"
+              aria-label={w('searchLabel')}
+              placeholder={w('searchPlaceholder')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
             {availableFilters.length > 0 && (
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter wallet">
+              <div className="flex flex-wrap gap-2" role="group" aria-label={w('filterLabel')}>
                 {availableFilters.map((c) => {
                   const on = active.includes(c.value);
                   return (
@@ -265,7 +267,7 @@ export default function ExperienceWalletPage() {
           title="Your wallet is empty"
           hint="Book an event to see your tickets and passes here."
           icon={Ticket}
-          action={<ButtonLink href="/events">Browse events</ButtonLink>}
+          action={<ButtonLink href="/events">{w('browseEvents')}</ButtonLink>}
         />
       )}
     </div>

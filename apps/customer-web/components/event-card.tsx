@@ -8,8 +8,10 @@ import { money, dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
 export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
+  const t = useTranslations('common.state');
   const toast = useToast();
   const [saved, setSaved] = useState(false);
   useEffect(() => setSaved(isSaved(event.id)), [event.id]);
@@ -74,7 +76,7 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
             cheapest tier happens to be zero is also, truthfully, free to get into.
           */}
           <span className="text-caption text-text-muted">
-            {event.fromPriceMinor === 0 ? '' : 'From'}
+            {event.fromPriceMinor === 0 ? '' : t('from')}
           </span>
           <span className="text-[1.05rem] font-semibold text-text-primary">
             {event.fromPriceMinor == null

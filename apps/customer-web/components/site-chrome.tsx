@@ -10,6 +10,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { InstallPrompt } from '@/components/install-prompt';
 import { MarketingNav } from '@/components/marketing/nav';
 import { MarketingFooter } from '@/components/marketing/footer';
+import { useTranslations } from 'next-intl';
 
 // Public marketing routes get the full-bleed marketing shell; everything else keeps
 // the existing app chrome (header + constrained main + feedback widget). Kept as a
@@ -39,6 +40,7 @@ function isMarketing(path: string): boolean {
 }
 
 export function SiteChrome({ children }: { children: React.ReactNode }) {
+  const a = useTranslations('storefront.auth');
   const pathname = usePathname();
   // The home page (/) is adaptive: signed-in visitors see the app (discovery) there,
   // so it needs the app chrome; signed-out visitors get the marketing shell. Every
@@ -66,7 +68,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
       <main className="mx-auto max-w-6xl px-4 py-10 pb-24 sm:px-6 lg:pb-10">{children}</main>
       <footer className="mt-16 border-t border-border py-8 text-center text-caption text-text-muted">
-        ETicketsGo — demo MVP. Mock payments only.
+        {a('demoFooter')}
       </footer>
       <FeedbackWidget />
       <BottomNav />

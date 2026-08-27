@@ -6,17 +6,20 @@ import { Ticket, Menu, X } from 'lucide-react';
 import { isSignedIn } from '@/lib/auth-flag';
 import { Link } from '@/i18n/navigation';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { useTranslations } from 'next-intl';
 
 const LINKS = [
-  { href: '/features', label: 'Features' },
-  { href: '/solutions', label: 'Solutions' },
-  { href: '/pricing', label: 'Pricing' },
-  { href: '/organizers', label: 'For organizers' },
-  { href: '/customers', label: 'For attendees' },
-  { href: '/docs', label: 'Docs' },
+  { href: '/features', label: 'features' },
+  { href: '/solutions', label: 'solutions' },
+  { href: '/pricing', label: 'pricing' },
+  { href: '/organizers', label: 'forOrganizers' },
+  { href: '/customers', label: 'forAttendees' },
+  { href: '/docs', label: 'docs' },
 ];
 
 export function MarketingNav() {
+  const m = useTranslations('common.marketing');
+  const a = useTranslations('storefront.auth');
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   // The logo always goes to the home page (/). Only the right-hand actions adapt to
@@ -60,7 +63,7 @@ export function MarketingNav() {
                     : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
                 }`}
               >
-                {l.label}
+                {m(l.label)}
               </Link>
             );
           })}
@@ -74,13 +77,13 @@ export function MarketingNav() {
                 href="/events"
                 className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                Browse events
+                {m('browseEvents')}
               </Link>
               <Link
                 href="/"
                 className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
-                Go to app
+                {m('goToApp')}
               </Link>
             </>
           ) : (
@@ -89,13 +92,13 @@ export function MarketingNav() {
                 href="/login"
                 className="rounded-lg px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                Sign in
+                {a('signIn')}
               </Link>
               <Link
                 href="/register"
                 className="inline-flex items-center rounded-xl bg-action-primary px-4 py-2 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
               >
-                Get started
+                {m('getStarted')}
               </Link>
             </>
           )}
@@ -133,7 +136,7 @@ export function MarketingNav() {
                 href={l.href}
                 className="block rounded-lg px-3 py-2.5 text-[0.9375rem] font-medium text-text-secondary hover:bg-background-subtle hover:text-text-primary"
               >
-                {l.label}
+                {m(l.label)}
               </Link>
             ))}
             <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-4">
@@ -143,13 +146,13 @@ export function MarketingNav() {
                     href="/events"
                     className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
                   >
-                    Browse events
+                    {m('browseEvents')}
                   </Link>
                   <Link
                     href="/"
                     className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
                   >
-                    Go to app
+                    {m('goToApp')}
                   </Link>
                 </>
               ) : (
@@ -158,13 +161,13 @@ export function MarketingNav() {
                     href="/login"
                     className="rounded-xl border border-border bg-background-surface px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-text-primary"
                   >
-                    Sign in
+                    {a('signIn')}
                   </Link>
                   <Link
                     href="/register"
                     className="rounded-xl bg-action-primary px-4 py-2.5 text-center text-[0.9375rem] font-semibold text-action-primary-foreground"
                   >
-                    Get started
+                    {m('getStarted')}
                   </Link>
                 </>
               )}

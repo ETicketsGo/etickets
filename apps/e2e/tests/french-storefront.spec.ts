@@ -84,6 +84,59 @@ async function freeEvent(request: APIRequestContext): Promise<Fixture> {
   return { slug: event.slug, sessionId: session.id, ticketTypeId: ticketType.id };
 }
 
+/** A published PAID event, so the checkout screen is actually reachable. */
+async function paidEvent(request: APIRequestContext): Promise<{ slug: string }> {
+  const { accessToken } = await apiLogin(request, ORGANIZER_EMAIL);
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const stamp = Date.now();
+
+  const orgs = await (await request.get(`${API}/organizations`, { headers: auth })).json();
+  const organizationId = (Array.isArray(orgs) ? orgs : orgs.data)[0].id;
+  const venues = await (
+    await request.get(`${API}/venues?organizationId=${organizationId}`, { headers: auth })
+  ).json();
+  const venueId = (Array.isArray(venues) ? venues : venues.data)[0].id;
+
+  const event = await (
+    await request.post(`${API}/events`, {
+      headers: auth,
+      data: {
+        organizationId,
+        title: `Concert Payant ${stamp}`,
+        category: 'Music',
+        venueId,
+        feeMode: 'CUSTOMER_PAYS',
+      },
+    })
+  ).json();
+  const session = await (
+    await request.post(`${API}/events/${event.id}/sessions`, {
+      headers: auth,
+      data: {
+        startsAt: new Date(Date.now() + 50 * 86_400_000).toISOString(),
+        endsAt: new Date(Date.now() + 50 * 86_400_000 + 2 * 3_600_000).toISOString(),
+      },
+    })
+  ).json();
+  await request.post(`${API}/events/ticket-types`, {
+    headers: auth,
+    data: {
+      eventSessionId: session.id,
+      name: 'Admission générale',
+      priceMinor: 5000,
+      quantityTotal: 40,
+      maxPerOrder: 4,
+    },
+  });
+  await request.post(`${API}/events/${event.id}/submit`, { headers: auth });
+  const admin = await apiLogin(request, 'admin@eticketsgo.test');
+  await request.post(`${API}/admin/events/${event.id}/review`, {
+    headers: { Authorization: `Bearer ${admin.accessToken}` },
+    data: { decision: 'APPROVE' },
+  });
+  return { slug: event.slug };
+}
+
 test.describe('the storefront in French', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -130,17 +183,34 @@ test.describe('the storefront in French', () => {
     }
   });
 
-  test('2: switching language stays on the same page', async ({ page }) => {
+  test('2: switching language stays on the same page', async ({ browser }) => {
     /*
       Somebody two thirds of the way through picking tickets who realises the page is in the
       wrong language must not lose the page. Sending them to the home page is the single most
       common way a language switcher is built wrong.
-    */
-    await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
-    await page.getByLabel('Language').selectOption('fr-CA');
 
-    await expect(page).toHaveURL(new RegExp(`/fr-CA/events/${fx.slug}$`), { timeout: 30_000 });
-    await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
+      A FRESH, SIGNED-OUT context on purpose, and both halves of that matter.
+
+      Fresh, because the shared context has an `ETG_LOCALE` cookie by this point. A stored
+      preference correctly outranks the URL, so the page would already have resolved to a
+      language and the switch under test would have nothing left to do.
+
+      Signed out, because that is who uses this control. Somebody who cannot read the page has
+      not created an account yet, and the switcher has to work before they do.
+    */
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
+      await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+
+      await page.getByLabel('Language').selectOption('fr-CA');
+
+      await page.waitForURL(new RegExp(`/fr-CA/events/${fx.slug}$`), { timeout: 30_000 });
+      await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
+    } finally {
+      await context.close();
+    }
   });
 
   test('3: an internal link keeps the reader in French', async ({ page }) => {
@@ -226,6 +296,41 @@ test.describe('the storefront in French', () => {
     ).text();
     expect(english).toContain('lang="en"');
     expect(english).toContain('Billed to');
+  });
+
+  test('6: the PAID checkout is French too', async ({ page }) => {
+    /*
+      The surface the first version of this suite missed entirely.
+
+      Every other test here books a FREE event, and a free booking skips the payment screen
+      by design — so the suite walked storefront → confirmation and never once loaded the
+      checkout. It passed, and the checkout was still in English. "Checkout" is named
+      explicitly in the requirement, and it is where the customer commits money.
+    */
+    const paid = await paidEvent(page.request);
+    await page.goto(`${CUSTOMER}/fr-CA/events/${paid.slug}`, { waitUntil: 'networkidle' });
+
+    await page.getByLabel(/Quantité de/).selectOption('1');
+    await page.getByRole('button', { name: 'Passer au paiement' }).click();
+
+    await expect(page).toHaveURL(/\/fr-CA\/booking\/[^/]+\/payment/, { timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Vérifier et payer' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByPlaceholder('Code de rabais')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
+
+    const body = await page.locator('body').innerText();
+    expect(body).not.toMatch(/(Review & pay|Discount code|No hidden fees)/);
+  });
+
+  test('7: the ticket wallet is French', async ({ page }) => {
+    // Where somebody goes to find the ticket they are about to show at a door.
+    await page.goto(`${CUSTOMER}/fr-CA/account/tickets`, { waitUntil: 'networkidle' });
+    await expect(page.getByRole('heading', { name: 'Mes expériences' })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByLabel('Rechercher dans votre portefeuille')).toBeVisible();
   });
 
   test('6: a locale we do not ship is a 404, not a silent fallback', async ({ page }) => {

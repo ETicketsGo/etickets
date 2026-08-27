@@ -5,27 +5,34 @@ import { useEffect, useState } from 'react';
 import { Home, Compass, Ticket, Bell, User } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 
+/*
+  `label` is a CATALOGUE KEY, not a string.
+
+  The bottom bar is the whole navigation on a phone, so an English label here leaves a French
+  reader with an English product however well the page above it is translated.
+*/
 type Item = { href: string; label: string; icon: typeof Home; match: (p: string) => boolean };
 
 const ITEMS: Item[] = [
-  { href: '/', label: 'Home', icon: Home, match: (p) => p === '/' },
-  { href: '/events', label: 'Browse', icon: Compass, match: (p) => p.startsWith('/events') },
+  { href: '/', label: 'home', icon: Home, match: (p) => p === '/' },
+  { href: '/events', label: 'browse', icon: Compass, match: (p) => p.startsWith('/events') },
   {
     href: '/account/tickets',
-    label: 'Tickets',
+    label: 'tickets',
     icon: Ticket,
     match: (p) => p.startsWith('/account/tickets'),
   },
   {
     href: '/account/notifications',
-    label: 'Alerts',
+    label: 'alerts',
     icon: Bell,
     match: (p) => p.startsWith('/account/notifications'),
   },
   {
     href: '/account/bookings',
-    label: 'Account',
+    label: 'account',
     icon: User,
     match: (p) =>
       p.startsWith('/account') &&
@@ -40,6 +47,7 @@ const ITEMS: Item[] = [
  * so it clears the iOS home indicator in the installed PWA.
  */
 export function BottomNav() {
+  const t = useTranslations('common.nav');
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
   useEffect(() => setAuthed(!!tokenStore.access), []);
@@ -64,7 +72,7 @@ export function BottomNav() {
                 }`}
               >
                 <Icon className="h-5 w-5" aria-hidden />
-                {item.label}
+                {t(item.label)}
               </Link>
             </li>
           );

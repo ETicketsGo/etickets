@@ -46,11 +46,48 @@
     "account": "Compte",
     "allCities": "Toutes les villes",
     "skipToContent": "Aller au contenu",
-    "language": "Langue"
+    "language": "Langue",
+    "home": "Accueil",
+    "browseEvents": "Parcourir les événements"
   },
   "a11y": {
     "quantityOf": "Quantité de {name}",
     "loadingWallet": "Chargement du portefeuille",
-    "openMenu": "Ouvrir le menu"
+    "openMenu": "Ouvrir le menu",
+    "accountMenuFor": "Menu du compte de {name}"
+  },
+  "marketing": {
+    "features": "Fonctionnalités",
+    "solutions": "Solutions",
+    "pricing": "Tarifs",
+    "forOrganizers": "Pour les organisateurs",
+    "forAttendees": "Pour le public",
+    "docs": "Documentation",
+    "goToApp": "Accéder à l'application",
+    "getStarted": "Commencer",
+    "browseEvents": "Parcourir les événements"
+  },
+  "footer": {
+    "columns": {
+      "product": "Produit",
+      "audiences": "Publics",
+      "resources": "Ressources",
+      "company": "Entreprise"
+    },
+    "links": {
+      "features": "Fonctionnalités",
+      "pricing": "Tarifs",
+      "solutions": "Solutions",
+      "changelog": "Nouveautés",
+      "browseEvents": "Parcourir les événements",
+      "forOrganizers": "Pour les organisateurs",
+      "forAttendees": "Pour le public",
+      "getStarted": "Commencer",
+      "signIn": "Se connecter",
+      "documentation": "Documentation",
+      "blog": "Blogue",
+      "faq": "FAQ",
+      "contact": "Nous joindre"
+    }
   }
 }

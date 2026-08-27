@@ -38,7 +38,25 @@
     "pay": "Pay",
     "payingNow": "Taking you to payment…",
     "holdExpiresIn": "Your seats are held for {minutes} more minutes.",
-    "holdExpired": "This booking hold has expired."
+    "holdExpired": "This booking hold has expired.",
+    "reviewAndPay": "Review & pay",
+    "seat": "Seat",
+    "seats": "Seats",
+    "discountApplied": "Discount code applied",
+    "discountCode": "Discount code",
+    "remove": "Remove",
+    "applying": "Applying…",
+    "apply": "Apply",
+    "codeRejected": "That code could not be applied.",
+    "processing": "Processing payment…",
+    "paymentFailed": "Payment could not be completed. Please try again.",
+    "paymentCancelled": "Payment was cancelled. You can try again.",
+    "holdExpiredTitle": "Your ticket hold has expired.",
+    "ticketsHeldForYou": "Tickets held for you",
+    "noHiddenFees": "No hidden fees",
+    "instantQr": "Instant QR ticket",
+    "refundablePerPolicy": "Refundable per policy",
+    "item": "Item"
   },
   "confirmation": {
     "steps": {
@@ -75,5 +93,38 @@
   "language": {
     "switchTo": "Switch to {language}",
     "current": "Current language: {language}"
+  },
+  "wallet": {
+    "heading": "My experiences",
+    "empty": "You don’t have any tickets yet.",
+    "upcoming": "Upcoming",
+    "past": "Past",
+    "showAtDoor": "Show this at the door",
+    "seat": "Seat",
+    "generalAdmission": "General admission",
+    "transfer": "Transfer",
+    "viewTicket": "View ticket",
+    "searchLabel": "Search your wallet",
+    "searchPlaceholder": "Search by name, venue, reference, seat…",
+    "filterLabel": "Filter wallet",
+    "browseEvents": "Browse events",
+    "ticketStatus": "Ticket status",
+    "qrUnavailable": "QR unavailable",
+    "loading": "Loading wallet"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "passwordMin": "Password (min 8 chars)",
+    "fullName": "Full name",
+    "noAccount": "No account?",
+    "createOne": "Create one",
+    "haveAccount": "Already have an account?",
+    "loginFailed": "Login failed.",
+    "createAccount": "Create account",
+    "allCities": "All cities",
+    "demoFooter": "ETicketsGo — demo MVP. Mock payments only.",
+    "createOrganizerAccount": "Create organizer account"
   }
 }

@@ -28,6 +28,7 @@ import { dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
+import { useTranslations } from 'next-intl';
 
 // Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
 // needed when a pass is available, so it's split out of the initial ticket bundle.
@@ -43,6 +44,7 @@ const QR_FALLBACK =
   );
 
 export default function TicketDetailPage() {
+  const w = useTranslations('storefront.wallet');
   const { ticketId } = useParams<{ ticketId: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -279,7 +281,7 @@ export default function TicketDetailPage() {
 
       {/* Status timeline */}
       <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
-        <h2 className="mb-4 text-title font-semibold text-text-primary">Ticket status</h2>
+        <h2 className="mb-4 text-title font-semibold text-text-primary">{w('ticketStatus')}</h2>
         <Timeline status={ticket.status} />
       </div>
     </div>
