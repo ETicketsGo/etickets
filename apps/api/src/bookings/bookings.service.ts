@@ -5,7 +5,6 @@ import {
   BookingItemKind,
   BookingStatus,
   EventStatus,
-  ExperienceType,
   FeeMode,
   PaymentStatus,
   SessionStatus,
@@ -202,10 +201,24 @@ export class BookingsService {
       }
     }
 
-    // Seat-based experiences (movies): every line must carry seats that belong to
-    // this session and match their ticket type's price category. Actual seat
-    // availability is enforced atomically by the strategy's conditional hold.
-    const isSeatBased = session.event.experienceType === ExperienceType.MOVIE;
+    /*
+      Reserved seating, decided by the ROOM this session is in.
+
+      ── WHY NOT BY THE KIND OF EVENT ───────────────────────────────────────────────
+      This used to read `experienceType === MOVIE`, which meant a cinema showing had a seat
+      map and nothing else could — a concert in a 400-seat theatre could only sell numbered
+      quantities of a ticket type. That conflated two different questions. Whether a ticket
+      names a seat depends on the room: the same concert is reserved seating in a theatre and
+      general admission in a standing arena.
+
+      A session with a room (`screenId`) sells seats; one without sells a count. Movies always
+      have a room, so nothing about them changes.
+
+      Every line must then carry seats that belong to this session and match their ticket
+      type's price category. Actual availability is enforced atomically by the strategy's
+      conditional hold.
+    */
+    const isSeatBased = Boolean(session.screenId);
     if (isSeatBased) {
       const allSeatIds = input.items.flatMap((i) => i.seatIds ?? []);
       for (const item of input.items) {
@@ -249,6 +262,7 @@ export class BookingsService {
     // identical to the platform's original pricing. See ADR-019.
     const priceQuote = this.pricingStrategies.quote({
       experienceType: session.event.experienceType,
+      seatBased: isSeatBased,
       sessionStartsAt: session.startsAt,
       now,
       lines: input.items.map((i) => {
@@ -307,7 +321,7 @@ export class BookingsService {
     // The inventory model is chosen by the experience type — general admission
     // for events today, seat-based for movies in a later PR — without this
     // engine changing. See ADR-010.
-    const strategy = this.inventory.forExperienceType(session.event.experienceType);
+    const strategy = this.inventory.forSeating(isSeatBased);
 
     const ticketLines: InventoryLine[] = input.items.map((i) => ({
       ticketTypeId: i.ticketTypeId,
@@ -329,6 +343,9 @@ export class BookingsService {
           buyerName: input.buyerName,
           buyerEmail: input.buyerEmail,
           status: BookingStatus.PENDING_PAYMENT,
+          // Settled here so confirmation and refund reach for the same strategy this hold
+          // used, whatever happens to the session afterwards.
+          seatBased: isSeatBased,
           feeMode,
           subtotalMinor: subtotal,
           bookingFeeMinor: fees.bookingFeeMinor,
@@ -605,9 +622,14 @@ export class BookingsService {
       }
     }
 
+    // Follows the room, exactly as `create` does — a quote and the booking that follows it
+    // must not disagree about whether the buyer is choosing seats.
+    const isSeatBased = Boolean(session.screenId);
+
     const now = new Date();
     const priceQuote = this.pricingStrategies.quote({
       experienceType: session.event.experienceType,
+      seatBased: isSeatBased,
       sessionStartsAt: session.startsAt,
       now,
       lines: input.items.map((i) => {
@@ -621,7 +643,6 @@ export class BookingsService {
       }),
     });
 
-    const isSeatBased = session.event.experienceType === ExperienceType.MOVIE;
     // Resolves add-on and bundle lines. Read-only — it returns the holds a booking WOULD
     // take rather than taking them.
     const commerce = await this.resolveCommerceLines(

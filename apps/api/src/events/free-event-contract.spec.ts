@@ -58,6 +58,8 @@ function setup(over: {
     { record: async () => undefined } as never,
     {} as never,
     { get: () => 'http://localhost:3000' } as never,
+    // Seating a session is delegated to ShowsService; none of these cases uses a room.
+    {} as never,
   );
   return { service, prisma, eventUpdate, ticketTypeCreate, ticketTypeUpdate };
 }

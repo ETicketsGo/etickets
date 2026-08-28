@@ -166,6 +166,16 @@ export class PublicEventsService {
         startsAt: s.startsAt,
         endsAt: s.endsAt,
         status: s.status,
+        /*
+          Whether this session sells named seats.
+
+          The buyer needs a different screen for each: a seat map to pick from, or a quantity
+          to choose. Sent as a fact about the SESSION rather than left for the client to infer
+          from the experience type, because that inference is exactly what used to make a
+          seated concert impossible — and because two sessions of the same event can differ,
+          one in a seated theatre and one in a standing room.
+        */
+        seatBased: Boolean(s.screenId),
         ticketTypes: s.ticketTypes.map((t) => ({
           id: t.id,
           name: t.name,

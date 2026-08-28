@@ -552,7 +552,13 @@ export class ShowsService {
    * Throws rather than falling back. If no version is in effect for that date, quietly using
    * the newest one would sell seats from a room that does not exist yet.
    */
-  private async resolveLayoutForShow(screenId: string, startsAt: Date) {
+  /**
+   * The layout in effect for a room at a given instant.
+   *
+   * Public because seating a session is no longer something only movies do — an event in a
+   * room needs exactly the same answer, resolved the same way. See `seatSession`.
+   */
+  async resolveLayoutForShow(screenId: string, startsAt: Date) {
     const versions = await this.prisma.seatMap.findMany({
       where: { screenId },
       select: {
@@ -595,6 +601,59 @@ export class ShowsService {
 
   // ─── Shows (movie sessions) ───
 
+  /**
+   * Turn a session into reserved seating: a ticket type per seat category, and a seat row
+   * per sellable seat.
+   *
+   * ── WHY THIS IS ONE FUNCTION AND NOT TWO ───────────────────────────────────────────
+   * Cinema showings and seated events need identical work, and the last time this logic
+   * existed at two sites the fix for a real defect — the platform was selling AISLE
+   * POSITIONS as seats, because gaps were being written as inventory — had to be applied
+   * twice, and the second one was found by accident. `sellableSeats` appears here once.
+   *
+   * Quantities are counted from the layout rather than taken from the room's stated
+   * capacity: a room described as holding fifty seats but drawn with five aisle gaps sells
+   * forty-five, and the drawing is the one that admits people.
+   */
+  async seatSession(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    seatMap: Awaited<ReturnType<ShowsService['resolveLayoutForShow']>>,
+    pricing: { seatCategoryId: string; priceMinor: number }[] = [],
+  ): Promise<void> {
+    const priceByCategory = new Map(pricing.map((p) => [p.seatCategoryId, p.priceMinor]));
+    const countByCategory = new Map<string, number>();
+    for (const seat of sellableSeats(seatMap.seats)) {
+      countByCategory.set(seat.seatCategoryId, (countByCategory.get(seat.seatCategoryId) ?? 0) + 1);
+    }
+
+    for (const category of seatMap.categories) {
+      const quantityTotal = countByCategory.get(category.id) ?? 0;
+      await tx.ticketType.create({
+        data: {
+          eventSessionId: sessionId,
+          seatCategoryId: category.id,
+          name: category.name,
+          priceMinor: priceByCategory.get(category.id) ?? category.basePriceMinor,
+          currency: 'INR',
+          quantityTotal,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          inventory: { create: { quantityTotal, quantitySold: 0, quantityHeld: 0 } },
+        },
+      });
+    }
+
+    await tx.showSeat.createMany({
+      // Gaps are not inventory: an aisle with a ShowSeat row is an aisle somebody can buy.
+      data: sellableSeats(seatMap.seats).map((seat) => ({
+        eventSessionId: sessionId,
+        seatId: seat.id,
+        status: 'AVAILABLE',
+      })),
+    });
+  }
+
   async scheduleShow(
     user: RequestUser,
     movieId: string,
@@ -621,14 +680,6 @@ export class ShowsService {
     this.assertScreenUsable(screen);
     // Resolved for THIS show's start time, not "the screen's map" — see resolveLayoutForShow.
     const seatMap = await this.resolveLayoutForShow(screen.id, input.startsAt);
-
-    const priceByCategory = new Map(
-      (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
-    );
-    const countByCategory = new Map<string, number>();
-    for (const seat of sellableSeats(seatMap.seats)) {
-      countByCategory.set(seat.seatCategoryId, (countByCategory.get(seat.seatCategoryId) ?? 0) + 1);
-    }
 
     return this.prisma.$transaction(async (tx) => {
       // Serialise scheduling for this screen. Two managers filling the same screen at the
@@ -666,33 +717,7 @@ export class ShowsService {
         },
       });
 
-      for (const category of seatMap.categories) {
-        const quantityTotal = countByCategory.get(category.id) ?? 0;
-        await tx.ticketType.create({
-          data: {
-            eventSessionId: session.id,
-            seatCategoryId: category.id,
-            name: category.name,
-            priceMinor: priceByCategory.get(category.id) ?? category.basePriceMinor,
-            currency: 'INR',
-            quantityTotal,
-            maxPerOrder: 10,
-            status: 'ACTIVE',
-            inventory: {
-              create: { quantityTotal, quantitySold: 0, quantityHeld: 0 },
-            },
-          },
-        });
-      }
-
-      await tx.showSeat.createMany({
-        // Gaps are not inventory: an aisle with a ShowSeat row is an aisle somebody can buy.
-        data: sellableSeats(seatMap.seats).map((seat) => ({
-          eventSessionId: session.id,
-          seatId: seat.id,
-          status: 'AVAILABLE',
-        })),
-      });
+      await this.seatSession(tx, session.id, seatMap, input.pricing ?? []);
 
       return { eventId: event.id, sessionId: session.id };
     });

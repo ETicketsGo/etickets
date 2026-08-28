@@ -15,6 +15,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
@@ -58,6 +59,11 @@ export class EventsService {
     private readonly audit: AuditService,
     private readonly audience: AdminAudienceService,
     private readonly config: ConfigService,
+    /*
+      Seating a session is the same work cinema scheduling does, so it is the same code.
+      ShowsModule does not import EventsModule, so this direction introduces no cycle.
+    */
+    private readonly shows: ShowsService,
   ) {}
 
   /** First configured web origin, trailing slash trimmed (mirrors sharing.service). */
@@ -274,6 +280,10 @@ export class EventsService {
           orderBy: { startsAt: 'asc' },
           include: {
             ticketTypes: { include: { inventory: true }, orderBy: { priceMinor: 'asc' } },
+            // So the schedule can say WHICH room a seated session is in. `screenId` alone
+            // tells the organizer only that it is seated somewhere, which is the half of the
+            // answer they already knew.
+            screen: { select: { name: true, cinema: { select: { name: true } } } },
           },
         },
       },
@@ -381,10 +391,149 @@ export class EventsService {
     };
   }
 
+  /**
+   * The rooms an event could be seated in.
+   *
+   * Deliberately answers with only what `addSession` would ACCEPT — rooms in this
+   * organization, each with a published layout — rather than every room it owns.
+   * A picker that offers a choice the next request refuses teaches the organizer that the
+   * product is broken, when the real answer is "that room has no seat map yet", and they
+   * would have to guess which of the two rules they tripped.
+   *
+   * The seat count is the number of seats that can actually be SOLD, so aisles and gaps are
+   * excluded: a room drawn as twenty-four positions with two aisle columns seats twenty, and
+   * twenty is the number the organizer is choosing between rooms on.
+   */
+  async listSeatingRooms(user: RequestUser, organizationId: string) {
+    /*
+      Scoped to the ORGANIZATION rather than to an event, because the event does not exist
+      yet at the moment the question is first asked — the create wizard needs the list on the
+      step where sessions are chosen, before anything has been saved.
+    */
+    await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+
+    const screens = await this.prisma.screen.findMany({
+      where: {
+        cinema: { organizationId },
+        seatMaps: { some: { status: 'PUBLISHED' } },
+      },
+      select: {
+        id: true,
+        name: true,
+        cinema: { select: { name: true } },
+        seatMaps: {
+          where: { status: 'PUBLISHED' },
+          /*
+            The newest published version, by version number rather than by `effectiveFrom` —
+            that column is nullable ("live as soon as it was published") and Postgres sorts
+            nulls first on a descending sort, so ordering by it would rank an older
+            undated layout above the dated one that supersedes it. Version is monotonic
+            per screen, so it has no such gap.
+
+            Which version a session ACTUALLY gets is still decided at creation time from its
+            start time, because a room can have a layout scheduled to take effect later. This
+            is the room's current shape, which is what somebody choosing between rooms needs.
+          */
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            name: true,
+            layoutKind: true,
+            _count: { select: { seats: { where: { kind: { not: 'GAP' } } } } },
+          },
+        },
+      },
+      orderBy: [{ cinema: { name: 'asc' } }, { name: 'asc' }],
+    });
+
+    return screens
+      .filter((s) => s.seatMaps[0])
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        venueName: s.cinema.name,
+        layoutName: s.seatMaps[0].name,
+        layoutKind: s.seatMaps[0].layoutKind,
+        sellableSeats: s.seatMaps[0]._count.seats,
+      }));
+  }
+
+  /**
+   * Add a session, optionally in a room with a seat map.
+   *
+   * ── WHAT A ROOM CHANGES ────────────────────────────────────────────────────────────
+   * Naming one makes the session reserved seating: buyers pick named seats and each ticket
+   * is bound to one. Leaving it off keeps the session general admission. That is the whole
+   * difference, and it is a fact about the room rather than about the kind of event.
+   *
+   * Two things are checked before it is accepted, because both failures are otherwise found
+   * by a customer rather than by the organizer: the room has to belong to this organization,
+   * and it has to have a published layout. A session in a room with no seat map is one where
+   * nobody can choose a seat, and the error would surface at the moment of sale.
+   */
   async addSession(user: RequestUser, eventId: string, input: CreateSessionInput) {
-    await this.loadOwnedEvent(user, eventId);
-    return this.prisma.eventSession.create({
-      data: { eventId, startsAt: input.startsAt, endsAt: input.endsAt },
+    const event = await this.loadOwnedEvent(user, eventId);
+
+    if (input.screenId) {
+      const screen = await this.prisma.screen.findUnique({
+        where: { id: input.screenId },
+        select: {
+          id: true,
+          cinema: { select: { organizationId: true } },
+          seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
+        },
+      });
+      if (!screen || screen.cinema.organizationId !== event.organizationId) {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'Room not found for this organization.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (screen.seatMaps.length === 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'That room has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
+          HttpStatus.CONFLICT,
+          { screenId: input.screenId },
+        );
+      }
+    }
+
+    if (!input.screenId) {
+      return this.prisma.eventSession.create({
+        data: { eventId, startsAt: input.startsAt, endsAt: input.endsAt },
+      });
+    }
+
+    /*
+      A seated session is created with its seats, in one transaction.
+
+      The layout is resolved for THIS session's start time rather than "the room's map" —
+      a room can have a new layout scheduled to take effect, and a session must use the one
+      that will be in force when its doors open.
+
+      `seatSession` is the same call cinema scheduling makes. Sharing it is deliberate: when
+      this logic existed twice, the fix for the platform selling AISLE POSITIONS as seats had
+      to be applied at both sites, and the second was found by accident.
+    */
+    const screenId = input.screenId;
+    const seatMap = await this.shows.resolveLayoutForShow(screenId, input.startsAt);
+    return this.prisma.$transaction(async (tx) => {
+      const session = await tx.eventSession.create({
+        data: {
+          eventId,
+          startsAt: input.startsAt,
+          endsAt: input.endsAt,
+          screenId,
+          // Pin the version, so the schedule can say which room this uses before a seat has
+          // been touched, and so a later layout change cannot rewrite a session already sold.
+          seatMapId: seatMap.id,
+        },
+      });
+      await this.shows.seatSession(tx, session.id, seatMap);
+      return session;
     });
   }
 

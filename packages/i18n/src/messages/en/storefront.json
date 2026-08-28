@@ -13,7 +13,10 @@
     "faq": "Frequently asked questions",
     "recommendations": "You might also like",
     "refundPolicy": "Refund policy",
-    "organizedBy": "Organized by"
+    "organizedBy": "Organized by",
+    "seatedHeading": "Choose your seats",
+    "seatedLead": "This show has assigned seating. Pick your seats on the seat map.",
+    "chooseSeats": "Choose seats"
   },
   "seats": {
     "heading": "Choose your seats",

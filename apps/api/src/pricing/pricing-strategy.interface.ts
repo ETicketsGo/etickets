@@ -15,6 +15,12 @@ export interface PricingLineInput {
 /** Everything a strategy/rule needs to price a booking — no DB access inside. */
 export interface PricingContext {
   experienceType: ExperienceType;
+  /**
+   * Whether the lines name seats. Decides SEAT pricing (price from the seat's category)
+   * over TIER pricing (price from the ticket type) — a property of the room, not of the
+   * kind of event, which is why it is passed rather than inferred from `experienceType`.
+   */
+  seatBased: boolean;
   sessionStartsAt: Date;
   now: Date;
   isMember?: boolean;

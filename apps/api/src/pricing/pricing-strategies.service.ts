@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ExperienceType, PricingStrategyKind } from '@eticketsgo/shared-types';
+import { PricingStrategyKind } from '@eticketsgo/shared-types';
 import {
   FlatPricingStrategy,
   SeatPricingStrategy,
@@ -35,11 +35,16 @@ export class PricingStrategiesService {
     };
   }
 
-  /** The base pricing strategy for an experience type. */
-  forExperience(type: ExperienceType): PricingStrategy {
-    const kind =
-      type === ExperienceType.MOVIE ? PricingStrategyKind.SEAT : PricingStrategyKind.TIER;
-    return this.byKind[kind];
+  /**
+   * The base pricing strategy for a booking, by whether it names seats.
+   *
+   * SEAT pricing takes its price from the seat's category — a stalls seat and a balcony seat
+   * cost different amounts in the same room. TIER pricing takes it from the ticket type.
+   * Which applies follows the room, not the kind of event, for the same reason the inventory
+   * strategy does.
+   */
+  forSeating(seatBased: boolean): PricingStrategy {
+    return this.byKind[seatBased ? PricingStrategyKind.SEAT : PricingStrategyKind.TIER];
   }
 
   /**
@@ -53,7 +58,7 @@ export class PricingStrategiesService {
 
   /** Price a booking: base strategy, then any applicable rules, per line. */
   quote(ctx: PricingContext): PricingQuote {
-    const base = this.forExperience(ctx.experienceType).quote(ctx);
+    const base = this.forSeating(ctx.seatBased).quote(ctx);
     const rules = this.rulesFor(ctx);
     if (rules.length === 0) return base;
 

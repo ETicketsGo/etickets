@@ -17,7 +17,16 @@ import { RatingStars, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
-import { Badge, Button, Card, EmptyState, ErrorState, Skeleton, Textarea } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  ButtonLink,
+  Card,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+  Textarea,
+} from '@/components/ui';
 import { EventCard } from '@/components/event-card';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { Link } from '@/i18n/navigation';
@@ -493,176 +502,211 @@ export default function EventDetailPage() {
           <Card>
             <div className="mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-action-primary" />
-              <h2 className="text-title font-semibold text-text-primary">Select tickets</h2>
+              <h2 className="text-title font-semibold text-text-primary">
+                {session?.seatBased ? sf('event.seatedHeading') : 'Select tickets'}
+              </h2>
             </div>
-            <div className="space-y-3">
-              {session?.ticketTypes.map((t) => {
-                const soldOut = t.available <= 0;
-                return (
-                  <div
-                    key={t.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
-                  >
-                    <div>
-                      <p className="font-medium text-text-primary">{t.name}</p>
-                      <p className="text-caption text-text-muted">
-                        {/*
+
+            {/*
+              A seated show is chosen on the seat map, not here.
+
+              Reserved seating used to exist only for cinemas, so this card only ever needed
+              to offer quantities. Now that a session can be in a room, offering a quantity
+              box for one would let somebody ask for "two of Stalls" without saying WHICH two
+              — and the booking would be refused at the last step with "please select a seat
+              for each ticket", after they had committed to the price.
+
+              Read from the session rather than from the event: two dates of the same tour
+              can differ, one in a seated theatre and one in a standing room.
+            */}
+            {session?.seatBased ? (
+              <div className="space-y-4">
+                <p className="text-[0.9375rem] text-text-secondary">{sf('event.seatedLead')}</p>
+                <ButtonLink href={`/shows/${session.id}`} className="w-full">
+                  {sf('event.chooseSeats')}
+                </ButtonLink>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {session?.ticketTypes.map((t) => {
+                    const soldOut = t.available <= 0;
+                    return (
+                      <div
+                        key={t.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                      >
+                        <div>
+                          <p className="font-medium text-text-primary">{t.name}</p>
+                          <p className="text-caption text-text-muted">
+                            {/*
                           "Free" rather than "₹0.00". A zero with a currency symbol reads as a
                           price that failed to load, and it is the one thing about this event a
                           buyer most wants confirmed before they commit to a seat.
                         */}
-                        {event.isFree ? tx('state.free') : money(t.priceMinor, t.currency)} ·{' '}
-                        {soldOut ? (
-                          <span className="text-status-error">{tx('state.soldOut')}</span>
-                        ) : (
-                          `${t.available} left`
-                        )}
-                      </p>
-                    </div>
-                    <select
-                      aria-label={tx('a11y.quantityOf', { name: t.name })}
-                      disabled={soldOut}
-                      value={qty[t.id] ?? 0}
-                      onChange={(e) => setQty((p) => ({ ...p, [t.id]: Number(e.target.value) }))}
-                      className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
-                    >
-                      {Array.from({ length: Math.min(t.maxPerOrder, t.available) + 1 }).map(
-                        (_, n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Upsell: add-ons (v1.3) */}
-            {addOns.length > 0 && (
-              <div className="mt-5">
-                <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                  Enhance your experience
-                </p>
-                <div className="space-y-2">
-                  {addOns.map((a) => {
-                    const max =
-                      a.remaining === null ? a.maxPerOrder : Math.min(a.maxPerOrder, a.remaining);
-                    return (
-                      <div
-                        key={a.id}
-                        className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-text-primary">{a.name}</p>
-                          <p className="text-caption text-text-muted">
-                            {money(a.priceMinor, a.currency)}
-                            {a.soldOut && <span className="text-status-error"> · Sold out</span>}
+                            {event.isFree ? tx('state.free') : money(t.priceMinor, t.currency)} ·{' '}
+                            {soldOut ? (
+                              <span className="text-status-error">{tx('state.soldOut')}</span>
+                            ) : (
+                              `${t.available} left`
+                            )}
                           </p>
                         </div>
                         <select
-                          aria-label={`Quantity of ${a.name}`}
-                          disabled={a.soldOut}
-                          value={addOnQty[a.id] ?? 0}
+                          aria-label={tx('a11y.quantityOf', { name: t.name })}
+                          disabled={soldOut}
+                          value={qty[t.id] ?? 0}
                           onChange={(e) =>
-                            setAddOnQty((p) => ({ ...p, [a.id]: Number(e.target.value) }))
+                            setQty((p) => ({ ...p, [t.id]: Number(e.target.value) }))
                           }
                           className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
                         >
-                          {Array.from({ length: Math.max(0, max) + 1 }).map((_, n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
+                          {Array.from({ length: Math.min(t.maxPerOrder, t.available) + 1 }).map(
+                            (_, n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ),
+                          )}
                         </select>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
 
-            {/* Cross-sell: bundles (v1.3) */}
-            {bundles.length > 0 && (
-              <div className="mt-5">
-                <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                  Bundles &amp; deals
-                </p>
-                <div className="space-y-2">
-                  {bundles.map((b) => (
-                    <div key={b.id} className="rounded-md border border-border p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-text-primary">{b.name}</p>
-                          <p className="text-caption text-text-muted">
-                            {money(b.priceFromMinor, b.currency)}
-                            {b.savingsMinor > 0 && (
-                              <span className="text-status-success">
-                                {' '}
-                                · save {money(b.savingsMinor, b.currency)}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-                        <select
-                          aria-label={`Quantity of ${b.name}`}
-                          value={bundleQty[b.id] ?? 0}
-                          onChange={(e) =>
-                            setBundleQty((p) => ({ ...p, [b.id]: Number(e.target.value) }))
-                          }
-                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
-                        >
-                          {Array.from({ length: b.maxPerOrder + 1 }).map((_, n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {b.components.length > 0 && (
-                        <p className="mt-1.5 text-caption text-text-muted">
-                          Includes {b.components.map((c) => `${c.quantity}× ${c.label}`).join(', ')}
-                        </p>
-                      )}
+                {/* Upsell: add-ons (v1.3) */}
+                {addOns.length > 0 && (
+                  <div className="mt-5">
+                    <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                      Enhance your experience
+                    </p>
+                    <div className="space-y-2">
+                      {addOns.map((a) => {
+                        const max =
+                          a.remaining === null
+                            ? a.maxPerOrder
+                            : Math.min(a.maxPerOrder, a.remaining);
+                        return (
+                          <div
+                            key={a.id}
+                            className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-text-primary">{a.name}</p>
+                              <p className="text-caption text-text-muted">
+                                {money(a.priceMinor, a.currency)}
+                                {a.soldOut && (
+                                  <span className="text-status-error"> · Sold out</span>
+                                )}
+                              </p>
+                            </div>
+                            <select
+                              aria-label={`Quantity of ${a.name}`}
+                              disabled={a.soldOut}
+                              value={addOnQty[a.id] ?? 0}
+                              onChange={(e) =>
+                                setAddOnQty((p) => ({ ...p, [a.id]: Number(e.target.value) }))
+                              }
+                              className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                            >
+                              {Array.from({ length: Math.max(0, max) + 1 }).map((_, n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Cross-sell: bundles (v1.3) */}
+                {bundles.length > 0 && (
+                  <div className="mt-5">
+                    <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                      Bundles &amp; deals
+                    </p>
+                    <div className="space-y-2">
+                      {bundles.map((b) => (
+                        <div key={b.id} className="rounded-md border border-border p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-text-primary">{b.name}</p>
+                              <p className="text-caption text-text-muted">
+                                {money(b.priceFromMinor, b.currency)}
+                                {b.savingsMinor > 0 && (
+                                  <span className="text-status-success">
+                                    {' '}
+                                    · save {money(b.savingsMinor, b.currency)}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            <select
+                              aria-label={`Quantity of ${b.name}`}
+                              value={bundleQty[b.id] ?? 0}
+                              onChange={(e) =>
+                                setBundleQty((p) => ({ ...p, [b.id]: Number(e.target.value) }))
+                              }
+                              className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
+                            >
+                              {Array.from({ length: b.maxPerOrder + 1 }).map((_, n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {b.components.length > 0 && (
+                            <p className="mt-1.5 text-caption text-text-muted">
+                              Includes{' '}
+                              {b.components.map((c) => `${c.quantity}× ${c.label}`).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 border-t border-border pt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[0.9375rem] text-text-secondary">
+                      {sf('event.subtotal')}
+                    </span>
+                    <span className="text-title font-bold text-text-primary">
+                      {event.isFree ? tx('state.free') : money(subtotal)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-caption text-text-muted">
+                    {event.isFree ? sf('event.freeNote') : sf('event.feesNote')}
+                  </p>
                 </div>
-              </div>
-            )}
 
-            <div className="mt-4 border-t border-border pt-4">
-              <div className="flex items-center justify-between">
-                <span className="text-[0.9375rem] text-text-secondary">{sf('event.subtotal')}</span>
-                <span className="text-title font-bold text-text-primary">
-                  {event.isFree ? tx('state.free') : money(subtotal)}
-                </span>
-              </div>
-              <p className="mt-1 text-caption text-text-muted">
-                {event.isFree ? sf('event.freeNote') : sf('event.feesNote')}
-              </p>
-            </div>
-
-            {error && (
-              <p role="alert" className="mt-3 text-caption text-status-error">
-                {error}
-              </p>
+                {error && (
+                  <p role="alert" className="mt-3 text-caption text-status-error">
+                    {error}
+                  </p>
+                )}
+                <Button
+                  className="mt-4 w-full"
+                  loading={book.isPending}
+                  disabled={totalQty === 0 || book.isPending}
+                  onClick={() => {
+                    setError(null);
+                    book.mutate();
+                  }}
+                >
+                  {book.isPending
+                    ? sf('event.holdingTickets')
+                    : event.isFree
+                      ? sf('event.getMyTickets')
+                      : sf('event.continueToPayment')}
+                </Button>
+              </>
             )}
-            <Button
-              className="mt-4 w-full"
-              loading={book.isPending}
-              disabled={totalQty === 0 || book.isPending}
-              onClick={() => {
-                setError(null);
-                book.mutate();
-              }}
-            >
-              {book.isPending
-                ? sf('event.holdingTickets')
-                : event.isFree
-                  ? sf('event.getMyTickets')
-                  : sf('event.continueToPayment')}
-            </Button>
           </Card>
         </div>
       </div>

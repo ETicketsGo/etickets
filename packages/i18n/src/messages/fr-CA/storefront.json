@@ -13,7 +13,10 @@
     "faq": "Foire aux questions",
     "recommendations": "Vous aimerez peut-être aussi",
     "refundPolicy": "Politique de remboursement",
-    "organizedBy": "Présenté par"
+    "organizedBy": "Présenté par",
+    "seatedHeading": "Choisissez vos sièges",
+    "seatedLead": "Ce spectacle est en places assignées. Choisissez vos sièges sur le plan de salle.",
+    "chooseSeats": "Choisir les sièges"
   },
   "seats": {
     "heading": "Choisissez vos sièges",
