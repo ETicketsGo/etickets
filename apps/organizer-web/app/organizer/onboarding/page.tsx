@@ -19,6 +19,7 @@ import {
   Building2,
   Users,
   CalendarDays,
+  Banknote,
   CheckCircle2,
   Sparkles,
   FlaskConical,
@@ -30,15 +31,17 @@ import { OnboardingChecklist } from '@/components/onboarding-checklist';
 import { useOnboardingProgress, setOnboardingDismissed } from '@/lib/onboarding';
 import { EXPERIENCE_TEMPLATES } from '@/lib/templates';
 
-function StepBadge({ done }: { done: boolean }) {
-  return done ? (
-    <Badge tone="success">
-      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-      Done
-    </Badge>
-  ) : (
-    <Badge tone="neutral">To do</Badge>
-  );
+function StepBadge({ done, optional }: { done: boolean; optional?: boolean }) {
+  if (done) {
+    return (
+      <Badge tone="success">
+        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+        Done
+      </Badge>
+    );
+  }
+  // "To do" on a step most organizers should skip reads as work outstanding. Say which it is.
+  return <Badge tone="neutral">{optional ? 'Optional' : 'To do'}</Badge>;
 }
 
 export default function OnboardingPage() {
@@ -222,7 +225,55 @@ export default function OnboardingPage() {
           )}
         </Card>
 
-        {/* 3. Team */}
+        {/*
+          Seating — listed because it is otherwise undiscoverable.
+
+          A room with a published seat map is the prerequisite for selling numbered seats,
+          and the only route to one is a section that used to be called "Cinemas". An
+          organizer running concerts had no reason to look there and no reason to know they
+          needed to. Marked optional rather than numbered, because plenty of organizers never
+          need it and a checklist should not manufacture work.
+        */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
+              <Building2 className="h-5 w-5" />
+            </span>
+            <StepBadge done={stepMap.seating?.done ?? false} optional />
+          </div>
+          <p className="font-semibold text-text-primary">Set up a room with a seat map</p>
+          <p className="mt-1 text-[0.9375rem] text-text-muted">
+            Only if buyers should choose their own seats. Draw the room once and any event held
+            there can sell reserved seating — a concert or a play, not only a film.
+          </p>
+          <ButtonLink href="/organizer/cinemas" variant="outline" size="sm" className="mt-4">
+            {stepMap.seating?.done ? 'Manage rooms' : 'Set up a room'}
+          </ButtonLink>
+        </Card>
+
+        {/*
+          Payouts. Placed before team because it is the step that decides whether the money
+          from a sale can ever reach the organizer, and it was previously absent from a
+          checklist that claimed to cover starting to sell.
+        */}
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
+              <Banknote className="h-5 w-5" />
+            </span>
+            <StepBadge done={stepMap.payouts?.done ?? false} />
+          </div>
+          <p className="font-semibold text-text-primary">3. Set up how you get paid</p>
+          <p className="mt-1 text-[0.9375rem] text-text-muted">
+            Connect a payout account so settlements can reach your bank. Needed before you can sell
+            paid tickets — free events do not require it.
+          </p>
+          <ButtonLink href="/organizer/payouts" variant="outline" size="sm" className="mt-4">
+            {stepMap.payouts?.done ? 'View payouts' : 'Set up payouts'}
+          </ButtonLink>
+        </Card>
+
+        {/* 4. Team */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
@@ -230,7 +281,7 @@ export default function OnboardingPage() {
             </span>
             <StepBadge done={stepMap.team?.done ?? false} />
           </div>
-          <p className="font-semibold text-text-primary">3. Invite a team member</p>
+          <p className="font-semibold text-text-primary">4. Invite a team member</p>
           <p className="mt-1 text-[0.9375rem] text-text-muted">
             Add managers to help run events or check-in staff to scan tickets at the door.
           </p>
@@ -239,7 +290,7 @@ export default function OnboardingPage() {
           </ButtonLink>
         </Card>
 
-        {/* 4. Experience */}
+        {/* 5. Experience */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
@@ -247,7 +298,7 @@ export default function OnboardingPage() {
             </span>
             <StepBadge done={stepMap.experience?.done ?? false} />
           </div>
-          <p className="font-semibold text-text-primary">4. Create &amp; publish an experience</p>
+          <p className="font-semibold text-text-primary">5. Create &amp; publish an experience</p>
           <p className="mt-1 text-[0.9375rem] text-text-muted">
             Build your event with sessions and ticket types, then submit it for review to go live.
           </p>

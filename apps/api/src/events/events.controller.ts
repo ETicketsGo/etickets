@@ -6,11 +6,13 @@ import {
   createEventSchema,
   createSessionSchema,
   createTicketTypeSchema,
+  updateSessionSeatingSchema,
   updateTicketTypeSchema,
   paginationSchema,
   reviewDecisionSchema,
   type CreateSessionInput,
   type CreateTicketTypeInput,
+  type UpdateSessionSeatingInput,
   type UpdateTicketTypeInput,
   type ReviewDecisionInput,
 } from '@eticketsgo/validation';
@@ -88,6 +90,18 @@ export class EventsController {
     @Body(new ZodValidationPipe(createSessionSchema)) body: CreateSessionInput,
   ) {
     return this.events.addSession(user, id, body);
+  }
+
+  @Patch('sessions/:sessionId/seating')
+  @ApiOperation({
+    summary: 'Change, add or remove a session’s room. Refused once anything is sold or held.',
+  })
+  updateSessionSeating(
+    @CurrentUser() user: RequestUser,
+    @Param('sessionId') sessionId: string,
+    @Body(new ZodValidationPipe(updateSessionSeatingSchema)) body: UpdateSessionSeatingInput,
+  ) {
+    return this.events.updateSessionSeating(user, sessionId, body.screenId);
   }
 
   @Post('ticket-types')

@@ -67,7 +67,10 @@ export default function CinemaOnboardingPage() {
       <PageHeader
         title={cinemaQ.data ? `Set up ${cinemaQ.data.name}` : 'Set up this cinema'}
         description="Work through these in any order. Progress reflects your live configuration, not a saved checklist."
-        breadcrumbs={[{ label: 'Cinemas', href: '/organizer/cinemas' }, { label: 'Setup' }]}
+        breadcrumbs={[
+          { label: 'Rooms & seat maps', href: '/organizer/cinemas' },
+          { label: 'Setup' },
+        ]}
         action={
           <ButtonLink href={`/organizer/cinemas/${cinemaId}/readiness`} variant="secondary">
             Launch readiness

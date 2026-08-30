@@ -74,6 +74,18 @@ export const createSessionSchema = z
   });
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 
+/**
+ * Change, add or remove a session's room after it exists.
+ *
+ * `null` is a meaningful value and is why this is `nullable()` rather than `optional()`:
+ * omitting the field and clearing the room are different intentions, and a schema that
+ * cannot tell them apart makes "make this general admission again" unexpressible.
+ */
+export const updateSessionSeatingSchema = z.object({
+  screenId: z.string().cuid().nullable(),
+});
+export type UpdateSessionSeatingInput = z.infer<typeof updateSessionSeatingSchema>;
+
 export const createTicketTypeSchema = z.object({
   eventSessionId: z.string().cuid(),
   name: z.string().trim().min(1).max(120),

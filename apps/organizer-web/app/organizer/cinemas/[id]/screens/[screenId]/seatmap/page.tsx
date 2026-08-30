@@ -201,7 +201,7 @@ export default function ScreenSeatMapPage() {
       <PageHeader
         title={screen ? `${screen.name} · Seat map` : 'Seat map'}
         breadcrumbs={[
-          { label: 'Cinemas', href: '/organizer/cinemas' },
+          { label: 'Rooms & seat maps', href: '/organizer/cinemas' },
           { label: 'Cinema', href: `/organizer/cinemas/${id}` },
           { label: 'Seat map' },
         ]}

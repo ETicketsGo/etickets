@@ -76,6 +76,16 @@ export function OnboardingChecklist({ progress }: { progress: OnboardingProgress
                     className={`font-medium ${s.done ? 'text-text-muted line-through' : 'text-text-primary'}`}
                   >
                     {s.title}
+                    {/*
+                      Marked, because it is not counted. Without the label an organizer sees
+                      an unticked row and reads the checklist as unfinished, which is the
+                      opposite of what an optional step is for.
+                    */}
+                    {s.optional && (
+                      <span className="ml-2 align-middle text-caption font-normal text-text-muted">
+                        Optional
+                      </span>
+                    )}
                   </p>
                   <p className="truncate text-caption text-text-muted">{s.description}</p>
                 </div>

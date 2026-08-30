@@ -31,6 +31,8 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 040 | External inventory synchronization platform             |
 | 041 | Transactional outbox and durable domain-event delivery  |
 | 042 | Provider-neutral booking orchestration (foundation)     |
+| 043 | Booking compensation and financial recovery             |
+| 044 | Session seating is a setting until the first commitment |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

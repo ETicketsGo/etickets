@@ -36,13 +36,22 @@ export function useOnboardingDismissed(): boolean {
 }
 
 export interface OnboardingStep {
-  key: 'organization' | 'venue' | 'team' | 'experience';
+  key: 'organization' | 'venue' | 'seating' | 'payouts' | 'team' | 'experience';
   title: string;
   description: string;
   done: boolean;
   /** Where the primary action for this step lives. */
   href: string;
   cta: string;
+  /**
+   * Shown, but not counted against completion.
+   *
+   * Reserved seating is not something every organizer needs — a promoter selling standing
+   * tickets is finished without ever drawing a seat map, and a checklist that tells them
+   * they are 4-of-5 done is lying to make a feature look important. It is listed because it
+   * is otherwise undiscoverable, and marked optional because it genuinely is.
+   */
+  optional?: boolean;
 }
 
 export interface OnboardingProgress {
@@ -74,11 +83,32 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
     queryKey: ['events', orgId],
     queryFn: () => api.events.list(orgId),
   });
+  /*
+    Rooms that could actually host reserved seating — the same list the seating picker uses,
+    so the checklist cannot claim a step is done while the picker still shows nothing.
+  */
+  const roomsQ = useQuery({
+    queryKey: ['seating-rooms', orgId],
+    queryFn: () => api.events.seatingRooms(orgId),
+  });
+  /*
+    Whether this organization could actually be PAID.
+
+    `canSellPaidTickets` is the server's own verdict, not a guess assembled here from
+    onboarding flags — the payouts page already shows it, and two readings of the same
+    question would eventually disagree.
+  */
+  const payoutsQ = useQuery({
+    queryKey: ['organizer-payments-status', orgId],
+    queryFn: () => api.organizerPayments.status(orgId),
+  });
 
   const hasVenue = (venuesQ.data?.length ?? 0) > 0;
   // A team member beyond the sole owner.
   const hasTeam = (membersQ.data ?? []).filter((m) => m.role !== 'ORGANIZER_OWNER').length > 0;
   const hasPublished = (eventsQ.data ?? []).some((e) => e.status === 'PUBLISHED');
+  const roomCount = roomsQ.data?.length ?? 0;
+  const canBePaid = payoutsQ.data?.canSellPaidTickets ?? false;
   const eventCount = eventsQ.data?.length ?? 0;
   const memberCount = membersQ.data?.length ?? 0;
 
@@ -100,6 +130,38 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
       done: hasVenue,
       href: '/organizer/onboarding',
       cta: hasVenue ? 'Manage' : 'Add venue',
+    },
+    {
+      key: 'seating',
+      title: 'Set up a room with a seat map',
+      description:
+        roomCount > 0
+          ? `${roomCount} room(s) ready for reserved seating`
+          : 'Only needed if buyers should pick their own seats.',
+      done: roomCount > 0,
+      optional: true,
+      href: '/organizer/cinemas',
+      cta: roomCount > 0 ? 'Manage rooms' : 'Set up a room',
+    },
+    {
+      /*
+        Required, deliberately, even though an organizer running only free events does not
+        need it.
+
+        This was missing entirely, while a checklist headed "a few quick steps to start
+        selling tickets" reported them 2-of-4 done. Somebody could publish an event, sell it,
+        and first learn at settlement that no money could reach them. A rare free-only
+        organizer sitting at 4-of-5 is a much smaller harm than that, and the description
+        says plainly which case it applies to.
+      */
+      key: 'payouts',
+      title: 'Set up how you get paid',
+      description: canBePaid
+        ? 'Ready to receive settlements.'
+        : 'Needed before you can sell paid tickets. Free events do not require it.',
+      done: canBePaid,
+      href: '/organizer/payouts',
+      cta: canBePaid ? 'View payouts' : 'Set up payouts',
     },
     {
       key: 'team',
@@ -125,19 +187,29 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
     },
   ];
 
-  const completed = steps.filter((s) => s.done).length;
+  /*
+    Progress counts the REQUIRED steps only. Including an optional one would mean an
+    organizer who will never sell a numbered seat can never reach 100%, and a checklist that
+    cannot be finished stops being a checklist and becomes a permanent nag.
+  */
+  const required = steps.filter((s) => !s.optional);
+  const completed = required.filter((s) => s.done).length;
 
   return {
     steps,
     completed,
-    total: steps.length,
-    allComplete: completed === steps.length,
+    total: required.length,
+    allComplete: completed === required.length,
     isLoading: venuesQ.isLoading || membersQ.isLoading || eventsQ.isLoading,
     isError: venuesQ.isError || membersQ.isError || eventsQ.isError,
+    // `roomsQ` is deliberately absent from isLoading/isError: the optional step must never
+    // be able to make the whole checklist look broken or stuck.
     refetch: () => {
       venuesQ.refetch();
       membersQ.refetch();
       eventsQ.refetch();
+      roomsQ.refetch();
+      payoutsQ.refetch();
     },
   };
 }
