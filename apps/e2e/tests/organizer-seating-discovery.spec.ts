@@ -100,19 +100,27 @@ test.describe('finding reserved seating from a standing start', () => {
       filters on (this organization, published layout).
     */
     await page.goto(`${ORGANIZER}/organizer/cinemas/new`, { waitUntil: 'networkidle' });
-    await page.getByLabel('Name', { exact: true }).fill(locationName);
-    await page.getByLabel('City').fill('Hyderabad');
-    await page
-      .getByRole('button', { name: /Create|Save/ })
-      .first()
-      .click();
+    /*
+      Addressed by id rather than by label. Both this page and the one after it carry a field
+      labelled "Name", and a label match plus `.first()`/`.last()` is a coin toss that happens
+      to land right until somebody reorders the form.
+    */
+    await page.locator('#name').fill(locationName);
+    await page.locator('#city').fill('Hyderabad');
+    await page.getByRole('button', { name: 'Create location' }).click();
     await expect(page).toHaveURL(/\/organizer\/cinemas\/(?!new$)[^/]+/, { timeout: 30_000 });
 
     const cinemaId = page.url().split('/').filter(Boolean).pop()!;
 
-    await page.getByRole('button', { name: 'Add screen' }).first().click();
-    await page.getByLabel('Name', { exact: true }).last().fill(roomName);
-    await page.getByRole('button', { name: 'Add screen' }).last().click();
+    await page.getByRole('button', { name: 'Add screen' }).click();
+    await page.locator('#screenName').fill(roomName);
+    /*
+      Capacity is required, and leaving it blank is exactly how the first version of this test
+      failed: the dialog validated, returned early, and the room was never created — so the
+      assertion below waited thirty seconds for something nobody had asked the server to make.
+    */
+    await page.locator('#screenCapacity').fill('18');
+    await page.getByRole('dialog').getByRole('button', { name: 'Add screen' }).click();
     await expect(page.getByText(roomName).first()).toBeVisible({ timeout: 30_000 });
 
     // The seat map itself, generated from the console rather than seeded through the API.
@@ -126,11 +134,17 @@ test.describe('finding reserved seating from a standing start', () => {
     await page.goto(`${ORGANIZER}/organizer/cinemas/${cinemaId}/screens/${screen.id}/seatmap`, {
       waitUntil: 'networkidle',
     });
-    await page.getByLabel('Section name').first().fill('Stalls');
-    await page.getByLabel('Category name').first().fill('Stalls');
-    await page.getByLabel('Base price (₹)').first().fill('500');
-    await page.getByLabel('Rows').first().fill('3');
-    await page.getByLabel('Seats per row').first().fill('6');
+    await page.locator('#sec-0-name').fill('Stalls');
+    await page.locator('#sec-0-cat').fill('Stalls');
+    await page.locator('#sec-0-price').fill('500');
+    /*
+      Described by capacity, which is the primary path the console offers — "about how many
+      seats?" plus a room shape, with rows and seats-per-row derived. The exact row/seat boxes
+      still exist behind a "Set it exactly" panel, and the first version of this test drove
+      those: it filled controls nobody has to open, so it was testing a fallback rather than
+      the journey an organizer actually takes.
+    */
+    await page.locator('#room-capacity').fill('18');
     await page.getByRole('button', { name: 'Generate seat map' }).click();
 
     /*

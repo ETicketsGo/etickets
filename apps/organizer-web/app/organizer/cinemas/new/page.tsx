@@ -123,7 +123,7 @@ export default function NewCinemaPage() {
             />
           </div>
           <Button loading={create.isPending} onClick={submit}>
-            Create cinema
+            Create location
           </Button>
         </div>
       </Card>
