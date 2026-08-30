@@ -330,7 +330,10 @@ export default function CinemaDetailPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title={cinema.name}
-        breadcrumbs={[{ label: 'Cinemas', href: '/organizer/cinemas' }, { label: cinema.name }]}
+        breadcrumbs={[
+          { label: 'Rooms & seat maps', href: '/organizer/cinemas' },
+          { label: cinema.name },
+        ]}
       />
 
       {/*

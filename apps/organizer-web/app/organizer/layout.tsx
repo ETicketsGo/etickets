@@ -24,7 +24,17 @@ const nav: NavItem[] = [
   { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
   { label: 'Events', href: '/organizer/events', icon: CalendarDays },
   { label: 'Movies', href: '/organizer/movies', icon: Film },
-  { label: 'Cinemas', href: '/organizer/cinemas', icon: Building2 },
+  /*
+    Named for what an organizer comes here to do, not for the row type underneath.
+
+    This section was called "Cinemas", and it is the ONLY route to a seat map. A concert
+    promoter reading a fourteen-item sidebar sees "Cinemas", correctly concludes it is not
+    for them, and never finds the thing that makes reserved seating possible — which is
+    exactly the report that prompted this. The rows really are cinemas in the database
+    (`Cinema` owns `Screen`, and a screen owns the seat map), and the film-specific pages
+    inside still speak of cinemas and screens because there they are accurate.
+  */
+  { label: 'Rooms & seat maps', href: '/organizer/cinemas', icon: Building2 },
   { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },

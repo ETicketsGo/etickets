@@ -340,6 +340,158 @@ describe('integration-real-postgres: a seated event', () => {
   );
 
   maybe(
+    'a session with nothing sold can be re-seated, in both directions',
+    async () => {
+      /*
+      The obstacle this removes: seating used to be choosable only at creation, so an
+      organizer who realised afterwards that a show should have assigned seats had to delete
+      the session and rebuild it. For a draft nobody has bought from, that is friction with
+      no safety argument behind it.
+
+      Both directions are checked here on purpose — general admission to seated is the journey
+      somebody actually takes, and seated back to general admission is the one that proves it
+      is a reversible setting rather than a one-way door.
+    */
+      const session = await events.addSession(ORGANIZER, eventId, {
+        startsAt: new Date(Date.now() + 40 * 86_400_000),
+        endsAt: new Date(Date.now() + 40 * 86_400_000 + 3 * 3_600_000),
+      } as never);
+      expect(session.screenId).toBeNull();
+
+      // A ticket type the organizer typed by hand, so the replacement rule is exercised.
+      await db!.ticketType.create({
+        data: {
+          eventSessionId: session.id,
+          name: 'General',
+          priceMinor: 20_000,
+          quantityTotal: 100,
+          inventory: { create: { quantityTotal: 100 } },
+        },
+      });
+
+      // ── General admission → seated ──
+      const seated = await events.updateSessionSeating(ORGANIZER, session.id, screenId);
+      expect(seated.screenId).toBe(screenId);
+      expect(seated.seatMapId).toBeTruthy();
+
+      const types = await db!.ticketType.findMany({
+        where: { eventSessionId: session.id },
+        orderBy: { name: 'asc' },
+      });
+      /*
+      Replaced, not merged. The hand-typed 'General' is gone and the room's categories are
+      there instead — keeping both would put two competing prices on the same night, and the
+      room's would silently win at the point of sale.
+    */
+      expect(types.map((t: { name: string }) => t.name)).toEqual(['Balcony', 'Stalls']);
+      expect(await db!.showSeat.count({ where: { eventSessionId: session.id } })).toBe(11);
+
+      // ── Seated → general admission ──
+      const cleared = await events.updateSessionSeating(ORGANIZER, session.id, null);
+      expect(cleared.screenId).toBeNull();
+      expect(cleared.seatMapId).toBeNull();
+      expect(await db!.showSeat.count({ where: { eventSessionId: session.id } })).toBe(0);
+      expect(await db!.ticketType.count({ where: { eventSessionId: session.id } })).toBe(0);
+
+      await db!.eventSession.delete({ where: { id: session.id } });
+    },
+    120_000,
+  );
+
+  maybe(
+    're-seating is refused once a ticket is sold or held, and says how many',
+    async () => {
+      /*
+      The line the whole feature rests on. Past it, changing the room would move seats people
+      have already paid for — so the refusal is unconditional, and it names the number,
+      because "you can't" without "because one ticket is sold" is indistinguishable from a
+      broken button.
+    */
+      const session = await events.addSession(ORGANIZER, eventId, {
+        startsAt: new Date(Date.now() + 41 * 86_400_000),
+        endsAt: new Date(Date.now() + 41 * 86_400_000 + 3 * 3_600_000),
+        screenId,
+      } as never);
+
+      const stalls = await db!.ticketType.findFirst({
+        where: { eventSessionId: session.id, name: 'Stalls' },
+      });
+      await db!.ticketInventory.update({
+        where: { ticketTypeId: stalls.id },
+        data: { quantitySold: 1 },
+      });
+
+      await expect(events.updateSessionSeating(ORGANIZER, session.id, null)).rejects.toThrow(
+        /1 ticket sold/i,
+      );
+
+      /*
+      And a HELD seat blocks it too. A hold is somebody standing at a checkout right now;
+      re-seating underneath them would take the seat they are in the middle of paying for,
+      and "nothing sold yet" is exactly the reading that would allow it.
+    */
+      await db!.ticketInventory.update({
+        where: { ticketTypeId: stalls.id },
+        data: { quantitySold: 0, quantityHeld: 2 },
+      });
+      await expect(events.updateSessionSeating(ORGANIZER, session.id, null)).rejects.toThrow(
+        /2 currently held/i,
+      );
+
+      await db!.showSeat.deleteMany({ where: { eventSessionId: session.id } });
+      await db!.ticketInventory.deleteMany({
+        where: { ticketType: { eventSessionId: session.id } },
+      });
+      await db!.ticketType.deleteMany({ where: { eventSessionId: session.id } });
+      await db!.eventSession.delete({ where: { id: session.id } });
+    },
+    120_000,
+  );
+
+  maybe(
+    'a refused re-seat changes nothing, and says what to fix',
+    async () => {
+      /*
+      Two properties, and they come from different places.
+
+      Nothing changes: the deletes and the re-seat share one transaction, so a refusal rolls
+      them back. That is Postgres doing its job, and this asserts it rather than assuming it.
+
+      And the message is the USEFUL one. Both the room check and the cinema scheduler's own
+      layout lookup will reject an unmapped room, but the scheduler says "generate one before
+      scheduling shows" — wrong vocabulary for a concert, and silent about the layout needing
+      to be PUBLISHED. Running the room check first is what makes the refusal actionable, and
+      reordering the two is what this pattern catches.
+    */
+      const session = await events.addSession(ORGANIZER, eventId, {
+        startsAt: new Date(Date.now() + 42 * 86_400_000),
+        endsAt: new Date(Date.now() + 42 * 86_400_000 + 3 * 3_600_000),
+        screenId,
+      } as never);
+
+      const bare = await db!.screen.create({
+        data: { cinemaId, name: `Unmapped move ${suffix}`, screenType: '2D', capacity: 10 },
+      });
+      await expect(events.updateSessionSeating(ORGANIZER, session.id, bare.id)).rejects.toThrow(
+        /no published seat map/i,
+      );
+
+      const after = await db!.eventSession.findUnique({ where: { id: session.id } });
+      expect(after.screenId).toBe(screenId);
+      expect(await db!.showSeat.count({ where: { eventSessionId: session.id } })).toBe(11);
+
+      await db!.screen.deleteMany({ where: { id: bare.id } });
+      await db!.showSeat.deleteMany({ where: { eventSessionId: session.id } });
+      await db!.ticketInventory.deleteMany({
+        where: { ticketType: { eventSessionId: session.id } },
+      });
+      await db!.ticketType.deleteMany({ where: { eventSessionId: session.id } });
+      await db!.eventSession.delete({ where: { id: session.id } });
+    },
+    120_000,
+  );
+
+  maybe(
     'a room with no published layout is refused, with the reason',
     async () => {
       /*

@@ -72,8 +72,8 @@ export default function NewCinemaPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
-        title="New cinema"
-        breadcrumbs={[{ label: 'Cinemas', href: '/organizer/cinemas' }, { label: 'New' }]}
+        title="New location"
+        breadcrumbs={[{ label: 'Rooms & seat maps', href: '/organizer/cinemas' }, { label: 'New' }]}
       />
       <Card>
         <div className="space-y-4">

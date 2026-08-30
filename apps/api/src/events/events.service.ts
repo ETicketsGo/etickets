@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
@@ -475,30 +476,10 @@ export class EventsService {
   async addSession(user: RequestUser, eventId: string, input: CreateSessionInput) {
     const event = await this.loadOwnedEvent(user, eventId);
 
+    // Same two rules `updateSessionSeating` applies, from one implementation — a room that
+    // is acceptable when a session is created must stay acceptable when it is changed.
     if (input.screenId) {
-      const screen = await this.prisma.screen.findUnique({
-        where: { id: input.screenId },
-        select: {
-          id: true,
-          cinema: { select: { organizationId: true } },
-          seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
-        },
-      });
-      if (!screen || screen.cinema.organizationId !== event.organizationId) {
-        throw new AppException(
-          ErrorCodes.NOT_FOUND,
-          'Room not found for this organization.',
-          HttpStatus.NOT_FOUND,
-        );
-      }
-      if (screen.seatMaps.length === 0) {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          'That room has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
-          HttpStatus.CONFLICT,
-          { screenId: input.screenId },
-        );
-      }
+      await this.assertRoomIsUsable(input.screenId, event.organizationId);
     }
 
     if (!input.screenId) {
@@ -535,6 +516,154 @@ export class EventsService {
       await this.shows.seatSession(tx, session.id, seatMap);
       return session;
     });
+  }
+
+  /**
+   * Change, add or remove a session's room — while nothing has been sold.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * Seating was originally chosen only when a session was created, on the reasoning that
+   * re-seating a session with sold tickets is a refund question rather than a settings
+   * change. That reasoning is sound and it still holds — but it was applied to every
+   * session, including the overwhelming majority that have sold nothing at all.
+   *
+   * The result was an organizer creating an event, realising it should have assigned
+   * seating, and finding no way to say so: the only route was to delete the session and
+   * build it again. For a draft nobody has bought from, that is an obstacle with no
+   * safety argument behind it.
+   *
+   * ── WHAT MAKES IT SAFE ─────────────────────────────────────────────────────────────
+   * One rule, checked in the transaction: nothing may be sold OR HELD. Held matters as
+   * much as sold — a hold is somebody at a checkout right now, and re-seating underneath
+   * them would take the seat they are paying for. Past that line the answer is a refusal
+   * that names the reason, because "you can't" without "because two tickets are sold" is
+   * indistinguishable from a broken button.
+   *
+   * Ticket types are REPLACED, not merged. A seated session derives one per seat category
+   * and a general-admission one carries whatever was typed; keeping both would leave two
+   * competing prices on the same night. Nothing is sold, so a ticket type here is draft
+   * configuration rather than a commitment — but the caller is told the count first, so
+   * the organizer confirms the loss rather than discovering it.
+   */
+  async updateSessionSeating(user: RequestUser, sessionId: string, screenId: string | null) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      include: { event: { select: { id: true, organizationId: true } } },
+    });
+    if (!session) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, session.event.organizationId, ORGANIZER_ROLES);
+
+    await this.assertNothingCommitted(sessionId);
+
+    if (screenId) {
+      await this.assertRoomIsUsable(screenId, session.event.organizationId);
+    }
+
+    /*
+      Validated and resolved BEFORE the transaction opens, for the error message rather than
+      for safety. A refusal raised inside would still roll back cleanly — Postgres sees to
+      that, and the test asserts it — so nothing can be half-changed either way.
+
+      What the ordering buys is WHICH check speaks first. `resolveLayoutForShow` is the
+      cinema scheduler's own lookup and it fails with "generate one before scheduling shows",
+      which is the wrong vocabulary for somebody adding seats to a concert and does not say
+      the layout has to be PUBLISHED. Running the room check first means an organizer is told
+      what to actually do. It also keeps a multi-query read outside an open transaction.
+    */
+    const seatMap = screenId
+      ? await this.shows.resolveLayoutForShow(screenId, session.startsAt)
+      : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Re-checked inside the transaction. The check above gives a good error message; this
+      // one closes the window between reading and writing, where a booking can land.
+      await this.assertNothingCommitted(sessionId, tx);
+
+      await tx.showSeat.deleteMany({ where: { eventSessionId: sessionId } });
+      // Inventory first — it holds the foreign key.
+      await tx.ticketInventory.deleteMany({ where: { ticketType: { eventSessionId: sessionId } } });
+      await tx.ticketType.deleteMany({ where: { eventSessionId: sessionId } });
+
+      const updated = await tx.eventSession.update({
+        where: { id: sessionId },
+        data: { screenId: screenId ?? null, seatMapId: seatMap?.id ?? null },
+      });
+      if (seatMap) await this.shows.seatSession(tx, sessionId, seatMap);
+      return updated;
+    });
+  }
+
+  /**
+   * Refuse once anything is sold or held, and say which.
+   *
+   * Counts bookings as well as inventory: a booking exists from the moment somebody starts
+   * checking out, before any inventory number moves, and it is the earliest signal that a
+   * real person is depending on this session's seats.
+   */
+  private async assertNothingCommitted(
+    sessionId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+
+    const bookings = await db.booking.count({
+      where: { eventSessionId: sessionId, status: { notIn: ['CANCELLED', 'EXPIRED'] } },
+    });
+    if (bookings > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `Seating cannot be changed: this session already has ${bookings} booking${
+          bookings === 1 ? '' : 's'
+        }. Changing the room would move seats people have already paid for.`,
+        HttpStatus.CONFLICT,
+        { sessionId, bookings },
+      );
+    }
+
+    const committed = await db.ticketInventory.aggregate({
+      where: { ticketType: { eventSessionId: sessionId } },
+      _sum: { quantitySold: true, quantityHeld: true },
+    });
+    const sold = committed._sum.quantitySold ?? 0;
+    const held = committed._sum.quantityHeld ?? 0;
+    if (sold > 0 || held > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `Seating cannot be changed: ${sold} ticket${sold === 1 ? '' : 's'} sold and ${held} ` +
+          `currently held for this session.`,
+        HttpStatus.CONFLICT,
+        { sessionId, sold, held },
+      );
+    }
+  }
+
+  /** The room belongs to this organization and has a published layout. Shared with addSession. */
+  private async assertRoomIsUsable(screenId: string, organizationId: string): Promise<void> {
+    const screen = await this.prisma.screen.findUnique({
+      where: { id: screenId },
+      select: {
+        id: true,
+        cinema: { select: { organizationId: true } },
+        seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
+      },
+    });
+    if (!screen || screen.cinema.organizationId !== organizationId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Room not found for this organization.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (screen.seatMaps.length === 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That room has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
+        HttpStatus.CONFLICT,
+        { screenId },
+      );
+    }
   }
 
   async addTicketType(user: RequestUser, input: CreateTicketTypeInput) {

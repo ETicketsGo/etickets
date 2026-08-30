@@ -760,6 +760,12 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    /** Change, add (screenId) or remove (null) a session's room. Refused once anything sold. */
+    updateSessionSeating: (sessionId: string, screenId: string | null) =>
+      request<EventSession>(`/events/sessions/${sessionId}/seating`, {
+        method: 'PATCH',
+        body: JSON.stringify({ screenId }),
+      }),
     addTicketType: (body: CreateTicketTypeBody) =>
       request<TicketType>('/events/ticket-types', { method: 'POST', body: JSON.stringify(body) }),
     updateTicketType: (id: string, body: UpdateTicketTypeBody) =>
