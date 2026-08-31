@@ -269,6 +269,16 @@ export class OrganizationsService {
   async inviteMember(user: RequestUser, orgId: string, input: InviteMemberInput) {
     await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER]);
 
+    /*
+      Resolved first, before anything is written.
+
+      It throws when the environment cannot produce a reachable link, and doing that after
+      creating the member would leave a person listed on the team with no invitation and no
+      way in — the exact state this whole change exists to remove, reintroduced by the error
+      path. Nothing is created unless the invitation can actually be delivered.
+    */
+    this.organizerBaseUrl();
+
     let invitee = await this.prisma.user.findUnique({ where: { email: input.email } });
     const isNewAccount = !invitee;
     if (!invitee) {
@@ -346,8 +356,38 @@ export class OrganizationsService {
       update: { tokenHash, expiresAt, invitedByUserId, acceptedAt: null },
     });
 
-    const base = this.config.get<string>('ORGANIZER_WEB_URL') ?? 'http://localhost:3001';
-    return `${base.replace(/\/+$/, '')}/invite/${token}`;
+    return `${this.organizerBaseUrl()}/invite/${token}`;
+  }
+
+  /**
+   * Where the invitee should be sent, or a refusal that names the missing variable.
+   *
+   * The localhost fallback is right for a laptop and catastrophic anywhere else: QA handed
+   * out `http://localhost:3001/invite/<token>` for its first hour, which is a link nobody
+   * but the developer can open. It failed silently — the invitation was real, the token was
+   * valid, and the recipient simply could not reach it.
+   *
+   * So the fallback now applies only where it is true. Anywhere else this throws, because an
+   * error telling an operator to set ORGANIZER_WEB_URL is recoverable in a minute, and a
+   * dead link sent to a new colleague is not recoverable at all — nobody finds out until
+   * they ask why they never got in.
+   *
+   * Keyed on APP_ENV, not NODE_ENV: QA and UAT both run NODE_ENV=production, so NODE_ENV
+   * cannot tell a deployment from a laptop, and this codebase has been caught by that before.
+   */
+  private organizerBaseUrl(): string {
+    const configured = this.config.get<string>('ORGANIZER_WEB_URL')?.trim();
+    if (configured) return configured.replace(/\/+$/, '');
+
+    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
+    if (['LOCAL', 'DEV'].includes(appEnv)) return 'http://localhost:3001';
+
+    throw new AppException(
+      ErrorCodes.INTERNAL,
+      'Invitations cannot be sent: ORGANIZER_WEB_URL is not configured, so the link would point at localhost. Set it to the organizer console URL for this environment.',
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      { appEnv },
+    );
   }
 
   /**
