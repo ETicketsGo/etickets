@@ -45,7 +45,11 @@ type Client = InstanceType<typeof PrismaClient>;
 
 const noAudit = { record: async () => undefined } as never;
 const noAudience = { notifyAdmins: async () => undefined } as never;
-const cfg = { get: () => 'http://localhost:3001' } as never;
+/** Stands in for the deployed organizer console, so link-host assertions mean something. */
+const ORGANIZER_BASE = 'https://organizer.example.test';
+const cfg = {
+  get: (k: string) => (k === 'ORGANIZER_WEB_URL' ? ORGANIZER_BASE : 'QA'),
+} as never;
 
 describe('integration-real-postgres: team invitations', () => {
   const url = loadDatabaseUrl();
@@ -128,7 +132,13 @@ describe('integration-real-postgres: team invitations', () => {
         role: 'CHECKIN_STAFF',
       } as never);
 
-      expect(invited.inviteUrl).toContain('/invite/');
+      /*
+        The HOST, not just the path. QA shipped `http://localhost:3001/invite/<token>` for its
+        first hour — a real invitation, a valid token, and a link only a developer could open.
+        The e2e missed it because it navigated by pathname, so the assertion lives here where
+        the URL is built.
+      */
+      expect(invited.inviteUrl.startsWith(`${ORGANIZER_BASE}/invite/`)).toBe(true);
       expect(invited.needsPassword).toBe(true);
       expect(invited.status).toBe('INVITED');
 
@@ -256,6 +266,37 @@ describe('integration-real-postgres: team invitations', () => {
       await expect(orgs.describeInvitation(tokenFrom(invited.inviteUrl))).rejects.toThrow(
         /expired/i,
       );
+    },
+    120_000,
+  );
+
+  maybe(
+    'a deployed environment refuses to mint a localhost link',
+    async () => {
+      /*
+        The silent failure, made loud. An operator who forgets ORGANIZER_WEB_URL gets an
+        error naming the variable, instead of colleagues who never receive a usable link and
+        nobody finding out for days.
+      */
+      const unconfigured = new OrganizationsService(db as never, access, noAudit, noAudience, {
+        get: (k: string) => (k === 'APP_ENV' ? 'QA' : undefined),
+      } as never);
+      await expect(
+        unconfigured.inviteMember(owner as never, orgId, {
+          email: `nolink-${suffix}@test.invalid`,
+          role: 'CHECKIN_STAFF',
+        } as never),
+      ).rejects.toThrow(/ORGANIZER_WEB_URL/);
+
+      /*
+        And it refused BEFORE writing anything. Creating the member first and failing on the
+        link would leave somebody listed on the team with no invitation and no way in — which
+        is precisely the state this change exists to remove.
+      */
+      const orphan = await db!.organizationMember.findFirst({
+        where: { organizationId: orgId, user: { email: `nolink-${suffix}@test.invalid` } },
+      });
+      expect(orphan).toBeNull();
     },
     120_000,
   );
