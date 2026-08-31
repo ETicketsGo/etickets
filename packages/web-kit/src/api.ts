@@ -471,7 +471,26 @@ export const api = {
       request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
-      request<OrgMember>(`/organizations/${id}/members`, {
+      request<InvitedMember>(`/organizations/${id}/members`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /** A fresh link for somebody who has not accepted yet. Refused once they have joined. */
+    resendInvite: (id: string, memberId: string) =>
+      request<{ inviteUrl: string; email: string }>(
+        `/organizations/${id}/members/${memberId}/resend-invite`,
+        { method: 'POST' },
+      ),
+  },
+
+  /**
+   * Accepting a team invitation — unauthenticated, because the invitee may have no account.
+   * The token in the URL is the credential.
+   */
+  invitations: {
+    describe: (token: string) => request<InvitationSummary>(`/public/invitations/${token}`),
+    accept: (token: string, body: { fullName?: string; password?: string }) =>
+      request<AcceptedInvitation>(`/public/invitations/${token}/accept`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
@@ -1795,6 +1814,29 @@ export interface OrgMember {
   role: string;
   status: string;
   user: { id: string; email: string; fullName: string };
+}
+/** What `invite` returns: the member, plus the link to actually send them. */
+export interface InvitedMember extends OrgMember {
+  /**
+   * Returned as well as emailed, because `EMAIL_PROVIDER=log` swallows mail in every
+   * environment configured so far. The owner can copy this and send it themselves.
+   */
+  inviteUrl: string;
+  /** True when the invite created the account, so accepting must set a password. */
+  needsPassword: boolean;
+}
+export interface InvitationSummary {
+  email: string;
+  organizationName: string;
+  role: string;
+  needsPassword: boolean;
+  expiresAt: string;
+}
+export interface AcceptedInvitation {
+  email: string;
+  organizationId: string;
+  organizationName: string;
+  role: string;
 }
 export interface NotificationItem {
   id: string;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
-import { emailSchema } from './common';
+import { emailSchema, passwordSchema } from './common';
 
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -81,6 +81,21 @@ export const inviteMemberSchema = z.object({
   role: z.enum([Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF, Role.ORGANIZER_OWNER]),
 });
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
+
+/**
+ * Accepting a team invitation.
+ *
+ * Both fields are optional because the two kinds of invitee need different things. Somebody
+ * who already had an account keeps the password they know and supplies neither; somebody the
+ * invite created has no usable credential and must choose one. Which case applies is the
+ * SERVER's judgement, not the client's — it is derived from the account, and the server
+ * refuses a missing password when one is genuinely required.
+ */
+export const acceptInvitationSchema = z.object({
+  fullName: z.string().trim().min(1).max(120).optional(),
+  password: passwordSchema.optional(),
+});
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 
 export const reviewDecisionSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),

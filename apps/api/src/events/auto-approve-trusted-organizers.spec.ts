@@ -145,6 +145,8 @@ function trustSetup(over: { status?: string; approvedEvents?: number } = {}) {
     { assertMember: async () => undefined, isPlatformAdmin: () => true } as never,
     { record } as never,
     { notifyAdmins: jest.fn(), notifyOrganizationOwners: jest.fn() } as never,
+    // Only read when building an invitation link, which nothing in this suite does.
+    { get: () => 'http://localhost:3001' } as never,
   );
   return { service, update, record, prisma };
 }

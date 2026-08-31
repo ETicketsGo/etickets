@@ -3,12 +3,14 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import {
+  acceptInvitationSchema,
   createOrganizationSchema,
   inviteMemberSchema,
   paginationSchema,
   reviewDecisionSchema,
   updateOrganizationLegalIdentitySchema,
   updateOrganizationProfileSchema,
+  type AcceptInvitationInput,
   type CreateOrganizationInput,
   type InviteMemberInput,
   type ReviewDecisionInput,
@@ -16,7 +18,7 @@ import {
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
-import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @ApiTags('organizations')
@@ -89,6 +91,52 @@ export class OrganizationsController {
     @Body(new ZodValidationPipe(inviteMemberSchema)) body: InviteMemberInput,
   ) {
     return this.orgs.inviteMember(user, id, body);
+  }
+
+  @Post(':id/members/:memberId/resend-invite')
+  @ApiOperation({
+    summary: 'Issue a fresh invitation link for a member who has not accepted yet.',
+  })
+  resendInvite(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('memberId') memberId: string,
+  ) {
+    return this.orgs.resendInvitation(user, id, memberId);
+  }
+}
+
+/**
+ * Accepting an invitation, without being signed in.
+ *
+ * Its own controller because the whole point is that the invitee may have NO ACCOUNT — the
+ * organizations controller carries `@ApiBearerAuth()` and sits behind the global auth guard,
+ * and an invite path that requires a session is a door that only opens from inside.
+ *
+ * The token is the credential here. It is single-use, hashed at rest, and expires; and an
+ * unknown token is answered exactly like a spent one, so the endpoint cannot be used to
+ * discover which invitations exist.
+ */
+@ApiTags('invitations')
+@Controller('public/invitations')
+export class PublicInvitationsController {
+  constructor(private readonly orgs: OrganizationsService) {}
+
+  @Public()
+  @Get(':token')
+  @ApiOperation({ summary: 'What this invitation is for, so the page can be rendered.' })
+  describe(@Param('token') token: string) {
+    return this.orgs.describeInvitation(token);
+  }
+
+  @Public()
+  @Post(':token/accept')
+  @ApiOperation({ summary: 'Accept an invitation. The only route from INVITED to ACTIVE.' })
+  accept(
+    @Param('token') token: string,
+    @Body(new ZodValidationPipe(acceptInvitationSchema)) body: AcceptInvitationInput,
+  ) {
+    return this.orgs.acceptInvitation(token, body);
   }
 }
 
