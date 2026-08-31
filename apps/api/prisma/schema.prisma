@@ -417,6 +417,7 @@ model User {
   updatedAt    DateTime   @updatedAt
 
   refreshTokens           RefreshToken[]
+  invitationsSent         OrganizationInvitation[] @relation("InvitationsSent")
   memberships             OrganizationMember[]
   bookings                Booking[]
   assignedTickets         Ticket[]                 @relation("TicketAttendee")
@@ -521,6 +522,43 @@ model PushSubscription {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+/// A pending invitation to join an organization's team.
+///
+/// ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+/// Inviting somebody used to create an `OrganizationMember` at status INVITED and stop
+/// there. Nothing in the codebase ever moved a member to ACTIVE, and `assertMember`
+/// refuses anything that is not ACTIVE — so every invited team member was locked out of
+/// the organization they had just been added to.
+///
+/// When the invitee had no account yet it was worse: a User row was created with a random
+/// password nobody could know, which then made self-registration fail with "email already
+/// registered". There is no password-reset flow, so that account could never be used again.
+/// The invite silently bricked the address.
+///
+/// This row is the missing half — the thing an invitee can present to prove the invitation
+/// was meant for them, and the only route from INVITED to ACTIVE.
+model OrganizationInvitation {
+  id       String             @id @default(cuid())
+  memberId String             @unique
+  member   OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token, never the token itself — same reasoning as RefreshToken.
+  /// A leaked database must not hand somebody else's team access to the reader.
+  tokenHash String @unique
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  /// Who sent it, kept for the audit trail and so "who let this person in" has an answer.
+  invitedByUserId String
+  invitedBy       User   @relation("InvitationsSent", fields: [invitedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([memberId])
 }
 
 model RefreshToken {
@@ -631,6 +669,8 @@ model OrganizationMember {
   status         MemberStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  invitation OrganizationInvitation?
 
   @@unique([organizationId, userId])
   @@index([userId])
