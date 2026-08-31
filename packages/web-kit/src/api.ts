@@ -1125,6 +1125,15 @@ export const api = {
           presets: { key: string; label: string; description: string; grants: string[] }[];
         }>('/admin/staff/catalogue'),
       list: () => request<AdminStaffMember[]>('/admin/staff'),
+      /**
+       * Add somebody who has no account yet. Returns the link that lets them claim it and
+       * choose their own password, so no administrator ever sees a credential.
+       */
+      invite: (email: string, permissions: string[]) =>
+        request<{ id: string; email: string; inviteUrl: string }>('/admin/staff/invite', {
+          method: 'POST',
+          body: JSON.stringify({ email, permissions }),
+        }),
       setPermissions: (userId: string, permissions: string[], note?: string) =>
         request<{ userId: string; permissions: string[] }>(`/admin/staff/${userId}/permissions`, {
           method: 'PUT',

@@ -417,7 +417,8 @@ model User {
   updatedAt    DateTime   @updatedAt
 
   refreshTokens           RefreshToken[]
-  invitationsSent         OrganizationInvitation[] @relation("InvitationsSent")
+  invitationsSent         AccountInvitation[]      @relation("InvitationsSent")
+  invitationReceived      AccountInvitation?       @relation("InvitationsReceived")
   memberships             OrganizationMember[]
   bookings                Booking[]
   assignedTickets         Ticket[]                 @relation("TicketAttendee")
@@ -524,41 +525,51 @@ model PushSubscription {
   @@index([userId])
 }
 
-/// A pending invitation to join an organization's team.
+/// A pending invitation to claim an account, and optionally to join a team with it.
 ///
-/// ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
-/// Inviting somebody used to create an `OrganizationMember` at status INVITED and stop
-/// there. Nothing in the codebase ever moved a member to ACTIVE, and `assertMember`
-/// refuses anything that is not ACTIVE — so every invited team member was locked out of
-/// the organization they had just been added to.
+/// -- WHY THIS IS ABOUT A USER, NOT A MEMBERSHIP -------------------------------------
+/// It began as an organization-team invitation, because that is where the defect was
+/// found: inviting somebody created a member at status INVITED, nothing ever moved a
+/// member to ACTIVE, and an invitee with no account got one with a random password nobody
+/// could know — which then made self-registration fail and bricked the address.
 ///
-/// When the invitee had no account yet it was worse: a User row was created with a random
-/// password nobody could know, which then made self-registration fail with "email already
-/// registered". There is no password-reset flow, so that account could never be used again.
-/// The invite silently bricked the address.
+/// The BACK-OFFICE staff screen had the same hole for the same reason, and had written it
+/// down as a deliberate limitation: it would only search accounts that already existed,
+/// because "minting credentials here would mean this screen handing out passwords the
+/// account holder never picked". That reasoning was right, and this row is what makes it
+/// obsolete — the invitee sets their own password and no administrator ever sees it.
 ///
-/// This row is the missing half — the thing an invitee can present to prove the invitation
-/// was meant for them, and the only route from INVITED to ACTIVE.
-model OrganizationInvitation {
-  id       String             @id @default(cuid())
-  memberId String             @unique
-  member   OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+/// So the invitation is about the USER: proving the address holder wants the account and
+/// choosing their password. Joining a team is a consequence, carried in the optional
+/// `organizationMemberId`. Modelling it the other way would have meant a second, parallel
+/// invitation system for admins, and this codebase has already paid once for a rule that
+/// existed in two places.
+model AccountInvitation {
+  id     String @id @default(cuid())
+  /// One live invitation per account. A resend replaces it rather than adding a second key.
+  userId String @unique
+  user   User   @relation("InvitationsReceived", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Set when accepting should also activate a team membership. Null for back-office staff,
+  /// whose capabilities are granted on the account itself.
+  organizationMemberId String?             @unique
+  organizationMember   OrganizationMember? @relation(fields: [organizationMemberId], references: [id], onDelete: Cascade)
 
   /// SHA-256 of the token, never the token itself — same reasoning as RefreshToken.
-  /// A leaked database must not hand somebody else's team access to the reader.
+  /// A leaked database must not hand the reader somebody else's access.
   tokenHash String @unique
 
   expiresAt  DateTime
   acceptedAt DateTime?
 
-  /// Who sent it, kept for the audit trail and so "who let this person in" has an answer.
+  /// Who sent it, so "who let this person in" has an answer during an investigation.
   invitedByUserId String
   invitedBy       User   @relation("InvitationsSent", fields: [invitedByUserId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([memberId])
+  @@index([userId])
 }
 
 model RefreshToken {
@@ -670,7 +681,7 @@ model OrganizationMember {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  invitation OrganizationInvitation?
+  invitation AccountInvitation?
 
   @@unique([organizationId, userId])
   @@index([userId])
