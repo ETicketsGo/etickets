@@ -69,6 +69,8 @@ describe('integration-real-postgres: admin permissions', () => {
           audited.push(e);
         },
       } as never,
+      // Only reached by inviteStaff, which this suite does not exercise.
+      { issueInvitation: async () => 'http://localhost:3001/invite/unused' } as never,
     );
 
     superId = (

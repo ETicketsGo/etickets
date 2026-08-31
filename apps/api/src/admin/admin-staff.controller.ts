@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, ALL_ADMIN_PERMISSIONS, Role } from '@eticketsgo/shared-types';
@@ -9,6 +9,12 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 const permissionsBody = z.object({
   permissions: z.array(z.enum(ALL_ADMIN_PERMISSIONS as [string, ...string[]])).max(50),
   note: z.string().trim().max(200).optional(),
+});
+
+/** Inviting somebody who has no account yet: an address, and what they may do. */
+const inviteStaffBody = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  permissions: z.array(z.enum(ALL_ADMIN_PERMISSIONS as [string, ...string[]])).max(50),
 });
 
 /**
@@ -61,6 +67,17 @@ export class AdminStaffController {
     @Body(new ZodValidationPipe(permissionsBody)) body: z.infer<typeof permissionsBody>,
   ) {
     return this.staff.grantAdminRole(actor, userId, body.permissions as AdminPermission[]);
+  }
+
+  @Post('invite')
+  @ApiOperation({
+    summary: 'Invite somebody who has no account yet, and grant them back-office duties.',
+  })
+  invite(
+    @CurrentUser() actor: RequestUser,
+    @Body(new ZodValidationPipe(inviteStaffBody)) body: z.infer<typeof inviteStaffBody>,
+  ) {
+    return this.staff.inviteStaff(actor, body.email, body.permissions as AdminPermission[]);
   }
 
   @Delete(':userId/admin-role')

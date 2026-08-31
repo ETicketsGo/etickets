@@ -4,9 +4,11 @@ import { AdminStaffService } from './admin-staff.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { MoviesModule } from '../movies/movies.module';
+// For the one invitation implementation — the staff screen must not grow its own.
+import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
-  imports: [MoviesModule],
+  imports: [MoviesModule, OrganizationsModule],
   controllers: [AdminController, AdminStaffController],
   providers: [AdminService, AdminStaffService],
 })

@@ -1,4 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
+import * as bcrypt from 'bcryptjs';
 import {
   ADMIN_PRESETS,
   ALL_ADMIN_PERMISSIONS,
@@ -7,6 +9,7 @@ import {
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 
@@ -23,6 +26,7 @@ export class AdminStaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly invitations: OrganizationsService,
   ) {}
 
   /** The catalogue and the ready-made bundles, so the console need not hardcode either. */
@@ -161,6 +165,70 @@ export class AdminStaffService {
       });
     }
     return this.setPermissions({ ...actor }, userId, permissions);
+  }
+
+  /**
+   * Add somebody to the back office who has not signed up yet.
+   *
+   * -- WHY THIS DID NOT EXIST -------------------------------------------------------
+   * The staff screen would only search accounts that ALREADY existed, and said why:
+   * "minting credentials here would mean this screen handing out passwords that the
+   * account holder never picked and an administrator has seen." That was a good reason.
+   *
+   * It stopped being a reason when invitations arrived. The invitee sets their own
+   * password through a single-use link; no administrator ever sees a credential, and the
+   * account cannot be signed into until they do. So the limitation is lifted by reusing
+   * that mechanism rather than by relaxing the principle behind it.
+   *
+   * -- WHAT IS GRANTED, AND WHEN ----------------------------------------------------
+   * The duties are granted NOW, not on acceptance, and that is safe because an unaccepted
+   * account carries a password hash bcrypt can never match — it holds capabilities it has
+   * no way to exercise. Granting on acceptance instead would mean the permissions an
+   * administrator chose could silently differ from the ones that eventually landed, days
+   * later, with nobody watching.
+   */
+  async inviteStaff(actor: RequestUser, email: string, permissions: AdminPermission[]) {
+    const normalised = email.trim().toLowerCase();
+
+    const existing = await this.prisma.user.findUnique({ where: { email: normalised } });
+    if (existing) {
+      /*
+        Refused rather than quietly promoted. Somebody who already has an account can be
+        found by the search this screen already offers, and granting back-office access to
+        an address that turns out to belong to an existing customer — because of a typo —
+        should require seeing who they are first.
+      */
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That address already has an ETicketsGo account. Search for them instead, so you can see who you are granting access to.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: normalised,
+        fullName: normalised.split('@')[0],
+        // Same placeholder the organization invite path writes: unmatched by bcrypt, so the
+        // account is inert until the invitation is accepted and a real password chosen.
+        passwordHash: `invite-pending$${await bcrypt.hash(randomBytes(32).toString('hex'), 10)}`,
+        roles: [Role.CUSTOMER],
+      },
+    });
+
+    await this.grantAdminRole(actor, user.id, permissions);
+    // The ADMIN console: a back-office invitee has no business in the organizer app.
+    const inviteUrl = await this.invitations.issueInvitation(user.id, actor.id, undefined, 'admin');
+
+    await this.audit.record({
+      actorUserId: actor.id,
+      action: 'BACK_OFFICE_INVITED',
+      entityType: 'User',
+      entityId: user.id,
+      metadata: { email: normalised, permissions },
+    });
+
+    return { id: user.id, email: normalised, inviteUrl };
   }
 
   /** Remove back-office access entirely: the role and every capability with it. */

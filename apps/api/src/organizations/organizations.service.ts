@@ -34,6 +34,13 @@ const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const INVITE_PLACEHOLDER_PREFIX = 'invite-pending$';
 
+/** Which console an invitee belongs in, and how to find its URL. */
+type ConsoleKind = 'organizer' | 'admin';
+const CONSOLES: Record<ConsoleKind, { variable: string; devPort: number }> = {
+  organizer: { variable: 'ORGANIZER_WEB_URL', devPort: 3001 },
+  admin: { variable: 'ADMIN_WEB_URL', devPort: 3002 },
+};
+
 function slugify(name: string): string {
   return `${name
     .toLowerCase()
@@ -277,7 +284,7 @@ export class OrganizationsService {
       way in — the exact state this whole change exists to remove, reintroduced by the error
       path. Nothing is created unless the invitation can actually be delivered.
     */
-    this.organizerBaseUrl();
+    this.consoleBaseUrl('organizer');
 
     let invitee = await this.prisma.user.findUnique({ where: { email: input.email } });
     const isNewAccount = !invitee;
@@ -334,59 +341,81 @@ export class OrganizationsService {
       metadata: { role: input.role },
     });
 
-    const inviteUrl = await this.issueInvitation(member.id, user.id);
+    const inviteUrl = await this.issueInvitation(invitee.id, user.id, member.id);
     return { ...member, inviteUrl, needsPassword: isNewAccount };
   }
 
   /**
-   * Mint (or replace) the invitation for a member and return the link to send them.
+   * Mint (or replace) somebody's invitation and return the link to send them.
+   *
+   * Public because the back-office staff screen needs exactly this and must not grow its
+   * own copy — a second invitation mechanism would be a second place for the token rules,
+   * the expiry and the localhost guard to drift.
    *
    * Replacing rather than reusing: a resend must invalidate whatever went before, or an old
-   * link forwarded to the wrong person still works. One live invitation per member, which
-   * the unique key on `memberId` enforces rather than merely encourages.
+   * link forwarded to the wrong person still works. One live invitation per account, which
+   * the unique key on `userId` enforces rather than merely encourages.
    */
-  private async issueInvitation(memberId: string, invitedByUserId: string): Promise<string> {
+  async issueInvitation(
+    userId: string,
+    invitedByUserId: string,
+    organizationMemberId?: string,
+    console: ConsoleKind = 'organizer',
+  ): Promise<string> {
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
 
-    await this.prisma.organizationInvitation.upsert({
-      where: { memberId },
-      create: { memberId, tokenHash, expiresAt, invitedByUserId },
-      update: { tokenHash, expiresAt, invitedByUserId, acceptedAt: null },
+    await this.prisma.accountInvitation.upsert({
+      where: { userId },
+      create: { userId, organizationMemberId, tokenHash, expiresAt, invitedByUserId },
+      update: {
+        tokenHash,
+        expiresAt,
+        invitedByUserId,
+        acceptedAt: null,
+        // Repointed, not merged: a second invitation to the same person supersedes the
+        // first, and leaving a stale membership attached would activate the wrong thing.
+        organizationMemberId: organizationMemberId ?? null,
+      },
     });
 
-    return `${this.organizerBaseUrl()}/invite/${token}`;
+    return `${this.consoleBaseUrl(console)}/invite/${token}`;
   }
 
   /**
    * Where the invitee should be sent, or a refusal that names the missing variable.
+   *
+   * Which console matters. A back-office invitee sent to the ORGANIZER app would set their
+   * password in a product they have no account in and then be told to sign in somewhere
+   * they have not been shown — so the link goes to the console the invitation is for.
    *
    * The localhost fallback is right for a laptop and catastrophic anywhere else: QA handed
    * out `http://localhost:3001/invite/<token>` for its first hour, which is a link nobody
    * but the developer can open. It failed silently — the invitation was real, the token was
    * valid, and the recipient simply could not reach it.
    *
-   * So the fallback now applies only where it is true. Anywhere else this throws, because an
-   * error telling an operator to set ORGANIZER_WEB_URL is recoverable in a minute, and a
-   * dead link sent to a new colleague is not recoverable at all — nobody finds out until
-   * they ask why they never got in.
+   * So the fallback applies only where it is true. Anywhere else this throws, because an
+   * error naming the variable is recoverable in a minute, and a dead link sent to a new
+   * colleague is not recoverable at all — nobody finds out until they ask why they never
+   * got in.
    *
    * Keyed on APP_ENV, not NODE_ENV: QA and UAT both run NODE_ENV=production, so NODE_ENV
    * cannot tell a deployment from a laptop, and this codebase has been caught by that before.
    */
-  private organizerBaseUrl(): string {
-    const configured = this.config.get<string>('ORGANIZER_WEB_URL')?.trim();
+  private consoleBaseUrl(kind: ConsoleKind): string {
+    const { variable, devPort } = CONSOLES[kind];
+    const configured = this.config.get<string>(variable)?.trim();
     if (configured) return configured.replace(/\/+$/, '');
 
     const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
-    if (['LOCAL', 'DEV'].includes(appEnv)) return 'http://localhost:3001';
+    if (['LOCAL', 'DEV'].includes(appEnv)) return `http://localhost:${devPort}`;
 
     throw new AppException(
       ErrorCodes.INTERNAL,
-      'Invitations cannot be sent: ORGANIZER_WEB_URL is not configured, so the link would point at localhost. Set it to the organizer console URL for this environment.',
+      `Invitations cannot be sent: ${variable} is not configured, so the link would point at localhost. Set it to the ${kind} console URL for this environment.`,
       HttpStatus.INTERNAL_SERVER_ERROR,
-      { appEnv },
+      { appEnv, variable },
     );
   }
 
@@ -401,15 +430,20 @@ export class OrganizationsService {
   async describeInvitation(token: string) {
     const invitation = await this.loadInvitation(token);
     return {
-      email: invitation.member.user.email,
-      organizationName: invitation.member.organization.name,
-      role: invitation.member.role,
+      email: invitation.user.email,
+      /*
+        Back-office invitations belong to no organization. Saying "the ETicketsGo back
+        office" is the truth for them; inventing an organization name would not be.
+      */
+      organizationName:
+        invitation.organizationMember?.organization.name ?? 'the ETicketsGo back office',
+      role: invitation.organizationMember?.role ?? 'BACK_OFFICE',
       /*
         Whether to ask for a password. An invitee who already had an account keeps the
         password they know; asking them to set a new one would let anybody holding a
         forwarded link change the credentials of an existing user.
       */
-      needsPassword: !invitation.member.user.hasUsablePassword,
+      needsPassword: !invitation.hasUsablePassword,
       expiresAt: invitation.expiresAt,
     };
   }
@@ -422,9 +456,9 @@ export class OrganizationsService {
    */
   async acceptInvitation(token: string, input: AcceptInvitationInput) {
     const invitation = await this.loadInvitation(token);
-    const { member } = invitation;
+    const { user: account, organizationMember: member } = invitation;
 
-    if (!member.user.hasUsablePassword && !input.password) {
+    if (!invitation.hasUsablePassword && !input.password) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
         'Choose a password to finish setting up your account.',
@@ -433,7 +467,7 @@ export class OrganizationsService {
     }
 
     const userUpdate: { passwordHash?: string; fullName?: string } = {};
-    if (!member.user.hasUsablePassword && input.password) {
+    if (!invitation.hasUsablePassword && input.password) {
       userUpdate.passwordHash = await bcrypt.hash(input.password, 10);
       // The placeholder name is the email's local part, set when the invite created the
       // account. Replace it only if they gave us something real.
@@ -442,12 +476,16 @@ export class OrganizationsService {
 
     await this.prisma.$transaction(async (tx) => {
       if (Object.keys(userUpdate).length > 0) {
-        await tx.user.update({ where: { id: member.userId }, data: userUpdate });
+        await tx.user.update({ where: { id: account.id }, data: userUpdate });
       }
-      await tx.organizationMember.update({
-        where: { id: member.id },
-        data: { status: 'ACTIVE' },
-      });
+      // Only when the invitation carried one. A back-office invitation activates the
+      // account itself; its capabilities were granted when it was sent.
+      if (member) {
+        await tx.organizationMember.update({
+          where: { id: member.id },
+          data: { status: 'ACTIVE' },
+        });
+      }
       /*
         Marked accepted rather than deleted, so the row keeps who invited whom and when.
 
@@ -457,26 +495,26 @@ export class OrganizationsService {
         spent, the token's hash is no longer in the table at all, so somebody who later
         obtains a copy of the link cannot even confirm which invitation it belonged to.
       */
-      await tx.organizationInvitation.update({
+      await tx.accountInvitation.update({
         where: { id: invitation.id },
         data: { acceptedAt: new Date(), tokenHash: `accepted:${invitation.id}` },
       });
     });
 
     await this.audit.record({
-      actorUserId: member.userId,
-      organizationId: member.organizationId,
-      action: 'MEMBER_INVITE_ACCEPTED',
-      entityType: 'OrganizationMember',
-      entityId: member.id,
-      metadata: { role: member.role },
+      actorUserId: account.id,
+      organizationId: member?.organizationId,
+      action: member ? 'MEMBER_INVITE_ACCEPTED' : 'BACK_OFFICE_INVITE_ACCEPTED',
+      entityType: member ? 'OrganizationMember' : 'User',
+      entityId: member?.id ?? account.id,
+      metadata: member ? { role: member.role } : {},
     });
 
     return {
-      email: member.user.email,
-      organizationId: member.organizationId,
-      organizationName: member.organization.name,
-      role: member.role,
+      email: account.email,
+      organizationId: member?.organizationId ?? null,
+      organizationName: member?.organization.name ?? 'the ETicketsGo back office',
+      role: member?.role ?? 'BACK_OFFICE',
     };
   }
 
@@ -488,15 +526,11 @@ export class OrganizationsService {
    */
   private async loadInvitation(token: string) {
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const invitation = await this.prisma.organizationInvitation.findUnique({
+    const invitation = await this.prisma.accountInvitation.findUnique({
       where: { tokenHash },
       include: {
-        member: {
-          include: {
-            organization: { select: { name: true } },
-            user: { select: { id: true, email: true, fullName: true, passwordHash: true } },
-          },
-        },
+        user: { select: { id: true, email: true, fullName: true, passwordHash: true } },
+        organizationMember: { include: { organization: { select: { name: true } } } },
       },
     });
 
@@ -514,7 +548,7 @@ export class OrganizationsService {
         HttpStatus.CONFLICT,
       );
     }
-    if (invitation.member.status === 'REMOVED') {
+    if (invitation.organizationMember?.status === 'REMOVED') {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'This invitation was withdrawn.',
@@ -528,15 +562,8 @@ export class OrganizationsService {
       can produce; a real account carries one its owner chose. The marker is the flag written
       at creation, not a guess about hash shape.
     */
-    const hasUsablePassword =
-      !invitation.member.user.passwordHash.startsWith(INVITE_PLACEHOLDER_PREFIX);
-    return {
-      ...invitation,
-      member: {
-        ...invitation.member,
-        user: { ...invitation.member.user, hasUsablePassword },
-      },
-    };
+    const hasUsablePassword = !invitation.user.passwordHash.startsWith(INVITE_PLACEHOLDER_PREFIX);
+    return { ...invitation, hasUsablePassword };
   }
 
   /**
@@ -552,7 +579,7 @@ export class OrganizationsService {
 
     const member = await this.prisma.organizationMember.findUnique({
       where: { id: memberId },
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { id: true, email: true } } },
     });
     if (!member || member.organizationId !== orgId) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Team member not found.', HttpStatus.NOT_FOUND);
@@ -565,7 +592,7 @@ export class OrganizationsService {
       );
     }
 
-    const inviteUrl = await this.issueInvitation(memberId, user.id);
+    const inviteUrl = await this.issueInvitation(member.userId, user.id, memberId);
     await this.audit.record({
       actorUserId: user.id,
       organizationId: orgId,

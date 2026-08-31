@@ -63,16 +63,41 @@ export default function StaffPage() {
   /*
     Finding somebody to promote.
 
-    Deliberately a search over EXISTING accounts rather than a "create admin" form. An
-    admin is a real person who already signed up and chose their own password; minting
-    credentials here would mean this screen handing out passwords that the account holder
-    never picked and an administrator has seen.
+    A search over EXISTING accounts, because an admin is a real person and you should see
+    who you are granting access to before you grant it.
+
+    This used to be the ONLY option, on the reasoning that minting credentials here would
+    mean handing out passwords the account holder never picked and an administrator has
+    seen. That reasoning was right, and invitations are what make it obsolete: the invitee
+    claims the account through a single-use link and chooses their own password, which
+    nobody here ever learns. So somebody who has not signed up can now be invited — see the
+    branch below, where the dead end used to be.
   */
   const candidatesQ = useQuery({
     queryKey: ['admin', 'users', search],
     queryFn: () => api.users.adminList({ page: 1, pageSize: 10, q: search }),
     enabled: adding && search.trim().length >= 2,
   });
+
+  /*
+    The link for somebody just invited. Held in component state because it is a one-time
+    secret: re-reading the staff list must not reproduce it.
+  */
+  const [inviteLink, setInviteLink] = useState<{ email: string; url: string } | null>(null);
+
+  const inviteNew = useMutation({
+    mutationFn: () => api.admin.staff.invite(search.trim(), [...selected]),
+    onSuccess: (r) => {
+      toast.push('Invitation created. Send them the link.', 'success');
+      setInviteLink({ email: r.email, url: r.inviteUrl });
+      qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  // A whole address, not a fragment — "srinivasm.vec" is a half-typed search, not somebody
+  // to invite, and offering to invite it would create an account nobody can receive mail at.
+  const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(search.trim());
 
   const promote = useMutation({
     mutationFn: (userId: string) => api.admin.staff.grantAdminRole(userId, [...selected]),
@@ -245,8 +270,54 @@ export default function StaffPage() {
         ) : null}
       </Dialog>
 
-      <Dialog open={adding} onClose={() => setAdding(false)} title="Add back-office staff">
+      <Dialog
+        open={adding}
+        onClose={() => {
+          setAdding(false);
+          // The link is a one-time secret; it must not still be sitting there next time
+          // somebody opens this dialog for a different person.
+          setInviteLink(null);
+        }}
+        title="Add back-office staff"
+      >
         <div className="space-y-4">
+          {inviteLink && (
+            <div className="space-y-2 rounded-md border border-border bg-background-canvas p-3">
+              <p className="text-[0.9375rem] text-text-primary">
+                Send this link to <strong>{inviteLink.email}</strong>
+              </p>
+              <p className="text-caption text-text-muted">
+                They open it to set a password. It works once and expires in seven days. Their
+                duties are already recorded — the account simply cannot be used until then.
+              </p>
+              {/*
+                Readable and selectable, not just a Copy button: clipboard access is blocked
+                in plenty of contexts, and a link nobody can see is one they cannot send by
+                hand when it fails.
+              */}
+              <input
+                readOnly
+                aria-label="Invitation link"
+                value={inviteLink.url}
+                onFocus={(e) => e.currentTarget.select()}
+                className="w-full rounded-md border border-border bg-background-surface px-3 py-2 font-mono text-caption text-text-primary"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(inviteLink.url);
+                    toast.push('Link copied.', 'success');
+                  } catch {
+                    toast.push('Copy failed — select the link and copy it manually.', 'error');
+                  }
+                }}
+              >
+                Copy
+              </Button>
+            </div>
+          )}
           <div>
             <SearchInput
               value={search}
@@ -279,9 +350,40 @@ export default function StaffPage() {
             ) : candidatesQ.isLoading ? (
               <Skeleton className="h-20 w-full" />
             ) : (candidatesQ.data?.data ?? []).length === 0 ? (
-              <p className="text-caption text-text-muted">
-                Nobody matches “{search}”. They may not have signed up yet.
-              </p>
+              /*
+                Where the dead end used to be. "They may not have signed up yet" was true
+                and completely unhelpful — it named the obstacle and offered nothing.
+              */
+              <div className="space-y-2 rounded-md border border-border p-3">
+                <p className="text-caption text-text-muted">Nobody matches “{search}”.</p>
+                {looksLikeEmail ? (
+                  <>
+                    <p className="text-[0.9375rem] text-text-primary">
+                      Invite <strong>{search.trim()}</strong> instead. They&rsquo;ll get a link to
+                      set their own password — you never see it.
+                    </p>
+                    <Button
+                      size="sm"
+                      loading={inviteNew.isPending}
+                      disabled={selected.size === 0}
+                      onClick={() => inviteNew.mutate()}
+                    >
+                      Send invitation
+                    </Button>
+                    {selected.size === 0 && (
+                      // The duties are the point of the screen; inviting with none would
+                      // create a back-office account that can do nothing.
+                      <p className="text-caption text-text-muted">
+                        Choose at least one duty above first.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-caption text-text-muted">
+                    Search by name, or type a full email address to invite somebody new.
+                  </p>
+                )}
+              </div>
             ) : (
               candidatesQ.data!.data.map((u) => {
                 const already = u.roles.includes('ADMIN') || u.roles.includes('SUPER_ADMIN');
