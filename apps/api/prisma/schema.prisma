@@ -341,6 +341,10 @@ enum NotificationType {
   EVENT_SUBMITTED
   EVENT_APPROVED
   EVENT_REJECTED
+
+  // Account security, addressed to the account holder about their own credentials.
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_CHANGED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -419,6 +423,7 @@ model User {
   refreshTokens           RefreshToken[]
   invitationsSent         AccountInvitation[]      @relation("InvitationsSent")
   invitationReceived      AccountInvitation?       @relation("InvitationsReceived")
+  passwordResetTokens     PasswordResetToken[]
   memberships             OrganizationMember[]
   bookings                Booking[]
   assignedTickets         Ticket[]                 @relation("TicketAttendee")
@@ -568,6 +573,41 @@ model AccountInvitation {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// A pending password reset.
+///
+/// -- WHY THIS IS NOT AN AccountInvitation ------------------------------------------
+/// They look alike — a hashed single-use token with an expiry — and sharing them would be
+/// wrong. An invitation is issued BY somebody with authority, TO an address they chose,
+/// and the link is handed back to them to send. A reset is requested by an anonymous
+/// caller about an address they merely typed, so the link may only ever leave by email,
+/// and it must be impossible for the requester to learn anything from the response.
+///
+/// Merging the two would mean one code path where "return the link to the caller" is
+/// sometimes correct and sometimes an account-takeover primitive. That is not a
+/// distinction to leave to a boolean.
+///
+/// The expiry is also deliberately much shorter. An invitation waits for somebody to get
+/// round to joining; a reset is acted on within minutes, and a link that lingers in a
+/// mailbox for a week is a standing key to the account.
+model PasswordResetToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token, never the token itself — same reasoning as RefreshToken.
+  tokenHash String @unique
+
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  /// Recorded for the security trail: a burst of resets from one address is worth seeing.
+  requestedIp String?
+
+  createdAt DateTime @default(now())
 
   @@index([userId])
 }

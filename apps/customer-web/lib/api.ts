@@ -59,6 +59,8 @@ export type PaginatedEvents = Paged<PublicEventCard>;
 export const api = {
   register: wk.auth.register,
   login: wk.auth.login,
+  forgotPassword: wk.auth.forgotPassword,
+  resetPassword: wk.auth.resetPassword,
   me: wk.auth.me,
   updateProfile: wk.users.updateProfile,
   listEvents: (params: Record<string, string | undefined>) => wk.publicEvents.list(params),

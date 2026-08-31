@@ -9,12 +9,23 @@ import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { AuditService } from '../audit/audit.service';
+import { NotificationService } from '../notifications/notification.service';
+import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
 
 interface RequestMeta {
   userAgent?: string;
   ip?: string;
 }
+
+/**
+ * How long a reset link lives: thirty minutes.
+ *
+ * Far shorter than an invitation's seven days, and deliberately so. An invitation waits for
+ * somebody to get round to joining; a reset is acted on within minutes of asking, and a link
+ * left sitting in a mailbox is a standing key to the account.
+ */
+const RESET_TTL_MINUTES = 30;
 
 @Injectable()
 export class AuthService {
@@ -23,6 +34,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async register(input: RegisterInput, meta: RequestMeta): Promise<AuthTokens> {
@@ -192,6 +204,192 @@ export class AuthService {
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
+   * Begin a password reset.
+   *
+   * -- WHY THE ANSWER IS ALWAYS THE SAME ---------------------------------------------
+   * Unauthenticated, and it takes an email somebody merely typed. If it answered
+   * differently for a known and an unknown address it would be a free tool for discovering
+   * who has an account here — and on a ticketing platform, who bought tickets to what.
+   *
+   * So it returns the same acknowledgement either way and says nothing a requester could
+   * use. The person who actually owns the address learns the outcome from their inbox,
+   * which is the only place it belongs.
+   *
+   * -- AND WHY THE LINK IS NEVER RETURNED --------------------------------------------
+   * The invitation flow hands its link back to the caller, because there the caller is an
+   * authenticated owner inviting somebody deliberately and email is not configured
+   * everywhere. Here the caller is anonymous. Returning the link would not be a
+   * convenience; it would be account takeover with extra steps.
+   */
+  async requestPasswordReset(email: string, meta: RequestMeta): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      select: { id: true, email: true, status: true },
+    });
+
+    // No account, or a disabled one: stop silently. The caller cannot tell the difference.
+    if (!user || user.status !== 'ACTIVE') return;
+
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = this.hashToken(token);
+
+    await this.prisma.$transaction(async (tx) => {
+      /*
+        Any earlier link is spent first. Two live reset links for one account means an old
+        one — possibly already forwarded or leaked — still opens the door after the owner
+        has asked for a fresh one.
+      */
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt: new Date(Date.now() + RESET_TTL_MINUTES * 60_000),
+          requestedIp: meta.ip ?? null,
+        },
+      });
+    });
+
+    await this.notifications.send({
+      type: NotificationType.PASSWORD_RESET_REQUESTED,
+      userId: user.id,
+      toEmail: user.email,
+      payload: {
+        link: `${this.resetBaseUrl()}/reset-password?token=${token}`,
+        minutes: String(RESET_TTL_MINUTES),
+      },
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      entityType: 'User',
+      entityId: user.id,
+      metadata: { ip: meta.ip ?? null },
+    });
+  }
+
+  /**
+   * Finish a password reset.
+   *
+   * Every session is destroyed, not just the current one. If the reset was requested
+   * because somebody else got in, leaving their refresh token alive would mean the password
+   * change accomplished nothing — they would keep the account while the owner believed they
+   * had recovered it.
+   */
+  async resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
+    const row = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: this.hashToken(token) },
+      include: { user: { select: { id: true, email: true, status: true } } },
+    });
+
+    /*
+      Unknown, spent and expired are answered as one. Telling them apart would tell somebody
+      holding a stolen link whether it is worth chasing a fresher one.
+    */
+    if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'This reset link is no longer valid. Request a new one.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (row.user.status !== 'ACTIVE') {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This account cannot be used. Contact support.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: row.userId }, data: { passwordHash } });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: row.userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId: row.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      /*
+        An unclaimed invitation is completed by the same act.
+
+        Somebody invited but never activated holds an account they cannot sign into. What an
+        invitation asks for is proof of control of the address, and a reset link sent to that
+        address is exactly that proof. Refusing here would leave them with a working password
+        and still no access — the dead end the invitation work existed to remove, rebuilt.
+      */
+      const pending = await tx.accountInvitation.findFirst({
+        where: { userId: row.userId, acceptedAt: null },
+      });
+      if (pending) {
+        await tx.accountInvitation.update({
+          where: { id: pending.id },
+          data: { acceptedAt: new Date(), tokenHash: `accepted:${pending.id}` },
+        });
+        if (pending.organizationMemberId) {
+          await tx.organizationMember.update({
+            where: { id: pending.organizationMemberId },
+            data: { status: 'ACTIVE' },
+          });
+        }
+      }
+    });
+
+    /*
+      Told afterwards, always — even though they just did it themselves. For the owner it is
+      a receipt; for somebody whose account was taken it is the only warning they get.
+    */
+    await this.notifications.send({
+      type: NotificationType.PASSWORD_CHANGED,
+      userId: row.userId,
+      toEmail: row.user.email,
+      payload: {},
+    });
+
+    await this.audit.record({
+      actorUserId: row.userId,
+      action: 'PASSWORD_RESET_COMPLETED',
+      entityType: 'User',
+      entityId: row.userId,
+      metadata: { ip: meta.ip ?? null },
+    });
+  }
+
+  /**
+   * Where a reset link points.
+   *
+   * The CUSTOMER site, because every account exists there whatever else it is — an organizer
+   * and a back-office administrator sign in with the same account, and there is no way to
+   * know from an email address which console the person thinks of as theirs.
+   *
+   * Same fail-loud rule as the invitation links: a localhost fallback is right on a laptop
+   * and a silently dead link anywhere else, so outside LOCAL/DEV this refuses and names the
+   * variable. Keyed on APP_ENV because QA and UAT both run NODE_ENV=production.
+   */
+  private resetBaseUrl(): string {
+    const configured = this.config.get<string>('CUSTOMER_WEB_URL')?.trim();
+    if (configured) return configured.replace(/\/+$/, '');
+
+    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
+    if (['LOCAL', 'DEV'].includes(appEnv)) return 'http://localhost:3000';
+
+    throw new AppException(
+      ErrorCodes.INTERNAL,
+      'Password reset is unavailable: CUSTOMER_WEB_URL is not configured, so the link would point at localhost.',
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      { appEnv },
+    );
   }
 }
 

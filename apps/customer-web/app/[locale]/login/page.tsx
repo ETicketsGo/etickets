@@ -65,6 +65,14 @@ function LoginForm() {
           {a('signIn')}
         </Button>
       </form>
+      {/*
+        The way back in, and it belongs here rather than only on an error. Somebody who has
+        forgotten their password does not first try one and read the failure — they look for
+        the link before typing anything.
+      */}
+      <Link href="/forgot-password" className="text-caption text-action-primary underline">
+        {a('forgotPassword')}
+      </Link>
       <p className="text-caption text-text-muted">
         {a('noAccount')}{' '}
         <Link href="/register" className="text-action-primary underline">

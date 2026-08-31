@@ -135,6 +135,17 @@
     "createAccount": "Create account",
     "allCities": "All cities",
     "demoFooter": "ETicketsGo — demo MVP. Mock payments only.",
-    "createOrganizerAccount": "Create organizer account"
+    "createOrganizerAccount": "Create organizer account",
+    "forgotPassword": "Forgot your password?",
+    "resetTitle": "Reset your password",
+    "resetLead": "Enter your email and we’ll send a link to set a new password.",
+    "resetSend": "Send reset link",
+    "resetSent": "If that address has an account, a reset link is on its way. Check your inbox.",
+    "newPasswordTitle": "Choose a new password",
+    "newPassword": "New password",
+    "newPasswordSave": "Save and sign in",
+    "resetDone": "Your password is set. Sign in with it.",
+    "resetLinkBad": "This reset link is no longer valid. Request a new one.",
+    "backToSignIn": "Back to sign in"
   }
 }

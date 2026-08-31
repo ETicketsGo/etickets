@@ -96,5 +96,13 @@
     "anOrganizer": "Un organisateur",
     "anEvent": "un événement",
     "notProvided": "non fourni"
+  },
+  "PASSWORD_RESET_REQUESTED": {
+    "subject": "Réinitialisez votre mot de passe ETicketsGo",
+    "body": "Ouvrez ce lien pour choisir un nouveau mot de passe : {link}. Il ne fonctionne qu’une fois et expire dans {minutes} minutes. Si vous n’avez rien demandé, ignorez ce message — votre mot de passe n’a pas changé."
+  },
+  "PASSWORD_CHANGED": {
+    "subject": "Votre mot de passe ETicketsGo a été modifié",
+    "body": "Votre mot de passe vient d’être modifié et vous avez été déconnecté partout. Si ce n’était pas vous, réinitialisez-le immédiatement et contactez le soutien."
   }
 }

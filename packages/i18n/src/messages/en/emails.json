@@ -96,5 +96,13 @@
     "anOrganizer": "An organizer",
     "anEvent": "an event",
     "notProvided": "not provided"
+  },
+  "PASSWORD_RESET_REQUESTED": {
+    "subject": "Reset your ETicketsGo password",
+    "body": "Open this link to choose a new password: {link}. It works once and expires in {minutes} minutes. If you did not ask for this, ignore this message — your password has not changed."
+  },
+  "PASSWORD_CHANGED": {
+    "subject": "Your ETicketsGo password was changed",
+    "body": "Your password was just changed and you have been signed out everywhere. If this was not you, reset your password immediately and contact support."
   }
 }
