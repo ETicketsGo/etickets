@@ -315,6 +315,10 @@ export const NotificationType = {
   PAYMENT_DISPUTE_OPENED: 'PAYMENT_DISPUTE_OPENED',
   PAYMENT_DISPUTE_CLOSED: 'PAYMENT_DISPUTE_CLOSED',
   TRANSFER_FAILED: 'TRANSFER_FAILED',
+  /// Account security. Addressed to the account holder about their own credentials, and
+  /// never promotional — see MESSAGE_CLASS, which will not compile until this is classified.
+  PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
+  PASSWORD_CHANGED: 'PASSWORD_CHANGED',
   // Onboarding + approval lifecycle (admin-directed, and their organizer replies).
   ORGANIZATION_REGISTERED: 'ORGANIZATION_REGISTERED',
   ORGANIZATION_APPROVED: 'ORGANIZATION_APPROVED',

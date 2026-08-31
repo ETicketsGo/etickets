@@ -5,10 +5,14 @@ import type { Request } from 'express';
 import {
   loginSchema,
   refreshSchema,
+  forgotPasswordSchema,
   registerSchema,
+  resetPasswordSchema,
   type LoginInput,
   type RefreshInput,
+  type ForgotPasswordInput,
   type RegisterInput,
+  type ResetPasswordInput,
 } from '@eticketsgo/validation';
 import { AuthService } from './auth.service';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -58,6 +62,41 @@ export class AuthController {
   @ApiOperation({ summary: 'Rotate a refresh token for a new token pair.' })
   refresh(@Body(new ZodValidationPipe(refreshSchema)) body: RefreshInput, @Req() req: Request) {
     return this.auth.refresh(body.refreshToken, meta(req));
+  }
+
+  /*
+    Throttled like every other credential route. Reset is the one endpoint an attacker can
+    call about somebody ELSE'S address, so the rate limit is doing security work here rather
+    than merely protecting capacity.
+  */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('forgot-password')
+  @ApiOperation({
+    summary: 'Request a password reset link. Always answers the same, known address or not.',
+  })
+  async forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
+    @Req() req: Request,
+  ) {
+    await this.auth.requestPasswordReset(body.email, meta(req));
+    /*
+      One fixed reply. Anything that varied — a different message, a different status, even a
+      noticeably different response time — would turn this into an account-enumeration oracle.
+    */
+    return { message: 'If that address has an account, a reset link is on its way.' };
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Set a new password with a reset token, and end every session.' })
+  async resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
+    @Req() req: Request,
+  ) {
+    await this.auth.resetPassword(body.token, body.password, meta(req));
+    return { success: true };
   }
 
   @Public()

@@ -171,6 +171,23 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     };
   },
 
+  /*
+    Account security. The link is a live credential, so it appears in the BODY and nowhere
+    else — not in the subject, which shows in notification previews on a locked screen.
+  */
+  [NotificationType.PASSWORD_RESET_REQUESTED]: (l, p) => ({
+    subject: t(l, 'emails.PASSWORD_RESET_REQUESTED.subject'),
+    body: t(l, 'emails.PASSWORD_RESET_REQUESTED.body', {
+      link: str(p, 'link'),
+      minutes: str(p, 'minutes'),
+    }),
+  }),
+
+  [NotificationType.PASSWORD_CHANGED]: (l) => ({
+    subject: t(l, 'emails.PASSWORD_CHANGED.subject'),
+    body: t(l, 'emails.PASSWORD_CHANGED.body'),
+  }),
+
   [NotificationType.PAYMENT_FAILED]: (l, p) => ({
     subject: t(l, 'emails.PAYMENT_FAILED.subject'),
     body: t(l, 'emails.PAYMENT_FAILED.body', { reference: bookingName(l, p) }),

@@ -46,7 +46,14 @@ function setup(recordOverrides: Record<string, unknown> | null) {
   };
 
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const service = new AuthService(prisma as never, jwt as never, config as never, audit as never);
+  const service = new AuthService(
+    prisma as never,
+    jwt as never,
+    config as never,
+    audit as never,
+    // Only reached by the password-reset paths, which this suite does not exercise.
+    { send: async () => undefined } as never,
+  );
   return { service, prisma, refreshToken, audit };
 }
 

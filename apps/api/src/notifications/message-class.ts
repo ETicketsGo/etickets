@@ -33,6 +33,15 @@ import { NotificationType } from '@eticketsgo/shared-types';
 export type MessageClass = 'TRANSACTIONAL' | 'MARKETING';
 
 export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
+  /*
+    Account security. Transactional in the strongest sense there is: suppressing a password
+    reset because somebody unticked a marketing box would lock them out of their own account,
+    and a "your password changed" notice is the only warning a person gets that somebody else
+    may have taken it.
+  */
+  [NotificationType.PASSWORD_RESET_REQUESTED]: 'TRANSACTIONAL',
+  [NotificationType.PASSWORD_CHANGED]: 'TRANSACTIONAL',
+
   // ── The customer's own transaction ──────────────────────────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_FAILED]: 'TRANSACTIONAL',
@@ -126,6 +135,14 @@ export const MARKETING_TYPES: NotificationType[] = (
 export type MessageAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
 
 export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
+  /*
+    Account security reaches whoever holds the account, which may be a customer, an
+    organizer or back-office staff. 'CUSTOMER' is the audience bucket for "the account
+    holder themselves" rather than a statement about what they buy.
+  */
+  [NotificationType.PASSWORD_RESET_REQUESTED]: 'CUSTOMER',
+  [NotificationType.PASSWORD_CHANGED]: 'CUSTOMER',
+
   // ── The person who bought, holds, or was given a ticket ─────────────────────────
   [NotificationType.BOOKING_CONFIRMED]: 'CUSTOMER',
   [NotificationType.PAYMENT_FAILED]: 'CUSTOMER',

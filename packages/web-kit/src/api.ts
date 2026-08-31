@@ -254,6 +254,23 @@ export const api = {
         body: JSON.stringify(body),
         auth: false,
       }),
+    /**
+     * Ask for a reset link. The reply is identical whether or not the address is known —
+     * anything else would make this a way to discover who holds an account here.
+     */
+    forgotPassword: (email: string) =>
+      request<{ message: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+        auth: false,
+      }),
+    /** Set a new password with a reset token. Ends every session, including this one. */
+    resetPassword: (token: string, password: string) =>
+      request<{ success: boolean }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token, password }),
+        auth: false,
+      }),
     logout: (refreshToken: string) =>
       request<{ success: boolean }>('/auth/logout', {
         method: 'POST',

@@ -135,6 +135,17 @@
     "createAccount": "Créer un compte",
     "allCities": "Toutes les villes",
     "demoFooter": "ETicketsGo — démo. Paiements simulés seulement.",
-    "createOrganizerAccount": "Créer un compte organisateur"
+    "createOrganizerAccount": "Créer un compte organisateur",
+    "forgotPassword": "Mot de passe oublié ?",
+    "resetTitle": "Réinitialiser votre mot de passe",
+    "resetLead": "Entrez votre courriel et nous vous enverrons un lien pour en choisir un nouveau.",
+    "resetSend": "Envoyer le lien",
+    "resetSent": "Si cette adresse a un compte, un lien est en route. Vérifiez votre boîte de réception.",
+    "newPasswordTitle": "Choisissez un nouveau mot de passe",
+    "newPassword": "Nouveau mot de passe",
+    "newPasswordSave": "Enregistrer et se connecter",
+    "resetDone": "Votre mot de passe est enregistré. Connectez-vous avec celui-ci.",
+    "resetLinkBad": "Ce lien de réinitialisation n’est plus valide. Demandez-en un nouveau.",
+    "backToSignIn": "Retour à la connexion"
   }
 }
