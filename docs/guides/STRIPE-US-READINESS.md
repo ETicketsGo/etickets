@@ -129,14 +129,32 @@ Connect provider is refused with _"This organizer has not finished payment setup
 until that organization has an `OrganizerPaymentAccount` with `chargesEnabled`. There is
 nowhere to settle the money otherwise.
 
+### First: enable Accounts v1 in the Stripe dashboard
+
+Stripe now refuses `POST /v1/accounts` for new integrations:
+
+> Stripe no longer recommends Accounts v1 for new Connect integrations. Create connected
+> accounts with `POST /v2/core/accounts` instead. If your integration requires v1 account
+> creation for a supported compatibility scenario, enable Accounts v1 support in the
+> Dashboard.
+
+This codebase is a v1 integration. **Turn on Accounts v1 support** at
+<https://dashboard.stripe.com/settings/features/feat_accounts_v1_support> and onboarding
+works unchanged.
+
+> **Worth planning separately:** migrating to Accounts v2 is real work — the adapter, the
+> onboarding service, and the transfer/settlement path are all v1-shaped. Stripe is
+> steering new integrations there, so it is a question of when, not whether. It should not
+> be done in the middle of validating something else.
+
+### Then
+
 1. Sign in to the organizer console as the organization selling the US event.
 2. **Payouts** → start onboarding. This calls Stripe for a hosted onboarding link.
 3. Complete Stripe's test onboarding. In test mode it accepts obviously fake business
    details; use them — never real ones.
 4. Stripe returns you to Payouts, and `account.updated` flips the account to
    charges-enabled.
-
----
 
 ## Step 4 — something priced in dollars
 
