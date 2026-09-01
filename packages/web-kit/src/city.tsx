@@ -130,7 +130,9 @@ export function useCityPreference(): CityPreference {
         setTopCities(result.topCities);
         // A stored '__all__' means they asked for everywhere; a country would undo that.
         if (readStoredCity() === ALL_CITIES) return;
-        setCountry(result.country);
+        // `scopeCountry`, not `country`: the server has already checked we have something
+        // on sale there, and a scope we cannot fill is an empty storefront.
+        setCountry(result.scopeCountry);
         if (readStoredCity() !== null) return; // their choice stands
         if (result.confident && result.city) {
           setCityState(result.city);
@@ -185,7 +187,7 @@ export function useCityPreference(): CityPreference {
         longitude: position.coords.longitude,
       });
       setTopCities(result.topCities);
-      setCountry(result.country);
+      setCountry(result.scopeCountry);
       // Coordinates come from a button press, so this IS their choice — persisted as one.
       if (result.city) setCity(result.city);
     } catch {

@@ -67,6 +67,26 @@ export interface ResolvedLocation {
    */
   confident: boolean;
   /**
+   * The country it is SAFE to filter by, or null.
+   *
+   * ── WHY THIS IS NOT JUST `country` ─────────────────────────────────────────────
+   * `country` above is the raw guess and may be anywhere on earth. This one is the guess
+   * only when we have something on sale there, and null otherwise.
+   *
+   * The distinction is the whole feature. Scoping discovery to a country the platform does
+   * not operate in shows the visitor an empty storefront, and an empty storefront is
+   * indistinguishable from a dead company — the customer does not think "my locale is
+   * wrong", they think "there is nothing here" and leave. A guess is allowed to be wrong;
+   * it is not allowed to be wrong and invisible.
+   *
+   * This is the same rule `resolve` already applied to a guessed CITY, which was only ever
+   * returned if we could sell there. Scoping by country arrived later and did not inherit
+   * it — and the e2e suite went red the first time it ran under a US locale against Indian
+   * inventory, which is precisely the scenario.
+   */
+  scopeCountry: string | null;
+
+  /**
    * A few cities worth offering immediately, most inventory first — NOT the whole list.
    *
    * Deliberately capped and deliberately not called `cities`. It used to be every sellable
@@ -205,13 +225,20 @@ export class LocationService {
   }): Promise<ResolvedLocation> {
     const cities = await this.cities();
 
+    const inCountry = (country: string | null): SellableCity[] =>
+      country ? cities.filter((c) => countryMatches(c.country, country)) : [];
+
     /** The handful to offer up front, preferring the country we think they are in. */
     const offer = (country: string | null): SellableCity[] => {
-      const local = country ? cities.filter((c) => countryMatches(c.country, country)) : [];
+      const local = inCountry(country);
       // Falls back to the busiest cities anywhere rather than to nothing: a visitor in a
       // country we do not sell in yet should still see somewhere they could go.
       return (local.length ? local : cities).slice(0, RESOLVE_CITY_COUNT);
     };
+
+    /** A country worth filtering by is a country we have something to sell in. */
+    const scope = (country: string | null): string | null =>
+      inCountry(country).length ? country : null;
 
     // 1. Coordinates the person actively offered. The only source good enough to apply
     //    without asking.
@@ -223,6 +250,7 @@ export class LocationService {
           city: nearest.city,
           source: 'coordinates',
           confident: true,
+          scopeCountry: scope(nearest.country),
           topCities: offer(nearest.country),
         };
       }
@@ -248,6 +276,7 @@ export class LocationService {
           city: match.city,
           source: 'network',
           confident: false,
+          scopeCountry: scope(match.country),
           topCities: offer(match.country),
         };
       }
@@ -260,6 +289,7 @@ export class LocationService {
         city: inCountry.length === 1 ? inCountry[0].city : null,
         source: 'network',
         confident: false,
+        scopeCountry: scope(country),
         topCities: offer(country),
       };
     }
@@ -271,12 +301,20 @@ export class LocationService {
         city: null,
         source: 'device-region',
         confident: false,
+        scopeCountry: scope(input.deviceRegion.toUpperCase()),
         topCities: offer(input.deviceRegion.toUpperCase()),
       };
     }
 
     // 4. Nothing. Said plainly, so the client asks instead of guessing.
-    return { country: null, city: null, source: 'none', confident: false, topCities: offer(null) };
+    return {
+      country: null,
+      city: null,
+      source: 'none',
+      confident: false,
+      scopeCountry: null,
+      topCities: offer(null),
+    };
   }
 
   /** Nearest city with inventory, using cinema coordinates — the only geo the platform stores. */

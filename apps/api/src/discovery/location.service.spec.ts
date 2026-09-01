@@ -240,6 +240,38 @@ describe('LocationService', () => {
       expect(result).toMatchObject({ country: 'IN', city: null, source: 'device-region' });
     });
 
+    it('refuses to hand back a country scope it cannot fill', async () => {
+      /*
+        The failure CI found, and the reason this field exists at all.
+
+        The e2e suite runs under a US locale against Indian inventory. With the raw country
+        hint applied, Browse asked for events in the United States, got none, and seven
+        tests failed on an empty storefront — which is exactly what a real visitor in an
+        unserved country would have seen. `resolve` has always refused to name a CITY it
+        cannot sell in; the country scope has to obey the same rule.
+      */
+      const result = await service([venue('Mumbai', 'India')]).resolve({
+        headers: {},
+        deviceRegion: 'us',
+      });
+
+      expect(result.country).toBe('US'); // the guess is still reported…
+      expect(result.scopeCountry).toBeNull(); // …but it is not safe to filter by
+    });
+
+    it('hands back a country scope when we do sell there', async () => {
+      const result = await service([venue('Mumbai', 'India')]).resolve({
+        headers: {},
+        deviceRegion: 'in',
+      });
+      expect(result.scopeCountry).toBe('IN');
+    });
+
+    it('never scopes when it has no idea where they are', async () => {
+      const result = await service([venue('Mumbai', 'India')]).resolve({ headers: {} });
+      expect(result.scopeCountry).toBeNull();
+    });
+
     it('offers a few cities up front so the client can suggest a change immediately', async () => {
       const result = await service([venue('Mumbai'), venue('Delhi')]).resolve({ headers: {} });
       expect(result.topCities.map((c) => c.city).sort()).toEqual(['Delhi', 'Mumbai']);
