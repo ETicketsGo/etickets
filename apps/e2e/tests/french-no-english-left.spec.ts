@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { CUSTOMER, apiLogin, seedBrowserAuth } from './helpers';
+import type { APIRequestContext } from '@playwright/test';
+import { API, CUSTOMER, apiLogin, seedBrowserAuth } from './helpers';
 
 /**
  * No English left on the French transactional path.
@@ -61,6 +62,16 @@ const ENGLISH = new Set([
   'Subtotal',
   'Continue to payment',
   'Get my tickets',
+  // The event detail page. "Sessions" and "Total" are deliberately absent: both are spelled
+  // the same in French, and listing them would report a correct translation as a failure.
+  'Venue',
+  'Organizer',
+  'Get directions',
+  'Select tickets',
+  'Booking fee',
+  'Payment fee',
+  'This is the full amount you will pay.',
+  'Transparent fees shown on the next step.',
 ]);
 
 /**
@@ -72,6 +83,14 @@ const ENGLISH = new Set([
  */
 const TRANSACTIONAL = [
   '/fr-CA/events',
+  /*
+    The event detail page — where the money is decided, and the last transactional screen
+    this sweep did not look at. It was half translated: the price breakdown had no French
+    at all, and "Venue", "Organizer", "Get directions" and "Select tickets" were rendered
+    in English beside French body copy. The slug is resolved at run time from the live
+    catalogue, because a hardcoded one rots the first time the seed changes.
+  */
+  '/fr-CA/events/:firstPaid',
   '/fr-CA/login',
   '/fr-CA/register',
   '/fr-CA/account/tickets',
@@ -90,9 +109,21 @@ test.describe('the French transactional path carries no English', () => {
     await seedBrowserAuth(context, tokens);
   });
 
+  /** Resolves the `:firstPaid` placeholder against whatever is actually on sale. */
+  async function resolve(route: string, request: APIRequestContext): Promise<string> {
+    if (!route.includes(':firstPaid')) return route;
+    const list = await (await request.get(`${API}/public/events?pageSize=50`)).json();
+    const paid = (list.data ?? list).find(
+      (e: { fromPriceMinor?: number }) => (e.fromPriceMinor ?? 0) > 0,
+    );
+    expect(paid, 'a paid event is needed to check the French price breakdown').toBeTruthy();
+    return route.replace(':firstPaid', paid.slug);
+  }
+
   for (const route of TRANSACTIONAL) {
-    test(route, async ({ page }) => {
-      await page.goto(`${CUSTOMER}${route}`, { waitUntil: 'networkidle', timeout: 45_000 });
+    test(route, async ({ page, request }) => {
+      const url = await resolve(route, request);
+      await page.goto(`${CUSTOMER}${url}`, { waitUntil: 'networkidle', timeout: 45_000 });
       const text = await page.locator('body').innerText();
       const lines = new Set(
         text

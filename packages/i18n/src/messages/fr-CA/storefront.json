@@ -27,7 +27,12 @@
     "priceIsFinal": "C’est le montant total que vous paierez.",
     "priceWorking": "Calcul des frais…",
     "priceAddOne": "Les frais s’affichent dès que vous ajoutez un billet.",
-    "priceAddSeat": "Les frais s’affichent dès que vous choisissez un siège."
+    "priceAddSeat": "Les frais s’affichent dès que vous choisissez un siège.",
+    "sessionsHeading": "Séances",
+    "venueHeading": "Lieu",
+    "organizerHeading": "Organisateur",
+    "getDirections": "Itinéraire",
+    "selectTickets": "Choisir vos billets"
   },
   "seats": {
     "heading": "Choisissez vos sièges",

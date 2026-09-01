@@ -353,7 +353,7 @@ export default function EventDetailPage() {
             </Card>
           )}
 
-          <Card title="Sessions">
+          <Card title={sf('event.sessionsHeading')}>
             <div className="space-y-2">
               {event.sessions.map((s) => {
                 const active = session?.id === s.id;
@@ -385,7 +385,7 @@ export default function EventDetailPage() {
           </Card>
 
           <div className="grid gap-6 sm:grid-cols-2">
-            <Card title="Venue">
+            <Card title={sf('event.venueHeading')}>
               <p className="font-medium text-text-primary">{event.venue.name}</p>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
                 {event.venue.address ? `${event.venue.address}, ` : ''}
@@ -413,11 +413,11 @@ export default function EventDetailPage() {
                 className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <MapPin className="h-4 w-4" />
-                Get directions
+                {sf('event.getDirections')}
                 <span className="sr-only">(opens in a new tab)</span>
               </a>
             </Card>
-            <Card title="Organizer">
+            <Card title={sf('event.organizerHeading')}>
               <Link
                 href={`/organizers/${event.organizer.id}`}
                 className="group flex items-center gap-3"
@@ -582,7 +582,7 @@ export default function EventDetailPage() {
             <div className="mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-action-primary" />
               <h2 className="text-title font-semibold text-text-primary">
-                {session?.seatBased ? sf('event.seatedHeading') : 'Select tickets'}
+                {session?.seatBased ? sf('event.seatedHeading') : sf('event.selectTickets')}
               </h2>
             </div>
 

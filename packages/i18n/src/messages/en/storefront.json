@@ -27,7 +27,12 @@
     "priceIsFinal": "This is the full amount you will pay.",
     "priceWorking": "Working out fees…",
     "priceAddOne": "Fees are shown once you add a ticket.",
-    "priceAddSeat": "Fees are shown once you pick a seat."
+    "priceAddSeat": "Fees are shown once you pick a seat.",
+    "sessionsHeading": "Sessions",
+    "venueHeading": "Venue",
+    "organizerHeading": "Organizer",
+    "getDirections": "Get directions",
+    "selectTickets": "Select tickets"
   },
   "seats": {
     "heading": "Choose your seats",

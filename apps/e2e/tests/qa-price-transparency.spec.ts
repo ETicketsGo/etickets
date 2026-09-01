@@ -49,9 +49,10 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
     // Nothing selected yet: no invented numbers, and it says why.
     await expect(page.getByTestId('price-breakdown')).toHaveCount(0);
 
+    // By its accessible name, not by position: the first combobox on the page is the
+    // language switcher, and `.first()` quietly tested that instead.
     await page
-      .getByRole('combobox')
-      .filter({ hasNot: page.locator('option[value="__never__"]') })
+      .getByRole('combobox', { name: /^Quantity of / })
       .first()
       .selectOption('2');
 
@@ -99,7 +100,7 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
     // A breakdown that does not follow the selection is worse than none: it is a precise
     // number attached to the wrong cart.
     await openFirstPaidEvent(page, request as never);
-    const quantity = page.getByRole('combobox').first();
+    const quantity = page.getByRole('combobox', { name: /^Quantity of / }).first();
 
     await quantity.selectOption('1');
     await expect(page.getByTestId('price-breakdown')).toBeVisible({ timeout: 30_000 });
