@@ -36,6 +36,7 @@ export default function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
   const tx = useTranslations('common');
   const sf = useTranslations('storefront');
+  const b = useTranslations('storefront.booking');
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const {
@@ -52,6 +53,11 @@ export default function EventDetailPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  /*
+    Which button was pressed, read by the mutation. Kept out of the request body until
+    then so a stale value can never turn an online purchase into a reservation.
+  */
+  const [payWithCash, setPayWithCash] = useState(false);
   const [shared, setShared] = useState(false);
 
   // Reviews
@@ -183,6 +189,9 @@ export default function EventDetailPage() {
       const me = await api.me();
       return api.createBooking({
         eventSessionId: session.id,
+        // Only sent when the buyer chose it. The server refuses CASH unless the organizer
+        // enabled it, so this is a request rather than a decision.
+        ...(payWithCash ? { paymentMethod: 'CASH' as const } : {}),
         items: session.ticketTypes
           .filter((t) => (qty[t.id] ?? 0) > 0)
           .map((t) => ({ ticketTypeId: t.id, quantity: qty[t.id] })),
@@ -692,19 +701,45 @@ export default function EventDetailPage() {
                 )}
                 <Button
                   className="mt-4 w-full"
-                  loading={book.isPending}
+                  loading={book.isPending && !payWithCash}
                   disabled={totalQty === 0 || book.isPending}
                   onClick={() => {
                     setError(null);
+                    setPayWithCash(false);
                     book.mutate();
                   }}
                 >
-                  {book.isPending
+                  {book.isPending && !payWithCash
                     ? sf('event.holdingTickets')
                     : event.isFree
                       ? sf('event.getMyTickets')
                       : sf('event.continueToPayment')}
                 </Button>
+
+                {/*
+                  Offered only when the organizer takes cash, and never for a free event
+                  where there is nothing to collect. A second BUTTON rather than a radio
+                  group: the choice is the action, and making somebody pick an option and
+                  then press Continue is a step that earns nothing.
+                */}
+                {event.cashAccepted && !event.isFree && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="mt-2 w-full"
+                      loading={book.isPending && payWithCash}
+                      disabled={totalQty === 0 || book.isPending}
+                      onClick={() => {
+                        setError(null);
+                        setPayWithCash(true);
+                        book.mutate();
+                      }}
+                    >
+                      {b('payAtVenue')}
+                    </Button>
+                    <p className="mt-1.5 text-caption text-text-muted">{b('payAtVenueHint')}</p>
+                  </>
+                )}
               </>
             )}
           </Card>

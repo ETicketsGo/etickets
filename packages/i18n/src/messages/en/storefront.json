@@ -147,5 +147,14 @@
     "resetDone": "Your password is set. Sign in with it.",
     "resetLinkBad": "This reset link is no longer valid. Request a new one.",
     "backToSignIn": "Back to sign in"
+  },
+  "booking": {
+    "cashTitle": "Seats reserved — pay at the venue",
+    "cashLead": "Bring {amount} to the counter. Your seats are held until the show starts.",
+    "cashRef": "Show this reference",
+    "cashNote": "Nothing has been charged. You pay the venue directly when you arrive.",
+    "payAtVenue": "Pay at the venue",
+    "payOnline": "Pay online now",
+    "payAtVenueHint": "Reserve now, pay cash at the counter when you arrive."
   }
 }

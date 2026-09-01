@@ -5,6 +5,7 @@ import {
   CalendarDays,
   LayoutDashboard,
   Banknote,
+  Coins,
   Users,
   Settings,
   Sparkles,
@@ -35,6 +36,9 @@ const nav: NavItem[] = [
     inside still speak of cinemas and screens because there they are accurate.
   */
   { label: 'Rooms & seat maps', href: '/organizer/cinemas', icon: Building2 },
+  // A distinct icon from Payouts: the two sit three rows apart and mean opposite
+  // things — money you hold in a tin, and money the platform sends you.
+  { label: 'Counter', href: '/organizer/counter', icon: Coins },
   { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
   { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },

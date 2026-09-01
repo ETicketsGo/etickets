@@ -10,8 +10,17 @@
  * Decided from the status the SERVER returned, not from a local guess about whether the event
  * looked free. The server is the only party that knows whether money was actually skipped.
  */
-export function nextStepAfterBooking(booking: { id: string; status?: string }): string {
-  return booking.status === 'CONFIRMED'
-    ? `/booking/${booking.id}/confirmation`
-    : `/booking/${booking.id}/payment`;
+export function nextStepAfterBooking(booking: {
+  id: string;
+  status?: string;
+  paymentMethod?: 'ONLINE' | 'CASH';
+}): string {
+  if (booking.status === 'CONFIRMED') return `/booking/${booking.id}/confirmation`;
+  /*
+    A cash booking is reserved, not paid, and has no Payment row — so the payment screen
+    would show a bill with no way to settle it and a button that cannot work. It gets its own
+    page, which says what was held and what to bring.
+  */
+  if (booking.paymentMethod === 'CASH') return `/booking/${booking.id}/reserved`;
+  return `/booking/${booking.id}/payment`;
 }

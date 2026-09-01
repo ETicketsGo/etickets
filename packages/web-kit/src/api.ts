@@ -368,6 +368,17 @@ export const api = {
   },
 
   payments: {
+    /**
+     * Record cash handed over at the counter, and confirm the booking.
+     *
+     * No amount is sent. The server confirms the full amount the booking already says is
+     * owed — letting the caller name a figure would make partial payment expressible, and a
+     * half-paid ticket has no defined meaning: it either admits somebody or it does not.
+     */
+    collectCash: (bookingId: string) =>
+      request<{ status: string; bookingId: string }>(`/payments/${bookingId}/collect-cash`, {
+        method: 'POST',
+      }),
     mockPay: (bookingId: string, outcome: 'succeeded' | 'failed') =>
       request<{ status: string; bookingId: string }>(`/payments/${bookingId}/mock-pay`, {
         method: 'POST',
@@ -486,6 +497,17 @@ export const api = {
       request<ReceiptListPage>(`/organizations/${id}/receipts${qs(params)}`),
     refunds: (id: string, params: PageParams & { status?: string } = {}) =>
       request<Paged<OrganizationRefundRow>>(`/organizations/${id}/refunds${qs(params)}`),
+    /** Turn cash-at-the-venue on or off for an organization. Owner only. */
+    setCashPayments: (id: string, enabled: boolean) =>
+      request<{ id: string; cashPaymentsEnabled: boolean }>(`/organizations/${id}/cash-payments`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
+    /** The counter's worklist: cash bookings reserved but not yet paid for. */
+    cashBookings: (id: string, includeCollected = false) =>
+      request<CashBooking[]>(
+        `/organizations/${id}/cash-bookings${qs({ includeCollected: includeCollected || undefined })}`,
+      ),
     members: (id: string) => request<OrgMember[]>(`/organizations/${id}/members`),
     invite: (id: string, body: { email: string; role: string }) =>
       request<InvitedMember>(`/organizations/${id}/members`, {
@@ -1534,6 +1556,8 @@ export interface PublicEvent {
   feeMode: string;
   /** Nobody is charged: no checkout, no fees, tickets issued the moment they book. */
   isFree: boolean;
+  /** The organizer takes cash at the venue, so the buyer may reserve and pay on arrival. */
+  cashAccepted?: boolean;
   venue: { name: string; city: string; country: string; address: string | null };
   organizer: { id: string; name: string };
   sessions: {
@@ -1567,6 +1591,8 @@ export interface BookingRequest {
   buyerName: string;
   buyerEmail: string;
   couponCode?: string;
+  /** Ask to pay in cash at the venue. Refused unless the organizer has enabled it. */
+  paymentMethod?: 'ONLINE' | 'CASH';
 }
 export interface BookingResult {
   id: string;
@@ -1584,7 +1610,10 @@ export interface BookingResult {
     taxMinor: number;
     taxLines: ReceiptTaxLine[];
   };
-  payment: { id: string; status: string };
+  /** How this booking is being paid for. CASH means nothing is owed to us online. */
+  paymentMethod?: 'ONLINE' | 'CASH';
+  /** Null for a free or cash booking: there is no Payment row, and no checkout to send to. */
+  payment: { id: string; status: string } | null;
 }
 export interface BookingDetail {
   id: string;
@@ -1807,6 +1836,8 @@ export interface Organization {
   status: string;
   contactEmail: string | null;
   createdAt: string;
+  /** Whether this organizer takes cash at the venue. Off unless deliberately turned on. */
+  cashPaymentsEnabled?: boolean;
   // Public organizer profile (v1.2 WS6).
   description?: string | null;
   logoUrl?: string | null;
@@ -1834,6 +1865,20 @@ export interface OrganizationProfileInput {
   twitterUrl?: string;
   instagramUrl?: string;
   facebookUrl?: string;
+}
+/** A cash booking as the counter sees it. */
+export interface CashBooking {
+  id: string;
+  reference: string | null;
+  buyerName: string;
+  buyerEmail: string;
+  totalMinor: number;
+  currency: string;
+  status: string;
+  eventTitle: string;
+  startsAt: string;
+  collectedAt: string | null;
+  collectedBy: string | null;
 }
 export interface OrgMember {
   id: string;

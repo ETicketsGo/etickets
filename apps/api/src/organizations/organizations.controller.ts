@@ -83,6 +83,28 @@ export class OrganizationsController {
     return this.orgs.listMembers(user, id);
   }
 
+  @Patch(':id/cash-payments')
+  @ApiOperation({ summary: 'Turn cash-at-the-venue on or off. Owner only.' })
+  setCashPayments(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ enabled: z.boolean() })))
+    body: { enabled: boolean },
+  ) {
+    return this.orgs.setCashPayments(user, id, body.enabled);
+  }
+
+  @Get(':id/cash-bookings')
+  @ApiOperation({ summary: 'Cash bookings awaiting collection at the counter.' })
+  cashBookings(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(z.object({ includeCollected: z.coerce.boolean().optional() })))
+    q: { includeCollected?: boolean },
+  ) {
+    return this.orgs.cashBookings(user, id, q.includeCollected ?? false);
+  }
+
   @Post(':id/members')
   @ApiOperation({ summary: 'Invite a team member.' })
   invite(

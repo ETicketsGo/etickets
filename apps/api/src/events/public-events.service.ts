@@ -131,7 +131,18 @@ export class PublicEventsService {
       where: { slug },
       include: {
         venue: true,
-        organization: { select: { id: true, name: true } },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            /*
+              Whether this organizer takes cash at the venue, so the checkout can offer it.
+              The storefront must not guess: an option shown that the server would refuse is
+              a buyer who fills in a form and is turned away at the last step.
+            */
+            cashPaymentsEnabled: true,
+          },
+        },
         sessions: {
           orderBy: { startsAt: 'asc' },
           include: {
@@ -160,7 +171,10 @@ export class PublicEventsService {
       // So the buyer is told "Free" rather than "₹0.00", and the checkout can skip itself.
       isFree: event.isFree,
       venue: event.venue,
-      organizer: event.organization,
+      organizer: { id: event.organization.id, name: event.organization.name },
+      // Surfaced on the event rather than nested in `organizer`, because it is a fact about
+      // how you can pay for THIS event, not a detail of who is running it.
+      cashAccepted: event.organization.cashPaymentsEnabled && !event.isFree,
       sessions: event.sessions.map((s) => ({
         id: s.id,
         startsAt: s.startsAt,

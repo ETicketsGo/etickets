@@ -603,6 +603,91 @@ export class OrganizationsService {
     return { inviteUrl, email: member.user.email };
   }
 
+  /**
+   * Turn cash-at-the-venue on or off for this organization.
+   *
+   * Its own endpoint rather than a field on the public profile, because it is nothing like
+   * a logo: switching it on means this organizer will take money the platform never sees,
+   * which changes who is responsible for collecting it and what a settlement can honestly
+   * promise. Owner only, and audited.
+   */
+  async setCashPayments(user: RequestUser, orgId: string, enabled: boolean) {
+    await this.access.assertMember(user, orgId, [Role.ORGANIZER_OWNER]);
+
+    const org = await this.prisma.organization.update({
+      where: { id: orgId },
+      data: { cashPaymentsEnabled: enabled },
+      select: { id: true, cashPaymentsEnabled: true },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: orgId,
+      action: enabled ? 'CASH_PAYMENTS_ENABLED' : 'CASH_PAYMENTS_DISABLED',
+      entityType: 'Organization',
+      entityId: orgId,
+    });
+    return org;
+  }
+
+  /**
+   * The counter's worklist: cash bookings that have been reserved but not yet paid for.
+   *
+   * Ordered by when the show starts rather than when the booking was made, because the
+   * person at the counter is working through tonight's audience, not a chronological log.
+   */
+  async cashBookings(user: RequestUser, orgId: string, includeCollected = false) {
+    /*
+      Check-in staff are included deliberately. At a single-screen cinema the person on the
+      door is the person with the cash tin, and a worklist they cannot open is a worklist
+      somebody else has to read out to them.
+    */
+    await this.access.assertMember(user, orgId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+      Role.CHECKIN_STAFF,
+    ]);
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        organizationId: orgId,
+        paymentMethod: 'CASH',
+        ...(includeCollected
+          ? { status: { in: ['PENDING_PAYMENT', 'CONFIRMED'] } }
+          : { status: 'PENDING_PAYMENT' }),
+      },
+      select: {
+        id: true,
+        reference: true,
+        buyerName: true,
+        buyerEmail: true,
+        totalMinor: true,
+        currency: true,
+        status: true,
+        cashCollectedAt: true,
+        createdAt: true,
+        cashCollectedBy: { select: { fullName: true } },
+        event: { select: { title: true } },
+        eventSession: { select: { startsAt: true } },
+      },
+      orderBy: [{ eventSession: { startsAt: 'asc' } }, { createdAt: 'asc' }],
+      take: 200,
+    });
+
+    return bookings.map((b) => ({
+      id: b.id,
+      reference: b.reference,
+      buyerName: b.buyerName,
+      buyerEmail: b.buyerEmail,
+      totalMinor: b.totalMinor,
+      currency: b.currency,
+      status: b.status,
+      eventTitle: b.event.title,
+      startsAt: b.eventSession.startsAt,
+      collectedAt: b.cashCollectedAt,
+      collectedBy: b.cashCollectedBy?.fullName ?? null,
+    }));
+  }
+
   // ─── Admin ───
 
   async adminList(status: OrganizationStatus | undefined, page: number, pageSize: number) {

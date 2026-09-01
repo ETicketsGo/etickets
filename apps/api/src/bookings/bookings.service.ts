@@ -147,7 +147,15 @@ export class BookingsService {
             // organization's registered address is only the fallback for an event with no
             // venue on file.
             venue: { select: { country: true } },
-            organization: { select: { registeredCountry: true, registeredRegion: true } },
+            organization: {
+              select: {
+                registeredCountry: true,
+                registeredRegion: true,
+                // Whether this organizer takes cash at the venue. Read from the org, never
+                // trusted from the request — otherwise anybody could reserve seats for free.
+                cashPaymentsEnabled: true,
+              },
+            },
           },
         },
       },
@@ -316,7 +324,42 @@ export class BookingsService {
       );
     }
 
-    const holdExpiresAt = new Date(now.getTime() + this.holdMinutes * 60 * 1000);
+    /*
+      Paying in cash at the venue, which the ORGANIZER must have turned on.
+
+      Checked against the organization rather than trusted from the request, for the same
+      reason the payment provider is never taken from the client: otherwise anybody could
+      reserve seats for nothing by asking nicely. A client that sends CASH to an organizer
+      who has not enabled it is refused and told why.
+    */
+    const wantsCash = input.paymentMethod === 'CASH';
+    if (wantsCash && isFree) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'This event is free. There is nothing to collect.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (wantsCash && !session.event.organization.cashPaymentsEnabled) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'This organizer does not accept cash at the venue.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      A cash reservation is held until the show starts, not for the usual few minutes.
+
+      The whole point is that somebody pays when they arrive, so a fifteen-minute hold would
+      expire before they had left the house. The cost is real and deliberate: those seats are
+      off sale until showtime even if nobody turns up, which is exactly what a counter-run
+      cinema already does with a telephone booking — and why the organizer can cancel one
+      from the console to put the seats back.
+    */
+    const holdExpiresAt = wantsCash
+      ? session.startsAt
+      : new Date(now.getTime() + this.holdMinutes * 60 * 1000);
 
     // The inventory model is chosen by the experience type — general admission
     // for events today, seat-based for movies in a later PR — without this
@@ -387,7 +430,13 @@ export class BookingsService {
             payout report as a line that can never balance against a bank statement, because
             no bank was involved.
           */
-          ...(isFree
+          paymentMethod: wantsCash ? 'CASH' : 'ONLINE',
+          /*
+            Cash creates no Payment row either, and for the reason written above rather than
+            a new one: no bank is involved. Settlement reads Payment rows, so this is also
+            what stops the platform ever promising an organizer money it never received.
+          */
+          ...(isFree || wantsCash
             ? {}
             : {
                 payment: {
@@ -499,8 +548,11 @@ export class BookingsService {
       currency: booking.currency,
       holdExpiresAt: booking.holdExpiresAt,
       fees,
-      // A free booking has no Payment row, and says so rather than reporting an empty one.
-      payment: isFree ? null : { id: booking.payment?.id, status: booking.payment?.status },
+      paymentMethod: wantsCash ? 'CASH' : 'ONLINE',
+      // A free or cash booking has no Payment row, and says so rather than reporting an
+      // empty one — a client that saw `payment: {}` would send the buyer to a checkout.
+      payment:
+        isFree || wantsCash ? null : { id: booking.payment?.id, status: booking.payment?.status },
     };
 
     if (idempotencyKey) {
@@ -596,7 +648,15 @@ export class BookingsService {
         event: {
           include: {
             venue: { select: { country: true } },
-            organization: { select: { registeredCountry: true, registeredRegion: true } },
+            organization: {
+              select: {
+                registeredCountry: true,
+                registeredRegion: true,
+                // Whether this organizer takes cash at the venue. Read from the org, never
+                // trusted from the request — otherwise anybody could reserve seats for free.
+                cashPaymentsEnabled: true,
+              },
+            },
           },
         },
       },
