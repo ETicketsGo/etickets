@@ -111,3 +111,13 @@ export const updateTicketTypeSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
 export type UpdateTicketTypeInput = z.infer<typeof updateTicketTypeSchema>;
+
+/**
+ * Editing a venue. Every field optional — a rename should not require restating the city.
+ *
+ * `.partial()` of the create schema rather than a hand-written twin: a field added to one
+ * and forgotten in the other is how an edit form silently stops being able to change
+ * something.
+ */
+export const updateVenueSchema = createVenueSchema.partial();
+export type UpdateVenueInput = z.infer<typeof updateVenueSchema>;

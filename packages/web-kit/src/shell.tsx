@@ -14,6 +14,18 @@ export interface NavItem {
   roles?: string[];
   exact?: boolean;
   icon?: LucideIcon;
+  /**
+   * Starts a labelled group, rendered above this item.
+   *
+   * Grouping rather than hiding. The organizer sidebar reached sixteen items, several of
+   * which are irrelevant to any one organizer — a concert promoter never shows a film. The
+   * tempting fix is to hide what an organization has not used yet, but that is exactly how
+   * seat maps went undiscovered: you cannot find the section that would let you start.
+   *
+   * A heading says "this is a separate concern, skip it if it is not yours" while leaving
+   * it findable, which is the honest version of the same idea.
+   */
+  group?: string;
 }
 
 function isActive(pathname: string, href: string, exact?: boolean): boolean {
@@ -55,20 +67,26 @@ export function AppShell({
         const active = isActive(pathname, item.href, item.exact);
         const Icon = item.icon;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setMobileOpen(false)}
-            aria-current={active ? 'page' : undefined}
-            className={`flex min-h-[2.75rem] items-center gap-2.5 rounded-md px-3 py-2 text-[0.9375rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0 ${
-              active
-                ? 'bg-tint-primary font-semibold text-action-primary'
-                : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-            }`}
-          >
-            {Icon && <Icon className="h-4 w-4" />}
-            {item.label}
-          </Link>
+          <div key={item.href}>
+            {item.group && (
+              <p className="px-3 pb-1 pt-4 text-caption font-semibold uppercase tracking-wide text-text-muted">
+                {item.group}
+              </p>
+            )}
+            <Link
+              href={item.href}
+              onClick={() => setMobileOpen(false)}
+              aria-current={active ? 'page' : undefined}
+              className={`flex min-h-[2.75rem] items-center gap-2.5 rounded-md px-3 py-2 text-[0.9375rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:min-h-0 ${
+                active
+                  ? 'bg-tint-primary font-semibold text-action-primary'
+                  : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+              }`}
+            >
+              {Icon && <Icon className="h-4 w-4" />}
+              {item.label}
+            </Link>
+          </div>
         );
       })}
     </nav>

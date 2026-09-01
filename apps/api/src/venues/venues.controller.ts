@@ -1,7 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { createVenueSchema, type CreateVenueInput } from '@eticketsgo/validation';
+import {
+  createVenueSchema,
+  updateVenueSchema,
+  type CreateVenueInput,
+  type UpdateVenueInput,
+} from '@eticketsgo/validation';
 import { VenuesService } from './venues.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -33,6 +38,16 @@ export class VenuesController {
     q: { organizationId: string },
   ) {
     return this.venues.list(user, q.organizationId);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Edit a venue.' })
+  update(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateVenueSchema)) body: UpdateVenueInput,
+  ) {
+    return this.venues.update(user, id, body);
   }
 
   @Get(':id')
