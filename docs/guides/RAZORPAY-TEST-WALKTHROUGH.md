@@ -58,31 +58,48 @@ will accept anything, so a mismatched secret is rejected rather than half-proces
 distinct secret per environment: one shared across QA and production means a QA webhook can
 move production bookings.
 
-## Step 4 — the test credentials Razorpay provides
+## Step 4 — what THIS account can take a payment with
 
-All of these work only in test mode and move no money.
+> **Read this before copying a card number from anywhere.**
+>
+> An earlier version of this page listed `4111 1111 1111 1111` and the UPI id
+> `success@razorpay`, taken from Razorpay's general documentation. **Neither works on the
+> QA account.** Checkout answers _"International cards are not supported"_ for that card,
+> and UPI is not switched on at all. Nothing was broken — the enabled methods are a
+> per-account setting, and no documentation page can know what a given merchant has turned
+> on. Writing them down here guaranteed these instructions would eventually be wrong.
 
-**Cards** — any future expiry, any CVV, any name.
+So ask the account instead of this file:
 
-| Purpose              | Number                |
-| -------------------- | --------------------- |
-| Success              | `4111 1111 1111 1111` |
-| Success (Mastercard) | `5267 3181 8797 5449` |
-| Failure              | `4000 0000 0000 0002` |
+```
+RAILWAY_TOKEN=<qa token> node scripts/payments/razorpay-methods.mjs
+```
 
-For a 3-D Secure card the test OTP is shown on the challenge screen itself — do not guess it.
+It calls `/v1/preferences` — the same public preflight Razorpay Checkout itself runs before
+drawing its method list — so what it prints is exactly what the buyer will be offered, and
+it stays right when the account changes.
 
-**UPI** — enter these as the VPA:
+**As of the last run against QA:**
 
-| Purpose | VPA                |
-| ------- | ------------------ |
-| Success | `success@razorpay` |
-| Failure | `failure@razorpay` |
+| Method     | Enabled | Detail                                |
+| ---------- | ------- | ------------------------------------- |
+| Netbanking | ✅      | 40 banks                              |
+| Wallet     | ✅      | airtelmoney, mobikwik, olamoney       |
+| Card       | ✅      | MAES, MC, RUPAY, VISA — domestic only |
+| UPI        | ❌      | not enabled on the account            |
+| EMI        | ❌      | not enabled on the account            |
 
-**Netbanking** — pick any bank; the test gateway shows an explicit **Success / Failure**
-choice instead of a login.
+**Use Netbanking.** Pick any bank and the test gateway shows an explicit **Success /
+Failure** choice instead of a login — no card number, no account setting, and it exercises
+the identical order → webhook → confirmation path. A wallet does the same.
 
-**Wallets** — offered in test mode and settle immediately on selection.
+**Cards need one of two things first:** either enable international payments in the
+Razorpay dashboard, or use a domestic test card. Domestic test numbers are listed **in the
+Razorpay dashboard itself**, which is the only source that reflects your account — this
+file deliberately no longer quotes any, because that is the mistake it is correcting.
+
+**UPI needs enabling** — Razorpay Dashboard → Settings → Configuration → Payment Methods —
+before any UPI id is worth trying.
 
 ## Step 5 — walk it
 

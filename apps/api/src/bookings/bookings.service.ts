@@ -1310,6 +1310,10 @@ export class BookingsService {
         },
         eventSession: {
           select: {
+            // The checkout screen needs it to ask which offers this session advertises.
+            // Without it the discount box is a blank field: the organizer's promotion
+            // exists, the API will honour it, and nowhere tells the buyer it is there.
+            id: true,
             startsAt: true,
             // A showtime means the time AT THE CINEMA. Without this the page renders it in
             // the reader's own zone, which is how a ticket and its confirmation email came

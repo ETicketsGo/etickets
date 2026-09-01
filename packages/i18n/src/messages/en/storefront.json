@@ -82,7 +82,8 @@
     "extended": "Your seats are held for longer.",
     "extendFailed": "We could not extend the hold. Please continue to payment.",
     "noMoreExtensions": "This hold cannot be extended again. Complete the payment, or start over to pick your seats afresh.",
-    "expiringSoon": "Your seats are about to be released."
+    "expiringSoon": "Your seats are about to be released.",
+    "availableOffers": "Available offers…"
   },
   "confirmation": {
     "steps": {

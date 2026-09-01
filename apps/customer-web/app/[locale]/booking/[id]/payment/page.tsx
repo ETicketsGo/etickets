@@ -112,6 +112,29 @@ export default function PaymentPage() {
     onError: () => setError(k('extendFailed')),
   });
 
+  /*
+    The offers this session actually advertises.
+
+    The discount box has been here since somebody reported that an organizer made a
+    promotion and had nowhere to use it — but it is a blank field, so it only helps a buyer
+    who already knows the code. The organizer's promotion existed, the API would honour it,
+    and nothing on the screen said it was there. On QA that is a live `FIRST10 — 10% off`
+    that nobody buying a ticket could discover.
+
+    The seat-picking screen has listed these for a while. This is the same list on the
+    screen where the discount box lives, which is where most buyers actually reach it —
+    general-admission events never pass through a seat map at all.
+
+    Private codes are never listed; `GET /bookings/offers/:id` returns only what the
+    organizer chose to advertise.
+  */
+  const offersQ = useQuery({
+    queryKey: ['offers', booking?.eventSession?.id],
+    queryFn: () => api.sessionOffers(booking!.eventSession!.id),
+    enabled: Boolean(booking?.eventSession?.id) && (booking?.discountMinor ?? 0) === 0,
+    staleTime: 300_000,
+  });
+
   const countdown = useCountdown(booking?.holdExpiresAt);
 
   const pay = useMutation({
@@ -339,25 +362,49 @@ export default function PaymentPage() {
               </button>
             </div>
           ) : (
-            <div className="flex items-start gap-2">
-              <input
-                aria-label={k('discountCode')}
-                placeholder={k('discountCode')}
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value.toUpperCase());
-                  setCouponError(null);
-                }}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              />
-              <button
-                type="button"
-                disabled={!code.trim() || coupon.isPending}
-                onClick={() => coupon.mutate(code)}
-                className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
-              >
-                {coupon.isPending ? k('applying') : 'Apply'}
-              </button>
+            <div className="space-y-2">
+              {(offersQ.data?.length ?? 0) > 0 && (
+                <select
+                  aria-label={k('availableOffers')}
+                  value=""
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    setCode(e.target.value);
+                    setCouponError(null);
+                    // Applied on selection: picking an offer IS the intent, and making
+                    // somebody choose it and then press Apply is a step that earns nothing.
+                    coupon.mutate(e.target.value);
+                  }}
+                  className="w-full rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <option value="">{k('availableOffers')}</option>
+                  {offersQ.data!.map((o) => (
+                    <option key={o.code} value={o.code}>
+                      {o.code} — {o.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="flex items-start gap-2">
+                <input
+                  aria-label={k('discountCode')}
+                  placeholder={k('discountCode')}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value.toUpperCase());
+                    setCouponError(null);
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                />
+                <button
+                  type="button"
+                  disabled={!code.trim() || coupon.isPending}
+                  onClick={() => coupon.mutate(code)}
+                  className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                >
+                  {coupon.isPending ? k('applying') : k('apply')}
+                </button>
+              </div>
             </div>
           )}
           {couponError && (

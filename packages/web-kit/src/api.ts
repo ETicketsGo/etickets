@@ -1673,7 +1673,7 @@ export interface BookingDetail {
     refundsEnabled?: boolean;
     refundCutoffHours?: number;
   };
-  eventSession: { startsAt: string };
+  eventSession: { id: string; startsAt: string };
   items: {
     kind?: string;
     quantity: number;
