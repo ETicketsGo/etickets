@@ -4,23 +4,27 @@ Everything below is ready in the codebase. What is missing is **credentials**, w
 owner of the Razorpay account can produce — so this is written to be followed in one sitting
 once you have them.
 
-## Why QA cannot do this today
+## Status: QA is configured
 
-QA has no Razorpay keys at all:
+QA has real Razorpay **test** keys and a registered webhook. INR bookings create genuine
+Razorpay orders. UAT deliberately has none and stays on the mock provider.
 
-```
-RAZORPAY_KEY_ID          NOT SET
-RAZORPAY_KEY_SECRET      NOT SET
-RAZORPAY_WEBHOOK_SECRET  NOT SET
-```
+What is automated, and passing (`QA_RAZORPAY=1 npx playwright test qa-razorpay`):
 
-With none set, `PaymentsService` never takes the Razorpay branch — it falls through to the
-mock provider. Anything "tested" in that state exercises a simulation, not Razorpay, and
-would prove nothing about whether a real UPI collect request works.
+- an INR booking routes to Razorpay and gets a real `order_…`
+- the callback points at the storefront, not localhost
+- the booking stays `PENDING_PAYMENT` until a signed webhook arrives
+- an unsigned or tampered webhook is refused
+- a captured payment confirms the booking, mints an `ETG-` reference, issues a ticket and a
+  signed QR
 
-This is deliberate rather than an oversight: the adapter is constructed lazily and **fails
-fast** when a selected provider's secrets are missing, so a half-configured environment
-refuses loudly instead of silently pretending.
+**What no automated test covers, and why.** Razorpay's hosted Checkout loads hCaptcha and
+bot detection, so an automated browser never gets past the price summary to the payment
+methods. A test built on a third party's markup — markup they actively defend against
+automation — fails for reasons unrelated to this codebase, so it was written, found to be
+unreliable, and deleted rather than left to cry wolf.
+
+That leaves exactly two things for a human, and step 5 below is that script.
 
 ## Step 1 — get test-mode keys
 
@@ -84,7 +88,10 @@ choice instead of a login.
 
 **Wallets** — offered in test mode and settle immediately on selection.
 
-## Step 5 — walk it
+## Step 5 — the human half
+
+Two claims the automated suite cannot make: that Razorpay captures a payment, and that
+Razorpay delivers the webhook. Both take about five minutes in a browser.
 
 1. Open a **paid** event on QA (`qa.eticketsgo.com`) and book a ticket. The booking must be
    INR — routing is decided from the booking's own currency and country, never from anything
@@ -93,7 +100,8 @@ choice instead of a login.
 3. Pay with each method above in turn, one booking each.
 4. After a success, check three things rather than one:
    - the booking reaches **CONFIRMED** and a ticket with a QR is issued;
-   - the dashboard's **Webhooks** log shows a `2xx` for the QA endpoint;
+   - the dashboard's **Webhooks** log shows a `2xx` for the QA endpoint — this is the only
+     evidence that Razorpay actually delivers, as opposed to our endpoint accepting;
    - a **failure** leaves the booking `PENDING_PAYMENT` and releases the hold — a payment
      path is only proven when you have watched it refuse.
 
