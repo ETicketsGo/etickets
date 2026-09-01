@@ -82,29 +82,39 @@ test.describe('QA: a city that empties a page says so', () => {
     await expect(page.getByText(/Nothing on in Bengaluru just yet/)).toHaveCount(0);
   });
 
-  test('every film on the shelf can actually be booked', async ({ page, request }) => {
-    /*
+  /*
+    Pinned to en-IN because the films on QA are in India, and this test is about the
+    catalogue having no dead ends — not about location scoping, which the discovery suite
+    covers. Under the default US locale the shelf is correctly empty, and asserting on it
+    would be asserting the wrong thing.
+  */
+  test.describe(() => {
+    test.use({ locale: 'en-IN' });
+
+    test('every film on the shelf can actually be booked', async ({ page, request }) => {
+      /*
       The catalogue used to list films whose run had finished and films whose events were
       still drafts — four of seven on QA. A customer taps a poster and lands on a page with
       no showtimes.
     */
-    const movies = await (
-      await request.get('https://api-qa-f580.up.railway.app/api/public/movies')
-    ).json();
-    const list = Array.isArray(movies) ? movies : movies.data;
-    expect(list.length, 'QA should still have films on sale').toBeGreaterThan(0);
-
-    const deadEnds: string[] = [];
-    for (const m of list) {
-      const shows = await (
-        await request.get(`https://api-qa-f580.up.railway.app/api/public/movies/${m.slug}/shows`)
+      const movies = await (
+        await request.get('https://api-qa-f580.up.railway.app/api/public/movies')
       ).json();
-      if ((shows.shows ?? []).length === 0) deadEnds.push(m.slug);
-    }
-    expect(deadEnds).toEqual([]);
+      const list = Array.isArray(movies) ? movies : movies.data;
+      expect(list.length, 'QA should still have films on sale').toBeGreaterThan(0);
 
-    // And the catalogue page renders them.
-    await open(page, `${CUSTOMER}/movies`);
-    await expect(page.locator('a[href^="/movies/"]').first()).toBeVisible({ timeout: 30_000 });
+      const deadEnds: string[] = [];
+      for (const m of list) {
+        const shows = await (
+          await request.get(`https://api-qa-f580.up.railway.app/api/public/movies/${m.slug}/shows`)
+        ).json();
+        if ((shows.shows ?? []).length === 0) deadEnds.push(m.slug);
+      }
+      expect(deadEnds).toEqual([]);
+
+      // And the catalogue page renders them.
+      await open(page, `${CUSTOMER}/movies`);
+      await expect(page.locator('a[href^="/movies/"]').first()).toBeVisible({ timeout: 30_000 });
+    });
   });
 });

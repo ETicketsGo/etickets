@@ -151,19 +151,37 @@ export default function EventsPage() {
     if (initial.city) seeded.current = true;
   }, []);
 
-  // The header location resolves asynchronously, so it is usually not known when the
-  // effect above runs. This applies it exactly once, and never after the customer has
-  // searched. A country, unlike a city, is not shown in the City box — it is not something
-  // they typed, and putting it there would make "India" look like a city name.
+  /*
+    The header, in its two different moods.
+
+    A GUESS arrives asynchronously and gets exactly one chance to seed the page, so it can
+    never come back later and overwrite something the customer has typed since.
+
+    A CHOICE — someone using the picker in the header — wins every time it happens, not
+    just the first time. Collapsing the two is a bug I wrote and the QA suite caught: the
+    country hint resolves within a second of load, burned the single seed, and from then on
+    picking Bengaluru in the header changed the chip and left Browse showing Mumbai. The
+    same class of disagreement this change exists to remove, reintroduced two files away.
+
+    A country, unlike a city, never appears in the City box — it is not something they
+    typed, and putting it there would make "India" look like a city name.
+  */
   const headerScope = cityScope(preference);
   const headerScopeKey = JSON.stringify(headerScope);
   useEffect(() => {
+    if (preference.chosen) {
+      seeded.current = true;
+      setPage(1);
+      setCity(preference.city ?? '');
+      setApplied((prev) => ({ ...prev, city: preference.city ?? undefined }));
+      return;
+    }
     if (seeded.current || (!headerScope.city && !headerScope.country)) return;
     seeded.current = true;
     if (headerScope.city) setCity(headerScope.city);
     setApplied((prev) => ({ ...prev, city: headerScope.city }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headerScopeKey]);
+  }, [headerScopeKey, preference.chosen, preference.city]);
 
   /*
     The country scope is applied to the REQUEST but is never part of `applied`.
