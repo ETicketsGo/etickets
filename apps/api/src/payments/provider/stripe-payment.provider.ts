@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { redirectUrl } from '../../common/console-urls';
 import type {
   ConnectedAccountSnapshot,
   CreateConnectedAccountInput,
@@ -68,9 +69,28 @@ export class StripePaymentProvider implements PaymentProvider {
   constructor(config: ConfigService) {
     const secretKey = requireKey(config, 'STRIPE_SECRET_KEY');
     this.webhookSecret = requireKey(config, 'STRIPE_WEBHOOK_SECRET');
-    // These have config-schema defaults, so getOrThrow-style access is safe.
-    this.successUrl = config.getOrThrow<string>('STRIPE_SUCCESS_URL');
-    this.cancelUrl = config.getOrThrow<string>('STRIPE_CANCEL_URL');
+    /*
+      Derived from where the storefront actually is, not from a localhost default.
+
+      Resolved in the CONSTRUCTOR rather than per payment, so a misconfigured environment
+      fails when the adapter is first built — at the first attempt to pay, with a message
+      naming the missing variable — instead of quietly handing Stripe a localhost redirect
+      and losing the customer after the charge.
+    */
+    this.successUrl = redirectUrl(config, {
+      overrideVariable: 'STRIPE_SUCCESS_URL',
+      site: 'customer',
+      path: '/checkout/success',
+      // Stripe substitutes this placeholder itself; it must survive verbatim.
+      query: 'session_id={CHECKOUT_SESSION_ID}',
+      purpose: 'Stripe Checkout success',
+    });
+    this.cancelUrl = redirectUrl(config, {
+      overrideVariable: 'STRIPE_CANCEL_URL',
+      site: 'customer',
+      path: '/checkout/cancel',
+      purpose: 'Stripe Checkout cancel',
+    });
     this.connectAccountType = config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express';
     this.testMode = secretKey.startsWith('sk_test_');
     // Pin the API version when configured so dashboard/SDK upgrades are deliberate;

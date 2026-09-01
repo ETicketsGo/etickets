@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OrgAccessService } from '../../tenancy/org-access.service';
 import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { redirectUrl } from '../../common/console-urls';
 import type { RequestUser } from '../../common/decorators';
 import {
   PAYMENT_PROVIDER,
@@ -167,8 +168,22 @@ export class OrganizerConnectService {
 
     const link = await provider.createOnboardingLink({
       accountId: account.providerAccountId,
-      returnUrl: this.config.getOrThrow<string>('STRIPE_CONNECT_RETURN_URL'),
-      refreshUrl: this.config.getOrThrow<string>('STRIPE_CONNECT_REFRESH_URL'),
+      // Derived from ORGANIZER_WEB_URL, so an organizer part-way through Stripe's hosted
+      // onboarding is returned to the console they came from rather than to localhost.
+      returnUrl: redirectUrl(this.config, {
+        overrideVariable: 'STRIPE_CONNECT_RETURN_URL',
+        site: 'organizer',
+        path: '/organizer/payouts',
+        query: 'onboarding=return',
+        purpose: 'Stripe Connect onboarding return',
+      }),
+      refreshUrl: redirectUrl(this.config, {
+        overrideVariable: 'STRIPE_CONNECT_REFRESH_URL',
+        site: 'organizer',
+        path: '/organizer/payouts',
+        query: 'onboarding=refresh',
+        purpose: 'Stripe Connect onboarding refresh',
+      }),
     });
 
     await this.audit.record({

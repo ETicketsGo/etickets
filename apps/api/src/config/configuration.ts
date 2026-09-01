@@ -386,12 +386,20 @@ const envSchema = z.object({
   // Pin the Stripe API version so upgrades are deliberate. Optional: when unset the
   // installed SDK's pinned default is used. Set to the exact dashboard API version.
   STRIPE_API_VERSION: z.string().optional(),
-  // Where Stripe Checkout redirects the buyer after success/cancel. {CHECKOUT_SESSION_ID}
-  // is substituted by Stripe. Optional with sane localhost defaults.
-  STRIPE_SUCCESS_URL: z
-    .string()
-    .default('http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}'),
-  STRIPE_CANCEL_URL: z.string().default('http://localhost:3000/checkout/cancel'),
+  /*
+    Where Stripe Checkout returns the buyer. OPTIONAL AND WITHOUT A DEFAULT, on purpose.
+
+    These defaulted to `http://localhost:3000/...`, which is the same defect that shipped in
+    `RAZORPAY_CALLBACK_URL` and would have returned a paying customer to a machine that is
+    not theirs — after the money moved. It was found by reading rather than by a customer
+    only because Stripe has never had keys here.
+
+    Derived from `CUSTOMER_WEB_URL` now (see `common/console-urls.ts`), which fails loudly
+    when unset outside local development. Set one of these only when the return must land
+    somewhere other than the storefront.
+  */
+  STRIPE_SUCCESS_URL: z.string().optional(),
+  STRIPE_CANCEL_URL: z.string().optional(),
 
   // ─── Stripe Connect (US marketplace) ───
   // Connect OAuth client id (only used for the OAuth/Standard flow; Express/Custom
@@ -401,13 +409,10 @@ const envSchema = z.object({
   // onboarding + an Express dashboard (login links supported). `standard` = the
   // organizer's own full Stripe account. Default express for a hosted marketplace.
   STRIPE_CONNECT_ACCOUNT_TYPE: z.enum(['express', 'standard', 'custom']).default('express'),
-  // Where Stripe returns / refreshes the organizer during hosted onboarding.
-  STRIPE_CONNECT_RETURN_URL: z
-    .string()
-    .default('http://localhost:3001/organizer/payouts?onboarding=return'),
-  STRIPE_CONNECT_REFRESH_URL: z
-    .string()
-    .default('http://localhost:3001/organizer/payouts?onboarding=refresh'),
+  // Where Stripe returns / refreshes the organizer during hosted onboarding. Derived from
+  // ORGANIZER_WEB_URL when unset; same reasoning as the two above.
+  STRIPE_CONNECT_RETURN_URL: z.string().optional(),
+  STRIPE_CONNECT_REFRESH_URL: z.string().optional(),
   // Settlement reserve withheld from each organizer transfer, in basis points
   // (100 = 1%). Configurable per deployment; 0 = no reserve. NEVER hardcoded.
   STRIPE_SETTLEMENT_RESERVE_BPS: z.coerce.number().int().min(0).max(10000).default(0),
