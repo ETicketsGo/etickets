@@ -34,6 +34,14 @@ export const createBookingSchema = z
     couponCode: z.string().trim().max(40).optional(),
     buyerName: z.string().trim().min(2).max(120),
     buyerEmail: z.string().email(),
+    /**
+     * How the buyer intends to pay.
+     *
+     * A REQUEST, not a decision. The server refuses CASH unless the organizer has turned
+     * it on, so a client sending it cannot conjure the option — the same reason the
+     * provider is never taken from the client either.
+     */
+    paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
   })
   .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
     message: 'Add at least one item to your cart.',

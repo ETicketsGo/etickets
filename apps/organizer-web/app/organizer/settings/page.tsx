@@ -82,6 +82,31 @@ const LEGAL_FIELDS: {
 
 export default function SettingsPage() {
   const { activeOrg } = useOrg();
+
+  /*
+    Mirrored into local state so the checkbox responds immediately. The org context is
+    refreshed on success, but waiting for a round trip before the tick appears makes a
+    toggle feel broken.
+  */
+  const [cashEnabled, setCashEnabled] = useState(activeOrg.cashPaymentsEnabled ?? false);
+  const cashToggle = useMutation({
+    mutationFn: (enabled: boolean) => api.organizations.setCashPayments(activeOrg.id, enabled),
+    onMutate: (enabled) => setCashEnabled(enabled),
+    onSuccess: (r) => {
+      setCashEnabled(r.cashPaymentsEnabled);
+      toast.push(
+        r.cashPaymentsEnabled
+          ? 'Cash accepted. Reservations now appear under Counter.'
+          : 'Cash turned off. Existing reservations can still be collected.',
+        'success',
+      );
+    },
+    onError: (e) => {
+      // Put the checkbox back: leaving it ticked would claim a setting that did not save.
+      setCashEnabled(activeOrg.cashPaymentsEnabled ?? false);
+      toast.push(errorMessage(e), 'error');
+    },
+  });
   const qc = useQueryClient();
   const toast = useToast();
   const {
@@ -192,6 +217,35 @@ export default function SettingsPage() {
             </div>
           </dl>
         </Card>
+        {/*
+          Taking cash is an operational decision, not a profile field, so it sits with the
+          organization rather than beside the logo. The copy says what changes when it is on
+          — an organizer who discovers at settlement that cash is not in their payout has
+          been badly served by a bare toggle.
+        */}
+        <Card title="Cash at the venue">
+          <div className="space-y-3">
+            <p className="text-[0.9375rem] text-text-secondary">
+              Let people reserve seats online and pay you in cash when they arrive. Seats are held
+              until the show starts, and your staff mark them paid from <strong>Counter</strong>.
+            </p>
+            <p className="text-caption text-text-muted">
+              This money never passes through ETicketsGo, so it is not part of a payout and no card
+              fee is taken from it.
+            </p>
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border"
+                checked={cashEnabled}
+                disabled={cashToggle.isPending}
+                onChange={(e) => cashToggle.mutate(e.target.checked)}
+              />
+              <span className="text-[0.9375rem] text-text-primary">Accept cash at the venue</span>
+            </label>
+          </div>
+        </Card>
+
         <Card title="Your profile">
           {isError ? (
             <ErrorState

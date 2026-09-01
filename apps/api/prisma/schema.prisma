@@ -149,6 +149,20 @@ enum FeeMode {
   SHARED
 }
 
+/// How a booking is paid for.
+///
+/// ONLINE means money moves through a payment provider and the platform holds it until
+/// settlement. CASH means it does not: the customer pays a person at the venue, and the
+/// platform never touches the money at any point.
+///
+/// That distinction is not a preference — it changes what the product may claim. A cash
+/// booking must never appear in a settlement as money the platform owes the organizer,
+/// because there is no bank statement it could ever be reconciled against.
+enum BookingPaymentMethod {
+  ONLINE
+  CASH
+}
+
 enum BookingStatus {
   PENDING_PAYMENT
   CONFIRMED
@@ -424,6 +438,7 @@ model User {
   invitationsSent         AccountInvitation[]      @relation("InvitationsSent")
   invitationReceived      AccountInvitation?       @relation("InvitationsReceived")
   passwordResetTokens     PasswordResetToken[]
+  cashCollected           Booking[]                @relation("CashCollected")
   memberships             OrganizationMember[]
   bookings                Booking[]
   assignedTickets         Ticket[]                 @relation("TicketAttendee")
@@ -708,6 +723,14 @@ model Organization {
   receipts                Receipt[]
 
   @@index([status])
+  /// Whether this organizer may sell tickets paid for in cash at the venue.
+  ///
+  /// Off by default and declared, never inferred. Turning it on means the organizer is
+  /// taking money the platform will never see, so it changes who is responsible for
+  /// collecting it, what a settlement can promise, and what a receipt can honestly say.
+  /// Somebody has to choose that deliberately.
+  cashPaymentsEnabled Boolean @default(false)
+
 }
 
 model OrganizationMember {
@@ -1300,6 +1323,23 @@ model Booking {
   /// admission — and the confirmation path would then try to settle seat inventory as a
   /// counter, or the reverse. Reading a value written at the time removes the question.
   seatBased Boolean @default(false)
+
+  /// How this booking is paid for, decided when it was created.
+  ///
+  /// Stored rather than inferred, for the same reason `seatBased` and `Event.isFree` are: a
+  /// booking is a settled fact. Deriving it later from "has no Payment row" would make an
+  /// online booking whose payment failed indistinguishable from a cash one, and those are
+  /// owed completely different things.
+  paymentMethod BookingPaymentMethod @default(ONLINE)
+
+  /// When the cash was actually handed over, and who took it. Null until then.
+  ///
+  /// The collector is recorded because this is the one payment path with no provider record
+  /// behind it — if the money and the till disagree, this row is the only account of who was
+  /// holding it.
+  cashCollectedAt       DateTime?
+  cashCollectedByUserId String?
+  cashCollectedBy       User?     @relation("CashCollected", fields: [cashCollectedByUserId], references: [id])
 
   /// How many times the buyer has asked for more time on this hold.
   ///

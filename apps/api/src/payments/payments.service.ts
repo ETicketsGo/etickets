@@ -380,6 +380,98 @@ export class PaymentsService {
    * database — not taken from the caller — and anything but zero is refused outright. A
    * bug elsewhere that routed a priced booking here would otherwise hand out free tickets.
    */
+  /**
+   * Record that cash was handed over at the venue, and confirm the booking.
+   *
+   * ── WHY THIS IS A SEPARATE ENTRY POINT ─────────────────────────────────────────────
+   * Every other confirmation is caused by a provider telling us money moved. This one is
+   * caused by a person saying so. There is no webhook to verify, no signature, and no way
+   * to check the claim afterwards — which is exactly why it is deliberately narrow: it
+   * confirms the FULL amount the booking already says is owed, it records WHO said so, and
+   * it refuses anything that is not a cash booking awaiting collection.
+   *
+   * The amount is not a parameter. Letting the caller pass one would make partial payment
+   * expressible, and a half-paid booking is a state with no defined meaning here — the
+   * ticket either admits somebody or it does not.
+   */
+  async collectCash(bookingId: string, collectorUserId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        status: true,
+        paymentMethod: true,
+        totalMinor: true,
+        organizationId: true,
+        cashCollectedAt: true,
+      },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    if (booking.paymentMethod !== 'CASH') {
+      /*
+        Refused rather than quietly allowed. Marking an ONLINE booking as cash-collected
+        would confirm a ticket nobody paid for through any channel we can see, and it would
+        be invisible afterwards because there is no provider record to contradict it.
+      */
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This booking is not a cash booking. It is paid online.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (booking.status === 'CONFIRMED' && booking.cashCollectedAt) {
+      // Idempotent: two staff pressing the same button must not double-issue tickets.
+      return { status: 'already_collected' as const, bookingId };
+    }
+    if (booking.status !== 'PENDING_PAYMENT') {
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        `This booking is ${booking.status.toLowerCase().replace(/_/g, ' ')} and cannot be collected.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      Stamped BEFORE confirming, and conditionally on it still being uncollected.
+
+      Two people at the same counter can press Collect at the same moment. This update is
+      the race winner's proof: `count === 0` means somebody else got there first, and the
+      loser must not go on to issue a second set of tickets.
+    */
+    const claimed = await this.prisma.booking.updateMany({
+      where: { id: bookingId, cashCollectedAt: null, paymentMethod: 'CASH' },
+      data: { cashCollectedAt: new Date(), cashCollectedByUserId: collectorUserId },
+    });
+    if (claimed.count === 0) {
+      return { status: 'already_collected' as const, bookingId };
+    }
+
+    await this.audit.record({
+      actorUserId: collectorUserId,
+      organizationId: booking.organizationId,
+      action: 'CASH_COLLECTED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: { amountMinor: booking.totalMinor },
+    });
+
+    /*
+      The amount check stays on. `providerRef` records how this was confirmed so a later
+      reader of the Booking is never left guessing why there is no provider reference.
+    */
+    return this.confirm(
+      {
+        type: 'payment.succeeded',
+        providerRef: `cash:${bookingId}`,
+        bookingId,
+        amountMinor: booking.totalMinor,
+      },
+      { withoutPayment: true },
+    );
+  }
+
   async confirmFreeBooking(bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -405,17 +497,25 @@ export class PaymentsService {
     }
     return this.confirm(
       { type: 'payment.succeeded', providerRef: `free:${bookingId}`, bookingId, amountMinor: 0 },
-      { free: true },
+      { withoutPayment: true, skipAmountCheck: true },
     );
   }
 
   /**
-   * @param options.free A booking with nothing to pay: there is no Payment row to settle
-   *   and no provider amount to reconcile against. Everything else — the reference, the
-   *   receipt, inventory settlement, ticket issue, the domain event, the notification —
-   *   is identical, because none of it is about money.
+   * @param options.withoutPayment A booking with NO Payment row: nothing to settle, and
+   *   no provider amount to reconcile against. True for two quite different cases — a free
+   *   booking, where no money exists, and a cash booking, where money exists but never
+   *   passed through the platform. Everything else — the reference, the receipt, inventory
+   *   settlement, ticket issue, the domain event, the notification — is identical, because
+   *   none of it is about who held the money.
+   * @param options.skipAmountCheck Only for free bookings, where there is no provider
+   *   figure to agree with. Cash deliberately keeps the check: the collector confirms a
+   *   specific amount, and it must equal what the booking says is owed.
    */
-  private async confirm(event: PaymentEvent, options: { free?: boolean } = {}) {
+  private async confirm(
+    event: PaymentEvent,
+    options: { withoutPayment?: boolean; skipAmountCheck?: boolean } = {},
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
       include: {
@@ -462,7 +562,7 @@ export class PaymentsService {
     // A free booking has no provider to disagree with. Its equivalent guard already ran in
     // `confirmFreeBooking`, which re-read the total from the database and refuses anything
     // but zero — so the money check has been made, just not against a gateway.
-    if (!options.free && event.amountMinor !== booking.totalMinor) {
+    if (!options.skipAmountCheck && event.amountMinor !== booking.totalMinor) {
       await this.audit.record({
         organizationId: booking.organizationId,
         action: 'PAYMENT_AMOUNT_MISMATCH',
@@ -587,14 +687,14 @@ export class PaymentsService {
         );
       }
       /*
-        A free booking has no Payment row to settle, and must not acquire one.
+        A free or cash booking has no Payment row to settle, and must not acquire one.
 
         Writing a zero-amount SUCCEEDED payment would put a line in every reconciliation,
         settlement and payout report that can never balance against a bank statement,
         because no bank was involved. `where: { bookingId }` would fail outright anyway —
         the row was never created.
       */
-      if (!options.free) {
+      if (!options.withoutPayment) {
         await tx.payment.update({
           where: { bookingId: booking.id },
           data: {

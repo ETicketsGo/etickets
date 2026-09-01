@@ -147,5 +147,14 @@
     "resetDone": "Votre mot de passe est enregistré. Connectez-vous avec celui-ci.",
     "resetLinkBad": "Ce lien de réinitialisation n’est plus valide. Demandez-en un nouveau.",
     "backToSignIn": "Retour à la connexion"
+  },
+  "booking": {
+    "cashTitle": "Places réservées — payez sur place",
+    "cashLead": "Apportez {amount} au comptoir. Vos places sont retenues jusqu’au début du spectacle.",
+    "cashRef": "Présentez cette référence",
+    "cashNote": "Rien n’a été prélevé. Vous payez directement à la salle en arrivant.",
+    "payAtVenue": "Payer sur place",
+    "payOnline": "Payer en ligne maintenant",
+    "payAtVenueHint": "Réservez maintenant, payez comptant au comptoir en arrivant."
   }
 }
