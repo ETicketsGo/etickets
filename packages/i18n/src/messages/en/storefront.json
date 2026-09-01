@@ -16,7 +16,18 @@
     "organizedBy": "Organized by",
     "seatedHeading": "Choose your seats",
     "seatedLead": "This show has assigned seating. Pick your seats on the seat map.",
-    "chooseSeats": "Choose seats"
+    "chooseSeats": "Choose seats",
+    "lineTickets": "Tickets",
+    "lineDiscount": "Discount",
+    "lineBookingFee": "Booking fee",
+    "linePaymentFee": "Payment fee",
+    "total": "Total",
+    "totalSeats": "{count, plural, one {Total (# seat)} other {Total (# seats)}}",
+    "freeLabel": "Free",
+    "priceIsFinal": "This is the full amount you will pay.",
+    "priceWorking": "Working out fees…",
+    "priceAddOne": "Fees are shown once you add a ticket.",
+    "priceAddSeat": "Fees are shown once you pick a seat."
   },
   "seats": {
     "heading": "Choose your seats",

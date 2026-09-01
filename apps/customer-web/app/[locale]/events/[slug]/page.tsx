@@ -28,6 +28,7 @@ import {
   Textarea,
 } from '@/components/ui';
 import { EventCard } from '@/components/event-card';
+import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -120,8 +121,17 @@ export default function EventDetailPage() {
     queryFn: () => api.publicBundles(event!.id),
     enabled: !!event,
   });
-  const addOns = addOnsQ.data ?? [];
-  const bundles = bundlesQ.data ?? [];
+  /*
+    Stable identities, so the memos below them are worth having.
+
+    `addOnsQ.data ?? []` produces a fresh array on every render, which propagated into the
+    quote's dependencies and made them recompute each time. React Query hashes its key
+    structurally so this never became a refetch loop — but a memo whose dependencies always
+    change is a memo that does nothing, and the next person to add a real identity-sensitive
+    dependency here would get the loop for free.
+  */
+  const addOns = useMemo(() => addOnsQ.data ?? [], [addOnsQ.data]);
+  const bundles = useMemo(() => bundlesQ.data ?? [], [bundlesQ.data]);
 
   const ticketSubtotal = useMemo(() => {
     if (!session) return 0;
@@ -135,6 +145,59 @@ export default function EventDetailPage() {
     Object.values(qty).reduce((a, b) => a + b, 0) +
     Object.values(addOnQty).reduce((a, b) => a + b, 0) +
     Object.values(bundleQty).reduce((a, b) => a + b, 0);
+
+  /*
+    The real price of this cart, from the server.
+
+    This card used to show the ticket subtotal and the line "Transparent fees shown on the
+    next step" — an apology for advertising a number that is not what the buyer pays. On QA
+    the gap was ₹998 shown against ₹1,033.26 charged: a booking fee and a payment fee that
+    only appeared after they had committed.
+
+    Quoted rather than computed here. Fee tiers and tax are per-order and live on the
+    server; a second implementation on the client would be right until the day it was not,
+    and the customer would be the one to find out. `/bookings/quote` prices the cart with
+    the same code the booking uses, holds nothing and redeems nothing.
+  */
+  const quoteItems = useMemo(
+    () =>
+      (session?.ticketTypes ?? [])
+        .filter((t) => (qty[t.id] ?? 0) > 0)
+        .map((t) => ({ ticketTypeId: t.id, quantity: qty[t.id] })),
+    [session, qty],
+  );
+  const quoteAddOns = useMemo(
+    () =>
+      addOns
+        .filter((a) => (addOnQty[a.id] ?? 0) > 0)
+        .map((a) => ({ addOnId: a.id, quantity: addOnQty[a.id] })),
+    [addOns, addOnQty],
+  );
+  const quoteBundles = useMemo(
+    () =>
+      bundles
+        .filter((b) => (bundleQty[b.id] ?? 0) > 0)
+        .map((b) => ({ bundleId: b.id, quantity: bundleQty[b.id] })),
+    [bundles, bundleQty],
+  );
+  const quoteQ = useQuery({
+    queryKey: ['quote', session?.id, quoteItems, quoteAddOns, quoteBundles],
+    queryFn: () =>
+      api.quoteBooking({
+        eventSessionId: session!.id,
+        items: quoteItems,
+        ...(quoteAddOns.length ? { addOns: quoteAddOns } : {}),
+        ...(quoteBundles.length ? { bundles: quoteBundles } : {}),
+      }),
+    // A free event has no fees to quote, and a seated one is priced on the seat map.
+    enabled:
+      Boolean(session) &&
+      !session?.seatBased &&
+      !event?.isFree &&
+      quoteItems.length + quoteAddOns.length + quoteBundles.length > 0,
+    // A stale price is worse than a brief spinner: this is the number they are agreeing to.
+    staleTime: 0,
+  });
 
   // Track for "Recently viewed" and restore any saved ticket selection.
   useEffect(() => {
@@ -328,23 +391,30 @@ export default function EventDetailPage() {
                 {event.venue.address ? `${event.venue.address}, ` : ''}
                 {event.venue.city}, {event.venue.country}
               </p>
-              {/* Map placeholder — an interactive map is not yet wired to a provider. */}
-              <div
-                aria-hidden
-                className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-border bg-background-subtle text-text-muted"
-              >
-                <MapPin className="mr-1.5 h-4 w-4" />
-                <span className="text-caption">Map preview</span>
-              </div>
+              {/*
+                A real link where an empty box used to be.
+
+                There was a dashed placeholder here reading "Map preview". Venues store an
+                address and no coordinates, so there was nothing to draw and never had been
+                — it was a promise of a feature, rendered as a grey rectangle, on the page
+                where somebody is deciding whether to spend money. An unfulfilled promise
+                takes up more space than no promise and reads worse.
+
+                Directions is the thing people actually want from a venue card, so it is now
+                the affordance rather than a caption underneath a hole. It opens the map app
+                they already have, which also renders better than anything embedded here.
+              */}
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                   `${event.venue.name}, ${event.venue.address ?? ''} ${event.venue.city} ${event.venue.country}`,
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-caption font-medium text-action-primary hover:underline"
+                className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                <MapPin className="h-3.5 w-3.5" /> Get directions
+                <MapPin className="h-4 w-4" />
+                Get directions
+                <span className="sr-only">(opens in a new tab)</span>
               </a>
             </Card>
             <Card title="Organizer">
@@ -680,18 +750,13 @@ export default function EventDetailPage() {
                   </div>
                 )}
 
-                <div className="mt-4 border-t border-border pt-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[0.9375rem] text-text-secondary">
-                      {sf('event.subtotal')}
-                    </span>
-                    <span className="text-title font-bold text-text-primary">
-                      {event.isFree ? tx('state.free') : money(subtotal)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-caption text-text-muted">
-                    {event.isFree ? sf('event.freeNote') : sf('event.feesNote')}
-                  </p>
+                <div className="mt-4">
+                  <PriceBreakdown
+                    free={event.isFree}
+                    quote={quoteQ.data?.fees}
+                    loading={quoteQ.isFetching}
+                    fallbackTotalMinor={subtotal}
+                  />
                 </div>
 
                 {error && (

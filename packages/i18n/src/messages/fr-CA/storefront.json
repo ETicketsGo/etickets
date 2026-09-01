@@ -16,7 +16,18 @@
     "organizedBy": "Présenté par",
     "seatedHeading": "Choisissez vos sièges",
     "seatedLead": "Ce spectacle est en places assignées. Choisissez vos sièges sur le plan de salle.",
-    "chooseSeats": "Choisir les sièges"
+    "chooseSeats": "Choisir les sièges",
+    "lineTickets": "Billets",
+    "lineDiscount": "Rabais",
+    "lineBookingFee": "Frais de réservation",
+    "linePaymentFee": "Frais de paiement",
+    "total": "Total",
+    "totalSeats": "{count, plural, one {Total (# siège)} other {Total (# sièges)}}",
+    "freeLabel": "Gratuit",
+    "priceIsFinal": "C’est le montant total que vous paierez.",
+    "priceWorking": "Calcul des frais…",
+    "priceAddOne": "Les frais s’affichent dès que vous ajoutez un billet.",
+    "priceAddSeat": "Les frais s’affichent dès que vous choisissez un siège."
   },
   "seats": {
     "heading": "Choisissez vos sièges",

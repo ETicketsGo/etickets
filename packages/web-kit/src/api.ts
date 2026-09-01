@@ -1003,6 +1003,13 @@ export const api = {
     price: (body: {
       eventSessionId: string;
       items: { ticketTypeId: string; quantity: number; seatIds?: string[] }[];
+      /*
+        Add-ons and bundles were always accepted by the endpoint and were simply missing
+        from this type, so every caller quoted tickets alone. A breakdown that leaves the
+        extras out of the total is worse than none: it is a precise, confident, wrong number.
+      */
+      addOns?: { addOnId: string; quantity: number }[];
+      bundles?: { bundleId: string; quantity: number }[];
       couponCode?: string;
     }) =>
       request<{
@@ -1620,6 +1627,14 @@ export interface BookingResult {
   currency: string;
   holdExpiresAt: string;
   fees: {
+    /**
+     * The currency these amounts are in.
+     *
+     * The API has always returned it; this type left it out, so every screen formatting a
+     * total fell back to `money()`'s INR default. Correct only for as long as nothing is
+     * priced in anything else — and silently wrong the day something is.
+     */
+    currency: string;
     subtotalMinor: number;
     bookingFeeMinor: number;
     paymentFeeMinor: number;

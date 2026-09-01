@@ -10,6 +10,8 @@ import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
+import { PriceBreakdown } from '@/components/price-breakdown';
+import { useTranslations } from 'next-intl';
 
 const MAX_SEATS = 10;
 
@@ -57,17 +59,8 @@ function readableTextOn(hex?: string): string {
   return luminance > 0.6 ? 'var(--text-primary)' : '#ffffff';
 }
 
-/** One line of the price breakdown. Mirrors the payment screen so the two read alike. */
-function Line({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-[0.9375rem]">
-      <span className="text-text-secondary">{label}</span>
-      <span className="text-text-primary">{value}</span>
-    </div>
-  );
-}
-
 export default function SeatSelectionPage() {
+  const sf = useTranslations('storefront');
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -687,50 +680,20 @@ export default function SeatSelectionPage() {
             {/*
               The full breakdown, here rather than one screen later.
 
-              The line this replaced read "Transparent fees shown on the next step" — an
-              apology for showing the buyer a number that was not what they would pay. The
-              quote is priced by the same code the booking uses, so the two cannot disagree.
+              Shared with the event page rather than written twice. It was written twice —
+              this screen had it and the ordinary event page still said "Transparent fees
+              shown on the next step", which is how a platform ends up quoting two different
+              prices for the same purchase. Sharing it also gives this screen its French,
+              which the hardcoded version above never had.
             */}
-            <div className="mt-4 border-t border-border pt-4">
-              {quote ? (
-                <div className="space-y-1" data-testid="price-breakdown">
-                  <Line label="Tickets" value={money(quote.subtotalMinor)} />
-                  {quote.discountMinor > 0 && (
-                    <Line label="Discount" value={`- ${money(quote.discountMinor)}`} />
-                  )}
-                  {quote.bookingFeeMinor > 0 && (
-                    <Line label="Booking fee" value={money(quote.bookingFeeMinor)} />
-                  )}
-                  {quote.paymentFeeMinor > 0 && (
-                    <Line label="Payment fee" value={money(quote.paymentFeeMinor)} />
-                  )}
-                  {(quote.taxLines ?? []).map((t) => (
-                    <Line
-                      key={`${t.label}-${t.rateBasisPoints}`}
-                      label={`${t.label} (${(t.rateBasisPoints / 100).toFixed(
-                        t.rateBasisPoints % 100 === 0 ? 0 : 2,
-                      )}%)`}
-                      value={money(t.amountMinor)}
-                    />
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-                <span className="text-[0.9375rem] text-text-secondary">
-                  Total ({selected.length} seat{selected.length === 1 ? '' : 's'})
-                </span>
-                <span className="text-title font-bold text-text-primary">
-                  {money(quote ? quote.totalMinor : total)}
-                </span>
-              </div>
-              <p className="mt-1 text-caption text-text-muted">
-                {quote
-                  ? 'This is the full amount you will pay.'
-                  : quoteQ.isFetching
-                    ? 'Working out fees…'
-                    : 'Fees are added once you pick a seat.'}
-              </p>
+            <div className="mt-4">
+              <PriceBreakdown
+                quote={quote}
+                loading={quoteQ.isFetching}
+                fallbackTotalMinor={total}
+                totalLabel={sf('event.totalSeats', { count: selected.length })}
+                emptyNote={sf('event.priceAddSeat')}
+              />
             </div>
 
             <Button
