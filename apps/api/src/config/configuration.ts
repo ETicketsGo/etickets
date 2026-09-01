@@ -349,7 +349,15 @@ const envSchema = z.object({
   // Platform account number (required by some Route transfer flows). Reference, not a secret.
   RAZORPAY_ACCOUNT_NUMBER: z.string().optional(),
   // Where Checkout returns the buyer (the redirect is NEVER treated as proof of payment).
-  RAZORPAY_CALLBACK_URL: z.string().default('http://localhost:3000/checkout/razorpay/callback'),
+  /**
+   * Optional override for where Razorpay returns the buyer.
+   *
+   * No default: it used to be a localhost URL, which QA handed to Razorpay the moment real
+   * keys were added — a buyer would have been redirected to somebody's laptop after paying.
+   * Unset now means "derive it from CUSTOMER_WEB_URL", which fails loudly outside LOCAL/DEV
+   * rather than inventing a destination.
+   */
+  RAZORPAY_CALLBACK_URL: z.string().optional(),
   // Public Checkout branding.
   RAZORPAY_CHECKOUT_NAME: z.string().default('ETicketsGo'),
   RAZORPAY_CHECKOUT_DESCRIPTION: z.string().default('Event ticket purchase'),

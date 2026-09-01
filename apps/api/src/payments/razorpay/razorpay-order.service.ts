@@ -200,9 +200,46 @@ export class RazorpayOrderService {
         description:
           this.config.get<string>('RAZORPAY_CHECKOUT_DESCRIPTION') ?? 'Event ticket purchase',
         prefill: { name: booking.buyerName, email: booking.buyerEmail },
-        callbackUrl: this.config.get<string>('RAZORPAY_CALLBACK_URL') ?? '',
+        callbackUrl: this.checkoutCallbackUrl(),
       },
     };
+  }
+
+  /**
+   * Where Razorpay sends the buyer back after paying.
+   *
+   * ── WHY THIS IS DERIVED RATHER THAN ITS OWN VARIABLE ──────────────────────────────
+   * `RAZORPAY_CALLBACK_URL` defaulted to `http://localhost:3000/checkout/razorpay/callback`,
+   * and QA duly handed that to Razorpay the moment real keys were added: a customer who
+   * paid would have been redirected to a machine that is not theirs, losing the
+   * confirmation after the money moved. It failed silently, because a default is not a
+   * missing value.
+   *
+   * That is the THIRD variable on this platform to ship a localhost default — the invite
+   * links and the password-reset link were the first two. The pattern is the bug, so this
+   * one is derived from the single place that already knows where the customer site lives,
+   * and that one place fails loudly when it is unset. One fewer variable to forget.
+   *
+   * The explicit override remains for the case the derivation cannot cover: a callback
+   * that must land somewhere other than the storefront.
+   */
+  private checkoutCallbackUrl(): string {
+    const explicit = this.config.get<string>('RAZORPAY_CALLBACK_URL')?.trim();
+    if (explicit) return explicit;
+
+    const site = this.config.get<string>('CUSTOMER_WEB_URL')?.trim();
+    if (site) return `${site.replace(/\/+$/, '')}/checkout/razorpay/callback`;
+
+    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
+    if (['LOCAL', 'DEV'].includes(appEnv)) {
+      return 'http://localhost:3000/checkout/razorpay/callback';
+    }
+    throw new AppException(
+      ErrorCodes.INTERNAL,
+      'Cannot start a Razorpay payment: neither CUSTOMER_WEB_URL nor RAZORPAY_CALLBACK_URL is set, so the buyer would be returned to localhost after paying.',
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      { appEnv },
+    );
   }
 }
 
