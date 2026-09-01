@@ -249,10 +249,21 @@ export default function EventsPage() {
     setApplied(next);
     if (resolved.city) setCity(resolved.city);
 
-    // Write through to the header, so the app has ONE answer to "where am I". Without this,
-    // filtering to Delhi here and returning to the homepage would silently show Mumbai.
+    /*
+      Write through to the header, so the app has ONE answer to "where am I". Without this,
+      filtering to Delhi here and returning to the homepage would silently show Mumbai.
+
+      `clearCity` and not `setCity(null)` for the empty case: searching for a title with the
+      City box empty means "no city", not "the entire world". Passing null would also drop
+      the country scope, so typing "comedy" would quietly widen the page to every country we
+      sell in — the exact behaviour this change exists to remove.
+    */
     seeded.current = true;
-    if ((resolved.city ?? null) !== preference.city) preference.setCity(resolved.city ?? null);
+    if (resolved.city) {
+      if (resolved.city !== preference.city) preference.setCity(resolved.city);
+    } else if (preference.city) {
+      preference.clearCity();
+    }
   };
 
   const hasFilters = Boolean(
@@ -291,7 +302,9 @@ export default function EventsPage() {
     if (key === 'q') setQ('');
     if (key === 'city') {
       setCity('');
-      preference.setCity(null);
+      // Taking the city chip off leaves the country scope in place: the customer removed
+      // one filter, not every filter.
+      preference.clearCity();
     }
     if (key === 'category') setCategory('');
     if (key === 'dateFrom') setDateWindow('any');

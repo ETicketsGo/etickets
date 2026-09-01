@@ -179,6 +179,28 @@ test.describe('QA: Browse only claims filters it actually applied', () => {
       .toBeGreaterThanOrEqual(before);
   });
 
+  test('searching for a title keeps the country scope instead of widening to the world', async ({
+    page,
+  }) => {
+    /*
+      "No city" and "everywhere" are different intents and used to be the same call.
+      Writing the search through to the header as `setCity(null)` dropped the country hint
+      with it, so typing a title into the box quietly widened the page to every country we
+      sell in — undoing the scoping on the first search anyone made.
+    */
+    await open(page, `${CUSTOMER}/events`);
+    await expect(page.getByText(/Showing events in/)).toBeVisible({ timeout: 30_000 });
+
+    await page.getByLabel('Search').first().fill('the');
+    await page.getByRole('button', { name: 'Search' }).click();
+
+    await expect(page.getByRole('button', { name: /^Remove filter: / })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText(/Showing events in/)).toBeVisible();
+    expect((await page.locator('main').innerText()).toLowerCase()).not.toContain('meridian');
+  });
+
   test('a near-miss city finds the city instead of a confident empty page', async ({ page }) => {
     /*
       `city=` is an exact match at the API, so a typed "bengal" used to return nothing for a

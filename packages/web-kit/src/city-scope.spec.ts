@@ -20,6 +20,7 @@ const preference = (over: Partial<CityPreference> = {}): CityPreference => ({
   suggestion: null,
   chosen: false,
   setCity: () => undefined,
+  clearCity: () => undefined,
   dismissSuggestion: () => undefined,
   useMyLocation: async () => undefined,
   locating: false,

@@ -78,7 +78,17 @@ export interface CityPreference {
   suggestion: ResolvedLocation | null;
   /** Whether the person has made an explicit choice (so nothing should be suggested). */
   chosen: boolean;
+  /**
+   * Choose a city, or choose everywhere.
+   *
+   * `null` here means EVERYWHERE, deliberately — it is what "Browse all cities" does, and
+   * it drops the country hint too. To stop filtering by city while staying in your own
+   * country, call `clearCity()`: those are different intents and conflating them made a
+   * plain title search silently widen the page to the whole world.
+   */
   setCity: (city: string | null) => void;
+  /** Stop filtering by city, keeping the country scope and forgetting the stored choice. */
+  clearCity: () => void;
   dismissSuggestion: () => void;
   /** Ask the browser for coordinates. Only ever call from a click. */
   useMyLocation: () => Promise<void>;
@@ -151,6 +161,15 @@ export function useCityPreference(): CityPreference {
     writeStoredCity(next ?? ALL_CITIES);
   }, []);
 
+  const clearCity = useCallback(() => {
+    setCityState(null);
+    setChosen(false);
+    setSuggestion(null);
+    // Storage cleared rather than set to '__all__': this is "I have not chosen a city",
+    // not "I want everywhere", so the next visit is free to guess again.
+    writeStoredCity(null);
+  }, []);
+
   const useMyLocation = useCallback(async () => {
     if (!globalThis.navigator?.geolocation) return;
     setLocating(true);
@@ -189,6 +208,7 @@ export function useCityPreference(): CityPreference {
     suggestion,
     chosen,
     setCity,
+    clearCity,
     dismissSuggestion: () => setSuggestion(null),
     useMyLocation,
     locating,
@@ -227,6 +247,7 @@ export function useCity(): CityPreference {
       suggestion: null,
       chosen: false,
       setCity: () => undefined,
+      clearCity: () => undefined,
       dismissSuggestion: () => undefined,
       useMyLocation: async () => undefined,
       locating: false,
