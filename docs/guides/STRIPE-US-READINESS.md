@@ -84,7 +84,25 @@ Subscribe to at least `checkout.session.completed`, `payment_intent.succeeded`,
 what marks an organizer's Connect account charges-enabled without anyone re-checking by
 hand.
 
-Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+### Getting the signing secret
+
+Stripe returns a webhook endpoint's `secret` **exactly once, at creation**. For an endpoint
+created in the dashboard the field is never returned by the API again — `GET
+/v1/webhook_endpoints` shows the endpoint with no secret on it — so the only ways to obtain
+it are to reveal it in the dashboard, or to create the endpoint through the API in the first
+place.
+
+Creating it via the API is the better option and is what QA uses: it returns the secret,
+sets the event list exactly, and pins `api_version` to the one the installed SDK sends
+(`2026-06-24.dahlia`), so the payload shape and the SDK's expectations cannot drift.
+
+```
+curl https://api.stripe.com/v1/webhook_endpoints   -u sk_test_...:   -d url="https://api-qa.eticketsgo.com/api/payments/webhooks/stripe"   -d api_version="2026-06-24.dahlia"   -d "enabled_events[]=checkout.session.completed"   -d "enabled_events[]=payment_intent.succeeded"   -d "enabled_events[]=payment_intent.payment_failed"   -d "enabled_events[]=charge.refunded"   -d "enabled_events[]=account.updated"
+```
+
+The response's `secret` is the `whsec_…`. The full list this codebase handles is in
+`stripe-webhook.processor.ts`; subscribing to more stores events nothing acts on, and to
+fewer loses a state change.
 
 ### Payload style must be **Snapshot**, not Thin
 
