@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { QA_VALIDATE, QA_SKIP_REASON } from './qa-target';
+import { apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
 
 // Deployment-facing: skipped unless asked for. See qa-target.ts for why.
 test.skip(!QA_VALIDATE, QA_SKIP_REASON);
@@ -22,6 +23,31 @@ test.skip(!QA_VALIDATE, QA_SKIP_REASON);
  */
 const CUSTOMER = 'https://customer-web-qa.up.railway.app';
 
+/*
+  Why these sign in.
+
+  `/` is adaptive: a signed-out visitor gets the marketing shell, and a signed-in one gets
+  the discovery app — which is the only place the header's location chip exists. The first
+  run of this suite failed four tests waiting for a chip that is not on the marketing page,
+  which is the test being wrong rather than the app. Discovery is a signed-in surface here,
+  so the tests sign in.
+
+  One login for the whole file, seeded straight into localStorage: the API throttles
+  credential requests at ten a minute, and eight tests each logging in would trip it and
+  fail for a reason that has nothing to do with what is being tested.
+*/
+let tokens: AuthTokens;
+
+test.beforeAll(async ({ request }) => {
+  test.skip(!QA_VALIDATE, QA_SKIP_REASON);
+  tokens = await apiLogin(request, 'customer1@eticketsgo.test');
+});
+
+async function openApp(page: Page, context: BrowserContext, path: string) {
+  await seedBrowserAuth(context, tokens);
+  await page.goto(`${CUSTOMER}${path}`, { waitUntil: 'networkidle' });
+}
+
 const open = (page: Page, url: string) => page.goto(url, { waitUntil: 'networkidle' });
 
 /** The header chip, whatever it currently says. */
@@ -32,14 +58,17 @@ const eventCards = (page: Page) => page.locator('a[href*="/events/"]');
 test.describe('QA: where the customer is actually changes what they see', () => {
   test.use({ locale: 'en-IN' });
 
-  test('the home page obeys the header, which it used to ignore completely', async ({ page }) => {
+  test('the home page obeys the header, which it used to ignore completely', async ({
+    page,
+    context,
+  }) => {
     /*
       The defect, exactly: `DiscoverHome` fetched `listEvents({ pageSize: '12' })` with no
       city at all. Browse honoured the chip, the homepage did not, so the header said
       Bengaluru and the grid underneath it showed Mumbai. Nothing errored — the two pages
       simply disagreed, and the customer reads a disagreement as a broken filter.
     */
-    await open(page, `${CUSTOMER}/`);
+    await openApp(page, context, '/');
 
     await locationChip(page).click();
     const dialog = page.getByRole('dialog');
@@ -61,7 +90,7 @@ test.describe('QA: where the customer is actually changes what they see', () => 
     expect(venues).toBeTruthy();
   });
 
-  test('no category chip leads to a dead end', async ({ page }) => {
+  test('no category chip leads to a dead end', async ({ page, context }) => {
     /*
       The homepage offered a hardcoded Music / Tech / Comedy / Sports / Theatre. QA has no
       Tech, no Sports and no Theatre event, so three of the five chips were a guaranteed
@@ -72,7 +101,7 @@ test.describe('QA: where the customer is actually changes what they see', () => 
       matters and that will still be true after the catalogue changes: everything we offer
       returns something.
     */
-    await open(page, `${CUSTOMER}/`);
+    await openApp(page, context, '/');
     await expect(page.getByRole('heading', { name: /Explore by category/ })).toBeVisible({
       timeout: 30_000,
     });
@@ -114,14 +143,14 @@ test.describe('QA: where the customer is actually changes what they see', () => 
 test.describe('QA: the location picker is a search, not a list of everywhere we sell', () => {
   test.use({ locale: 'en-IN' });
 
-  test('it opens on a shortlist and finds a city by prefix', async ({ page }) => {
+  test('it opens on a shortlist and finds a city by prefix', async ({ page, context }) => {
     /*
       The old picker rendered every sellable city grouped by country. That is fine at six
       and unusable at six hundred — and on QA it also put the platform's data-entry
       mistakes in front of every visitor: a "Hyd" next to "Hyderabad", and a "Boise"
       filed under India.
     */
-    await open(page, `${CUSTOMER}/`);
+    await openApp(page, context, '/');
     await locationChip(page).click();
     const dialog = page.getByRole('dialog');
 
@@ -139,8 +168,11 @@ test.describe('QA: the location picker is a search, not a list of everywhere we 
     await expect(dialog.getByRole('option')).toHaveCount(1);
   });
 
-  test('a city we do not sell in says so instead of returning silence', async ({ page }) => {
-    await open(page, `${CUSTOMER}/`);
+  test('a city we do not sell in says so instead of returning silence', async ({
+    page,
+    context,
+  }) => {
+    await openApp(page, context, '/');
     await locationChip(page).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Search for a city').fill('reykjavik');

@@ -16,23 +16,33 @@ test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 const CUSTOMER = 'https://customer-web-qa.up.railway.app';
 
 const open = (page: Page, url: string) => page.goto(url, { waitUntil: 'networkidle' });
-const cityChip = (page: Page) =>
-  page.getByRole('button', { name: /All cities|Mumbai|Bengaluru|Hyd/ }).first();
+const cityChip = (page: Page) => page.getByRole('button', { name: /^Location:/ });
 
-async function chooseCity(page: Page, city: RegExp) {
+/*
+  Typed, not picked off a list.
+
+  This used to click the city straight out of the panel, because the panel listed every
+  city the platform sells in. It is a search now — it opens on a handful of cities near
+  you, and everything else is found by typing — so a test that only clicks would pass or
+  fail depending on whether the city it wants happens to be in the shortlist for whatever
+  locale the browser reported.
+*/
+async function chooseCity(page: Page, city: RegExp, term: string) {
   await cityChip(page).click();
-  await page.getByRole('dialog').getByRole('button', { name: city }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Search for a city').fill(term);
+  await dialog.getByRole('option', { name: city }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 test.describe('QA: a city that empties a page says so', () => {
   test('Movies names the city and offers the way out', async ({ page }) => {
     await open(page, `${CUSTOMER}/movies`);
     // Mumbai has an event and no films.
-    await chooseCity(page, /^Mumbai/);
+    await chooseCity(page, /^Mumbai/, 'mumbai');
 
     await expect(page.getByText(/No films in Mumbai just yet/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Other cities have films showing/)).toBeVisible();
+    await expect(page.getByText(/Other places have films showing/)).toBeVisible();
 
     // One click out, offered here rather than left to be rediscovered in the header.
     await page.getByRole('button', { name: 'Show all cities' }).click();
@@ -43,7 +53,7 @@ test.describe('QA: a city that empties a page says so', () => {
   test('Browse names the city and offers the way out', async ({ page }) => {
     await open(page, `${CUSTOMER}/events`);
     // Bengaluru has films and no browsable events.
-    await chooseCity(page, /^Bengaluru/);
+    await chooseCity(page, /^Bengaluru/, 'bengaluru');
 
     await expect(page.getByText(/Nothing on in Bengaluru just yet/)).toBeVisible({
       timeout: 30_000,
@@ -61,7 +71,7 @@ test.describe('QA: a city that empties a page says so', () => {
       is the ONLY thing narrowing the results.
     */
     await open(page, `${CUSTOMER}/events`);
-    await chooseCity(page, /^Bengaluru/);
+    await chooseCity(page, /^Bengaluru/, 'bengaluru');
     await page
       .getByLabel(/Search/i)
       .first()

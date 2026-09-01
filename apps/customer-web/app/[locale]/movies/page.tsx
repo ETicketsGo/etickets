@@ -27,8 +27,18 @@ export default function MoviesPage() {
   const preference = useCity();
   const { city, setCity } = preference;
   const scope = cityScope(preference);
-  /** Empty because of the location alone — not because of something the customer typed. */
-  const cityOnly = Boolean(city) && !applied.q && !applied.genre;
+  /**
+   * Empty because of the LOCATION alone — not because of something the customer typed.
+   *
+   * The country counts here, not just the city. A country scope is validated against the
+   * cities we sell EVENTS in, and this page sells films: on QA today a visitor with a US
+   * locale gets a working events page and an empty film shelf, because the one American
+   * venue has an event and no cinema. Validating per-catalogue would need the resolver to
+   * know what page it is on; naming the cause and offering the way out is the same answer
+   * this product already gives for a quiet city, and it works whatever the mismatch is.
+   */
+  const place = city ?? preference.country ?? null;
+  const cityOnly = Boolean(place) && !applied.q && !applied.genre;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['movies', applied, JSON.stringify(scope)],
@@ -113,14 +123,15 @@ export default function MoviesPage() {
         /*
           Same reasoning as Browse: an empty page must name its cause.
 
-          The city is the cause nobody guesses, because it was chosen once in the header and
-          then forgotten. On this platform today the films are in Bengaluru and Hyderabad
-          and the events are in Mumbai — so a customer filtered to Mumbai opens Movies and
-          sees a blank page that reads as "no films anywhere".
+          The location is the cause nobody guesses, because it was chosen once in the header
+          — or never chosen at all, and inferred — and then forgotten. On this platform
+          today the films are in Bengaluru and Hyderabad and the events are in Mumbai, so a
+          customer filtered to Mumbai opens Movies and sees a blank page that reads as "no
+          films anywhere".
         */
         <EmptyState
-          title={cityOnly ? `No films in ${city} just yet` : 'No movies match your search'}
-          hint={cityOnly ? 'Other cities have films showing.' : 'Try clearing filters.'}
+          title={cityOnly ? `No films in ${place} just yet` : 'No movies match your search'}
+          hint={cityOnly ? 'Other places have films showing.' : 'Try clearing filters.'}
           icon={Film}
           action={
             cityOnly ? (
