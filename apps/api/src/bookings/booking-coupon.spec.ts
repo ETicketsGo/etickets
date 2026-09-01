@@ -29,7 +29,11 @@ function setup(
     subtotalMinor: 100_000,
     currency: 'INR',
     feeMode: 'CUSTOMER_PAYS',
-    event: { feeMode: 'CUSTOMER_PAYS' },
+    event: {
+      feeMode: 'CUSTOMER_PAYS',
+      venue: { country: 'India' },
+      organization: { registeredCountry: 'India', registeredRegion: 'KA' },
+    },
     payment: {
       status: over.paymentStatus ?? PaymentStatus.REQUIRES_PAYMENT,
       providerRef: over.providerRef ?? null,
@@ -96,6 +100,37 @@ function setup(
 }
 
 describe('BookingsService.applyCoupon', () => {
+  it('re-prices WITH the tax place, because it deletes and recreates the tax lines', async () => {
+    /*
+      The bug this pins down. `applyCoupon` quoted with no tax context, and the update below
+      it does `taxLines: { deleteMany: {}, create: [...] }` — so a discount code would have
+      DELETED the booking's tax and dropped the total by that amount, and the receipt would
+      have shown a sale with no tax on it.
+
+      Invisible today only because tax is off by default and there are no TaxRule rows. The
+      first market to configure tax would have found it with money, which is the worst way
+      to find anything.
+    */
+    const { service, pricing } = setup();
+    await service.applyCoupon(USER, 'bk-1', 'FIRST10');
+
+    expect(pricing.quote).toHaveBeenCalledWith(
+      100_000,
+      'CUSTOMER_PAYS',
+      10_000,
+      'INR',
+      expect.objectContaining({ country: 'India', region: 'KA' }),
+    );
+  });
+
+  it('keeps re-pricing in the currency the booking was taken in', async () => {
+    // Never re-derived from the venue here: the booking is already priced, and a venue edit
+    // must not silently re-denominate money somebody has agreed to pay.
+    const { service, pricing } = setup();
+    await service.applyCoupon(USER, 'bk-1', 'FIRST10');
+    expect(pricing.quote.mock.calls[0][3]).toBe('INR');
+  });
+
   it('re-prices the booking and the amount to be charged together', async () => {
     // A total and a gateway amount that disagree is the outcome worth failing loudly to
     // avoid, so both are written inside one transaction.

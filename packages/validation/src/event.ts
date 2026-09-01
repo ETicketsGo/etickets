@@ -91,7 +91,15 @@ export const createTicketTypeSchema = z.object({
   name: z.string().trim().min(1).max(120),
   /** Face value in minor units (paise). */
   priceMinor: z.number().int().min(0),
-  currency: z.string().trim().length(3).default('INR'),
+  /**
+   * Left OPEN on purpose: the server fills it in from the venue's country.
+   *
+   * This used to `.default('INR')`, and the organizer console has never sent one — so
+   * every ticket type on the platform was priced in rupees regardless of where it was.
+   * A validation schema is the wrong place to decide this: it can see the request and
+   * cannot see the venue, and the venue is the only thing that knows the answer.
+   */
+  currency: z.string().trim().length(3).optional(),
   quantityTotal: z.number().int().min(1),
   salesStartAt: z.coerce.date().optional(),
   salesEndAt: z.coerce.date().optional(),

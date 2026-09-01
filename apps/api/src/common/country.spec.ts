@@ -1,4 +1,7 @@
-import { countryAliases, countryMatches } from './country';
+import { countryAliases, countryMatches, currencyForCountry } from './country';
+
+// Imported through the API's re-export rather than from shared-types directly: that is the
+// path every module here uses, so it is the path worth proving.
 
 /**
  * The whole point of this helper is that the two sides of a comparison never agree on
@@ -46,5 +49,39 @@ describe('country matching', () => {
   it('includes the caller spelling in the alias list, so an exact match never depends on the table', () => {
     expect(countryAliases('IN')).toContain('in');
     expect(countryAliases('India')).toContain('india');
+  });
+});
+
+describe('currencyForCountry', () => {
+  /*
+    This decides real money — the fee tiers, the tax rules and which payment provider takes
+    the charge — so the tests are written against the spellings that actually reach it from
+    the venue form, not against tidy alpha-2 codes.
+  */
+  it('answers for a country however the venue spelled it', () => {
+    for (const stored of ['US', 'USA', 'United States', 'united states of america']) {
+      expect(currencyForCountry(stored)).toBe('USD');
+    }
+    for (const stored of ['IN', 'India', 'india']) {
+      expect(currencyForCountry(stored)).toBe('INR');
+    }
+  });
+
+  it('covers the markets the platform has fee bands for', () => {
+    expect(currencyForCountry('Canada')).toBe('CAD');
+    expect(currencyForCountry('GB')).toBe('GBP');
+    expect(currencyForCountry('Singapore')).toBe('SGD');
+  });
+
+  it('returns null for a country it does not know, rather than guessing one', () => {
+    /*
+      The caller falls back to its own explicit default. Guessing a currency for an
+      unconfigured market is how an organizer ends up selling in a denomination they never
+      chose — which is the exact defect this replaced.
+    */
+    expect(currencyForCountry('Kenya')).toBeNull();
+    expect(currencyForCountry('')).toBeNull();
+    expect(currencyForCountry(null)).toBeNull();
+    expect(currencyForCountry(undefined)).toBeNull();
   });
 });

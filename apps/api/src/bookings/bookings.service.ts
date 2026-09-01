@@ -21,6 +21,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { currencyForCountry } from '../common/country';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
@@ -290,13 +291,17 @@ export class BookingsService {
 
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
     const feeMode = session.event.feeMode as FeeMode;
+    const currency = this.cartCurrency(
+      input.items.map((i) => byId.get(i.ticketTypeId)!),
+      session.event.venue?.country,
+    );
     const taxPlace = {
       country:
         session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
       region: session.event.organization?.registeredRegion ?? null,
       at: now,
     };
-    const fees = await this.pricing.quote(subtotal, feeMode, discountMinor, 'INR', taxPlace);
+    const fees = await this.pricing.quote(subtotal, feeMode, discountMinor, currency, taxPlace);
 
     /*
       A free event is free all the way down.
@@ -390,6 +395,10 @@ export class BookingsService {
           // used, whatever happens to the session afterwards.
           seatBased: isSeatBased,
           feeMode,
+          // Snapshotted with the money, like every other amount on this row. The column
+          // defaulted to INR and was never written, so a dollar-priced booking claimed to
+          // be in rupees — and every screen, receipt and refund believed it.
+          currency,
           subtotalMinor: subtotal,
           bookingFeeMinor: fees.bookingFeeMinor,
           paymentFeeMinor: fees.paymentFeeMinor,
@@ -641,6 +650,56 @@ export class BookingsService {
     );
   }
 
+  /**
+   * The currency this cart is priced in, taken from what is actually being sold.
+   *
+   * ── WHY THIS IS DERIVED AND NOT A CONSTANT ─────────────────────────────────────────
+   * Both the booking row and the fee calculation used the literal `'INR'`. That is not a
+   * display detail: the currency picks the fee tiers, the tax rules and — via
+   * `routeProviderForBooking` — which payment provider takes the money. A show priced in
+   * dollars would have had rupee fee bands applied and been sent to an Indian gateway.
+   *
+   * The ticket types are the authority because the organizer set those prices. The venue's
+   * country decides what a NEW ticket type is created in; once created, the stored price
+   * is the fact, and re-deriving it here from the venue would let a venue edit silently
+   * re-denominate tickets that are already on sale.
+   *
+   * ── WHY A MIXED CART IS REFUSED RATHER THAN RECONCILED ─────────────────────────────
+   * There is one `totalMinor` and one charge. Two currencies in a cart cannot be added up
+   * without an exchange rate, and this platform has no rate source — so the only honest
+   * answers are "refuse" and "invent a number". Silently taking the first line's currency
+   * would charge somebody dollars for a rupee ticket at a 1:1 rate, which is the kind of
+   * error that is discovered on a bank statement.
+   */
+  private cartCurrency(
+    priced: { currency?: string | null }[],
+    venueCountry: string | null | undefined,
+  ): string {
+    /*
+      A line with no currency contributes no opinion rather than crashing the booking.
+
+      `TicketType.currency` is NOT NULL with a default, so in real data this is always
+      present — a missing one means a `select` that did not ask for the column. Reading
+      through it would throw here, which turns a query oversight into a customer unable to
+      buy a ticket. Skipping it lets the venue answer instead, and the venue's answer is
+      the same one the ticket type would have been created with.
+    */
+    const distinct = [
+      ...new Set(priced.map((p) => p.currency?.trim().toUpperCase()).filter(Boolean)),
+    ] as string[];
+    if (distinct.length > 1) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'These tickets are priced in different currencies and cannot be bought together.',
+        HttpStatus.BAD_REQUEST,
+        { currencies: distinct },
+      );
+    }
+    // An empty cart still needs a currency for the zero-total row it produces; the venue
+    // answers that, and INR remains the answer for a market with no mapping.
+    return distinct[0] ?? currencyForCountry(venueCountry) ?? 'INR';
+  }
+
   async quote(input: QuoteBookingInput) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: input.eventSessionId },
@@ -714,11 +773,17 @@ export class BookingsService {
     const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
     const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
+    // The same derivation `create` uses. A quote and the booking that follows it disagreeing
+    // about the currency would be a price shown in one denomination and charged in another.
+    const currency = this.cartCurrency(
+      input.items.map((i) => byId.get(i.ticketTypeId)!),
+      session.event.venue?.country,
+    );
     const fees = await this.pricing.quote(
       subtotal,
       session.event.feeMode as FeeMode,
       discountMinor,
-      'INR',
+      currency,
       {
         country:
           session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
@@ -858,7 +923,15 @@ export class BookingsService {
       where: { id: bookingId },
       include: {
         payment: true,
-        event: { select: { feeMode: true } },
+        event: {
+          select: {
+            feeMode: true,
+            // Needed to re-price WITH tax — see the quote call below for why its absence
+            // was not merely incomplete but destructive.
+            venue: { select: { country: true } },
+            organization: { select: { registeredCountry: true, registeredRegion: true } },
+          },
+        },
       },
     });
     if (!booking) {
@@ -897,11 +970,30 @@ export class BookingsService {
       );
     }
 
+    /*
+      Re-priced WITH the tax place, which this call was missing.
+
+      It is not simply that the recomputed fees left tax out — the update below deletes
+      every tax line and recreates them from this result. Applying a discount code would
+      therefore have DELETED the tax on the booking and dropped the total by that amount,
+      and the receipt would have shown a sale with no tax on it. Latent today because tax
+      is off by default and there are no TaxRule rows, which is the only reason it has not
+      been noticed; the first market that configures tax would have found it with money.
+
+      The place comes from the same source `create` uses, so a re-price and the original
+      pricing cannot disagree about where the sale happened.
+    */
     const fees = await this.pricing.quote(
       booking.subtotalMinor,
       booking.feeMode as FeeMode,
       discountMinor,
       booking.currency,
+      {
+        country:
+          booking.event?.venue?.country ?? booking.event?.organization?.registeredCountry ?? null,
+        region: booking.event?.organization?.registeredRegion ?? null,
+        at: new Date(),
+      },
     );
 
     await this.prisma.$transaction(async (tx) => {

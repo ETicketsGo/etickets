@@ -7,6 +7,7 @@ export * from './event-insights';
 export * from './commerce';
 export * from './wallet-pass';
 export * from './marketplace';
+export * from './country';
 // AI & Growth (v2.0) — pure deterministic engines + safety.
 export * from './ai-safety';
 export * from './client-security';

@@ -89,3 +89,27 @@ export function zoneAbbrev(value: string | Date | null | undefined, timeZone?: s
     return timeZone;
   }
 }
+
+/**
+ * Just the symbol for a currency — "₹", "$", "C$".
+ *
+ * For labelling an input the buyer or organizer is typing a bare number into. A field
+ * labelled "Price (₹)" on a show in Idaho is not a cosmetic slip: it tells the organizer
+ * they are pricing in rupees when the server will store dollars, and they will enter a
+ * number meaning one thing and get another.
+ *
+ * Derived from `Intl` rather than a hand-kept table, so it is right for currencies nobody
+ * has thought about here — and falls back to the code itself, which is never wrong, only
+ * less pretty.
+ */
+export function currencySymbol(currency = 'INR', locale?: string): string {
+  try {
+    const parts = new Intl.NumberFormat(locale ?? defaultLocale(currency), {
+      style: 'currency',
+      currency,
+    }).formatToParts(0);
+    return parts.find((p) => p.type === 'currency')?.value ?? currency;
+  } catch {
+    return currency;
+  }
+}

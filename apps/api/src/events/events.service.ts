@@ -16,6 +16,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { currencyForCountry } from '../common/country';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 
@@ -51,6 +52,15 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
     );
   }
 }
+
+/**
+ * Where a currency lands when the venue's country is one we have no mapping for.
+ *
+ * INR because that is what every ticket type was created in before this, so an unmapped
+ * market behaves exactly as it always has. Named rather than inlined so the next person
+ * adding a market can see there IS a fallback and that it is a decision.
+ */
+const DEFAULT_CURRENCY = 'INR';
 
 @Injectable()
 export class EventsService {
@@ -669,7 +679,7 @@ export class EventsService {
   async addTicketType(user: RequestUser, input: CreateTicketTypeInput) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: input.eventSessionId },
-      include: { event: true },
+      include: { event: { include: { venue: { select: { country: true } } } } },
     });
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
@@ -681,7 +691,21 @@ export class EventsService {
         eventSessionId: input.eventSessionId,
         name: input.name,
         priceMinor: input.priceMinor,
-        currency: input.currency,
+        /*
+          The currency follows the venue, not a constant.
+
+          Every ticket type used to be created in INR because the validation schema
+          defaulted it there and no caller has ever overridden it. That put a ₹ price on a
+          show in Idaho — and, worse than the wrong symbol, it decided the fee tiers, the
+          tax rules and which payment provider the money would go to. All three were being
+          chosen by a default nobody had thought about since the platform sold in one
+          country.
+
+          An explicit currency from the caller still wins; a country we have no currency
+          for falls back to INR, which is where this started and is a change to nobody.
+        */
+        currency:
+          input.currency ?? currencyForCountry(session.event.venue?.country) ?? DEFAULT_CURRENCY,
         quantityTotal: input.quantityTotal,
         maxPerOrder: input.maxPerOrder,
         salesStartAt: input.salesStartAt,

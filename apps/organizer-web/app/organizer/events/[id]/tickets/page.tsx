@@ -17,6 +17,8 @@ import {
   useToast,
   errorMessage,
   money,
+  currencySymbol,
+  currencyForCountry,
   dateTime,
   type TicketType,
 } from '@eticketsgo/web-kit';
@@ -43,6 +45,21 @@ export default function TicketsTab() {
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
+
+  /*
+    The currency this event actually sells in, from where it is.
+
+    The two price fields below were labelled "Price (₹)" and the list formatted every
+    amount with `money()`, which falls back to rupees. That was harmless while the server
+    also assumed INR everywhere; now that a ticket type is created in the venue's currency,
+    a hardcoded ₹ would be an outright lie — an organizer in Idaho typing 499 into a field
+    marked ₹ and getting $499.
+
+    Derived with the same helper the API uses, so the label and the stored value cannot
+    disagree.
+  */
+  const currency = currencyForCountry(event?.venue?.country) ?? 'INR';
+  const symbol = currencySymbol(currency);
 
   const [form, setForm] = useState({
     eventSessionId: '',
@@ -158,8 +175,12 @@ export default function TicketsTab() {
                       </span>
                       <span className="flex items-center gap-3">
                         <span className="text-text-secondary">
-                          {money(t.priceMinor)} · sold {t.inventory?.quantitySold ?? 0} · held{' '}
-                          {t.inventory?.quantityHeld ?? 0} / {t.quantityTotal}
+                          {/* The ticket's OWN currency, not the event's: an older ticket
+                              type may predate a venue change and is still priced in what it
+                              was sold in. */}
+                          {money(t.priceMinor, t.currency ?? currency)} · sold{' '}
+                          {t.inventory?.quantitySold ?? 0} · held {t.inventory?.quantityHeld ?? 0} /{' '}
+                          {t.quantityTotal}
                         </span>
                         <span className="flex gap-1.5">
                           <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
@@ -220,7 +241,7 @@ export default function TicketsTab() {
           />
           <Input
             id="p"
-            label="Price (₹)"
+            label={`Price (${symbol})`}
             type="number"
             value={form.priceRupees}
             onChange={(e) => setForm({ ...form, priceRupees: e.target.value })}
@@ -260,7 +281,7 @@ export default function TicketsTab() {
           />
           <Input
             id="ep"
-            label="Price (₹)"
+            label={`Price (${symbol})`}
             type="number"
             value={editForm.priceRupees}
             disabled={(editing?.inventory?.quantitySold ?? 0) > 0}
