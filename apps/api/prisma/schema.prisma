@@ -1395,6 +1395,8 @@ model Booking {
   // Serves the platform-wide createdAt-window scan in the risk service (v2.1 audit).
   @@index([createdAt])
   @@index([couponId])
+  /// The counter's worklist: unpaid cash reservations, which is the one query cash adds.
+  @@index([paymentMethod, status])
 }
 
 model BookingItem {
