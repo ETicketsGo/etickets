@@ -6,13 +6,25 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
+import { countryAliases } from '../common/country';
 
 export interface PublicEventFilters {
   q?: string;
   city?: string;
+  /**
+   * Scope to one country, in any spelling — `IN` and `India` both work.
+   *
+   * This is what the storefront applies when nobody has picked a city. Showing a visitor in
+   * Hyderabad a comedy night in Idaho is not "more choice", it is noise they have to read
+   * past, and it makes a two-market platform look like it has nothing near them. `city`
+   * still wins when both are given: the narrower intent is the real one.
+   */
+  country?: string;
   category?: string;
   dateFrom?: Date;
   dateTo?: Date;
+  /** Only events whose organizer declared them free. Never inferred from a price. */
+  freeOnly?: boolean;
   page: number;
   pageSize: number;
 }
@@ -27,6 +39,7 @@ export class PublicEventsService {
   ) {}
 
   async list(filters: PublicEventFilters) {
+    const now = new Date();
     const where: Prisma.EventWhereInput = {
       status: EventStatus.PUBLISHED,
       // Keep the generic browse events-only; movie experiences surface via /public/movies.
@@ -44,19 +57,41 @@ export class PublicEventsService {
           }
         : {}),
       ...(filters.category ? { category: { equals: filters.category, mode: 'insensitive' } } : {}),
-      ...(filters.city ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } } : {}),
-      ...(filters.dateFrom || filters.dateTo
-        ? {
-            sessions: {
-              some: {
-                startsAt: {
-                  ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
-                  ...(filters.dateTo ? { lte: filters.dateTo } : {}),
-                },
-              },
-            },
-          }
-        : {}),
+      ...(filters.city
+        ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } }
+        : filters.country
+          ? {
+              /*
+                Every spelling, because the caller's `IN` has to meet the database's
+                `India`. Applied only when no city is given — a city already implies its
+                country, and ANDing both would turn one bad country string into an empty
+                page for a city the customer explicitly asked for.
+              */
+              venue: { country: { in: countryAliases(filters.country), mode: 'insensitive' } },
+            }
+          : {}),
+      // Declared, never inferred. `isFree` is a property of the event, not of whether
+      // somebody happened to price a ticket type at zero.
+      ...(filters.freeOnly ? { isFree: true } : {}),
+      /*
+        Something still to come.
+
+        Browse used to list every published event regardless of whether any of its sessions
+        had happened yet, so last month's show sat in the results looking bookable — and
+        with the include above now correctly finding no upcoming session, it would render a
+        card with no date at all. An event you cannot attend is not a search result.
+
+        A requested date range narrows this further but can never widen it back into the
+        past: `gte` takes whichever of "now" and the requested start is later.
+      */
+      sessions: {
+        some: {
+          startsAt: {
+            gte: filters.dateFrom && filters.dateFrom > now ? filters.dateFrom : now,
+            ...(filters.dateTo ? { lte: filters.dateTo } : {}),
+          },
+        },
+      },
     };
 
     const [total, events] = await this.prisma.$transaction([
@@ -70,6 +105,17 @@ export class PublicEventsService {
           venue: { select: { name: true, city: true, country: true } },
           organization: { select: { name: true } },
           sessions: {
+            /*
+              The NEXT session, not the first one ever scheduled.
+
+              Without the `gte` this took the earliest session outright, so a run of shows
+              that opened last month advertised its opening night — a date already past —
+              as the thing you were about to buy a ticket for, and priced the card from
+              that session's ticket types. For a single-session event the two are the same,
+              which is why it survived: the bug only appears on exactly the multi-date runs
+              that theatres and cinemas exist to sell.
+            */
+            where: { startsAt: { gte: now } },
             orderBy: { startsAt: 'asc' },
             take: 1,
             include: { ticketTypes: { orderBy: { priceMinor: 'asc' }, take: 1 } },

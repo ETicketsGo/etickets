@@ -37,6 +37,58 @@ const DELHI = { lat: 28.6139, lng: 77.209 }; // ~1150km from Mumbai
 const LONDON = { lat: 51.5072, lng: -0.1276 };
 
 describe('LocationService', () => {
+  describe('cities search', () => {
+    /*
+      The picker cannot show hundreds of cities, so the filtering has to happen here. These
+      tests are about what somebody typing three letters expects to get back.
+    */
+    const svc = (venues: VenueRow[]) => new LocationService(prismaWith(venues), passthroughCache());
+
+    it('matches a prefix of the name, not a substring of it', async () => {
+      // "san" should offer San Francisco. It should not offer Rosande just because the
+      // letters appear in the middle of it — that is a search that feels broken.
+      const result = await svc([venue('San Francisco', 'USA'), venue('Rosande', 'USA')]).cities({
+        q: 'san',
+      });
+      expect(result.map((c) => c.city)).toEqual(['San Francisco']);
+    });
+
+    it('matches any word of a multi-word city, so "york" finds New York', async () => {
+      const result = await svc([venue('New York', 'USA')]).cities({ q: 'york' });
+      expect(result.map((c) => c.city)).toEqual(['New York']);
+    });
+
+    it('ignores case, because nobody types Bengaluru with a capital B in a search box', async () => {
+      const result = await svc([venue('Bengaluru')]).cities({ q: 'BENG' });
+      expect(result.map((c) => c.city)).toEqual(['Bengaluru']);
+    });
+
+    it('narrows to a country in either spelling', async () => {
+      const result = await svc([venue('Mumbai', 'India'), venue('Meridian', 'USA')]).cities({
+        country: 'IN',
+      });
+      expect(result.map((c) => c.city)).toEqual(['Mumbai']);
+    });
+
+    it('caps the result, so a two-letter prefix cannot return the whole platform', async () => {
+      const many = Array.from({ length: 30 }, (_, i) => venue(`Mumbai${i}`));
+      const result = await svc(many).cities({ q: 'mumbai', limit: 5 });
+      expect(result).toHaveLength(5);
+    });
+
+    it('returns the busiest cities when nothing is typed, which is what a picker opens on', async () => {
+      const result = await svc([venue('Small', 'India', 1), venue('Busy', 'India', 9)]).cities({
+        limit: 1,
+      });
+      expect(result.map((c) => c.city)).toEqual(['Busy']);
+    });
+
+    it('returns everything when asked for nothing, so existing callers are unaffected', async () => {
+      const result = await svc([venue('Mumbai'), venue('Delhi')]).cities();
+      expect(result).toHaveLength(2);
+    });
+  });
+
   describe('cities', () => {
     it('folds venues in the same city into one entry and sums what is on sale', async () => {
       const service = new LocationService(
@@ -188,9 +240,71 @@ describe('LocationService', () => {
       expect(result).toMatchObject({ country: 'IN', city: null, source: 'device-region' });
     });
 
-    it('always returns the full city list, so the client can offer a change immediately', async () => {
+    it('refuses to hand back a country scope it cannot fill', async () => {
+      /*
+        The failure CI found, and the reason this field exists at all.
+
+        The e2e suite runs under a US locale against Indian inventory. With the raw country
+        hint applied, Browse asked for events in the United States, got none, and seven
+        tests failed on an empty storefront — which is exactly what a real visitor in an
+        unserved country would have seen. `resolve` has always refused to name a CITY it
+        cannot sell in; the country scope has to obey the same rule.
+      */
+      const result = await service([venue('Mumbai', 'India')]).resolve({
+        headers: {},
+        deviceRegion: 'us',
+      });
+
+      expect(result.country).toBe('US'); // the guess is still reported…
+      expect(result.scopeCountry).toBeNull(); // …but it is not safe to filter by
+    });
+
+    it('hands back a country scope when we do sell there', async () => {
+      const result = await service([venue('Mumbai', 'India')]).resolve({
+        headers: {},
+        deviceRegion: 'in',
+      });
+      expect(result.scopeCountry).toBe('IN');
+    });
+
+    it('never scopes when it has no idea where they are', async () => {
+      const result = await service([venue('Mumbai', 'India')]).resolve({ headers: {} });
+      expect(result.scopeCountry).toBeNull();
+    });
+
+    it('offers a few cities up front so the client can suggest a change immediately', async () => {
       const result = await service([venue('Mumbai'), venue('Delhi')]).resolve({ headers: {} });
-      expect(result.cities.map((c) => c.city).sort()).toEqual(['Delhi', 'Mumbai']);
+      expect(result.topCities.map((c) => c.city).sort()).toEqual(['Delhi', 'Mumbai']);
+    });
+
+    it('offers cities in the country it thinks the visitor is in, ahead of busier ones elsewhere', async () => {
+      /*
+        Ordering by inventory alone would open the picker on Mumbai for somebody in Idaho,
+        which reads as "this platform is not for you". The country hint is weak, so it
+        chooses what to OFFER and never what to apply.
+      */
+      const result = await service([
+        venue('Mumbai', 'India'),
+        venue('Mumbai', 'India'),
+        venue('Meridian', 'USA'),
+      ]).resolve({ headers: {}, deviceRegion: 'us' });
+
+      expect(result.topCities.map((c) => c.city)).toEqual(['Meridian']);
+    });
+
+    it('falls back to the busiest cities anywhere when we sell nothing in their country', async () => {
+      // Better to show somewhere they could travel to than an empty picker that looks broken.
+      const result = await service([venue('Mumbai', 'India')]).resolve({
+        headers: {},
+        deviceRegion: 'de',
+      });
+      expect(result.topCities.map((c) => c.city)).toEqual(['Mumbai']);
+    });
+
+    it('caps what it offers, because the picker is a search and not a menu', async () => {
+      const many = Array.from({ length: 20 }, (_, i) => venue(`City${i}`, 'India'));
+      const result = await service(many).resolve({ headers: {} });
+      expect(result.topCities).toHaveLength(8);
     });
   });
 });

@@ -137,7 +137,7 @@ export const api = {
   publicCategories: () => wk.publicCategories(),
   capabilities: () => wk.capabilities(),
   // Movies (PR-3): discovery, detail + showtimes, and per-show seat layout.
-  listMovies: (params?: { city?: string; genre?: string; q?: string }) =>
+  listMovies: (params?: { city?: string; country?: string; genre?: string; q?: string }) =>
     wk.publicMovies.list(params),
   getMovie: (slug: string) => wk.publicMovies.get(slug),
   // `section` is only meaningful for a sectioned venue; a cinema ignores it and returns

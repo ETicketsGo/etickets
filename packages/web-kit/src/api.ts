@@ -229,7 +229,16 @@ export const api = {
 
   /** Where the caller is, and where we can sell them something. Both are public. */
   location: {
-    cities: () => request<SellableCity[]>('/public/location/cities', { auth: false }),
+    /**
+     * Search cities with something on sale.
+     *
+     * A search, not a listing: the picker sends a prefix and a small limit as the customer
+     * types, so this response is the same size whether the platform sells in six cities or
+     * six hundred. Called with no arguments it still returns everything, which is only
+     * appropriate for a caller that genuinely needs the lot.
+     */
+    cities: (params?: { q?: string; country?: string; limit?: number }) =>
+      request<SellableCity[]>(`/public/location/cities${qs({ ...params })}`, { auth: false }),
     resolve: (hint?: { latitude?: number; longitude?: number; region?: string }) =>
       request<ResolvedLocation>(
         `/public/location/resolve${qs({
@@ -637,7 +646,7 @@ export const api = {
   },
 
   publicMovies: {
-    list: (params?: { city?: string; genre?: string; q?: string }) =>
+    list: (params?: { city?: string; country?: string; genre?: string; q?: string }) =>
       request<PublicMovieCard[]>(`/public/movies${qs(params ?? {})}`, { auth: false }),
     get: (slug: string) => request<PublicMovie>(`/public/movies/${slug}`, { auth: false }),
   },
@@ -2942,7 +2951,21 @@ export interface ResolvedLocation {
   source: LocationSource;
   /** True only for a coordinate fix. Anything else is a suggestion to confirm, not apply. */
   confident: boolean;
-  cities: SellableCity[];
+  /**
+   * The country it is safe to filter by — the guess, but only when we sell there.
+   *
+   * Null whenever we have nothing on sale in the guessed country. Scoping to a country we
+   * do not operate in shows an empty storefront, and an empty storefront reads as a dead
+   * company rather than as a wrong guess.
+   */
+  scopeCountry: string | null;
+  /**
+   * A few cities worth offering immediately — NOT every city on the platform.
+   *
+   * Named `topCities` so nobody builds a complete menu out of a partial list. Anything
+   * beyond these comes from `location.cities({ q })`.
+   */
+  topCities: SellableCity[];
 }
 
 export interface SectionFeed {

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
+import { countryMatches } from '../common/country';
 
 /**
  * Where the person browsing is, and which cities we can actually sell them a ticket in.
@@ -44,6 +45,16 @@ export interface SellableCity {
   eventCount: number;
 }
 
+/** How the caller wants the city list narrowed. All optional; omitting all means "everything". */
+export interface CitySearch {
+  /** Prefix of the city name, matched against each word of it. */
+  q?: string;
+  /** Restrict to one country, in either spelling. */
+  country?: string;
+  /** Most-inventory-first cap. The picker asks for a handful; nothing else needs a cap. */
+  limit?: number;
+}
+
 export interface ResolvedLocation {
   country: string | null;
   city: string | null;
@@ -55,8 +66,36 @@ export interface ResolvedLocation {
    * answer is accurate. Everything else is a suggestion.
    */
   confident: boolean;
-  /** Cities we can sell in, so the client can offer a change without a second call. */
-  cities: SellableCity[];
+  /**
+   * The country it is SAFE to filter by, or null.
+   *
+   * ── WHY THIS IS NOT JUST `country` ─────────────────────────────────────────────
+   * `country` above is the raw guess and may be anywhere on earth. This one is the guess
+   * only when we have something on sale there, and null otherwise.
+   *
+   * The distinction is the whole feature. Scoping discovery to a country the platform does
+   * not operate in shows the visitor an empty storefront, and an empty storefront is
+   * indistinguishable from a dead company — the customer does not think "my locale is
+   * wrong", they think "there is nothing here" and leave. A guess is allowed to be wrong;
+   * it is not allowed to be wrong and invisible.
+   *
+   * This is the same rule `resolve` already applied to a guessed CITY, which was only ever
+   * returned if we could sell there. Scoping by country arrived later and did not inherit
+   * it — and the e2e suite went red the first time it ran under a US locale against Indian
+   * inventory, which is precisely the scenario.
+   */
+  scopeCountry: string | null;
+
+  /**
+   * A few cities worth offering immediately, most inventory first — NOT the whole list.
+   *
+   * Deliberately capped and deliberately not called `cities`. It used to be every sellable
+   * city, which was fine at six and becomes a payload nobody reads at six hundred; worse,
+   * a client holding "all the cities" builds a menu out of them, and a menu of six hundred
+   * cities is not a menu. Anything beyond these comes from `GET /public/location/cities?q=`,
+   * which is a search.
+   */
+  topCities: SellableCity[];
 }
 
 /**
@@ -71,6 +110,9 @@ const COUNTRY_HEADERS = ['cf-ipcountry', 'x-vercel-ip-country', 'x-appengine-cou
 const CITY_HEADERS = ['cf-ipcity', 'x-vercel-ip-city'] as const;
 
 const CITIES_CACHE_TTL_SECONDS = 300;
+
+/** How many cities `resolve` offers up front. Enough to choose from, few enough to read. */
+const RESOLVE_CITY_COUNT = 8;
 
 /** Kilometres between two points. Good enough to pick the nearest of a few dozen cities. */
 function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -101,14 +143,44 @@ export class LocationService {
   ) {}
 
   /**
-   * Cities with something actually on sale, most inventory first.
+   * Cities with something on sale, most inventory first — searched, not enumerated.
    *
-   * Derived from live inventory rather than from a static list, so a city cannot appear in
-   * the picker until the day it has something to sell — and drops out again when it does
-   * not. A hardcoded list of "launch cities" would be out of date the first time an
-   * organizer in a new city published.
+   * Derived from live inventory rather than from a static list, so a city cannot appear
+   * until the day it has something to sell, and drops out again when it does not. A
+   * hardcoded list of "launch cities" would be out of date the first time an organizer in a
+   * new city published.
+   *
+   * The search exists because the picker cannot show them all. At six cities a menu is
+   * fine; the platform is being built for hundreds, and the honest answer at that size is a
+   * box you type into, which means the filtering has to happen here rather than in a
+   * component holding the whole world in memory.
    */
-  async cities(): Promise<SellableCity[]> {
+  async cities(query?: CitySearch): Promise<SellableCity[]> {
+    const all = await this.allCities();
+    const q = query?.q?.trim().toLowerCase();
+    const limit = query?.limit ?? all.length;
+
+    const matches = all.filter((c) => {
+      if (query?.country && !countryMatches(c.country, query.country)) return false;
+      if (!q) return true;
+      /*
+        Prefix, not substring.
+
+        "san" should offer San Francisco, not Rosande. Substring matching feels cleverer
+        and is worse at the only job here: somebody typing the start of the name they
+        already have in mind. The exception is a multi-word city — "york" has to find New
+        York — so every word of the name is a candidate prefix.
+      */
+      return c.city
+        .toLowerCase()
+        .split(/[\s-]+/)
+        .some((word) => word.startsWith(q));
+    });
+    return matches.slice(0, limit);
+  }
+
+  /** Every sellable city, cached. The filtered view above is derived from this one list. */
+  private async allCities(): Promise<SellableCity[]> {
     return this.cache.getOrSet('location:cities', CITIES_CACHE_TTL_SECONDS, async () => {
       const live = {
         status: EventStatus.PUBLISHED,
@@ -153,6 +225,21 @@ export class LocationService {
   }): Promise<ResolvedLocation> {
     const cities = await this.cities();
 
+    const inCountry = (country: string | null): SellableCity[] =>
+      country ? cities.filter((c) => countryMatches(c.country, country)) : [];
+
+    /** The handful to offer up front, preferring the country we think they are in. */
+    const offer = (country: string | null): SellableCity[] => {
+      const local = inCountry(country);
+      // Falls back to the busiest cities anywhere rather than to nothing: a visitor in a
+      // country we do not sell in yet should still see somewhere they could go.
+      return (local.length ? local : cities).slice(0, RESOLVE_CITY_COUNT);
+    };
+
+    /** A country worth filtering by is a country we have something to sell in. */
+    const scope = (country: string | null): string | null =>
+      inCountry(country).length ? country : null;
+
     // 1. Coordinates the person actively offered. The only source good enough to apply
     //    without asking.
     if (typeof input.latitude === 'number' && typeof input.longitude === 'number') {
@@ -163,7 +250,8 @@ export class LocationService {
           city: nearest.city,
           source: 'coordinates',
           confident: true,
-          cities,
+          scopeCountry: scope(nearest.country),
+          topCities: offer(nearest.country),
         };
       }
       /*
@@ -188,19 +276,21 @@ export class LocationService {
           city: match.city,
           source: 'network',
           confident: false,
-          cities,
+          scopeCountry: scope(match.country),
+          topCities: offer(match.country),
         };
       }
     }
     if (country) {
-      const inCountry = cities.filter((c) => this.countryMatches(c.country, country));
+      const inCountry = cities.filter((c) => countryMatches(c.country, country));
       return {
         country,
         // Exactly one city in the country means there is nothing to choose between.
         city: inCountry.length === 1 ? inCountry[0].city : null,
         source: 'network',
         confident: false,
-        cities,
+        scopeCountry: scope(country),
+        topCities: offer(country),
       };
     }
 
@@ -211,12 +301,20 @@ export class LocationService {
         city: null,
         source: 'device-region',
         confident: false,
-        cities,
+        scopeCountry: scope(input.deviceRegion.toUpperCase()),
+        topCities: offer(input.deviceRegion.toUpperCase()),
       };
     }
 
     // 4. Nothing. Said plainly, so the client asks instead of guessing.
-    return { country: null, city: null, source: 'none', confident: false, cities };
+    return {
+      country: null,
+      city: null,
+      source: 'none',
+      confident: false,
+      scopeCountry: null,
+      topCities: offer(null),
+    };
   }
 
   /** Nearest city with inventory, using cinema coordinates — the only geo the platform stores. */
@@ -238,25 +336,6 @@ export class LocationService {
       if (km <= NEAREST_CITY_RADIUS_KM && (!best || km < best.km)) best = { city: sellable, km };
     }
     return best?.city ?? null;
-  }
-
-  /**
-   * Whether a stored country name is the country an edge header named.
-   *
-   * Headers carry ISO alpha-2 ("IN"); venues store display names ("India"). Rather than ship
-   * a 250-row country table for one comparison, this handles the launch markets by name and
-   * otherwise compares directly, which is correct for any venue already storing a code. An
-   * unmatched pair only means the country hint finds nothing — the picker still lists every
-   * city, so nobody is stuck.
-   */
-  private countryMatches(stored: string, alpha2: string): boolean {
-    const s = stored.trim().toLowerCase();
-    const known: Record<string, string[]> = {
-      IN: ['india', 'in'],
-      US: ['united states', 'united states of america', 'usa', 'us'],
-      CA: ['canada', 'ca'],
-    };
-    return (known[alpha2] ?? [alpha2.toLowerCase()]).includes(s);
   }
 
   private firstHeader(

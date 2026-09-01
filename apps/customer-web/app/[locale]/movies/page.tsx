@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Film, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useCity } from '@eticketsgo/web-kit';
+import { cityScope, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { MovieCard } from '@/components/movie-card';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
@@ -22,15 +22,17 @@ export default function MoviesPage() {
     setApplied({ q: initial.q || undefined, genre: initial.genre || undefined });
   }, []);
 
-  // Scoped to the city in the header. Genres below stay unfiltered on purpose — a genre
+  // Scoped to the header's location. Genres below stay unfiltered on purpose — a genre
   // list that shrinks with the city makes the filter look broken.
-  const { city, setCity } = useCity();
-  /** Empty because of the city alone — not because of something the customer typed. */
+  const preference = useCity();
+  const { city, setCity } = preference;
+  const scope = cityScope(preference);
+  /** Empty because of the location alone — not because of something the customer typed. */
   const cityOnly = Boolean(city) && !applied.q && !applied.genre;
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['movies', applied, city],
-    queryFn: () => api.listMovies({ ...applied, city: city ?? undefined }),
+    queryKey: ['movies', applied, JSON.stringify(scope)],
+    queryFn: () => api.listMovies({ ...applied, ...scope }),
   });
 
   // Genre options for the filter come from an unfiltered baseline fetch so the
