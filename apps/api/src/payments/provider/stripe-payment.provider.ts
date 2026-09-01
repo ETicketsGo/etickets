@@ -225,12 +225,40 @@ export class StripePaymentProvider implements PaymentProvider {
         HttpStatus.BAD_REQUEST,
       );
     }
+    /*
+      Stripe has two payload styles and this adapter understands one of them.
+
+      A "snapshot" event carries the full object under `data.object` — what every handler
+      here reads. A "thin" event (the v2 event-destination format) carries only ids under
+      `related_object`, and has no `data` at all, so reading `event.data.object` throws a
+      TypeError: the endpoint answers 500, Stripe records a failed delivery and retries it
+      on a backoff, and the dashboard's error rate climbs for a reason no log explains.
+
+      This is not hypothetical — a thin destination was created against the QA endpoint
+      alongside the snapshot one. Refusing it by name costs one branch and turns an hour of
+      confused debugging into a message that says exactly which dashboard setting is wrong.
+
+      A 400 rather than a 500 because the request is intelligible and unacceptable, not
+      broken: nothing here will succeed on retry until somebody changes the destination.
+    */
+    const object = (event as { data?: { object?: unknown } }).data?.object;
+    if (object === undefined) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+        'This endpoint accepts Stripe "snapshot" events only. The destination sending this ' +
+          'event is configured with the "thin" payload style, which carries ids instead of ' +
+          'the object. Change the payload style on the destination, or delete it.',
+        HttpStatus.BAD_REQUEST,
+        { eventType: event.type },
+      );
+    }
+
     return {
       id: event.id,
       type: event.type,
       createdAt: event.created,
       account: event.account ?? null,
-      object: event.data.object,
+      object,
     };
   }
 

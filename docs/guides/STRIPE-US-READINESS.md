@@ -86,6 +86,22 @@ hand.
 
 Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
 
+### Payload style must be **Snapshot**, not Thin
+
+Stripe's newer "event destinations" offer a **thin** payload style, which carries only ids
+and has no `data.object`. Every handler here reads the object, so a thin destination cannot
+work — the endpoint now refuses it with a message naming the setting rather than throwing,
+but it is still a failed delivery Stripe will retry on a backoff.
+
+**Create one destination, set to Snapshot.** If a thin one exists, delete it.
+
+### One destination per environment
+
+Two destinations pointing at the same URL deliver every event twice. That is safe —
+ingestion is idempotent on Stripe's event id, so the second is recorded as a duplicate and
+does no work — but it doubles the traffic and makes the dashboard's activity graph lie about
+volume. Keep one.
+
 ---
 
 ## Step 3 — Connect onboarding (per organizer)

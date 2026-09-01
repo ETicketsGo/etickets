@@ -35,6 +35,57 @@ beforeEach(() => {
 });
 
 describe('StripePaymentProvider', () => {
+  describe('webhook payload style', () => {
+    /*
+      Stripe destinations can be created with a "thin" payload style, which carries ids
+      instead of the object and has no `data` at all. One was created against the QA
+      endpoint alongside the snapshot one — this is what happens next.
+    */
+    it('accepts a snapshot event, which is the style every handler reads', () => {
+      mockConstructEvent.mockReturnValue({
+        id: 'evt_1',
+        type: 'checkout.session.completed',
+        created: 1,
+        data: { object: { id: 'cs_1' } },
+      });
+      const envelope = makeProvider().verifySignedEnvelope!({
+        rawBody: '{}',
+        signature: 'sig',
+      });
+      expect(envelope).toMatchObject({ id: 'evt_1', object: { id: 'cs_1' } });
+    });
+
+    it('refuses a thin event by name instead of throwing a TypeError', () => {
+      /*
+        Without the guard this read `event.data.object` on an object with no `data` — a
+        TypeError, so the endpoint answered 500, Stripe recorded a failed delivery and
+        retried it on a backoff, and the dashboard's error rate climbed for a reason no
+        log explained. The message has to name the dashboard setting, because that is the
+        only place the problem can be fixed.
+      */
+      mockConstructEvent.mockReturnValue({
+        id: 'evt_thin',
+        type: 'v1.billing.meter.error_report_triggered',
+        created: 1,
+        related_object: { id: 'obj_1', type: 'billing.meter' },
+      });
+      expect(() =>
+        makeProvider().verifySignedEnvelope!({ rawBody: '{}', signature: 'sig' }),
+      ).toThrow(/thin/i);
+    });
+
+    it('still refuses an unsigned or tampered event first', () => {
+      // Signature verification must come before any payload reasoning: an unverified body
+      // is not evidence of anything, including its own shape.
+      mockConstructEvent.mockImplementation(() => {
+        throw new Error('bad signature');
+      });
+      expect(() =>
+        makeProvider().verifySignedEnvelope!({ rawBody: '{}', signature: 'nope' }),
+      ).toThrow(/signature/i);
+    });
+  });
+
   it('declares the stripe webhook header', () => {
     expect(makeProvider().webhookSignatureHeader).toBe('stripe-signature');
   });
