@@ -55,6 +55,23 @@ describe('StripePaymentProvider', () => {
       expect(envelope).toMatchObject({ id: 'evt_1', object: { id: 'cs_1' } });
     });
 
+    it('names the payload style when the SDK rejects a thin event notification', () => {
+      /*
+        The real path a thin destination takes: the SDK detects it before we ever see the
+        object, and says so precisely. Our catch-all used to flatten that into "Invalid
+        webhook signature", which sends whoever is debugging to check the secret while the
+        actual problem is a dropdown on the destination.
+      */
+      mockConstructEvent.mockImplementation(() => {
+        throw new Error(
+          'You passed an event notification to stripe.webhooks.constructEvent, which expects a webhook payload.',
+        );
+      });
+      expect(() =>
+        makeProvider().verifySignedEnvelope!({ rawBody: '{}', signature: 'sig' }),
+      ).toThrow(/thin|payload style/i);
+    });
+
     it('refuses a thin event by name instead of throwing a TypeError', () => {
       /*
         Without the guard this read `event.data.object` on an object with no `data` — a
@@ -77,12 +94,16 @@ describe('StripePaymentProvider', () => {
     it('still refuses an unsigned or tampered event first', () => {
       // Signature verification must come before any payload reasoning: an unverified body
       // is not evidence of anything, including its own shape.
+      // Shaped like the SDK's own signature error, which is what distinguishes this from
+      // a payload-shape rejection.
       mockConstructEvent.mockImplementation(() => {
-        throw new Error('bad signature');
+        const e = new Error('No signatures found matching the expected signature.');
+        (e as Error & { type: string }).type = 'StripeSignatureVerificationError';
+        throw e;
       });
       expect(() =>
         makeProvider().verifySignedEnvelope!({ rawBody: '{}', signature: 'nope' }),
-      ).toThrow(/signature/i);
+      ).toThrow(/Invalid webhook signature/i);
     });
   });
 

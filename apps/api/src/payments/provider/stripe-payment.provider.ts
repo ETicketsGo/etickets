@@ -27,6 +27,44 @@ import type {
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
 
 /**
+ * Turn a `constructEvent` failure into the right refusal.
+ *
+ * Two very different failures used to produce the same sentence. The SDK throws a
+ * StripeSignatureVerificationError when the signature is wrong — a stale secret, or
+ * somebody forging events. It throws a PLAIN error when the body is not a webhook payload
+ * at all, and for a "thin" event destination its message is precise and useful:
+ * *"You passed an event notification to stripe.webhooks.constructEvent, which expects a
+ * webhook payload."*
+ *
+ * Reporting that as "Invalid webhook signature" sends whoever is debugging to check the
+ * signing secret, which is fine, while the actual problem is a payload-style setting on the
+ * destination. Both are 400 — the request is intelligible and unacceptable either way — but
+ * they are not the same 400.
+ *
+ * Identified by the error's own type rather than `instanceof`: a bundler or a duplicated
+ * `stripe` in the tree gives two distinct class objects, and `instanceof` then quietly
+ * answers false for a genuine signature failure, relabelling every forged event as a
+ * payload-style problem. The string is part of the SDK's public error contract.
+ */
+function webhookRejection(err: unknown): AppException {
+  const kind = (err as { type?: string; name?: string })?.type ?? (err as Error)?.name;
+  if (kind === 'StripeSignatureVerificationError') {
+    return new AppException(
+      ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+      'Invalid webhook signature.',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+  return new AppException(
+    ErrorCodes.PAYMENT_WEBHOOK_INVALID,
+    'This is not a Stripe webhook payload. A destination set to the "thin" payload style ' +
+      'sends event notifications rather than events; set it to "snapshot", or delete it. ' +
+      `(${err instanceof Error ? err.message.slice(0, 160) : 'unknown'})`,
+    HttpStatus.BAD_REQUEST,
+  );
+}
+
+/**
  * Stripe (global) provider. Buyers pay via a hosted Stripe Checkout Session
  * (we return its URL as clientActionUrl); settlement is confirmed only via the
  * signature-verified webhook, never from the browser redirect.
@@ -176,12 +214,8 @@ export class StripePaymentProvider implements PaymentProvider {
         input.signature,
         this.webhookSecret,
       );
-    } catch {
-      throw new AppException(
-        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
-        'Invalid webhook signature.',
-        HttpStatus.BAD_REQUEST,
-      );
+    } catch (err) {
+      throw webhookRejection(err);
     }
 
     switch (event.type) {
@@ -218,12 +252,8 @@ export class StripePaymentProvider implements PaymentProvider {
         input.signature,
         this.webhookSecret,
       );
-    } catch {
-      throw new AppException(
-        ErrorCodes.PAYMENT_WEBHOOK_INVALID,
-        'Invalid webhook signature.',
-        HttpStatus.BAD_REQUEST,
-      );
+    } catch (err) {
+      throw webhookRejection(err);
     }
     /*
       Stripe has two payload styles and this adapter understands one of them.
