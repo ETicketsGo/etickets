@@ -113,7 +113,12 @@ export function PriceBreakdown({
         className={`flex items-center justify-between ${quote ? 'mt-2 border-t border-border pt-2' : ''}`}
       >
         <span className="text-[0.9375rem] text-text-secondary">{totalLabel ?? t('total')}</span>
-        <span className="text-title font-bold tabular-nums text-text-primary">
+        {/* Addressable on its own: the amount the buyer is agreeing to is the one thing
+            worth being able to point at exactly, from a test or from anywhere else. */}
+        <span
+          data-testid="price-total"
+          className="text-title font-bold tabular-nums text-text-primary"
+        >
           {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency)}
         </span>
       </div>

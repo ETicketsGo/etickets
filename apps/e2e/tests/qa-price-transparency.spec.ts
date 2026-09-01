@@ -23,10 +23,18 @@ test.skip(!QA_VALIDATE, QA_SKIP_REASON);
 const CUSTOMER = 'https://customer-web-qa.up.railway.app';
 const API = 'https://api-qa-f580.up.railway.app/api';
 
-/** Digits out of a rendered amount, so the comparison does not depend on the symbol. */
+/**
+ * The minor-unit value of ONE rendered amount.
+ *
+ * Deliberately anchored to a single amount rather than stripping non-digits from a block
+ * of text. The first version did the latter and worked only by accident: rupee amounts
+ * render without decimals, so "₹240 ₹10 ₹5" collapsed to a number. The same code met the
+ * first USD event and produced "50.001.99…" — two decimal points, `Number` returns NaN,
+ * and the failure looked like the page rather than the parser.
+ */
 function minorFrom(text: string): number {
-  const cleaned = text.replace(/[^\d.]/g, '');
-  return Math.round(Number(cleaned) * 100);
+  const match = /[\d,]+(?:\.\d+)?/.exec(text);
+  return match ? Math.round(Number(match[0].replace(/,/g, '')) * 100) : NaN;
 }
 
 async function openFirstPaidEvent(page: Page, request: { get: (u: string) => Promise<Response> }) {
@@ -85,11 +93,11 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
       })
     ).json();
 
-    const shownTotal = await page
-      .getByTestId('price-breakdown')
-      .locator('xpath=following-sibling::div[1]')
-      .innerText();
-    expect(minorFrom(shownTotal)).toBe(quoted.fees.totalMinor);
+    // The total has its own test id; the previous version walked a sibling, which is a
+    // structural assumption that breaks the next time the card is laid out differently.
+    expect(minorFrom(await page.getByTestId('price-total').innerText())).toBe(
+      quoted.fees.totalMinor,
+    );
 
     // The fees are real, or this test would pass on an event that happens to have none and
     // prove nothing about the defect it exists for.
@@ -104,11 +112,12 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
 
     await quantity.selectOption('1');
     await expect(page.getByTestId('price-breakdown')).toBeVisible({ timeout: 30_000 });
-    const one = minorFrom(await page.getByTestId('price-breakdown').innerText());
+    const one = minorFrom(await page.getByTestId('price-total').innerText());
+    expect(Number.isNaN(one), 'the total did not parse as an amount').toBe(false);
 
     await quantity.selectOption('3');
     await expect
-      .poll(async () => minorFrom(await page.getByTestId('price-breakdown').innerText()), {
+      .poll(async () => minorFrom(await page.getByTestId('price-total').innerText()), {
         timeout: 30_000,
       })
       .toBeGreaterThan(one);
