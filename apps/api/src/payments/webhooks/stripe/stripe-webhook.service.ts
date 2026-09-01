@@ -1,14 +1,11 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { AppException, ErrorCodes } from '../../../common/errors';
-import {
-  PAYMENT_PROVIDER,
-  type PaymentProvider,
-  type WebhookEnvelope,
-} from '../../provider/payment-provider.interface';
+import { type WebhookEnvelope } from '../../provider/payment-provider.interface';
+import { PaymentProviderResolver } from '../../provider/payment-provider.resolver';
 import { StripeWebhookProcessor } from './stripe-webhook.processor';
 
 export interface WebhookIngestResult {
@@ -29,22 +26,41 @@ export class StripeWebhookService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PAYMENT_PROVIDER) private readonly activeProvider: PaymentProvider,
+    /*
+      The STRIPE adapter, resolved on demand — not whichever provider happens to be the
+      globally configured one.
+
+      This injected `PAYMENT_PROVIDER`, which is `mock` unless somebody sets the global
+      switch. So with Stripe keys correctly configured and a Stripe-signed event arriving
+      at the Stripe endpoint, this answered `501 The active provider does not support
+      Stripe webhooks` — every delivery failed, and the message pointed at a provider the
+      caller never asked for.
+
+      That is not a hypothetical: routing is PER BOOKING, from the booking's currency
+      (USD → Stripe, INR → Razorpay). There is no single "active provider" for a
+      multi-market platform, so a webhook endpoint must resolve the provider it is NAMED
+      for. The Razorpay endpoint has always done this; the Stripe one was left behind, and
+      the gap was invisible until Stripe keys existed to expose it.
+    */
+    private readonly resolver: PaymentProviderResolver,
     private readonly processor: StripeWebhookProcessor,
     private readonly metrics: MetricsService,
   ) {}
 
   async ingest(rawBody: string, signature: string): Promise<WebhookIngestResult> {
-    if (!this.activeProvider.verifySignedEnvelope) {
+    // Constructing throws with a clear message when Stripe's secrets are missing, which is
+    // a better answer than silently verifying against whatever else is configured.
+    const provider = this.resolver.get(this.provider);
+    if (!provider.verifySignedEnvelope) {
       throw new AppException(
         ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        'The active provider does not support Stripe webhooks.',
+        'Stripe webhooks are not supported by the configured Stripe adapter.',
         HttpStatus.NOT_IMPLEMENTED,
       );
     }
 
     // Signature verification against the exact raw body (throws PAYMENT_WEBHOOK_INVALID).
-    const envelope: WebhookEnvelope = this.activeProvider.verifySignedEnvelope({
+    const envelope: WebhookEnvelope = provider.verifySignedEnvelope({
       rawBody,
       signature,
     });
