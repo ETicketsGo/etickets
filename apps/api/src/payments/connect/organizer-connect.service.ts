@@ -130,11 +130,35 @@ export class OrganizerConnectService {
     }
 
     const org = await this.requireOrganization(organizationId);
-    const created = await provider.createConnectedAccount({
-      organizationId,
-      country: input.country,
-      email: input.email ?? org.contactEmail ?? undefined,
-    });
+    /*
+      Stripe's own words, not "Something went wrong".
+
+      Onboarding failed on QA with a bare 500, and the reason was sitting in the response we
+      threw away: *"Stripe no longer recommends Accounts v1 for new Connect integrations…
+      enable Accounts v1 support in the Dashboard"*. That is a setting somebody can go and
+      change in under a minute, and swallowing it turned a one-minute fix into an
+      investigation.
+
+      Surfaced as a 502, because the refusal came from upstream and is not the caller's
+      fault; the message is Stripe's, truncated, and carries no PII — Connect account
+      creation sends an organization id and a business email we already hold.
+    */
+    let created: { accountId: string };
+    try {
+      created = await provider.createConnectedAccount({
+        organizationId,
+        country: input.country,
+        email: input.email ?? org.contactEmail ?? undefined,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'unknown error';
+      this.logger.error(`Stripe refused to create a connected account: ${detail}`);
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        `Stripe could not create the connected account: ${detail.slice(0, 400)}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
 
     const accountType = this.config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express';
     const account = await this.prisma.organizerPaymentAccount.upsert({

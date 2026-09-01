@@ -71,6 +71,23 @@ function makeService(opts: { account?: Record<string, unknown> | null }) {
 }
 
 describe('OrganizerConnectService.createOrGetAccount', () => {
+  it('reports what Stripe actually said instead of a bare 500', async () => {
+    /*
+      This surfaced as `500 Something went wrong` on QA, and the reason was in the response
+      we discarded: Stripe now refuses `POST /v1/accounts` for new Connect integrations and
+      names the dashboard setting that re-enables it. That is a one-minute fix, and hiding
+      it turned it into an investigation.
+    */
+    const { service, provider, user } = makeService({ account: null });
+    provider.createConnectedAccount.mockRejectedValue(
+      new Error('Stripe no longer recommends Accounts v1 for new Connect integrations.'),
+    );
+
+    await expect(
+      service.createOrGetAccount(user, 'org1', { country: 'US' } as never),
+    ).rejects.toThrow(/Accounts v1/);
+  });
+
   it('asks the resolver for stripe by name, not for whatever is globally configured', async () => {
     // The defect this replaced: `/organizers/:id/payments/stripe/account` answered
     // `501 The active payment provider (mock) does not support connected accounts` on an
