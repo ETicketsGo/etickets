@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   Role,
@@ -13,10 +13,10 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import { redirectUrl } from '../../common/console-urls';
 import type { RequestUser } from '../../common/decorators';
 import {
-  PAYMENT_PROVIDER,
   type ConnectedAccountSnapshot,
   type PaymentProvider,
 } from '../provider/payment-provider.interface';
+import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 
 /** Client-safe onboarding status (never exposes sensitive Stripe data). */
 export interface OrganizerPaymentStatus {
@@ -60,23 +60,41 @@ export class OrganizerConnectService {
     private readonly access: OrgAccessService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
-    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly resolver: PaymentProviderResolver,
   ) {}
 
-  /** The active provider must support connected accounts (Stripe does). */
+  /**
+   * The provider this service is about, resolved by NAME.
+   *
+   * Every route on the controller is `/stripe/...`, so the answer is never in doubt — but
+   * this injected `PAYMENT_PROVIDER`, the single globally configured provider, which is
+   * `mock`. With Stripe fully configured, asking for an organizer's connected account
+   * answered `501 The active payment provider (mock) does not support connected accounts`,
+   * naming a provider the caller never mentioned.
+   *
+   * The same single-provider assumption broke the Stripe webhook endpoint. Routing on this
+   * platform is per booking, from currency — there is no one active provider to ask.
+   */
+  private get providerName(): string {
+    return 'stripe';
+  }
+
   private connectProvider(): ConnectCapableProvider {
+    // Constructing throws with a clear message when Stripe's secrets are missing, which
+    // beats reporting that some other provider lacks a capability nobody asked it for.
+    const provider = this.resolver.get(this.providerName);
     if (
-      !this.provider.createConnectedAccount ||
-      !this.provider.getConnectedAccount ||
-      !this.provider.createOnboardingLink
+      !provider.createConnectedAccount ||
+      !provider.getConnectedAccount ||
+      !provider.createOnboardingLink
     ) {
       throw new AppException(
         ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        `The active payment provider (${this.provider.name}) does not support connected accounts.`,
+        `The ${provider.name} adapter does not support connected accounts.`,
         HttpStatus.NOT_IMPLEMENTED,
       );
     }
-    return this.provider as ConnectCapableProvider;
+    return provider as ConnectCapableProvider;
   }
 
   private async requireOrganization(
@@ -203,7 +221,7 @@ export class OrganizerConnectService {
   async getStatus(user: RequestUser, organizationId: string): Promise<OrganizerPaymentStatus> {
     await this.access.assertMember(user, organizationId, VIEW_ROLES);
     const account = await this.prisma.organizerPaymentAccount.findUnique({
-      where: { organizationId_provider: { organizationId, provider: this.provider.name } },
+      where: { organizationId_provider: { organizationId, provider: this.providerName } },
     });
     if (!account?.providerAccountId) {
       return this.emptyStatus(organizationId);
@@ -306,7 +324,7 @@ export class OrganizerConnectService {
   private emptyStatus(organizationId: string): OrganizerPaymentStatus {
     return {
       organizationId,
-      provider: this.provider.name,
+      provider: this.providerName,
       hasAccount: false,
       accountType: this.config.get<string>('STRIPE_CONNECT_ACCOUNT_TYPE') ?? 'express',
       onboardingStatus: 'NOT_STARTED',

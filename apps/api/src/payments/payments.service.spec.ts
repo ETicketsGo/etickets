@@ -94,6 +94,14 @@ function setup(opts: {
     provider as never,
     mockProvider as never,
     orchestrator as never,
+    /*
+      The resolver. The marketplace gate used to ask the GLOBALLY configured provider
+      whether it supported transfers — which is the mock — so the gate refusing a paid
+      booking from an organizer with no charges-enabled account was skipped entirely, and a
+      USD charge would have gone to Stripe with nothing tying it to an organizer. It now
+      asks the provider that will actually take the money.
+    */
+    { get: jest.fn().mockReturnValue(provider) } as never,
     audit as never,
     notifications as never,
     inventory as never,

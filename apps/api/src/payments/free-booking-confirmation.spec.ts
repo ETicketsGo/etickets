@@ -85,6 +85,20 @@ function setup(over: Over = {}) {
     { verifyWebhook: jest.fn() } as never,
     { signEvent: jest.fn() } as never,
     orchestrator as never,
+    /*
+      The resolver. The marketplace gate used to ask the GLOBALLY configured provider
+      whether it supported transfers — which is the mock — so the gate refusing a paid
+      booking from an organizer with no charges-enabled account was skipped entirely, and a
+      USD charge would have gone to Stripe with nothing tying it to an organizer. It now
+      asks the provider that will actually take the money.
+    */
+    // A free booking never reaches a provider at all, so the resolver is never asked —
+    // throwing here proves that rather than assuming it.
+    {
+      get: jest.fn(() => {
+        throw new Error('a free booking must not resolve a payment provider');
+      }),
+    } as never,
     audit as never,
     notifications as never,
     { forSeating: jest.fn().mockReturnValue(strategy) } as never,

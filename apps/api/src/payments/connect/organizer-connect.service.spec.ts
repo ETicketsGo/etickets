@@ -52,18 +52,34 @@ function makeService(opts: { account?: Record<string, unknown> | null }) {
     createOnboardingLink: jest.fn().mockResolvedValue({ url: 'https://connect.stripe.com/x' }),
     createDashboardLink: jest.fn().mockResolvedValue({ url: 'https://dash' }),
   };
+  /*
+    A RESOLVER, not a provider. This service used to take whichever provider was globally
+    configured — which is `mock` — so with Stripe fully set up it answered "the active
+    payment provider (mock) does not support connected accounts". It resolves `stripe` by
+    name now, and the stub asserts that is what it asks for.
+  */
+  const resolver = { get: jest.fn().mockReturnValue(provider) };
   const service = new OrganizerConnectService(
     prisma as never,
     access as never,
     config as never,
     audit as never,
-    provider as never,
+    resolver as never,
   );
   const user = { id: 'u1', email: 'u@x.io', fullName: 'U', roles: ['ORGANIZER_OWNER'] } as never;
-  return { service, prisma, provider, created, user };
+  return { service, prisma, provider, resolver, created, user };
 }
 
 describe('OrganizerConnectService.createOrGetAccount', () => {
+  it('asks the resolver for stripe by name, not for whatever is globally configured', async () => {
+    // The defect this replaced: `/organizers/:id/payments/stripe/account` answered
+    // `501 The active payment provider (mock) does not support connected accounts` on an
+    // environment where Stripe was correctly configured — naming a provider nobody asked for.
+    const { service, resolver, user } = makeService({ account: null });
+    await service.createOrGetAccount(user, 'org1', { country: 'US' } as never);
+    expect(resolver.get).toHaveBeenCalledWith('stripe');
+  });
+
   it('returns the existing account without creating a duplicate', async () => {
     const { service, provider } = makeService({
       account: {

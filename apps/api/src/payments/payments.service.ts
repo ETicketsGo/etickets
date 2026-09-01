@@ -23,6 +23,7 @@ import {
   type WebhookInput,
 } from './provider/payment-provider.interface';
 import { PaymentOrchestrator } from './orchestration/payment-orchestrator.service';
+import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { AppException, ErrorCodes } from '../common/errors';
 import { isDummyAllowed, resolvePaymentEnv } from './configuration/payment-environment';
 import type { RequestUser } from '../common/decorators';
@@ -51,6 +52,9 @@ export class PaymentsService {
     private readonly mockProvider: MockPaymentProvider,
     // Routes + fails over across configured providers (resilient createPayment).
     private readonly orchestrator: PaymentOrchestrator,
+    // Resolves an adapter BY NAME. The marketplace gate needs the provider this booking
+    // will actually use, which the globally injected one above is not.
+    private readonly resolver: PaymentProviderResolver,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly inventory: InventoryService,
@@ -73,9 +77,40 @@ export class PaymentsService {
 
   private readonly logger = new Logger(PaymentsService.name);
 
-  /** Whether the active provider is a Connect marketplace (Stripe implements transfers). */
-  private get isMarketplaceProvider(): boolean {
-    return typeof this.provider.createTransfer === 'function';
+  /**
+   * Whether the provider THIS BOOKING will use is a Connect marketplace.
+   *
+   * ── WHY THIS TAKES A BOOKING AND NOT NOTHING ───────────────────────────────────────
+   * It used to ask the globally configured provider, which is `mock` in every environment
+   * that has not set the global switch. So the marketplace gate below — the one refusing a
+   * paid booking whose organizer has no charges-enabled account — was skipped entirely,
+   * and a USD booking would have gone to Stripe with no `connectedAccountId` and no
+   * `transferGroup`. The charge would succeed and land on the platform with nothing tying
+   * it to the organizer it was collected for, which is the sort of thing discovered at
+   * settlement.
+   *
+   * Routing is per booking, from its currency. USD goes to Stripe whatever the global
+   * switch says, so the capability question has to be asked of the provider that will
+   * actually take the money.
+   */
+  private marketplaceProviderFor(booking: {
+    currency: string;
+    event?: { venue?: { country?: string | null } | null } | null;
+  }): { name: string; provider: PaymentProvider } | null {
+    const name = routeProviderForBooking({
+      currency: booking.currency,
+      country: booking.event?.venue?.country,
+    });
+    if (!name) return null;
+    let provider: PaymentProvider;
+    try {
+      provider = this.resolver.get(name);
+    } catch {
+      // Not configured in this environment — the orchestrator below will decide what to do
+      // about that, and it gives a better message than a capability check can.
+      return null;
+    }
+    return typeof provider.createTransfer === 'function' ? { name, provider } : null;
   }
 
   /**
@@ -230,9 +265,12 @@ export class PaymentsService {
     // charges-enabled connected account — otherwise there is nowhere to settle proceeds.
     // Non-Connect providers (mock/dev) skip this gate, preserving the existing flow.
     let connectedAccountId: string | undefined;
-    if (this.isMarketplaceProvider && booking.totalMinor > 0 && organizationId) {
+    const marketplace = this.marketplaceProviderFor(booking);
+    if (marketplace && booking.totalMinor > 0 && organizationId) {
       const account = await this.prisma.organizerPaymentAccount.findUnique({
-        where: { organizationId_provider: { organizationId, provider: this.provider.name } },
+        // Keyed on the provider that will TAKE this payment, not on whichever one is
+        // globally configured — an account onboarded with Stripe is not a Razorpay account.
+        where: { organizationId_provider: { organizationId, provider: marketplace.name } },
       });
       if (!account?.providerAccountId || !account.chargesEnabled) {
         throw new AppException(
