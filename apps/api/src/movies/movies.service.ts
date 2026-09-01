@@ -11,6 +11,7 @@ import type { CreateMovieInput, UpdateMovieInput } from '@eticketsgo/validation'
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { countryAliases } from '../common/country';
 import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { CacheService } from '../cache/cache.service';
@@ -206,6 +207,8 @@ export class MoviesService {
 
 export interface PublicMovieFilters {
   city?: string;
+  /** Country scope for when no city is chosen. Ignored when one is — see the events list. */
+  country?: string;
   genre?: string;
   q?: string;
 }
@@ -224,7 +227,7 @@ export class PublicMoviesService {
     // Filters are part of the anonymous cache key so distinct browse queries
     // (city/genre/text) never collide. Raw values keep case-sensitive matching
     // correct.
-    const key = `catalog:movies:${filters.city ?? 'all'}:${filters.genre ?? 'all'}:${filters.q ?? 'all'}`;
+    const key = `catalog:movies:${filters.city ?? 'all'}:${filters.country ?? 'all'}:${filters.genre ?? 'all'}:${filters.q ?? 'all'}`;
     return this.cache.getOrSet(key, CATALOG_CACHE_TTL_SECONDS, () => this.query(filters));
   }
 
@@ -263,7 +266,11 @@ export class PublicMoviesService {
           // venue there.
           ...(filters.city
             ? { venue: { city: { equals: filters.city, mode: 'insensitive' } } }
-            : {}),
+            : filters.country
+              ? // The same ranking as the events list: a chosen city beats an inferred
+                // country, because ANDing the two turns one bad hint into an empty page.
+                { venue: { country: { in: countryAliases(filters.country), mode: 'insensitive' } } }
+              : {}),
         },
       },
     };

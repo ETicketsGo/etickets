@@ -96,6 +96,7 @@ export class PublicMoviesController {
       new ZodValidationPipe(
         z.object({
           city: z.string().optional(),
+          country: z.string().trim().min(2).max(60).optional(),
           genre: z.string().optional(),
           q: z.string().optional(),
         }),
@@ -103,6 +104,7 @@ export class PublicMoviesController {
     )
     q: {
       city?: string;
+      country?: string;
       genre?: string;
       q?: string;
     },

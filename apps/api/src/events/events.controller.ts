@@ -210,9 +210,15 @@ export class PublicEventsController {
         paginationSchema.extend({
           q: z.string().optional(),
           city: z.string().optional(),
+          // Either spelling — `IN` or `India`. Ignored when a city is given.
+          country: z.string().trim().min(2).max(60).optional(),
           category: z.string().optional(),
           dateFrom: z.coerce.date().optional(),
           dateTo: z.coerce.date().optional(),
+          // A query string carries text, so this stays a string here and is compared
+          // below. Coercing it would make `?freeOnly=false` mean true, `'false'` being a
+          // perfectly truthy string.
+          freeOnly: z.enum(['true', 'false']).optional(),
         }),
       ),
     )
@@ -221,12 +227,14 @@ export class PublicEventsController {
       pageSize: number;
       q?: string;
       city?: string;
+      country?: string;
       category?: string;
       dateFrom?: Date;
       dateTo?: Date;
+      freeOnly?: 'true' | 'false';
     },
   ) {
-    return this.publicEvents.list(q);
+    return this.publicEvents.list({ ...q, freeOnly: q.freeOnly === 'true' });
   }
 
   @Public()

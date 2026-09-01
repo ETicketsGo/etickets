@@ -7,10 +7,22 @@ import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { getRecent, type RecentEvent } from '@/lib/recent';
-import { visitorCountry } from '@eticketsgo/web-kit';
-import { ButtonLink, EmptyState } from '@/components/ui';
+import { cityScope, useCity } from '@eticketsgo/web-kit';
+import { Button, ButtonLink, EmptyState } from '@/components/ui';
 
-const CATEGORIES = ['Music', 'Tech', 'Comedy', 'Sports', 'Theatre'];
+/**
+ * The categories to offer, from the categories that exist.
+ *
+ * This was a hardcoded ['Music', 'Tech', 'Comedy', 'Sports', 'Theatre']. On QA that meant
+ * three of the five chips led to a guaranteed empty page — there is no Tech, Sports or
+ * Theatre event on the platform — while Community, which has two, was not offered at all.
+ * A chip that cannot return a result is worse than no chip: the customer reads the empty
+ * page as "nothing on", not as "we suggested something we do not have".
+ *
+ * `/public/categories` already returns exactly this with counts, and Browse already used
+ * it. The homepage simply was not asking.
+ */
+const MAX_CATEGORY_CHIPS = 6;
 
 function Skeletons({ count = 6 }: { count?: number }) {
   return (
@@ -76,17 +88,50 @@ export function DiscoverHome() {
 
   useEffect(() => setRecent(getRecent()), []);
 
+  /*
+    Where the customer said they are.
+
+    This page ignored the header's city entirely, so choosing Bengaluru changed Browse and
+    left the homepage — the page most people actually land on — showing Mumbai. The chip
+    said one thing and the grid below it said another, which reads as the filter being
+    broken, and it was.
+
+    `cityScope` is shared with Browse and Movies so all three ask the same question: the
+    chosen city if there is one, otherwise the country we think they are in, otherwise
+    everywhere.
+  */
+  const preference = useCity();
+  const scope = cityScope(preference);
+  const scopeKey = JSON.stringify(scope);
+
+  const categoriesQ = useQuery({
+    queryKey: ['public-categories'],
+    queryFn: () => api.publicCategories(),
+  });
+  const categories = useMemo(
+    () => (categoriesQ.data ?? []).map((c) => c.category).slice(0, MAX_CATEGORY_CHIPS),
+    [categoriesQ.data],
+  );
+
   const featured = useQuery({
-    queryKey: ['events', 'featured'],
-    queryFn: () => api.listEvents({ pageSize: '12' }),
+    queryKey: ['events', 'featured', scopeKey],
+    queryFn: () => api.listEvents({ pageSize: '12', ...scope }),
   });
 
   const weekend = weekendRange();
   const weekendQ = useQuery({
-    queryKey: ['events', 'weekend'],
+    queryKey: ['events', 'weekend', scopeKey],
     queryFn: () =>
-      api.listEvents({ pageSize: '6', dateFrom: weekend.dateFrom, dateTo: weekend.dateTo }),
+      api.listEvents({
+        pageSize: '6',
+        dateFrom: weekend.dateFrom,
+        dateTo: weekend.dateTo,
+        ...scope,
+      }),
   });
+
+  /** What the sections below are actually showing, for the copy that describes them. */
+  const where = preference.city ?? preference.country ?? null;
 
   const freeEvents = useMemo(
     () => (featured.data?.data ?? []).filter((e) => e.fromPriceMinor === 0),
@@ -94,37 +139,27 @@ export function DiscoverHome() {
   );
 
   /**
-   * Search suggestions are derived from the events actually on offer, not a fixed list.
+   * Search suggestions: the categories that exist, plus the cities we can sell in.
    *
-   * This used to be a hardcoded ['Bengaluru', 'Mumbai', 'Delhi', 'Hyderabad', 'Pune'], which
-   * told every visitor — wherever they were, whatever was listed — that the product is
-   * Indian. Reading the cities out of the loaded events means the suggestions always match
-   * the real catalogue, and the list becomes correct automatically as the platform expands
-   * instead of needing an edit per market.
-   *
-   * Nearest cities first: entries whose country matches the visitor's locale are sorted
-   * ahead of the rest, so a Canadian visitor is offered Toronto before Mumbai.
+   * Both come from the server rather than from whatever happened to load into the grid
+   * below. The previous version read cities out of the featured events, which meant the
+   * suggestions changed depending on what had loaded and offered nothing at all before the
+   * first fetch returned.
    */
-  const citySuggestions = useMemo(() => {
-    const events = featured.data?.data ?? [];
-    const byCity = new Map<string, string>(); // city -> country
-    for (const e of events) {
-      if (e.venue?.city) byCity.set(e.venue.city, e.venue.country ?? '');
-    }
-    const home = visitorCountry();
-    return [...byCity.entries()]
-      .sort(([aCity, aCountry], [bCity, bCountry]) => {
-        const aLocal = home && aCountry === home ? 0 : 1;
-        const bLocal = home && bCountry === home ? 0 : 1;
-        return aLocal - bLocal || aCity.localeCompare(bCity);
-      })
-      .map(([city]) => city)
-      .slice(0, 8);
-  }, [featured.data]);
+  const suggestions = useMemo(
+    () => [...categories, ...preference.topCities.map((c) => c.city)],
+    [categories, preference.topCities],
+  );
 
   const search = (e: React.FormEvent) => {
     e.preventDefault();
-    router.push(q.trim() ? `/events?q=${encodeURIComponent(q.trim())}` : '/events');
+    // Carries the city through, so searching from here lands on Browse already scoped the
+    // way the header says it is — rather than silently widening back out to everywhere.
+    const params = new URLSearchParams();
+    if (q.trim()) params.set('q', q.trim());
+    if (preference.city) params.set('city', preference.city);
+    const query = params.toString();
+    router.push(query ? `/events?${query}` : '/events');
   };
 
   return (
@@ -157,7 +192,7 @@ export function DiscoverHome() {
                 className="w-full rounded-md border border-border bg-background-canvas py-3.5 pl-12 pr-4 text-[0.9375rem] text-text-primary shadow-sm placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
               />
               <datalist id="search-suggestions">
-                {[...CATEGORIES, ...citySuggestions].map((s) => (
+                {suggestions.map((s) => (
                   <option key={s} value={s} />
                 ))}
               </datalist>
@@ -171,7 +206,7 @@ export function DiscoverHome() {
           </form>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <button
                 key={c}
                 onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}
@@ -231,7 +266,7 @@ export function DiscoverHome() {
 
       {/* Trending / featured */}
       <Section
-        title="Trending now"
+        title={where ? `Happening in ${where}` : 'Trending now'}
         subtitle="Popular events people are booking."
         icon={TrendingUp}
         action={
@@ -248,6 +283,25 @@ export function DiscoverHome() {
               <EventCard key={e.id} event={e} />
             ))}
           </div>
+        ) : where ? (
+          /*
+            Empty because of WHERE, and it says so.
+
+            "No events yet" on a page that has quietly been narrowed to one city is the
+            single most misleading thing this product can say: the customer concludes the
+            platform is dead when in fact there are fifteen events one city over. The way
+            out is offered here rather than left to be rediscovered in the header.
+          */
+          <EmptyState
+            title={`Nothing on in ${where} just yet`}
+            hint="Other places have events on sale."
+            icon={Sparkles}
+            action={
+              <Button variant="secondary" onClick={() => preference.setCity(null)}>
+                Show me everywhere
+              </Button>
+            }
+          />
         ) : (
           <EmptyState
             title="No events yet"
@@ -260,7 +314,7 @@ export function DiscoverHome() {
       {/* Collections by category */}
       <Section title="Explore by category" subtitle="Jump straight to what you love.">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <button
               key={c}
               onClick={() => router.push(`/events?category=${encodeURIComponent(c)}`)}

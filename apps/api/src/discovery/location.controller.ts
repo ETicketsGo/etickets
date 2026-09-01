@@ -6,6 +6,13 @@ import { LocationService } from './location.service';
 import { Public } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
+const citiesQuery = z.object({
+  /** Prefix of the city name. Absent means "the busiest ones", which is what a picker opens on. */
+  q: z.string().trim().max(60).optional(),
+  country: z.string().trim().min(2).max(60).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
 const resolveQuery = z.object({
   /**
    * Coordinates, only ever sent when the person pressed "use my location".
@@ -27,9 +34,22 @@ export class LocationController {
 
   @Public()
   @Get('cities')
-  @ApiOperation({ summary: 'Cities with something on sale, most inventory first.' })
-  cities() {
-    return this.location.cities();
+  @ApiOperation({
+    summary: 'Search cities with something on sale, most inventory first.',
+    description:
+      'A search rather than a dump: the picker asks for a prefix and a small limit as the ' +
+      'customer types, so the response stays the same size whether the platform sells in ' +
+      'six cities or six hundred.',
+  })
+  cities(
+    @Query(new ZodValidationPipe(citiesQuery))
+    q: {
+      q?: string;
+      country?: string;
+      limit?: number;
+    },
+  ) {
+    return this.location.cities(q);
   }
 
   @Public()
