@@ -583,6 +583,17 @@ export const api = {
       capacity?: number;
     }) => request<Venue>('/venues', { method: 'POST', body: JSON.stringify(body) }),
     list: (organizationId: string) => request<Venue[]>(`/venues${qs({ organizationId })}`),
+    /** Edit a venue. Only the fields sent are changed. */
+    update: (
+      id: string,
+      body: Partial<{
+        name: string;
+        city: string;
+        country: string;
+        address: string;
+        capacity: number;
+      }>,
+    ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   },
 
   movies: {

@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Banknote,
   Coins,
+  MapPin,
   Users,
   Settings,
   Sparkles,
@@ -23,27 +24,44 @@ import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 const nav: NavItem[] = [
   { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
   { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
-  { label: 'Events', href: '/organizer/events', icon: CalendarDays },
-  { label: 'Movies', href: '/organizer/movies', icon: Film },
+
+  { group: 'Selling', label: 'Events', href: '/organizer/events', icon: CalendarDays },
+  /*
+    Venues sits with Events because that is the relationship: every event happens at one. It
+    had no page at all until now — a venue could only be created mid-wizard and never
+    edited, while its name printed on every listing a customer saw.
+  */
+  { label: 'Venues', href: '/organizer/venues', icon: MapPin },
   /*
     Named for what an organizer comes here to do, not for the row type underneath.
 
-    This section was called "Cinemas", and it is the ONLY route to a seat map. A concert
-    promoter reading a fourteen-item sidebar sees "Cinemas", correctly concludes it is not
-    for them, and never finds the thing that makes reserved seating possible — which is
-    exactly the report that prompted this. The rows really are cinemas in the database
-    (`Cinema` owns `Screen`, and a screen owns the seat map), and the film-specific pages
-    inside still speak of cinemas and screens because there they are accurate.
+    This was called "Cinemas", and it is the ONLY route to a seat map. A concert promoter
+    reading a long sidebar sees "Cinemas", correctly concludes it is not for them, and never
+    finds the thing that makes reserved seating possible — which is exactly the report that
+    prompted the rename. The rows really are cinemas in the database, and the film-specific
+    pages inside still say cinema and screen, because there those words are accurate.
   */
   { label: 'Rooms & seat maps', href: '/organizer/cinemas', icon: Building2 },
-  // A distinct icon from Payouts: the two sit three rows apart and mean opposite
-  // things — money you hold in a tin, and money the platform sends you.
+  // A distinct icon from Payouts: they sit near each other and mean opposite things —
+  // money you hold in a tin, and money the platform sends you.
   { label: 'Counter', href: '/organizer/counter', icon: Coins },
   { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
-  { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
+
+  /*
+    Films get their own heading rather than being hidden when unused.
+
+    Most organizers never show one, and an unexplained "Movies" among fifteen siblings reads
+    as something they have failed to set up. Hiding it until an organization has a film is
+    the obvious fix and the wrong one: a cinema operator on day one would have nowhere to
+    add their first. A heading says "skip this unless it is yours" and stays findable.
+  */
+  { group: 'Films', label: 'Movies', href: '/organizer/movies', icon: Film },
+
+  { group: 'Money', label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
   { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
   { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
-  { label: 'Notifications', href: '/organizer/notifications', icon: Bell },
+
+  { group: 'Account', label: 'Notifications', href: '/organizer/notifications', icon: Bell },
   { label: 'Team', href: '/organizer/team', icon: Users },
   { label: 'Premium', href: '/organizer/premium', icon: Sparkles },
   { label: 'Help', href: '/organizer/help', icon: LifeBuoy },

@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Role } from '@eticketsgo/shared-types';
-import type { CreateVenueInput } from '@eticketsgo/validation';
+import type { CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -30,6 +30,43 @@ export class VenuesService {
         address: input.address,
         capacity: input.capacity,
       },
+    });
+  }
+
+  /**
+   * Edit a venue.
+   *
+   * There was no way to do this at all: a venue could be created from the onboarding page
+   * or mid-wizard and then never touched again, yet its name and city print on every event
+   * listing. A typo in a venue name was permanent.
+   *
+   * Only fields actually supplied are written, so a rename cannot blank an address that the
+   * form did not happen to load.
+   */
+  async update(user: RequestUser, id: string, input: UpdateVenueInput) {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id },
+      select: { id: true, organizationId: true },
+    });
+    if (!venue) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user, venue.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
+
+    return this.prisma.venue.update({
+      where: { id },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.city !== undefined ? { city: input.city } : {}),
+        ...(input.country !== undefined ? { country: input.country } : {}),
+        ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+        ...(input.address !== undefined ? { address: input.address } : {}),
+        ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+      },
+      include: { areas: true },
     });
   }
 
