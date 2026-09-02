@@ -1264,6 +1264,32 @@ export const api = {
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
+
+    /** Every tax rule, with whether each is in force right now. */
+    taxRules: () => request<TaxRule[]>('/admin/tax-rules'),
+    /** Create a rule. Arrives switched OFF unless `active` is passed. */
+    createTaxRule: (input: Partial<Omit<TaxRule, 'id' | 'inForceNow'>>) =>
+      request<TaxRule>('/admin/tax-rules', { method: 'POST', body: JSON.stringify(input) }),
+    /**
+     * Update a DRAFT rule, or switch any rule on and off.
+     *
+     * The rate, basis and band of a LIVE rule are rejected here — changing them in place
+     * would erase what was being charged before. Use `supersedeTaxRule` for that.
+     */
+    updateTaxRule: (id: string, patch: Partial<Omit<TaxRule, 'id' | 'inForceNow'>>) =>
+      request<TaxRule>(`/admin/tax-rules/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    /** Close a rule at a date and open its successor at a new rate, in one transaction. */
+    supersedeTaxRule: (
+      id: string,
+      input: { rateBasisPoints: number; effectiveFrom: string; label?: string },
+    ) =>
+      request<{ closed: TaxRule; successor: TaxRule }>(`/admin/tax-rules/${id}/supersede`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    /** Delete a rule that is switched off. A live one is refused. */
+    deleteTaxRule: (id: string) =>
+      request<{ deleted: true }>(`/admin/tax-rules/${id}`, { method: 'DELETE' }),
     /** Create a band. `currency` is required — a band only means anything within one. */
     createFeeRule: (input: Omit<FeeRule, 'id'>) =>
       request<FeeRule>('/admin/fee-rules', { method: 'POST', body: JSON.stringify(input) }),
@@ -3395,6 +3421,42 @@ export interface AuditRow {
   createdAt: string;
   actor: { email: string; fullName: string } | null;
 }
+/**
+ * A tax rule as the admin console edits it.
+ *
+ * Rates are BASIS POINTS: 1800 is 18%. Amounts are minor units. Both are integers because a
+ * float rate reintroduces exactly the rounding drift minor units exist to prevent.
+ */
+export interface TaxRule {
+  id: string;
+  label: string;
+  rateBasisPoints: number;
+  appliesTo: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+  /** Rules sharing a group are alternatives; one wins. Empty means it always applies. */
+  taxGroup: string;
+  country: string;
+  region: string;
+  currency: string;
+  category: string;
+  /** Band bounds on the price of ONE ticket, inclusive. Null is unbounded. */
+  minUnitMinor: number | null;
+  maxUnitMinor: number | null;
+  /** Whether the ticket price already contains this tax. */
+  inclusive: boolean;
+  split: 'NONE' | 'CGST_SGST';
+  priority: number;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  active: boolean;
+  /**
+   * Whether this rule applies to a sale happening right now.
+   *
+   * Server-computed, because `active` alone misleads in both directions — a rule can be
+   * switched on and not yet started, or switched on and long superseded.
+   */
+  inForceNow?: boolean;
+}
+
 export interface FeeRule {
   id: string;
   label: string;

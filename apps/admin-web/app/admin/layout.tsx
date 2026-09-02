@@ -12,6 +12,7 @@ import {
   Users,
   ShieldCheck,
   ScrollText,
+  Percent,
   Settings,
   Film,
   LifeBuoy,
@@ -46,6 +47,9 @@ const nav: NavItem[] = [
   { label: 'Audit', href: '/admin/audit', icon: ScrollText },
   { label: 'Operations', href: '/admin/ops', icon: Activity },
   { label: 'AI Console', href: '/admin/ai', icon: Sparkles },
+  // Beside Settings, which is where the booking-fee bands live — the two are the same
+  // question ("what does this platform add to a ticket price") and were a script apart.
+  { label: 'Tax rules', href: '/admin/tax-rules', icon: Percent },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 
