@@ -36,9 +36,10 @@ This document is grounded in the actual implementation:
   Razorpay to the platform bank account — those are acknowledged but drive no organizer
   payout logic.
 
-> **GST invoicing is NOT implemented.** No Indian tax computation, GSTIN capture, or
-> tax-invoice generation exists in this integration. That is a legal/accounting
-> follow-up — do not assume any tax logic is present.
+> **GST computation, GSTIN capture and tax invoices now exist** — see
+> `docs/guides/INDIA-GST.md`. They ship INACTIVE: no rate is applied until somebody
+> activates a rule. The rates themselves are unreviewed by anyone qualified, and nothing is
+> filed. Treat "it computes" and "it is correct for your business" as separate claims.
 
 ---
 

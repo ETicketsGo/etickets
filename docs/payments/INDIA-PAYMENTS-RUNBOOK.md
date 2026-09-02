@@ -151,5 +151,8 @@ Until then payouts are HELD/BLOCKED with a clear reason.
   API-onboardable here) — the organizer then links the id.
 - Route activation and the platform's own live activation are manual dashboard/partner steps.
 - Settlement **approve** and **release** are admin actions.
-- **GST invoicing is NOT implemented** — no tax computation or tax invoices exist. This is a
-  legal/accounting follow-up; do not fabricate tax logic.
+- **GST computation EXISTS and ships switched off.** Rates are `TaxRule` rows, editable at
+  admin → Tax rules; see `docs/guides/INDIA-GST.md`. Tax invoices are issued once the seller
+  records a GSTIN. **No rate here has been confirmed by an accountant, nothing is filed, and
+  state entertainment duty on convenience fees is not modelled.** Activating the rules is a
+  deliberate act, not a consequence of deploying.

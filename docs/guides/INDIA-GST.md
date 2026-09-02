@@ -52,6 +52,25 @@ Adding GST on top instead would raise every Indian price by up to 18% overnight.
 supports both — `inclusive` is a property of the rule — but inclusive is the default for
 India for the reasons above.
 
+## ⚠ Telangana cinema is the case where "inclusive" is probably WRONG
+
+Telangana's Government Order fixes cinema ticket prices by theatre class — and reports of it
+say those caps are **exclusive of GST**, with a maintenance charge inside the price and the
+online booking service charge levied separately.
+
+If the regulated ₹150 is a NET price, then for a Telangana cinema:
+
+- the organizer's ₹150 is the taxable value, **not** a GST-inclusive figure;
+- GST is **added on top**, so the seeded `inclusive: true` rule would under-collect by
+  taking the tax out of a price that never contained it.
+
+The engine supports both — `inclusive` is a per-rule property, so a Telangana cinema rule is
+the same rule with the flag off. **What it cannot do is decide for you.** Read the GO, decide
+whether the capped figure is net or gross, and set the flag to match before selling a single
+regulated cinema ticket in the state.
+
+This is exactly why the rules ship inactive.
+
 ## CGST + SGST, or IGST
 
 **Section 12(6) of the IGST Act**: for admission to a cultural, artistic, sporting,

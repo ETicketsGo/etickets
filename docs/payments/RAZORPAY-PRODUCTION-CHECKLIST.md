@@ -84,6 +84,7 @@ Do not enable live payments until every box is checked.
 
 ## 7. Known follow-ups (not blockers, but tracked)
 
-- [ ] **GST invoicing is NOT implemented.** No Indian tax computation or tax-invoice
-      generation exists. Confirm the legal/accounting owner has a separate plan before
-      scaling live volume. Do not assume any tax logic is present.
+- [ ] **GST computation exists; the RATES have not been reviewed.** Confirm the table in
+      `docs/guides/INDIA-GST.md` with your accountant BEFORE activating any rule at
+      admin → Tax rules. Nothing is taxed until one is switched on. Separately confirm who
+      owns filing — the platform records what was charged and files nothing.
