@@ -32,6 +32,31 @@ export class TaxRulesService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Who would be charging tax without being registered to.
+   *
+   * ── WHY AN ADMINISTRATOR NEEDS THIS ON THIS SCREEN ─────────────────────────────
+   * Tax rules are platform-wide; a tax registration belongs to one organizer. Switching a
+   * rule on therefore starts collecting GST from every seller it matches — including any who
+   * have never recorded a GSTIN.
+   *
+   * That is a real problem in both directions. A seller who is not registered may not
+   * lawfully collect the tax, and the buyer gets a document that says in as many words "this
+   * is not a tax invoice" — so they paid tax they cannot claim back. The receipt has always
+   * been honest about it; nothing told the person switching the rule on.
+   *
+   * Reported rather than refused. Whether to sell at all through an unregistered organizer
+   * is a business and legal decision, and one this service is in no position to make.
+   */
+  async unregisteredSellerCount(): Promise<number> {
+    return this.prisma.organization.count({
+      where: {
+        OR: [{ taxRegistrationNumber: null }, { taxRegistrationNumber: '' }],
+        status: { not: 'SUSPENDED' },
+      },
+    });
+  }
+
   /** Every rule, current first, with whatever an administrator needs to judge it. */
   async list() {
     const rows = await this.prisma.taxRule.findMany({

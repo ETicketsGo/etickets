@@ -1287,6 +1287,8 @@ export const api = {
 
     /** Every tax rule, with whether each is in force right now. */
     taxRules: () => request<TaxRule[]>('/admin/tax-rules'),
+    /** How many active organizers would collect tax without a tax registration. */
+    taxReadiness: () => request<{ unregisteredSellers: number }>('/admin/tax-rules/readiness'),
     /** Create a rule. Arrives switched OFF unless `active` is passed. */
     createTaxRule: (input: Partial<Omit<TaxRule, 'id' | 'inForceNow'>>) =>
       request<TaxRule>('/admin/tax-rules', { method: 'POST', body: JSON.stringify(input) }),

@@ -20,7 +20,9 @@
     "totalRefunded": "Total refunded",
     "reverses": "Reverses {reference}",
     "taxRegistration": "Tax registration",
-    "noTaxInvoice": "This is not a tax invoice."
+    "noTaxInvoice": "This is not a tax invoice.",
+    "taxIncluded": "Includes {label} @ {rate} on {base}",
+    "taxIncludedNote": "Tax shown is already included in the total above."
   },
   "ticket": {
     "title": "Ticket",

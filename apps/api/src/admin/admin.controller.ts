@@ -170,6 +170,14 @@ export class AdminController {
     return this.taxRules_.list();
   }
 
+  @Get('tax-rules/readiness')
+  @ApiOperation({
+    summary: 'How many active organizers would collect tax without a tax registration.',
+  })
+  async taxReadiness() {
+    return { unregisteredSellers: await this.taxRules_.unregisteredSellerCount() };
+  }
+
   @Post('tax-rules')
   @ApiOperation({ summary: 'Create a tax rule. Inactive unless explicitly activated (admin).' })
   createTaxRule(

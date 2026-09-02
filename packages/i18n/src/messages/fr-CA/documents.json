@@ -20,7 +20,9 @@
     "totalRefunded": "Total remboursé",
     "reverses": "Annule {reference}",
     "taxRegistration": "Numéro de taxe",
-    "noTaxInvoice": "Ceci n'est pas une facture de taxe."
+    "noTaxInvoice": "Ceci n'est pas une facture de taxe.",
+    "taxIncluded": "Comprend {label} @ {rate} sur {base}",
+    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus."
   },
   "ticket": {
     "title": "Billet",

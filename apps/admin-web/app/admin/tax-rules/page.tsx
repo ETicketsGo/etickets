@@ -100,6 +100,10 @@ export default function AdminTaxRules() {
     queryKey: ['admin', 'tax-rules'],
     queryFn: () => api.admin.taxRules(),
   });
+  const readiness = useQuery({
+    queryKey: ['admin', 'tax-readiness'],
+    queryFn: () => api.admin.taxReadiness(),
+  });
 
   const done = (message: string) => {
     toast.push(message, 'success');
@@ -331,6 +335,29 @@ export default function AdminTaxRules() {
           )}
         </p>
       </Card>
+
+      {/*
+        The thing nobody was told before switching a rule on.
+
+        Tax rules are platform-wide; a tax registration belongs to one organizer. So turning
+        a rule on starts collecting GST from sellers who may have no GSTIN — and their buyers
+        get a document that says "this is not a tax invoice", having paid tax they cannot
+        claim back. The receipt was always honest about it; this screen was not.
+      */}
+      {charging > 0 && (readiness.data?.unregisteredSellers ?? 0) > 0 && (
+        <Card>
+          <p className="text-sm">
+            <strong className="text-status-warning">
+              {readiness.data!.unregisteredSellers} organizer
+              {readiness.data!.unregisteredSellers === 1 ? '' : 's'} have no tax registration
+              recorded.
+            </strong>{' '}
+            Tax is being collected on their sales, and their buyers receive a receipt marked
+            &ldquo;not a tax invoice&rdquo; — so they cannot reclaim what they paid. Ask those
+            organizers to record a GSTIN in their settings, or switch the rule off.
+          </p>
+        </Card>
+      )}
 
       <Card title="Rules">
         {isLoading ? (
