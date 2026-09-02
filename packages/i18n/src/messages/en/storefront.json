@@ -163,7 +163,18 @@
     "newPasswordSave": "Save and sign in",
     "resetDone": "Your password is set. Sign in with it.",
     "resetLinkBad": "This reset link is no longer valid. Request a new one.",
-    "backToSignIn": "Back to sign in"
+    "backToSignIn": "Back to sign in",
+    "phoneTab": "Mobile",
+    "emailTab": "Email",
+    "phoneLabel": "Mobile number",
+    "phoneHint": "We will text you a 6-digit code.",
+    "sendCode": "Send code",
+    "codeLabel": "6-digit code",
+    "codeSentTo": "Code sent to {phone}.",
+    "verifyAndSignIn": "Sign in",
+    "resendCode": "Send a new code",
+    "changeNumber": "Use a different number",
+    "codeFailed": "That code is not valid. Ask for a new one."
   },
   "booking": {
     "cashTitle": "Seats reserved — pay at the venue",

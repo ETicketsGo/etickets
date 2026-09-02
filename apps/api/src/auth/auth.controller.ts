@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -16,6 +17,21 @@ import {
 } from '@eticketsgo/validation';
 import { AuthService } from './auth.service';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { PhoneOtpService } from './phone-otp.service';
+
+/*
+  Kept loose on purpose: `normalisePhone` is the authority on what a number is, and a second
+  pattern here would be a second place to be wrong about it — and the one that rejects a real
+  customer before the real validator ever sees their number.
+*/
+const phoneRequestSchema = z.object({ phone: z.string().trim().min(6).max(20) });
+const phoneVerifySchema = z.object({
+  phone: z.string().trim().min(6).max(20),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'The code is six digits.'),
+});
 import { CurrentUser, Public, type RequestUser } from '../common/decorators';
 
 function meta(req: Request) {
@@ -38,7 +54,43 @@ const AUTH_THROTTLE = {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly otp: PhoneOtpService,
+  ) {}
+
+  /*
+    Phone sign-in, in two steps.
+
+    Throttled like every other credential route, and rate-limited a second time PER NUMBER
+    inside the service — the edge throttle counts requests from one caller, which is the
+    wrong unit when the cost of the request is somebody else's SMS bill.
+  */
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('phone/request-code')
+  @ApiOperation({ summary: 'Send a one-time sign-in code to a mobile number.' })
+  requestPhoneCode(
+    @Body(new ZodValidationPipe(phoneRequestSchema)) body: { phone: string },
+    @Req() req: Request,
+  ) {
+    return this.otp.requestCode(body.phone, meta(req).ip);
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post('phone/verify')
+  @ApiOperation({ summary: 'Exchange a one-time code for a session, creating the account if new.' })
+  async verifyPhoneCode(
+    @Body(new ZodValidationPipe(phoneVerifySchema)) body: { phone: string; code: string },
+    @Req() req: Request,
+  ) {
+    const { id, isNewAccount } = await this.otp.verifyCode(body.phone, body.code);
+    const tokens = await this.auth.completePhoneSignIn(id, meta(req));
+    // The client uses this to decide whether to ask for a name — a brand-new account has
+    // none, and asking an existing customer again would be rude.
+    return { ...tokens, isNewAccount };
+  }
 
   @Public()
   @Throttle(AUTH_THROTTLE)

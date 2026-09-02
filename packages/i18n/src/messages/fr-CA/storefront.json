@@ -163,7 +163,18 @@
     "newPasswordSave": "Enregistrer et se connecter",
     "resetDone": "Votre mot de passe est enregistré. Connectez-vous avec celui-ci.",
     "resetLinkBad": "Ce lien de réinitialisation n’est plus valide. Demandez-en un nouveau.",
-    "backToSignIn": "Retour à la connexion"
+    "backToSignIn": "Retour à la connexion",
+    "phoneTab": "Mobile",
+    "emailTab": "Courriel",
+    "phoneLabel": "Numéro de mobile",
+    "phoneHint": "Nous vous enverrons un code à 6 chiffres.",
+    "sendCode": "Envoyer le code",
+    "codeLabel": "Code à 6 chiffres",
+    "codeSentTo": "Code envoyé au {phone}.",
+    "verifyAndSignIn": "Se connecter",
+    "resendCode": "Envoyer un nouveau code",
+    "changeNumber": "Utiliser un autre numéro",
+    "codeFailed": "Ce code n’est pas valide. Demandez-en un nouveau."
   },
   "booking": {
     "cashTitle": "Places réservées — payez sur place",

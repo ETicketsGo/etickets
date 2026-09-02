@@ -263,6 +263,26 @@ export const api = {
         body: JSON.stringify(body),
         auth: false,
       }),
+
+    /**
+     * Phone sign-in, in two steps.
+     *
+     * The number is sent as typed — the server normalises it, and a second normaliser here
+     * would be a second place to disagree about what somebody's phone number is.
+     */
+    requestPhoneCode: (phone: string) =>
+      request<{ sent: true; expiresInMinutes: number }>('/auth/phone/request-code', {
+        method: 'POST',
+        body: JSON.stringify({ phone }),
+        auth: false,
+      }),
+    /** Exchanges a code for a session, creating the account when the number is new. */
+    verifyPhoneCode: (phone: string, code: string) =>
+      request<AuthTokens & { isNewAccount: boolean }>('/auth/phone/verify', {
+        method: 'POST',
+        body: JSON.stringify({ phone, code }),
+        auth: false,
+      }),
     /**
      * Ask for a reset link. The reply is identical whether or not the address is known —
      * anything else would make this a way to discover who holds an account here.

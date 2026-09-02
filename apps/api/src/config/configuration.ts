@@ -444,6 +444,20 @@ const envSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
 
+  /*
+    The sign-in code's message text.
+
+    MUST be configurable, because in India it is not ours to choose. TRAI requires every SMS
+    to match a template registered on a DLT portal — entity, then a six-character header,
+    then the exact body with `{#var#}` placeholders — and an operator drops anything that
+    does not match the approved text character for character. A body hardcoded in this
+    repository is a body that cannot be made compliant without a release.
+
+    `{code}` and `{minutes}` are substituted. Unset falls back to a sensible English default,
+    which is correct everywhere DLT does not apply and wrong the moment it does.
+  */
+  OTP_SMS_TEMPLATE: z.string().optional(),
+
   // --- SMS (recipient = payload.phone) ---
   SMS_PROVIDER: z.enum(['log', 'twilio']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),

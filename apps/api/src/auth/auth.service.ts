@@ -170,6 +170,26 @@ export class AuthService {
     return count;
   }
 
+  /**
+   * Complete a phone sign-in, once the code has already been proved.
+   *
+   * Deliberately takes a user id rather than a phone and a code: verifying the code is the
+   * OTP service's job, and minting a session is this one's. Keeping the split means phone
+   * sign-in produces exactly the same tokens, with the same claims and the same refresh
+   * record, as email sign-in — rather than a second session path that drifts.
+   */
+  async completePhoneSignIn(userId: string, meta: RequestMeta) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new AppException(
+        ErrorCodes.INVALID_CREDENTIALS,
+        'That code is not valid. Ask for a new one.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
+  }
+
   private async issueTokens(
     userId: string,
     email: string,

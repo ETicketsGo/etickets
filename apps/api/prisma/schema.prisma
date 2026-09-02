@@ -412,12 +412,19 @@ enum CheckInResultType {
 // ─────────────────────────── Identity ───────────────────────────
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String
-  fullName     String
-  roles        Role[]     @default([CUSTOMER])
-  status       UserStatus @default(ACTIVE)
+  id              String     @id @default(cuid())
+  email           String     @unique
+  /// E.164 mobile number, and the identity most Indian buyers actually sign in with.
+  ///
+  /// Nullable and unique: every account that predates phone sign-in has none, and two
+  /// accounts must never claim one number. Verified separately — holding a number and
+  /// having proved you hold it are different facts, and only the second may sign you in.
+  phone           String?    @unique
+  phoneVerifiedAt DateTime?
+  passwordHash    String
+  fullName        String
+  roles           Role[]     @default([CUSTOMER])
+  status          UserStatus @default(ACTIVE)
 
   /// The language this person is written to in — email, receipts, tickets.
   ///
@@ -608,6 +615,38 @@ model AccountInvitation {
 /// The expiry is also deliberately much shorter. An invitation waits for somebody to get
 /// round to joining; a reset is acted on within minutes, and a link that lingers in a
 /// mailbox for a week is a standing key to the account.
+/// A one-time code sent to a phone, so somebody can sign in without a password.
+///
+/// ── WHY THE CODE IS HASHED ────────────────────────────────────────────────────────
+/// Six digits is a small space. Stored in the clear, one leaked database read hands an
+/// attacker every live sign-in on the platform, and unlike a password nobody can rotate a
+/// code they never knew existed. Hashed, a dump is worth nothing before it expires.
+///
+/// ── WHY ATTEMPTS ARE COUNTED HERE AND NOT ONLY AT THE EDGE ────────────────────────
+/// Six digits is a million guesses, and a request throttle counts REQUESTS, not guesses
+/// against one code. Counting on the row means the code dies after a handful of wrong
+/// answers however the guesses arrive — several IPs, several sessions, does not matter.
+model PhoneOtp {
+  id String @id @default(cuid())
+
+  /// E.164, normalised before storage so "+91 97044 64007" and "+919704464007" are one row.
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  /// Set the moment it is spent. A code is single-use even inside its lifetime.
+  consumedAt DateTime?
+
+  attempts Int @default(0)
+
+  /// Kept for abuse investigation only, never to identify anybody.
+  requestedIp String?
+
+  createdAt DateTime @default(now())
+
+  @@index([phone, createdAt])
+  @@index([expiresAt])
+}
+
 model PasswordResetToken {
   id     String @id @default(cuid())
   userId String

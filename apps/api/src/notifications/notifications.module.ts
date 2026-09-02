@@ -52,6 +52,9 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
   ],
   exports: [
     NotificationService,
+    // Exported so phone sign-in can deliver an OTP WITHOUT going through
+    // `NotificationService`, which would persist the live code in a Notification row.
+    SmsChannel,
     NotificationPreferencesService,
     AdminAudienceService,
     MarketingConsentService,
