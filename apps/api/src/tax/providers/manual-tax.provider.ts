@@ -38,19 +38,27 @@ export class ManualTaxProvider implements TaxProvider {
       active: r.active,
       effectiveFrom: r.effectiveFrom,
       effectiveTo: r.effectiveTo,
+      taxGroup: r.taxGroup,
+      category: r.category,
+      minUnitMinor: r.minUnitMinor,
+      maxUnitMinor: r.maxUnitMinor,
+      inclusive: r.inclusive,
+      split: r.split as TaxRuleInput['split'],
     }));
 
-    const { taxLines, taxMinor } = computeTax({
+    const { taxLines, taxMinor, taxAddedMinor } = computeTax({
       netSubtotalMinor: request.netSubtotalMinor,
       customerFeeMinor: request.customerFeeMinor,
+      admissionLines: request.admissionLines,
       rules,
       place: {
         country: request.context.country,
         region: request.context.region,
+        supplierRegion: request.context.supplierRegion,
         currency,
         at: request.context.at,
       },
     });
-    return { taxLines, taxMinor, provider: this.name, providerRef: null };
+    return { taxLines, taxMinor, taxAddedMinor, provider: this.name, providerRef: null };
   }
 }

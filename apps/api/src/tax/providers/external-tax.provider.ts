@@ -75,7 +75,13 @@ export class ExternalTaxProvider implements TaxProvider {
           `tax lookup failed (${reason}); TAX_EXTERNAL_FAIL_OPEN is on, so this sale is ` +
             `proceeding with ZERO tax and will need reconciling.`,
         );
-        return { taxLines: [], taxMinor: 0, provider: this.name, providerRef: null };
+        return {
+          taxLines: [],
+          taxMinor: 0,
+          taxAddedMinor: 0,
+          provider: this.name,
+          providerRef: null,
+        };
       }
       this.logger.error(`tax lookup failed (${reason}); refusing the sale.`);
       throw new AppException(
@@ -146,9 +152,19 @@ export function fromVendorResponse(provider: string, body: unknown): TaxQuoteRes
       amountMinor: l.amountMinor as number,
     };
   });
+  const taxMinor = taxLines.reduce((sum, l) => sum + l.amountMinor, 0);
   return {
     taxLines,
-    taxMinor: taxLines.reduce((sum, l) => sum + l.amountMinor, 0),
+    taxMinor,
+    /*
+      An external vendor's tax is ADDED to the total, in full.
+
+      Inclusive pricing is an India/manual-rules concern: a vendor asked "what tax is owed
+      on this amount" answers with tax owed ON it, not tax already inside it. Assuming
+      otherwise would silently reduce what every customer of an external-tax deployment is
+      charged, which is the wrong direction to be wrong in.
+    */
+    taxAddedMinor: taxMinor,
     provider,
     providerRef: typeof payload.reference === 'string' ? payload.reference : null,
   };

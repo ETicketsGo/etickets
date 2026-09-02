@@ -323,21 +323,76 @@ export class BusinessReportsService {
     };
   }
 
-  // ─────────────────────── 6. Tax (honestly not modelled) ───────────────────────
+  // ─────────────────────── 6. Tax actually charged ───────────────────────
 
+  /**
+   * Tax collected in the period, read from what was CHARGED rather than recomputed.
+   *
+   * ── WHY IT READS THE SNAPSHOT ──────────────────────────────────────────────────────
+   * `BookingTaxLine` records the rate, the base and the amount for every levy at the moment
+   * of sale. Re-deriving those from today's `TaxRule` rows would report last quarter at this
+   * quarter's rates — and rates move: India's whole table changed on 22 September 2025. A
+   * report that silently restates history is worse than no report.
+   *
+   * ── WHAT IT STILL IS NOT ───────────────────────────────────────────────────────────
+   * A record of what was charged. Not a return, not GSTR-anything, not an e-invoice, and
+   * not reconciled against a ledger. `taxModelled` says whether any tax was configured at
+   * all, so a zero here is distinguishable from a platform that never asked the question —
+   * this report used to hardcode `false` and zero, which stayed on screen for the whole
+   * period after tax became real.
+   */
   async tax(from: Date, to: Date) {
     const rev = await this.analytics.revenue(this.confirmedRange(from, to));
     const platformFeesMinor = rev.bookingFeesMinor + rev.paymentFeesMinor;
+
+    const lines = await this.prisma.bookingTaxLine.findMany({
+      where: { booking: this.confirmedRange(from, to) },
+      select: { label: true, rateBasisPoints: true, baseMinor: true, amountMinor: true },
+    });
+
+    /*
+      Grouped by label AND rate, because those are different taxes even under one name.
+      Cinema at 5% and a concert at 18% are both "CGST"; summing them into one line would
+      hide the split a filing has to state.
+    */
+    const byRate = new Map<
+      string,
+      { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }
+    >();
+    for (const line of lines) {
+      const key = `${line.label}|${line.rateBasisPoints}`;
+      const entry = byRate.get(key) ?? {
+        label: line.label,
+        rateBasisPoints: line.rateBasisPoints,
+        baseMinor: 0,
+        amountMinor: 0,
+      };
+      entry.baseMinor += line.baseMinor;
+      entry.amountMinor += line.amountMinor;
+      byRate.set(key, entry);
+    }
+
+    const breakdown = [...byRate.values()].sort(
+      (a, b) => a.label.localeCompare(b.label) || a.rateBasisPoints - b.rateBasisPoints,
+    );
+    const taxCollectedMinor = breakdown.reduce((sum, b) => sum + b.amountMinor, 0);
+    const activeRules = await this.prisma.taxRule.count({ where: { active: true } });
+
     return {
       from,
       to,
-      // HONEST: the platform does not model GST / tax. No tax is computed here.
-      taxModelled: false,
-      taxCollectedMinor: 0,
+      /** Whether any tax rule is configured at all — not whether this period collected any. */
+      taxModelled: activeRules > 0,
+      taxCollectedMinor,
+      /** One row per label+rate, which is the granularity a filing needs. */
+      breakdown,
       note:
-        'GST / tax is not modelled in ETicketsGo. No tax is computed, collected, or reported. ' +
-        'The figures below are the taxable base (gross ticket sales and platform fees) for ' +
-        'reference only — plug in a tax engine before relying on these for filing.',
+        activeRules > 0
+          ? 'Tax as CHARGED, read from each booking’s snapshot rather than recomputed at ' +
+            'today’s rates. This is a record of what was collected — not a return, not a ' +
+            'GSTR filing, and not reconciled against a ledger.'
+          : 'No tax rule is active, so no tax is being charged. The figures below are the ' +
+            'taxable base for reference only.',
       taxableBaseMinor: rev.grossMinor + platformFeesMinor,
       grossMinor: rev.grossMinor,
       platformFeesMinor,

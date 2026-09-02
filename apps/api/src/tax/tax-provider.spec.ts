@@ -68,7 +68,15 @@ describe('ManualTaxProvider', () => {
   it('charges nothing when no rule is active, which is the shipped default', async () => {
     const prisma = { taxRule: { findMany: jest.fn().mockResolvedValue([]) } } as never;
     const result = await new ManualTaxProvider(prisma).quote(request());
-    expect(result).toEqual({ taxLines: [], taxMinor: 0, provider: 'manual', providerRef: null });
+    expect(result).toEqual({
+      taxLines: [],
+      taxMinor: 0,
+      // Nothing to add to the total either — stated, because `taxAddedMinor` is what the
+      // total is built from and a caller reading `taxMinor` would charge inclusive tax twice.
+      taxAddedMinor: 0,
+      provider: 'manual',
+      providerRef: null,
+    });
   });
 
   it('queries only the sale currency and the wildcard', async () => {

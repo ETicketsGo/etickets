@@ -429,10 +429,10 @@ model User {
   ///
   /// An IETF tag ("en", "fr-CA"), not an enum: adding a locale must not need a migration,
   /// and an unrecognised value falls back rather than failing.
-  locale       String?
+  locale String?
 
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   refreshTokens           RefreshToken[]
   invitationsSent         AccountInvitation[]      @relation("InvitationsSent")
@@ -645,10 +645,10 @@ model RefreshToken {
 // ─────────────────────────── Tenancy ───────────────────────────
 
 model Organization {
-  id            String             @id @default(cuid())
-  name          String
-  slug          String             @unique
-  status        OrganizationStatus @default(PENDING)
+  id     String             @id @default(cuid())
+  name   String
+  slug   String             @unique
+  status OrganizationStatus @default(PENDING)
 
   /// This organizer's events go live without a human reviewing them.
   ///
@@ -721,16 +721,15 @@ model Organization {
   settlements             Settlement[]
   disputes                Dispute[]
   receipts                Receipt[]
-
-  @@index([status])
   /// Whether this organizer may sell tickets paid for in cash at the venue.
   ///
   /// Off by default and declared, never inferred. Turning it on means the organizer is
   /// taking money the platform will never see, so it changes who is responsible for
   /// collecting it, what a settlement can promise, and what a receipt can honestly say.
   /// Somebody has to choose that deliberately.
-  cashPaymentsEnabled Boolean @default(false)
+  cashPaymentsEnabled     Boolean                   @default(false)
 
+  @@index([status])
 }
 
 model OrganizationMember {
@@ -759,6 +758,17 @@ model Venue {
   name           String
   city           String
   country        String       @default("India")
+
+  /// State / province / union territory.
+  ///
+  /// The PLACE OF SUPPLY for admission to an event is where the event is HELD — s.12(6) of
+  /// India's IGST Act — so this, and not the seller's address, decides whether a sale is
+  /// intra-state (CGST + SGST) or inter-state (IGST).
+  ///
+  /// Nullable because every venue that already exists predates the column. Unknown resolves
+  /// to intra-state, which cannot overcharge anybody: both presentations carry the same
+  /// rate, so an unknown state mislabels an invoice rather than mispricing a ticket.
+  region String?
 
   /// IANA zone for events at this venue, e.g. "Asia/Kolkata", "America/Chicago".
   ///
@@ -1352,9 +1362,9 @@ model Booking {
   ///
   /// On the row rather than in a cache because it has to survive a page reload — the person
   /// most likely to need an extension is the one most likely to have navigated away and back.
-  holdExtensions Int @default(0)
-  currency   String        @default("INR")
-  feeMode    FeeMode       @default(CUSTOMER_PAYS)
+  holdExtensions Int     @default(0)
+  currency       String  @default("INR")
+  feeMode        FeeMode @default(CUSTOMER_PAYS)
 
   // Immutable money snapshot (minor units) so historical bookings never drift.
   subtotalMinor     Int
@@ -2102,6 +2112,49 @@ model TaxRule {
   /// State / province, for the second tax layer the US and Canada both have.
   region   String @default("*")
   currency String @default("*")
+
+  /// Rules that are ALTERNATIVES to one another, not additions.
+  ///
+  /// Empty — the default — means this rule always applies alongside every other match, which
+  /// is what a second tax layer needs: Canada charges GST and PST side by side, and several
+  /// US states add a city rate on top of a state rate.
+  ///
+  /// A non-empty group means "pick exactly one of us". India's admission rate is one such
+  /// group: a cinema seat is taxed at the cinema rate OR the general entertainment rate,
+  /// never both. Without this the catch-all rule stacked on top of the specific one and
+  /// taxed every cinema ticket twice — found by pricing a real order, not by a unit test.
+  ///
+  /// Within a group the LOWEST priority number wins, so the specific rule is written above
+  /// the catch-all.
+  taxGroup String @default("")
+
+  /// What is being admitted to — '*' for anything.
+  ///
+  /// Rates band by WHAT is sold, not only by where. India taxes a cinema seat, a recognised
+  /// sporting fixture and a concert at three different rates, and no amount of geography
+  /// separates them.
+  category String @default("*")
+
+  /// Price band, matched against the price of ONE TICKET — never the order total.
+  ///
+  /// Ten tickets at ninety rupees are ten ninety-rupee tickets. Rating them off a
+  /// nine-hundred-rupee order puts every one of them in the wrong band. Inclusive bounds;
+  /// null is unbounded.
+  minUnitMinor Int?
+  maxUnitMinor Int?
+
+  /// Whether the ticket price already contains this tax.
+  ///
+  /// India quotes prices inclusive of GST — the number on the poster is what you pay. Most
+  /// other markets add tax at the till. Getting this wrong does not move a label, it moves
+  /// what the customer is charged, by the rate.
+  inclusive Boolean @default(false)
+
+  /// How one levy reaches the receipt once the place of supply is known.
+  ///
+  /// `CGST_SGST` is India's dual levy: one rate, halved into two lines for an intra-state
+  /// sale and shown whole as IGST when it crosses a state border. Same amount either way.
+  split String @default("NONE")
 
   /// Lower runs first. Only matters for presentation order on a receipt; each line is
   /// computed on its own base, so no rule compounds on another.

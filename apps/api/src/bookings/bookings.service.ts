@@ -147,7 +147,7 @@ export class BookingsService {
             // not where the company is registered — so it is consulted first, and the
             // organization's registered address is only the fallback for an event with no
             // venue on file.
-            venue: { select: { country: true } },
+            venue: { select: { country: true, region: true } },
             organization: {
               select: {
                 registeredCountry: true,
@@ -298,10 +298,26 @@ export class BookingsService {
     const taxPlace = {
       country:
         session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
-      region: session.event.organization?.registeredRegion ?? null,
+      /*
+        `region` is the PLACE OF SUPPLY — where the event is HELD, per s.12(6) of India's
+        IGST Act — and `supplierRegion` is where the seller is registered. Comparing them is
+        what decides CGST + SGST against IGST.
+
+        These were the same value before: the seller's own state was being used as the place
+        of supply, which is right only when the organizer never sells outside their state.
+      */
+      region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
+      supplierRegion: session.event.organization?.registeredRegion ?? null,
       at: now,
     };
-    const fees = await this.pricing.quote(subtotal, feeMode, discountMinor, currency, taxPlace);
+    const fees = await this.pricing.quote(
+      subtotal,
+      feeMode,
+      discountMinor,
+      currency,
+      taxPlace,
+      this.admissionLinesFor(session.event, input.items, byId),
+    );
 
     /*
       A free event is free all the way down.
@@ -671,6 +687,34 @@ export class BookingsService {
    * would charge somebody dollars for a rupee ticket at a 1:1 rate, which is the kind of
    * error that is discovered on a bank statement.
    */
+  /**
+   * The order as the tax engine needs to see it: one entry per ticket kind, priced per unit.
+   *
+   * ── WHY NOT JUST THE SUBTOTAL ──────────────────────────────────────────────────────
+   * India bands its rate on the price of ONE ticket — cinema at ₹100, recognised sport at
+   * ₹500. Ten ₹90 seats are ten ₹90 seats; handing the engine a ₹900 total would put every
+   * one of them in the higher band and overcharge the lot. The engine refuses a banded rule
+   * without this, which is why it is built here rather than left optional in practice.
+   *
+   * The category is what the rate bands on. A MOVIE experience is cinema whatever the
+   * organizer called it; everything else carries the event's own category, so an owner can
+   * write a rule for `Sports` without the platform deciding what a sport is.
+   */
+  private admissionLinesFor(
+    event: { experienceType: string; category?: string | null },
+    items: { ticketTypeId: string; quantity: number }[],
+    byId: Map<string, { priceMinor: number }>,
+  ): { unitPriceMinor: number; quantity: number; category: string }[] {
+    const category = event.experienceType === 'MOVIE' ? 'MOVIE' : (event.category ?? '');
+    return items
+      .map((i) => ({
+        unitPriceMinor: byId.get(i.ticketTypeId)?.priceMinor ?? 0,
+        quantity: i.quantity,
+        category,
+      }))
+      .filter((line) => line.quantity > 0);
+  }
+
   private cartCurrency(
     priced: { currency?: string | null }[],
     venueCountry: string | null | undefined,
@@ -706,7 +750,7 @@ export class BookingsService {
       include: {
         event: {
           include: {
-            venue: { select: { country: true } },
+            venue: { select: { country: true, region: true } },
             organization: {
               select: {
                 registeredCountry: true,
@@ -787,9 +831,13 @@ export class BookingsService {
       {
         country:
           session.event.venue?.country ?? session.event.organization?.registeredCountry ?? null,
-        region: session.event.organization?.registeredRegion ?? null,
+        // Place of supply is the venue's state; the seller's is a separate question. A quote
+        // and the booking that follows it must not disagree about either.
+        region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
+        supplierRegion: session.event.organization?.registeredRegion ?? null,
         at: now,
       },
+      this.admissionLinesFor(session.event, input.items, byId),
     );
 
     return {
@@ -928,7 +976,7 @@ export class BookingsService {
             feeMode: true,
             // Needed to re-price WITH tax — see the quote call below for why its absence
             // was not merely incomplete but destructive.
-            venue: { select: { country: true } },
+            venue: { select: { country: true, region: true } },
             organization: { select: { registeredCountry: true, registeredRegion: true } },
           },
         },
@@ -991,7 +1039,9 @@ export class BookingsService {
       {
         country:
           booking.event?.venue?.country ?? booking.event?.organization?.registeredCountry ?? null,
-        region: booking.event?.organization?.registeredRegion ?? null,
+        region:
+          booking.event?.venue?.region ?? booking.event?.organization?.registeredRegion ?? null,
+        supplierRegion: booking.event?.organization?.registeredRegion ?? null,
         at: new Date(),
       },
     );

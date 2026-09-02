@@ -291,15 +291,65 @@ describe('BusinessReportsService.platformFees', () => {
 });
 
 describe('BusinessReportsService.tax', () => {
-  it('is HONEST: taxModelled:false, no tax fabricated, taxable base = gross + fees', async () => {
-    const { service } = makeService();
+  /*
+    This report used to hardcode `taxModelled: false` and zero, and kept saying so for the
+    whole period after tax became real — a true statement that quietly became a false one.
+    It now reads what was actually CHARGED, and `taxModelled` answers a different question:
+    whether any rule is configured at all, so an honest zero is distinguishable from a
+    platform that never asked.
+  */
+  const taxPrisma = (
+    lines: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[],
+    activeRules: number,
+  ) => ({
+    bookingTaxLine: { findMany: jest.fn().mockResolvedValue(lines) },
+    taxRule: { count: jest.fn().mockResolvedValue(activeRules) },
+  });
+
+  it('reports no tax, and says why, when no rule is configured', async () => {
+    const { service } = makeService({ prisma: taxPrisma([], 0) });
     const r = await service.tax(FROM, TO);
     expect(r.taxModelled).toBe(false);
     expect(r.taxCollectedMinor).toBe(0);
-    expect(r.grossMinor).toBe(100000);
-    expect(r.platformFeesMinor).toBe(7000);
+    expect(r.breakdown).toEqual([]);
+    expect(r.note).toMatch(/no tax rule is active/i);
+    // The taxable base is still reported, which is what it was always for.
     expect(r.taxableBaseMinor).toBe(107000);
-    expect(r.note).toMatch(/not modelled/i);
+  });
+
+  it('reports what was charged, grouped by label AND rate', async () => {
+    /*
+      Cinema at 5% and a concert at 18% are both "CGST". Summing them into one line would
+      hide exactly the split a filing has to state, so the rate is part of the key.
+    */
+    const { service } = makeService({
+      prisma: taxPrisma(
+        [
+          { label: 'CGST', rateBasisPoints: 250, baseMinor: 1000, amountMinor: 25 },
+          { label: 'CGST', rateBasisPoints: 250, baseMinor: 2000, amountMinor: 50 },
+          { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+          { label: 'SGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+        ],
+        6,
+      ),
+    });
+    const r = await service.tax(FROM, TO);
+
+    expect(r.taxModelled).toBe(true);
+    expect(r.taxCollectedMinor).toBe(1875);
+    expect(r.breakdown).toEqual([
+      { label: 'CGST', rateBasisPoints: 250, baseMinor: 3000, amountMinor: 75 },
+      { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+      { label: 'SGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+    ]);
+    expect(r.note).toMatch(/as CHARGED|not a return/i);
+  });
+
+  it('does not claim to be a filing', async () => {
+    // The line between "what we collected" and "what you owe" is the one worth keeping.
+    const { service } = makeService({ prisma: taxPrisma([], 3) });
+    const r = await service.tax(FROM, TO);
+    expect(r.note).toMatch(/not a return|reference only/i);
   });
 });
 

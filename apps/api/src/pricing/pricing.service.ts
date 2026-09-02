@@ -52,6 +52,14 @@ export class PricingService {
     discountMinor = 0,
     currency = 'INR',
     taxPlace: TaxPlace = {},
+    /**
+     * The order broken into ticket kinds, when the caller knows it.
+     *
+     * Optional so every existing caller keeps working, but a rule with a PRICE BAND cannot
+     * be applied without it and will refuse rather than rate a whole order in one band.
+     * India bands cinema admission at ₹100 and sporting admission at ₹500, per ticket.
+     */
+    admissionLines?: { unitPriceMinor: number; quantity: number; category?: string | null }[],
   ): Promise<FeeCalcResult> {
     const tiers = await this.loadTiers(currency);
     // Fees first, with no tax, because tax is levied on what the customer is actually
@@ -67,20 +75,29 @@ export class PricingService {
       configuration change and an adapter, with no edit to the money model, the booking, the
       receipt or the refund path.
     */
-    const { taxLines, taxMinor } = await this.tax.quote({
+    const { taxLines, taxMinor, taxAddedMinor } = await this.tax.quote({
       // Spread first, then pin the currency: `taxPlace.currency` is nullable and a caller
       // leaving it unset must not blank out the currency the quote is actually priced in.
       context: { ...taxPlace, currency },
       netSubtotalMinor: fees.netSubtotalMinor,
       customerFeeMinor: fees.customerFeeMinor,
+      admissionLines,
       lines: [{ reference: 'tickets', kind: 'admission', amountMinor: fees.netSubtotalMinor }],
     });
 
+    /*
+      `taxAddedMinor`, not `taxMinor`.
+
+      An INCLUSIVE tax is already inside the ticket price — the ₹250 on the poster contains
+      its GST — so adding it here would charge it a second time and raise every Indian price
+      by the rate. An exclusive tax reports the same number in both fields, so this is
+      identical to the previous line for every market that adds tax at the till.
+    */
     return {
       ...fees,
       taxLines,
       taxMinor,
-      totalMinor: fees.netSubtotalMinor + fees.customerFeeMinor + taxMinor,
+      totalMinor: fees.netSubtotalMinor + fees.customerFeeMinor + taxAddedMinor,
     };
   }
 }
