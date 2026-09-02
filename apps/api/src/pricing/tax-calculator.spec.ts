@@ -647,3 +647,126 @@ describe('alternatives, not additions', () => {
     expect(on.taxMinor).toBeGreaterThan(0);
   });
 });
+
+describe('one order, two places of supply', () => {
+  /*
+    ── WHERE THIS COMES FROM ──────────────────────────────────────────────────────────
+    A real BookMyShow order summary for a Hyderabad cinema, two seats:
+
+        Ticket(s) price                  ₹300.00
+          Net ticket price   ₹236.00
+          GST                 ₹54.00
+          TMC                 ₹10.00
+        Convenience fees                  ₹47.20
+          Base amount         ₹40.00
+          Integrated GST (IGST) @ 18%   ₹7.20
+
+    The ticket is an admission in Telangana sold by a Telangana cinema. The convenience fee
+    on the SAME order is charged as IGST, because the platform is registered in another state
+    and the buyer is in Telangana. Admission follows s.12(6) — where the event is held — and
+    a platform's service follows s.12(2) — where the recipient is.
+
+    The engine used to apply the venue's state to both, which cannot produce this order.
+  */
+  const place = {
+    // The cinema and the event are both in Telangana: an intra-state admission.
+    region: 'TG',
+    supplierRegion: 'TG',
+    // The buyer is in Telangana; the platform is registered in Maharashtra: inter-state fee.
+    customerRegion: 'TG',
+    platformRegion: 'MH',
+    currency: 'INR',
+  };
+
+  const admission = rule({
+    label: 'GST',
+    rateBasisPoints: 1800,
+    appliesTo: 'TICKETS',
+    inclusive: true,
+    split: 'CGST_SGST',
+    taxGroup: 'ADMISSION',
+  });
+  const fee = rule({
+    label: 'GST',
+    rateBasisPoints: 1800,
+    appliesTo: 'FEES',
+    split: 'CGST_SGST',
+    taxGroup: 'FEE',
+  });
+
+  it('splits the ticket into CGST + SGST and charges IGST on the fee, in ONE order', () => {
+    const r = computeTax({
+      netSubtotalMinor: 30_000,
+      customerFeeMinor: 4_000,
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      rules: [admission, fee],
+      place,
+    });
+
+    const labels = r.taxLines.map((l) => l.label);
+    expect(labels).toContain('CGST');
+    expect(labels).toContain('SGST');
+    expect(labels).toContain('IGST');
+
+    // The IGST line is the one on the fee, at the full rate rather than halved.
+    const igst = r.taxLines.find((l) => l.label === 'IGST')!;
+    expect(igst.rateBasisPoints).toBe(1800);
+  });
+
+  it('charges 18% ON TOP of the booking fee, matching ₹40.00 → ₹47.20 exactly', () => {
+    // The fee rule is exclusive: the customer pays the fee plus its tax, which is how the
+    // convenience fee is decomposed on a real order.
+    const r = computeTax({
+      netSubtotalMinor: 30_000,
+      customerFeeMinor: 4_000,
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      rules: [fee],
+      place,
+    });
+    expect(r.taxMinor).toBe(720);
+    expect(r.taxAddedMinor).toBe(720);
+  });
+
+  it('would charge CGST + SGST on the fee if the platform were in the buyer’s state', () => {
+    // The same rule, the same order, a platform registered locally — and the split changes.
+    const r = computeTax({
+      netSubtotalMinor: 30_000,
+      customerFeeMinor: 4_000,
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      rules: [fee],
+      place: { ...place, platformRegion: 'TG' },
+    });
+    expect(r.taxLines.map((l) => l.label)).toEqual(['CGST', 'SGST']);
+    // Same money either way — only which government is owed it changes.
+    expect(r.taxMinor).toBe(720);
+  });
+
+  it('does not let the venue’s state decide the FEE, which was the bug', () => {
+    /*
+      The venue and the seller are both in Telangana, so the OLD single-pair rule made every
+      line intra-state. The fee must still be IGST, because the platform is elsewhere.
+    */
+    const r = computeTax({
+      netSubtotalMinor: 30_000,
+      customerFeeMinor: 4_000,
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      rules: [fee],
+      place: { region: 'TG', supplierRegion: 'TG', customerRegion: 'TG', platformRegion: 'MH' },
+    });
+    expect(r.taxLines.map((l) => l.label)).toEqual(['IGST']);
+  });
+
+  it('falls back to intra-state when the buyer’s state is unknown, as it does today', () => {
+    // We do not yet ask a buyer for their state. Unknown must behave exactly as before rather
+    // than guessing a border — and it cannot overcharge, because the rate is the same.
+    const r = computeTax({
+      netSubtotalMinor: 30_000,
+      customerFeeMinor: 4_000,
+      admissionLines: [{ unitPriceMinor: 15_000, quantity: 2 }],
+      rules: [fee],
+      place: { region: 'TG', supplierRegion: 'TG', platformRegion: 'MH' },
+    });
+    expect(r.taxLines.map((l) => l.label)).toEqual(['CGST', 'SGST']);
+    expect(r.taxMinor).toBe(720);
+  });
+});

@@ -110,6 +110,27 @@ export interface TaxPlace {
    * only put the right amount under the wrong heading.
    */
   supplierRegion?: string | null;
+  /**
+   * The BUYER's state, and where the PLATFORM is registered.
+   *
+   * ── WHY A SECOND PAIR ──────────────────────────────────────────────────────────
+   * Admission and the platform's booking fee are different supplies with different
+   * place-of-supply rules, and using one pair for both is simply wrong.
+   *
+   *   admission     s.12(6): where the EVENT is held → `region` vs `supplierRegion`
+   *   booking fee   s.12(2): where the RECIPIENT is → `customerRegion` vs `platformRegion`
+   *
+   * Confirmed against a real BookMyShow order for a Hyderabad cinema: the ticket is a
+   * Telangana supply by a Telangana cinema, while the convenience fee is charged as
+   * **IGST at 18%** — because the platform is registered in another state and the buyer is
+   * in Telangana. The same order carries both presentations, which one pair of states cannot
+   * produce.
+   *
+   * Both are optional. Unknown resolves to intra-state exactly as before, so nothing changes
+   * for a deployment that does not capture them.
+   */
+  customerRegion?: string | null;
+  platformRegion?: string | null;
   currency?: string | null;
   at?: Date;
 }
@@ -209,9 +230,16 @@ function isScoped(rule: TaxRuleInput): boolean {
  * intra-state, which is the common case and — since both presentations carry the same total
  * rate — changes the heading on the invoice and never the amount charged.
  */
-function crossesStateBorder(place: TaxPlace | undefined): boolean {
-  const supply = place?.region?.trim().toUpperCase();
-  const supplier = place?.supplierRegion?.trim().toUpperCase();
+function crossesStateBorder(rule: TaxRuleInput, place: TaxPlace | undefined): boolean {
+  /*
+    A FEE is the platform's own supply of service, and its place of supply is the RECIPIENT's
+    location — not the venue's. A ticket to a Hyderabad cinema bought by somebody in Telangana
+    is an intra-state admission; the booking fee on the same order is inter-state, because the
+    platform is registered elsewhere. One order, two answers.
+  */
+  const isFee = rule.appliesTo === 'FEES';
+  const supply = (isFee ? place?.customerRegion : place?.region)?.trim().toUpperCase();
+  const supplier = (isFee ? place?.platformRegion : place?.supplierRegion)?.trim().toUpperCase();
   if (!supply || !supplier) return false;
   return supply !== supplier;
 }
@@ -286,7 +314,6 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
   const net = Math.max(0, Math.round(input.netSubtotalMinor));
   const custFee = Math.max(0, Math.round(input.customerFeeMinor));
   const applicable = selectTaxRules(input.rules, input.place);
-  const interState = crossesStateBorder(input.place);
 
   /*
     What each rule is charged on, before deciding whether the tax sits inside that amount or
@@ -379,7 +406,7 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
       ? Math.round((grossMinor * 10_000) / (10_000 + rate))
       : grossMinor;
 
-    const components = splitComponents(rule, rate, interState);
+    const components = splitComponents(rule, rate, crossesStateBorder(rule, input.place));
     const amounts = components.map((c) => Math.round((taxableMinor * c.rateBasisPoints) / 10_000));
 
     /*

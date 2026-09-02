@@ -55,6 +55,8 @@ export class ManualTaxProvider implements TaxProvider {
         country: request.context.country,
         region: request.context.region,
         supplierRegion: request.context.supplierRegion,
+        customerRegion: request.context.customerRegion,
+        platformRegion: request.context.platformRegion,
         currency,
         at: request.context.at,
       },

@@ -50,6 +50,15 @@ export interface TaxQuoteContext {
    * IGST across one; the amount is identical, the invoice is not.
    */
   supplierRegion?: string | null;
+  /**
+   * The BUYER's state and the PLATFORM's, for the booking fee.
+   *
+   * Admission and the platform's fee are different supplies with different place-of-supply
+   * rules — s.12(6) for admission, s.12(2) for a service. A real order can carry a locally
+   * taxed ticket and an IGST convenience fee at once, which one pair of states cannot express.
+   */
+  customerRegion?: string | null;
+  platformRegion?: string | null;
   postalCode?: string | null;
   at?: Date;
   /** The selling organization, so an adapter can pass the seller's registration through. */

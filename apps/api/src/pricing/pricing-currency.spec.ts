@@ -32,7 +32,11 @@ describe('PricingService currency isolation', () => {
     // default and reads the same taxRule rows, so it is the one exercised here — a stub
     // returning zero would prove the seam works and prove nothing about the rules.
     const tax = new ManualTaxProvider(prisma);
-    return { svc: new PricingService(prisma, tax), findMany, taxFindMany };
+    return {
+      svc: new PricingService(prisma, tax, { get: () => undefined } as never),
+      findMany,
+      taxFindMany,
+    };
   }
 
   it('queries only the requested currency', async () => {

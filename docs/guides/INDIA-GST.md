@@ -89,6 +89,37 @@ Only the labels and the reporting differ. That matters when the venue's state is
 the customer is never overcharged by the ambiguity, and the platform defaults to CGST+SGST,
 which is the overwhelmingly common case for a venue-based event.
 
+## Two supplies, two places of supply
+
+Verified against a real BookMyShow order for a Hyderabad cinema, two seats:
+
+```
+Ticket(s) price                      ₹300.00
+  Net ticket price       ₹236.00
+  GST                     ₹54.00
+  TMC                     ₹10.00      ← ₹5/ticket, Telangana AC maintenance charge
+Convenience fees                      ₹47.20
+  Base amount             ₹40.00
+  Integrated GST (IGST) @ 18%  ₹7.20  ← 40.00 × 1.18 = 47.20, exactly
+```
+
+**One order, two presentations.** The ticket is an admission in Telangana sold by a Telangana
+cinema — intra-state. The convenience fee on the same order is **IGST**, because the platform
+is registered in another state and the buyer is in Telangana.
+
+| Supply      | Rule                              | Compared                              |
+| ----------- | --------------------------------- | ------------------------------------- |
+| Admission   | s.12(6) — where the event is held | venue state vs seller state           |
+| Booking fee | s.12(2) — where the recipient is  | **buyer** state vs **platform** state |
+
+The engine applied the venue's state to both, which cannot produce that order. It now picks
+the pair by `appliesTo`, and `PLATFORM_TAX_REGION` says where we are registered. Unknown falls
+back to intra-state exactly as before — same money, possibly the wrong heading.
+
+Note also that BMS's fee GST is **added on top** of a ₹40 base while the ticket's is **inside**
+the ₹300. Both are expressible; which one your ₹5/₹10/₹15/₹20 tiers represent — base or
+all-in — is a decision for you, and the seeded fee rule currently assumes inclusive.
+
 ## What this platform does NOT do
 
 - **It does not decide whether your event is a "recognised sporting event"**, or whether a
@@ -96,6 +127,12 @@ which is the overwhelmingly common case for a venue-based event.
   question with a live dispute behind it — IPL was moved from 28% to 40% in September 2025
   and the franchises are contesting the classification. The category on the event drives the
   rate; a human chooses the category.
+- **It does not model a theatre maintenance charge.** Telangana fixes one at ₹5 per ticket
+  (AC) and ₹3 (non-AC), and BookMyShow shows it as its own line inside the ticket price. We
+  have no concept of a statutory per-ticket charge that is neither the face value nor our fee.
+- **It does not ask the buyer for their state.** BookMyShow does, labelled "for GST purposes",
+  and uses it to decide IGST on the fee. Until we capture it, every fee falls back to
+  intra-state — the right amount under a heading that may be wrong.
 - **It does not handle entertainment duty**, which several states levy _in addition_ to GST
   on online booking convenience fees. The Bombay High Court upheld that levy in August 2025.
   Where it applies it is a state-by-state amount and is not modelled here.

@@ -456,6 +456,19 @@ const envSchema = z.object({
     `{code}` and `{minutes}` are substituted. Unset falls back to a sensible English default,
     which is correct everywhere DLT does not apply and wrong the moment it does.
   */
+  /**
+   * The state/province ETicketsGo itself is registered in.
+   *
+   * Decides whether the BOOKING FEE — the platform's own supply of service — is an
+   * intra-state or an inter-state supply, which is a different question from where the event
+   * is. A real BookMyShow order for a Hyderabad cinema shows the ticket taxed locally and the
+   * convenience fee as IGST, precisely because the platform sits in another state.
+   *
+   * Unset means the question cannot be answered, and the fee falls back to intra-state — the
+   * same amount, a possibly-wrong heading. See `tax-calculator.ts`.
+   */
+  PLATFORM_TAX_REGION: z.string().trim().max(60).optional(),
+
   OTP_SMS_TEMPLATE: z.string().optional(),
 
   // --- SMS (recipient = payload.phone) ---

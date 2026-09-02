@@ -115,7 +115,13 @@ function setup(over: Options = {}) {
 
   const service = new BookingsService(
     prisma as never,
-    new PricingService(prisma as never, new ManualTaxProvider(prisma as never)),
+    new PricingService(
+      prisma as never,
+      new ManualTaxProvider(prisma as never),
+      // No platform region configured: the fee falls back to intra-state, which is the
+      // behaviour every deployment has until somebody sets PLATFORM_TAX_REGION.
+      { get: () => undefined } as never,
+    ),
     new PricingStrategiesService(
       new FlatPricingStrategy(),
       new TierPricingStrategy(),

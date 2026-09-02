@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -15,6 +16,7 @@ export class PricingService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(TAX_PROVIDER) private readonly tax: TaxProvider,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -78,7 +80,16 @@ export class PricingService {
     const { taxLines, taxMinor, taxAddedMinor } = await this.tax.quote({
       // Spread first, then pin the currency: `taxPlace.currency` is nullable and a caller
       // leaving it unset must not blank out the currency the quote is actually priced in.
-      context: { ...taxPlace, currency },
+      /*
+        The platform's own state is configuration, not something a caller knows — so it is
+        stamped here rather than threaded through every call site. A caller that already set
+        one wins, which keeps the seam testable.
+      */
+      context: {
+        platformRegion: this.config.get<string>('PLATFORM_TAX_REGION') ?? null,
+        ...taxPlace,
+        currency,
+      },
       netSubtotalMinor: fees.netSubtotalMinor,
       customerFeeMinor: fees.customerFeeMinor,
       admissionLines,
