@@ -108,11 +108,21 @@ shape is left exactly as it is.
 The customer pays the same either way. That is what "inclusive" means, and it is the reason
 switching this on is safe to do without re-pricing anything.
 
+## Editing rates without a script
+
+Admin console → **Tax rules**. Create, switch on and off, and delete a rule that is off.
+
+**A live rate cannot be edited in place.** The API refuses it and the page shows the rate
+read-only with a **Change rate** action beside it, which supersedes instead: the current rule
+is closed at a date, a successor opens at the new rate at the same instant, and both stay on
+file. That is the only way a table can answer "what were we charging in March" after a rate
+moves — and every rate here moved on 22 September 2025.
+
+Switching a rule **off** is never blocked. If a rate is wrong, stopping it must not require
+first constructing a successor.
+
 ## Still to build
 
-- **No admin UI for `TaxRule`.** Rows are created by the seed script above or by hand. The
-  admin console has full CRUD for fee rules and nothing for tax rules, so a rate change today
-  means running a script rather than editing a form.
 - **No entertainment duty**, per the note above.
 - **Categories are matched on the event's own category text.** A MOVIE experience maps to
   `MOVIE` automatically; everything else uses whatever the organizer typed, so a `Sports`
