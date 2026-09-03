@@ -25,7 +25,8 @@ export const minorToInput = (minor: number): string => (minor / 100).toFixed(2);
  * that a whole-rupee price now reads ₹250 rather than ₹250.00, matching every other screen
  * — this copy printed two decimals always while the storefront copy printed none.
  */
-export const formatMinor = (minor: number, currency = 'INR'): string => money(minor, currency);
+export const formatMinor = (minor: number, currency = 'INR', fractionDigits?: number): string =>
+  money(minor, currency, undefined, fractionDigits);
 
 export interface ParsedPrice {
   ticketTypeId: string;

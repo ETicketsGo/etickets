@@ -2,7 +2,15 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, Button, Dialog, Input, useToast, type ShowRow } from '@eticketsgo/web-kit';
+import {
+  api,
+  Button,
+  Dialog,
+  Input,
+  moneyFractionDigits,
+  useToast,
+  type ShowRow,
+} from '@eticketsgo/web-kit';
 import { explainMutationError, formatLocalTime } from './show-status';
 import {
   changedRows,
@@ -223,9 +231,20 @@ export function ShowPricingDialog({
             {changed
               .map((c) => {
                 const cat = pricing.categories.find((x) => x.ticketTypeId === c.ticketTypeId)!;
-                return `${cat.name} ${formatMinor(cat.priceMinor, cat.currency)} → ${formatMinor(
+                /*
+                  The two halves of a comparison decide their decimals together. Formatted
+                  apart, a whole-rupee old price beside a new one carrying paise reads
+                  "₹300 → ₹420.50", where the reader has to check twice that the first
+                  number is not a different kind of number from the second.
+                */
+                const digits = moneyFractionDigits(
+                  [cat.priceMinor, c.priceMinor],
+                  cat.currency ?? 'INR',
+                );
+                return `${cat.name} ${formatMinor(cat.priceMinor, cat.currency, digits)} → ${formatMinor(
                   c.priceMinor,
                   cat.currency,
+                  digits,
                 )}`;
               })
               .join(' · ')}

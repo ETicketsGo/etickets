@@ -350,9 +350,7 @@ test.describe('show pricing', () => {
     const premiumField = page.getByLabel('PREMIUM price in rupees');
     await expect(premiumField).toBeDisabled();
     // Disabled with no reason beside it reads as a bug. It says which and at what.
-    await expect(page.getByTestId('pricing-row-PREMIUM')).toContainText(
-      '1 seat has sold at ₹300.00',
-    );
+    await expect(page.getByTestId('pricing-row-PREMIUM')).toContainText('1 seat has sold at ₹300');
 
     // The rest of the show is still commercially live.
     await page.getByLabel('STANDARD price in rupees').fill('275');
