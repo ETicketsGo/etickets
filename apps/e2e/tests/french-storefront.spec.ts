@@ -233,8 +233,14 @@ test.describe('the storefront in French', () => {
 
     // The storefront: French labels, and "Gratuit" rather than a currency-formatted zero.
     await expect(page.getByText('Gratuit').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Sous-total')).toBeVisible();
+    /*
+      This asserted 'Sous-total'. A free event has no money to break down, so the breakdown
+      renders the total and the free note and nothing else — there is no subtotal row to
+      find, and adding a "Sous-total 0,00 $" line back just to satisfy a test would be worse
+      than the test failing. What has to be French here is what the page actually says.
+    */
     await expect(page.getByText('Aucun paiement requis')).toBeVisible();
+    await expect(page.getByText('Total')).toBeVisible();
 
     await page.getByLabel('Quantité de Admission générale').selectOption('2');
     await page.getByRole('button', { name: 'Obtenir mes billets' }).click();

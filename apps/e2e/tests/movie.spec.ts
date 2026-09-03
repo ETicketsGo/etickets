@@ -48,7 +48,42 @@ test('customer books a movie seat and pays', async ({ page }) => {
   const breakdown = page.getByTestId('price-breakdown');
   await expect(breakdown).toBeVisible({ timeout: 20_000 });
   await expect(breakdown.getByText('Tickets')).toBeVisible();
-  await expect(breakdown.getByText('Booking fee')).toBeVisible();
+  /*
+    ONE row for what the platform charges, not three.
+
+    This asserted 'Booking fee', which was one of three rows — booking fee, payment fee, and
+    the tax charged on them. None of those three answers the question the buyer is asking,
+    and adding them up was work being handed to the customer. The row is now "Platform fee",
+    with the tax rate named in the label when there is one.
+  */
+  await expect(breakdown.getByText(/Platform fee/)).toBeVisible();
+  await expect(breakdown.getByText(/Booking fee|Payment fee/)).toHaveCount(0);
+
+  /*
+    And the rows FOOT. This is the guarantee worth pinning: whatever the breakdown chooses
+    to show, the numbers a buyer can see must add up to the total they are asked to pay. A
+    label assertion alone would survive a fee row that quietly disagreed with the total.
+
+    Each row renders as "<label><tab><amount>", so the amount is the LAST number on the
+    line and cannot be found by stripping non-digits — "Platform fee (incl. 18% GST)" would
+    otherwise contribute an 18. A discount row carries a leading "-" and has to subtract,
+    or this would hold only for carts that happen to have no discount.
+  */
+  const trailingAmount = (line: string): number | null => {
+    const match = /(-?)\s*[^0-9-]*?([\d,]+\.\d{2})\s*$/.exec(line.trim());
+    return match ? Number(match[2].replace(/,/g, '')) * (match[1] === '-' ? -1 : 1) : null;
+  };
+
+  const visible = (await breakdown.innerText())
+    .split('\n')
+    .map(trailingAmount)
+    .filter((n): n is number => n !== null);
+  const total = trailingAmount(await page.getByTestId('price-total').innerText());
+
+  expect(visible.length).toBeGreaterThan(1);
+  expect(total).not.toBeNull();
+  expect(Math.abs(visible.reduce((a, b) => a + b, 0) - total!)).toBeLessThan(0.01);
+
   await expect(page.getByText(/full amount you will pay/i)).toBeVisible();
 
   // A code box lives here too, and a private code is typed rather than listed.
