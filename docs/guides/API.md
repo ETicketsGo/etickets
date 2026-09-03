@@ -38,7 +38,8 @@ replay-safe). Configure the provider's webhook secret in the payment config.
 ## Health & metrics
 
 - `GET /api/health` (liveness), `GET /api/health/ready` (DB + Redis).
-- `GET /api/metrics` (Prometheus). Worker exposes its own metrics port.
+- `GET /api/metrics` (Prometheus), behind an `Authorization: Bearer $METRICS_TOKEN`
+  header. The worker exposes its own metrics port under the same token.
 
 ## Generating a static spec
 

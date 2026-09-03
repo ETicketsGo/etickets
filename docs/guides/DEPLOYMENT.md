@@ -162,9 +162,13 @@ Equivalent **nginx**: a `server {}` per host with `proxy_pass`, `listen 443 ssl`
 your certs (or certbot), and `proxy_set_header X-Forwarded-Proto https`. On a
 managed platform, use its built-in LB/ingress for TLS instead.
 
-- Keep `/api/metrics` **off the public internet** — restrict it to the Prometheus
-  scraper at the proxy/network layer (it is unauthenticated by design; see
-  OPERATIONS §1).
+- `/api/metrics` requires **`METRICS_TOKEN`** (`Authorization: Bearer …`). It used to
+  say "restrict it at the proxy/network layer" and be unauthenticated by design — on a
+  managed platform there is no such layer to restrict it at, so it was public, and it
+  publishes `etg_gmv_minor_total` among other things. Set the variable per environment;
+  **unset in any deployed environment the route answers 404**, never 200. Set the same
+  value as the `METRICS_TOKEN` secret on the matching GitHub Environment, or the
+  post-deploy smoke check skips itself with a warning.
 - The API sets CORS from `CORS_ORIGINS`; make sure it lists the exact https web
   origins.
 
@@ -176,7 +180,7 @@ managed platform, use its built-in LB/ingress for TLS instead.
 | ------------------ | -------------------------------------------------------------------- |
 | `GET /api/health`  | **Liveness** — restart probe. Cheap, never touches DB/Redis.         |
 | `GET /api/ready`   | **Readiness** — gate LB/rollout traffic; 503 if Postgres/Redis down. |
-| `GET /api/metrics` | Prometheus exposition (`etg_*`). Ops-only, network-restricted.       |
+| `GET /api/metrics` | Prometheus exposition (`etg_*`). Requires `METRICS_TOKEN` bearer.    |
 | `GET :4100/health` | Worker liveness.                                                     |
 | `GET :4100/ready`  | Worker readiness (Postgres + Redis).                                 |
 

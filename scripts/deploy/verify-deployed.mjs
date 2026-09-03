@@ -98,6 +98,23 @@ const PROBES = [
   },
   {
     service: 'api',
+    what: 'metrics are not readable by the public internet',
+    /*
+      This is a drift probe, not a feature probe. `/api/metrics` publishes
+      `etg_gmv_minor_total` and the payment counters, and it was public on QA and UAT for
+      as long as it existed because the only thing stopping it was a comment saying it
+      "MUST be network-restricted" — a control the platform has nowhere to apply.
+
+      Asserted as "not 200" rather than "is 401", because 404 is the correct answer in a
+      deployment that has no METRICS_TOKEN set at all, and both are closed.
+    */
+    run: async (base) => {
+      const r = await fetch(`${base}/api/metrics`);
+      return r.status !== 200 || `GET /api/metrics is ${r.status} to an anonymous caller`;
+    },
+  },
+  {
+    service: 'api',
     what: 'location resolve separates the guess from the safe scope',
     run: async (base) => {
       const r = await fetch(`${base}/api/public/location/resolve?region=de`);

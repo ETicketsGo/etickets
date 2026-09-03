@@ -46,15 +46,15 @@ WEB=https://eticketsgo.com               # or qa. / uat.
 
 ## 3. API health
 
-| #   | Check                                           | Command                                                                                                          | BLOCKER | Result |
-| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | :-----: | ------ |
-| 3.1 | Liveness                                        | `curl -fsS $BASE/api/health` → `{"status":"ok",...}`                                                             |   ✅    |        |
-| 3.2 | Readiness (DB + Redis)                          | `curl -fsS $BASE/api/ready` → `"status":"ok"`                                                                    |   ✅    |        |
-| 3.3 | Metrics served                                  | `curl -fsS $BASE/api/metrics \| grep etg_`                                                                       |         |        |
-| 3.4 | Readiness returns 503 when a dependency is down | verified by unit test; optionally confirm in QA by pausing Redis                                                 |         |        |
-| 3.5 | **Swagger NOT public in production**            | `curl -so /dev/null -w '%{http_code}' $BASE/api/docs` → 404                                                      |   ✅    |        |
-| 3.6 | Health endpoints leak nothing                   | inspect bodies: no stack trace, hostname, or connection string                                                   |   ✅    |        |
-| 3.7 | CORS rejects an unknown origin                  | `curl -sI -H 'Origin: https://evil.example' $BASE/api/health` → no `access-control-allow-origin` for that origin |   ✅    |        |
+| #   | Check                                           | Command                                                                                                                                                       | BLOCKER | Result |
+| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: | ------ |
+| 3.1 | Liveness                                        | `curl -fsS $BASE/api/health` → `{"status":"ok",...}`                                                                                                          |   ✅    |        |
+| 3.2 | Readiness (DB + Redis)                          | `curl -fsS $BASE/api/ready` → `"status":"ok"`                                                                                                                 |   ✅    |        |
+| 3.3 | Metrics served, and ONLY to the token holder    | `curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" $BASE/api/metrics \| grep etg_`, and `curl -so /dev/null -w '%{http_code}' $BASE/api/metrics` is **401** |         |        |
+| 3.4 | Readiness returns 503 when a dependency is down | verified by unit test; optionally confirm in QA by pausing Redis                                                                                              |         |        |
+| 3.5 | **Swagger NOT public in production**            | `curl -so /dev/null -w '%{http_code}' $BASE/api/docs` → 404                                                                                                   |   ✅    |        |
+| 3.6 | Health endpoints leak nothing                   | inspect bodies: no stack trace, hostname, or connection string                                                                                                |   ✅    |        |
+| 3.7 | CORS rejects an unknown origin                  | `curl -sI -H 'Origin: https://evil.example' $BASE/api/health` → no `access-control-allow-origin` for that origin                                              |   ✅    |        |
 
 ## 4. Web application health
 
