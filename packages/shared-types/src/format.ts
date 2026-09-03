@@ -21,21 +21,112 @@ function defaultLocale(currency: string): string {
 }
 
 /**
+ * How many fraction digits this currency actually has, asked of `Intl` rather than assumed.
+ *
+ * Two for INR and USD, none for JPY, three for KWD. The old code hardcoded
+ * `minimumFractionDigits: 2` for everything that was not INR, which renders ¥1,234.56 for a
+ * currency that has no sub-unit at all.
+ */
+function currencyFractionDigits(currency: string, locale: string): number {
+  try {
+    return (
+      new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
+/**
+ * Digits to render ONE amount with.
+ *
+ * ── THE INR RULE, AND WHY IT CHANGED ───────────────────────────────────────────────
+ * INR used to be pinned to whole rupees, because Indian ticket prices are whole rupees in
+ * practice and "₹799.00" is noise. True of a ticket price; false of a total. A cart of
+ * ₹355.22 was displayed as "₹355" on the storefront while the receipt for the same booking
+ * said "₹355.22" — the platform showed a number nobody was being charged.
+ *
+ * So: paise appear exactly when there are paise. ₹799 stays ₹799 and the listing stays
+ * clean; ₹355.22 says ₹355.22 and the storefront stops disagreeing with the receipt.
+ *
+ * Every other currency keeps its own sub-unit unconditionally — $9.99 and $10.00 must not
+ * both collapse to "$10" in a table of fee bands where the whole point is telling them apart.
+ */
+function defaultFractionDigits(minor: number, currency: string, locale: string): number {
+  const currencyDigits = currencyFractionDigits(currency, locale);
+  if (currency !== 'INR') return currencyDigits;
+  return minor % 10 ** currencyDigits === 0 ? 0 : currencyDigits;
+}
+
+/**
+ * Digits for a whole DOCUMENT of amounts — a price breakdown, a receipt, an invoice.
+ *
+ * A column of figures has to read as a column. Deciding per amount would print
+ *
+ *     Tickets       ₹300
+ *     Platform fee  ₹55.22
+ *
+ * where the decimal points do not line up and the first row looks like a different kind of
+ * number from the second. Pass every amount the document will show; if any of them has
+ * paise, they all get paise.
+ *
+ * Only INR has anything to decide — every other currency already prints its sub-unit always.
+ */
+export function moneyFractionDigits(
+  amounts: readonly (number | null | undefined)[],
+  currency = 'INR',
+  locale?: string,
+): number {
+  const resolved = locale ?? defaultLocale(currency);
+  const currencyDigits = currencyFractionDigits(currency, resolved);
+  if (currency !== 'INR') return currencyDigits;
+  const anyPaise = amounts.some((a) => a != null && a % 10 ** currencyDigits !== 0);
+  return anyPaise ? currencyDigits : 0;
+}
+
+/**
  * Format an integer minor-unit amount as currency.
  *
- * Fraction digits are currency-aware. INR keeps whole rupees — the product has always shown
- * ₹799 rather than ₹799.00 and prices are whole-rupee in practice. Everything else keeps its
- * sub-unit, because rounding to whole units turns a $9.99 fee band into "$10" and makes
- * adjacent bands ($9.99 / $10.00) look identical in the admin table.
+ * `fractionDigits` overrides the per-amount rule, and is how a document keeps its column
+ * consistent — see `moneyFractionDigits`. Left off, a lone amount decides for itself.
+ *
+ * This is THE money formatter. It used to be one of five: the storefront said ₹355, the
+ * receipt said ₹355.22, the emails grouped as ₹1,04,040 while the receipt grouped as
+ * ₹104,040, and two organizer screens had their own again. The comment at the top of this
+ * file already warned that a second implementation "is exactly the kind of thing that
+ * drifts silently" — it was right, and there were four of them.
  */
-export function money(minor: number | null | undefined, currency = 'INR', locale?: string): string {
+export function money(
+  minor: number | null | undefined,
+  currency = 'INR',
+  locale?: string,
+  fractionDigits?: number,
+): string {
   if (minor == null) return '—';
-  const wholeUnits = currency === 'INR';
-  return new Intl.NumberFormat(locale ?? defaultLocale(currency), {
-    style: 'currency',
-    currency,
-    ...(wholeUnits ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2 }),
-  }).format(minor / 100);
+  const resolved = locale ?? defaultLocale(currency);
+  const digits = fractionDigits ?? defaultFractionDigits(minor, currency, resolved);
+  try {
+    /*
+      Scaled by the currency's OWN exponent, not by a hardcoded 100. A minor unit of JPY is
+      a yen, so 104040 minor units is ¥104,040 — dividing by 100 makes it ¥1,040, wrong by
+      two orders of magnitude rather than merely mis-punctuated.
+
+      This is what the receipt did and this function did not, which is the same defect as
+      the decimals in a different digit. INR and USD both have an exponent of 2, so nothing
+      the platform currently sells changes.
+    */
+    const exponent = currencyFractionDigits(currency, resolved);
+    return new Intl.NumberFormat(resolved, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(minor / 10 ** exponent);
+  } catch {
+    // An unknown currency code. Show the amount rather than throwing inside a render.
+    return `${currency} ${(minor / 100).toFixed(2)}`;
+  }
 }
 
 export function dateTime(

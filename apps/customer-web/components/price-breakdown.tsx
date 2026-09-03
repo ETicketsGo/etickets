@@ -2,7 +2,7 @@
 
 import { money } from '@/lib/format';
 import { useTranslations } from 'next-intl';
-import { priceBreakdown } from '@eticketsgo/web-kit';
+import { priceBreakdown, moneyFractionDigits } from '@eticketsgo/web-kit';
 
 /**
  * What the buyer will actually be charged, itemised, before they commit to anything.
@@ -97,6 +97,20 @@ export function PriceBreakdown({
   */
   const breakdown = quote ? priceBreakdown(quote) : null;
 
+  /*
+    One number of decimals for the whole breakdown, decided from the amounts in it.
+
+    Deciding per row prints "₹300" above "₹55.22", where the decimal points do not line up
+    and the first row reads as a different kind of number from the second. Whole-rupee carts
+    — which is most of them — still show ₹300 and ₹350 with no trailing noise.
+  */
+  const digits = breakdown
+    ? moneyFractionDigits(
+        [...breakdown.rows.map((r) => r.amountMinor), breakdown.totalMinor],
+        currency,
+      )
+    : undefined;
+
   if (free) {
     return (
       <div className="border-t border-border pt-4">
@@ -137,8 +151,8 @@ export function PriceBreakdown({
                 label={label}
                 value={
                   row.amountMinor < 0
-                    ? `- ${money(-row.amountMinor, currency)}`
-                    : money(row.amountMinor, currency)
+                    ? `- ${money(-row.amountMinor, currency, undefined, digits)}`
+                    : money(row.amountMinor, currency, undefined, digits)
                 }
               />
             );
@@ -156,7 +170,7 @@ export function PriceBreakdown({
           data-testid="price-total"
           className="text-title font-bold tabular-nums text-text-primary"
         >
-          {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency)}
+          {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency, undefined, digits)}
         </span>
       </div>
       {breakdown && breakdown.includedTax.length > 0 && (
@@ -169,7 +183,7 @@ export function PriceBreakdown({
                 label: tax.label,
                 rate: `${ratePercent(tax.rateBasisPoints)}%`,
               })}
-              value={money(tax.amountMinor, currency)}
+              value={money(tax.amountMinor, currency, undefined, digits)}
             />
           ))}
           <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>

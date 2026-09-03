@@ -81,8 +81,14 @@ const doc = (over: Partial<ReceiptDocument> = {}): ReceiptDocument =>
  */
 const totalsRows = (html: string): { label: string; amount: number }[] => {
   const foot = html.slice(html.indexOf('<tfoot>'), html.indexOf('</tfoot>'));
+  /*
+    Decimals are optional. A receipt whose amounts are all whole rupees now prints "₹105",
+    not "₹105.00" — the document decides once, so a column is either all paise or none.
+    Requiring `\.\d{2}` matched nothing on such a receipt and the footing check compared two
+    empty sums, which is a test that passes by measuring nothing.
+  */
   return [
-    ...foot.matchAll(/<th colspan="3">(.*?)<\/th><td class="num">₹([\d,]+\.\d{2})<\/td>/g),
+    ...foot.matchAll(/<th colspan="3">(.*?)<\/th><td class="num">₹([\d,]+(?:\.\d{2})?)<\/td>/g),
   ].map((m) => ({ label: m[1], amount: Math.round(Number(m[2].replace(/,/g, '')) * 100) }));
 };
 

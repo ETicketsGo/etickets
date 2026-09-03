@@ -1,4 +1,5 @@
 import type { LiveSeat, OccupancySnapshot, SeatOverrideKind } from '@eticketsgo/web-kit';
+import { money } from '@eticketsgo/web-kit';
 
 /**
  * Presentation rules for live theater operations.
@@ -136,13 +137,15 @@ export function explainOverrideCode(code: string | undefined, fallback?: string)
   }
 }
 
-/** Money for display. Integer minor units in, human string out. */
+/**
+ * Money for display. Integer minor units in, human string out.
+ *
+ * Delegated to the one formatter. This hardcoded whole rupees and en-IN, which was right
+ * for a ₹250 seat and wrong for anything carrying paise — and it was one of five copies of
+ * that decision, which had already drifted into five different answers.
+ */
 export function formatMoney(minor: number, currency: string): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: currency || 'INR',
-    maximumFractionDigits: 0,
-  }).format(minor / 100);
+  return money(minor, currency || 'INR');
 }
 
 /** Cinema-local wall clock, 24-hour. Never the browser's zone. */

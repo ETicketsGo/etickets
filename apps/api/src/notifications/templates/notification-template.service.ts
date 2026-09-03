@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { NotificationType } from '@eticketsgo/shared-types';
+import { NotificationType, money as formatMoney } from '@eticketsgo/shared-types';
 import { DEFAULT_LOCALE, isLocale, t, type Locale } from '@eticketsgo/i18n';
 
 /** The rendered pieces of a notification message. */
@@ -76,13 +76,20 @@ function bookingName(locale: Locale, p: Payload): string {
 function money(locale: Locale, p: Payload, key: string, currencyKey = 'currency'): string {
   const minor = Number(str(p, key, '0')) || 0;
   const currency = str(p, currencyKey, 'INR') || 'INR';
-  try {
-    const fmt = new Intl.NumberFormat(FORMAT_LOCALE[locale], { style: 'currency', currency });
-    const digits = fmt.resolvedOptions().maximumFractionDigits ?? 2;
-    return fmt.format(minor / 10 ** digits);
-  } catch {
-    return `${currency} ${(minor / 100).toFixed(2)}`;
-  }
+  /*
+    Delegated rather than formatted here. This was one of five independent implementations
+    and they disagreed: the same ₹355.22 printed as ₹355 on the storefront, ₹355.22 on the
+    receipt, and grouped differently again between the receipt and these emails. One
+    formatter is the only arrangement in which they cannot drift apart.
+
+    `undefined` for English lets the shared formatter pick the locale the CURRENCY calls for,
+    which is en-IN for rupees — the Indian grouping these templates already used.
+  */
+  return formatMoney(
+    minor,
+    currency,
+    locale === DEFAULT_LOCALE ? undefined : FORMAT_LOCALE[locale],
+  );
 }
 
 /**

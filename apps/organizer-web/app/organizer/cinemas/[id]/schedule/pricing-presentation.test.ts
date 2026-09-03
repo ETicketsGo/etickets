@@ -118,7 +118,7 @@ describe('deciding whether Save does anything', () => {
 describe('explaining what cannot be edited', () => {
   it('a sold category says how many and at what price', () => {
     expect(lockReason(cat({ locked: true, soldCount: 1, priceMinor: 30000 }))).toBe(
-      '1 seat has sold at ₹300.00, so this price is fixed for this show.',
+      '1 seat has sold at ₹300, so this price is fixed for this show.',
     );
     expect(lockReason(cat({ locked: true, soldCount: 7 }))).toContain('7 seats have sold');
   });
@@ -142,7 +142,7 @@ describe('explaining what cannot be edited', () => {
 describe('showing when tonight differs from the house price', () => {
   it('says so, because the layout is what the NEXT show inherits', () => {
     expect(differsFromHouse(cat({ priceMinor: 35000, basePriceMinor: 30000 }))).toBe(
-      'House price ₹300.00',
+      'House price ₹300',
     );
   });
 
@@ -162,6 +162,24 @@ describe('formatting', () => {
   });
 
   it('uses Indian grouping, since that is who reads it', () => {
-    expect(formatMinor(100_000_00)).toBe('₹1,00,000.00');
+    expect(formatMinor(100_000_00)).toBe('₹1,00,000');
+  });
+
+  it('shows paise only when the price HAS paise', () => {
+    /*
+      This screen used to print two decimals always while the storefront printed none, and
+      they were two of five copies of the same decision. Both now call one formatter: a
+      whole-rupee price is ₹250, and a price carrying paise says so rather than being
+      rounded into a number nobody is charging.
+    */
+    expect(formatMinor(250_00)).toBe('₹250');
+    expect(formatMinor(250_50)).toBe('₹250.50');
+    expect(formatMinor(250_05)).toBe('₹250.05');
+  });
+
+  it('still writes two decimals into the EDIT field, which is a different job', () => {
+    // An operator types into a bare number input; "250.00" tells them the field takes paise.
+    // Display and input are allowed to differ, and here they should.
+    expect(minorToInput(250_00)).toBe('250.00');
   });
 });

@@ -1,4 +1,5 @@
 import type { ShowPricing } from '@eticketsgo/web-kit';
+import { money } from '@eticketsgo/web-kit';
 
 /**
  * Turning what an operator types into what the server is allowed to be told.
@@ -17,11 +18,14 @@ export type PriceDraft = Record<string, string>;
 /** Paise → the string an operator edits. Two decimals always, so ₹250 reads as 250.00. */
 export const minorToInput = (minor: number): string => (minor / 100).toFixed(2);
 
-/** Paise → display. Grouped in the Indian convention because that is who this is for. */
-export const formatMinor = (minor: number, currency = 'INR'): string =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(
-    minor / 100,
-  );
+/**
+ * Paise → display, via the one formatter.
+ *
+ * Indian grouping still, because `money()` picks en-IN for rupees itself. What changes is
+ * that a whole-rupee price now reads ₹250 rather than ₹250.00, matching every other screen
+ * — this copy printed two decimals always while the storefront copy printed none.
+ */
+export const formatMinor = (minor: number, currency = 'INR'): string => money(minor, currency);
 
 export interface ParsedPrice {
   ticketTypeId: string;
