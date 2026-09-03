@@ -70,7 +70,10 @@ test('customer books a movie seat and pays', async ({ page }) => {
     or this would hold only for carts that happen to have no discount.
   */
   const trailingAmount = (line: string): number | null => {
-    const match = /(-?)\s*[^0-9-]*?([\d,]+\.\d{2})\s*$/.exec(line.trim());
+    // INR renders with maximumFractionDigits: 0 ("₹300"), everything else with two
+    // ("$300.00"), so the decimals are optional. Requiring them found nothing at all —
+    // which the length guard below caught rather than letting a sum of zero pass.
+    const match = /(-?)\s*[^0-9-]*?([\d,]+(?:\.\d{2})?)\s*$/.exec(line.trim());
     return match ? Number(match[2].replace(/,/g, '')) * (match[1] === '-' ? -1 : 1) : null;
   };
 
@@ -82,7 +85,12 @@ test('customer books a movie seat and pays', async ({ page }) => {
 
   expect(visible.length).toBeGreaterThan(1);
   expect(total).not.toBeNull();
-  expect(Math.abs(visible.reduce((a, b) => a + b, 0) - total!)).toBeLessThan(0.01);
+  /*
+    Tolerance of one unit per row, because INR is displayed rounded to whole rupees: a row
+    holding ₹55.22 prints "₹55", so the printed rows can differ from the printed total by
+    less than a rupee each. Anything larger is a row that genuinely disagrees.
+  */
+  expect(Math.abs(visible.reduce((a, b) => a + b, 0) - total!)).toBeLessThanOrEqual(visible.length);
 
   await expect(page.getByText(/full amount you will pay/i)).toBeVisible();
 
