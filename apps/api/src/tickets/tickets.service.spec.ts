@@ -58,7 +58,12 @@ describe('TicketsService.wallet', () => {
     expect(t.bookingRef).toBe('ETG-IND-2026-000042');
     expect(t.experienceType).toBe('EVENT');
     expect(t.venueName).toBe('Hall A');
-    expect(t.qrDataUrl.startsWith('data:image/png')).toBe(true);
+    // `qrDataUrl` became nullable when third-party barcodes arrived — a non-QR symbology
+    // is not rendered server-side, because encoding CODE128 content into a QR produces a
+    // scannable image of the wrong shape. Our own tickets always have one, so assert that
+    // rather than assuming it away.
+    expect(t.qrDataUrl).not.toBeNull();
+    expect(t.qrDataUrl!.startsWith('data:image/png')).toBe(true);
   });
 
   it('falls back to a derived short code when no reference is set (legacy booking)', async () => {

@@ -41,6 +41,21 @@ export const createBookingSchema = z
      * it on, so a client sending it cannot conjure the option — the same reason the
      * provider is never taken from the client either.
      */
+    /**
+     * The state or province the BUYER is in, when they tell us.
+     *
+     * ── WHY IT IS OPTIONAL, AND WHY IT IS ASKED AT ALL ─────────────────────────────
+     * India taxes a platform's service where the RECIPIENT is, so a Telangana buyer and a
+     * Maharashtra buyer paying the same convenience fee are owed to different governments —
+     * IGST across a border, CGST + SGST within one. The AMOUNT is identical either way,
+     * which is exactly why this can be optional: getting it wrong never overcharges anybody,
+     * it only misattributes at filing.
+     *
+     * Absent, the engine falls back to treating the sale as intra-state, which is also what
+     * the law does for an unregistered buyer with no address on record. So an empty field is
+     * a defined answer rather than a gap.
+     */
+    buyerRegion: z.string().trim().min(2).max(64).optional(),
     paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
   })
   .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
@@ -63,6 +78,9 @@ export const quoteBookingSchema = z
     addOns: z.array(addOnItemSchema).max(50).optional(),
     bundles: z.array(bundleItemInputSchema).max(20).optional(),
     couponCode: z.string().trim().max(40).optional(),
+    /** See `createBookingSchema.buyerRegion`. Quoted with it so the breakdown shown before
+     *  the buyer commits is the one they are charged. */
+    buyerRegion: z.string().trim().min(2).max(64).optional(),
   })
   .refine((v) => v.items.length + (v.addOns?.length ?? 0) + (v.bundles?.length ?? 0) >= 1, {
     message: 'Add at least one item to price.',

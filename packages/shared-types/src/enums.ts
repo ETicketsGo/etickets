@@ -395,6 +395,8 @@ export const CheckInResult = {
   INVALID: 'INVALID',
   CANCELLED: 'CANCELLED',
   WRONG_SESSION: 'WRONG_SESSION',
+  /** Valid, paid, and admitted by somebody else's scanner. See Ticket.vendorBarcode. */
+  EXTERNAL: 'EXTERNAL',
 } as const;
 export type CheckInResult = (typeof CheckInResult)[keyof typeof CheckInResult];
 

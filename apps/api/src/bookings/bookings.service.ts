@@ -308,6 +308,18 @@ export class BookingsService {
       */
       region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
       supplierRegion: session.event.organization?.registeredRegion ?? null,
+      /*
+        Where the BUYER is, which is a different question from where the event is.
+
+        Admission follows the venue; a platform's service follows the recipient. On one
+        Indian order that produces CGST + SGST on the ticket and IGST on the convenience
+        fee, which is exactly what a real competitor's order summary shows.
+
+        Optional, and safe to omit: the amount does not change either way, only which
+        government is owed it. Absent, the engine treats the sale as intra-state — the same
+        answer the law reaches for a buyer with no address on record.
+      */
+      customerRegion: input.buyerRegion?.trim() || null,
       at: now,
     };
     const fees = await this.pricing.quote(
@@ -406,6 +418,9 @@ export class BookingsService {
           couponId,
           buyerName: input.buyerName,
           buyerEmail: input.buyerEmail,
+          // Stored, not re-derived later: a GST invoice states the place of supply, and a
+          // registration or a rate can change after the sale. See the schema comment.
+          customerRegion: input.buyerRegion?.trim() || null,
           status: BookingStatus.PENDING_PAYMENT,
           // Settled here so confirmation and refund reach for the same strategy this hold
           // used, whatever happens to the session afterwards.
@@ -835,6 +850,9 @@ export class BookingsService {
         // and the booking that follows it must not disagree about either.
         region: session.event.venue?.region ?? session.event.organization?.registeredRegion ?? null,
         supplierRegion: session.event.organization?.registeredRegion ?? null,
+        // The comment above applies to this too: quote it with the buyer's state or the
+        // breakdown shown before they commit is not the one they are charged.
+        customerRegion: input.buyerRegion?.trim() || null,
         at: now,
       },
       this.admissionLinesFor(session.event, input.items, byId),
@@ -1042,6 +1060,12 @@ export class BookingsService {
         region:
           booking.event?.venue?.region ?? booking.event?.organization?.registeredRegion ?? null,
         supplierRegion: booking.event?.organization?.registeredRegion ?? null,
+        /*
+          Read from the booking, not re-derived. This runs after the buyer has committed, and
+          the place of supply that goes on their invoice is the one that applied when they
+          bought — not whatever a later lookup would return.
+        */
+        customerRegion: booking.customerRegion ?? null,
         at: new Date(),
       },
     );

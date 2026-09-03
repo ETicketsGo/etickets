@@ -168,9 +168,20 @@ async function main() {
         category: rule.category,
         minUnitMinor: rule.minUnitMinor ?? null,
         maxUnitMinor: rule.maxUnitMinor ?? null,
-        // Indian ticket prices are quoted inclusive of GST. Adding on top would raise every
-        // price by the rate the moment these are switched on.
-        inclusive: true,
+        /*
+          ── INCLUSIVE FOR THE TICKET, ADDED FOR THE FEE ────────────────────────────
+          These are not the same question and this line used to answer both with `true`.
+
+          A ticket price is quoted inclusive: the number on the poster is what you pay, so
+          the GST is extracted from it. Adding on top would raise every advertised price by
+          the rate the moment these rules were switched on.
+
+          The platform's fee is the opposite. A ₹20 band is ₹20 of fee, and the GST on that
+          supply is charged to the buyer — ₹23.60. Marked inclusive, the same ₹20 band would
+          have collected ₹20 from the buyer and remitted ₹3.05 of it, leaving the platform
+          ₹16.95 for a fee it had set at ₹20. Silently, and on every order.
+        */
+        inclusive: rule.appliesTo === 'TICKETS',
         // One levy, two lines intra-state (CGST + SGST) and one across a border (IGST).
         split: 'CGST_SGST',
         priority: rule.priority,

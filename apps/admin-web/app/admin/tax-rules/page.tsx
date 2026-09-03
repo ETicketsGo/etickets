@@ -432,9 +432,21 @@ export default function AdminTaxRules() {
               label="Charged on"
               disabled={editing?.active}
               value={draft.appliesTo}
-              onChange={(e) =>
-                setDraft({ ...draft, appliesTo: e.target.value as TaxRule['appliesTo'] })
-              }
+              onChange={(e) => {
+                /*
+                  Choosing what a rule is charged ON also answers whether the price already
+                  contains it, and the two answers are opposite. A ticket price is quoted
+                  inclusive — the number on the poster is what the buyer pays. A booking fee
+                  is quoted before its own tax: a ₹20 fee plus 18% is ₹23.60 to the buyer.
+
+                  Marked inclusive by mistake, that same ₹20 band collects ₹20 and remits
+                  ₹3.05 of it, leaving ₹16.95 for a fee set at ₹20 — on every order, and
+                  visible nowhere. So the sensible default moves with the choice. It is still
+                  a dropdown; this only stops the wrong answer being the one you inherit.
+                */
+                const appliesTo = e.target.value as TaxRule['appliesTo'];
+                setDraft({ ...draft, appliesTo, inclusive: appliesTo === 'TICKETS' });
+              }}
             >
               <option value="TICKETS">Tickets</option>
               <option value="FEES">Booking fee</option>

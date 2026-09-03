@@ -116,6 +116,36 @@ export class CheckinsService {
       });
     }
 
+    /*
+      A seat sourced from another cinema's system is admitted by THAT system. Their scanner
+      does not know our QR and ours cannot open their door, so marking the ticket used here
+      would tell the customer they were checked in while the gate still refuses them — and
+      would leave our records claiming an admission that never happened.
+
+      Reported as EXTERNAL rather than INVALID because it is a genuine, paid ticket. The
+      check-in log is a record people read; calling this invalid would be false in it.
+
+      Checked AFTER cancelled/refunded on purpose. A refunded external ticket should read as
+      refunded — that is the actionable fact for whoever is holding it. "Scanned elsewhere"
+      would send them to another gate that will also refuse them, with less to go on.
+    */
+    if (ticket.vendorBarcode) {
+      await this.log(
+        ticket.id,
+        ticket.eventSessionId,
+        CheckInResult.EXTERNAL,
+        staff.id,
+        opts.deviceInfo,
+      );
+      return this.withScanMetric({
+        result: CheckInResult.EXTERNAL,
+        message: ticket.vendorName
+          ? `Scanned at the venue by ${ticket.vendorName}. This ticket is not checked in here.`
+          : 'This seat is admitted by the venue’s own system, not here.',
+        ticket: summary,
+      });
+    }
+
     // Atomic transition ACTIVE -> CHECKED_IN prevents duplicate check-in races.
     const updated = await this.prisma.ticket.updateMany({
       where: { id: ticket.id, status: TicketStatus.ACTIVE },

@@ -2234,6 +2234,8 @@ export interface VenueFocalPoint {
 
 interface SeatLayoutBase {
   sessionId: string;
+  /** The VENUE's country, for anything that must behave differently by market. */
+  country: string | null;
   /** `id` is the seat category id; `ticketTypeId` is the session's price tier for it. */
   categories: {
     id: string;

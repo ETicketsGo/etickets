@@ -12,6 +12,7 @@ import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
+import { BuyerRegionField } from '@eticketsgo/web-kit';
 
 const MAX_SEATS = 10;
 
@@ -73,6 +74,8 @@ export default function SeatSelectionPage() {
     not need an overview to choose from.
   */
   const [sectionId, setSectionId] = useState<string | null>(null);
+  // Optional, and only rendered for Indian venues. See BuyerRegionField.
+  const [buyerRegion, setBuyerRegion] = useState('');
 
   const {
     data: layout,
@@ -192,12 +195,15 @@ export default function SeatSelectionPage() {
   );
 
   const quoteQ = useQuery({
-    queryKey: ['quote', sessionId, items, appliedCode],
+    // buyerRegion is part of the key: it can change the tax SPLIT on the fee, so a quote
+    // taken before the buyer chose their state is a different quote.
+    queryKey: ['quote', sessionId, items, appliedCode, buyerRegion],
     queryFn: () =>
       api.quoteBooking({
         eventSessionId: sessionId,
         items,
         ...(appliedCode ? { couponCode: appliedCode } : {}),
+        ...(buyerRegion ? { buyerRegion } : {}),
       }),
     enabled: items.length > 0 && items.every((i) => i.ticketTypeId),
     // A stale price is worse than a brief spinner: this is the number the buyer is agreeing
@@ -253,6 +259,7 @@ export default function SeatSelectionPage() {
         ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
         buyerName: me.fullName,
         buyerEmail: me.email,
+        ...(buyerRegion ? { buyerRegion } : {}),
       });
     },
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
@@ -686,6 +693,15 @@ export default function SeatSelectionPage() {
               prices for the same purchase. Sharing it also gives this screen its French,
               which the hardcoded version above never had.
             */}
+            {/* Above the breakdown, because it can change what the breakdown says. */}
+            <div className="mt-4">
+              <BuyerRegionField
+                value={buyerRegion}
+                onChange={setBuyerRegion}
+                country={layout?.country}
+              />
+            </div>
+
             <div className="mt-4">
               <PriceBreakdown
                 quote={quote}

@@ -95,6 +95,10 @@ export class TicketsService {
       holderName: string | null;
       assignmentStatus: string;
       attendeeUserId: string | null;
+      // Null on our own tickets; set when the seat came from another cinema's system.
+      vendorBarcode?: string | null;
+      vendorBarcodeFormat?: string | null;
+      vendorName?: string | null;
       booking: { reference: string | null; userId: string | null };
       ticketType: { name: string };
       eventSession: {
@@ -116,7 +120,24 @@ export class TicketsService {
       nonce: ticket.nonce,
       version: ticket.qrVersion,
     });
-    const qrDataUrl = await QRCode.toDataURL(token, { margin: 1, width: 320 });
+    /*
+      ── WHAT THE CUSTOMER PRESENTS AT THE DOOR ──────────────────────────────────────
+      For a seat sourced from another cinema's system, that is THEIR barcode. Their scanner
+      has never heard of ours, so rendering our QR gives the customer a code that will not
+      open the gate — and they find out at the door, holding a ticket they paid for.
+
+      Our signed token is still minted and still returned: it identifies the ticket to us,
+      for support and reconciliation. It just stops being the thing on the screen.
+
+      A non-QR symbology is not rendered here at all. Encoding CODE128 content into a QR
+      produces a scannable image of the wrong shape — worse than no image, because it looks
+      right. The client is told the format and the value and can render it properly.
+    */
+    const rendersAsQr = !ticket.vendorBarcode || (ticket.vendorBarcodeFormat ?? 'QR') === 'QR';
+    const presented = ticket.vendorBarcode ?? token;
+    const qrDataUrl = rendersAsQr
+      ? await QRCode.toDataURL(presented, { margin: 1, width: 320 })
+      : null;
     const { event, screen } = ticket.eventSession;
     return {
       id: ticket.id,
@@ -128,6 +149,10 @@ export class TicketsService {
       startsAt: ticket.eventSession.startsAt,
       qrToken: token,
       qrDataUrl,
+      // Null on our own tickets. Present means the gate is somebody else's.
+      vendorBarcode: ticket.vendorBarcode ?? null,
+      vendorBarcodeFormat: ticket.vendorBarcode ? (ticket.vendorBarcodeFormat ?? 'QR') : null,
+      vendorName: ticket.vendorName ?? null,
       // Additive fields for booking grouping + seat/screen context.
       bookingId: ticket.bookingId,
       // Prefer the real public reference; fall back to a derived short code for

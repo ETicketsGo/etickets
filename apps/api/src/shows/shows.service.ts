@@ -1937,6 +1937,11 @@ export class ShowsService {
       where: { id: sessionId },
       include: {
         ticketTypes: true,
+        // The venue's country, so the seat screen can ask an Indian buyer for their state
+        // and no one else. Derived from the venue rather than from the currency: currency
+        // follows the venue on this platform, and reading that relationship backwards is an
+        // inference where a fact is available.
+        event: { select: { venue: { select: { country: true } } } },
         // Skipped for the overview: a grouped count answers it without the rows.
         showSeats: !isSectionedOverview,
         seatMap: {
@@ -2037,6 +2042,7 @@ export class ShowsService {
         layoutKind: 'SECTIONED' as const,
         focal,
         categories,
+        country: session.event?.venue?.country ?? null,
         // No `sections[].rows` at all, deliberately: the client cannot accidentally render
         // a half-loaded seat grid, because there is nothing there to half-render.
         sections: seatMap.sections.map((sec) => {
@@ -2090,6 +2096,7 @@ export class ShowsService {
       layoutKind: seatMap.layoutKind,
       focal,
       categories,
+      country: session.event?.venue?.country ?? null,
       sections: (seatMap.sections as DetailedSection[]).map((s) => ({
         // Newly exposed so the client can ask for one block by id and, on the way back,
         // know which block it is looking at.

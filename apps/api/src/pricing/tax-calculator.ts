@@ -1,3 +1,5 @@
+import { regionMatches } from '@eticketsgo/shared-types';
+
 /**
  * Tax computation. Pure, deterministic, and — deliberately — ignorant of tax law.
  *
@@ -251,10 +253,24 @@ function crossesStateBorder(rule: TaxRuleInput, place: TaxPlace | undefined): bo
     platform is registered elsewhere. One order, two answers.
   */
   const isFee = rule.appliesTo === 'FEES';
-  const supply = (isFee ? place?.customerRegion : place?.region)?.trim().toUpperCase();
-  const supplier = (isFee ? place?.platformRegion : place?.supplierRegion)?.trim().toUpperCase();
-  if (!supply || !supplier) return false;
-  return supply !== supplier;
+  const supply = isFee ? place?.customerRegion : place?.region;
+  const supplier = isFee ? place?.platformRegion : place?.supplierRegion;
+  if (!supply?.trim() || !supplier?.trim()) return false;
+
+  /*
+    Compared through the alias table rather than by uppercasing both sides.
+
+    The three fields feeding this are typed by three different people at three different
+    times — a venue's region by an organizer, an organization's registered region during
+    onboarding, and a buyer's state at checkout. "TG", "36" and "Telangana" are one place,
+    and a string comparison makes them three. The failure is silent and goes one way only:
+    every sale looks inter-state, so every rupee is attributed to the wrong government while
+    the amount charged stays correct and nothing looks wrong to anybody.
+
+    A region the table does not recognise still compares as itself, so a Canadian province
+    is unaffected by any of this.
+  */
+  return !regionMatches(supply, supplier);
 }
 
 /**

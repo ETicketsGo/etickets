@@ -32,6 +32,7 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
+import { BuyerRegionField } from '@eticketsgo/web-kit';
 
 export default function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -52,6 +53,8 @@ export default function EventDetailPage() {
   });
 
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Optional, and only rendered for Indian venues. See BuyerRegionField.
+  const [buyerRegion, setBuyerRegion] = useState('');
   const [qty, setQty] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   /*
@@ -181,13 +184,16 @@ export default function EventDetailPage() {
     [bundles, bundleQty],
   );
   const quoteQ = useQuery({
-    queryKey: ['quote', session?.id, quoteItems, quoteAddOns, quoteBundles],
+    // buyerRegion is part of the key: it can change the tax SPLIT on the fee, so a quote
+    // taken before the buyer chose their state is a different quote.
+    queryKey: ['quote', session?.id, quoteItems, quoteAddOns, quoteBundles, buyerRegion],
     queryFn: () =>
       api.quoteBooking({
         eventSessionId: session!.id,
         items: quoteItems,
         ...(quoteAddOns.length ? { addOns: quoteAddOns } : {}),
         ...(quoteBundles.length ? { bundles: quoteBundles } : {}),
+        ...(buyerRegion ? { buyerRegion } : {}),
       }),
     // A free event has no fees to quote, and a seated one is priced on the seat map.
     enabled:
@@ -266,6 +272,7 @@ export default function EventDetailPage() {
           .map((b) => ({ bundleId: b.id, quantity: bundleQty[b.id] })),
         buyerName: me.fullName,
         buyerEmail: me.email,
+        ...(buyerRegion ? { buyerRegion } : {}),
       });
     },
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
@@ -747,6 +754,17 @@ export default function EventDetailPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Above the breakdown, because it can change what the breakdown says. */}
+                {!event.isFree && (
+                  <div className="mt-4">
+                    <BuyerRegionField
+                      value={buyerRegion}
+                      onChange={setBuyerRegion}
+                      country={event.venue?.country}
+                    />
                   </div>
                 )}
 

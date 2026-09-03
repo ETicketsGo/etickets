@@ -97,7 +97,12 @@ export class WalletPassService {
       seatLabel: ticket.seatLabel,
       venueName: ticket.venueName,
       bookingRef: ticket.bookingRef,
-      qrToken: ticket.qrToken,
+      /*
+        The wallet pass carries whatever opens the gate. For a seat sourced from another
+        cinema's system that is their barcode, not our signed token — a pass showing our QR
+        is a pass that does not work, discovered at the door.
+      */
+      qrToken: ticket.vendorBarcode ?? ticket.qrToken,
     };
     const adapter = provider === 'apple' ? this.apple : this.google;
     const result = adapter.build(cfg, projection);
