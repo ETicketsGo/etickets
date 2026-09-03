@@ -334,6 +334,7 @@ jobs:
         env:
           BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
           EXPECTED_ENV: ${{ needs.resolve.outputs.app_env }}
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ]; then
@@ -361,8 +362,18 @@ jobs:
           # writing output to destination" — and `set -e` fails the step. So the check
           # failed *because the metrics were correct*, reporting a healthy QA deploy as
           # broken. The larger the payload the more reliably it happened.
-          curl -fsS "$BASE_URL/api/metrics" -o /tmp/metrics.txt
-          grep -q 'etg_' /tmp/metrics.txt
-          echo "  metrics  ok"
+          #
+          # The endpoint now requires METRICS_TOKEN (it publishes etg_gmv_minor_total, so
+          # it stopped being public). Without the secret the route answers 404 BY DESIGN in
+          # a deployed environment, so this degrades to a warning rather than reporting a
+          # healthy deploy as broken — the same shape as the worker-readiness gate below.
+          if [ -z "${METRICS_TOKEN:-}" ]; then
+            echo "::warning::METRICS_TOKEN not set on this GitHub Environment — metrics check skipped."
+            echo "  Set it to the same value as the METRICS_TOKEN variable on the Railway service."
+          else
+            curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" "$BASE_URL/api/metrics" -o /tmp/metrics.txt
+            grep -q 'etg_' /tmp/metrics.txt
+            echo "  metrics  ok"
+          fi
 
           echo "Smoke test passed for $EXPECTED_ENV."

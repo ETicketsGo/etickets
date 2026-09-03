@@ -23,6 +23,15 @@ const envSchema = z.object({
   // (duration + target only, no SQL/params) and counted in etg_slow_queries_total.
   SLOW_QUERY_MS: z.coerce.number().default(500),
   // Error tracking (Sentry). No DSN ⇒ Sentry is never initialised.
+  /*
+    Bearer credential for GET /api/metrics, and for the worker's own :WORKER_PORT/metrics.
+
+    Optional here on purpose. Unset on a developer's machine keeps the endpoint open, so
+    dev, jest, vitest and Playwright are unaffected. Unset in ANY deployed environment
+    turns the endpoint off instead — see `metricsAccess` in @eticketsgo/shared-types for
+    why that asymmetry is the safe way round.
+  */
+  METRICS_TOKEN: z.string().min(16).optional(),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_RELEASE: z.string().optional(),

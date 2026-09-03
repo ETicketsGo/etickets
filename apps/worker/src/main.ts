@@ -24,6 +24,7 @@ import {
   bullConnectionFromUrl,
   bullPrefix,
 } from '@eticketsgo/api';
+import { metricsAccess } from '@eticketsgo/shared-types';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -409,8 +410,26 @@ async function main(): Promise<void> {
   // Minimal health/readiness + Prometheus metrics endpoint.
   const health = createServer(async (req, res) => {
     if (req.url === '/metrics') {
-      // The worker owns the queue, so it exposes queue metrics itself; Prometheus
-      // scrapes both API (:4000/api/metrics) and worker (:4100/metrics).
+      /*
+        The worker owns the queue, so it exposes queue metrics itself; Prometheus scrapes
+        both API (:4000/api/metrics) and worker (:4100/metrics).
+
+        Same scrape token as the API, decided by the same function, because two
+        implementations of one access rule drift and the half that drifts is the half
+        nobody is looking at. The worker has no public Railway domain today — this is here
+        so that giving it one later is not silently the moment queue metrics go public.
+      */
+      const decision = metricsAccess({
+        token: process.env.METRICS_TOKEN,
+        authorization: req.headers.authorization,
+        appEnv: process.env.APP_ENV,
+      });
+      if (decision !== 'allow') {
+        const status = decision === 'disabled' ? 404 : 401;
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: status === 404 ? 'Not found' : 'Unauthorized' }));
+        return;
+      }
       const { body, contentType } = await renderWorkerMetrics();
       res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
       res.end(body);

@@ -2,7 +2,7 @@
   "name": "@eticketsgo/worker",
   "version": "0.1.0",
   "private": true,
-  "description": "ETicketsGo background worker — scheduled hold/booking expiry.",
+  "description": "ETicketsGo background worker \u2014 scheduled hold/booking expiry.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "ts-node --transpile-only src/main.ts",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@eticketsgo/api": "*",
+    "@eticketsgo/shared-types": "*",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@sentry/node": "^10.69.0",

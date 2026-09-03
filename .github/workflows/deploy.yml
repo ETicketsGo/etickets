@@ -162,6 +162,7 @@ jobs:
         env:
           # Set per environment; falls back to the production base URL.
           BASE_URL: ${{ vars.DEPLOY_BASE_URL || secrets.PRODUCTION_BASE_URL }}
+          METRICS_TOKEN: ${{ secrets.METRICS_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${BASE_URL:-}" ]; then
@@ -171,5 +172,11 @@ jobs:
           echo "Smoke-testing $BASE_URL ..."
           curl -fsS "$BASE_URL/api/health"  | tee /dev/stderr | grep -q '"status":"ok"'
           curl -fsS "$BASE_URL/api/ready"   >/dev/null
-          curl -fsS "$BASE_URL/api/metrics" | grep -q 'etg_'
+          # Metrics requires a scrape token now (the endpoint publishes GMV). Unset means
+          # the route answers 404 by design, so warn rather than fail a healthy deploy.
+          if [ -z "${METRICS_TOKEN:-}" ]; then
+            echo "::warning::METRICS_TOKEN not set — metrics smoke check skipped."
+          else
+            curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" "$BASE_URL/api/metrics" | grep -q 'etg_'
+          fi
           echo "Smoke test passed."
