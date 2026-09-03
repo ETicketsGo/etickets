@@ -1322,7 +1322,12 @@ export const api = {
      */
     updateFeeRule: (
       id: string,
-      patch: Partial<Pick<FeeRule, 'label' | 'minMinor' | 'maxMinor' | 'feeMinor' | 'active'>>,
+      patch: Partial<
+        Pick<
+          FeeRule,
+          'label' | 'minMinor' | 'maxMinor' | 'feeMinor' | 'country' | 'region' | 'active'
+        >
+      >,
     ) =>
       request<FeeRule>(`/admin/fee-rules/${id}`, {
         method: 'PATCH',
@@ -1687,6 +1692,17 @@ export interface BookingResult {
     bookingFeeMinor: number;
     paymentFeeMinor: number;
     customerFeeMinor: number;
+    /**
+     * The platform fee ALL-IN — what it costs the customer once its own tax is counted.
+     *
+     * One number rather than two, because "what does this platform charge me" has one answer
+     * and neither the base nor the tax on it is that answer. Optional so an older API keeps
+     * working; the client falls back to `customerFeeMinor`.
+     */
+    customerFeeInclusiveMinor?: number;
+    /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
+    feeTaxRateBasisPoints?: number;
+    feeTaxMinor?: number;
     totalMinor: number;
     discountMinor: number;
     /** Zero unless the seller's market has a configured tax rule. */
@@ -3486,6 +3502,15 @@ export interface FeeRule {
   maxMinor: number | null;
   feeMinor: number;
   currency: string;
+  /**
+   * Where the band applies — '*' for anywhere.
+   *
+   * A rule naming a region beats one naming only a country, which beats the wildcard, and
+   * the winning specificity supplies the WHOLE schedule. Several Indian states cap what may
+   * be charged for booking a cinema ticket online, which one national band cannot express.
+   */
+  country: string;
+  region: string;
   active: boolean;
 }
 

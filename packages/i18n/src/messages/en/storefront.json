@@ -32,7 +32,9 @@
     "venueHeading": "Venue",
     "organizerHeading": "Organizer",
     "getDirections": "Get directions",
-    "selectTickets": "Select tickets"
+    "selectTickets": "Select tickets",
+    "platformFee": "Platform fee",
+    "platformFeeInclusive": "Platform fee (incl. {rate} GST)"
   },
   "seats": {
     "heading": "Choose your seats",

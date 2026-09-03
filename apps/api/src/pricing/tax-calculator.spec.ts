@@ -41,7 +41,16 @@ describe('computeTax', () => {
   it('TICKETS taxes the discounted subtotal only', () => {
     const r = computeTax({ netSubtotalMinor: 100_000, customerFeeMinor: 4_040, rules: [rule()] });
     expect(r.taxLines).toEqual([
-      { label: 'Test tax', rateBasisPoints: 1_000, baseMinor: 100_000, amountMinor: 10_000 },
+      {
+        label: 'Test tax',
+        rateBasisPoints: 1_000,
+        baseMinor: 100_000,
+        amountMinor: 10_000,
+        // Each line now says what it was levied on and whether it sat inside the price, so a
+        // caller asking "what did the booking fee cost in total" never has to infer it.
+        basis: 'TICKETS',
+        inclusive: false,
+      },
     ]);
   });
 

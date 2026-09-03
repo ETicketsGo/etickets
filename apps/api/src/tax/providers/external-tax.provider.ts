@@ -150,6 +150,14 @@ export function fromVendorResponse(provider: string, body: unknown): TaxQuoteRes
       rateBasisPoints: l.rateBasisPoints as number,
       baseMinor: l.baseMinor as number,
       amountMinor: l.amountMinor as number,
+      /*
+        A vendor's line is tax owed ON an amount, added to it — the same reasoning as
+        `taxAddedMinor` below. It is attributed to tickets because an external tax service is
+        answering about the sale, not about our booking fee, which the request sends as its
+        own line and which we do not currently ask a vendor to rate separately.
+      */
+      basis: 'TICKETS' as const,
+      inclusive: false,
     };
   });
   const taxMinor = taxLines.reduce((sum, l) => sum + l.amountMinor, 0);

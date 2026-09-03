@@ -32,7 +32,19 @@ export interface QuotedFees {
   discountMinor: number;
   bookingFeeMinor: number;
   paymentFeeMinor: number;
-  taxLines?: { label: string; rateBasisPoints: number; amountMinor: number }[];
+  /** The platform fee all-in. Falls back to booking + payment fee on an older API. */
+  customerFeeInclusiveMinor?: number;
+  customerFeeMinor?: number;
+  /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
+  feeTaxRateBasisPoints?: number;
+  feeTaxMinor?: number;
+  taxLines?: {
+    label: string;
+    rateBasisPoints: number;
+    amountMinor: number;
+    /** What the line was levied on. Absent on an older API, which lists everything. */
+    basis?: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+  }[];
   totalMinor: number;
 }
 
@@ -73,6 +85,16 @@ export function PriceBreakdown({
   const t = useTranslations('storefront.event');
   const currency = quote?.currency;
 
+  /*
+    All-in when the API supplies it, and the two fee components added together when it does
+    not — an older API is still correct, just without the tax folded in.
+  */
+  const platformFeeMinor =
+    quote?.customerFeeInclusiveMinor ??
+    quote?.customerFeeMinor ??
+    (quote ? quote.bookingFeeMinor + quote.paymentFeeMinor : 0);
+  const feeRate = quote?.feeTaxRateBasisPoints ?? 0;
+
   if (free) {
     return (
       <div className="border-t border-border pt-4">
@@ -93,19 +115,43 @@ export function PriceBreakdown({
           {quote.discountMinor > 0 && (
             <Line label={t('lineDiscount')} value={`- ${money(quote.discountMinor, currency)}`} />
           )}
-          {quote.bookingFeeMinor > 0 && (
-            <Line label={t('lineBookingFee')} value={money(quote.bookingFeeMinor, currency)} />
-          )}
-          {quote.paymentFeeMinor > 0 && (
-            <Line label={t('linePaymentFee')} value={money(quote.paymentFeeMinor, currency)} />
-          )}
-          {(quote.taxLines ?? []).map((tax) => (
+          {/*
+            ── ONE ROW FOR WHAT THE PLATFORM COSTS ────────────────────────────────────
+            The booking fee, the payment fee and the tax charged on them were three separate
+            lines. None of them answers the question a customer is actually asking, and
+            adding three numbers to find out is work we were handing them.
+
+            So it is one row, and the label says what is inside it — "Platform fee (incl. 18%
+            GST)". The itemised tax lines below the total still carry the rate and the taxable
+            value, because an invoice needs those and a customer does not.
+          */}
+          {platformFeeMinor > 0 && (
             <Line
-              key={`${tax.label}-${tax.rateBasisPoints}`}
-              label={`${tax.label} (${ratePercent(tax.rateBasisPoints)}%)`}
-              value={money(tax.amountMinor, currency)}
+              label={
+                feeRate > 0
+                  ? t('platformFeeInclusive', { rate: `${ratePercent(feeRate)}%` })
+                  : t('platformFee')
+              }
+              value={money(platformFeeMinor, currency)}
             />
-          ))}
+          )}
+          {/*
+            Tax on the FEE is already stated in the fee row above, so listing it again here
+            would show the same rupees twice. Tax on the TICKETS still needs itemising.
+
+            Filtered on `basis`, which the API states — comparing amounts to work out which
+            line was the fee's is a guess, and it is wrong the moment two lines happen to be
+            equal. An older API sends no basis and everything is listed, as before.
+          */}
+          {(quote.taxLines ?? [])
+            .filter((tax) => tax.basis !== 'FEES')
+            .map((tax) => (
+              <Line
+                key={`${tax.label}-${tax.rateBasisPoints}`}
+                label={`${tax.label} (${ratePercent(tax.rateBasisPoints)}%)`}
+                value={money(tax.amountMinor, currency)}
+              />
+            ))}
         </div>
       ) : null}
 

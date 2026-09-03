@@ -114,12 +114,19 @@ export class AdminService {
       minMinor: number;
       maxMinor: number | null;
       feeMinor: number;
+      country?: string;
+      region?: string;
       active?: boolean;
     },
   ) {
     const active = input.active ?? true;
     this.assertBandShape(input.minMinor, input.maxMinor);
-    if (active) await this.assertNoOverlap(input.currency, input.minMinor, input.maxMinor, null);
+    if (active) {
+      await this.assertNoOverlap(input.currency, input.minMinor, input.maxMinor, null, {
+        country: input.country ?? '*',
+        region: input.region ?? '*',
+      });
+    }
 
     const created = await this.prisma.feeRule.create({
       data: {
@@ -128,6 +135,8 @@ export class AdminService {
         minMinor: input.minMinor,
         maxMinor: input.maxMinor,
         feeMinor: input.feeMinor,
+        country: input.country ?? '*',
+        region: input.region ?? '*',
         active,
       },
     });
@@ -161,15 +170,31 @@ export class AdminService {
   }
 
   /** Fees resolve by first match, so overlapping active bands make the charge order-dependent. */
+  /**
+   * Two bands may not cover the same amount IN THE SAME PLACE.
+   *
+   * ── WHY THE PLACE IS PART OF THE QUESTION ──────────────────────────────────────
+   * Overlap used to be judged per currency, which was right while a currency was the only
+   * scope a band had. Now that a band can name a country and a state, a Telangana ₹5 rule and
+   * a national ₹20 rule cover the same amounts on purpose — the state one replaces the
+   * national one where it applies. Judging those as a clash would make the feature
+   * unusable by refusing exactly the edit it exists to allow.
+   *
+   * So the comparison is within one (currency, country, region) scope. Across scopes,
+   * specificity decides — see `PricingService.loadTiers`.
+   */
   private async assertNoOverlap(
     currency: string,
     minMinor: number,
     maxMinor: number | null,
     excludeId: string | null,
+    scope: { country: string; region: string } = { country: '*', region: '*' },
   ): Promise<void> {
     const siblings = await this.prisma.feeRule.findMany({
       where: {
         currency,
+        country: scope.country,
+        region: scope.region,
         active: true,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
@@ -177,9 +202,15 @@ export class AdminService {
     const hi = (m: number | null) => (m === null ? Number.MAX_SAFE_INTEGER : m);
     const clash = siblings.find((s) => minMinor <= hi(s.maxMinor) && s.minMinor <= hi(maxMinor));
     if (clash) {
+      const where =
+        scope.region !== '*'
+          ? `${scope.region}, ${scope.country}`
+          : scope.country !== '*'
+            ? scope.country
+            : 'everywhere';
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
-        `This band overlaps the active rule "${clash.label}" in ${currency}. Fees are resolved by first match, so overlapping bands make the charge depend on row order.`,
+        `This band overlaps the active rule "${clash.label}" for ${currency} in ${where}. Fees are resolved by first match, so overlapping bands in one place make the charge depend on row order.`,
       );
     }
   }
@@ -192,6 +223,8 @@ export class AdminService {
       minMinor?: number;
       maxMinor?: number | null;
       feeMinor?: number;
+      country?: string;
+      region?: string;
       active?: boolean;
     },
   ) {
@@ -203,6 +236,8 @@ export class AdminService {
       minMinor: patch.minMinor ?? existing.minMinor,
       maxMinor: patch.maxMinor === undefined ? existing.maxMinor : patch.maxMinor,
       feeMinor: patch.feeMinor ?? existing.feeMinor,
+      country: patch.country ?? existing.country,
+      region: patch.region ?? existing.region,
       active: patch.active ?? existing.active,
     };
 
@@ -210,7 +245,10 @@ export class AdminService {
     // fall-through tier, and an overlap makes the charge depend on row order.
     this.assertBandShape(next.minMinor, next.maxMinor);
     if (next.active) {
-      await this.assertNoOverlap(existing.currency, next.minMinor, next.maxMinor, id);
+      await this.assertNoOverlap(existing.currency, next.minMinor, next.maxMinor, id, {
+        country: next.country,
+        region: next.region,
+      });
     }
 
     const updated = await this.prisma.feeRule.update({ where: { id }, data: next });

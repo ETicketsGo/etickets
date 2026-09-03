@@ -31,6 +31,8 @@ interface Draft {
   minMinor: string;
   maxMinor: string;
   feeMinor: string;
+  country: string;
+  region: string;
   active: boolean;
 }
 
@@ -39,8 +41,18 @@ const toDraft = (r: FeeRule): Draft => ({
   minMinor: String(r.minMinor),
   maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
   feeMinor: String(r.feeMinor),
+  country: r.country ?? '*',
+  region: r.region ?? '*',
   active: r.active,
 });
+
+/** Where a band applies, for the list. */
+const scopeOf = (r: FeeRule): string =>
+  r.region && r.region !== '*'
+    ? `${r.region}, ${r.country}`
+    : r.country && r.country !== '*'
+      ? r.country
+      : 'Everywhere';
 
 export default function AdminSettings() {
   const qc = useQueryClient();
@@ -91,7 +103,16 @@ export default function AdminSettings() {
   const openCreator = (currency: string) => {
     setCreatingCurrency(currency);
     // Blank draft; the API validates the band against the existing ones in this currency.
-    setDraft({ label: '', minMinor: '', maxMinor: '', feeMinor: '', active: true });
+    setDraft({
+      label: '',
+      minMinor: '',
+      maxMinor: '',
+      feeMinor: '',
+      // Anywhere by default: a new band is a national one unless somebody narrows it.
+      country: '*',
+      region: '*',
+      active: true,
+    });
   };
 
   const openEditor = (rule: FeeRule) => {
@@ -108,6 +129,8 @@ export default function AdminSettings() {
       minMinor: Number(draft.minMinor),
       maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
       feeMinor: Number(draft.feeMinor),
+      country: draft.country.trim() || '*',
+      region: draft.region.trim() || '*',
       active: draft.active,
     };
     if (creatingCurrency) {
@@ -127,6 +150,15 @@ export default function AdminSettings() {
 
   const columns = (currency: string): Column<FeeRule>[] => [
     { key: 'label', header: 'Band', render: (r) => r.label },
+    {
+      key: 'scope',
+      header: 'Applies',
+      render: (r) => (
+        <span className={r.region !== '*' ? 'font-medium' : 'text-text-secondary'}>
+          {scopeOf(r)}
+        </span>
+      ),
+    },
     { key: 'min', header: 'From', render: (r) => money(r.minMinor, currency) },
     {
       key: 'max',
@@ -208,6 +240,16 @@ export default function AdminSettings() {
             edit, because first-match resolution would make the fee depend on row order.
           </li>
           <li>Leave the upper bound empty for the top band (&ldquo;and above&rdquo;).</li>
+          <li>
+            A band naming a <strong>state</strong> beats one naming only a country, which beats{' '}
+            <code>*</code>. The winning scope supplies the <strong>whole</strong> schedule — a
+            state&rsquo;s bands replace the national ones rather than mixing with them, so a partial
+            state schedule does not silently inherit a national band.
+          </li>
+          <li>
+            Bands may only overlap <em>across</em> scopes. Two bands covering the same amount in the
+            same place is still refused, because the charge would depend on row order.
+          </li>
           <li>Every change is recorded in the audit log with its before and after values.</li>
         </ul>
       </Card>
@@ -252,6 +294,26 @@ export default function AdminSettings() {
               value={draft.feeMinor}
               onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
             />
+            {/*
+              Where the band applies.
+
+              Fees were scoped by currency alone, which is not the unit anybody regulates —
+              several Indian states cap what may be charged for booking a cinema ticket
+              online. A rule naming a state replaces the national schedule where it applies,
+              so a national default can stay exactly as it is.
+            */}
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Country (* for anywhere)"
+                value={draft.country}
+                onChange={(e) => setDraft({ ...draft, country: e.target.value })}
+              />
+              <Input
+                label="State / province (* for all)"
+                value={draft.region}
+                onChange={(e) => setDraft({ ...draft, region: e.target.value })}
+              />
+            </div>
             <Select
               label="Active"
               value={draft.active ? 'yes' : 'no'}

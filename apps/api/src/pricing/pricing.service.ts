@@ -33,13 +33,54 @@ export class PricingService {
    * Falls back to the built-in India defaults when a currency has no configured rules, which
    * preserves the previous behaviour for an empty table.
    */
-  private async loadTiers(currency: string): Promise<FeeTier[]> {
+  /**
+   * The fee bands that apply where this sale is happening.
+   *
+   * ── WHY LOCATION AND NOT ONLY CURRENCY ─────────────────────────────────────────
+   * Fees were selected by currency alone, which is not the unit anybody regulates. Several
+   * Indian states cap what may be charged for booking a cinema ticket online, and the cap
+   * differs by state — so one INR band cannot be correct for the whole country.
+   *
+   * ── MOST SPECIFIC WINS, AND ONLY ONE SET APPLIES ───────────────────────────────
+   * A rule naming a region beats one naming only a country, which beats the wildcard. The
+   * winning specificity takes the WHOLE band set: mixing a Telangana ₹5 band with a national
+   * ₹20 band would produce a fee schedule nobody wrote, where the charge depends on which
+   * band an order happens to fall in rather than on a decision somebody made.
+   */
+  private async loadTiers(
+    currency: string,
+    place: { country?: string | null; region?: string | null } = {},
+  ): Promise<FeeTier[]> {
     const rules = await this.prisma.feeRule.findMany({
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
     if (rules.length === 0) return DEFAULT_FEE_TIERS;
-    return rules.map((r) => ({ minMinor: r.minMinor, maxMinor: r.maxMinor, feeMinor: r.feeMinor }));
+
+    const matches = (ruleValue: string, actual: string | null | undefined): boolean => {
+      const v = (ruleValue ?? '*').trim();
+      if (v === '*' || v === '') return true;
+      if (actual == null) return false;
+      return v.toUpperCase() === actual.trim().toUpperCase();
+    };
+
+    const applicable = rules.filter(
+      (r) => matches(r.country, place.country) && matches(r.region, place.region),
+    );
+    if (applicable.length === 0) return DEFAULT_FEE_TIERS;
+
+    /*
+      Specificity is counted, not guessed: a named region scores 2, a named country 1. Taking
+      the highest score present and keeping only those rules means a state's schedule replaces
+      the national one wholesale rather than being blended into it.
+    */
+    const score = (r: { country: string; region: string }) =>
+      (r.region !== '*' ? 2 : 0) + (r.country !== '*' ? 1 : 0);
+    const best = Math.max(...applicable.map(score));
+
+    return applicable
+      .filter((r) => score(r) === best)
+      .map((r) => ({ minMinor: r.minMinor, maxMinor: r.maxMinor, feeMinor: r.feeMinor }));
   }
 
   /**
@@ -63,7 +104,12 @@ export class PricingService {
      */
     admissionLines?: { unitPriceMinor: number; quantity: number; category?: string | null }[],
   ): Promise<FeeCalcResult> {
-    const tiers = await this.loadTiers(currency);
+    // The venue's location decides the fee schedule, for the same reason it decides the
+    // admission's place of supply: a cap applies to the sale that happens there.
+    const tiers = await this.loadTiers(currency, {
+      country: taxPlace.country,
+      region: taxPlace.region,
+    });
     // Fees first, with no tax, because tax is levied on what the customer is actually
     // charged — the discounted ticket price plus their share of the fees.
     const fees = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
@@ -104,10 +150,45 @@ export class PricingService {
       by the rate. An exclusive tax reports the same number in both fields, so this is
       identical to the previous line for every market that adds tax at the till.
     */
+    /*
+      ── ONE ROW FOR THE PLATFORM FEE ───────────────────────────────────────────────
+      A customer wants to know what the platform costs them, once. Splitting that into a fee
+      and a tax on the fee, two rows apart, asks them to do arithmetic to answer it — and on a
+      ₹40 fee the two numbers are ₹40.00 and ₹7.20, neither of which is the answer.
+
+      So the fee is also reported ALL-IN, with the rate that is inside it, and the storefront
+      renders "Platform fee (incl. GST 18%)  ₹47.20".
+
+      Reported ALONGSIDE the itemisation rather than instead of it. A tax invoice must still
+      show the taxable value and the rate, and `taxLines` is untouched — this is a second view
+      of the same money, not a replacement for it.
+
+      Only tax charged ON THE FEE counts here. Admission tax belongs to the ticket, and
+      folding it in would make the fee look like most of the order.
+    */
+    const feeTaxLines = taxLines.filter((l) => l.basis === 'FEES');
+    const feeTaxMinor = feeTaxLines.reduce((sum, l) => sum + l.amountMinor, 0);
+    // CGST 9% + SGST 9% is one 18% levy to a reader, so the components are summed.
+    const feeTaxRateBasisPoints = feeTaxLines.reduce((sum, l) => sum + l.rateBasisPoints, 0);
+    // Added tax makes the fee cost more; inclusive tax was already inside it.
+    const addedFeeTaxMinor = feeTaxLines
+      .filter((l) => !l.inclusive)
+      .reduce((sum, l) => sum + l.amountMinor, 0);
+
     return {
       ...fees,
       taxLines,
       taxMinor,
+      /**
+       * What the platform fee costs the customer in total, tax included.
+       *
+       * Equal to `customerFeeMinor` when the fee's tax is inclusive (it was already inside)
+       * and to fee + tax when it is added. Either way it is the single number to show.
+       */
+      customerFeeInclusiveMinor: fees.customerFeeMinor + addedFeeTaxMinor,
+      /** The combined rate inside that figure — 1800 for an 18% GST, 0 when untaxed. */
+      feeTaxRateBasisPoints,
+      feeTaxMinor,
       totalMinor: fees.netSubtotalMinor + fees.customerFeeMinor + taxAddedMinor,
     };
   }

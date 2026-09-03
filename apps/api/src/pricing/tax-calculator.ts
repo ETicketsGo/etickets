@@ -155,6 +155,19 @@ export interface TaxLine {
   /** The amount the rate was applied to. */
   baseMinor: number;
   amountMinor: number;
+  /**
+   * What this line was levied on, and whether it sat inside the price.
+   *
+   * Stated rather than inferred. A caller wanting "how much did the booking fee cost in
+   * total" was reduced to comparing `baseMinor` against the fee and guessing — which is
+   * wrong the moment the tax is inclusive, because then the base is the fee MINUS its own
+   * tax. Two fields remove the guess entirely.
+   *
+   * Not persisted on `BookingTaxLine`: the stored row keeps label, rate, base and amount,
+   * which is what a receipt and an auditor need.
+   */
+  basis: TaxBaseKind;
+  inclusive: boolean;
 }
 
 export interface TaxCalcResult {
@@ -436,6 +449,8 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
         rateBasisPoints: component.rateBasisPoints,
         baseMinor: taxableMinor,
         amountMinor: amounts[i],
+        basis: rule.appliesTo,
+        inclusive: Boolean(rule.inclusive),
       });
       if (!rule.inclusive) taxAddedMinor += amounts[i];
     });

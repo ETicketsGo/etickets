@@ -32,7 +32,9 @@
     "venueHeading": "Lieu",
     "organizerHeading": "Organisateur",
     "getDirections": "Itinéraire",
-    "selectTickets": "Choisir vos billets"
+    "selectTickets": "Choisir vos billets",
+    "platformFee": "Frais de service",
+    "platformFeeInclusive": "Frais de service (TPS de {rate} incluse)"
   },
   "seats": {
     "heading": "Choisissez vos sièges",

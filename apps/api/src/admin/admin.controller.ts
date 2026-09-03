@@ -21,6 +21,9 @@ const feeRulePatchSchema = z
     minMinor: z.number().int().min(0).optional(),
     maxMinor: z.number().int().min(0).nullable().optional(),
     feeMinor: z.number().int().min(0).optional(),
+    // Where the band applies. '*' is anywhere; a named region beats a named country.
+    country: z.string().trim().max(60).optional(),
+    region: z.string().trim().max(60).optional(),
     active: z.boolean().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update.' });
@@ -41,6 +44,8 @@ const feeRuleCreateSchema = z.object({
   minMinor: z.number().int().min(0),
   maxMinor: z.number().int().min(0).nullable(),
   feeMinor: z.number().int().min(0),
+  country: z.string().trim().max(60).optional(),
+  region: z.string().trim().max(60).optional(),
   active: z.boolean().optional(),
 });
 

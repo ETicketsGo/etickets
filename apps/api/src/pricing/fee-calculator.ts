@@ -51,6 +51,18 @@ export interface FeeCalcResult {
   organizerFeeMinor: number;
   /** Itemised tax, one entry per applicable rule. Empty unless tax is configured. */
   taxLines: TaxLine[];
+  /**
+   * The platform fee ALL-IN — what it actually costs the customer, tax included.
+   *
+   * One number rather than two, because "what does this platform charge me" has one answer
+   * and neither ₹40.00 nor ₹7.20 is it. Equal to `customerFeeMinor` when the fee's tax was
+   * already inside it.
+   */
+  customerFeeInclusiveMinor?: number;
+  /** The combined rate inside that figure — 1800 for an 18% GST, 0 when untaxed. */
+  feeTaxRateBasisPoints?: number;
+  /** The tax component of the all-in fee. */
+  feeTaxMinor?: number;
   /** Total tax the customer pays, the sum of `taxLines`. Zero unless tax is configured. */
   taxMinor: number;
   /** Amount charged to the customer, tax included. */

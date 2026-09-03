@@ -2096,17 +2096,34 @@ model BookingReferenceCounter {
 
 // Configurable, tiered platform fee rules. Admin-managed (section 13).
 model FeeRule {
-  id        String   @id @default(cuid())
-  label     String
-  minMinor  Int
-  maxMinor  Int?
-  feeMinor  Int
-  currency  String   @default("INR")
+  id       String @id @default(cuid())
+  label    String
+  minMinor Int
+  maxMinor Int?
+  feeMinor Int
+  currency String @default("INR")
+
+  /// Where this band applies — '*' for anywhere.
+  ///
+  /// ── WHY A FEE HAS TO KNOW WHERE IT IS ─────────────────────────────────────────
+  /// Fees were scoped by CURRENCY alone, which is not the unit anybody regulates. Several
+  /// Indian states cap what may be charged for booking a cinema ticket online, and the cap
+  /// differs by state and by the class of theatre — so one INR band cannot be right for the
+  /// whole country.
+  ///
+  /// Matched most-specific-first: a rule naming a region beats one naming only a country,
+  /// which beats the wildcard. That way a national default keeps working and one state can
+  /// be given its own number without editing anything else.
+  country String @default("*")
+  /// State / province. Compared against the VENUE's, because a cap is on the sale that
+  /// happens there — not on where the buyer happens to be sitting.
+  region  String @default("*")
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([active])
+  @@index([active, country, region])
 }
 
 /// What a tax rule is levied on.
