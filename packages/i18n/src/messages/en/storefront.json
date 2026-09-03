@@ -34,7 +34,9 @@
     "getDirections": "Get directions",
     "selectTickets": "Select tickets",
     "platformFee": "Platform fee",
-    "platformFeeInclusive": "Platform fee (incl. {rate} GST)"
+    "platformFeeInclusive": "Platform fee (incl. {rate} GST)",
+    "taxIncluded": "Includes {label} ({rate})",
+    "taxIncludedNote": "Tax shown is already included in the total."
   },
   "seats": {
     "heading": "Choose your seats",

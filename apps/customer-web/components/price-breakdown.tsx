@@ -2,6 +2,7 @@
 
 import { money } from '@/lib/format';
 import { useTranslations } from 'next-intl';
+import { priceBreakdown } from '@eticketsgo/web-kit';
 
 /**
  * What the buyer will actually be charged, itemised, before they commit to anything.
@@ -44,6 +45,8 @@ export interface QuotedFees {
     amountMinor: number;
     /** What the line was levied on. Absent on an older API, which lists everything. */
     basis?: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+    /** Whether the tax was already inside the price rather than added to it. */
+    inclusive?: boolean;
   }[];
   totalMinor: number;
 }
@@ -86,14 +89,13 @@ export function PriceBreakdown({
   const currency = quote?.currency;
 
   /*
-    All-in when the API supplies it, and the two fee components added together when it does
-    not — an older API is still correct, just without the tax folded in.
+    The arithmetic lives in `@eticketsgo/web-kit` and is unit-tested there, because the one
+    thing this component must never get wrong is a number. The rule it enforces: the rows
+    rendered above the total add up to the total. That has been broken twice — both times by
+    showing tax that was already inside the price as though it were being added — and a test
+    that checked labels would have passed on both occasions.
   */
-  const platformFeeMinor =
-    quote?.customerFeeInclusiveMinor ??
-    quote?.customerFeeMinor ??
-    (quote ? quote.bookingFeeMinor + quote.paymentFeeMinor : 0);
-  const feeRate = quote?.feeTaxRateBasisPoints ?? 0;
+  const breakdown = quote ? priceBreakdown(quote) : null;
 
   if (free) {
     return (
@@ -111,47 +113,36 @@ export function PriceBreakdown({
     <div className="border-t border-border pt-4">
       {quote ? (
         <div className="space-y-1" data-testid="price-breakdown">
-          <Line label={t('lineTickets')} value={money(quote.subtotalMinor, currency)} />
-          {quote.discountMinor > 0 && (
-            <Line label={t('lineDiscount')} value={`- ${money(quote.discountMinor, currency)}`} />
-          )}
-          {/*
-            ── ONE ROW FOR WHAT THE PLATFORM COSTS ────────────────────────────────────
-            The booking fee, the payment fee and the tax charged on them were three separate
-            lines. None of them answers the question a customer is actually asking, and
-            adding three numbers to find out is work we were handing them.
-
-            So it is one row, and the label says what is inside it — "Platform fee (incl. 18%
-            GST)". The itemised tax lines below the total still carry the rate and the taxable
-            value, because an invoice needs those and a customer does not.
-          */}
-          {platformFeeMinor > 0 && (
-            <Line
-              label={
-                feeRate > 0
-                  ? t('platformFeeInclusive', { rate: `${ratePercent(feeRate)}%` })
-                  : t('platformFee')
-              }
-              value={money(platformFeeMinor, currency)}
-            />
-          )}
-          {/*
-            Tax on the FEE is already stated in the fee row above, so listing it again here
-            would show the same rupees twice. Tax on the TICKETS still needs itemising.
-
-            Filtered on `basis`, which the API states — comparing amounts to work out which
-            line was the fee's is a guess, and it is wrong the moment two lines happen to be
-            equal. An older API sends no basis and everything is listed, as before.
-          */}
-          {(quote.taxLines ?? [])
-            .filter((tax) => tax.basis !== 'FEES')
-            .map((tax) => (
+          {breakdown!.rows.map((row) => {
+            /*
+              One row for what the platform costs, not three. The booking fee, the payment
+              fee and the tax on them were separate lines; none of the three answers what a
+              buyer is asking, and adding them up was work being handed to the customer.
+            */
+            const label =
+              row.kind === 'tickets'
+                ? t('lineTickets')
+                : row.kind === 'discount'
+                  ? t('lineDiscount')
+                  : row.kind === 'platformFee'
+                    ? breakdown!.platformFeeRateBasisPoints > 0
+                      ? t('platformFeeInclusive', {
+                          rate: `${ratePercent(breakdown!.platformFeeRateBasisPoints)}%`,
+                        })
+                      : t('platformFee')
+                    : `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
+            return (
               <Line
-                key={`${tax.label}-${tax.rateBasisPoints}`}
-                label={`${tax.label} (${ratePercent(tax.rateBasisPoints)}%)`}
-                value={money(tax.amountMinor, currency)}
+                key={`${row.kind}-${row.label ?? ''}-${row.rateBasisPoints ?? ''}`}
+                label={label}
+                value={
+                  row.amountMinor < 0
+                    ? `- ${money(-row.amountMinor, currency)}`
+                    : money(row.amountMinor, currency)
+                }
               />
-            ))}
+            );
+          })}
         </div>
       ) : null}
 
@@ -168,6 +159,22 @@ export function PriceBreakdown({
           {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency)}
         </span>
       </div>
+      {breakdown && breakdown.includedTax.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {breakdown.includedTax.map((tax) => (
+            <Line
+              key={`incl-${tax.label}-${tax.rateBasisPoints}`}
+              muted
+              label={t('taxIncluded', {
+                label: tax.label,
+                rate: `${ratePercent(tax.rateBasisPoints)}%`,
+              })}
+              value={money(tax.amountMinor, currency)}
+            />
+          ))}
+          <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
+        </div>
+      )}
       <p className="mt-1 text-caption text-text-muted">
         {/*
           Three different states, three different sentences. The old copy said the same

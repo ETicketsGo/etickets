@@ -34,7 +34,9 @@
     "getDirections": "Itinéraire",
     "selectTickets": "Choisir vos billets",
     "platformFee": "Frais de service",
-    "platformFeeInclusive": "Frais de service (TPS de {rate} incluse)"
+    "platformFeeInclusive": "Frais de service (TPS de {rate} incluse)",
+    "taxIncluded": "Comprend {label} ({rate})",
+    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total."
   },
   "seats": {
     "heading": "Choisissez vos sièges",

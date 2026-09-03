@@ -24,3 +24,4 @@ export { countryAliases, countryMatches, currencyForCountry } from '@eticketsgo/
 export * from './datetime-field';
 export * from './datetime-value';
 export * from './venue-map';
+export * from './price-breakdown';
