@@ -47,14 +47,30 @@ describe('booking schema', () => {
 });
 
 describe('ticket type schema', () => {
-  it('defaults currency to INR and maxPerOrder to 10', () => {
-    const parsed = createTicketTypeSchema.parse({
-      eventSessionId: 'clzzzzzzzzzzzzzzzzzzzzzzzz',
-      name: 'General',
-      priceMinor: 49900,
-      quantityTotal: 100,
-    });
-    expect(parsed.currency).toBe('INR');
-    expect(parsed.maxPerOrder).toBe(10);
+  const minimal = {
+    eventSessionId: 'clzzzzzzzzzzzzzzzzzzzzzzzz',
+    name: 'General',
+    priceMinor: 49900,
+    quantityTotal: 100,
+  };
+
+  /*
+    This used to assert `currency === 'INR'`, and the default it was pinning was removed
+    deliberately: a validation schema can see the request and cannot see the venue, so
+    defaulting here priced every ticket type on the platform in rupees regardless of where
+    the event was. The assertion is inverted rather than deleted -- leaving currency unset
+    is now the contract, and something has to hold the door shut against a well-meaning
+    `.default('INR')` coming back.
+  */
+  it('leaves currency UNSET, because only the venue knows it', () => {
+    expect(createTicketTypeSchema.parse(minimal).currency).toBeUndefined();
+  });
+
+  it('still accepts a currency when the server supplies one', () => {
+    expect(createTicketTypeSchema.parse({ ...minimal, currency: 'usd' }).currency).toBe('usd');
+  });
+
+  it('defaults maxPerOrder to 10', () => {
+    expect(createTicketTypeSchema.parse(minimal).maxPerOrder).toBe(10);
   });
 });
