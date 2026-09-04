@@ -25,7 +25,9 @@
     "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts",
     "db:pilot": "ts-node --transpile-only prisma/pilot-fixture.ts",
     "db:demo-commerce": "ts-node --transpile-only prisma/demo-commerce-seed.ts",
-    "db:payment-routes": "ts-node --transpile-only prisma/payment-routes.ts"
+    "db:payment-routes": "ts-node --transpile-only prisma/payment-routes.ts",
+    "db:seed:india-cinema": "ts-node --transpile-only prisma/seed-india-cinema-policy.ts",
+    "db:policy-status": "ts-node --transpile-only prisma/policy-status.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
