@@ -222,9 +222,47 @@ test.describe('the storefront in French', () => {
       app comes from `@/i18n/navigation`.
     */
     await page.goto(`${CUSTOMER}/fr-CA`, { waitUntil: 'networkidle' });
-    await page.getByRole('link', { name: 'Aide' }).click();
+    /*
+      Scoped to the header. The storefront footer now carries a "Centre d'aide" link too,
+      and Playwright's name matching is a case-insensitive SUBSTRING — so a bare
+      `getByRole('link', { name: 'Aide' })` matches both and fails strict mode.
+
+      Scoped rather than `.first()`: the claim being tested is that a link in the shared
+      CHROME keeps the reader in French, and `.first()` would silently start testing
+      whichever link happened to be earlier in the DOM.
+    */
+    await page.locator('header').getByRole('link', { name: 'Aide' }).click();
 
     await expect(page).toHaveURL(/\/fr-CA\/help/, { timeout: 30_000 });
+    await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
+  });
+
+  test('3b: the footer is shared chrome too, and its links keep the reader in French', async ({
+    page,
+  }) => {
+    /*
+      The test above warns that "one such link anywhere in the shared chrome undoes the whole
+      feature". The storefront footer is shared chrome and it carries ten internal links —
+      the largest single addition of them since that warning was written, and none of them
+      were covered by it.
+
+      Its labels are asserted too, not just its behaviour: the previous footer's tagline was
+      a hardcoded English string, which is exactly how a page passes a build that fails on
+      MISSING keys while still showing English to a French reader. A key that is never looked
+      up cannot be reported missing.
+    */
+    await page.goto(`${CUSTOMER}/fr-CA/events`, { waitUntil: 'networkidle' });
+
+    const footer = page.locator('footer');
+    await expect(footer.getByRole('link', { name: 'Politique de remboursement' })).toBeVisible();
+    await expect(footer.getByText('Achetez vos billets')).toBeVisible();
+    // No English left in the part of the page this change introduced.
+    expect(await footer.innerText()).not.toMatch(
+      /(Browse events|My tickets|Help centre|Refund policy|All rights reserved)/,
+    );
+
+    await footer.getByRole('link', { name: 'Conditions' }).click();
+    await expect(page).toHaveURL(/\/fr-CA\/terms/, { timeout: 30_000 });
     await expect(page.locator('html')).toHaveAttribute('lang', 'fr-CA');
   });
 
