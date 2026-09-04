@@ -36,7 +36,10 @@
     "platformFee": "Frais de service",
     "platformFeeInclusive": "Frais de service (TPS de {rate} incluse)",
     "taxIncluded": "Comprend {label} ({rate})",
-    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total."
+    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total.",
+    "maintenanceCharge": "Frais d'entretien",
+    "maintenanceIncluded": "Comprend les frais d'entretien",
+    "bookingFeeNotCharged": "Non facturés"
   },
   "seats": {
     "heading": "Choisissez vos sièges",

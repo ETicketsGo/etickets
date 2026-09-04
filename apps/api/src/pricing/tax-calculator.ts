@@ -21,7 +21,7 @@ import { regionMatches } from '@eticketsgo/shared-types';
  */
 
 /** What a rule is levied on. Mirrors the `TaxBase` enum in the Prisma schema. */
-export type TaxBaseKind = 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+export type TaxBaseKind = 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | 'MAINTENANCE';
 
 /**
  * How one levy is presented once the place of supply is known.
@@ -296,7 +296,12 @@ function splitComponents(
   ];
 }
 
-function baseFor(rule: TaxRuleInput, netSubtotalMinor: number, customerFeeMinor: number): number {
+function baseFor(
+  rule: TaxRuleInput,
+  netSubtotalMinor: number,
+  customerFeeMinor: number,
+  maintenanceMinor: number,
+): number {
   switch (rule.appliesTo) {
     case 'TICKETS':
       return netSubtotalMinor;
@@ -304,6 +309,16 @@ function baseFor(rule: TaxRuleInput, netSubtotalMinor: number, customerFeeMinor:
       return customerFeeMinor;
     case 'TICKETS_AND_FEES':
       return netSubtotalMinor + customerFeeMinor;
+    /*
+      A statutory maintenance charge is its own base, taxed only by a rule that names it.
+
+      Deliberately NOT folded into TICKETS: nothing says such a charge is taxed at the
+      admission rate, or taxed at all. Whether it is remains a TaxRule somebody writes on
+      advice — this only makes it addressable, so the question can be answered by
+      configuration instead of being answered by silence.
+    */
+    case 'MAINTENANCE':
+      return maintenanceMinor;
     default:
       return 0;
   }
@@ -327,6 +342,13 @@ export interface TaxCalcInput {
    * charge nobody owes.
    */
   customerFeeMinor: number;
+  /**
+   * A statutory per-ticket maintenance charge for the whole order, if one applies.
+   *
+   * Only a rule with `appliesTo: 'MAINTENANCE'` reads it. Absent — which is every order
+   * outside a regulated cinema jurisdiction — nothing changes anywhere in this file.
+   */
+  maintenanceMinor?: number;
   rules: TaxRuleInput[];
   place?: TaxPlace;
 }
@@ -342,6 +364,8 @@ export interface TaxCalcInput {
 export function computeTax(input: TaxCalcInput): TaxCalcResult {
   const net = Math.max(0, Math.round(input.netSubtotalMinor));
   const custFee = Math.max(0, Math.round(input.customerFeeMinor));
+  // Defaulted, so every existing caller — and every non-cinema order — is unchanged.
+  const maintenance = Math.max(0, Math.round(input.maintenanceMinor ?? 0));
   const applicable = selectTaxRules(input.rules, input.place);
 
   /*
@@ -357,8 +381,21 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
   const addGross = (rule: TaxRuleInput, amount: number) =>
     grossByRule.set(rule, (grossByRule.get(rule) ?? 0) + amount);
 
-  const ticketRules = applicable.filter((r) => r.appliesTo !== 'FEES');
-  const feeRules = applicable.filter((r) => r.appliesTo !== 'TICKETS');
+  /*
+    Named explicitly rather than by exclusion.
+
+    These were "everything that is not FEES" and "everything that is not TICKETS", which
+    partitioned the two bases correctly and silently swallowed a third the moment one
+    existed: a MAINTENANCE rule satisfied BOTH predicates and would have been charged once
+    on the ticket subtotal and again on the fee.
+  */
+  const ticketRules = applicable.filter(
+    (r) => r.appliesTo === 'TICKETS' || r.appliesTo === 'TICKETS_AND_FEES',
+  );
+  const feeRules = applicable.filter(
+    (r) => r.appliesTo === 'FEES' || r.appliesTo === 'TICKETS_AND_FEES',
+  );
+  const maintenanceRules = applicable.filter((r) => r.appliesTo === 'MAINTENANCE');
 
   if (input.admissionLines) {
     for (const line of input.admissionLines) {
@@ -392,7 +429,28 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
             'be rated without guessing.',
         );
       }
-      addGross(rule, baseFor(rule, net, 0));
+      addGross(rule, baseFor(rule, net, 0, maintenance));
+    }
+  }
+
+  /*
+    Maintenance is one statutory charge for the whole order — quantity is already resolved
+    into the amount — so like the fee it is contested once rather than per ticket.
+
+    It is rated whether the charge is INCLUDED in the ticket price or ADDED to it. Inclusive
+    tax on an included charge extracts rather than adds, which the shared inclusive/exclusive
+    handling below already gets right; skipping it here would silently exempt the charge in
+    every included-charge market.
+  */
+  if (maintenance > 0) {
+    const takenMaintenance = new Set<string>();
+    for (const rule of maintenanceRules) {
+      const group = (rule.taxGroup ?? '').trim();
+      if (group) {
+        if (takenMaintenance.has(group)) continue;
+        takenMaintenance.add(group);
+      }
+      addGross(rule, maintenance);
     }
   }
 

@@ -916,8 +916,29 @@ model Cinema {
   /// the column working during a rolling deploy. Application code must never rely on it.
   timezone       String       @default("Asia/Kolkata")
   status         String       @default("ACTIVE")
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+
+  /// ── Jurisdiction, for regulatory pricing (India cinema policy) ────────────────────
+  /// Nullable and resolved with the linked Venue as fallback, because a cinema may be
+  /// created before its venue is. `city` above stays the human label; these are what a
+  /// pricing rule matches on, so that a rule never has to be written against a spelling.
+  country       String?
+  /// State or province. Named `region` to match Venue, TaxRule, FeeRule and Booking, which
+  /// all already call this the same thing.
+  region        String?
+  district      String?
+  /// Which local body governs this address. Several Indian pricing orders differ by this
+  /// rather than by city, and two cinemas in one district can fall under different ones.
+  localBodyType LocalBodyType?
+
+  /// ── Classification, for regulatory pricing ───────────────────────────────────────
+  /// Two independent attributes rather than one overloaded enum: a multiplex can be
+  /// air-cooled and a single screen can be air-conditioned, and orders have banded on each
+  /// separately. `Screen.screenType` is unrelated — that is projection (2D/3D/IMAX).
+  cinemaFormat CinemaFormat?
+  climateType  ClimateType?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   screens Screen[]
 
@@ -1428,7 +1449,38 @@ model Booking {
   /// TaxRule — no rate is assumed anywhere in this codebase.
   taxMinor          Int              @default(0)
   taxLines          BookingTaxLine[]
-  totalMinor        Int
+
+  /// ── Statutory maintenance charge, snapshotted ────────────────────────────────────
+  /// Its OWN column, never folded into the subtotal or the fee columns. Two reasons, both
+  /// financial: platform-revenue reporting sums the fee columns, and counting a statutory
+  /// charge as ETicketsGo income would misstate revenue; and settlement has to be able to
+  /// pay it onward to whoever it is owed to, which is not a question arithmetic answers.
+  ///
+  /// Total for the order, not per ticket — quantity is resolved by the time this is written.
+  /// Zero when no policy applied or the charge was NOT_APPLICABLE.
+  maintenanceMinor     Int                  @default(0)
+  /// Whether the amount above is already inside `subtotalMinor` (INCLUDED) or was added on
+  /// top (ADDED). Without it the number alone cannot be reconciled against the total.
+  maintenanceTreatment MaintenanceTreatment @default(NOT_APPLICABLE)
+
+  /// ── Which rule priced this, and on whose authority ───────────────────────────────
+  /// A snapshot, not a live join. The relation lets an auditor read the policy as it is
+  /// NOW; the denormalised columns are what the order actually meant, and they stay true
+  /// after the policy is superseded, corrected or disabled.
+  pricingPolicyId        String?
+  pricingPolicy          CinemaPricingPolicy?    @relation("BookingPricingPolicy", fields: [pricingPolicyId], references: [id])
+  pricingPolicyVersion   Int?
+  pricingPolicyEffective DateTime?
+  /// The government order, copied at the moment of sale. The policy row may later change;
+  /// a customer's invoice must still say what it was charged under.
+  regulatoryReference    String?
+  /// The jurisdiction and classification the policy matched on, as resolved. Stored so
+  /// "why did this apply?" is answerable without re-deriving it from a cinema that may
+  /// since have been reclassified.
+  pricingJurisdiction    Json?
+  complianceStatus       PricingComplianceStatus @default(NOT_REGULATED)
+
+  totalMinor Int
 
   holdExpiresAt  DateTime
   confirmedAt    DateTime?
@@ -1619,9 +1671,9 @@ model Ticket {
   /// instead of leaving them to work it out at the door.
   vendorName           String?
 
-  issuedAt             DateTime                 @default(now())
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  issuedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   checkIns CheckIn[]
   invites  TicketInvite[]
@@ -2156,10 +2208,181 @@ model FeeRule {
 /// Split because the answer differs by jurisdiction and is a question for a tax advisor,
 /// not for this codebase: some places tax the admission only, some also tax the booking
 /// fee, and the two can carry different rates.
+/// One jurisdiction's rules for what a cinema ticket may cost and what may be added to it.
+///
+/// ── WHY THIS IS DATA, LIKE TaxRule ─────────────────────────────────────────────────
+/// Indian cinema pricing is set by state government orders that change without notice and
+/// differ by district, local body, cinema class and seat class. Encoding any of it as
+/// `if (state === 'AP')` puts a legal position in application code, spreads it across every
+/// layer that prices anything, and makes the next order a release rather than a form.
+///
+/// So this table is the whole of it. The engine knows the SHAPE of such a rule — that a
+/// maintenance charge exists, that it is either inside the price or added to it, that an
+/// online fee may be capped or forbidden — and holds not one rupee of any actual order.
+///
+/// ── HOW A JURISDICTION BECOMES REGULATED ───────────────────────────────────────────
+/// By an ACTIVE row naming it, and only that way. A country with no ACTIVE policy is not
+/// regulated and prices exactly as it did before this table existed, which is what keeps
+/// every non-cinema event and every unlisted market working unchanged. Once a row claims a
+/// country, a cinema in it that resolves nothing FAILS CLOSED rather than quietly falling
+/// back to the platform's own fee schedule.
+///
+/// ── HOW HISTORY IS KEPT ────────────────────────────────────────────────────────────
+/// An ACTIVE policy that financial transactions depend on is never edited. It is SUPERSEDED
+/// by a new version. Bookings carry their own snapshot regardless, so a corrected policy
+/// cannot rewrite what an old order meant.
+model CinemaPricingPolicy {
+  id      String @id @default(cuid())
+  /// Increments within one lineage. Recorded on every booking priced by it.
+  version Int    @default(1)
+
+  /// ── Applicability. '*' matches anything; more specific beats less. ───────────────
+  country  String @default("*")
+  /// State or province.
+  region   String @default("*")
+  district String @default("*")
+  /// Kept for the rare order that names a place rather than a class of place. Prefer
+  /// localBodyType: a rule written against a spelling breaks when the spelling changes.
+  city     String @default("*")
+  currency String @default("*")
+
+  localBodyType LocalBodyType?
+  cinemaFormat  CinemaFormat?
+  climateType   ClimateType?
+  /// Seat class, matched against the ticket type's own category. Null matches any.
+  seatCategory  String?
+
+  /// ── Maintenance charge, per ticket ───────────────────────────────────────────────
+  maintenanceChargeMinor Int                  @default(0)
+  maintenanceTreatment   MaintenanceTreatment @default(NOT_APPLICABLE)
+  /// The `category` a TaxRule must name to tax this charge. Null means no rule targets it
+  /// specifically — which is not the same as asserting it is exempt.
+  maintenanceTaxCategory String?
+
+  /// ── Online / convenience fee ─────────────────────────────────────────────────────
+  onlineFeePolicy   OnlineFeePolicy @default(REQUIRES_APPROVAL)
+  /// Only meaningful when the policy is CAPPED. Null with CAPPED is a configuration error
+  /// and resolves as one rather than as an unlimited fee.
+  onlineFeeCapMinor Int?
+
+  /// ── Ticket price limits ──────────────────────────────────────────────────────────
+  /// Both null means this policy states no ceiling — NOT that none exists in law. The
+  /// difference matters and is why there is no zero default here.
+  ticketPriceMinMinor Int?
+  ticketPriceMaxMinor Int?
+  /// Free text for a limit the columns cannot express, shown to admins, never to customers.
+  ticketPriceRule     String?
+
+  /// ── Lifecycle ────────────────────────────────────────────────────────────────────
+  status        CinemaPricingPolicyStatus @default(DRAFT)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  /// The policy this one replaced, so a lineage can be walked backwards.
+  supersedesId  String?                   @unique
+  supersedes    CinemaPricingPolicy?      @relation("PolicyLineage", fields: [supersedesId], references: [id])
+  supersededBy  CinemaPricingPolicy?      @relation("PolicyLineage")
+
+  /// ── Provenance. An auditor asks these first. ─────────────────────────────────────
+  /// The government order or statute this encodes, e.g. "G.O.Ms.No.32 dated 2026-04-01".
+  regulatoryReference   String
+  regulatoryDocumentUrl String?
+  /// Internal. Shown to admins only — never to organizers and never to customers.
+  notes                 String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[] @relation("BookingPricingPolicy")
+
+  @@index([status, country, region])
+  @@index([status, effectiveFrom])
+}
+
+/// Which local body governs a cinema's address.
+///
+/// Several Indian cinema pricing orders band on this rather than on city size, and two
+/// cinemas a few kilometres apart can fall under different ones. Extensible: an unknown
+/// classification is OTHER rather than a reason to reject the cinema.
+enum LocalBodyType {
+  MUNICIPAL_CORPORATION
+  MUNICIPALITY
+  NAGAR_PANCHAYAT
+  GRAM_PANCHAYAT
+  OTHER
+}
+
+/// Multiplex or single screen. Independent of climate — see ClimateType.
+enum CinemaFormat {
+  MULTIPLEX
+  SINGLE_SCREEN
+}
+
+/// Air-conditioned, air-cooled, or neither. The attribute several maintenance-charge
+/// orders band on. Independent of format.
+enum ClimateType {
+  AC
+  AIR_COOLED
+  NON_AC
+}
+
+/// How a statutory per-ticket maintenance charge relates to the published ticket price.
+///
+/// The distinction decides whether the customer's total moves. INCLUDED means the price on
+/// the poster already contains it and the charge is a DISCLOSURE; ADDED means the total
+/// grows by it. Getting this wrong does not move a label, it moves what is charged.
+enum MaintenanceTreatment {
+  NOT_APPLICABLE
+  INCLUDED_IN_TICKET_PRICE
+  ADDED_TO_TICKET_PRICE
+}
+
+/// What a jurisdiction permits by way of an online booking / convenience fee.
+///
+/// REQUIRES_APPROVAL is the safe default for a market whose current order has not been
+/// read and recorded: the platform charges nothing rather than assuming its global fee
+/// schedule is lawful there.
+enum OnlineFeePolicy {
+  ALLOWED
+  CAPPED
+  INCLUDED_IN_TICKET_PRICE
+  PROHIBITED
+  REQUIRES_APPROVAL
+}
+
+/// Lifecycle of a pricing policy. History is superseded, never edited.
+enum CinemaPricingPolicyStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  DISABLED
+}
+
+/// The outcome of resolving a cinema pricing policy for one priced order.
+///
+/// Recorded on the booking so a later reader can tell not just what was charged but on what
+/// authority — including that nothing regulated applied.
+enum PricingComplianceStatus {
+  /// No ACTIVE policy claims this jurisdiction, so ordinary platform pricing applies.
+  NOT_REGULATED
+  COMPLIANT
+  POLICY_NOT_FOUND
+  REQUIRES_APPROVAL
+  PRICE_EXCEEDS_LIMIT
+  ONLINE_FEE_NOT_ALLOWED
+  INVALID_CINEMA_CLASSIFICATION
+  POLICY_CONFIGURATION_ERROR
+}
+
 enum TaxBase {
   TICKETS
   FEES
   TICKETS_AND_FEES
+  /// A statutory per-ticket maintenance charge, taxed in its own right.
+  ///
+  /// Its own base rather than folded into TICKETS, because nothing says a maintenance
+  /// charge is taxed at the admission rate — or taxed at all. Whether it is, and at what
+  /// rate, stays a TaxRule an owner writes on advice. This only makes it addressable.
+  MAINTENANCE
 }
 
 /// One tax a customer may be charged, entirely configuration.

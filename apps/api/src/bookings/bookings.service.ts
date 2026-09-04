@@ -9,6 +9,10 @@ import {
   PaymentStatus,
   SessionStatus,
   priceBundle,
+  blocksBooking,
+  type CinemaFormat,
+  type ClimateType,
+  type LocalBodyType,
 } from '@eticketsgo/shared-types';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
@@ -27,6 +31,12 @@ import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
 import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
 import { PaymentsService } from '../payments/payments.service';
+import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
+import type {
+  PolicyContext,
+  PolicyResolution,
+} from '../pricing/cinema-policy/cinema-pricing-policy.resolver';
+import { applyPolicy, type PolicyEffect } from '../pricing/cinema-policy/apply-policy';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -106,6 +116,7 @@ export class BookingsService {
     // Optional so the many unit tests that construct this service directly are not all
     // forced to supply a ConfigService for one number; holdMinutes falls back safely.
     @Optional() private readonly config?: ConfigService,
+
     /*
       Confirming a free booking, which has no payment to wait for.
 
@@ -115,6 +126,18 @@ export class BookingsService {
       rather than silently doing nothing.
     */
     @Optional() private readonly payments?: PaymentsService,
+    /*
+      GENUINELY last in the list, and `@Optional()`.
+
+      Position matters: every hand-built test harness constructs this service positionally,
+      so inserting a parameter anywhere but the end silently shifts each of their arguments
+      one slot along. It did — eleven tests failed with "resolve is not a function", which was
+      a ConfigService sitting where this belongs. A new optional dependency goes on the end.
+
+      Absent, cinema pricing resolves NOT_REGULATED and the platform prices exactly as it did
+      before this subsystem existed.
+    */
+    @Optional() private readonly policyService?: CinemaPricingPolicyService,
   ) {}
 
   /**
@@ -147,7 +170,7 @@ export class BookingsService {
             // not where the company is registered — so it is consulted first, and the
             // organization's registered address is only the fallback for an event with no
             // venue on file.
-            venue: { select: { country: true, region: true } },
+            venue: { select: { country: true, region: true, city: true } },
             organization: {
               select: {
                 registeredCountry: true,
@@ -155,6 +178,32 @@ export class BookingsService {
                 // Whether this organizer takes cash at the venue. Read from the org, never
                 // trusted from the request — otherwise anybody could reserve seats for free.
                 cashPaymentsEnabled: true,
+              },
+            },
+          },
+        },
+        /*
+          The cinema, for regulatory pricing. Its jurisdiction and classification are what a
+          cinema pricing policy matches on — and they live on the CINEMA rather than the
+          venue because one venue can host cinemas classified differently, and a cinema can
+          exist before a venue is attached to it.
+
+          Null for every non-cinema session, which is what makes those orders resolve as
+          NOT_REGULATED and price exactly as they always have.
+        */
+        screen: {
+          select: {
+            cinema: {
+              select: {
+                id: true,
+                country: true,
+                region: true,
+                district: true,
+                city: true,
+                localBodyType: true,
+                cinemaFormat: true,
+                climateType: true,
+                venue: { select: { country: true, region: true, city: true } },
               },
             },
           },
@@ -322,13 +371,51 @@ export class BookingsService {
       customerRegion: input.buyerRegion?.trim() || null,
       at: now,
     };
+    /*
+      ── REGULATORY PRICING, FOR CINEMA SESSIONS ──────────────────────────────────────
+      Resolved ONCE here and passed down, rather than looked up inside the pricing service:
+      resolution needs the cinema's classification, and the pricing service prices carts, not
+      venues. `now` is the same instant the tax place already uses, so a policy that changes
+      at midnight cannot be straddled by one checkout.
+
+      A session with no cinema resolves NOT_REGULATED and every number below is unchanged.
+    */
+    const admissionLines = this.admissionLinesFor(session.event, input.items, byId);
+    const policy = await this.resolveCinemaPolicy(session, currency, admissionLines, now);
+
+    /*
+      Fail closed. A market declared regulated whose rule cannot be resolved must not fall
+      through to the platform's ordinary fee schedule — that is the silent non-compliance
+      this whole subsystem exists to prevent, and it would look exactly like a normal sale.
+
+      REQUIRES_APPROVAL is deliberately NOT here: it is a resolved policy whose fee position
+      is unconfirmed, so the fee is suppressed to zero and the ticket still sells. Refusing to
+      sell in a whole state over an unconfirmed fee schedule would be the larger harm.
+    */
+    if (blocksBooking(policy.resolution.status)) {
+      await this.audit.record({
+        organizationId: session.event.organizationId,
+        action: 'CINEMA_PRICING_POLICY_BLOCKED_BOOKING',
+        entityType: 'EventSession',
+        entityId: session.id,
+        metadata: this.policyService?.auditFor(policy.resolution, policy.context) ?? {},
+      });
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'This showing cannot be sold online yet: its regulatory pricing is not configured. ' +
+          policy.resolution.explanation,
+        HttpStatus.CONFLICT,
+      );
+    }
+
     const fees = await this.pricing.quote(
       subtotal,
       feeMode,
       discountMinor,
       currency,
       taxPlace,
-      this.admissionLinesFor(session.event, input.items, byId),
+      admissionLines,
+      policy.effect,
     );
 
     /*
@@ -421,6 +508,35 @@ export class BookingsService {
           // Stored, not re-derived later: a GST invoice states the place of supply, and a
           // registration or a rate can change after the sale. See the schema comment.
           customerRegion: input.buyerRegion?.trim() || null,
+
+          /*
+            ── THE IMMUTABLE PRICING SNAPSHOT ─────────────────────────────────────────
+            Denormalised on purpose. The relation to the policy row lets an auditor read it
+            as it is NOW; these columns are what the order actually MEANT, and they stay true
+            after the policy is superseded, corrected or withdrawn.
+
+            Without them, a later correction to a government-order row would silently rewrite
+            the financial interpretation of every booking ever priced under it — including
+            invoices already in customers' hands.
+          */
+          maintenanceMinor: fees.maintenanceMinor ?? 0,
+          maintenanceTreatment: fees.maintenanceTreatment ?? 'NOT_APPLICABLE',
+          pricingPolicyId: policy.resolution.policy?.id ?? null,
+          pricingPolicyVersion: policy.resolution.policy?.version ?? null,
+          pricingPolicyEffective: policy.resolution.policy?.effectiveFrom ?? null,
+          regulatoryReference: policy.resolution.policy?.regulatoryReference ?? null,
+          // Why it applied, not just which one did. A cinema can be reclassified tomorrow.
+          pricingJurisdiction: {
+            country: policy.context.country,
+            region: policy.context.region,
+            district: policy.context.district,
+            city: policy.context.city,
+            localBodyType: policy.context.localBodyType,
+            cinemaFormat: policy.context.cinemaFormat,
+            climateType: policy.context.climateType,
+            matchedOn: policy.resolution.explanation,
+          },
+          complianceStatus: policy.resolution.status,
           status: BookingStatus.PENDING_PAYMENT,
           // Settled here so confirmation and refund reach for the same strategy this hold
           // used, whatever happens to the session afterwards.
@@ -715,6 +831,76 @@ export class BookingsService {
    * organizer called it; everything else carries the event's own category, so an owner can
    * write a rule for `Sports` without the platform deciding what a sport is.
    */
+  /**
+   * Resolve the cinema pricing policy for one order, once.
+   *
+   * ── WHY IT RETURNS THE CONTEXT TOO ─────────────────────────────────────────────────
+   * The booking snapshot records not only WHICH policy applied but WHY — the jurisdiction
+   * and classification it matched on. Re-deriving that later from a cinema that may since
+   * have been reclassified would answer a different question from the one an auditor asked.
+   *
+   * ── WHY A SESSION WITHOUT A CINEMA IS NOT AN ERROR ────────────────────────────────
+   * It is every concert, every conference and every general-admission event on the platform.
+   * They resolve NOT_REGULATED, which leaves fees, tax and totals exactly as they were before
+   * this subsystem existed.
+   */
+  private async resolveCinemaPolicy(
+    session: {
+      screen?: {
+        cinema: {
+          country: string | null;
+          region: string | null;
+          district: string | null;
+          city: string | null;
+          localBodyType: LocalBodyType | null;
+          cinemaFormat: CinemaFormat | null;
+          climateType: ClimateType | null;
+          venue?: { country: string | null; region: string | null; city: string | null } | null;
+        };
+      } | null;
+    },
+    currency: string,
+    admissionLines: { unitPriceMinor: number; quantity: number; category?: string | null }[],
+    at: Date,
+  ): Promise<{ resolution: PolicyResolution; effect: PolicyEffect; context: PolicyContext }> {
+    const cinema = session.screen?.cinema ?? null;
+    // Seat classes in the cart, so a rule written for one class can match. De-duplicated
+    // because the rule asks "is this class present", not "how many".
+    const seatCategories = [
+      ...new Set(admissionLines.map((l) => l.category).filter((c): c is string => Boolean(c))),
+    ];
+    const context: PolicyContext = {
+      country: cinema?.country ?? cinema?.venue?.country ?? null,
+      region: cinema?.region ?? cinema?.venue?.region ?? null,
+      district: cinema?.district ?? null,
+      city: cinema?.city ?? cinema?.venue?.city ?? null,
+      currency,
+      localBodyType: cinema?.localBodyType ?? null,
+      cinemaFormat: cinema?.cinemaFormat ?? null,
+      climateType: cinema?.climateType ?? null,
+      seatCategories,
+      at,
+    };
+    /*
+      No policy service wired — a unit harness. Report NOT_REGULATED explicitly rather than
+      pretending a lookup happened: the caller then takes exactly the same path as any
+      unregulated market, and nothing silently claims compliance it never checked.
+    */
+    const resolution: PolicyResolution = this.policyService
+      ? await this.policyService.resolve(context)
+      : {
+          status: 'NOT_REGULATED',
+          policy: null,
+          explanation: 'Cinema pricing policy resolution is not configured in this context.',
+          specificity: -1,
+        };
+    this.policyService?.logResolution(resolution, context);
+    // Tickets, not lines: a maintenance charge is per head. Add-ons and bundles are not
+    // admissions and carry no charge, which is why only admission lines are counted.
+    const ticketCount = admissionLines.reduce((n, l) => n + Math.max(0, l.quantity), 0);
+    return { resolution, effect: applyPolicy(resolution, ticketCount), context };
+  }
+
   private admissionLinesFor(
     event: { experienceType: string; category?: string | null },
     items: { ticketTypeId: string; quantity: number }[],
@@ -765,7 +951,7 @@ export class BookingsService {
       include: {
         event: {
           include: {
-            venue: { select: { country: true, region: true } },
+            venue: { select: { country: true, region: true, city: true } },
             organization: {
               select: {
                 registeredCountry: true,
@@ -773,6 +959,25 @@ export class BookingsService {
                 // Whether this organizer takes cash at the venue. Read from the org, never
                 // trusted from the request — otherwise anybody could reserve seats for free.
                 cashPaymentsEnabled: true,
+              },
+            },
+          },
+        },
+        // The same cinema the create path loads, so a quote and the booking that follows it
+        // resolve the identical policy. See the note there.
+        screen: {
+          select: {
+            cinema: {
+              select: {
+                id: true,
+                country: true,
+                region: true,
+                district: true,
+                city: true,
+                localBodyType: true,
+                cinemaFormat: true,
+                climateType: true,
+                venue: { select: { country: true, region: true, city: true } },
               },
             },
           },
@@ -838,6 +1043,14 @@ export class BookingsService {
       input.items.map((i) => byId.get(i.ticketTypeId)!),
       session.event.venue?.country,
     );
+    /*
+      The quote resolves the SAME policy the booking will, at the same instant, so the
+      breakdown shown before a customer commits is the one they are charged. A quote that
+      resolved separately could differ across a midnight policy change mid-checkout.
+    */
+    const quoteAdmissionLines = this.admissionLinesFor(session.event, input.items, byId);
+    const quotePolicy = await this.resolveCinemaPolicy(session, currency, quoteAdmissionLines, now);
+
     const fees = await this.pricing.quote(
       subtotal,
       session.event.feeMode as FeeMode,
@@ -855,7 +1068,8 @@ export class BookingsService {
         customerRegion: input.buyerRegion?.trim() || null,
         at: now,
       },
-      this.admissionLinesFor(session.event, input.items, byId),
+      quoteAdmissionLines,
+      quotePolicy.effect,
     );
 
     return {
@@ -1049,6 +1263,28 @@ export class BookingsService {
       The place comes from the same source `create` uses, so a re-price and the original
       pricing cannot disagree about where the sale happened.
     */
+    /*
+      ── RE-PRICING USES THE SNAPSHOT, NOT A FRESH RESOLUTION ─────────────────────────
+      This runs when a coupon is applied to an EXISTING booking. Re-resolving would price it
+      under whatever policy is active NOW — so applying a discount code the morning after a
+      government order changed would silently restate the maintenance charge on a sale that
+      had already happened, and the customer's receipt would stop matching their booking.
+
+      The booking carries what it was priced under. That is what it stays priced under.
+    */
+    const snapshotEffect: PolicyEffect = {
+      maintenanceMinor: booking.maintenanceMinor,
+      maintenanceTreatment: booking.maintenanceTreatment,
+      maintenanceAddedMinor:
+        booking.maintenanceTreatment === 'ADDED_TO_TICKET_PRICE' ? booking.maintenanceMinor : 0,
+      maintenanceTaxCategory: null,
+      // The fee already charged is the ceiling: a coupon must not become an opportunity to
+      // charge MORE fee than the original policy permitted.
+      maxOnlineFeeMinor: booking.customerFeeMinor,
+      complianceStatus: booking.complianceStatus,
+      explanation: 'Re-priced under the policy snapshot recorded on this booking.',
+    };
+
     const fees = await this.pricing.quote(
       booking.subtotalMinor,
       booking.feeMode as FeeMode,
@@ -1068,6 +1304,10 @@ export class BookingsService {
         customerRegion: booking.customerRegion ?? null,
         at: new Date(),
       },
+      // No admission lines: this re-prices a stored subtotal, and a banded tax rule would
+      // refuse rather than rate the whole order in one band — which is the correct refusal.
+      undefined,
+      snapshotEffect,
     );
 
     await this.prisma.$transaction(async (tx) => {
@@ -1076,6 +1316,9 @@ export class BookingsService {
         data: {
           couponId,
           discountMinor: fees.discountMinor,
+          // Carried through unchanged. A coupon changes what is discounted, never what a
+          // government order charges.
+          maintenanceMinor: fees.maintenanceMinor ?? booking.maintenanceMinor,
           bookingFeeMinor: fees.bookingFeeMinor,
           paymentFeeMinor: fees.paymentFeeMinor,
           customerFeeMinor: fees.customerFeeMinor,

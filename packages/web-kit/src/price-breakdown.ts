@@ -22,6 +22,8 @@
  * change the money.
  */
 
+import type { MaintenanceTreatment } from '@eticketsgo/shared-types';
+
 export interface BreakdownTaxLine {
   label: string;
   rateBasisPoints: number;
@@ -42,11 +44,14 @@ export interface BreakdownQuote {
   customerFeeMinor?: number;
   /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
   feeTaxRateBasisPoints?: number;
+  /** A statutory per-ticket maintenance charge for the order, if one applies. */
+  maintenanceMinor?: number;
+  maintenanceTreatment?: MaintenanceTreatment;
   taxLines?: BreakdownTaxLine[];
   totalMinor: number;
 }
 
-export type BreakdownRowKind = 'tickets' | 'discount' | 'platformFee' | 'tax';
+export type BreakdownRowKind = 'tickets' | 'discount' | 'platformFee' | 'maintenance' | 'tax';
 
 export interface BreakdownRow {
   kind: BreakdownRowKind;
@@ -62,6 +67,11 @@ export interface Breakdown {
   rows: BreakdownRow[];
   /** Shown below the total, worded as already included. Not part of the sum. */
   includedTax: BreakdownTaxLine[];
+  /**
+   * A maintenance charge already inside the ticket price — disclosed below the total, never
+   * added to it. Zero-length when none applies or when the charge was added instead.
+   */
+  includedMaintenanceMinor: number;
   /** The rate named inside the platform-fee label; 0 when the fee is untaxed. */
   platformFeeRateBasisPoints: number;
   totalMinor: number;
@@ -94,6 +104,19 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   if (platformFeeMinor > 0) {
     rows.push({ kind: 'platformFee', amountMinor: platformFeeMinor });
   }
+
+  /*
+    ── A MAINTENANCE CHARGE IS A ROW ONLY WHEN IT IS ADDED ──────────────────────────
+    An INCLUDED charge is already inside the ticket price the customer is paying, exactly as
+    an inclusive tax is. Putting it in the rows would ask them to add it a second time and
+    produce a column that does not foot — the same defect this file already exists to
+    prevent, arriving through a new column.
+  */
+  const maintenanceMinor = quote.maintenanceMinor ?? 0;
+  const added = quote.maintenanceTreatment === 'ADDED_TO_TICKET_PRICE';
+  if (maintenanceMinor > 0 && added) {
+    rows.push({ kind: 'maintenance', amountMinor: maintenanceMinor });
+  }
   for (const tax of ticketTax.filter((t) => !t.inclusive)) {
     rows.push({
       kind: 'tax',
@@ -106,6 +129,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   return {
     rows,
     includedTax: ticketTax.filter((tax) => tax.inclusive === true),
+    includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
     platformFeeRateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
     totalMinor: quote.totalMinor,
   };

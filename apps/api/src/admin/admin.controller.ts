@@ -5,8 +5,9 @@ import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { AdminService } from './admin.service';
 import { TaxRulesService } from './tax-rules.service';
+import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
-import { RequiresAdmin, CurrentUser, Roles } from '../common/decorators';
+import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 /**
@@ -104,6 +105,7 @@ export class AdminController {
     private readonly movies: MoviesService,
     // Underscored because `taxRules` is the route handler's name on this class.
     private readonly taxRules_: TaxRulesService,
+    private readonly cinemaPolicies: CinemaPricingPoliciesService,
   ) {}
 
   @Get('bookings')
@@ -173,6 +175,82 @@ export class AdminController {
   @ApiOperation({ summary: 'List tax rules, with whether each is in force right now (admin).' })
   taxRules() {
     return this.taxRules_.list();
+  }
+  /*
+    ── CINEMA PRICING POLICIES ────────────────────────────────────────────────────────
+    Deliberately no PATCH on an ACTIVE policy and no DELETE at all. History is superseded,
+    never rewritten: an ACTIVE row that real bookings were priced under is evidence, and the
+    audit trail disagreeing with an invoice already in a customer's hands is a worse problem
+    than the one editing in place would solve.
+  */
+  @Get('cinema-pricing-policies')
+  @ApiOperation({ summary: 'Every cinema pricing policy, all statuses (admin).' })
+  cinemaPricingPolicies() {
+    return this.cinemaPolicies.list();
+  }
+
+  @Get('cinema-pricing-policies/inspect')
+  @ApiOperation({ summary: 'Which policy would apply to a cinema right now, and why.' })
+  inspectCinemaPricing(@Query() q: Record<string, string>) {
+    return this.cinemaPolicies.inspect({
+      country: q.country,
+      region: q.region ?? null,
+      district: q.district ?? null,
+      city: q.city ?? null,
+      currency: q.currency ?? 'INR',
+      localBodyType: (q.localBodyType as never) ?? null,
+      cinemaFormat: (q.cinemaFormat as never) ?? null,
+      climateType: (q.climateType as never) ?? null,
+      seatCategory: q.seatCategory ?? null,
+      at: q.at ? new Date(q.at) : undefined,
+    });
+  }
+
+  @Post('cinema-pricing-policies')
+  @ApiOperation({ summary: 'Create a DRAFT cinema pricing policy (admin).' })
+  createCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Body() body: PolicyInput) {
+    return this.cinemaPolicies.create(admin.id, this.coercePolicyDates(body));
+  }
+
+  @Patch('cinema-pricing-policies/:id')
+  @ApiOperation({ summary: 'Edit a DRAFT policy. Refused once it is ACTIVE (admin).' })
+  updateCinemaPricingPolicy(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body() body: Partial<PolicyInput>,
+  ) {
+    return this.cinemaPolicies.updateDraft(admin.id, id, this.coercePolicyDates(body));
+  }
+
+  @Post('cinema-pricing-policies/:id/activate')
+  @ApiOperation({ summary: 'DRAFT to ACTIVE, refusing an ambiguous scope (admin).' })
+  activateCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
+    return this.cinemaPolicies.activate(admin.id, id);
+  }
+
+  @Post('cinema-pricing-policies/:id/supersede')
+  @ApiOperation({ summary: 'Replace an ACTIVE policy with a new version (admin).' })
+  supersedeCinemaPricingPolicy(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body() body: PolicyInput,
+  ) {
+    return this.cinemaPolicies.supersede(admin.id, id, this.coercePolicyDates(body));
+  }
+
+  @Post('cinema-pricing-policies/:id/disable')
+  @ApiOperation({ summary: 'Withdraw a policy. Its scope then fails closed (admin).' })
+  disableCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
+    return this.cinemaPolicies.disable(admin.id, id);
+  }
+
+  /** JSON carries dates as strings; the service and Prisma both want real ones. */
+  private coercePolicyDates<T extends Partial<PolicyInput>>(body: T): T {
+    return {
+      ...body,
+      ...(body.effectiveFrom ? { effectiveFrom: new Date(body.effectiveFrom) } : {}),
+      ...(body.effectiveTo ? { effectiveTo: new Date(body.effectiveTo) } : {}),
+    };
   }
 
   @Get('tax-rules/readiness')

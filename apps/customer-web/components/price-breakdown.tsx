@@ -133,18 +133,27 @@ export function PriceBreakdown({
               fee and the tax on them were separate lines; none of the three answers what a
               buyer is asking, and adding them up was work being handed to the customer.
             */
+            const LABELS: Record<string, () => string> = {
+              tickets: () => t('lineTickets'),
+              discount: () => t('lineDiscount'),
+              // A statutory charge, and its own row only when it is ADDED — an included one
+              // is disclosed below the total instead, because it is already in the price.
+              maintenance: () => t('maintenanceCharge'),
+              platformFee: () =>
+                breakdown!.platformFeeRateBasisPoints > 0
+                  ? t('platformFeeInclusive', {
+                      rate: `${ratePercent(breakdown!.platformFeeRateBasisPoints)}%`,
+                    })
+                  : t('platformFee'),
+            };
+            /*
+              A lookup rather than a fifth nested ternary. The chain was already three deep
+              and this row would have made it four — at which point the thing deciding what a
+              customer is shown becomes unreadable, and unreadable is how the wrong label ends
+              up on the wrong number.
+            */
             const label =
-              row.kind === 'tickets'
-                ? t('lineTickets')
-                : row.kind === 'discount'
-                  ? t('lineDiscount')
-                  : row.kind === 'platformFee'
-                    ? breakdown!.platformFeeRateBasisPoints > 0
-                      ? t('platformFeeInclusive', {
-                          rate: `${ratePercent(breakdown!.platformFeeRateBasisPoints)}%`,
-                        })
-                      : t('platformFee')
-                    : `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
+              LABELS[row.kind]?.() ?? `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
             return (
               <Line
                 key={`${row.kind}-${row.label ?? ''}-${row.rateBasisPoints ?? ''}`}
@@ -173,6 +182,20 @@ export function PriceBreakdown({
           {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency, undefined, digits)}
         </span>
       </div>
+      {/*
+        An INCLUDED maintenance charge is disclosed here, never added above. It is already
+        inside the ticket price — listing it as a row would ask the customer to add it a
+        second time and produce a column that does not foot.
+      */}
+      {breakdown && breakdown.includedMaintenanceMinor > 0 && (
+        <div className="mt-2">
+          <Line
+            muted
+            label={t('maintenanceIncluded')}
+            value={money(breakdown.includedMaintenanceMinor, currency, undefined, digits)}
+          />
+        </div>
+      )}
       {breakdown && breakdown.includedTax.length > 0 && (
         <div className="mt-2 space-y-1">
           {breakdown.includedTax.map((tax) => (

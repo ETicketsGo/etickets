@@ -114,13 +114,27 @@ describe('BookingsService.applyCoupon', () => {
     const { service, pricing } = setup();
     await service.applyCoupon(USER, 'bk-1', 'FIRST10');
 
-    expect(pricing.quote).toHaveBeenCalledWith(
-      100_000,
-      'CUSTOMER_PAYS',
-      10_000,
-      'INR',
-      expect.objectContaining({ country: 'India', region: 'KA' }),
-    );
+    /*
+      Asserted on the tax place ARGUMENT rather than on the whole call, because the argument
+      list has since grown a policy effect and will grow again. Pinning arity would make this
+      test fail every time an unrelated parameter is added — which teaches the next person to
+      loosen it rather than read it.
+    */
+    const [subtotal, mode, discount, currency, place] = pricing.quote.mock.calls[0];
+    expect([subtotal, mode, discount, currency]).toEqual([100_000, 'CUSTOMER_PAYS', 10_000, 'INR']);
+    expect(place).toEqual(expect.objectContaining({ country: 'India', region: 'KA' }));
+  });
+
+  it('re-prices under the SNAPSHOT policy, never a freshly resolved one', async () => {
+    /*
+      Applying a coupon the morning after a government order changed must not restate the
+      maintenance charge on a sale that already happened — the customer's receipt would stop
+      matching their booking. The effect passed here is built from the booking's own columns.
+    */
+    const { service, pricing } = setup();
+    await service.applyCoupon(USER, 'bk-1', 'FIRST10');
+    const effect = pricing.quote.mock.calls[0][6];
+    expect(effect.explanation).toMatch(/snapshot recorded on this booking/i);
   });
 
   it('keeps re-pricing in the currency the booking was taken in', async () => {

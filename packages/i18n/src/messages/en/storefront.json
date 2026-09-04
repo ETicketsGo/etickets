@@ -36,7 +36,10 @@
     "platformFee": "Platform fee",
     "platformFeeInclusive": "Platform fee (incl. {rate} GST)",
     "taxIncluded": "Includes {label} ({rate})",
-    "taxIncludedNote": "Tax shown is already included in the total."
+    "taxIncludedNote": "Tax shown is already included in the total.",
+    "maintenanceCharge": "Maintenance charges",
+    "maintenanceIncluded": "Includes maintenance charge",
+    "bookingFeeNotCharged": "Not charged"
   },
   "seats": {
     "heading": "Choose your seats",

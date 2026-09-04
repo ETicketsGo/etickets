@@ -79,6 +79,14 @@ export interface TaxQuoteRequest {
   admissionLines?: { unitPriceMinor: number; quantity: number; category?: string | null }[];
   /** The fee the CUSTOMER bears. Organizer-absorbed fees are not the buyer's tax matter. */
   customerFeeMinor: number;
+  /**
+   * A statutory per-ticket maintenance charge for the whole order, when a cinema pricing
+   * policy imposes one. Only a rule with `appliesTo: 'MAINTENANCE'` reads it.
+   *
+   * Optional, so every existing provider and every non-cinema order is unaffected. An
+   * external tax vendor that does not model such a charge simply ignores it.
+   */
+  maintenanceMinor?: number;
   lines: TaxableLine[];
 }
 

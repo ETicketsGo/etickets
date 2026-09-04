@@ -149,3 +149,76 @@ describe('an older API that does not send the new fields', () => {
     expect(b.rows.some((r) => r.label === 'CGST')).toBe(true);
   });
 });
+
+describe('a statutory maintenance charge', () => {
+  /*
+    The third money component, and the one most likely to be double-counted: it is the only
+    one whose amount is DISCLOSED even when it changes nothing about the total.
+  */
+  const withMaintenance = (minor: number, treatment: BreakdownQuote['maintenanceTreatment']) =>
+    quote({
+      maintenanceMinor: minor,
+      maintenanceTreatment: treatment,
+      customerFeeInclusiveMinor: 4_680,
+      // Added: the ticket subtotal plus the fee plus the charge. Included: no charge on top.
+      totalMinor: treatment === 'ADDED_TO_TICKET_PRICE' ? 30_000 + 4_680 + minor : 30_000 + 4_680,
+    });
+
+  it('is its own row, and foots, when the charge is ADDED', () => {
+    const q = withMaintenance(1_000, 'ADDED_TO_TICKET_PRICE');
+    const b = priceBreakdown(q);
+    expect(b.rows.filter((r) => r.kind === 'maintenance')).toHaveLength(1);
+    expect(b.rows.reduce((s, r) => s + r.amountMinor, 0)).toBe(b.totalMinor);
+  });
+
+  it('is NOT a row, and still foots, when the charge is INCLUDED', () => {
+    /*
+      The double-charge. The amount is already inside the ticket price the customer is
+      paying — listing it above the total asks them to add it twice and produces a column
+      that does not foot, which is exactly the defect inclusive TAX has produced twice on
+      this platform already.
+    */
+    const q = withMaintenance(1_000, 'INCLUDED_IN_TICKET_PRICE');
+    const b = priceBreakdown(q);
+    expect(b.rows.some((r) => r.kind === 'maintenance')).toBe(false);
+    expect(b.includedMaintenanceMinor).toBe(1_000);
+    expect(b.rows.reduce((s, r) => s + r.amountMinor, 0)).toBe(b.totalMinor);
+  });
+
+  it('is still DISCLOSED when included, because an invoice has to state it', () => {
+    // Not rendered is not the same as not charged. It was charged — inside the price.
+    expect(
+      priceBreakdown(withMaintenance(1_000, 'INCLUDED_IN_TICKET_PRICE')).includedMaintenanceMinor,
+    ).toBe(1_000);
+  });
+
+  it('appears nowhere at all when no policy applies', () => {
+    // Every non-cinema event, and every market with no order written for it.
+    const b = priceBreakdown(quote({ customerFeeInclusiveMinor: 4_680, totalMinor: 34_680 }));
+    expect(b.rows.some((r) => r.kind === 'maintenance')).toBe(false);
+    expect(b.includedMaintenanceMinor).toBe(0);
+  });
+
+  it('foots alongside an inclusive ticket tax, which is the real Indian cart', () => {
+    // Both an included charge AND an inclusive tax: two amounts disclosed, neither added.
+    const q = quote({
+      maintenanceMinor: 1_000,
+      maintenanceTreatment: 'INCLUDED_IN_TICKET_PRICE',
+      taxLines: [
+        {
+          label: 'CGST',
+          rateBasisPoints: 900,
+          amountMinor: 2_288,
+          basis: 'TICKETS',
+          inclusive: true,
+        },
+      ],
+      customerFeeInclusiveMinor: 4_680,
+      totalMinor: 34_680,
+    });
+    const b = priceBreakdown(q);
+    expect(b.rows.reduce((s, r) => s + r.amountMinor, 0)).toBe(b.totalMinor);
+    expect(b.includedMaintenanceMinor).toBe(1_000);
+    expect(b.includedTax).toHaveLength(1);
+  });
+});

@@ -49,6 +49,8 @@ export class ManualTaxProvider implements TaxProvider {
     const { taxLines, taxMinor, taxAddedMinor } = computeTax({
       netSubtotalMinor: request.netSubtotalMinor,
       customerFeeMinor: request.customerFeeMinor,
+      // Passed through so a MAINTENANCE rule has a base to work on.
+      maintenanceMinor: request.maintenanceMinor,
       admissionLines: request.admissionLines,
       rules,
       place: {

@@ -1,4 +1,4 @@
-import { FeeMode } from '@eticketsgo/shared-types';
+import { FeeMode, type MaintenanceTreatment } from '@eticketsgo/shared-types';
 import { computeTax, type TaxLine, type TaxPlace, type TaxRuleInput } from './tax-calculator';
 
 /** A tiered platform booking-fee rule. All money in minor units (paise). */
@@ -65,6 +65,17 @@ export interface FeeCalcResult {
   feeTaxMinor?: number;
   /** Total tax the customer pays, the sum of `taxLines`. Zero unless tax is configured. */
   taxMinor: number;
+  /**
+   * A statutory per-ticket maintenance charge for the whole order, if a jurisdiction's
+   * cinema pricing order imposes one. Zero everywhere else.
+   *
+   * Reported separately from the subtotal and from the fees, and never folded into either:
+   * platform-revenue reporting sums the fee columns, and a statutory charge counted as
+   * ETicketsGo income would misstate revenue.
+   */
+  maintenanceMinor?: number;
+  /** Whether that amount is already inside the ticket price or was added to the total. */
+  maintenanceTreatment?: MaintenanceTreatment;
   /** Amount charged to the customer, tax included. */
   totalMinor: number;
 }

@@ -10,6 +10,7 @@ import {
 } from './fee-calculator';
 import type { TaxPlace } from './tax-calculator';
 import { TAX_PROVIDER, type TaxProvider } from '../tax/tax-provider.interface';
+import type { PolicyEffect } from './cinema-policy/apply-policy';
 
 @Injectable()
 export class PricingService {
@@ -103,6 +104,14 @@ export class PricingService {
      * India bands cinema admission at ₹100 and sporting admission at ₹500, per ticket.
      */
     admissionLines?: { unitPriceMinor: number; quantity: number; category?: string | null }[],
+    /**
+     * What a jurisdiction's cinema pricing order does to this money, already resolved.
+     *
+     * Resolved by the caller rather than here, because resolution needs the CINEMA — its
+     * classification and local body — and this service prices carts, not venues. Absent, and
+     * for every non-cinema order, nothing below changes at all.
+     */
+    policy?: PolicyEffect,
   ): Promise<FeeCalcResult> {
     // The venue's location decides the fee schedule, for the same reason it decides the
     // admission's place of supply: a cap applies to the sale that happens there.
@@ -112,7 +121,33 @@ export class PricingService {
     });
     // Fees first, with no tax, because tax is levied on what the customer is actually
     // charged — the discounted ticket price plus their share of the fees.
-    const fees = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+    const uncapped = calculateFees({ subtotalMinor, feeMode, discountMinor, tiers, currency });
+
+    /*
+      ── A JURISDICTION MAY LIMIT OR FORBID THE PLATFORM'S FEE ────────────────────────
+      Applied here, BEFORE tax, because tax is levied on what the customer is actually
+      charged. Capping afterwards would tax a fee nobody paid.
+
+      `maxOnlineFeeMinor === null` means unrestricted and the tiers stand exactly as before.
+      Zero is a real answer — the fee is not permitted, or the jurisdiction's position has
+      not been confirmed and the platform declines to assume its own schedule is lawful
+      there. Whatever the customer is not charged, the organizer does not absorb either:
+      this reduces the charge, it does not move it.
+    */
+    const cap = policy?.maxOnlineFeeMinor ?? null;
+    const fees =
+      cap === null || uncapped.customerFeeMinor <= cap
+        ? uncapped
+        : {
+            ...uncapped,
+            customerFeeMinor: cap,
+            // Kept proportional so the itemisation still explains the total it belongs to.
+            bookingFeeMinor: Math.min(uncapped.bookingFeeMinor, cap),
+            paymentFeeMinor: Math.max(0, cap - Math.min(uncapped.bookingFeeMinor, cap)),
+          };
+
+    const maintenanceMinor = policy?.maintenanceMinor ?? 0;
+    const maintenanceAddedMinor = policy?.maintenanceAddedMinor ?? 0;
 
     /*
       Tax comes from the configured provider rather than from a rule table read inline.
@@ -138,6 +173,12 @@ export class PricingService {
       },
       netSubtotalMinor: fees.netSubtotalMinor,
       customerFeeMinor: fees.customerFeeMinor,
+      /*
+        Rated whether the charge is inside the ticket price or added to it. A TaxRule
+        naming MAINTENANCE decides if it is taxed at all — the platform asserts nothing
+        about that, and passing it only makes the question answerable by configuration.
+      */
+      maintenanceMinor,
       admissionLines,
       lines: [{ reference: 'tickets', kind: 'admission', amountMinor: fees.netSubtotalMinor }],
     });
@@ -189,7 +230,18 @@ export class PricingService {
       /** The combined rate inside that figure — 1800 for an 18% GST, 0 when untaxed. */
       feeTaxRateBasisPoints,
       feeTaxMinor,
-      totalMinor: fees.netSubtotalMinor + fees.customerFeeMinor + taxAddedMinor,
+      maintenanceMinor,
+      maintenanceTreatment: policy?.maintenanceTreatment ?? 'NOT_APPLICABLE',
+      /*
+        `maintenanceAddedMinor`, not `maintenanceMinor`.
+
+        An INCLUDED charge is already inside the ticket price the customer is paying, exactly
+        as an inclusive tax is. Adding it here would charge it a second time on every order in
+        every included-charge market — the same mistake, in a different column, that inclusive
+        tax has already produced twice on this platform.
+      */
+      totalMinor:
+        fees.netSubtotalMinor + fees.customerFeeMinor + maintenanceAddedMinor + taxAddedMinor,
     };
   }
 }

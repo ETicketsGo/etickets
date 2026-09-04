@@ -1,4 +1,5 @@
 import type {
+  MaintenanceTreatment,
   ApiError,
   AuthTokens,
   ManifestEntry,
@@ -1715,6 +1716,14 @@ export interface BookingResult {
      * working; the client falls back to `customerFeeMinor`.
      */
     customerFeeInclusiveMinor?: number;
+    /**
+     * A statutory per-ticket maintenance charge for the order, when a jurisdiction imposes
+     * one. Server-decided: a client must never compute this, or it can disagree with the
+     * server about what a customer owes and the customer finds out at the payment page.
+     */
+    maintenanceMinor?: number;
+    /** Whether that amount is inside the ticket price already, or added to the total. */
+    maintenanceTreatment?: MaintenanceTreatment;
     /** The combined rate inside that figure — 1800 for 18%, 0 when nothing is taxed. */
     feeTaxRateBasisPoints?: number;
     feeTaxMinor?: number;

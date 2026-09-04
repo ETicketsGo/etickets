@@ -9,6 +9,7 @@ export * from './wallet-pass';
 export * from './marketplace';
 export * from './country';
 export * from './india-states';
+export * from './cinema-pricing';
 export * from './metrics-access';
 // AI & Growth (v2.0) — pure deterministic engines + safety.
 export * from './ai-safety';
