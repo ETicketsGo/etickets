@@ -1,5 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ETicketsGo">
-  <rect width="512" height="512" rx="112" fill="#4f46e5" />
-  <path fill="#ffffff" d="M136 176a24 24 0 0 1 24-24h192a24 24 0 0 1 24 24v40a32 32 0 0 0 0 64v40a24 24 0 0 1-24 24H160a24 24 0 0 1-24-24v-40a32 32 0 0 0 0-64v-40Zm104 8v144h32V184h-32Z" opacity="0.95" />
-  <circle cx="256" cy="256" r="10" fill="#4f46e5" />
+  <title>ETicketsGo</title>
+  <!--
+    ── THE SMALL-SIZE MARK ────────────────────────────────────────────────────────────
+    A favicon is 16px and a tab is glanced at, not read. The full mark's motion streaks,
+    perforation and notch all occupy two or three pixels there and turn into grain, so this
+    variant drops them and gives the remaining shape the whole box.
+
+    What survives is the part that identifies the brand at any size: the ticket silhouette
+    and the E. That is the trade a favicon exists to make.
+
+    It replaced a hand-drawn indigo (#4f46e5) square that matched neither the product's blue
+    nor the brand mark — a third logo, visible in every browser tab.
+  -->
+  <defs>
+    <linearGradient id="etgIcon" x1="56" y1="440" x2="456" y2="72" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C026D3" />
+      <stop offset="0.36" stop-color="#6D28D9" />
+      <stop offset="0.7" stop-color="#2563EB" />
+      <stop offset="1" stop-color="#22B8F5" />
+    </linearGradient>
+    <mask id="etgIconNotch">
+      <rect width="512" height="512" fill="#fff" />
+      <circle cx="452" cy="256" r="30" fill="#000" />
+    </mask>
+  </defs>
+
+  <g transform="translate(6 0) skewX(-11)">
+    <g mask="url(#etgIconNotch)">
+      <rect x="70" y="118" width="376" height="276" rx="34" fill="url(#etgIcon)" />
+    </g>
+    <!-- Heavier strokes than the full mark. Thin ones vanish first when the renderer starts
+         rounding to whole pixels. -->
+    <path fill="#fff" d="M128 159h190v46H182v30h118v42h-118v30h140v46H128z" />
+  </g>
 </svg>

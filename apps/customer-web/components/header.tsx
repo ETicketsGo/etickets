@@ -12,6 +12,7 @@ import { purgeUser } from '@/lib/offline/wallet-store';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { Logo } from '@eticketsgo/web-kit';
 
 const navLink =
   'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
@@ -73,12 +74,10 @@ export function Header() {
             aria-label="ETicketsGo home"
             className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
-              <Ticket className="h-4 w-4" />
-            </span>
-            <span className="hidden text-[1.05rem] sm:inline">
-              ETickets<span className="text-action-primary">Go</span>
-            </span>
+            {/* The wordmark still hides on a phone — the mark alone identifies the brand
+                and the space belongs to the city picker beside it. */}
+            <Logo markClassName="h-8 w-8" className="hidden sm:inline-flex" id="hdr" />
+            <Logo markClassName="h-8 w-8" showWordmark={false} className="sm:hidden" id="hdr-sm" />
           </Link>
           {/*
             Beside the logo, not buried in a filter panel. Someone filtered to Delhi who

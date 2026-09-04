@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ETicketsGo">
+  <title>ETicketsGo</title>
+  <!--
+    ── THE MASKABLE ICON, WHICH IS A DIFFERENT DRAWING ────────────────────────────────
+    Android crops an installed app icon to whatever shape the launcher uses — a circle, a
+    squircle, a rounded square — and only the central 80% is guaranteed to survive. The
+    manifest declared the ordinary mark as `purpose: "any maskable"`, and that mark runs to
+    the edge of its box, so a circular launcher would have sliced the ends off the ticket.
+    Declaring an icon maskable does not make it safe to mask; it only promises that it is.
+
+    So: a full-bleed brand background, with the mark held inside the safe zone. The
+    background is what gets cropped, which is what backgrounds are for.
+  -->
+  <defs>
+    <linearGradient id="etgMaskable" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C22CE" />
+      <stop offset="0.5" stop-color="#2563EB" />
+      <stop offset="1" stop-color="#1A5CEA" />
+    </linearGradient>
+    <mask id="etgMaskableNotch">
+      <rect width="512" height="512" fill="#fff" />
+      <circle cx="360" cy="256" r="20" fill="#000" />
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#etgMaskable)" />
+
+  <!-- Inside the 80% safe zone: nothing below is closer than 52px to any edge. -->
+  <g transform="translate(6 0) skewX(-9)">
+    <g mask="url(#etgMaskableNotch)">
+      <rect x="150" y="176" width="212" height="160" rx="20" fill="#fff" opacity="0.16" />
+    </g>
+    <path
+      fill="#fff"
+      d="M186 200h116v30H222v20h74v28h-74v20h84v30H186z"
+    />
+  </g>
+</svg>

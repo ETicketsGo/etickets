@@ -2,11 +2,12 @@
 
 import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
-import { Ticket, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { isSignedIn } from '@/lib/auth-flag';
 import { Link } from '@/i18n/navigation';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { useTranslations } from 'next-intl';
+import { Logo } from '@eticketsgo/web-kit';
 
 const LINKS = [
   { href: '/features', label: 'features' },
@@ -41,12 +42,7 @@ export function MarketingNav() {
           aria-label="ETicketsGo home"
           className="flex items-center gap-2 rounded-md font-bold tracking-tight text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
-            <Ticket className="h-4 w-4" />
-          </span>
-          <span className="text-[1.05rem]">
-            ETickets<span className="text-action-primary">Go</span>
-          </span>
+          <Logo markClassName="h-8 w-8" id="mnav" />
         </Link>
 
         {/* Desktop links */}

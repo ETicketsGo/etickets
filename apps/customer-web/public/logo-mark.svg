@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ETicketsGo">
+  <title>ETicketsGo</title>
+  <defs>
+    <!--
+      Bottom-left fuchsia to top-right sky, matching the brand mark. `userSpaceOnUse` so the
+      ramp is anchored to the artwork rather than to each shape's own box — per-shape
+      gradients restart on every element and the ticket and the streaks stop agreeing.
+    -->
+    <linearGradient id="etgBrand" x1="40" y1="400" x2="470" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C026D3" />
+      <stop offset="0.34" stop-color="#6D28D9" />
+      <stop offset="0.68" stop-color="#2563EB" />
+      <stop offset="1" stop-color="#22B8F5" />
+    </linearGradient>
+
+    <!--
+      The notch is PUNCHED, not painted over. A background-coloured circle works on white and
+      leaves a white bite out of the mark on every other surface — the same flaw as artwork
+      with its background baked in, at a smaller scale.
+    -->
+    <mask id="etgNotch">
+      <rect width="512" height="512" fill="#fff" />
+      <circle cx="438" cy="256" r="30" fill="#000" />
+    </mask>
+  </defs>
+
+  <!-- One skew on the whole group, so the E cannot drift out of agreement with the ticket
+       it sits inside. -->
+  <g transform="translate(22 0) skewX(-11)">
+    <g mask="url(#etgNotch)">
+      <!-- Landscape, ~1.45:1. Squarer than this and it stops reading as a ticket. -->
+      <rect x="130" y="152" width="308" height="212" rx="26" fill="url(#etgBrand)" />
+    </g>
+
+    <!-- The tear line, inset from the notch rather than sitting on the edge. -->
+    <line
+      x1="394"
+      y1="176"
+      x2="394"
+      y2="340"
+      stroke="#fff"
+      stroke-width="8"
+      stroke-linecap="round"
+      stroke-dasharray="3 24"
+      opacity="0.9"
+    />
+
+    <!--
+      Knocked out in white, and CENTRED in the ticket by arithmetic rather than by eye: the
+      ticket spans y 152–364, so a 152-tall E starts at 182. Eyeballed, it ran to y 368 —
+      four pixels past the bottom edge — and the skew turned that overflow into a white spur
+      poking out of the lower-left corner and touching the motion streaks. Found by rendering
+      it, not by reading it.
+
+      Blocky rather than the artwork's angled terminals: the angles are invisible below about
+      40px and cost legibility at exactly the sizes that matter most.
+    -->
+    <path fill="#fff" d="M172 182h140v36H212v24h96v32h-96v24h108v36H172z" />
+  </g>
+
+  <!--
+    Streaks stay level while the ticket leans — as in the artwork. Skewing them too reads as
+    a mistake rather than as speed.
+  -->
+  <g fill="url(#etgBrand)">
+    <rect x="74" y="186" width="96" height="20" rx="10" />
+    <rect x="34" y="246" width="124" height="20" rx="10" />
+    <rect x="60" y="306" width="104" height="20" rx="10" />
+    <rect x="12" y="186" width="42" height="20" rx="10" opacity="0.7" />
+    <rect x="14" y="306" width="30" height="20" rx="10" opacity="0.7" />
+  </g>
+</svg>

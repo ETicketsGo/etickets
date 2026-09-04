@@ -26,3 +26,4 @@ export * from './datetime-value';
 export * from './venue-map';
 export * from './price-breakdown';
 export * from './buyer-region';
+export * from './logo';

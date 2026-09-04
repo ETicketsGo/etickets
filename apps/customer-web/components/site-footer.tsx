@@ -1,6 +1,6 @@
-import { Ticket } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
+import { Logo } from '@eticketsgo/web-kit';
 
 /**
  * The end of a storefront page.
@@ -72,12 +72,11 @@ export function SiteFooter({ environmentNotice }: { environmentNotice?: string |
               href="/"
               className="inline-flex items-center gap-2 font-bold tracking-tight text-text-primary"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
-                <Ticket className="h-4 w-4" />
-              </span>
-              <span className="text-[1.05rem]">
-                ETickets<span className="text-action-primary">Go</span>
-              </span>
+              {/* Compact, not full. A footer lockup is ~36px and the full mark's streaks
+                  and tear line are two pixels each at that size — they render as a smudge
+                  beside the wordmark rather than as motion. The full mark earns its detail
+                  above roughly 40px; below it, the ticket and the E carry the brand alone. */}
+              <Logo markClassName="h-9 w-9" id="ftr" />
             </Link>
             {/* Translated, not inlined. The marketing footer's tagline is a hardcoded
                 English string, which is how a page passes a build that fails on missing

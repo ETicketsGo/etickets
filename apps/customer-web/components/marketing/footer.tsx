@@ -1,6 +1,6 @@
-import { Ticket } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
+import { Logo } from '@eticketsgo/web-kit';
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
@@ -60,12 +60,8 @@ export function MarketingFooter() {
               href="/"
               className="flex items-center gap-2 font-bold tracking-tight text-text-primary"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-action-primary text-action-primary-foreground shadow-sm">
-                <Ticket className="h-4 w-4" />
-              </span>
-              <span className="text-[1.05rem]">
-                ETickets<span className="text-action-primary">Go</span>
-              </span>
+              {/* Compact for the same reason as the storefront footer — see the note there. */}
+              <Logo markClassName="h-9 w-9" id="mftr" />
             </Link>
             <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-secondary">
               The experience-commerce platform for selling tickets, checking in guests, and
