@@ -272,6 +272,42 @@ export function cityScope(preference: CityPreference): { city?: string; country?
   return {};
 }
 
+/**
+ * Whether an event is inside the scope the customer is currently browsing in.
+ *
+ * ── WHY A CLIENT-SIDE TWIN OF `cityScope` IS NEEDED AT ALL ─────────────────────────
+ * Every list on the storefront is filtered by the server, which is why choosing Meridian
+ * correctly leaves Browse, Movies and the home page showing Meridian events only. One list
+ * is not: "Continue exploring" is read from this browser's own history, so nothing filtered
+ * it and it happily offered a Hyderabad comedy show and a Mumbai gig to somebody whose
+ * header said Meridian.
+ *
+ * That is not a harmless leftover. "Continue exploring" is an invitation to act, sitting
+ * directly under a header naming a city — and the invitation was to a show eight thousand
+ * miles away. Worse, it made the scoping look broken when it was working: the only events
+ * on screen were the out-of-scope ones.
+ *
+ * The rule matches `cityScope` exactly, because a page that filters its server lists one way
+ * and its local list another is back to two answers for one question.
+ */
+export function inCityScope(
+  event: { venue?: { city?: string | null; country?: string | null } | null },
+  preference: CityPreference,
+): boolean {
+  const venue = event.venue;
+  // No venue means nothing to compare. Keep it rather than hide it: an event we cannot
+  // place is not evidence that it is somewhere else.
+  if (!venue) return true;
+
+  const same = (a?: string | null, b?: string | null) =>
+    Boolean(a?.trim() && b?.trim() && a.trim().toLowerCase() === b.trim().toLowerCase());
+
+  if (preference.city) return same(venue.city, preference.city);
+  if (preference.country) return same(venue.country, preference.country);
+  // No preference at all — nothing is out of scope.
+  return true;
+}
+
 /** How long after the last keystroke to ask the server. Short enough to feel immediate. */
 const SEARCH_DEBOUNCE_MS = 180;
 

@@ -12,7 +12,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { useCity } from '@eticketsgo/web-kit';
+import { inCityScope, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import type {
   DiscoverySection,
@@ -215,7 +215,8 @@ export default function ExplorePage() {
   // Composed strategy sections (organizers/venues/nearby/new-releases/…), scoped to the
   // city in the header. The feed reports what it actually applied, because a city with no
   // inventory falls back to everywhere and the customer deserves to be told that.
-  const { city } = useCity();
+  const preference = useCity();
+  const { city } = preference;
   const sectionsQuery = useQuery({
     queryKey: ['discovery-sections', city],
     queryFn: () => api.discoverySectionFeed(city ?? undefined),
@@ -226,8 +227,18 @@ export default function ExplorePage() {
   // mount to avoid a hydration mismatch (localStorage is unavailable on server).
   const [recent, setRecent] = useState<RecentEvent[]>([]);
   useEffect(() => setRecent(getRecent()), []);
-  // "Continue exploring" = the distinct categories of recently-viewed events.
-  const recentCategories = Array.from(new Set(recent.map((e) => e.category))).slice(0, 8);
+  /*
+    "Continue exploring" = the distinct categories of recently-viewed events, and only from
+    events in the scope being browsed.
+
+    Milder than the home page's version of this — a category chip is location-neutral and
+    leads to a Browse page that IS scoped, so the worst case was a chip with nothing behind
+    it rather than an invitation to a show on another continent. Filtered anyway, because
+    two pages applying the same idea differently is how they drift apart.
+  */
+  const recentCategories = Array.from(
+    new Set(recent.filter((e) => inCityScope(e, preference)).map((e) => e.category)),
+  ).slice(0, 8);
 
   return (
     <div className="space-y-16">

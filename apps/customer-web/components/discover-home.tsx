@@ -7,7 +7,7 @@ import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { getRecent, type RecentEvent } from '@/lib/recent';
-import { cityScope, useCity } from '@eticketsgo/web-kit';
+import { cityScope, inCityScope, useCity } from '@eticketsgo/web-kit';
 import { Button, ButtonLink, EmptyState } from '@/components/ui';
 
 /**
@@ -102,6 +102,7 @@ export function DiscoverHome() {
   */
   const preference = useCity();
   const scope = cityScope(preference);
+  const scopedRecent = recent.filter((e) => inCityScope(e, preference));
   const scopeKey = JSON.stringify(scope);
 
   const categoriesQ = useQuery({
@@ -219,11 +220,22 @@ export function DiscoverHome() {
         </div>
       </section>
 
-      {/* Recently viewed */}
-      {recent.length > 0 && (
+      {/*
+        Recently viewed, scoped like everything else on this page.
+
+        It was the one list nothing filtered — read straight from this browser's history —
+        so with Meridian chosen it offered a Hyderabad comedy show and a Mumbai gig directly
+        under a header saying Meridian. The other sections were scoped correctly, which made
+        it worse: the only events on screen were the out-of-scope ones, so the filtering
+        looked broken precisely when it was working.
+
+        Filtered rather than labelled: this strip is an invitation to act, and an invitation
+        to a show eight thousand miles away is not one worth dressing up.
+      */}
+      {scopedRecent.length > 0 && (
         <Section title="Continue exploring" subtitle="Events you recently viewed." icon={Clock3}>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {recent.slice(0, 3).map((e) => (
+            {scopedRecent.slice(0, 3).map((e) => (
               <EventCard key={e.id} event={e} />
             ))}
           </div>
