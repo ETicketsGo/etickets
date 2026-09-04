@@ -3,8 +3,13 @@ import { CinemasController, ScreensController } from './cinemas.controller';
 import { CinemaComplianceService } from './cinema-compliance.service';
 import { CinemasService } from './cinemas.service';
 import { PilotReadinessService } from './pilot-readiness.service';
+import { PricingModule } from '../pricing/pricing.module';
+import { TenancyModule } from '../tenancy/tenancy.module';
 
 @Module({
+  // CinemaComplianceService reads the SAME resolver checkout uses (PricingModule) and
+  // answers only for cinemas the caller belongs to (TenancyModule).
+  imports: [PricingModule, TenancyModule],
   controllers: [CinemasController, ScreensController],
   providers: [CinemasService, PilotReadinessService, CinemaComplianceService],
   exports: [CinemasService, PilotReadinessService],

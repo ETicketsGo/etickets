@@ -8,6 +8,7 @@ import {
   TierPricingStrategy,
 } from './pricing-strategies';
 import { PricingStrategiesService } from './pricing-strategies.service';
+import { CinemaPricingPolicyService } from './cinema-policy/cinema-pricing-policy.service';
 
 @Module({
   imports: [TaxModule],
@@ -18,7 +19,13 @@ import { PricingStrategiesService } from './pricing-strategies.service';
     TierPricingStrategy,
     SeatPricingStrategy,
     PricingStrategiesService, // line pricing (ADR-019)
+    CinemaPricingPolicyService, // regulated cinema rates (ADR-043)
   ],
-  exports: [PricingService, PricingStrategiesService, AdvertisedPriceService],
+  exports: [
+    PricingService,
+    PricingStrategiesService,
+    AdvertisedPriceService,
+    CinemaPricingPolicyService,
+  ],
 })
 export class PricingModule {}
