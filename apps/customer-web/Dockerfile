@@ -65,6 +65,13 @@ WORKDIR /app
 COPY --from=build /app/apps/customer-web/.next/standalone ./
 # Static assets are NOT included in standalone; copy them alongside the server.
 COPY --from=build /app/apps/customer-web/.next/static ./apps/customer-web/.next/static
+# ...and neither is public/. This line was missing, and the comment above only got half the
+# job: everything in public/ has been 404ing in every deployed environment since the image
+# was written. That is not only the favicon and the web manifest — it is `sw.js`, so the
+# service worker never registered and the offline ticket wallet never worked, and
+# `offline.html`, so the fallback it would have shown was missing too. All of it silent:
+# a missing service worker looks exactly like a browser that has not registered one yet.
+COPY --from=build /app/apps/customer-web/public ./apps/customer-web/public
 
 USER node
 

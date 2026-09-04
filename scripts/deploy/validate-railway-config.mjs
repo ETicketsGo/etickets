@@ -519,6 +519,45 @@ function validateNextPublicBuildArgs() {
   }
 }
 
+/**
+ * A Next app with a `public/` directory must copy it into the standalone image.
+ *
+ * ── WHY THIS CHECK EXISTS ──────────────────────────────────────────────────────────
+ * `output: standalone` bundles the server and its traced dependencies. It does NOT include
+ * `.next/static` and it does NOT include `public/`. The customer-web image copied the first
+ * and not the second, under a comment that said "static assets are NOT included in
+ * standalone" — which was right, and only got half the job.
+ *
+ * Everything in public/ 404'd in every deployed environment from the day the image was
+ * written. Not just the favicon and the web manifest: `sw.js`, so the service worker never
+ * registered and the offline ticket wallet never worked, and `offline.html`, so the fallback
+ * it would have shown was missing too. All of it silent — an unregistered service worker
+ * looks exactly like a browser that simply has not registered one yet.
+ *
+ * Same shape as the NEXT_PUBLIC check above: something the build quietly drops, invisible
+ * until somebody requests the file in production.
+ */
+function validatePublicAssetsCopied() {
+  for (const app of ['customer-web', 'organizer-web', 'admin-web']) {
+    const publicDir = join(ROOT, 'apps', app, 'public');
+    if (!existsSync(publicDir)) continue;
+
+    const dockerfile = join(ROOT, 'apps', app, 'Dockerfile');
+    if (!existsSync(dockerfile)) continue;
+    const df = readFileSync(dockerfile, 'utf8');
+
+    check(
+      // Doubled escapes: this is a TEMPLATE LITERAL, so JS resolves the escapes itself
+      // and an un-doubled one would reach RegExp as a real newline and a backspace.
+      new RegExp(`COPY --from=build [^\\n]*apps/${app}/public\\b`).test(df),
+      `apps/${app}/Dockerfile`,
+      `apps/${app}/public exists but is never copied into the standalone image — ` +
+        'Next does not include public/ in `output: standalone`, so every file in it ' +
+        '(favicon, web manifest, sw.js, offline.html) 404s in production',
+    );
+  }
+}
+
 /** The apps must honour Railway's injected PORT rather than a pinned one. */
 function validatePortBinding() {
   const apiMain = readFileSync(join(ROOT, 'apps/api/src/main.ts'), 'utf8');
@@ -547,6 +586,7 @@ validateRootConfig();
 SERVICES.forEach(validateServiceConfig);
 ENV_TEMPLATES.forEach(validateEnvTemplate);
 validateNextPublicBuildArgs();
+validatePublicAssetsCopied();
 validatePortBinding();
 
 for (const w of warnings) console.warn(`  warn  ${w}`);
