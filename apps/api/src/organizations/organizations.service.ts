@@ -197,6 +197,105 @@ export class OrganizationsService {
   }
 
   /**
+   * The same edit, made by a platform administrator instead of the organizer's owner.
+   *
+   * ── WHY THIS IS A SEPARATE METHOD AND NOT A LOOSENED GUARD ─────────────────────────
+   * The obvious change was to widen `updateLegalIdentity`'s role check to admit admins.
+   * That would have been wrong in a way that only shows up later: the audit entry says who
+   * acted but not on whose authority, and "the owner recorded their GSTIN" and "the platform
+   * recorded a GSTIN on the organizer's behalf" are different facts about a number printed
+   * on a tax invoice. If the number turns out to be wrong, which of those it was decides
+   * whose mistake it is.
+   *
+   * So this records a distinct action, and carries `onBehalfOf` so a later reader can tell
+   * the two apart without inferring it from the actor's role at read time — roles change.
+   *
+   * ── WHY AN ADMIN NEEDS THIS AT ALL ────────────────────────────────────────────────
+   * During a pilot the platform onboards organizers directly: it collects the registration
+   * on a call and enters it. Requiring the owner to sign in and self-serve first would mean
+   * every early invoice goes out as a plain receipt rather than a tax invoice, and a receipt
+   * cannot be reissued as one after the fact — the document is a snapshot.
+   */
+  async adminUpdateLegalIdentity(
+    admin: RequestUser,
+    id: string,
+    input: UpdateOrganizationLegalIdentityInput,
+  ) {
+    const before = await this.prisma.organization.findUnique({
+      where: { id },
+      select: { legalName: true, taxRegistrationKind: true, taxRegistrationNumber: true },
+    });
+    if (!before) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+
+    const data: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
+      if (value === undefined) continue;
+      data[key] = value === '' ? null : value;
+    }
+    const updated = await this.prisma.organization.update({ where: { id }, data });
+
+    await this.audit.record({
+      actorUserId: admin.id,
+      organizationId: id,
+      action: 'ORGANIZATION_LEGAL_IDENTITY_UPDATED_BY_ADMIN',
+      entityType: 'Organization',
+      entityId: id,
+      metadata: {
+        onBehalfOf: id,
+        fields: Object.keys(data),
+        // Documents already issued keep the old values — they are snapshots. Recording the
+        // change is what lets anyone explain why two invoices name the seller differently.
+        previousTaxRegistrationNumber: before.taxRegistrationNumber ?? null,
+        newTaxRegistrationNumber: updated.taxRegistrationNumber ?? null,
+      },
+    });
+    return updated;
+  }
+
+  /** The tax-invoice readiness of one organization, read by a platform administrator. */
+  async adminLegalIdentityStatus(id: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id },
+      select: {
+        legalName: true,
+        taxRegistrationKind: true,
+        taxRegistrationNumber: true,
+        registeredAddressLine1: true,
+        registeredAddressLine2: true,
+        registeredCity: true,
+        registeredRegion: true,
+        registeredPostalCode: true,
+        registeredCountry: true,
+        financeContactName: true,
+        financeContactEmail: true,
+        financeContactPhone: true,
+      },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+    const missing = (
+      [
+        ['legalName', 'Registered legal name'],
+        ['registeredAddressLine1', 'Registered address'],
+        ['registeredCity', 'City'],
+        ['registeredCountry', 'Country'],
+        ['financeContactEmail', 'Finance contact email'],
+      ] as const
+    )
+      .filter(([field]) => !org[field])
+      .map(([, label]) => label);
+
+    return {
+      ...org,
+      missing,
+      canIssueTaxInvoice: Boolean(org.taxRegistrationNumber?.trim()) && missing.length === 0,
+    };
+  }
+
+  /**
    * What is still missing before this organization can issue a tax invoice.
    *
    * Reports the gap; does not decide policy. Whether an organizer is ALLOWED to sell without

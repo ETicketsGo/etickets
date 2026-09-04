@@ -197,6 +197,25 @@ export class AdminOrganizationsController {
     return this.orgs.review(admin, id, body);
   }
 
+  @Get(':id/legal-identity')
+  @ApiOperation({ summary: "An organization's legal + tax identity, read by an admin." })
+  adminLegalIdentity(@Param('id') id: string) {
+    return this.orgs.adminLegalIdentityStatus(id);
+  }
+
+  @Patch(':id/legal-identity')
+  @ApiOperation({
+    summary: "Record an organization's legal + tax identity on their behalf (admin).",
+  })
+  adminUpdateLegalIdentity(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateOrganizationLegalIdentitySchema))
+    body: UpdateOrganizationLegalIdentityInput,
+  ) {
+    return this.orgs.adminUpdateLegalIdentity(admin, id, body);
+  }
+
   @Patch(':id/auto-approve')
   @ApiOperation({
     summary: 'Let a trusted organizer publish events without review, or stop them (admin).',

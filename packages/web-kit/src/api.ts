@@ -1263,6 +1263,21 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ enabled }),
       }),
+    /**
+     * The seller identity printed on an organizer's invoices, and what is still missing.
+     *
+     * Read and written by the platform because during a pilot the platform is the one doing
+     * the onboarding — it collects the registration on a call. Waiting for the owner to
+     * self-serve would mean every invoice until then goes out as a plain receipt, and a
+     * receipt cannot be reissued as a tax invoice afterwards: the document is a snapshot.
+     */
+    organizerLegalIdentity: (id: string) =>
+      request<OrganizationLegalIdentity>(`/admin/organizers/${id}/legal-identity`),
+    updateOrganizerLegalIdentity: (id: string, patch: Partial<OrganizationLegalIdentityFields>) =>
+      request<Organization>(`/admin/organizers/${id}/legal-identity`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
     events: (params: PageParams & { status?: string }) =>
       request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
@@ -1926,6 +1941,30 @@ export interface AttendeeSummary {
     attendeeEmail: string | null;
     pendingInvite: { id: string; email: string; kind: string; expiresAt: string } | null;
   }[];
+}
+
+/** Everything an invoice must name about the seller. All optional until a market needs it. */
+export interface OrganizationLegalIdentityFields {
+  legalName: string | null;
+  /** LABELS the number — "GSTIN", "EIN", "GST/HST" — so a reader knows what they are seeing. */
+  taxRegistrationKind: string | null;
+  taxRegistrationNumber: string | null;
+  registeredAddressLine1: string | null;
+  registeredAddressLine2: string | null;
+  registeredCity: string | null;
+  registeredRegion: string | null;
+  registeredPostalCode: string | null;
+  registeredCountry: string | null;
+  financeContactName: string | null;
+  financeContactEmail: string | null;
+  financeContactPhone: string | null;
+}
+
+export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFields {
+  /** Human-readable labels for the fields still blank. */
+  missing: string[];
+  /** A registration on file AND nothing missing. Below that, documents are plain receipts. */
+  canIssueTaxInvoice: boolean;
 }
 
 export interface Organization {
