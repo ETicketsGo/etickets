@@ -2208,6 +2208,51 @@ model FeeRule {
 /// Split because the answer differs by jurisdiction and is a question for a tax advisor,
 /// not for this codebase: some places tax the admission only, some also tax the booking
 /// fee, and the two can carry different rates.
+/// A government order, statute or circular that one or more pricing rules encode.
+///
+/// ── WHY THIS IS A TABLE AND NOT A STRING ON EVERY RULE ─────────────────────────────
+/// Andhra Pradesh's G.O.Ms.No.13 produces ~26 policy rows — one per local body, theatre
+/// class and seat class. Retyping the citation twenty-six times guarantees that one day
+/// twenty-five of them say one thing and the twenty-sixth says another, and nobody can tell
+/// which is the typo. It also gives the document its own lifecycle: a URL can be added when
+/// somebody finds it, and a "we have not read this yet" flag can be cleared once they have,
+/// without touching a single executable rule value.
+///
+/// The policy still carries `regulatoryReference` as denormalised TEXT, and bookings copy
+/// that text again. Both are deliberate: a customer's invoice must be able to say what it
+/// was charged under even if this row is later corrected or deleted.
+model RegulatoryDocument {
+  id String @id @default(cuid())
+
+  /// The citation as it would be quoted, e.g.
+  /// "G.O.Ms.No.13, Home (General-A) Department, dated 07-03-2022".
+  reference String @unique
+  country   String
+  /// State or province. '*' for a national instrument.
+  region    String @default("*")
+
+  /// Null until somebody produces an authoritative copy. NOT a link to a news article: a
+  /// report about an order is not the order, and this column is read as provenance.
+  documentUrl String?
+
+  /// Whether the full text has actually been READ by whoever configured the rules from it.
+  ///
+  /// False means the values below were transcribed from a summary or a brief. That is not
+  /// necessarily wrong, but it is a different epistemic state from having the document, and
+  /// a launch decision needs to be able to tell them apart.
+  textReviewed Boolean @default(false)
+
+  /// Internal. Admin-only, never shown to an organizer or a customer.
+  notes String?
+
+  policies CinemaPricingPolicy[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([country, region])
+}
+
 /// One jurisdiction's rules for what a cinema ticket may cost and what may be added to it.
 ///
 /// ── WHY THIS IS DATA, LIKE TaxRule ─────────────────────────────────────────────────
@@ -2283,7 +2328,12 @@ model CinemaPricingPolicy {
   supersededBy  CinemaPricingPolicy?      @relation("PolicyLineage")
 
   /// ── Provenance. An auditor asks these first. ─────────────────────────────────────
-  /// The government order or statute this encodes, e.g. "G.O.Ms.No.32 dated 2026-04-01".
+  /// The document this rule encodes, when one has been recorded.
+  regulatoryDocumentId  String?
+  regulatoryDocument    RegulatoryDocument? @relation(fields: [regulatoryDocumentId], references: [id])
+  /// The citation as TEXT, denormalised. Kept alongside the relation because a booking
+  /// copies this string at the moment of sale and must stay readable if the row above is
+  /// later corrected, merged or deleted.
   regulatoryReference   String
   regulatoryDocumentUrl String?
   /// Internal. Shown to admins only — never to organizers and never to customers.
@@ -2315,6 +2365,9 @@ enum LocalBodyType {
 enum CinemaFormat {
   MULTIPLEX
   SINGLE_SCREEN
+  /// A distinct class in the Andhra Pradesh rate table, priced between an ordinary AC hall
+  /// and a multiplex. Not a climate and not a size — its own tier in the order.
+  SPECIAL_THEATRE
 }
 
 /// Air-conditioned, air-cooled, or neither. The attribute several maintenance-charge
@@ -2334,6 +2387,16 @@ enum MaintenanceTreatment {
   NOT_APPLICABLE
   INCLUDED_IN_TICKET_PRICE
   ADDED_TO_TICKET_PRICE
+  /// The amount is known; whether it sits inside the price or on top of it is NOT.
+  ///
+  /// Added because the Telangana seed carried ADDED as an engineering guess dressed as a
+  /// fact. A schema that cannot express "we do not know" forces somebody to invent a value,
+  /// and an invented value in a pricing table is indistinguishable from a researched one the
+  /// moment the person who invented it moves on.
+  ///
+  /// A policy in this state can be DRAFTed and reviewed but never ACTIVATED — the database
+  /// refuses it — and if one ever reaches the resolver it fails closed rather than guessing.
+  UNCONFIRMED
 }
 
 /// What a jurisdiction permits by way of an online booking / convenience fee.

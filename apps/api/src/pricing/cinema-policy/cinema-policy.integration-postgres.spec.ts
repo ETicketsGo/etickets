@@ -236,14 +236,39 @@ describe('the seeded India policies', () => {
     expect(active).toBe(0);
   });
 
-  it('record no invented ticket-price ceiling or fee cap', async () => {
-    // The values engineering explicitly did not make up. A number appearing here later
-    // should be one somebody read off a government order.
+  it('carry AP ceilings from a cited order, and NOTHING for Telangana', async () => {
+    /*
+      This assertion used to be "no policy records any ceiling", which was true when no rate
+      table had been transcribed and became wrong the moment one was. The point was never
+      "no numbers" — it was "no INVENTED numbers", and the two states are now in different
+      epistemic positions:
+
+        Andhra Pradesh — a rate table exists, transcribed from a brief citing G.O.Ms.No.13.
+        Telangana      — G.O.77 is not in this repository, so no rate, cap or treatment.
+
+      No online-fee cap exists for either, because neither state's position on what a
+      third-party platform may charge has been established.
+    */
     const rows = await prisma.cinemaPricingPolicy.findMany({ where: { country: 'India' } });
     expect(rows.length).toBeGreaterThan(0);
-    for (const r of rows) {
+
+    const ap = rows.filter((r) => r.region === 'Andhra Pradesh');
+    const tg = rows.filter((r) => r.region === 'Telangana');
+
+    expect(ap.some((r) => r.ticketPriceMaxMinor !== null)).toBe(true);
+    for (const r of ap) {
+      expect(r.regulatoryReference).toContain('G.O.Ms.No.13');
+      expect(r.maintenanceTreatment).toBe('INCLUDED_IN_TICKET_PRICE');
+    }
+
+    for (const r of tg) {
       expect(r.ticketPriceMaxMinor).toBeNull();
       expect(r.ticketPriceMinMinor).toBeNull();
+      expect(r.maintenanceTreatment).toBe('UNCONFIRMED');
+    }
+
+    // Neither state, at any specificity, records a cap on the online booking fee.
+    for (const r of rows) {
       expect(r.onlineFeeCapMinor).toBeNull();
       expect(r.onlineFeePolicy).toBe('REQUIRES_APPROVAL');
     }

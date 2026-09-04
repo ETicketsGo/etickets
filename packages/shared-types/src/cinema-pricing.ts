@@ -17,7 +17,7 @@ export type LocalBodyType =
   'MUNICIPAL_CORPORATION' | 'MUNICIPALITY' | 'NAGAR_PANCHAYAT' | 'GRAM_PANCHAYAT' | 'OTHER';
 
 /** Multiplex or single screen. Independent of climate. */
-export type CinemaFormat = 'MULTIPLEX' | 'SINGLE_SCREEN';
+export type CinemaFormat = 'MULTIPLEX' | 'SINGLE_SCREEN' | 'SPECIAL_THEATRE';
 
 /** Air-conditioned, air-cooled, or neither. Independent of format. */
 export type ClimateType = 'AC' | 'AIR_COOLED' | 'NON_AC';
@@ -30,7 +30,11 @@ export type ClimateType = 'AC' | 'AIR_COOLED' | 'NON_AC';
  * as the other does not mis-label a line, it misstates what somebody is paying.
  */
 export type MaintenanceTreatment =
-  'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE';
+  | 'NOT_APPLICABLE'
+  | 'INCLUDED_IN_TICKET_PRICE'
+  | 'ADDED_TO_TICKET_PRICE'
+  /** Amount known, treatment not. Reviewable as a draft; never priceable. */
+  | 'UNCONFIRMED';
 
 /** What a jurisdiction permits by way of an online booking fee. */
 export type OnlineFeePolicy =

@@ -25,6 +25,7 @@ import {
   sortSectionsByUrgency,
   summarise,
 } from './readiness-presentation';
+import { PricingCompliancePanel } from '@/components/pricing-compliance-panel';
 
 /**
  * Launch readiness for one cinema.
@@ -143,6 +144,13 @@ export default function LaunchReadinessPage() {
           ))}
         </>
       ) : null}
+
+      {/*
+        Beside operational readiness, because "can this cinema open" and "may it charge what
+        it charges" are the same question to an exhibitor even though different subsystems
+        answer them.
+      */}
+      <PricingCompliancePanel cinemaId={cinemaId} />
     </div>
   );
 }

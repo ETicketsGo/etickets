@@ -1,5 +1,11 @@
 import type {
+  CinemaFormat,
+  CinemaPricingPolicyStatus,
+  ClimateType,
+  LocalBodyType,
   MaintenanceTreatment,
+  OnlineFeePolicy,
+  PricingComplianceStatus,
   ApiError,
   AuthTokens,
   ManifestEntry,
@@ -641,6 +647,14 @@ export const api = {
   },
 
   cinemas: {
+    /**
+     * The order this cinema is sold under, and whether its prices comply.
+     *
+     * EXPLANATORY. Booking and publishing enforce on their own; a client that never calls
+     * this is not a client that can sell at any price.
+     */
+    pricingCompliance: (id: string) =>
+      request<CinemaComplianceView>(`/cinemas/${id}/pricing-compliance`),
     list: (organizationId: string) => request<Cinema[]>(`/cinemas${qs({ organizationId })}`),
     get: (id: string) => request<Cinema>(`/cinemas/${id}`),
     /**
@@ -1272,6 +1286,36 @@ export const api = {
      * self-serve would mean every invoice until then goes out as a plain receipt, and a
      * receipt cannot be reissued as a tax invoice afterwards: the document is a snapshot.
      */
+    /** Cinema pricing policies. See the admin service for why history is superseded. */
+    cinemaPricingPolicies: () =>
+      request<CinemaPricingPolicyRow[]>('/admin/cinema-pricing-policies'),
+    inspectCinemaPricing: (q: Record<string, string>) =>
+      request<{ status: string; explanation: string; policy: CinemaPricingPolicyRow | null }>(
+        `/admin/cinema-pricing-policies/inspect${qs(q)}`,
+      ),
+    createCinemaPricingPolicy: (body: Record<string, unknown>) =>
+      request<CinemaPricingPolicyRow>('/admin/cinema-pricing-policies', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    updateCinemaPricingPolicy: (id: string, body: Record<string, unknown>) =>
+      request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    activateCinemaPricingPolicy: (id: string) =>
+      request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}/activate`, {
+        method: 'POST',
+      }),
+    supersedeCinemaPricingPolicy: (id: string, body: Record<string, unknown>) =>
+      request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}/supersede`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    disableCinemaPricingPolicy: (id: string) =>
+      request<CinemaPricingPolicyRow>(`/admin/cinema-pricing-policies/${id}/disable`, {
+        method: 'POST',
+      }),
     organizerLegalIdentity: (id: string) =>
       request<OrganizationLegalIdentity>(`/admin/organizers/${id}/legal-identity`),
     updateOrganizerLegalIdentity: (id: string, patch: Partial<OrganizationLegalIdentityFields>) =>
@@ -1953,6 +1997,64 @@ export interface AttendeeSummary {
 }
 
 /** Everything an invoice must name about the seller. All optional until a market needs it. */
+/** One row of the cinema pricing rule table, as the admin console reads it. */
+export interface CinemaPricingPolicyRow {
+  id: string;
+  version: number;
+  country: string;
+  region: string;
+  district: string;
+  city: string;
+  currency: string;
+  localBodyType: LocalBodyType | null;
+  cinemaFormat: CinemaFormat | null;
+  climateType: ClimateType | null;
+  seatCategory: string | null;
+  maintenanceChargeMinor: number;
+  maintenanceTreatment: MaintenanceTreatment;
+  onlineFeePolicy: OnlineFeePolicy;
+  onlineFeeCapMinor: number | null;
+  ticketPriceMinMinor: number | null;
+  ticketPriceMaxMinor: number | null;
+  ticketPriceRule: string | null;
+  status: CinemaPricingPolicyStatus;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  regulatoryReference: string;
+  regulatoryDocumentUrl: string | null;
+  /** Internal. Admin console only — never rendered to an organizer or a customer. */
+  notes: string | null;
+  updatedAt: string;
+}
+
+/** What an organizer is told about the order their cinema is sold under. */
+export interface CinemaComplianceView {
+  jurisdiction: {
+    country: string | null;
+    region: string | null;
+    district: string | null;
+    city: string | null;
+    localBodyType: string | null;
+  };
+  classification: { cinemaFormat: string | null; climateType: string | null };
+  status: PricingComplianceStatus;
+  summary: string;
+  regulatoryReference: string | null;
+  effectiveFrom: string | null;
+  maintenance: { perTicketMinor: number; treatment: string; description: string } | null;
+  maxTicketPriceMinor: number | null;
+  ticketPriceRule: string | null;
+  onlineFee: { policy: string; description: string };
+  prices: {
+    ticketTypeId: string;
+    name: string;
+    priceMinor: number;
+    ok: boolean;
+    reason: string | null;
+  }[];
+  blocksPublishing: boolean;
+}
+
 export interface OrganizationLegalIdentityFields {
   legalName: string | null;
   /** LABELS the number — "GSTIN", "EIN", "GST/HST" — so a reader knows what they are seeing. */

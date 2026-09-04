@@ -117,6 +117,23 @@ export class CinemaPricingPoliciesService {
       );
     }
 
+    /*
+      An unresolved treatment is not a pricing instruction. Knowing the amount is not knowing
+      what to do with it: ₹5 UNCONFIRMED either sits inside the ticket price or on top of it,
+      and the two differ by ₹5 a ticket in the customer's favour or the state's.
+
+      The database refuses this too. Checked here as well because a constraint violation
+      reaches the admin as a Postgres error naming a constraint — technically a refusal, and
+      useless to the person who has to fix it.
+    */
+    if (candidate.maintenanceTreatment === 'UNCONFIRMED') {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `This policy records a maintenance charge of ${candidate.maintenanceChargeMinor / 100} but not whether it is included in the ticket price or added to it. Resolve the treatment against ${candidate.regulatoryReference} before activating.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
     const clash = await this.findAmbiguity(candidate as unknown as PolicyRow);
     if (clash) {
       throw new AppException(

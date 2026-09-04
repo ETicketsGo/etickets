@@ -50,6 +50,7 @@ const nav: NavItem[] = [
   // Beside Settings, which is where the booking-fee bands live — the two are the same
   // question ("what does this platform add to a ticket price") and were a script apart.
   { label: 'Tax rules', href: '/admin/tax-rules', icon: Percent },
+  { label: 'Cinema pricing', href: '/admin/cinema-pricing', icon: Percent },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 

@@ -14,6 +14,7 @@ import { CinemasService } from './cinemas.service';
 import { PilotReadinessService } from './pilot-readiness.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CinemaComplianceService } from './cinema-compliance.service';
 
 const createCinemaBody = createCinemaSchema.extend({ organizationId: z.string().cuid() });
 
@@ -24,7 +25,21 @@ export class CinemasController {
   constructor(
     private readonly cinemas: CinemasService,
     private readonly readiness: PilotReadinessService,
+    private readonly compliance: CinemaComplianceService,
   ) {}
+
+  @Get(':id/pricing-compliance')
+  @ApiOperation({
+    summary: 'The pricing order this cinema is sold under, and whether its prices comply.',
+  })
+  pricingCompliance(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    /*
+      EXPLANATORY. Booking and publishing each enforce on their own; this exists so an
+      organizer learns why before they hit the wall rather than after. A client that never
+      calls it is not a client that can sell at any price.
+    */
+    return this.compliance.forCinema(user, id);
+  }
 
   @Get(':id/pilot-readiness')
   @ApiOperation({

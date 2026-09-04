@@ -226,6 +226,24 @@ export function resolvePolicy(active: PolicyRow[], ctx: PolicyContext): PolicyRe
 
   const policy = winners[0];
 
+  /*
+    An unresolved maintenance treatment is not a pricing instruction.
+
+    Knowing the amount is not knowing what to do with it: ₹5 UNCONFIRMED either sits inside
+    the ticket price or on top of it, and the two differ by ₹5 per ticket in the customer's
+    favour or the state's. The database refuses to make such a policy ACTIVE, and this
+    refuses it again — a row can reach ACTIVE through a console or a future screen, and the
+    money has to be safe on every path rather than on the one somebody remembered.
+  */
+  if (policy.maintenanceTreatment === 'UNCONFIRMED') {
+    return {
+      status: 'POLICY_CONFIGURATION_ERROR',
+      policy,
+      explanation: `Policy ${policy.regulatoryReference} records a maintenance charge but not whether it is included in the ticket price or added to it. It cannot price an order until that is resolved.`,
+      specificity: best,
+    };
+  }
+
   // A cap is the entire content of a CAPPED policy. Without one it is an unlimited fee
   // wearing a limit's name, which is worse than no policy because it looks configured.
   if (policy.onlineFeePolicy === 'CAPPED' && policy.onlineFeeCapMinor == null) {
