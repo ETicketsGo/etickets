@@ -456,11 +456,21 @@ async function main(): Promise<void> {
         ...where,
         currency: 'INR',
         /*
-          An amount with NO treatment. This replaces the ADDED that used to sit here as an
-          engineering guess: the amount was supplied, the treatment never was, and writing
-          one down made an assumption indistinguishable from a fact.
+          NO amount, and no treatment.
+
+          This row used to carry `COOLED` — the ₹5 that the brief attributes to ANDHRA
+          PRADESH's G.O.Ms.No.13. Sharing that constant put an Andhra Pradesh number on a
+          Telangana order, on the row for an order (G.O.77) whose text is not in this
+          repository at all. Two different governments' figures behind one identifier, where a
+          later change to the AP rate would silently have moved Telangana's too.
+          That is the same class of mistake as the ADDED treatment this file already removed:
+          a value nobody sourced, sitting where a sourced value belongs.
+
+          Zero is not a claim that Telangana charges nothing. It is the absence of a figure,
+          which is what UNCONFIRMED alongside it says — and the row cannot be activated in
+          that state, so nothing can price against the gap.
         */
-        maintenanceChargeMinor: COOLED,
+        maintenanceChargeMinor: 0,
         maintenanceTreatment: 'UNCONFIRMED',
         onlineFeePolicy: 'REQUIRES_APPROVAL',
         onlineFeeCapMinor: null,

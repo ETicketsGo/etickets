@@ -99,22 +99,36 @@ export class CinemaPricingPoliciesService {
   }
 
   /**
-   * DRAFT → ACTIVE, refusing if it would create an ambiguity.
+   * Everything that must be true before a policy may price real money, checked in one place.
    *
-   * The database cannot express "no two ACTIVE policies may overlap in scope" as a
-   * constraint: the scopes are wildcards and date ranges, not values a unique index can
-   * compare. So it is checked here, at the one moment a policy starts pricing anything —
-   * and the resolver refuses at read time as well, because a row can reach ACTIVE by other
-   * means and the money must be safe either way.
+   * ── WHY A LIST AND NOT A SEQUENCE OF THROWS ────────────────────────────────────────
+   * Activation is the moment a jurisdiction starts being enforced. Refusing one reason at a
+   * time turns preparing a launch into a guessing game — fix, retry, discover the next
+   * blocker, repeat. Every reason is gathered so an admin sees the whole list at once, and so
+   * the same list can be shown BEFORE the button is pressed rather than only after.
    */
-  async activate(actorUserId: string, id: string) {
-    const candidate = await this.mustFind(id);
-    if (candidate.status !== 'DRAFT') {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        `Only a DRAFT policy can be activated. This one is ${candidate.status}.`,
-        HttpStatus.CONFLICT,
-      );
+  async activationPreflight(id: string): Promise<{
+    ok: boolean;
+    blockers: { code: string; message: string }[];
+    warnings: { code: string; message: string }[];
+  }> {
+    const p = await this.mustFind(id);
+    const blockers: { code: string; message: string }[] = [];
+    const warnings: { code: string; message: string }[] = [];
+
+    if (p.status !== 'DRAFT') {
+      blockers.push({
+        code: 'NOT_DRAFT',
+        message: `Only a DRAFT policy can be activated. This one is ${p.status}.`,
+      });
+    }
+
+    if (!p.regulatoryReference?.trim()) {
+      blockers.push({
+        code: 'NO_REFERENCE',
+        message:
+          'No regulatory reference. A policy that prices money must name the order it comes from, or nobody can check it later.',
+      });
     }
 
     /*
@@ -122,23 +136,93 @@ export class CinemaPricingPoliciesService {
       what to do with it: ₹5 UNCONFIRMED either sits inside the ticket price or on top of it,
       and the two differ by ₹5 a ticket in the customer's favour or the state's.
 
-      The database refuses this too. Checked here as well because a constraint violation
-      reaches the admin as a Postgres error naming a constraint — technically a refusal, and
-      useless to the person who has to fix it.
+      The database refuses this too. Repeated here because a constraint violation reaches the
+      admin as a Postgres error naming a constraint — technically a refusal, and useless to
+      the person who has to act on it.
     */
-    if (candidate.maintenanceTreatment === 'UNCONFIRMED') {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        `This policy records a maintenance charge of ${candidate.maintenanceChargeMinor / 100} but not whether it is included in the ticket price or added to it. Resolve the treatment against ${candidate.regulatoryReference} before activating.`,
-        HttpStatus.CONFLICT,
-      );
+    if (p.maintenanceTreatment === 'UNCONFIRMED') {
+      blockers.push({
+        code: 'MAINTENANCE_UNCONFIRMED',
+        message: `This policy records a maintenance charge of ${p.maintenanceChargeMinor / 100} but not whether it is included in the ticket price or added to it. Resolve the treatment against ${p.regulatoryReference} before activating.`,
+      });
+    }
+    if (p.maintenanceChargeMinor > 0 && p.maintenanceTreatment === 'NOT_APPLICABLE') {
+      blockers.push({
+        code: 'MAINTENANCE_CONTRADICTS_ITSELF',
+        message:
+          'The policy carries a maintenance amount and says maintenance does not apply. One of the two is wrong.',
+      });
     }
 
-    const clash = await this.findAmbiguity(candidate as unknown as PolicyRow);
+    // A cap of "null" on a CAPPED policy is not a cap. It reads as unlimited to anything that
+    // trusts the field, which is the failure mode this whole subsystem exists to prevent.
+    if (p.onlineFeePolicy === 'CAPPED' && p.onlineFeeCapMinor == null) {
+      blockers.push({
+        code: 'CAP_MISSING',
+        message:
+          'The online fee is CAPPED but no maximum is recorded. Record the amount, or choose a policy that does not need one.',
+      });
+    }
+
+    // A rate row — one written for a specific seat class — exists to state a maximum. Without
+    // one it silently becomes a row that permits any price for that class.
+    if (p.seatCategory && p.ticketPriceMaxMinor == null) {
+      blockers.push({
+        code: 'NO_CEILING',
+        message: `This policy is written for seat class ${p.seatCategory} but records no maximum ticket price, so it would permit any price for that class.`,
+      });
+    }
+
+    const clash = await this.findAmbiguity(p as unknown as PolicyRow);
     if (clash) {
+      blockers.push({
+        code: 'AMBIGUOUS',
+        message: `Activating this would make pricing ambiguous: "${clash.regulatoryReference}" is already active with the same scope and specificity. Supersede or narrow one of them first.`,
+      });
+    }
+
+    /*
+      Has anybody actually read the order these numbers came from?
+
+      `textReviewed` is false when values were transcribed from a summary rather than the
+      order text. That is a perfectly reasonable state for QA — it is how the Andhra Pradesh
+      table exists today — and an unacceptable one for production, where the platform would be
+      enforcing prices nobody has checked against the source.
+
+      Deliberately a hard block in production with NO override parameter. An override that
+      exists only here would be an informal bypass invented for the convenience of the person
+      being blocked, which is the opposite of an audit trail.
+    */
+    const doc = p.regulatoryDocumentId
+      ? await this.prisma.regulatoryDocument.findUnique({ where: { id: p.regulatoryDocumentId } })
+      : await this.prisma.regulatoryDocument.findUnique({
+          where: { reference: p.regulatoryReference },
+        });
+    const appEnv = (process.env.APP_ENV ?? '').toLowerCase();
+    const isProduction = appEnv === 'production' || appEnv === 'prod';
+    if (!doc?.textReviewed) {
+      const message = doc
+        ? `The order "${doc.reference}" has not been reviewed against its source text (textReviewed is false), so these rates are transcribed rather than verified.`
+        : `No regulatory document is recorded for "${p.regulatoryReference}", so there is nothing recording whether these rates were checked against the order.`;
+      if (isProduction) {
+        blockers.push({
+          code: 'TEXT_NOT_REVIEWED',
+          message: `${message} Production activation is refused until it is.`,
+        });
+      } else {
+        warnings.push({ code: 'TEXT_NOT_REVIEWED', message });
+      }
+    }
+
+    return { ok: blockers.length === 0, blockers, warnings };
+  }
+
+  async activate(actorUserId: string, id: string) {
+    const preflight = await this.activationPreflight(id);
+    if (!preflight.ok) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
-        `Activating this would make pricing ambiguous: "${clash.regulatoryReference}" is already active with the same scope and specificity. Supersede or narrow one of them first.`,
+        preflight.blockers.map((b) => b.message).join(' '),
         HttpStatus.CONFLICT,
       );
     }
@@ -155,6 +239,10 @@ export class CinemaPricingPoliciesService {
       metadata: {
         regulatoryReference: row.regulatoryReference,
         effectiveFrom: row.effectiveFrom.toISOString(),
+        // What was known and accepted at the moment of activation. An unreviewed order is a
+        // warning outside production; recording it means the decision is auditable rather
+        // than merely permitted.
+        acceptedWarnings: preflight.warnings.map((w) => w.code),
         // Worth recording loudly: this can be the moment a whole country starts failing
         // closed for unclassified cinemas.
         note: 'Cinemas in this scope now resolve against it; unclassified ones fail closed.',

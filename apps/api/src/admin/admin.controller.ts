@@ -222,6 +222,14 @@ export class AdminController {
     return this.cinemaPolicies.updateDraft(admin.id, id, this.coercePolicyDates(body));
   }
 
+  @Get('cinema-pricing-policies/:id/preflight')
+  @ApiOperation({
+    summary: 'Everything blocking activation of this policy, before anyone presses activate.',
+  })
+  cinemaPricingPolicyPreflight(@Param('id') id: string) {
+    return this.cinemaPolicies.activationPreflight(id);
+  }
+
   @Post('cinema-pricing-policies/:id/activate')
   @ApiOperation({ summary: 'DRAFT to ACTIVE, refusing an ambiguous scope (admin).' })
   activateCinemaPricingPolicy(@CurrentUser() admin: RequestUser, @Param('id') id: string) {

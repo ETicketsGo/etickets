@@ -107,9 +107,24 @@ jobs:
         run: npm run verify:deploy
 
       - name: Apply migrations & seed
+        env:
+          # The reset empties every table and refuses to run without this, so that pointing a
+          # seed at the wrong database takes a deliberate act rather than a default.
+          SEED_ALLOW_DESTRUCTIVE: 'yes'
         run: |
           npm run db:deploy
           npm run db:seed
+          # Regulatory policy rows are NOT part of the schema and NOT part of the demo seed —
+          # they arrive by their own explicit operation. The cinema pricing suites resolve
+          # against them, so without this they fail on an empty policy table.
+          npm run db:seed:india-cinema
+
+      # A green suite does not prove the application can start. 2,356 tests passed while the
+      # API could not boot, because every one of them constructed services by hand and none
+      # asked whether Nest could build the graph. This runs that question on its own so a
+      # failure says "the app cannot start" rather than being one line inside a long log.
+      - name: Application boots (module graph resolves)
+        run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand
 
       - name: Unit tests
         run: npm run test
