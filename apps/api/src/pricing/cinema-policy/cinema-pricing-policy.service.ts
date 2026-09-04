@@ -72,6 +72,8 @@ export class CinemaPricingPolicyService {
     currency: string,
     seatCategories: string[],
     at: Date,
+    /** Display names of seat categories with no regulatory class — refused, not guessed. */
+    unmappedSeatCategories: string[] = [],
   ): Promise<PolicyResolution> {
     return this.resolve({
       country: cinema.country ?? cinema.venue?.country ?? null,
@@ -83,6 +85,7 @@ export class CinemaPricingPolicyService {
       cinemaFormat: cinema.cinemaFormat,
       climateType: cinema.climateType,
       seatCategories,
+      unmappedSeatCategories,
       at,
     });
   }

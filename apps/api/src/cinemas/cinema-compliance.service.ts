@@ -96,18 +96,48 @@ export class CinemaComplianceService {
         id: true,
         name: true,
         priceMinor: true,
-        seatCategory: { select: { name: true } },
+        seatCategory: { select: { name: true, regulatoryClass: true } },
       },
       take: 200,
     });
 
+    /*
+      REGULATORY classes, not display names. The rate rows band on a fixed set of classes an
+      order names; what an operator calls a seat is theirs to choose. Passing the display name
+      here — which is what this did — meant a category called "Recliner" matched the recliner
+      ceiling and one called "Lounger" matched nothing at all.
+    */
     const seatCategories = [
       ...new Set(
-        ticketTypes.map((t) => t.seatCategory?.name?.trim()).filter((n): n is string => Boolean(n)),
+        ticketTypes
+          .map((t) => t.seatCategory?.regulatoryClass)
+          .filter((c): c is NonNullable<typeof c> => Boolean(c)),
+      ),
+    ];
+    // Named so the organizer is told WHICH category to map, not merely that one is missing.
+    const unmappedSeatCategories = [
+      ...new Set(
+        ticketTypes
+          .filter((t) => t.seatCategory && !t.seatCategory.regulatoryClass)
+          .map((t) => t.seatCategory!.name),
       ),
     ];
 
-    const resolution = await this.policies.resolveForCinema(cinema, 'INR', seatCategories, at);
+    /*
+      One class resolves to its own row; several resolve at jurisdiction level. Passing every
+      class at once matches several equally specific rows and reports them as a configuration
+      error — which is what a cinema with both regular seats and recliners would have seen on
+      its readiness page, for a configuration that is entirely correct. Each ticket type is
+      still priced against its OWN class below, which is where the ceilings are enforced.
+    */
+    const summaryClasses = seatCategories.length === 1 ? seatCategories : [];
+    const resolution = await this.policies.resolveForCinema(
+      cinema,
+      'INR',
+      summaryClasses,
+      at,
+      unmappedSeatCategories,
+    );
     const policy = resolution.policy;
 
     /*
@@ -117,8 +147,13 @@ export class CinemaComplianceService {
     */
     const prices = await Promise.all(
       ticketTypes.map(async (t) => {
-        const own = t.seatCategory?.name
-          ? await this.policies.resolveForCinema(cinema, 'INR', [t.seatCategory.name], at)
+        const own = t.seatCategory?.regulatoryClass
+          ? await this.policies.resolveForCinema(
+              cinema,
+              'INR',
+              [t.seatCategory.regulatoryClass],
+              at,
+            )
           : resolution;
         const check = checkTicketPrice(own, t.priceMinor);
         return {

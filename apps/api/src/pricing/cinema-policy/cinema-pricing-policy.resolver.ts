@@ -62,8 +62,22 @@ export interface PolicyContext {
   localBodyType: LocalBodyType | null;
   cinemaFormat: CinemaFormat | null;
   climateType: ClimateType | null;
-  /** Seat/ticket classes in the cart, so a seat-specific rule can be matched. */
+  /**
+   * REGULATORY seat classes in the cart, so a seat-specific rule can be matched.
+   *
+   * These are `SeatRegulatoryClass` values an operator has explicitly assigned — never the
+   * display names customers see. "Gold" and "Lounger" are not values here; whatever class the
+   * operator mapped them to is.
+   */
   seatCategories: string[];
+  /**
+   * Display names of seat categories in the cart that have NO regulatory class assigned.
+   *
+   * Carried separately because the alternative is indistinguishable from a cart with no seat
+   * classes at all — which quietly matches the class-agnostic fallback rows and sells the
+   * seat with no ceiling. Naming them lets the refusal say WHICH category to go and map.
+   */
+  unmappedSeatCategories?: string[];
   /** The business date the order is priced at. Supplied, never `new Date()` in here. */
   at: Date;
 }
@@ -167,6 +181,33 @@ export function resolvePolicy(active: PolicyRow[], ctx: PolicyContext): PolicyRe
       status: 'NOT_REGULATED',
       policy: null,
       explanation: `No active cinema pricing policy covers ${ctx.country ?? 'this country'}; ordinary platform pricing applies.`,
+      specificity: -1,
+    };
+  }
+
+  /*
+    A regulated market, and a seat category in this cart that nobody has mapped to a
+    regulatory class.
+
+    This has to be refused BEFORE matching, not after. The rate rows that carry ceilings all
+    name a seat class; an unmapped category simply fails to match them and lands on the
+    class-agnostic fallback row, which carries maintenance and NO ceiling. The sale would then
+    complete, look entirely normal, and be capped by nothing — the single most expensive way
+    for this subsystem to be wrong, because nothing anywhere would report a problem.
+
+    The refusal names the category, since the fix is one field on one seat category and the
+    person reading it needs to know which.
+  */
+  const unmapped = (ctx.unmappedSeatCategories ?? []).filter((n) => n.trim());
+  if (unmapped.length > 0) {
+    return {
+      status: 'INVALID_CINEMA_CLASSIFICATION',
+      policy: null,
+      explanation:
+        `Seat ${unmapped.length === 1 ? 'category' : 'categories'} ${unmapped
+          .map((n) => `"${n}"`)
+          .join(', ')} ${unmapped.length === 1 ? 'has' : 'have'} no regulatory seat class. ` +
+        'This jurisdiction sets a maximum price per seat class, so each sellable seat category must be mapped to one before it can be sold.',
       specificity: -1,
     };
   }

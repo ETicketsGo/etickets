@@ -1046,6 +1046,20 @@ model SeatCategory {
   basePriceMinor Int
   sortOrder      Int     @default(0)
 
+  /// Which class of seat a regulator considers this, as opposed to what it is CALLED.
+  ///
+  /// `name` is a marketing label an operator chooses freely — Gold, Platinum, Executive,
+  /// Lounger, VIP. A rate order bands on a handful of fixed classes instead. Matching one
+  /// against the other by string comparison, which is what happened before this column
+  /// existed, means "Recliner" is capped at the recliner rate and "Lounger" silently matches
+  /// nothing — the two most expensive seats in the same room treated differently because of
+  /// a naming choice made by whoever built the seat map.
+  ///
+  /// Null means the operator has not answered yet. In a regulated jurisdiction that is
+  /// refused rather than guessed at, because inferring PREMIUM from the word "Premium" is
+  /// exactly the inference this column exists to stop.
+  regulatoryClass SeatRegulatoryClass?
+
   seats       Seat[]
   ticketTypes TicketType[]
 
@@ -2383,6 +2397,20 @@ enum ClimateType {
 /// The distinction decides whether the customer's total moves. INCLUDED means the price on
 /// the poster already contains it and the charge is a DISCLOSURE; ADDED means the total
 /// grows by it. Getting this wrong does not move a label, it moves what is charged.
+/// The seat classes a rate order bands on.
+///
+/// Deliberately small and deliberately not extensible by an operator: these are the words
+/// that appear in government orders, not the words that appear on a booking page. Andhra
+/// Pradesh's G.O.Ms.No.13 bands multiplexes on REGULAR and RECLINER, and single screens and
+/// special theatres on NON_PREMIUM and PREMIUM. An operator's "Gold" maps to one of these; it
+/// does not become one of these.
+enum SeatRegulatoryClass {
+  REGULAR
+  RECLINER
+  PREMIUM
+  NON_PREMIUM
+}
+
 enum MaintenanceTreatment {
   NOT_APPLICABLE
   INCLUDED_IN_TICKET_PRICE

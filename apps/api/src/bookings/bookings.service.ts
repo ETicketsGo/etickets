@@ -36,7 +36,21 @@ import type {
   PolicyContext,
   PolicyResolution,
 } from '../pricing/cinema-policy/cinema-pricing-policy.resolver';
-import { applyPolicy, type PolicyEffect } from '../pricing/cinema-policy/apply-policy';
+import {
+  applyPolicy,
+  checkTicketPrice,
+  type PolicyEffect,
+} from '../pricing/cinema-policy/apply-policy';
+
+/**
+ * Is this market regulated at all?
+ *
+ * Everything except NOT_REGULATED means an order claims this jurisdiction — including the
+ * failure statuses, which say a rule SHOULD apply and could not be resolved. Ceilings are
+ * therefore checked for all of them, and skipped only where no order exists.
+ */
+const isRegulatedStatus = (status: PolicyResolution['status']): boolean =>
+  status !== 'NOT_REGULATED';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -230,6 +244,9 @@ export class BookingsService {
     const ticketTypeIds = input.items.map((i) => i.ticketTypeId);
     const ticketTypes = await this.prisma.ticketType.findMany({
       where: { id: { in: ticketTypeIds }, eventSessionId: input.eventSessionId },
+      // The seat category's REGULATORY class, not its display name. A rate order bands on
+      // fixed classes; "Gold" is a marketing label that has to be mapped to one.
+      include: { seatCategory: { select: { name: true, regulatoryClass: true } } },
     });
     const byId = new Map(ticketTypes.map((t) => [t.id, t]));
 
@@ -404,6 +421,35 @@ export class BookingsService {
         ErrorCodes.VALIDATION_FAILED,
         'This showing cannot be sold online yet: its regulatory pricing is not configured. ' +
           policy.resolution.explanation,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      A ticket priced above the maximum its seat class permits.
+
+      This is the check the ceilings existed for and never had. It refuses the SALE, not the
+      configuration: an organizer who has priced a regular seat at ₹151 in a ₹150 jurisdiction
+      must not be able to take money for it, and the customer must not discover this at the
+      payment step with a generic error. The message names the seat category, the price and
+      the order, because all three are needed to fix it.
+    */
+    if (policy.overCeiling.length > 0) {
+      await this.audit.record({
+        organizationId: session.event.organizationId,
+        action: 'CINEMA_PRICING_POLICY_BLOCKED_BOOKING',
+        entityType: 'EventSession',
+        entityId: session.id,
+        metadata: {
+          ...(this.policyService?.auditFor(policy.resolution, policy.context) ?? {}),
+          overCeiling: policy.overCeiling,
+        },
+      });
+      const first = policy.overCeiling[0];
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `This showing cannot be sold at its current prices. ${first.seatCategoryName ?? 'A seat category'} ` +
+          `is priced at ₹${(first.priceMinor / 100).toFixed(2)}. ${first.reason}`,
         HttpStatus.CONFLICT,
       );
     }
@@ -860,15 +906,64 @@ export class BookingsService {
       } | null;
     },
     currency: string,
-    admissionLines: { unitPriceMinor: number; quantity: number; category?: string | null }[],
+    admissionLines: {
+      unitPriceMinor: number;
+      quantity: number;
+      category?: string | null;
+      seatCategoryName?: string | null;
+      ticketTypeId?: string;
+    }[],
     at: Date,
-  ): Promise<{ resolution: PolicyResolution; effect: PolicyEffect; context: PolicyContext }> {
+  ): Promise<{
+    resolution: PolicyResolution;
+    effect: PolicyEffect;
+    context: PolicyContext;
+    /** Lines whose price exceeds the ceiling for THEIR OWN seat class. Empty when compliant. */
+    overCeiling: { seatCategoryName: string | null; priceMinor: number; reason: string }[];
+  }> {
     const cinema = session.screen?.cinema ?? null;
     // Seat classes in the cart, so a rule written for one class can match. De-duplicated
     // because the rule asks "is this class present", not "how many".
     const seatCategories = [
       ...new Set(admissionLines.map((l) => l.category).filter((c): c is string => Boolean(c))),
     ];
+    /*
+      Seat categories in this cart that the operator has NOT mapped to a regulatory class.
+
+      Reported separately rather than just being absent from `seatCategories`, because absent
+      is indistinguishable from "this cart has no seat classes" — which matches the
+      class-agnostic fallback row and sells the seat with no ceiling at all. Only admission
+      lines that actually have a seat category count: a ticket type with none attached is not
+      an unmapped seat, it is a ticket that is not seated.
+    */
+    const unmappedSeatCategories = [
+      ...new Set(
+        admissionLines
+          .filter((l) => !l.category && l.seatCategoryName)
+          .map((l) => l.seatCategoryName as string),
+      ),
+    ];
+    /*
+      ── WHY A MULTI-CLASS CART RESOLVES WITHOUT A SEAT CLASS ──────────────────────────
+      A cart holding one regular seat and one recliner matches the regular row AND the
+      recliner row, and they are equally specific — so the resolver correctly reported
+      "2 equally specific policies match this order" and the booking was refused. Buying two
+      different kinds of seat in one transaction is an ordinary thing to do, and refusing it
+      is the fail-closed rule firing on a sale that is entirely legal.
+
+      The ambiguity is not real: those two rows do not disagree about anything: they answer
+      for different seats. What the CART needs from a policy is the jurisdiction-level
+      position — the maintenance charge, the booking-fee posture, and which order to record on
+      the booking. The per-seat ceilings are resolved separately below, one class at a time,
+      which is the only way a regular seat and a recliner can each be judged by their own
+      maximum anyway.
+
+      So: one class in the cart resolves to that class's own row, exactly as before. Several
+      classes resolve at jurisdiction level, and the class-specific ceilings still apply per
+      line. Nothing is loosened — the ceiling checks below are what enforce the rates.
+    */
+    const cartClasses = seatCategories.length === 1 ? seatCategories : [];
+
     const context: PolicyContext = {
       country: cinema?.country ?? cinema?.venue?.country ?? null,
       region: cinema?.region ?? cinema?.venue?.region ?? null,
@@ -878,7 +973,8 @@ export class BookingsService {
       localBodyType: cinema?.localBodyType ?? null,
       cinemaFormat: cinema?.cinemaFormat ?? null,
       climateType: cinema?.climateType ?? null,
-      seatCategories,
+      seatCategories: cartClasses,
+      unmappedSeatCategories,
       at,
     };
     /*
@@ -898,21 +994,83 @@ export class BookingsService {
     // Tickets, not lines: a maintenance charge is per head. Add-ons and bundles are not
     // admissions and carry no charge, which is why only admission lines are counted.
     const ticketCount = admissionLines.reduce((n, l) => n + Math.max(0, l.quantity), 0);
-    return { resolution, effect: applyPolicy(resolution, ticketCount), context };
+
+    /*
+      Each line is checked against the ceiling for ITS OWN seat class, which needs a
+      resolution per class rather than the one cart-wide resolution above.
+
+      Reusing a single resolution would lend a recliner's ₹250 ceiling to a regular seat and
+      condemn a ₹250 recliner under a regular seat's ₹150 — the two failure directions being
+      "sells above the permitted rate" and "cannot sell a legal ticket". A cart holds a
+      handful of distinct classes, so this is a handful of resolutions, not one per ticket.
+    */
+    const overCeiling: { seatCategoryName: string | null; priceMinor: number; reason: string }[] =
+      [];
+    if (this.policyService && isRegulatedStatus(resolution.status)) {
+      const classes = [...new Set(seatCategories)];
+      for (const cls of classes) {
+        const perClass = await this.policyService.resolve({ ...context, seatCategories: [cls] });
+        for (const line of admissionLines.filter((l) => l.category === cls)) {
+          const verdict = checkTicketPrice(perClass, line.unitPriceMinor);
+          if (!verdict.ok) {
+            overCeiling.push({
+              seatCategoryName: line.seatCategoryName ?? cls,
+              priceMinor: line.unitPriceMinor,
+              reason: verdict.reason ?? 'Above the permitted rate for this seat class.',
+            });
+          }
+        }
+      }
+    }
+
+    return { resolution, effect: applyPolicy(resolution, ticketCount), context, overCeiling };
   }
 
+  /**
+   * The admission lines a pricing policy is resolved against.
+   *
+   * ── WHAT `category` USED TO BE, AND WHY IT WAS WRONG ───────────────────────────────
+   * It was the EVENT's category — literally the string "MOVIE" for every cinema ticket. That
+   * value was then handed to the policy resolver as the cart's seat class. No rate row names
+   * a class called "MOVIE", so no ceiling row could ever match a real booking: every sale
+   * fell through to the class-agnostic fallback, which carries maintenance and no maximum
+   * price. The ₹150 and ₹250 ceilings were visible in the compliance screen and enforced on
+   * precisely nothing.
+   *
+   * The seat class now comes from the ticket type's seat category, and it is the operator's
+   * explicit `regulatoryClass` — not the category's display name, which an operator is free
+   * to call "Gold".
+   */
   private admissionLinesFor(
-    event: { experienceType: string; category?: string | null },
+    _event: { experienceType: string; category?: string | null },
     items: { ticketTypeId: string; quantity: number }[],
-    byId: Map<string, { priceMinor: number }>,
-  ): { unitPriceMinor: number; quantity: number; category: string }[] {
-    const category = event.experienceType === 'MOVIE' ? 'MOVIE' : (event.category ?? '');
+    byId: Map<
+      string,
+      {
+        priceMinor: number;
+        seatCategory?: { name: string; regulatoryClass: string | null } | null;
+      }
+    >,
+  ): {
+    unitPriceMinor: number;
+    quantity: number;
+    ticketTypeId: string;
+    /** The mapped regulatory class, or null when the operator has not mapped this category. */
+    category: string | null;
+    /** What the operator calls it — for the refusal message, never for matching. */
+    seatCategoryName: string | null;
+  }[] {
     return items
-      .map((i) => ({
-        unitPriceMinor: byId.get(i.ticketTypeId)?.priceMinor ?? 0,
-        quantity: i.quantity,
-        category,
-      }))
+      .map((i) => {
+        const tt = byId.get(i.ticketTypeId);
+        return {
+          unitPriceMinor: tt?.priceMinor ?? 0,
+          quantity: i.quantity,
+          ticketTypeId: i.ticketTypeId,
+          category: tt?.seatCategory?.regulatoryClass ?? null,
+          seatCategoryName: tt?.seatCategory?.name ?? null,
+        };
+      })
       .filter((line) => line.quantity > 0);
   }
 
@@ -993,6 +1151,9 @@ export class BookingsService {
         id: { in: input.items.map((i) => i.ticketTypeId) },
         eventSessionId: input.eventSessionId,
       },
+      // Same include as the booking path: a quote that resolved a different policy from the
+      // booking would show the customer a price they are not then charged.
+      include: { seatCategory: { select: { name: true, regulatoryClass: true } } },
     });
     const byId = new Map(ticketTypes.map((t) => [t.id, t]));
     for (const item of input.items) {
