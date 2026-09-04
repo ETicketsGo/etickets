@@ -105,51 +105,49 @@ function computeFees(subtotal: number, feeMode: FeeMode) {
 const rid = (n = 6) => randomBytes(n).toString('hex').toUpperCase();
 const days = (n: number) => new Date(Date.now() + n * 24 * 60 * 60 * 1000);
 
+/**
+ * Empty every table this database owns, then let the seed refill it.
+ *
+ * ── WHY THIS IS NOT A LIST OF deleteMany CALLS ANY MORE ────────────────────────────
+ * It used to be, in hand-maintained foreign-key order. That list was correct when written
+ * and rotted silently as the schema grew: by the time it was replaced, SEVENTEEN models held
+ * foreign keys into rows it deleted and were absent from it — AccountInvitation, AdminGrant,
+ * Settlement, Dispute, Review, AddOn, Bundle among them.
+ *
+ * The failure is not cosmetic. `user.deleteMany()` threw on AccountInvitation's foreign key
+ * AFTER thirty-eight earlier deletions had already committed, leaving a QA environment
+ * emptied of its events, bookings and payment configuration and unable to reseed itself.
+ * Observed on QA, not hypothetical.
+ *
+ * Enumerating tables by hand is a maintenance promise nobody keeps across eighty models.
+ * Asking the database which tables exist keeps working when the next model is added, and one
+ * CASCADE makes the ordering question disappear rather than answering it again each time.
+ *
+ * `_prisma_migrations` is excluded: it records which migrations have run, so emptying it
+ * would make an up-to-date database claim it needs every migration from the beginning.
+ */
 async function reset() {
-  // Delete in FK-safe order.
-  await prisma.checkIn.deleteMany();
-  await prisma.ticket.deleteMany();
-  await prisma.paymentAttempt.deleteMany();
-  await prisma.payment.deleteMany();
-  // Issued financial documents come out before the refunds and bookings they reference.
-  // The foreign keys deliberately do NOT cascade: in production a booking with an invoice
-  // against it must not be deletable by accident, so the seed has to be explicit here.
-  await prisma.receipt.deleteMany();
-  await prisma.receiptCounter.deleteMany();
-  await prisma.refund.deleteMany();
-  await prisma.bookingTaxLine.deleteMany();
-  await prisma.bookingItem.deleteMany();
-  await prisma.booking.deleteMany();
-  await prisma.ticketInventory.deleteMany();
-  await prisma.ticketType.deleteMany();
-  await prisma.showSeat.deleteMany();
-  await prisma.eventSession.deleteMany();
-  await prisma.event.deleteMany();
-  await prisma.seat.deleteMany();
-  await prisma.seatRow.deleteMany();
-  await prisma.seatSection.deleteMany();
-  await prisma.seatCategory.deleteMany();
-  await prisma.seatMap.deleteMany();
-  await prisma.screen.deleteMany();
-  await prisma.cinema.deleteMany();
-  await prisma.movie.deleteMany();
-  await prisma.venueArea.deleteMany();
-  await prisma.venue.deleteMany();
-  await prisma.payout.deleteMany();
-  await prisma.notification.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.coupon.deleteMany();
-  await prisma.organizationMember.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.refreshToken.deleteMany();
-  await prisma.feeRule.deleteMany();
-  // Tax is configuration, and a reseed must not leave a rule active that nobody set.
-  await prisma.taxRule.deleteMany();
-  await prisma.merchantAccount.deleteMany();
-  await prisma.paymentProviderConfig.deleteMany();
-  await prisma.paymentRoute.deleteMany();
-  await prisma.idempotencyRecord.deleteMany();
-  await prisma.user.deleteMany();
+  // A seed that resets is a data-destroying program. It has no business running anywhere
+  // people's money lives — and until this was added, nothing whatsoever stopped it.
+  const appEnv = (process.env.APP_ENV ?? '').toLowerCase();
+  if (appEnv === 'production' || appEnv === 'prod') {
+    throw new Error(
+      `Refusing to run: APP_ENV is "${process.env.APP_ENV}". This seed empties every table ` +
+        'in the database. It is for local, QA and UAT only.',
+    );
+  }
+
+  const tables = await prisma.$queryRaw<{ tablename: string }[]>`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'
+  `;
+  if (tables.length === 0) return;
+
+  // Quoted, because Prisma's table names are PascalCase and Postgres folds unquoted
+  // identifiers to lower case — which would make every one of them "does not exist".
+  const list = tables.map((t) => `"public"."${t.tablename}"`).join(', ');
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
+  console.log(`  reset ${tables.length} tables`);
 }
 
 /**

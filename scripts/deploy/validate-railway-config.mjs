@@ -100,7 +100,7 @@ const SERVICES = [
     dockerfile: 'apps/api/Dockerfile',
     workdir: 'apps/api',
     start:
-      'npx ts-node --transpile-only --compiler-options \'{"module":"commonjs","moduleResolution":"node"}\' prisma/seed.ts',
+      'npx ts-node --transpile-only --compiler-options \'{"module":"commonjs","moduleResolution":"node"}\' prisma/seed-operation.ts',
     health: undefined,
     expectMigrations: false,
     oneShot: true,
