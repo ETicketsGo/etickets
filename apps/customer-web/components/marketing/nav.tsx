@@ -33,7 +33,7 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background-canvas/80 backdrop-blur-lg">
       <nav
-        className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5 sm:px-8"
+        className="mx-auto flex max-w-shell items-center justify-between px-4 py-3.5 sm:px-6 lg:px-8"
         aria-label="Primary"
       >
         <Link

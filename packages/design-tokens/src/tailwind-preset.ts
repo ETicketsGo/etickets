@@ -16,6 +16,27 @@ const preset: Partial<Config> = {
       fontFamily: {
         sans: ['var(--font-inter)', ...fontFamily.sans],
       },
+      maxWidth: {
+        /*
+          ── THE PAGE SHELL ────────────────────────────────────────────────────────────
+          One width, named once, so the header, the content and the footer cannot disagree
+          about where the page edge is. They did: content and header sat at 72rem while the
+          marketing footer sat at 80rem, and the footer's edges visibly missed the columns
+          above them.
+
+          90rem (1440px) rather than the old 72rem (1152px). At 1152 a card grid on a
+          1920-wide display left 384px of empty gutter on each side — enough that the page
+          read as though something had failed to load rather than as a deliberate margin.
+          1440 keeps a comfortable margin at 1920 and changes nothing below 1440, which is
+          most laptops.
+
+          This is the shell, NOT a reading width. Prose still constrains itself further —
+          65 characters is a line length, and it does not get longer because a monitor did.
+        */
+        shell: '90rem',
+        /** Long-form reading: articles, policies, a paragraph of explanation. */
+        prose: '42rem',
+      },
       fontSize: {
         hero: typeScale.hero,
         h1: typeScale.h1,

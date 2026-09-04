@@ -21,7 +21,7 @@ export default function SavedPage() {
       </div>
 
       {saved === null ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
@@ -30,7 +30,7 @@ export default function SavedPage() {
           ))}
         </div>
       ) : saved.length > 0 ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {saved.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}

@@ -55,7 +55,18 @@ export function Header() {
         criterion is actually asking for — content that reflows instead of content that has
         been made to fit one case.
       */}
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:flex-nowrap sm:px-6">
+      <div /*
+          Wrapping stops at `lg`, not `sm`.
+
+          It stopped at `sm` (640px), and the header's contents need about 940px — so from
+          640 to 1023 the bar overflowed and dragged the WHOLE PAGE into horizontal
+          scrolling. Every storefront page, on every tablet held in portrait, scrolled
+          sideways. Measured at 768: 942px of content in a 768px window, identical before
+          this change, so it was not new — just never looked at, because a laptop is 1280
+          and a phone wraps.
+        */
+        className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-y-2 px-4 py-3 sm:px-6 lg:flex-nowrap lg:px-8"
+      >
         <div className="flex items-center gap-1">
           <Link
             href="/"
@@ -76,7 +87,12 @@ export function Header() {
           <CityPicker allCitiesLabel={t('allCities')} />
         </div>
         {/*
-          The icon links are hidden on a phone because `BottomNav` already carries them.
+          The icon links are hidden until `lg` because `BottomNav` already carries them,
+          and `BottomNav` is `lg:hidden` — so every width below `lg` was showing BOTH. They
+          were `sm:flex`, so from 640px to 1023px the same four destinations appeared twice
+          on screen and the duplicate pushed the header to 707px inside a 640px window,
+          scrolling every storefront page sideways. The reasoning below was right all along;
+          the breakpoint simply did not match the bar it was deferring to.
 
           At 320px — the width WCAG 1.4.10 measures at, a 1280px page zoomed to 400% — this
           nav was 434px wide inside a 320px viewport, so the page had to be scrolled in two
@@ -87,19 +103,19 @@ export function Header() {
           stay reachable precisely because the person who needs it cannot read the page.
         */}
         <nav className="flex items-center gap-1.5 text-[0.9375rem] sm:gap-3">
-          <Link href="/explore" aria-label={t('explore')} className={`hidden sm:flex ${navLink}`}>
+          <Link href="/explore" aria-label={t('explore')} className={`hidden lg:flex ${navLink}`}>
             <Sparkles className="h-4 w-4" />
             <span className="hidden sm:inline">{t('explore')}</span>
           </Link>
-          <Link href="/events" aria-label={t('browse')} className={`hidden sm:flex ${navLink}`}>
+          <Link href="/events" aria-label={t('browse')} className={`hidden lg:flex ${navLink}`}>
             <Compass className="h-4 w-4" />
             <span className="hidden sm:inline">{t('browse')}</span>
           </Link>
-          <Link href="/movies" aria-label={t('movies')} className={`hidden sm:flex ${navLink}`}>
+          <Link href="/movies" aria-label={t('movies')} className={`hidden lg:flex ${navLink}`}>
             <Film className="h-4 w-4" />
             <span className="hidden sm:inline">{t('movies')}</span>
           </Link>
-          <Link href="/help" aria-label={t('help')} className={`hidden sm:flex ${navLink}`}>
+          <Link href="/help" aria-label={t('help')} className={`hidden lg:flex ${navLink}`}>
             <LifeBuoy className="h-4 w-4" />
             <span className="hidden sm:inline">{t('help')}</span>
           </Link>

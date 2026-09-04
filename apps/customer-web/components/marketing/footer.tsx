@@ -34,11 +34,17 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
   {
     title: 'company',
     links: [
-      { href: '/about', label: 'About' },
-      { href: '/privacy', label: 'Privacy' },
-      { href: '/terms', label: 'Terms' },
-      { href: '/refunds', label: 'Refunds' },
-      { href: '/organizer-agreement', label: 'Organizer agreement' },
+      /*
+        These were English sentences used as translation KEYS — `links.Privacy`,
+        `links.Organizer agreement`. No such keys existed, so this column rendered the raw
+        key names to every visitor on the public site, and the five it broke were the legal
+        links. camelCase now, matching every other column, and both locales have them.
+      */
+      { href: '/about', label: 'about' },
+      { href: '/privacy', label: 'privacy' },
+      { href: '/terms', label: 'terms' },
+      { href: '/refunds', label: 'refunds' },
+      { href: '/organizer-agreement', label: 'organizerAgreement' },
     ],
   },
 ];
@@ -47,7 +53,7 @@ export function MarketingFooter() {
   const f = useTranslations('common.footer');
   return (
     <footer className="border-t border-border bg-background-subtle/40">
-      <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
+      <div className="mx-auto max-w-shell px-4 py-14 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
           <div>
             <Link

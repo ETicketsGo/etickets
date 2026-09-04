@@ -87,7 +87,18 @@
       "documentation": "Documentation",
       "blog": "Blog",
       "faq": "FAQ",
-      "contact": "Contact"
-    }
+      "contact": "Contact",
+      "about": "About",
+      "privacy": "Privacy",
+      "terms": "Terms",
+      "refunds": "Refund policy",
+      "organizerAgreement": "Organizer agreement",
+      "myTickets": "My tickets",
+      "help": "Help centre",
+      "browseMovies": "Movies"
+    },
+    "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
+    "rights": "© {year} ETicketsGo. All rights reserved.",
+    "testEnvironment": "Test environment — payments are simulated."
   }
 }

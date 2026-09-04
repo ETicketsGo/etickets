@@ -459,7 +459,7 @@ export default function EventsPage() {
           onRetry={() => refetch()}
         />
       ) : isLoading ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -472,7 +472,7 @@ export default function EventsPage() {
           <p className="text-caption text-text-muted">
             Showing {items.length} of {data?.meta.total ?? items.length} event(s)
           </p>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {items.map((e) => (
               <EventCard key={e.id} event={e} />
             ))}

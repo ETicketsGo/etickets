@@ -12,7 +12,7 @@ const DiscoverHome = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div className="mx-auto max-w-shell px-4 py-10 sm:px-6 lg:px-8">
         <div className="h-72 animate-pulse rounded-lg border border-border bg-background-subtle" />
       </div>
     ),

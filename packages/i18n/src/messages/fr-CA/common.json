@@ -87,7 +87,18 @@
       "documentation": "Documentation",
       "blog": "Blogue",
       "faq": "FAQ",
-      "contact": "Nous joindre"
-    }
+      "contact": "Nous joindre",
+      "about": "À propos",
+      "privacy": "Confidentialité",
+      "terms": "Conditions",
+      "refunds": "Politique de remboursement",
+      "organizerAgreement": "Entente organisateur",
+      "myTickets": "Mes billets",
+      "help": "Centre d'aide",
+      "browseMovies": "Films"
+    },
+    "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
+    "rights": "© {year} ETicketsGo. Tous droits réservés.",
+    "testEnvironment": "Environnement de test — les paiements sont simulés."
   }
 }
