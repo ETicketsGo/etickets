@@ -23,6 +23,7 @@ import {
   TicketStatus,
 } from '@prisma/client';
 import { routesFor } from './payment-routing-policy';
+import { assertDestructiveResetAllowed } from './destructive-guard';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -127,15 +128,16 @@ const days = (n: number) => new Date(Date.now() + n * 24 * 60 * 60 * 1000);
  * would make an up-to-date database claim it needs every migration from the beginning.
  */
 async function reset() {
-  // A seed that resets is a data-destroying program. It has no business running anywhere
-  // people's money lives — and until this was added, nothing whatsoever stopped it.
-  const appEnv = (process.env.APP_ENV ?? '').toLowerCase();
-  if (appEnv === 'production' || appEnv === 'prod') {
-    throw new Error(
-      `Refusing to run: APP_ENV is "${process.env.APP_ENV}". This seed empties every table ` +
-        'in the database. It is for local, QA and UAT only.',
-    );
-  }
+  /*
+    A seed that resets is a data-destroying program, and until recently nothing whatsoever
+    stopped it being pointed anywhere.
+
+    Defence in depth: the dispatcher refuses before this module is even loaded, but this file
+    is runnable directly too, and a guard that exists only upstream protects only one path.
+    An allowlist rather than a production check — an unset or unrecognised APP_ENV is refused
+    as well, because "cannot tell where I am" is not a reason to proceed.
+  */
+  assertDestructiveResetAllowed();
 
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables

@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import { assertDestructiveResetAllowed, destructiveResetVerdict } from './destructive-guard';
 /**
  * The single entry point the `db-seed` Railway service runs.
  *
@@ -32,17 +33,34 @@
   well as "never set", or the failure mode returns the moment someone blanks the value
   instead of deleting it.
 */
+
 const requested = (process.env.SEED_OPERATION ?? '').trim().toLowerCase();
 const operation = requested === '' ? 'status' : requested;
 
 console.log(`seed-operation: ${operation}`);
 
 switch (operation) {
-  case 'status':
-    // Read-only. Prints rows per region per status, and every regulatory document with
-    // whether its text has actually been reviewed.
+  case 'status': {
+    /*
+      The default, and it writes nothing.
+
+      It reports which environment it believes it is in BEFORE anything else, because the most
+      dangerous mistake available here is running a command against a database you think is
+      somewhere else. Reporting the destructive verdict on a read-only run means the guard is
+      exercised and visible every time, rather than only being consulted on the one run where
+      being wrong is unrecoverable.
+    */
+    const verdict = destructiveResetVerdict();
+    console.log(`  environment      APP_ENV=${verdict.appEnv ?? '(not set)'}`);
+    if (verdict.railwayEnv) console.log(`  platform         ${verdict.railwayEnv}`);
+    console.log(`  destructive      NOT REQUESTED (SEED_OPERATION=${operation})`);
+    console.log(
+      `  would a reset be permitted here?  ${verdict.allowed ? 'yes' : 'NO'} — ${verdict.reason}`,
+    );
+    console.log('');
     require('./policy-status');
     break;
+  }
 
   case 'india-cinema':
     // Additive and idempotent: existing rows are left alone, nothing is activated.
@@ -50,6 +68,19 @@ switch (operation) {
     break;
 
   case 'full-reset': {
+    /*
+      Order matters here, and it is the whole point.
+
+      The environment is judged FIRST, from environment variables alone, before
+      `require('./seed')` — which constructs a PrismaClient the moment it is loaded. A guard
+      living inside the seed has already opened a connection to the database it is deciding
+      whether to destroy. This one refuses and exits with nothing connected.
+
+      It is an allowlist: an environment must be NAMED as resettable. Production is not on it,
+      and cannot be put on it through configuration.
+    */
+    assertDestructiveResetAllowed();
+
     if ((process.env.SEED_ALLOW_DESTRUCTIVE ?? '').toLowerCase() !== 'yes') {
       console.error(
         'Refusing to run full-reset: it empties every table in this database.\n' +
