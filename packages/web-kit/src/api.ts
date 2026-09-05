@@ -932,6 +932,25 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ ticketId }),
       }),
+    /**
+     * Tickets for a session, so staff can find the one they are holding.
+     *
+     * Search rather than a full list: a busy screening is several hundred seats, and
+     * scrolling that at a door under time pressure is how the wrong seat gets admitted.
+     */
+    roster: (eventSessionId: string, q?: string) =>
+      request<CheckInRosterRow[]>(`/checkins/roster${qs({ eventSessionId, q })}`),
+    /**
+     * Admit a ticket identified by eye rather than scanned.
+     *
+     * Recorded as a VISUAL check-in, which is a different claim from a scan: one verifies a
+     * signed token, the other verifies that somebody looked.
+     */
+    admitVisually: (body: { ticketId: string; expectedSessionId?: string; deviceInfo?: string }) =>
+      request<CheckInOutcome>('/checkins/visual', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   // Offline gate check-in (ADR-035) — endpoints 404 while the feature flag is off.
@@ -3058,6 +3077,19 @@ export interface PreflightReport {
   eventSessionId: string;
   verdict: PreflightVerdict;
   checks: PreflightCheckRow[];
+}
+
+export interface CheckInRosterRow {
+  id: string;
+  serial: string;
+  status: string;
+  seatLabel: string | null;
+  ticketType: string;
+  /** The named attendee if there is one, otherwise whoever bought it. */
+  name: string | null;
+  reference: string | null;
+  /** Set when another cinema's system admits this seat, so the door is not left guessing. */
+  admittedElsewhereBy: string | null;
 }
 
 export interface CheckInOutcome {

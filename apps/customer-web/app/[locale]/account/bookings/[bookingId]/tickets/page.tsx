@@ -14,6 +14,7 @@ import {
   Download,
   LifeBuoy,
   MapPin,
+  Printer,
   Maximize2,
   Navigation,
   ScanLine,
@@ -188,6 +189,19 @@ export default function BookingTicketsViewer() {
     if (ni >= 0) setSelectedId(tickets[ni].id);
   }, [tickets, index]);
 
+  /*
+    Paper, for a door that reads rather than scans — and for anyone who would rather not hold
+    up a phone with a dying battery in a queue.
+  */
+  const printLink = (
+    <a
+      href={`/account/bookings/${bookingId}/tickets/print`}
+      className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <Printer className="h-4 w-4" aria-hidden /> Print
+    </a>
+  );
+
   const backLink = (
     <button
       onClick={() => router.push('/account/tickets')}
@@ -251,7 +265,10 @@ export default function BookingTicketsViewer() {
     <>
       <section className="mx-auto max-w-2xl space-y-6" aria-label={`Tickets for ${group.title}`}>
         <div className="flex items-center justify-between gap-3">
-          {backLink}
+          <span className="flex items-center gap-4">
+            {backLink}
+            {printLink}
+          </span>
           {!online && (
             <span className="inline-flex items-center gap-1.5 text-caption font-medium text-status-warning">
               <WifiOff className="h-3.5 w-3.5" /> Offline · saved tickets

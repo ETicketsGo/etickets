@@ -401,6 +401,24 @@ enum ResourceType {
   VIP_PASS
 }
 
+/// How the ticket in front of the staff member was IDENTIFIED.
+///
+/// Not a detail. A scan verifies a signed token — cryptographic evidence that the person
+/// holding it holds the ticket we issued. A visual check is somebody reading a screen or a
+/// printed slip and deciding it looks right. Both admit a customer; they are not the same
+/// claim, and recording them identically would make the check-in log assert an assurance that
+/// half its rows do not have.
+///
+/// It also matters commercially: "how full was that show" is answerable either way, but
+/// "how many admissions did we verify" is only answerable if the two are kept apart.
+enum CheckInMethod {
+  /// The signed QR token was presented and verified.
+  SCAN
+  /// A staff member identified the ticket and admitted it by hand. Most Indian cinemas
+  /// admit this way — the barcode is the exception, not the rule.
+  VISUAL
+}
+
 enum CheckInResultType {
   SUCCESS
   DUPLICATE
@@ -2056,6 +2074,9 @@ model CheckIn {
   eventSessionId   String
   eventSession     EventSession      @relation(fields: [eventSessionId], references: [id])
   result           CheckInResultType
+  /// Defaults to SCAN so every row written before this column existed keeps its meaning:
+  /// they were all scans, because that was the only way in.
+  method           CheckInMethod     @default(SCAN)
   byUserId         String?
   by               User?             @relation("CheckInActor", fields: [byUserId], references: [id])
   deviceInfo       String?

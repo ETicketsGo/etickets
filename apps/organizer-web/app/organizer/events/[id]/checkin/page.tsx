@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AdmitByEye } from '@/components/admit-by-eye';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, WifiOff } from 'lucide-react';
@@ -312,6 +313,12 @@ export default function CheckinTab() {
         </div>
 
         <div className="space-y-4">
+          {/*
+            Sits beside the scanner rather than replacing it. Where a scanner is available it
+            is the better evidence; where it is not — which is most Indian cinemas — this is
+            what the door actually does, and it is now recorded instead of invisible.
+          */}
+          <AdmitByEye sessionId={sessionId} />
           <AttendeeLookup eventId={id} onReversed={() => toast.push('Reversed.', 'success')} />
           <Card title="Recent scans">
             {history.length === 0 ? (
