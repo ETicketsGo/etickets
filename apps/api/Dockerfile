@@ -44,7 +44,12 @@ RUN npm run packages:build \
 
 # ---------- Stage 3: runtime ----------
 FROM node:20-alpine AS runtime
-RUN apk add --no-cache openssl wget
+# postgresql-client is here for ONE reason: `pg_dump`, so the db-seed service (which reuses
+# this image, because that is where prisma/ lives) can take a real recovery point before any
+# destructive operation. Railway's own volume backups need account-level credentials that a
+# project token does not have, so without this there is no backup this platform can take of
+# itself. Roughly 15MB, and it changes nothing about how the API runs.
+RUN apk add --no-cache openssl wget postgresql16-client
 ENV NODE_ENV=production
 WORKDIR /app
 

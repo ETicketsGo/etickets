@@ -429,6 +429,97 @@ function validateEnvTemplate(tpl) {
 
 // ── Cross-cutting checks ─────────────────────────────────────────────────────
 
+/**
+ * Nothing that can empty a database may be reachable through ordinary configuration.
+ *
+ * ── WHY THIS IS AN OFFLINE GATE ────────────────────────────────────────────────────
+ * QA was emptied because a service whose default action was destructive got deployed. Every
+ * protection added since lives in application code, and application code can be edited by
+ * someone who does not know why it is shaped that way. These checks run in CI, on the
+ * repository, and fail the build rather than the environment.
+ */
+function validateDestructiveSurfaces() {
+  const where = 'destructive surfaces';
+
+  // 1. No Railway service may run the seed directly. It exists to be run THROUGH the
+  //    dispatcher, whose default is read-only; pointed at directly, deploying it wipes.
+  for (const svc of SERVICES) {
+    const cfgPath = join(RAILWAY_DIR, svc.file);
+    if (!existsSync(cfgPath)) continue;
+    // The COMMANDS, not the whole file: these configs carry long explanatory notes that
+    // legitimately mention prisma/seed.ts while telling you not to point at it.
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    const commands = [cfg.deploy?.startCommand, cfg.deploy?.preDeployCommand]
+      .filter(Boolean)
+      .join(' ; ');
+    check(
+      !/prisma\/seed\.ts/.test(commands),
+      `deploy/railway/${svc.file}`,
+      'runs prisma/seed.ts directly — it must go through prisma/seed-operation.ts, whose default is a read-only census',
+    );
+    check(
+      !/npm run db:seed/.test(commands),
+      `deploy/railway/${svc.file}`,
+      'runs `npm run db:seed`, which empties every table before reseeding',
+    );
+  }
+
+  // 2. The guard must still be an allowlist that excludes production. A denylist, or an
+  //    allowlist that grows to include PRODUCTION, silently removes the protection.
+  const guardPath = join(ROOT, 'apps/api/prisma/destructive-guard.ts');
+  if (!existsSync(guardPath)) {
+    fail(where, 'apps/api/prisma/destructive-guard.ts is missing — nothing gates the destructive seed');
+  } else {
+    const guard = readFileSync(guardPath, 'utf8');
+    const allow = guard.match(/const RESETTABLE = \[([^\]]*)\]/);
+    check(Boolean(allow), where, 'destructive-guard.ts no longer declares a RESETTABLE allowlist');
+    if (allow) {
+      for (const forbidden of ['PRODUCTION', 'PROD', 'STAGING']) {
+        check(
+          !new RegExp(`['"\`]${forbidden}['"\`]`).test(allow[1]),
+          where,
+          `${forbidden} appears in the destructive-reset allowlist — production must not be resettable through configuration`,
+        );
+      }
+    }
+  }
+
+  // 3. The seed itself must call the guard. A guard nothing calls is a comment.
+  for (const [file, fn] of [
+    ['apps/api/prisma/seed.ts', 'assertDestructiveResetAllowed'],
+    ['apps/api/prisma/seed-operation.ts', 'assertDestructiveResetAllowed'],
+    ['apps/api/prisma/db-reset.ts', 'assertDestructiveResetAllowed'],
+  ]) {
+    const p = join(ROOT, file);
+    check(existsSync(p) && readFileSync(p, 'utf8').includes(fn), where, `${file} does not call ${fn}()`);
+  }
+
+  // 4. The destructive path must take a recovery point first, with no way past it.
+  const dispatcher = join(ROOT, 'apps/api/prisma/seed-operation.ts');
+  if (existsSync(dispatcher)) {
+    const src = readFileSync(dispatcher, 'utf8');
+    const resetBlock = src.slice(src.indexOf("case 'full-reset'"));
+    check(
+      /takeBackup\(\)/.test(resetBlock),
+      where,
+      'the full-reset path no longer takes a recovery point before emptying the database',
+    );
+  }
+
+  // 5. No npm script may invoke a raw destructive Prisma command. `--force` exists to skip
+  //    the confirmation that would otherwise catch a wrong DATABASE_URL.
+  for (const pkg of ['package.json', 'apps/api/package.json']) {
+    const scripts = JSON.parse(readFileSync(join(ROOT, pkg), 'utf8')).scripts ?? {};
+    for (const [name, cmd] of Object.entries(scripts)) {
+      check(
+        !/prisma\s+migrate\s+reset/.test(cmd),
+        `${pkg} → ${name}`,
+        'calls `prisma migrate reset` directly; it must go through prisma/db-reset.ts so the environment is checked first',
+      );
+    }
+  }
+}
+
 function validateNoStrayConfigs() {
   const where = 'deploy/railway';
   if (!existsSync(RAILWAY_DIR)) {
@@ -581,6 +672,7 @@ function validatePortBinding() {
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
+validateDestructiveSurfaces();
 validateNoStrayConfigs();
 validateRootConfig();
 SERVICES.forEach(validateServiceConfig);

@@ -20,14 +20,15 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "ts-node --transpile-only prisma/db-reset.ts",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "certify": "ts-node --transpile-only src/payments/certification/certify.command.ts",
     "db:pilot": "ts-node --transpile-only prisma/pilot-fixture.ts",
     "db:demo-commerce": "ts-node --transpile-only prisma/demo-commerce-seed.ts",
     "db:payment-routes": "ts-node --transpile-only prisma/payment-routes.ts",
     "db:seed:india-cinema": "ts-node --transpile-only prisma/seed-india-cinema-policy.ts",
-    "db:policy-status": "ts-node --transpile-only prisma/policy-status.ts"
+    "db:policy-status": "ts-node --transpile-only prisma/policy-status.ts",
+    "db:backup": "ts-node --transpile-only prisma/backup.ts"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"

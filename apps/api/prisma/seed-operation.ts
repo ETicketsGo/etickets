@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import { assertDestructiveResetAllowed, destructiveResetVerdict } from './destructive-guard';
+import { BACKUP_DIR, listBackups, prune, takeBackup } from './backup';
 /**
  * The single entry point the `db-seed` Railway service runs.
  *
@@ -62,6 +63,42 @@ switch (operation) {
     break;
   }
 
+  case 'backup': {
+    /*
+      A verified recovery point, taken by the platform itself.
+
+      Railway's own volume backups need account-level credentials that a project token does
+      not have, so this is the only backup the deployment pipeline can actually guarantee.
+    */
+    const b = takeBackup();
+    const pruned = prune();
+    console.log(`  backup written   ${b.name}`);
+    console.log(`  size             ${(b.bytes / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`  verified         yes (read back with pg_restore --list)`);
+    console.log(
+      `  recovery points  ${listBackups().length}${pruned.length ? ` (pruned ${pruned.length})` : ''}`,
+    );
+    console.log(
+      `BACKUP_JSON ${JSON.stringify({ name: b.name, bytes: b.bytes, kept: listBackups().length })}`,
+    );
+    break;
+  }
+
+  case 'backups': {
+    // Read-only. What could this environment actually be restored to, and how old is it?
+    const all = listBackups();
+    console.log(`  directory        ${BACKUP_DIR}`);
+    console.log(`  recovery points  ${all.length}`);
+    for (const b of all.slice(0, 20)) {
+      const ageH = ((Date.now() - b.createdAt.getTime()) / 3_600_000).toFixed(1);
+      console.log(`    ${b.name}  ${(b.bytes / 1024 / 1024).toFixed(2)} MB  ${ageH}h old`);
+    }
+    console.log(
+      `BACKUPS_JSON ${JSON.stringify({ dir: BACKUP_DIR, count: all.length, newest: all[0]?.name ?? null })}`,
+    );
+    break;
+  }
+
   case 'india-cinema':
     // Additive and idempotent: existing rows are left alone, nothing is activated.
     require('./seed-india-cinema-policy');
@@ -88,6 +125,34 @@ switch (operation) {
       );
       process.exit(1);
     }
+    /*
+      A verified recovery point BEFORE anything is emptied, every time, with no way to skip it.
+
+      This is the single change that would have made the incident an inconvenience instead of a
+      loss. There is no flag to bypass it: an operator who is about to destroy an environment is
+      precisely the operator least able to judge whether they will want it back, and every
+      "just this once" is how a database ends up with no way home.
+
+      Failure to back up ABORTS the reset. "The backup failed but we carried on" is the
+      sentence that precedes every unrecoverable incident.
+    */
+    console.log('  taking a recovery point before emptying anything...');
+    try {
+      const b = takeBackup();
+      prune();
+      console.log(
+        `  recovery point   ${b.name} (${(b.bytes / 1024 / 1024).toFixed(2)} MB, verified)`,
+      );
+    } catch (e) {
+      console.error(
+        `
+ABORTING: could not take a recovery point, so nothing has been touched.
+  ${(e as Error).message}
+`,
+      );
+      process.exit(1);
+    }
+
     console.log('!! full-reset: every table in this database is about to be emptied.');
     require('./seed');
     break;
@@ -95,7 +160,7 @@ switch (operation) {
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, india-cinema, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, india-cinema, full-reset.`,
     );
     process.exit(1);
 }
