@@ -37,6 +37,37 @@ async function main(): Promise<void> {
 
   const active = await prisma.cinemaPricingPolicy.count({ where: { status: 'ACTIVE' } });
   console.log(`\nACTIVE TOTAL: ${active}`);
+
+  /*
+    A census of the entities a restore is supposed to bring back.
+
+    Printed by the READ-ONLY operation on purpose, so the same command answers "what is in
+    here?" before a reset and "did it come back?" afterwards. Comparing two runs of one
+    read-only command is much harder to fool than a restore that reports its own success.
+  */
+  const counts: [string, Promise<number>][] = [
+    ['users', prisma.user.count()],
+    ['organizations', prisma.organization.count()],
+    ['venues', prisma.venue.count()],
+    ['cinemas', prisma.cinema.count()],
+    ['screens', prisma.screen.count()],
+    ['seat maps', prisma.seatMap.count()],
+    ['seat categories', prisma.seatCategory.count()],
+    ['movies', prisma.movie.count()],
+    ['events', prisma.event.count()],
+    ['sessions (shows)', prisma.eventSession.count()],
+    ['ticket types', prisma.ticketType.count()],
+    ['bookings', prisma.booking.count()],
+    ['payments', prisma.payment.count()],
+    ['tax rules', prisma.taxRule.count()],
+    ['fee rules', prisma.feeRule.count()],
+    ['payment provider configs', prisma.paymentProviderConfig.count()],
+    ['payment routes', prisma.paymentRoute.count()],
+  ];
+  console.log('\nENTITY CENSUS');
+  for (const [label, pending] of counts) {
+    console.log(`  ${label.padEnd(26)} ${await pending}`);
+  }
 }
 
 main()
