@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { ReferenceCode } from '@/components/reference-code';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { BellPlus, CalendarPlus, Check, ReceiptText, Share2 } from 'lucide-react';
@@ -151,7 +152,7 @@ export default function ConfirmationPage() {
         {booking.reference && (
           <div className="flex items-center justify-between text-[0.9375rem]">
             <span className="text-text-secondary">{c('bookingReference')}</span>
-            <span className="font-mono font-medium text-text-primary">{booking.reference}</span>
+            <ReferenceCode value={booking.reference} label="Booking reference" />
           </div>
         )}
         {/*

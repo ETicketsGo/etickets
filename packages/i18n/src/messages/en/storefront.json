@@ -196,5 +196,9 @@
     "payAtVenue": "Pay at the venue",
     "payOnline": "Pay online now",
     "payAtVenueHint": "Reserve now, pay cash at the counter when you arrive."
+  },
+  "common": {
+    "copy": "Copy",
+    "copied": "Copied"
   }
 }

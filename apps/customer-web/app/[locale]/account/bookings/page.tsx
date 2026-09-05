@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ReferenceCode } from '@/components/reference-code';
 import { useEffect, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { CalendarDays, Receipt } from 'lucide-react';
@@ -121,7 +122,9 @@ export default function BookingsPage() {
                   {ticketCount(row) && ` · ${ticketCount(row)}`}
                 </p>
                 {row.reference && (
-                  <p className="mt-1 font-mono text-caption text-text-muted">{row.reference}</p>
+                  <p className="mt-1 text-caption text-text-muted">
+                    <ReferenceCode value={row.reference} label="Booking reference" />
+                  </p>
                 )}
               </div>
               <StatusBadge status={row.status} />

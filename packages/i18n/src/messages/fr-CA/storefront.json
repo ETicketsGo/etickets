@@ -196,5 +196,9 @@
     "payAtVenue": "Payer sur place",
     "payOnline": "Payer en ligne maintenant",
     "payAtVenueHint": "Réservez maintenant, payez comptant au comptoir en arrivant."
+  },
+  "common": {
+    "copy": "Copier",
+    "copied": "Copié"
   }
 }
