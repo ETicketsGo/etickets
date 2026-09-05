@@ -24,7 +24,7 @@ const TOKEN = process.env.RAILWAY_TOKEN;
 if (!TOKEN) throw new Error('RAILWAY_TOKEN is not set.');
 
 const operation = process.argv[2];
-const VALID = ['status', 'backups', 'backup', 'india-cinema', 'full-reset'];
+const VALID = ['status', 'backups', 'backup', 'restore-drill', 'india-cinema', 'full-reset'];
 if (!VALID.includes(operation)) {
   throw new Error(`Pass one of: ${VALID.join(', ')}`);
 }

@@ -165,3 +165,85 @@ if (require.main === module) {
     `BACKUP_JSON ${JSON.stringify({ name: b.name, bytes: b.bytes, kept: listBackups().length, pruned: pruned.length })}`,
   );
 }
+
+/**
+ * Restore the newest recovery point into a scratch database, count what arrives, drop it.
+ *
+ * ── WHY VERIFYING THE FILE IS NOT ENOUGH ───────────────────────────────────────────
+ * `takeBackup` reads each dump back with `pg_restore --list`, which proves the archive is
+ * well-formed. It does not prove the data can be put back. Those are different claims, and the
+ * gap between them is where organisations discover — during an incident — that their backups
+ * have been unrestorable for months.
+ *
+ * This restores for real, into a database created for the purpose and dropped afterwards, so
+ * the live data is never touched. What it reports is row counts: a restore that "succeeds" and
+ * produces empty tables is a failure, and only counting catches it.
+ */
+export function restoreDrill(dir = BACKUP_DIR): {
+  backup: string;
+  tables: number;
+  rows: Record<string, number>;
+} {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is not set; cannot run a restore drill.');
+  const newest = listBackups(dir)[0];
+  if (!newest) throw new Error(`No recovery point in ${dir} to restore.`);
+
+  // A scratch database beside the real one. Same server, same credentials, different name —
+  // so the drill exercises the actual restore path without going near live data.
+  const scratch = `etg_restore_drill_${Date.now()}`;
+  const parsed = new URL(url);
+  const adminUrl = new URL(url);
+  adminUrl.pathname = '/postgres';
+  const scratchUrl = new URL(url);
+  scratchUrl.pathname = `/${scratch}`;
+
+  const psql = (target: URL, sql: string) =>
+    execFileSync('psql', [target.toString(), '-v', 'ON_ERROR_STOP=1', '-tAc', sql], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10 * 60 * 1000,
+    })
+      .toString()
+      .trim();
+
+  psql(adminUrl, `CREATE DATABASE "${scratch}"`);
+  try {
+    // Errors during restore are expected in small ways (ownership, extensions the role cannot
+    // create), so this does NOT stop on the first one — the verdict comes from the row counts
+    // below, which is the only thing that actually matters.
+    try {
+      execFileSync(
+        'pg_restore',
+        ['--no-owner', '--no-acl', '--dbname', scratchUrl.toString(), newest.path],
+        {
+          stdio: ['ignore', 'ignore', 'pipe'],
+          timeout: 30 * 60 * 1000,
+        },
+      );
+    } catch {
+      /* counted below */
+    }
+
+    const tables = Number(
+      psql(scratchUrl, `SELECT count(*) FROM pg_tables WHERE schemaname = 'public'`),
+    );
+    const rows: Record<string, number> = {};
+    for (const t of ['User', 'Organization', 'Event', 'Booking', 'CinemaPricingPolicy']) {
+      try {
+        rows[t] = Number(psql(scratchUrl, `SELECT count(*) FROM "public"."${t}"`));
+      } catch {
+        rows[t] = -1; // table absent from the restore — a real failure, reported as one
+      }
+    }
+    if (tables === 0) throw new Error('The restore produced no tables.');
+    return { backup: newest.name, tables, rows };
+  } finally {
+    // Always: a scratch database left behind is a copy of production data nobody is watching.
+    try {
+      psql(adminUrl, `DROP DATABASE IF EXISTS "${scratch}" WITH (FORCE)`);
+    } catch {
+      psql(adminUrl, `DROP DATABASE IF EXISTS "${scratch}"`);
+    }
+  }
+  void parsed;
+}

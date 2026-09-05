@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 import { assertDestructiveResetAllowed, destructiveResetVerdict } from './destructive-guard';
-import { BACKUP_DIR, listBackups, prune, takeBackup } from './backup';
+import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './backup';
 /**
  * The single entry point the `db-seed` Railway service runs.
  *
@@ -99,6 +99,24 @@ switch (operation) {
     break;
   }
 
+  case 'restore-drill': {
+    /*
+      Proof that the newest recovery point can actually be RESTORED, not merely parsed.
+
+      Restores into a scratch database created for the purpose and dropped afterwards, so live
+      data is never touched, and reports row counts — a restore that "succeeds" into empty
+      tables is a failure that only counting catches.
+    */
+    const r = restoreDrill();
+    console.log(`  restored         ${r.backup}`);
+    console.log(`  tables           ${r.tables}`);
+    for (const [t, n] of Object.entries(r.rows)) {
+      console.log(`    ${t.padEnd(22)} ${n < 0 ? 'MISSING FROM RESTORE' : n}`);
+    }
+    console.log(`RESTORE_DRILL_JSON ${JSON.stringify(r)}`);
+    break;
+  }
+
   case 'india-cinema':
     // Additive and idempotent: existing rows are left alone, nothing is activated.
     require('./seed-india-cinema-policy');
@@ -160,7 +178,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, india-cinema, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-cinema, full-reset.`,
     );
     process.exit(1);
 }

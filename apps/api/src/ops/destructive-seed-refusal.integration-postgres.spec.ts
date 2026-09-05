@@ -117,6 +117,35 @@ describe('the authorisation variables, in an allowed environment', () => {
   });
 });
 
+describe('a destructive run with no recovery point', () => {
+  it('ABORTS before touching anything when the backup cannot be taken', () => {
+    /*
+      The single change that would have turned the QA incident into an inconvenience.
+
+      BACKUP_DIR points somewhere that cannot be created even as root, so takeBackup() fails.
+      The reset must abort on that failure rather than proceeding — "the backup failed but we
+      carried on" is the sentence that precedes every unrecoverable incident.
+
+      DATABASE_URL is still unreachable, so if the abort ever stops working the run gets as far
+      as connecting and fails with a CONNECTION error instead. Either way this test fails; only
+      the correct behaviour produces the abort message with no connection attempt.
+    */
+    const r = run({
+      APP_ENV: 'QA',
+      SEED_OPERATION: 'full-reset',
+      SEED_ALLOW_DESTRUCTIVE: 'yes',
+      BACKUP_DIR: '/proc/self/cannot-create-this',
+    });
+
+    expect(r.code).not.toBe(0);
+    expect(r.output).toMatch(/ABORTING: could not take a recovery point/i);
+    expect(r.output).toMatch(/nothing has been touched/i);
+    // It never reached the seed, so it never announced the reset and never connected.
+    expect(r.output).not.toMatch(/about to be emptied/i);
+    expect(r.output).not.toMatch(/ECONNREFUSED|Can't reach database|P1001|P1000/i);
+  });
+});
+
 describe('the real database is untouched by any of the above', () => {
   it('still holds its rows', async () => {
     // Belt and braces: the child was pointed at an unreachable host, so this can only fail if
