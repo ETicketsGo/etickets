@@ -165,7 +165,24 @@ try {
       }
       if (dep.status !== status) console.log(`  ${(status = dep.status)}`);
       deploymentId = adopted;
-      if (['SUCCESS', 'FAILED', 'CRASHED', 'REMOVED'].includes(status)) break;
+      /*
+        REMOVED is not "finished". It means Railway KILLED this deployment, almost always
+        because another superseded it — and a container killed part way through has done some
+        unknown fraction of its work.
+
+        Treating it as terminal is how two GST runs reported a clean finish and wrote nothing:
+        the deployment was removed, the loop exited, the variables were cleared, and the
+        operation never ran. Wait for a real outcome instead, and let the supersede branch
+        above follow whichever deployment actually gets to run.
+      */
+      if (status === 'REMOVED') {
+        console.log('  (removed — superseded before it finished; waiting for the live one)');
+        adopted = null;
+        status = null;
+        deploymentId = null;
+      } else if (['SUCCESS', 'FAILED', 'CRASHED'].includes(status)) {
+        break;
+      }
     } else if (!triggered && Date.now() > deadline - 24 * 60 * 1000) {
       triggered = true;
       console.log('  nothing induced; triggering exactly one deployment');
@@ -177,6 +194,11 @@ try {
     await sleep(TICK);
   }
   if (!deploymentId) throw new Error('No deployment reached a terminal state within the timeout.');
+  if (status !== 'SUCCESS') {
+    console.error(`
+!! the run ended ${status}, so the operation may not have completed.`);
+    process.exitCode = 1;
+  }
 } finally {
   // 5. Always, on every path. A left-behind SEED_OPERATION is what the next person's redeploy
   //    would run. Clearing induces one more deployment, which runs the read-only default.
