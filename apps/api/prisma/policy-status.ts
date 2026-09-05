@@ -65,9 +65,28 @@ async function main(): Promise<void> {
     ['payment routes', prisma.paymentRoute.count()],
   ];
   console.log('\nENTITY CENSUS');
+  const resolved: Record<string, number> = {};
   for (const [label, pending] of counts) {
-    console.log(`  ${label.padEnd(26)} ${await pending}`);
+    resolved[label] = await pending;
+    console.log(`  ${label.padEnd(26)} ${resolved[label]}`);
   }
+
+  /*
+    The same census again, on ONE line.
+
+    Railway's log API returns lines unordered and sometimes incompletely, so a multi-line
+    report read back from a deployment's logs cannot be trusted — reading one produced a
+    partial census that silently omitted most of the entities and would have been mistaken for
+    a half-restored database. A single line either arrives whole or does not arrive at all, and
+    a caller can parse it rather than hoping the ordering held.
+  */
+  console.log(
+    `CENSUS_JSON ${JSON.stringify({
+      policies: Object.fromEntries(rows.map((r) => [`${r.region}/${r.status}`, r._count._all])),
+      activeTotal: active,
+      entities: resolved,
+    })}`,
+  );
 }
 
 main()
