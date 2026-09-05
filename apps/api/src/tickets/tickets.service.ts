@@ -17,7 +17,7 @@ const TICKET_INCLUDE = {
   eventSession: {
     select: {
       startsAt: true,
-      screen: { select: { name: true, cinema: { select: { name: true } } } },
+      screen: { select: { name: true, cinema: { select: { name: true, timezone: true } } } },
       event: {
         select: {
           title: true,
@@ -103,7 +103,7 @@ export class TicketsService {
       ticketType: { name: string };
       eventSession: {
         startsAt: Date;
-        screen: { name: string; cinema: { name: string } | null } | null;
+        screen: { name: string; cinema: { name: string; timezone: string | null } | null } | null;
         event: {
           title: string;
           slug: string;
@@ -163,6 +163,18 @@ export class TicketsService {
       venueName: event.venue?.name ?? null,
       screenName: screen?.name ?? null,
       cinemaName: screen?.cinema?.name ?? null,
+      /*
+        ── THE ZONE THE SHOW ACTUALLY STARTS IN ──────────────────────────────────────
+        A ticket is checked by a person comparing the time printed on it to the time on the
+        wall. The wallet rendered `startsAt` in the DEVICE's timezone, so a phone set to
+        another zone — a traveller, a device with the wrong region, a customer buying from
+        abroad for family at home — showed a time that was not when the show starts, on the
+        one screen where being wrong sends somebody to the wrong screening.
+
+        The cinema's zone is authoritative and already stored. Sent so the client can render
+        the venue's time and SAY which zone it is, rather than silently using its own.
+      */
+      timezone: screen?.cinema?.timezone ?? null,
       // Attendee identity (ADR-031): assignment lifecycle + whether the viewer is
       // the booking owner (vs an attendee this ticket was assigned to).
       assignmentStatus: ticket.assignmentStatus,

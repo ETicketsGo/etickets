@@ -36,7 +36,8 @@ import {
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { tokenStore } from '@/lib/api';
-import { dateTime } from '@/lib/format';
+import { dateTime, zoneAbbrev } from '@/lib/format';
+import { ReferenceCode } from '@/components/reference-code';
 import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/components/ui';
 import { EventDayMode } from '@/components/event-day-mode';
 import { fetchWalletWithOffline, lastSyncedAt } from '@/lib/offline/sync';
@@ -233,6 +234,12 @@ export default function BookingTicketsViewer() {
   const showNextActive = tickets.some((t) => t.status === 'ACTIVE') && current.status !== 'ACTIVE';
   const inactive = isTicketInactive(current.status);
   const seat = current.seatLabel;
+  /*
+    The venue's zone, named, so the time on the ticket is checkable against the clock on the
+    wall. `zoneAbbrev` returns e.g. "IST"; nothing is shown when the API did not send a zone,
+    because an unlabelled time is better than one labelled with a zone we guessed.
+  */
+  const zoneLabel = current.timezone ? zoneAbbrev(current.startsAt, current.timezone) : null;
   const place = group.isMovie
     ? [group.cinemaName, group.screenName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ')
     : [group.venueName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ');
@@ -301,28 +308,73 @@ export default function BookingTicketsViewer() {
               <span className="font-mono text-caption text-text-muted">{current.serial}</span>
             </div>
 
-            <dl className="mt-3 space-y-0.5 text-[0.9375rem] text-text-secondary">
-              <div className="flex items-center justify-center gap-1.5">
-                <dt className="sr-only">Ticket type</dt>
-                <dd>{current.ticketType}</dd>
-              </div>
-              {current.holderName && (
+            {/*
+              ── WHAT A PERSON CHECKS WHEN NOBODY SCANS ──────────────────────────────
+              Most Indian cinemas admit on a visual check: someone looks at the ticket, reads
+              the screen and the seat, and waves you through. The barcode is the exception,
+              not the rule.
+
+              This block is for them. Screen, seat and show time are set large enough to read
+              at arm's length in a queue, in the order they are actually read — where do I
+              send this person, and are they here for the right show. Everything else stays
+              small, because it is for the customer rather than the doorperson.
+            */}
+            <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-border/70 py-3 text-left">
+              {group.screenName && (
                 <div>
-                  <dt className="sr-only">Attendee</dt>
-                  <dd>{current.holderName}</dd>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">Screen</dt>
+                  <dd className="text-[1.0625rem] font-semibold text-text-primary">
+                    {group.screenName}
+                  </dd>
+                </div>
+              )}
+              {seat && (
+                <div>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">Seat</dt>
+                  <dd className="text-[1.0625rem] font-semibold tabular-nums text-text-primary">
+                    {seat}
+                  </dd>
+                </div>
+              )}
+              <div className={group.screenName && seat ? 'col-span-2' : ''}>
+                <dt className="text-caption uppercase tracking-wide text-text-muted">
+                  Show time{zoneLabel ? ` (${zoneLabel})` : ''}
+                </dt>
+                {/*
+                  Rendered in the VENUE's timezone, not the device's. A phone set to another
+                  zone previously showed a time that was not when the show starts — on the one
+                  screen where being wrong sends somebody to the wrong screening.
+                */}
+                <dd className="text-[1.0625rem] font-semibold text-text-primary">
+                  {dateTime(current.startsAt, undefined, current.timezone ?? undefined)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-caption uppercase tracking-wide text-text-muted">Ticket</dt>
+                <dd className="text-[0.9375rem] text-text-primary">{current.ticketType}</dd>
+              </div>
+              {current.bookingRef && (
+                <div>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">Booking</dt>
+                  {/* Quoted to staff and to support far more often than the serial is. */}
+                  <dd className="text-[0.9375rem]">
+                    <ReferenceCode value={current.bookingRef} label="Booking reference" />
+                  </dd>
+                </div>
+              )}
+              {current.holderName && (
+                <div className="col-span-2">
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">Attendee</dt>
+                  <dd className="text-[0.9375rem] text-text-primary">{current.holderName}</dd>
                 </div>
               )}
               {place && (
-                <div className="flex items-center justify-center gap-1.5 text-text-muted">
+                <div className="col-span-2 flex items-center gap-1.5 text-caption text-text-muted">
                   <MapPin className="h-3.5 w-3.5" aria-hidden />
                   <dt className="sr-only">Location</dt>
                   <dd>{place}</dd>
                 </div>
               )}
-              <div className="text-caption text-text-muted">
-                <dt className="sr-only">Date and time</dt>
-                <dd>{dateTime(current.startsAt)}</dd>
-              </div>
             </dl>
 
             {assignmentLine && (

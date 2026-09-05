@@ -1900,6 +1900,8 @@ export interface WalletTicket {
   venueName?: string | null;
   screenName?: string | null;
   cinemaName?: string | null;
+  /** The venue's own timezone. Render the show time in THIS, not the device's. */
+  timezone?: string | null;
   // Attendee identity (ADR-031).
   assignmentStatus?: AttendeeAssignmentValue;
   attendeeName?: string | null;
