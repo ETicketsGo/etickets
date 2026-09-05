@@ -177,9 +177,28 @@ try {
 }
 
 
+/*
+  Logs lag the deployment's terminal state, and a one-shot job can finish before any are
+  queryable — which produced an empty "output" section indistinguishable from a run that did
+  nothing at all. Poll rather than reporting silence as a result.
+
+  Even then the API returns lines UNORDERED and sometimes incompletely, which is why each
+  operation prints a single-line JSON summary (CENSUS_JSON / BACKUP_JSON / RESTORE_DRILL_JSON)
+  next to its human-readable output: one line either arrives whole or does not arrive.
+*/
 console.log('\n──────── output ────────');
-const { deploymentLogs } = await gql(
-  `query($id:String!){ deploymentLogs(deploymentId:$id, limit:500){ message } }`,
-  { id: deploymentId },
-);
-for (const l of deploymentLogs) console.log(l.message);
+let logs = [];
+for (let attempt = 0; attempt < 12 && logs.length === 0; attempt++) {
+  if (attempt) await sleep(5000);
+  ({ deploymentLogs: logs } = await gql(
+    `query($id:String!){ deploymentLogs(deploymentId:$id, limit:500){ message } }`,
+    { id: deploymentId },
+  ));
+}
+if (logs.length === 0) {
+  console.log(
+    `(Railway served no logs for deployment ${deploymentId}. It reached a terminal state — the ` +
+      'output simply was not returned. Re-run, or read it in the Railway dashboard.)',
+  );
+}
+for (const l of logs) console.log(l.message);
