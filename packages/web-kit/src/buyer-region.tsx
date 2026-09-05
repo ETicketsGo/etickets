@@ -31,6 +31,7 @@ export function BuyerRegionField({
   label = 'Your state',
   hint = 'Optional. Used only to state the place of supply on your invoice — it does not change what you pay.',
   id = 'buyer-region',
+  prefilled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -38,6 +39,8 @@ export function BuyerRegionField({
   label?: string;
   hint?: string;
   id?: string;
+  /** True when the value came from the customer's last purchase rather than from them now. */
+  prefilled?: boolean;
 }) {
   // Matched loosely because this field is typed by hand in several places.
   const inIndia = (country ?? '').trim().toLowerCase().replace(/\s+/g, '') === 'india';
@@ -63,7 +66,12 @@ export function BuyerRegionField({
         ))}
       </select>
       <p id={`${id}-hint`} className="text-caption text-text-muted">
-        {hint}
+        {/*
+          A prefilled field says so. Silently filling a form on somebody's behalf is how
+          people submit an answer they never gave — and this one ends up on an invoice. Saying
+          where it came from turns the question into something to glance at and correct.
+        */}
+        {prefilled ? `${'Filled in from your last booking. '}${hint}` : hint}
       </p>
     </div>
   );

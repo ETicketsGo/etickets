@@ -156,6 +156,17 @@ export class ReceiptsService {
         amountMinor: t.amountMinor,
       })),
       totals,
+      /*
+        Itemised only when the customer bears the whole fee, so the parts always foot to the
+        line above them. See ReceiptFeeParts for why this is conditional.
+      */
+      feeParts:
+        booking.customerFeeMinor === booking.bookingFeeMinor + booking.paymentFeeMinor
+          ? {
+              bookingFeeMinor: booking.bookingFeeMinor,
+              paymentFeeMinor: booking.paymentFeeMinor,
+            }
+          : undefined,
     });
 
     await tx.receipt.create({

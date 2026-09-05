@@ -32,7 +32,7 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { BuyerRegionField } from '@eticketsgo/web-kit';
+import { BuyerRegionField, useAuthUser } from '@eticketsgo/web-kit';
 
 export default function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -53,8 +53,22 @@ export default function EventDetailPage() {
   });
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  // Optional, and only rendered for Indian venues. See BuyerRegionField.
+  /*
+    Optional, only rendered for Indian venues, and PREFILLED from the last answer.
+
+    It used to start empty every time, so a returning customer was asked the same optional
+    question on every purchase — a form that is not paying attention. `lastBuyerRegion` comes
+    back with the profile; `touched` stops a late-arriving profile overwriting a choice the
+    customer has already made on this screen. See BuyerRegionField.
+  */
+  const { user } = useAuthUser();
   const [buyerRegion, setBuyerRegion] = useState('');
+  const [regionTouched, setRegionTouched] = useState(false);
+  useEffect(() => {
+    if (!regionTouched && !buyerRegion && user?.lastBuyerRegion) {
+      setBuyerRegion(user.lastBuyerRegion);
+    }
+  }, [user?.lastBuyerRegion, regionTouched, buyerRegion]);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   /*
@@ -295,8 +309,18 @@ export default function EventDetailPage() {
 
   if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
   if (isError) {
-    const notFound = eventError instanceof ApiRequestError && eventError.code === 'NOT_FOUND';
-    return notFound ? (
+    /*
+      ── WHY TWO CODES AND NOT ONE ──────────────────────────────────────────────────
+      Only NOT_FOUND was treated as "this event isn't available", so an event that exists but
+      is not published — draft, ended, unlisted — fell through to the generic error and was
+      shown as "We couldn't load this event. Please try again." with a Try again button.
+      Retrying a permanent condition can only fail, and the customer is left believing the
+      site is broken rather than that the event is gone. Observed on QA against a real link.
+    */
+    const gone =
+      eventError instanceof ApiRequestError &&
+      (eventError.code === 'NOT_FOUND' || eventError.code === 'EVENT_NOT_PUBLISHED');
+    return gone ? (
       <EmptyState
         title="Event not found"
         hint="This event may have ended or been removed."
@@ -762,7 +786,11 @@ export default function EventDetailPage() {
                   <div className="mt-4">
                     <BuyerRegionField
                       value={buyerRegion}
-                      onChange={setBuyerRegion}
+                      onChange={(v) => {
+                        setRegionTouched(true);
+                        setBuyerRegion(v);
+                      }}
+                      prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
                       country={event.venue?.country}
                     />
                   </div>

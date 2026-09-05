@@ -39,7 +39,13 @@
     "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total.",
     "maintenanceCharge": "Frais d'entretien",
     "maintenanceIncluded": "Comprend les frais d'entretien",
-    "bookingFeeNotCharged": "Non facturés"
+    "bookingFeeNotCharged": "Non facturés",
+    "feeBreakdownShow": "Qu'est-ce que c'est ?",
+    "feeBreakdownHide": "Masquer",
+    "feeBookingPart": "Frais de réservation — ETicketsGo",
+    "feePaymentPart": "Traitement du paiement",
+    "feeTaxPart": "TPS sur les frais ({rate})",
+    "feeBreakdownNote": "Les frais de réservation nous reviennent. Le traitement du paiement correspond aux frais du réseau de carte ou UPI pour transférer l'argent."
   },
   "seats": {
     "heading": "Choisissez vos sièges",

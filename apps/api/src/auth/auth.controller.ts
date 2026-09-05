@@ -162,7 +162,22 @@ export class AuthController {
   @ApiBearerAuth()
   @Get('me')
   @ApiOperation({ summary: 'Return the currently authenticated user.' })
-  me(@CurrentUser() user: RequestUser) {
-    return user;
+  async me(@CurrentUser() user: RequestUser) {
+    /*
+      ── WHY THE LAST BUYER REGION TRAVELS WITH THE PROFILE ─────────────────────────
+      Indian checkout asks which state the buyer is in, to state the place of supply on the
+      invoice. It is optional and it does not change what anybody pays — and it was asked on
+      every single purchase, of a customer who had already answered it.
+
+      A question you have already answered, asked again, reads as a form that is not paying
+      attention. So the last answer comes back with the profile and prefills the field, which
+      stays editable because people move and buy for other people.
+
+      Derived from the most recent booking rather than stored on the User: it is not a fact
+      about the person, it is what they said last time. Putting it on the profile would make
+      it look like a setting, and settings imply the platform will keep using it — which is
+      exactly the promise a place-of-supply field should not make.
+    */
+    return { ...user, lastBuyerRegion: await this.auth.lastBuyerRegion(user.id) };
   }
 }

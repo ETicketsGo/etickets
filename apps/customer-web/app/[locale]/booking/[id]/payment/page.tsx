@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { money, dateTime } from '@/lib/format';
 import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
+import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
 
 const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
@@ -414,31 +415,36 @@ export default function PaymentPage() {
           )}
         </div>
 
-        <div className="space-y-1 border-t border-border pt-3">
-          <Row label="Subtotal" value={money(booking.subtotalMinor)} />
-          {booking.discountMinor > 0 && (
-            <Row label="Discount" value={`- ${money(booking.discountMinor)}`} />
-          )}
-          <Row label="Booking fee" value={money(booking.bookingFeeMinor)} />
-          <Row label="Payment fee" value={money(booking.paymentFeeMinor)} />
-          {/*
-            Tax is itemised rather than folded into the total. Several jurisdictions charge
-            two taxes at once at different rates, and a single "Tax" line makes the amount
-            impossible for the buyer to check.
-          */}
-          {(booking.taxLines ?? []).map((t) => (
-            <Row
-              key={`${t.label}-${t.rateBasisPoints}`}
-              label={`${t.label} (${(t.rateBasisPoints / 100).toFixed(
-                t.rateBasisPoints % 100 === 0 ? 0 : 2,
-              )}%)`}
-              value={money(t.amountMinor)}
-            />
-          ))}
-        </div>
-        <div className="border-t border-border pt-3">
-          <Row label="Total payable" value={money(booking.totalMinor)} strong />
-        </div>
+        {/*
+          ── THE SAME BREAKDOWN THE EVENT PAGE SHOWED ──────────────────────────────────
+          This screen used to itemise the fee its own way — "Booking fee ₹20" and "Payment
+          fee ₹60.38" — while the event page showed "Platform fee ₹80.38" for the identical
+          money. Same order, two presentations, and a buyer left to work out whether they had
+          just been charged something new between one screen and the next.
+
+          It also spelled its labels in hardcoded English, so a French checkout showed
+          "Booking fee". Reusing the shared component fixes the disagreement and the
+          translation in the same move, and there is now one place where the rule "these rows
+          must add up to the total" is tested.
+        */}
+        <PriceBreakdown
+          quote={{
+            currency: booking.currency,
+            subtotalMinor: booking.subtotalMinor,
+            discountMinor: booking.discountMinor,
+            bookingFeeMinor: booking.bookingFeeMinor,
+            paymentFeeMinor: booking.paymentFeeMinor,
+            customerFeeInclusiveMinor: booking.customerFeeInclusiveMinor,
+            customerFeeMinor: booking.customerFeeMinor,
+            feeTaxRateBasisPoints: booking.feeTaxRateBasisPoints,
+            feeTaxMinor: booking.feeTaxMinor,
+            maintenanceMinor: booking.maintenanceMinor,
+            maintenanceTreatment: booking.maintenanceTreatment,
+            taxLines: booking.taxLines,
+            totalMinor: booking.totalMinor,
+          }}
+          totalLabel={k('totalPayable')}
+        />
       </Card>
 
       {error && (

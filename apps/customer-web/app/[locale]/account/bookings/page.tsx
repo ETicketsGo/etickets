@@ -23,6 +23,25 @@ import { useTranslations } from 'next-intl';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
+/**
+ * How many tickets to claim this booking has.
+ *
+ * ── WHY NOT JUST `_count.tickets` ──────────────────────────────────────────────────
+ * Tickets are issued on confirmation, so an order still being paid for has none — and the
+ * list said "0 ticket(s)" next to PENDING PAYMENT. To the person who has just typed their
+ * card in, that reads as "your money went somewhere and you got nothing", which is the worst
+ * possible reading of a screen that is simply waiting. Observed on QA and reported as
+ * "after payment it is still showing pending payment".
+ *
+ * A count is only meaningful once there is something to count. Before that the status badge
+ * beside it already says what is happening, so this says nothing rather than something wrong.
+ */
+function ticketCount(row: { status: string; _count: { tickets: number } }): string {
+  const n = row._count.tickets;
+  if (n === 0) return '';
+  return `${n} ticket${n === 1 ? '' : 's'}`;
+}
+
 export default function BookingsPage() {
   const n = useTranslations('common.nav');
   const router = useRouter();
@@ -98,7 +117,8 @@ export default function BookingsPage() {
                 <p className="truncate font-semibold text-text-primary">{row.event.title}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  {dateTime(row.eventSession.startsAt)} · {row._count.tickets} ticket(s)
+                  {dateTime(row.eventSession.startsAt)}
+                  {ticketCount(row) && ` · ${ticketCount(row)}`}
                 </p>
                 {row.reference && (
                   <p className="mt-1 font-mono text-caption text-text-muted">{row.reference}</p>

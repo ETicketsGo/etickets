@@ -44,6 +44,8 @@ export interface BreakdownQuote {
   customerFeeMinor?: number;
   /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
   feeTaxRateBasisPoints?: number;
+  /** Tax inside the all-in fee, in minor units. Zero or absent when the fee is untaxed. */
+  feeTaxMinor?: number;
   /** A statutory per-ticket maintenance charge for the order, if one applies. */
   maintenanceMinor?: number;
   maintenanceTreatment?: MaintenanceTreatment;
@@ -74,6 +76,26 @@ export interface Breakdown {
   includedMaintenanceMinor: number;
   /** The rate named inside the platform-fee label; 0 when the fee is untaxed. */
   platformFeeRateBasisPoints: number;
+  /**
+   * What the single platform-fee row is MADE OF, for a surface that wants to show it.
+   *
+   * ── WHY BOTH A TOTAL AND ITS PARTS ─────────────────────────────────────────────
+   * The row stays one line because "what does this platform cost me" is one question, and
+   * three lines hand the customer arithmetic to do. But the parts go to different places —
+   * the booking fee is the platform's, the payment fee covers processing the card — and a
+   * buyer who wants to know that is entitled to. So the aggregate is what is shown, and this
+   * is what can be opened.
+   *
+   * These MUST sum to the platform-fee row. A surface that shows the parts instead of the
+   * total is showing the same money, not different money.
+   */
+  platformFee: {
+    totalMinor: number;
+    bookingFeeMinor: number;
+    paymentFeeMinor: number;
+    /** Tax charged on the fee itself, already inside `totalMinor`. */
+    taxMinor: number;
+  };
   totalMinor: number;
 }
 
@@ -131,6 +153,20 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     includedTax: ticketTax.filter((tax) => tax.inclusive === true),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
     platformFeeRateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
+    platformFee: {
+      totalMinor: platformFeeMinor,
+      bookingFeeMinor: quote.bookingFeeMinor,
+      paymentFeeMinor: quote.paymentFeeMinor,
+      /*
+        Derived rather than trusted, so the parts always foot to the whole.
+
+        `feeTaxMinor` is what the API says the fee's tax was; the difference is what is left
+        after the two components. They agree in every case the API is correct, and when they
+        do not, the number that must be right is the one that makes the disclosure add up to
+        the row above it — otherwise opening the detail shows a customer a contradiction.
+      */
+      taxMinor: Math.max(0, platformFeeMinor - quote.bookingFeeMinor - quote.paymentFeeMinor),
+    },
     totalMinor: quote.totalMinor,
   };
 }

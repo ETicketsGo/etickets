@@ -59,6 +59,26 @@ export interface ReceiptTotals {
   totalMinor: number;
 }
 
+/**
+ * What the customer's fee is made of, when it can be shown without lying.
+ *
+ * ── WHY THIS IS NOT PART OF ReceiptTotals ──────────────────────────────────────────
+ * `ReceiptTotals` is spread directly into the Receipt row's money columns, so anything added
+ * to it has to be a column. These are presentation detail rather than new money — the same
+ * fee, said in more words — so they travel on the document (stored as JSON) instead.
+ *
+ * ── WHY IT IS OPTIONAL ─────────────────────────────────────────────────────────────
+ * `feeMinor` is the customer's SHARE of the fee. Under a split or organizer-pays fee mode it
+ * is less than the booking fee plus the payment fee, so printing both components would show
+ * a buyer two numbers adding up to more than the line they belong to — a receipt that does
+ * not foot, which is the one thing a receipt may never be. Populated only when the parts sum
+ * exactly to the whole; absent otherwise, and the single honest total is printed instead.
+ */
+export interface ReceiptFeeParts {
+  bookingFeeMinor: number;
+  paymentFeeMinor: number;
+}
+
 export interface ReceiptDocument {
   version: number;
   kind: ReceiptKindName;
@@ -77,6 +97,8 @@ export interface ReceiptDocument {
   lines: ReceiptLine[];
   taxLines: ReceiptTaxLine[];
   totals: ReceiptTotals;
+  /** The fee's components, when they foot exactly to `totals.feeMinor`. */
+  feeParts?: ReceiptFeeParts;
   /** Statements that must appear on the face of the document. */
   notes: string[];
   /** Set on a credit note: the number of the sale document it reverses. */
@@ -95,6 +117,8 @@ export interface BuildReceiptInput {
   lines: ReceiptLine[];
   taxLines: ReceiptTaxLine[];
   totals: ReceiptTotals;
+  /** The fee's components, when they foot exactly to `totals.feeMinor`. */
+  feeParts?: ReceiptFeeParts;
   reverses?: { number: string; issuedAt: Date } | null;
   reason?: string | null;
 }
@@ -152,6 +176,7 @@ export function buildReceiptDocument(input: BuildReceiptInput): ReceiptDocument 
     lines: input.lines,
     taxLines: input.taxLines,
     totals: input.totals,
+    feeParts: input.feeParts,
     notes: buildNotes(input),
     reverses: input.reverses
       ? { number: input.reverses.number, issuedAt: input.reverses.issuedAt.toISOString() }

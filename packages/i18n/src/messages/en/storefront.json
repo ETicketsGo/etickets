@@ -39,7 +39,13 @@
     "taxIncludedNote": "Tax shown is already included in the total.",
     "maintenanceCharge": "Maintenance charges",
     "maintenanceIncluded": "Includes maintenance charge",
-    "bookingFeeNotCharged": "Not charged"
+    "bookingFeeNotCharged": "Not charged",
+    "feeBreakdownShow": "What's this?",
+    "feeBreakdownHide": "Hide",
+    "feeBookingPart": "Booking fee — ETicketsGo",
+    "feePaymentPart": "Payment processing",
+    "feeTaxPart": "GST on fees ({rate})",
+    "feeBreakdownNote": "The booking fee is ours. Payment processing is what the card or UPI network charges to move the money."
   },
   "seats": {
     "heading": "Choose your seats",

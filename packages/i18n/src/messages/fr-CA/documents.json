@@ -22,7 +22,8 @@
     "taxRegistration": "Numéro de taxe",
     "noTaxInvoice": "Ceci n'est pas une facture de taxe.",
     "taxIncluded": "Comprend {label} @ {rate} sur {base}",
-    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus."
+    "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus.",
+    "paymentFee": "Traitement du paiement"
   },
   "ticket": {
     "title": "Billet",

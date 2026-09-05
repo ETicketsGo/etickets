@@ -411,6 +411,22 @@ export class AuthService {
       { appEnv },
     );
   }
+
+  /**
+   * The state this customer last told us they were in, if any.
+   *
+   * Read from their most recent booking that recorded one, so a returning buyer is not asked
+   * a question they have already answered. Null for a first purchase, which is the only time
+   * the field genuinely needs filling in.
+   */
+  async lastBuyerRegion(userId: string): Promise<string | null> {
+    const last = await this.prisma.booking.findFirst({
+      where: { userId, customerRegion: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { customerRegion: true },
+    });
+    return last?.customerRegion ?? null;
+  }
 }
 
 function parseTtlDays(ttl: string): number {

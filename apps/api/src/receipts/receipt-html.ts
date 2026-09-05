@@ -296,7 +296,28 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
     <tfoot>
       ${totalRow(label('subtotal'), d.totals.subtotalMinor)}
       ${d.totals.discountMinor !== 0 ? totalRow(label('discount'), -Math.abs(d.totals.discountMinor)) : ''}
-      ${d.totals.feeMinor !== 0 ? totalRow(label('bookingFee'), d.totals.feeMinor) : ''}
+      ${
+        /*
+          Itemised when the parts are known and foot exactly, one line when they are not.
+
+          The receipt used to print the whole customer fee under the label "Booking fee",
+          which was the wrong name for it: on a ₹2,999 ticket that single line said ₹80.38
+          when the booking fee was ₹20 and the rest was payment processing. A buyer comparing
+          the receipt against the checkout screen — where the two were listed separately —
+          found three different presentations of the same money across three screens.
+        */
+        d.feeParts &&
+        d.feeParts.bookingFeeMinor + d.feeParts.paymentFeeMinor === d.totals.feeMinor &&
+        d.totals.feeMinor !== 0
+          ? `${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}${
+              d.feeParts.paymentFeeMinor !== 0
+                ? totalRow(label('paymentFee'), d.feeParts.paymentFeeMinor)
+                : ''
+            }`
+          : d.totals.feeMinor !== 0
+            ? totalRow(label('bookingFee'), d.totals.feeMinor)
+            : ''
+      }
       ${exclusiveTaxRows}
       ${totalRow(
         d.kind === 'CREDIT_NOTE' ? label('totalRefunded') : label('total'),

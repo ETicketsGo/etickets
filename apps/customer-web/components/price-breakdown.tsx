@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { money } from '@/lib/format';
 import { useTranslations } from 'next-intl';
 import { priceBreakdown, moneyFractionDigits } from '@eticketsgo/web-kit';
@@ -39,6 +40,10 @@ export interface QuotedFees {
   /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
   feeTaxRateBasisPoints?: number;
   feeTaxMinor?: number;
+  /** A statutory per-ticket charge; disclosed below the total when it is already included. */
+  maintenanceMinor?: number;
+  maintenanceTreatment?:
+    'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
   taxLines?: {
     label: string;
     rateBasisPoints: number;
@@ -61,6 +66,71 @@ function Line({ label, value, muted }: { label: string; value: string; muted?: b
     <div className="flex items-center justify-between gap-4 text-[0.9375rem]">
       <span className={muted ? 'text-text-muted' : 'text-text-secondary'}>{label}</span>
       <span className="tabular-nums text-text-primary">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * The platform fee, and what it is made of when somebody asks.
+ *
+ * Collapsed by default: the answer to "what does this cost me" is one number, and a
+ * checkout that itemises everything by default is one a buyer stops reading. Open, it names
+ * where each part goes — which is the actual question behind "why is there a fee".
+ */
+function PlatformFeeLine({
+  label,
+  value,
+  parts,
+  rateBasisPoints,
+  currency,
+  digits,
+}: {
+  label: string;
+  value: string;
+  parts: { bookingFeeMinor: number; paymentFeeMinor: number; taxMinor: number };
+  rateBasisPoints: number;
+  currency?: string;
+  digits?: number;
+}) {
+  const t = useTranslations('storefront.event');
+  const [open, setOpen] = useState(false);
+  const money2 = (m: number) => money(m, currency, undefined, digits);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-4 text-[0.9375rem]">
+        <span className="flex items-center gap-2 text-text-secondary">
+          {label}
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+          >
+            {open ? t('feeBreakdownHide') : t('feeBreakdownShow')}
+          </button>
+        </span>
+        <span className="tabular-nums text-text-primary">{value}</span>
+      </div>
+      {open && (
+        <div className="mt-1 space-y-1 border-l-2 border-border pl-3">
+          {parts.bookingFeeMinor > 0 && (
+            <Line muted label={t('feeBookingPart')} value={money2(parts.bookingFeeMinor)} />
+          )}
+          {parts.paymentFeeMinor > 0 && (
+            <Line muted label={t('feePaymentPart')} value={money2(parts.paymentFeeMinor)} />
+          )}
+          {/* Only when the fee is actually taxed. A 0% line is noise pretending to be rigour. */}
+          {parts.taxMinor > 0 && (
+            <Line
+              muted
+              label={t('feeTaxPart', { rate: `${ratePercent(rateBasisPoints)}%` })}
+              value={money2(parts.taxMinor)}
+            />
+          )}
+          <p className="text-caption text-text-muted">{t('feeBreakdownNote')}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -154,15 +224,37 @@ export function PriceBreakdown({
             */
             const label =
               LABELS[row.kind]?.() ?? `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
+            const value =
+              row.amountMinor < 0
+                ? `- ${money(-row.amountMinor, currency, undefined, digits)}`
+                : money(row.amountMinor, currency, undefined, digits);
+
+            /*
+              The platform fee stays ONE row and gains a way to open it.
+
+              Three lines hand the customer arithmetic; one line with no explanation asks them
+              to trust a number. The parts go to genuinely different places — the booking fee
+              is ours, the payment fee is what the card or UPI network charges — and a buyer
+              who wants to know that should not have to ask support.
+            */
+            if (row.kind === 'platformFee') {
+              return (
+                <PlatformFeeLine
+                  key="platformFee"
+                  label={label}
+                  value={value}
+                  parts={breakdown!.platformFee}
+                  rateBasisPoints={breakdown!.platformFeeRateBasisPoints}
+                  currency={currency}
+                  digits={digits}
+                />
+              );
+            }
             return (
               <Line
                 key={`${row.kind}-${row.label ?? ''}-${row.rateBasisPoints ?? ''}`}
                 label={label}
-                value={
-                  row.amountMinor < 0
-                    ? `- ${money(-row.amountMinor, currency, undefined, digits)}`
-                    : money(row.amountMinor, currency, undefined, digits)
-                }
+                value={value}
               />
             );
           })}

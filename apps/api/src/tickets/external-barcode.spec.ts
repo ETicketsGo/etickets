@@ -16,6 +16,18 @@ import type { RequestUser } from '../common/decorators';
  * Written after the fact, because a falsification caught its absence — swapping the
  * presented barcode back to our own token broke no test at all.
  */
+/*
+  ── WHY THIS FILE ASKS FOR MORE THAN THE DEFAULT FIVE SECONDS ─────────────────────
+  These tests encode a QR image and then decode the pixels back out again, which is genuinely
+  slow — around 2.5s for the heaviest case when the machine is otherwise idle. Under a full
+  parallel run it tipped past the 5s default and failed intermittently, on a test that was
+  correct every time it was given room to finish.
+
+  Stated as a real timeout rather than papered over with retries: the work honestly takes this
+  long, and a suite that goes red at random is one people learn to re-run instead of read.
+*/
+jest.setTimeout(30_000);
+
 const USER: RequestUser = {
   id: 'u1',
   email: 'buyer@example.test',

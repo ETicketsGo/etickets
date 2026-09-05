@@ -1673,6 +1673,13 @@ export interface AuthUser {
   email: string;
   fullName: string;
   roles: string[];
+  /**
+   * The state this customer last told us they were in, for the place-of-supply field.
+   *
+   * Not a setting and not an address — just their last answer, so the same optional question
+   * is not put to them on every purchase. Absent for a first-time buyer.
+   */
+  lastBuyerRegion?: string | null;
 }
 export interface UserProfile extends AuthUser {
   status: string;
@@ -1809,6 +1816,23 @@ export interface BookingDetail {
   taxMinor: number;
   taxLines?: ReceiptTaxLine[];
   currency: string;
+  /*
+    The rest of what the booking was priced with.
+
+    All optional: the API has returned these for a while and older deployments have not, and a
+    checkout that crashes because a field is absent is worse than one that shows a slightly
+    plainer breakdown. Undeclared, the payment screen could not show the same numbers the
+    event page had already shown — which is how the two came to disagree.
+  */
+  /** The platform fee all-in, including tax on the fee. */
+  customerFeeInclusiveMinor?: number;
+  customerFeeMinor?: number;
+  feeTaxRateBasisPoints?: number;
+  feeTaxMinor?: number;
+  /** A statutory per-ticket charge, when the jurisdiction sets one. */
+  maintenanceMinor?: number;
+  maintenanceTreatment?:
+    'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
   buyerName: string;
   buyerEmail: string;
   event: {
