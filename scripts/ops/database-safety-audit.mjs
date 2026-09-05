@@ -129,14 +129,32 @@ if (!seed) {
   }
 
   const v = await varsFor(seed.id);
-  const left = Object.keys(v).filter((k) => k.startsWith('SEED_'));
+  /*
+    Only the two variables that AUTHORISE work are leftovers. `SEED_DEFAULT_OPERATION` is
+    meant to persist — it is what the nightly schedule runs, and the dispatcher refuses to
+    accept a destructive operation there. Flagging it would make this audit cry wolf about
+    correct configuration, and an audit that does that is one people learn to skip.
+  */
+  const left = ['SEED_OPERATION', 'SEED_ALLOW_DESTRUCTIVE'].filter((k) => v[k]);
   if (left.length) {
     bad(
       'db-seed: leftover authorisation',
       `${left.join(', ')} still set — the next redeploy of this service would act on them`,
     );
   } else {
-    ok('db-seed: leftover authorisation', 'none; the service returns to its read-only default');
+    ok('db-seed: leftover authorisation', 'none; nothing destructive can run without a deliberate act');
+  }
+
+  const fallback = (v.SEED_DEFAULT_OPERATION ?? '').trim().toLowerCase();
+  if (fallback === 'backup') {
+    ok('db-seed: scheduled operation', 'backup — the nightly run takes a verified recovery point');
+  } else if (!fallback) {
+    bad(
+      'db-seed: scheduled operation',
+      'SEED_DEFAULT_OPERATION is not set, so the nightly schedule only prints a census and no backup is ever taken',
+    );
+  } else {
+    note('db-seed: scheduled operation', `${fallback} (expected: backup)`);
   }
 }
 
