@@ -655,6 +655,19 @@ export const api = {
      */
     pricingCompliance: (id: string) =>
       request<CinemaComplianceView>(`/cinemas/${id}/pricing-compliance`),
+    /** Every sellable seat category and the regulatory class it is mapped to. */
+    seatClasses: (id: string) => request<SeatClassMapping[]>(`/cinemas/${id}/seat-classes`),
+    /**
+     * State which regulatory class a seat category belongs to.
+     *
+     * `null` clears it. That is not an oversight: withdrawing a wrong answer must be possible,
+     * and in a regulated jurisdiction the seat then stops selling until it is mapped again.
+     */
+    setSeatClass: (id: string, seatCategoryId: string, regulatoryClass: string | null) =>
+      request<SeatClassMapping>(`/cinemas/${id}/seat-classes/${seatCategoryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ regulatoryClass }),
+      }),
     list: (organizationId: string) => request<Cinema[]>(`/cinemas${qs({ organizationId })}`),
     get: (id: string) => request<Cinema>(`/cinemas/${id}`),
     /**
@@ -2028,6 +2041,21 @@ export interface CinemaPricingPolicyRow {
 }
 
 /** What an organizer is told about the order their cinema is sold under. */
+/**
+ * A seat category as the operator sees it, alongside the class a regulator prices it by.
+ *
+ * `name` is theirs — Gold, Lounger, Platinum. `regulatoryClass` is the small fixed set that
+ * appears in rate orders. The two are kept apart because reading one out of the other is the
+ * inference that let a "Lounger" sell with no ceiling while an identical "Recliner" was capped.
+ */
+export interface SeatClassMapping {
+  id: string;
+  name: string;
+  regulatoryClass: 'REGULAR' | 'RECLINER' | 'PREMIUM' | 'NON_PREMIUM' | null;
+  basePriceMinor: number;
+  mapped: boolean;
+}
+
 export interface CinemaComplianceView {
   jurisdiction: {
     country: string | null;

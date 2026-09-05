@@ -95,9 +95,17 @@ form — no text, no rate table, no summary.
 | `G.O.Ms.No.120, Home (General) Department, dated 21-12-2021` | Retained as history                      | None     |
 | `G.O.77 dated 14-08-2026`                                    | Recorded as the current framework, DRAFT | **None** |
 
-Both policy rows carry `maintenanceTreatment = UNCONFIRMED` and every monetary field null.
-Nothing was taken from news reporting. `--activate` cannot activate them by any flag: the database
-refuses the status.
+Both policy rows carry `maintenanceTreatment = UNCONFIRMED` and no monetary value.
+`--activate` cannot activate them by any flag: the database refuses the status.
+
+> **Correction (2026-09-04).** An earlier version of this report said Telangana held no monetary
+> value. It did. Both rows carried ₹5 maintenance, taken from the constant this codebase uses for
+> **Andhra Pradesh's** G.O.Ms.No.13 — an Andhra Pradesh figure standing in for a Telangana one,
+> including on the row for G.O.77, an order that is not in this repository at all. It was found by
+> an assertion written to check something else. The rows now record zero, which is the absence of
+> a figure rather than a claim that the state charges nothing; the `UNCONFIRMED` treatment beside
+> it says which. The database constraint that made zero unstorable was amended, because it forced
+> a choice between inventing an amount and declaring the jurisdiction has no charge.
 
 ---
 

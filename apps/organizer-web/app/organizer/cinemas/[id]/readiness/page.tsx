@@ -26,6 +26,7 @@ import {
   summarise,
 } from './readiness-presentation';
 import { PricingCompliancePanel } from '@/components/pricing-compliance-panel';
+import { SeatClassMapping } from '@/components/seat-class-mapping';
 
 /**
  * Launch readiness for one cinema.
@@ -151,6 +152,7 @@ export default function LaunchReadinessPage() {
         answer them.
       */}
       <PricingCompliancePanel cinemaId={cinemaId} />
+      <SeatClassMapping cinemaId={cinemaId} />
     </div>
   );
 }

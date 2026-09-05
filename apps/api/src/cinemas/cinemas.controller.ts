@@ -28,6 +28,33 @@ export class CinemasController {
     private readonly compliance: CinemaComplianceService,
   ) {}
 
+  @Get(':id/seat-classes')
+  @ApiOperation({
+    summary: 'Every sellable seat category and the regulatory class it is mapped to.',
+  })
+  seatClasses(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.compliance.seatClassesFor(user, id);
+  }
+
+  @Patch(':id/seat-classes/:seatCategoryId')
+  @ApiOperation({
+    summary: 'Map a seat category to a regulatory seat class (or clear the mapping).',
+  })
+  setSeatClass(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('seatCategoryId') seatCategoryId: string,
+    @Body() body: { regulatoryClass: string | null },
+  ) {
+    /*
+      The operator states the mapping; the platform never infers it from the category's name.
+      Clearing it back to null is deliberate and permitted — withdrawing a wrong answer must be
+      possible, and in a regulated jurisdiction the seat then stops selling until it is mapped
+      again, which is the correct consequence of not knowing.
+    */
+    return this.compliance.setSeatClass(user, id, seatCategoryId, body?.regulatoryClass ?? null);
+  }
+
   @Get(':id/pricing-compliance')
   @ApiOperation({
     summary: 'The pricing order this cinema is sold under, and whether its prices comply.',

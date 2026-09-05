@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import type { PricingComplianceStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
+import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
 import { checkTicketPrice } from '../pricing/cinema-policy/apply-policy';
@@ -68,6 +69,7 @@ export class CinemaComplianceService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly policies: CinemaPricingPolicyService,
+    private readonly audit: AuditService,
   ) {}
 
   async forCinema(
@@ -197,6 +199,87 @@ export class CinemaComplianceService {
       blocksPublishing: BLOCKING.includes(resolution.status) || prices.some((p) => !p.ok),
       prices,
     };
+  }
+
+  /**
+   * Every sellable seat category in this cinema, and what the operator has mapped it to.
+   *
+   * Listed as a whole rather than only the unmapped ones, because the question an exhibitor is
+   * answering is "is this right?", not "what is missing?" — and a mapping that is present and
+   * WRONG is the more expensive mistake. A "Gold" seat mapped to REGULAR when the operator
+   * meant PREMIUM sells legally at the wrong ceiling, and nothing will ever complain.
+   */
+  async seatClassesFor(user: { id: string }, cinemaId: string) {
+    const cinema = await this.prisma.cinema.findUnique({
+      where: { id: cinemaId },
+      select: { organizationId: true },
+    });
+    if (!cinema) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user as never, cinema.organizationId);
+
+    const categories = await this.prisma.seatCategory.findMany({
+      where: { seatMap: { screen: { cinemaId } } },
+      select: { id: true, name: true, regulatoryClass: true, basePriceMinor: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    return categories.map((c) => ({ ...c, mapped: c.regulatoryClass != null }));
+  }
+
+  /**
+   * Record which regulatory class a seat category belongs to.
+   *
+   * Setting it to null is allowed and is not an oversight: an operator who realises they
+   * mapped the wrong class must be able to withdraw the answer rather than leave a confident
+   * wrong one in place. In a regulated jurisdiction that stops the seat selling until it is
+   * mapped again, which is the correct consequence of not knowing.
+   */
+  async setSeatClass(
+    user: { id: string },
+    cinemaId: string,
+    seatCategoryId: string,
+    regulatoryClass: string | null,
+  ) {
+    const cinema = await this.prisma.cinema.findUnique({
+      where: { id: cinemaId },
+      select: { organizationId: true },
+    });
+    if (!cinema) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(user as never, cinema.organizationId);
+
+    // Scoped through the cinema, so an id from another operator's seat map cannot be edited by
+    // guessing it. The lookup is the authorisation, not a separate check that can drift.
+    const category = await this.prisma.seatCategory.findFirst({
+      where: { id: seatCategoryId, seatMap: { screen: { cinemaId } } },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That seat category does not belong to this cinema.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const updated = await this.prisma.seatCategory.update({
+      where: { id: seatCategoryId },
+      data: { regulatoryClass: regulatoryClass as never },
+      select: { id: true, name: true, regulatoryClass: true },
+    });
+
+    // Worth an audit entry: this is the field that decides which ceiling a seat is sold under.
+    await this.audit.record({
+      organizationId: cinema.organizationId,
+      actorUserId: user.id,
+      action: 'SEAT_CATEGORY_REGULATORY_CLASS_SET',
+      entityType: 'SeatCategory',
+      entityId: seatCategoryId,
+      metadata: { name: updated.name, regulatoryClass: updated.regulatoryClass },
+    });
+    return updated;
   }
 
   /** One sentence, in the exhibitor's terms rather than the enum's. */
