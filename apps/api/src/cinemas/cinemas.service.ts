@@ -108,6 +108,15 @@ export class CinemasService {
           India fixture, where the default and the intended value are the same string.
         */
         timezone: input.timezone,
+        // Regulatory classification. Optional everywhere, required in practice wherever a rate
+        // order prices by it — and an unclassified cinema in such a place fails closed rather
+        // than selling at a price nobody checked.
+        country: input.country,
+        region: input.region,
+        district: input.district,
+        localBodyType: input.localBodyType,
+        cinemaFormat: input.cinemaFormat,
+        climateType: input.climateType,
       },
       include: { screens: true },
     });

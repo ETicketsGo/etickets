@@ -41,6 +41,30 @@ export const createCinemaSchema = z.object({
    * substitute a literal, a deployment region or the browser's zone.
    */
   timezone: ianaTimeZoneSchema.default(DEFAULT_CINEMA_TIMEZONE),
+
+  /*
+    ── REGULATORY CLASSIFICATION ─────────────────────────────────────────────────────
+    Where a cinema is, and what KIND of cinema it is, in the terms a rate order uses.
+
+    These columns existed and nothing could set them. A jurisdiction that prices by local
+    body, format and climate — Andhra Pradesh does — therefore had no way for an operator to
+    say which slab their cinema falls in, and an unclassified cinema fails closed. The
+    compliance panel could report the problem and the console could not fix it.
+
+    All optional. Most of the world does not regulate cinema ticket prices, and a cinema
+    outside such a jurisdiction should not be made to answer questions that do not apply to
+    it. In a regulated one the booking path refuses until they are answered, which is the
+    right place for that pressure — at the point of sale, not on a form.
+  */
+  country: z.string().trim().min(2).max(80).optional(),
+  region: z.string().trim().min(1).max(120).optional(),
+  district: z.string().trim().min(1).max(120).optional(),
+  /** Municipal Corporation, Municipality, Nagar/Gram Panchayat — the slab selector in AP. */
+  localBodyType: z
+    .enum(['MUNICIPAL_CORPORATION', 'MUNICIPALITY', 'NAGAR_PANCHAYAT', 'GRAM_PANCHAYAT', 'OTHER'])
+    .optional(),
+  cinemaFormat: z.enum(['MULTIPLEX', 'SINGLE_SCREEN', 'SPECIAL_THEATRE']).optional(),
+  climateType: z.enum(['AC', 'AIR_COOLED', 'NON_AC']).optional(),
 });
 export type CreateCinemaInput = z.infer<typeof createCinemaSchema>;
 
