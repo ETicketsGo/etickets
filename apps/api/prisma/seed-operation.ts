@@ -133,6 +133,35 @@ switch (operation) {
     break;
   }
 
+  case 'india-gst': {
+    /*
+      Writes the Indian GST rules INACTIVE, which is how that seed is designed: a tax rule
+      that arrives active because somebody shipped a container is a tax position taken by a
+      build pipeline, and the first anyone would know is a customer's receipt.
+
+      Restoring them matters because a full reset deletes tax rules deliberately — a reseed
+      must not leave a rule active that nobody set — and QA was then pricing every sale with
+      no tax table at all, which is why its receipts said "No tax was charged on this sale".
+    */
+    require('./seed-india-gst');
+    break;
+  }
+
+  case 'india-gst-activate': {
+    /*
+      Switches them on. Separate from writing them, and separate from every other operation,
+      because activating a tax table is a decision about what customers are charged.
+
+      The rates are transcribed from a documented source and have NOT been checked by anyone
+      qualified to check them — the seed file says so in its own header. Fine for a QA
+      environment settling test money; not a thing to run anywhere real without an accountant
+      having read the table first.
+    */
+    process.argv.push('--activate');
+    require('./seed-india-gst');
+    break;
+  }
+
   case 'india-cinema':
     // Additive and idempotent: existing rows are left alone, nothing is activated.
     require('./seed-india-cinema-policy');
@@ -194,7 +223,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-cinema, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, full-reset.`,
     );
     process.exit(1);
 }
