@@ -4,6 +4,7 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import { AggregatorInventoryProvider } from './providers/aggregator.provider';
 import { DirectInventoryProvider } from './providers/direct.provider';
 import { ManualInventoryProvider } from './providers/manual.provider';
+import { QubeMockInventoryProvider } from './providers/qube/qube-mock.provider';
 import { InventoryProviderRegistry } from './inventory-provider.registry';
 import type { InventoryProvider } from './inventory-provider.interface';
 
@@ -23,6 +24,7 @@ export class InventoryProviderFactory {
     private readonly direct: DirectInventoryProvider,
     private readonly manual: ManualInventoryProvider,
     private readonly aggregator: AggregatorInventoryProvider,
+    private readonly qubeMock: QubeMockInventoryProvider,
   ) {}
 
   /**
@@ -34,6 +36,15 @@ export class InventoryProviderFactory {
     this.registry.register(this.manual);
     if (this.config.get<boolean>('INVENTORY_AGGREGATOR_ENABLED')) {
       this.registry.register(this.aggregator);
+    }
+    /*
+      The Qube sandbox, off unless a deployment asks for it. Same rule as the aggregator: a
+      deployment that has not enabled it cannot even resolve the name, so there is no path by
+      which a sandbox provider serves a real customer because somebody mistyped a priority
+      list. Never enabled in a production template.
+    */
+    if (this.config.get<boolean>('INVENTORY_QUBE_MOCK_ENABLED')) {
+      this.registry.register(this.qubeMock);
     }
   }
 

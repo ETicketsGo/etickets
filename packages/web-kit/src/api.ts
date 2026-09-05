@@ -949,6 +949,14 @@ export const api = {
     roster: (eventSessionId: string, q?: string) =>
       request<CheckInRosterRow[]>(`/checkins/roster${qs({ eventSessionId, q })}`),
     /**
+     * Find a booking anywhere in the organization, for the box office.
+     *
+     * Needs at least three characters: listing every booking an organization ever took is an
+     * export, not a search, and a counter terminal is the wrong place to page through it.
+     */
+    findBookings: (organizationId: string, q: string) =>
+      request<CounterBookingRow[]>(`/checkins/bookings${qs({ organizationId, q })}`),
+    /**
      * Admit a ticket identified by eye rather than scanned.
      *
      * Recorded as a VISUAL check-in, which is a different claim from a scan: one verifies a
@@ -3085,6 +3093,22 @@ export interface PreflightReport {
   eventSessionId: string;
   verdict: PreflightVerdict;
   checks: PreflightCheckRow[];
+}
+
+export interface CounterBookingRow {
+  id: string;
+  reference: string | null;
+  status: string;
+  buyerName: string | null;
+  ticketCount: number;
+  eventTitle: string;
+  startsAt: string;
+  screenName: string | null;
+  cinemaName: string | null;
+  /** The venue's zone, so the counter reads the time the way the ticket prints it. */
+  timezone: string | null;
+  currency: string;
+  totalMinor: number;
 }
 
 export interface CheckInRosterRow {

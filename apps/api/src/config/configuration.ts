@@ -69,6 +69,21 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  /*
+    The Qube SANDBOX inventory provider (QUBE_MOCK). Off unless a deployment asks for it.
+
+    It is a simulation, invented in full — nothing in it derives from Qube Cinema's real API,
+    which we do not have. It exists to exercise the external-inventory architecture end to
+    end: remote seat holds, hold expiry, idempotent retries, ambiguous confirmations and the
+    refusal to fail over to local stock.
+
+    Never enable it in production. A sandbox provider serving a real customer would sell
+    seats in a cinema that does not exist.
+  */
+  INVENTORY_QUBE_MOCK_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   // Comma-separated provider priority order for the InventoryResolver (most-preferred
   // first, e.g. "direct,manual,aggregator"). Unset ⇒ a safe default that always
   // prefers LOCAL authoritative stock before any external source.

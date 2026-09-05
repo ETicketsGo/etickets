@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { TICKET_PRINT_CSS } from '@eticketsgo/web-kit';
 import { API, CUSTOMER, ORGANIZER, apiLogin, seedBrowserAuth } from './helpers';
 
 /**
@@ -137,6 +138,46 @@ test.describe('printing tickets', () => {
     // Every page says whose copy it is, so one found later is not mistaken for a customer's
     // own printout. Asserted on the DOM, which can be read exactly.
     await expect(page.getByText(/Box office copy/)).toHaveCount(tickets.length);
+
+    await context.close();
+  });
+
+  /*
+    ── THE FALSIFICATION, RUN EVERY TIME ─────────────────────────────────────────────
+    The tests above assert that N tickets print as N pages. On their own they cannot show that
+    the assertion is SENSITIVE — a page count of N could in principle come from anywhere.
+    Proving it meant reintroducing the bug, which meant rebuilding the app, which meant the
+    proof was done once by hand and never again.
+
+    This does it in one run. The same three tickets are printed twice: once with the real
+    `TICKET_PRINT_CSS` this component ships, and once with the page-break rule stripped out.
+    With the rule, three pages. Without it, one. If someone deletes the rule, the sheet stops
+    paginating and this test says so — and it is asserting on the exported constant, so it is
+    always reading whatever the component actually ships.
+  */
+  test('the page-break rule is what makes one ticket per page', async ({ browser }) => {
+    const ticket = (n: number) =>
+      `<article class="print-ticket" style="height:300px">Ticket ${n} of 3</article>`;
+    const sheet = (css: string) =>
+      `<!doctype html><html><head><style>${css}</style></head><body>${[1, 2, 3]
+        .map(ticket)
+        .join('')}</body></html>`;
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await page.setContent(sheet(TICKET_PRINT_CSS));
+    const withRule = pdfPageCount(await page.pdf({ format: 'A4' }));
+
+    // Exactly one rule removed. Everything else — the markup, the sizes, the other rules —
+    // is identical, so the difference in page count can only come from that rule.
+    await page.setContent(
+      sheet(TICKET_PRINT_CSS.replace('page-break-after: always; break-after: page;', '')),
+    );
+    const withoutRule = pdfPageCount(await page.pdf({ format: 'A4' }));
+
+    expect(withRule).toBe(3);
+    expect(withoutRule).toBe(1);
 
     await context.close();
   });

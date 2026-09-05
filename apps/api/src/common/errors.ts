@@ -33,6 +33,28 @@ export const ErrorCodes = {
   PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE',
   INVENTORY_PROVIDER_UNAVAILABLE: 'INVENTORY_PROVIDER_UNAVAILABLE',
   INVENTORY_SOURCE_UNSUPPORTED: 'INVENTORY_SOURCE_UNSUPPORTED',
+  /*
+    ── EXTERNAL INVENTORY AUTHORITIES ─────────────────────────────────────────────
+    Four codes, not the fifteen a provider integration is usually specified with. Each
+    earns its place by leading somewhere different:
+
+    - ALREADY_HELD vs ALREADY_SOLD is the difference between "wait a few minutes" and
+      "these seats are gone"; collapsing them makes the customer-facing message a guess.
+    - HOLD_EXPIRED is recoverable by re-taking the seats, which no other conflict is.
+    - PROVIDER_TIMEOUT is NOT a failure. It means the outcome is UNKNOWN — the request may
+      well have succeeded at the far end — and it is the one case where retrying blindly, or
+      refunding blindly, causes the double booking or double refund. It exists so that
+      reconciliation can tell "we know it failed" from "we do not know", which
+      INVENTORY_PROVIDER_UNAVAILABLE cannot express.
+
+    Everything else a vendor might report (rate limits, auth failures, malformed responses)
+    is a provider being unavailable to us, and INVENTORY_PROVIDER_UNAVAILABLE already says
+    that. Adding codes nothing branches on only makes the taxonomy harder to use correctly.
+  */
+  INVENTORY_ALREADY_HELD: 'INVENTORY_ALREADY_HELD',
+  INVENTORY_ALREADY_SOLD: 'INVENTORY_ALREADY_SOLD',
+  HOLD_EXPIRED: 'HOLD_EXPIRED',
+  PROVIDER_TIMEOUT: 'PROVIDER_TIMEOUT',
   QR_INVALID: 'QR_INVALID',
   CHECKIN_DUPLICATE: 'CHECKIN_DUPLICATE',
   REFUND_NOT_ELIGIBLE: 'REFUND_NOT_ELIGIBLE',

@@ -3,6 +3,7 @@ import { InventoryModule } from '../inventory.module';
 import { AggregatorInventoryProvider } from './providers/aggregator.provider';
 import { DirectInventoryProvider } from './providers/direct.provider';
 import { ManualInventoryProvider } from './providers/manual.provider';
+import { QubeMockInventoryProvider } from './providers/qube/qube-mock.provider';
 import { InventoryProviderFactory } from './inventory-provider.factory';
 import { InventoryProviderRegistry } from './inventory-provider.registry';
 import { InventoryResolver } from './inventory.resolver';
@@ -27,6 +28,7 @@ import { ProviderPriorityManager } from './provider-priority.manager';
     DirectInventoryProvider,
     ManualInventoryProvider,
     AggregatorInventoryProvider,
+    QubeMockInventoryProvider,
     InventoryProviderRegistry,
     InventoryProviderFactory,
     ProviderHealthMonitor,

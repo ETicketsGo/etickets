@@ -8,6 +8,7 @@ import {
   Banknote,
   Coins,
   MapPin,
+  Ticket,
   Users,
   Settings,
   Sparkles,
@@ -33,6 +34,12 @@ const nav: NavItem[] = [
     edited, while its name printed on every listing a customer saw.
   */
   { label: 'Venues', href: '/organizer/venues', icon: MapPin },
+  /*
+    The box office counter's way in. Distinct from an event's order list, which answers "who
+    bought for THIS show" — a counter is holding a phone call about a booking whose show it
+    does not yet know.
+  */
+  { label: 'Find a booking', href: '/organizer/bookings', icon: Ticket },
   /*
     Named for what an organizer comes here to do, not for the row type underneath.
 

@@ -17,6 +17,10 @@ const visualSchema = z.object({
   expectedSessionId: z.string().cuid().optional(),
   deviceInfo: z.string().max(200).optional(),
 });
+const findBookingsSchema = z.object({
+  organizationId: z.string().cuid(),
+  q: z.string().trim().min(3).max(80),
+});
 const rosterSchema = z.object({
   eventSessionId: z.string().cuid(),
   /** Free text: a seat, a name, a booking reference, part of a serial. */
@@ -57,6 +61,17 @@ export class CheckinsController {
     @Query(new ZodValidationPipe(rosterSchema)) q: z.infer<typeof rosterSchema>,
   ) {
     return this.checkins.roster(staff, q.eventSessionId, q.q);
+  }
+
+  @Get('bookings')
+  @ApiOperation({
+    summary: 'Find a booking across the organization, for the box office counter.',
+  })
+  findBookings(
+    @CurrentUser() staff: RequestUser,
+    @Query(new ZodValidationPipe(findBookingsSchema)) q: z.infer<typeof findBookingsSchema>,
+  ) {
+    return this.checkins.findBookings(staff, q.organizationId, q.q);
   }
 
   @Post('visual')

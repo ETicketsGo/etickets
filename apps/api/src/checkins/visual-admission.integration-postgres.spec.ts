@@ -214,3 +214,46 @@ describe('finding the ticket in front of you', () => {
     expect(rows.length).toBeLessThanOrEqual(50);
   });
 });
+
+describe('the box office finding a booking', () => {
+  it('matches on the booking reference across the whole organization', async () => {
+    const t = await freshTicket('B4');
+    const ref = (
+      await prisma.ticket.findUniqueOrThrow({
+        where: { id: t.id },
+        select: { booking: { select: { reference: true } } },
+      })
+    ).booking.reference!;
+    const rows = await service.findBookings(STAFF, ORG_ID, ref);
+    expect(rows.some((r) => r.reference === ref)).toBe(true);
+  });
+
+  it('matches on the buyer name, which is what a caller gives you', async () => {
+    await freshTicket('B5');
+    const rows = await service.findBookings(STAFF, ORG_ID, 'Visual Test');
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it('REFUSES a query too short to be a search', async () => {
+    /*
+      Listing every booking an organization ever took is an export, not a search, and a counter
+      terminal facing a queue is the wrong place to page through customer names.
+    */
+    await expect(service.findBookings(STAFF, ORG_ID, 'ab')).rejects.toThrow(
+      /at least three characters/i,
+    );
+    await expect(service.findBookings(STAFF, ORG_ID, '   ')).rejects.toThrow();
+  });
+
+  it('never returns the customer’s email or phone', async () => {
+    // The counter needs to FIND a booking, not read contact details off a shared screen. The
+    // API not sending them is what makes it impossible to show them by accident.
+    await freshTicket('B6');
+    const rows = await service.findBookings(STAFF, ORG_ID, 'Visual Test');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(Object.keys(r)).not.toContain('buyerEmail');
+      expect(JSON.stringify(r)).not.toContain('@');
+    }
+  });
+});

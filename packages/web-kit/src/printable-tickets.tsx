@@ -30,6 +30,31 @@ import type { WalletTicket } from './api';
  * absolutely positioned content is removed from the flow the printer paginates. A two-ticket
  * booking printed one ticket and lost the other, silently.
  */
+/**
+ * The print rules, exported so a test can assert on the ACTUAL CSS this ships.
+ *
+ * ── WHY THIS IS A CONSTANT AND NOT A STRING LITERAL IN THE JSX ─────────────────────
+ * The behaviour these three rules produce — N tickets become N pages — is only observable in
+ * a PDF, and reproducing it in a test previously meant rebuilding the whole app for every
+ * variation. A test that has to rebuild an app to check a stylesheet does not get run.
+ *
+ * Exported, a test can render a fixture with these exact rules and again without them, print
+ * both, and show that the page count changes. That is a falsification of the rule itself
+ * rather than of a copy of it — if somebody edits this constant, the test that proves it works
+ * is reading the edited version.
+ */
+export const TICKET_PRINT_CSS = `
+  @media print {
+    .no-print { display: none !important; }
+    /* One ticket per page: two on a sheet means the customer hands over both, and the door
+       has to work out which seat is being presented. */
+    .print-ticket { page-break-after: always; break-after: page; }
+    .print-ticket:last-child { page-break-after: auto; break-after: auto; }
+    /* And never split one across two sheets. */
+    .print-ticket { break-inside: avoid; page-break-inside: avoid; }
+  }
+`;
+
 export interface PrintableTicketsProps {
   tickets: WalletTicket[];
   /** Shown above the first ticket, e.g. "Box office copy". Omitted on a customer's own sheet. */
@@ -54,17 +79,7 @@ export function PrintableTickets({ tickets, copyLabel, autoPrint }: PrintableTic
 
   return (
     <>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          /* One ticket per page: two on a sheet means the customer hands over both, and the
-             door has to work out which seat is being presented. */
-          .print-ticket { page-break-after: always; break-after: page; }
-          .print-ticket:last-child { page-break-after: auto; break-after: auto; }
-          /* And never split one across two sheets. */
-          .print-ticket { break-inside: avoid; page-break-inside: avoid; }
-        }
-      `}</style>
+      <style>{TICKET_PRINT_CSS}</style>
 
       <div className="mx-auto max-w-2xl bg-white p-6 text-black">
         {tickets.map((t, i) => {

@@ -326,6 +326,85 @@ export class CheckinsService {
     }));
   }
 
+  /**
+   * Find a booking across the whole organization, for the box office.
+   *
+   * ── WHY THIS IS NOT THE PER-EVENT ORDER SEARCH ─────────────────────────────────────
+   * `events.orders` searches ONE event, which is right for an organizer reviewing sales and
+   * wrong for a counter. Somebody at a box office is holding a phone call about "a booking
+   * under Srinivas, sometime tomorrow" — they do not know which event, and asking them to
+   * pick one first is asking them to answer the question they rang up to ask.
+   *
+   * ── WHY IT REFUSES AN EMPTY QUERY ──────────────────────────────────────────────────
+   * Listing every booking an organization has ever taken is not a search, it is an export —
+   * and a counter terminal is the wrong place to be able to page through customer names and
+   * emails. A search needs something to search for.
+   */
+  async findBookings(staff: RequestUser, organizationId: string, q: string) {
+    await this.access.assertMember(staff, organizationId, STAFF_ROLES);
+
+    const term = q.trim();
+    if (term.length < 3) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Type at least three characters — a name, a booking reference, an email or a phone number.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        organizationId,
+        OR: [
+          { reference: { contains: term, mode: 'insensitive' } },
+          { buyerName: { contains: term, mode: 'insensitive' } },
+          { buyerEmail: { contains: term, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        buyerName: true,
+        currency: true,
+        totalMinor: true,
+        createdAt: true,
+        _count: { select: { tickets: true } },
+        event: { select: { title: true } },
+        eventSession: {
+          select: {
+            startsAt: true,
+            screen: {
+              select: { name: true, cinema: { select: { name: true, timezone: true } } },
+            },
+          },
+        },
+      },
+      // Soonest show first: a counter is almost always dealing with today or tomorrow.
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+
+    return bookings.map((b) => ({
+      id: b.id,
+      reference: b.reference,
+      status: b.status,
+      buyerName: b.buyerName,
+      /* No buyer email or phone. The counter needs to FIND the booking, not to read the
+         customer's contact details off a shared screen — and they already have the customer
+         in front of them or on the line. */
+      ticketCount: b._count.tickets,
+      eventTitle: b.event.title,
+      startsAt: b.eventSession.startsAt,
+      screenName: b.eventSession.screen?.name ?? null,
+      cinemaName: b.eventSession.screen?.cinema?.name ?? null,
+      /** The venue's zone, so the counter reads the show time the way the ticket prints it. */
+      timezone: b.eventSession.screen?.cinema?.timezone ?? null,
+      currency: b.currency,
+      totalMinor: b.totalMinor,
+    }));
+  }
+
   /** Authorized reversal of a check-in (organizer/admin only). */
   async reverse(user: RequestUser, ticketId: string) {
     const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
