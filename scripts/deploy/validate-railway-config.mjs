@@ -506,6 +506,40 @@ function validateDestructiveSurfaces() {
     );
   }
 
+  // 5. Backups must be scheduled, and the schedule must not be able to destroy anything.
+  const seedCfgPath = join(RAILWAY_DIR, 'db-seed.railway.json');
+  if (existsSync(seedCfgPath)) {
+    const seedCfg = JSON.parse(readFileSync(seedCfgPath, 'utf8'));
+    check(
+      Boolean(seedCfg.deploy?.cronSchedule),
+      'deploy/railway/db-seed.railway.json',
+      'has no cronSchedule — nothing takes a recovery point unless a person remembers to',
+    );
+    check(
+      seedCfg.deploy?.restartPolicyType === 'NEVER',
+      'deploy/railway/db-seed.railway.json',
+      'restartPolicyType must be NEVER; a scheduled job that restarts on failure repeats itself',
+    );
+  }
+
+  // The fallback operation a scheduled run uses must be one that cannot destroy data.
+  if (existsSync(dispatcher)) {
+    const src = readFileSync(dispatcher, 'utf8');
+    const defaultable = src.match(/const DEFAULTABLE = \[([^\]]*)\]/);
+    check(
+      Boolean(defaultable),
+      where,
+      'the dispatcher no longer restricts which operations may run as the scheduled default',
+    );
+    if (defaultable) {
+      check(
+        !/full-reset/.test(defaultable[1]),
+        where,
+        'full-reset is selectable as the scheduled default — a nightly wipe must be impossible to configure, not merely awkward',
+      );
+    }
+  }
+
   // 5. No npm script may invoke a raw destructive Prisma command. `--force` exists to skip
   //    the confirmation that would otherwise catch a wrong DATABASE_URL.
   for (const pkg of ['package.json', 'apps/api/package.json']) {

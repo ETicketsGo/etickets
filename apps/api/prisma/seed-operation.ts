@@ -36,7 +36,23 @@ import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './back
 */
 
 const requested = (process.env.SEED_OPERATION ?? '').trim().toLowerCase();
-const operation = requested === '' ? 'status' : requested;
+/*
+  What a run with no explicit operation does.
+
+  The scheduled backup needs the service to DO something on a plain deployment, and manual runs
+  clear SEED_OPERATION after themselves — so the fallback is where the cron's work lives.
+  `SEED_DEFAULT_OPERATION` is set to `backup` on the deployed service; anything not set falls
+  through to the read-only census.
+
+  Deliberately cannot select a destructive operation: `full-reset` is rejected here even if
+  somebody sets it, so a schedule can never be turned into a nightly wipe by editing one
+  variable. It would still need SEED_ALLOW_DESTRUCTIVE as well, but a schedule that empties a
+  database should be impossible to configure, not merely awkward.
+*/
+const fallback = (process.env.SEED_DEFAULT_OPERATION ?? '').trim().toLowerCase();
+const DEFAULTABLE = ['status', 'backup', 'backups', 'restore-drill'];
+const operation =
+  requested !== '' ? requested : DEFAULTABLE.includes(fallback) ? fallback : 'status';
 
 console.log(`seed-operation: ${operation}`);
 
