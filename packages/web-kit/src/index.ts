@@ -27,3 +27,4 @@ export * from './venue-map';
 export * from './price-breakdown';
 export * from './buyer-region';
 export * from './logo';
+export * from './printable-tickets';

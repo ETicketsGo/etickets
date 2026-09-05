@@ -46,7 +46,7 @@ function setup(rows: ReturnType<typeof row>[]) {
   const findMany = jest.fn().mockResolvedValue(rows);
   const prisma = { ticket: { findMany } } as unknown as PrismaService;
   const qr = { sign: jest.fn().mockReturnValue('signed-token') } as unknown as QrService;
-  return { svc: new TicketsService(prisma, qr), findMany };
+  return { svc: new TicketsService(prisma, qr, {} as never, {} as never), findMany };
 }
 
 describe('TicketsService.wallet', () => {

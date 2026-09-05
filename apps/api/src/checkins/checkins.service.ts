@@ -294,6 +294,7 @@ export class CheckinsService {
       },
       select: {
         id: true,
+        bookingId: true,
         serial: true,
         status: true,
         seatLabel: true,
@@ -309,6 +310,8 @@ export class CheckinsService {
 
     return tickets.map((t) => ({
       id: t.id,
+      // So the door can reprint the whole booking for somebody who arrived without a phone.
+      bookingId: t.bookingId,
       serial: t.serial,
       status: t.status,
       seatLabel: t.seatLabel,

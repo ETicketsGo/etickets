@@ -1,4 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { OrgAccessService } from '../tenancy/org-access.service';
+import { AuditService } from '../audit/audit.service';
+import { Role } from '@eticketsgo/shared-types';
 import * as QRCode from 'qrcode';
 import { BookingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -30,11 +33,15 @@ const TICKET_INCLUDE = {
   },
 };
 
+const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
+
 @Injectable()
 export class TicketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly qr: QrService,
+    private readonly access: OrgAccessService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -57,6 +64,54 @@ export class TicketsService {
       include: TICKET_INCLUDE,
     });
     return Promise.all(tickets.map((t) => this.decorate(t, user.id)));
+  }
+
+  /**
+   * Every ticket on one booking, for organizer staff to print at the counter.
+   *
+   * ── WHY THIS IS A SEPARATE METHOD AND NOT `wallet` WITH A FILTER ───────────────────
+   * The wallet answers "what did I buy". This answers "what did THIS CUSTOMER buy", asked by
+   * somebody who is not them. Same data, entirely different authorisation: membership of the
+   * organization that sold it, not ownership of it. Folding the two together would put one
+   * `if` between a stranger and somebody else's tickets.
+   *
+   * ── WHY IT IS AUDITED ──────────────────────────────────────────────────────────────
+   * The rendered QR is a bearer credential — whoever holds it can be admitted. Staff printing
+   * one for a customer at the counter is exactly what this is for, and printing one for
+   * somebody who never asked is how a seat gets used by the wrong person. That difference is
+   * invisible unless the act is recorded, so it is.
+   */
+  async ticketsForBookingAsStaff(staff: RequestUser, bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { id: true, organizationId: true, status: true, reference: true },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    await this.access.assertMember(staff, booking.organizationId, STAFF_ROLES);
+
+    const tickets = await this.prisma.ticket.findMany({
+      where: { bookingId },
+      orderBy: [{ seatLabel: 'asc' }, { serial: 'asc' }],
+      include: TICKET_INCLUDE,
+    });
+
+    await this.audit.record({
+      actorUserId: staff.id,
+      organizationId: booking.organizationId,
+      action: 'BOOKING_TICKETS_PRINTED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: { reference: booking.reference, tickets: tickets.length },
+    });
+
+    /*
+      `decorate` takes the viewing user so it can say whether they own the ticket. Staff own
+      none of these, and saying so is correct — the printed sheet has no owner-only actions on
+      it, and claiming otherwise would be a small lie in a payload people build UI from.
+    */
+    return Promise.all(tickets.map((t) => this.decorate(t, staff.id)));
   }
 
   async getForUser(user: RequestUser, id: string) {

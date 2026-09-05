@@ -40,6 +40,23 @@ function isMarketing(path: string): boolean {
   return MARKETING_PREFIX.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
+/**
+ * A page whose entire job is to become paper.
+ *
+ * ── WHY THE SHELL IS REMOVED RATHER THAN HIDDEN ────────────────────────────────────
+ * The first version fought the chrome with print CSS: hide everything, un-hide the sheet,
+ * pull it out of flow with `position: absolute` so the hidden header did not leave a blank
+ * page above it. That works for exactly one page. `visibility: hidden` still occupies space,
+ * and absolutely positioned content is taken out of the flow the printer paginates — so a
+ * two-ticket booking printed the first ticket and silently lost the rest.
+ *
+ * Not rendering the header and footer at all leaves the sheet in normal flow, where page
+ * breaks work the way the browser already knows how to do them. Nothing to fight.
+ */
+function isPrintRoute(path: string): boolean {
+  return path.endsWith('/print') || path.includes('/print/');
+}
+
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const f = useTranslations('common.footer');
   const pathname = usePathname();
@@ -51,6 +68,9 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   useEffect(() => setAuthed(isSignedIn()), [pathname]);
 
   const useMarketingShell = isMarketing(pathname) && !(pathname === '/' && authed);
+
+  // No header, no footer, no city bar — just the sheet.
+  if (isPrintRoute(pathname)) return <main id="main">{children}</main>;
 
   if (useMarketingShell) {
     return (

@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { AppShell, RequireAuth, type NavItem } from '@eticketsgo/web-kit';
 import {
   CalendarDays,
@@ -68,7 +69,33 @@ const nav: NavItem[] = [
   { label: 'Settings', href: '/organizer/settings', icon: Settings },
 ];
 
+/**
+ * A page that exists to become paper gets no shell.
+ *
+ * The sidebar, the org switcher and the app frame are useful on a screen and are wasted ink
+ * on a sheet — and hiding them with print CSS is worse than not rendering them: the usual
+ * trick pulls the printable area out of the document flow, which prints exactly one page and
+ * silently drops every ticket after the first. Authentication still applies; only the
+ * furniture goes.
+ */
+function isPrintRoute(path: string): boolean {
+  return path.endsWith('/print') || path.includes('/print/');
+}
+
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
+  if (isPrintRoute(pathname)) {
+    return (
+      <RequireAuth
+        roles={['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ADMIN', 'SUPER_ADMIN']}
+        roleMismatchRedirect="/start"
+      >
+        <OrgProvider>{children}</OrgProvider>
+      </RequireAuth>
+    );
+  }
+
   return (
     <RequireAuth
       roles={['ORGANIZER_OWNER', 'ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ADMIN', 'SUPER_ADMIN']}

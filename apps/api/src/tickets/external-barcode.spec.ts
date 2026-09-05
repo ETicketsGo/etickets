@@ -70,7 +70,7 @@ const wallet = async (over: Record<string, unknown> = {}) => {
     ticket: { findMany: jest.fn().mockResolvedValue([row(over)]) },
   } as unknown as PrismaService;
   const qr = { sign: jest.fn().mockReturnValue('our-signed-token') } as unknown as QrService;
-  const [t] = await new TicketsService(prisma, qr).wallet(USER);
+  const [t] = await new TicketsService(prisma, qr, {} as never, {} as never).wallet(USER);
   return t;
 };
 

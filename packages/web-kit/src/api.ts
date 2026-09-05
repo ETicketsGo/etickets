@@ -436,6 +436,14 @@ export const api = {
   tickets: {
     wallet: () => request<WalletTicket[]>('/tickets'),
     get: (id: string) => request<WalletTicket>(`/tickets/${id}`),
+    /**
+     * Every ticket on a booking, for organizer staff printing at the counter.
+     *
+     * Authorised by membership of the selling organization, not ownership — and recorded,
+     * because the QR on the sheet is a bearer credential.
+     */
+    forBookingAsStaff: (bookingId: string) =>
+      request<WalletTicket[]>(`/tickets/booking/${bookingId}/print`),
   },
 
   // Wallet-pass sandbox (Apple/Google) — projections of an existing valid ticket.
@@ -3081,6 +3089,8 @@ export interface PreflightReport {
 
 export interface CheckInRosterRow {
   id: string;
+  /** The booking this seat belongs to, for a counter reprint. */
+  bookingId: string;
   serial: string;
   status: string;
   seatLabel: string | null;

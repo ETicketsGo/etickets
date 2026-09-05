@@ -122,6 +122,20 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
                 <p className="truncate text-xs text-text-muted">
                   {r.ticketType}
                   {r.reference && <span className="ml-1.5 font-mono">{r.reference}</span>}
+                  {/*
+                    A reprint for a customer who arrived without a phone. Opens in a new tab so
+                    the door does not lose its place in the roster it is working through.
+                  */}
+                  {r.bookingId && (
+                    <a
+                      href={`/organizer/bookings/${r.bookingId}/print`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-2 underline underline-offset-2 hover:text-text-primary"
+                    >
+                      Print
+                    </a>
+                  )}
                 </p>
                 {/* Said out loud, so the door is not left wondering why Admit refuses. */}
                 {r.admittedElsewhereBy && (
