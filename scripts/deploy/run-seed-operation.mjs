@@ -84,39 +84,98 @@ const instanceOf = async () => {
     .find((n) => n.environmentId === environmentId);
 };
 
+/**
+ * ── WHY THIS IS SO CAREFUL ABOUT WHEN VARIABLES ARE SET ────────────────────────────
+ * Railway redeploys a service when its variables change. Setting two variables and then
+ * triggering a deploy therefore produced THREE deployments inside the same second — and for a
+ * full reset, more than one of them ran. A reset executing concurrently with its own reseed
+ * leaves a half-seeded database: observed on QA as fee rules and payment configuration present
+ * with no users, events or bookings, from a run whose own logs said "Seed complete".
+ *
+ * So the ordering is deliberate:
+ *   1. clear stale variables, and let the induced deployments settle
+ *   2. set the AUTHORISATION first — a deployment induced here sees no operation and does
+ *      nothing, which is exactly what should happen
+ *   3. set the OPERATION last, so the deployment it induces is the one that does the work
+ *   4. ADOPT that deployment instead of triggering another
+ *   5. touch nothing until it reaches a terminal state
+ *
+ * Clearing the variables afterwards induces one more deployment. That one runs the read-only
+ * default, which is the entire reason the default is read-only.
+ */
+const latestDeployment = async () => (await instanceOf())?.latestDeployment ?? null;
+const TICK = 5000;
+
+/** Wait until no NEW deployment has appeared for `quietMs`, so induced redeploys settle. */
+async function settle(quietMs = 25000) {
+  let last = (await latestDeployment())?.id ?? null;
+  let quietSince = Date.now();
+  while (Date.now() - quietSince < quietMs) {
+    await sleep(TICK);
+    const now = (await latestDeployment())?.id ?? null;
+    if (now !== last) {
+      last = now;
+      quietSince = Date.now();
+    }
+  }
+  return last;
+}
+
 let deploymentId = null;
 try {
-  await setVar('SEED_OPERATION', operation);
+  // 1. Start from a known state. A stale SEED_OPERATION is an instruction nobody gave.
+  await deleteVar('SEED_OPERATION');
+  await deleteVar('SEED_ALLOW_DESTRUCTIVE');
+  console.log('  settling after clearing stale variables...');
+  const priorId = await settle();
+
+  // 2. Authorisation first. Anything induced now has no operation to perform.
   if (destructive) await setVar('SEED_ALLOW_DESTRUCTIVE', 'yes');
 
-  const priorId = (await instanceOf())?.latestDeployment?.id ?? null;
-  await gql(
-    `mutation($e:String!,$s:String!){ serviceInstanceDeploy(environmentId:$e, serviceId:$s, latestCommit:true) }`,
-    { e: environmentId, s: serviceId },
-  );
+  // 3. The operation last. The deployment this induces is the run.
+  await setVar('SEED_OPERATION', operation);
 
-  // A one-off job is EXPECTED to exit, and Railway reports that as SUCCESS or CRASHED
-  // depending on the exit code. The terminal state is not the result — the logs are.
-  const TERMINAL = ['SUCCESS', 'FAILED', 'CRASHED', 'REMOVED'];
+  // 4. Adopt what that induced, rather than adding a deployment of our own.
   const deadline = Date.now() + 25 * 60 * 1000;
   let status = null;
+  let adopted = null;
+  let triggered = false;
   while (Date.now() < deadline) {
-    const dep = (await instanceOf())?.latestDeployment;
+    const dep = await latestDeployment();
     if (dep && dep.id !== priorId) {
+      if (!adopted) {
+        adopted = dep.id;
+        console.log(`  adopted deployment ${dep.id.slice(0, 8)}`);
+      }
+      if (dep.id !== adopted) {
+        // A superseded run may have executed part way before being killed, so say so loudly
+        // rather than quietly following the newer one.
+        console.log(`  superseded by ${dep.id.slice(0, 8)} — following that instead`);
+        adopted = dep.id;
+        status = null;
+      }
       if (dep.status !== status) console.log(`  ${(status = dep.status)}`);
-      deploymentId = dep.id;
-      if (TERMINAL.includes(status)) break;
+      deploymentId = adopted;
+      if (['SUCCESS', 'FAILED', 'CRASHED', 'REMOVED'].includes(status)) break;
+    } else if (!triggered && Date.now() > deadline - 24 * 60 * 1000) {
+      triggered = true;
+      console.log('  nothing induced; triggering exactly one deployment');
+      await gql(
+        `mutation($e:String!,$s:String!){ serviceInstanceDeploy(environmentId:$e, serviceId:$s, latestCommit:true) }`,
+        { e: environmentId, s: serviceId },
+      );
     }
-    await sleep(5000);
+    await sleep(TICK);
   }
-  if (!deploymentId) throw new Error('No new deployment appeared within the timeout.');
+  if (!deploymentId) throw new Error('No deployment reached a terminal state within the timeout.');
 } finally {
-  // Always, on every path — an exception, a failed build, a timeout. Leaving SEED_OPERATION
-  // set means the next person to redeploy this service runs whatever it still says.
+  // 5. Always, on every path. A left-behind SEED_OPERATION is what the next person's redeploy
+  //    would run. Clearing induces one more deployment, which runs the read-only default.
   await deleteVar('SEED_OPERATION');
   await deleteVar('SEED_ALLOW_DESTRUCTIVE');
   console.log('  variables cleared (service returns to the read-only default)');
 }
+
 
 console.log('\n──────── output ────────');
 const { deploymentLogs } = await gql(
