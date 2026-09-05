@@ -404,7 +404,27 @@ async function main(): Promise<void> {
       climateType: climate,
       seatCategory: null,
     };
-    if (await prisma.cinemaPricingPolicy.findFirst({ where })) continue;
+    const existingTg = await prisma.cinemaPricingPolicy.findFirst({ where });
+    if (existingTg) {
+      /*
+        Skipping an existing row is right for rows somebody may have edited deliberately. It is
+        wrong for THIS correction: environments seeded before it hold Rs 5 on both Telangana
+        rows, copied from the Andhra Pradesh constant, and re-running the seed would leave that
+        Andhra Pradesh figure sitting on a Telangana order forever.
+
+        Narrow on purpose — DRAFT only, and only to remove a monetary value that should never
+        have been recorded. It never writes an amount, so it cannot overwrite a real one that
+        somebody later sourced properly.
+      */
+      if (existingTg.status === 'DRAFT' && existingTg.maintenanceChargeMinor !== 0) {
+        await prisma.cinemaPricingPolicy.update({
+          where: { id: existingTg.id },
+          data: { maintenanceChargeMinor: 0, maintenanceTreatment: 'UNCONFIRMED' },
+        });
+        console.log(`  TG         corrected a maintenance amount that was never sourced`);
+      }
+      continue;
+    }
     await prisma.cinemaPricingPolicy.create({
       data: {
         ...where,
