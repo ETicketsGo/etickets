@@ -22,6 +22,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
+import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 
 const nav: NavItem[] = [
   { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
@@ -89,6 +90,32 @@ function isPrintRoute(path: string): boolean {
   return path.endsWith('/print') || path.includes('/print/');
 }
 
+/**
+ * The organizer's own masthead, their palette, and their team's chrome.
+ *
+ * Split out from the layout because it reads the workspace, and the layout's job is to decide
+ * whether there should be chrome at all (a print route gets none).
+ */
+function OrganizerChrome({ children }: { children: React.ReactNode }) {
+  const workspace = useWorkspace();
+  return (
+    <AppShell
+      brand="Organizer"
+      nav={nav}
+      workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
+      headerAccessory={<ColorSchemeSwitch />}
+    >
+      <WorkspaceTheme />
+      <OrgProvider>
+        <div className="mb-4 flex justify-end empty:mb-0">
+          <OrgSwitcher />
+        </div>
+        {children}
+      </OrgProvider>
+    </AppShell>
+  );
+}
+
 export default function OrganizerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
@@ -111,14 +138,7 @@ export default function OrganizerLayout({ children }: { children: React.ReactNod
       // there beats telling them their account cannot access the area that would fix it.
       roleMismatchRedirect="/start"
     >
-      <AppShell brand="Organizer" nav={nav}>
-        <OrgProvider>
-          <div className="mb-4 flex justify-end">
-            <OrgSwitcher />
-          </div>
-          {children}
-        </OrgProvider>
-      </AppShell>
+      <OrganizerChrome>{children}</OrganizerChrome>
     </RequireAuth>
   );
 }

@@ -7,6 +7,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  /*
+    Overridable build output. `output: 'standalone'` means a locally running server holds
+    `.next/standalone` open, and on Windows that makes the directory undeletable — so a
+    verification build cannot run while the app is being served from the same tree. Unset
+    everywhere except a local check build, so deployments are unchanged.
+  */
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Emit a self-contained server bundle (.next/standalone) for slim runtime images.
   output: 'standalone',
   // Trace files from the monorepo root so workspace deps are bundled correctly.

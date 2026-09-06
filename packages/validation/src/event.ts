@@ -6,6 +6,21 @@ export const createVenueSchema = z.object({
   city: z.string().trim().min(1).max(120),
   country: z.string().trim().min(2).max(120).default('India'),
   /**
+   * State, province, emirate — whatever the country calls its first-level subdivision.
+   *
+   * ── WHY THIS WAS MISSING AND WHY THAT MATTERED ────────────────────────────────
+   * `Venue.region` has existed since the tax work and there has never been a way to set it.
+   * India taxes admission where the event is HELD — s.12(6) of the IGST Act — so this column,
+   * not the seller's address, decides whether a sale is CGST + SGST or IGST. Every venue an
+   * organizer created through the product left it null, and null resolves to intra-state:
+   * correct for most sales, wrong for every inter-state one, and wrong silently, because the
+   * amount charged is identical either way. Only the invoice and the filing are wrong.
+   *
+   * Optional, because the column is nullable and thousands of rows predate it. A venue with
+   * no region is not broken; it is just less precisely described than one with.
+   */
+  region: z.string().trim().max(120).optional(),
+  /**
    * IANA zone, e.g. "Asia/Kolkata". A start time means the time AT THE VENUE, so this is
    * what every showtime is rendered in. Validated against the runtime's own zone database
    * rather than a hand-maintained list — a list here would go stale and reject real zones.

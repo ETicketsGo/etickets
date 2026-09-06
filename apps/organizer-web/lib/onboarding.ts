@@ -128,7 +128,17 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
         ? `${venuesQ.data?.length} venue(s) added`
         : 'Where will your experiences happen?',
       done: hasVenue,
-      href: '/organizer/onboarding',
+      /*
+        The venues page, not this page.
+
+        It pointed at `/organizer/onboarding` — which is where the checklist is rendered — so
+        on the setup screen "Add venue" navigated to the page you were already on and nothing
+        happened. There was a venue form further down that same page, but a button that
+        appears to do nothing is a button that is broken, whatever is below the fold.
+
+        `?new=1` opens the form on arrival, so the click lands on the thing it promised.
+      */
+      href: hasVenue ? '/organizer/venues' : '/organizer/venues?new=1',
       cta: hasVenue ? 'Manage' : 'Add venue',
     },
     {

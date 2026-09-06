@@ -182,6 +182,102 @@ describe.each(['light', 'dark'] as const)('%s mode: controls stay visible', (the
   });
 });
 
+/**
+ * Every selectable accent palette, held to exactly the same arithmetic.
+ *
+ * ── WHY THIS IS THE PART THAT MATTERS ──────────────────────────────────────────────
+ * Offering themes is offering to let somebody change colours nobody checked. Done casually
+ * it is a machine for producing accessibility regressions: the workspace that picks amber
+ * gets an unreadable primary button, and it is unreadable only for that organization, on
+ * their screen, where no scan of ours will ever look at it.
+ *
+ * A theme overrides only the accent family, so the pairs it can break are a short, known
+ * list — and they are checked here from the same file the browser loads. A palette whose
+ * numbers do not work fails the build.
+ *
+ * The default blue is absent on purpose: it is `tokens.css`, already covered above, and an
+ * organization that has chosen nothing carries no attribute at all.
+ */
+const THEMES_CSS = readFileSync(resolve(__dirname, 'themes.css'), 'utf8');
+
+/** Accent-family pairs. Everything else in a themed page comes from `tokens.css`. */
+const ACCENT_PAIRS: { fg: string; bg: string; what: string }[] = [
+  { fg: 'action-primary-foreground', bg: 'action-primary', what: 'the primary button' },
+  { fg: 'action-primary-foreground', bg: 'action-primary-hover', what: 'primary button, hover' },
+  { fg: 'action-primary', bg: 'tint-primary', what: 'an eyebrow or primary pill' },
+  { fg: 'status-info', bg: 'tint-info', what: 'an info badge' },
+];
+
+/**
+ * The accent against the page behind it (SC 1.4.11) — read from `tokens.css`, because a
+ * theme does not redefine the surfaces and must be judged against the real ones.
+ */
+const ACCENT_CONTROLS: { behind: string; what: string }[] = [
+  { behind: 'background-canvas', what: 'a primary button on the page' },
+  { behind: 'background-surface', what: 'a primary button on a card' },
+];
+
+/**
+ * One theme's block, found by its exact selector rather than by a pattern.
+ *
+ * Deliberately not a regex. The light selector is a suffix of the dark one, so a pattern for
+ * `[data-accent='violet']` also matches inside `.dark[data-accent='violet']` — which would
+ * have every light-mode assertion silently measuring the dark palette and passing. Matching
+ * the whole line removes the ambiguity instead of trying to express it in escapes.
+ */
+function accentBlock(theme: string, mode: 'light' | 'dark'): string {
+  const selector = mode === 'dark' ? `.dark[data-accent='${theme}']` : `[data-accent='${theme}']`;
+  const marker = `
+${selector} {`;
+  const at = THEMES_CSS.indexOf(marker);
+  expect(at, `themes.css has no ${mode} block for '${theme}'`).toBeGreaterThanOrEqual(0);
+  const from = at + marker.length;
+  const to = THEMES_CSS.indexOf('}', from);
+  return THEMES_CSS.slice(from, to);
+}
+
+/** Read from the file rather than imported, so a palette cannot be shipped unlisted. */
+const THEME_KEYS = [...THEMES_CSS.matchAll(/\[data-accent='([a-z]+)'\]/g)]
+  .map((m) => m[1])
+  .filter((v, i, a) => a.indexOf(v) === i);
+
+describe('every accent palette is a real palette', () => {
+  it('themes.css defines at least one', () => {
+    expect(THEME_KEYS.length).toBeGreaterThan(0);
+  });
+});
+
+describe.each(THEME_KEYS)("accent '%s' clears WCAG AA", (theme) => {
+  describe.each(['light', 'dark'] as const)('%s mode', (mode) => {
+    const block = accentBlock(theme, mode);
+    const surfaces = themeBlocks()[mode];
+
+    it.each(ACCENT_PAIRS)('$what — $fg on $bg', ({ fg, bg }) => {
+      const ratio = contrast(readToken(block, fg), readToken(block, bg));
+      expect(
+        Number(ratio.toFixed(2)),
+        `'${theme}' ${mode}: --${fg} on --${bg} is ${ratio.toFixed(2)}:1, below ${AA_NORMAL}:1`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    });
+
+    it.each(ACCENT_CONTROLS)('$what', ({ behind }) => {
+      const ratio = contrast(readToken(block, 'action-primary'), readToken(surfaces, behind));
+      expect(
+        Number(ratio.toFixed(2)),
+        `'${theme}' ${mode}: --action-primary against --${behind} is ${ratio.toFixed(2)}:1, below ${AA_NON_TEXT}:1`,
+      ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    });
+
+    it('the focus ring stays visible on the page', () => {
+      const ratio = contrast(readToken(block, 'ring'), readToken(surfaces, 'background-canvas'));
+      expect(
+        Number(ratio.toFixed(2)),
+        `'${theme}' ${mode}: --ring against the canvas is ${ratio.toFixed(2)}:1, below ${AA_NON_TEXT}:1`,
+      ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    });
+  });
+});
+
 describe('the tint tokens exist in both themes', () => {
   /*
     A tint defined only in light mode inherits nothing in dark mode — the variable is simply

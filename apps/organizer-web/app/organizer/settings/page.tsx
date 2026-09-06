@@ -17,7 +17,9 @@ import {
   type OrganizationLegalIdentityInput,
   type OrganizationProfileInput,
 } from '@eticketsgo/web-kit';
+import { ACCENT_THEMES } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { ColorSchemeSwitch } from '@/components/workspace-chrome';
 
 const PROFILE_FIELDS: {
   key: keyof OrganizationProfileInput;
@@ -130,6 +132,9 @@ export default function SettingsPage() {
       twitterUrl: activeOrg.twitterUrl ?? '',
       instagramUrl: activeOrg.instagramUrl ?? '',
       facebookUrl: activeOrg.facebookUrl ?? '',
+      // 'default' rather than '' so the picker always has a selected option: an organization
+      // that has never chosen is on the platform blue, which IS a state, not an absence.
+      consoleTheme: activeOrg.consoleTheme ?? 'default',
     });
   }, [activeOrg]);
   const setField = (key: keyof OrganizationProfileInput, value: string) =>
@@ -274,6 +279,69 @@ export default function SettingsPage() {
           )}
         </Card>
       </div>
+
+      {/*
+        Appearance.
+
+        Two settings that look like one and belong to different people: the accent is the
+        ORGANIZATION's — a brand every member shares — and light or dark is the PERSON's,
+        because it is about their eyes and the room they are in. Saying which is which on the
+        screen itself saves an owner wondering why their choice of dark mode did not reach the
+        box office.
+      */}
+      <Card title="Appearance">
+        <p className="-mt-2 mb-4 text-caption text-text-secondary">
+          Make this workspace look like yours. Every palette here is checked for contrast in both
+          light and dark, so whichever you pick stays readable.
+        </p>
+
+        <fieldset className="space-y-3">
+          <legend className="text-caption font-medium text-text-secondary">
+            Workspace colour — everyone in {activeOrg.name} sees this
+          </legend>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Workspace colour">
+            {ACCENT_THEMES.map((t) => {
+              const current = (form.consoleTheme ?? 'default') === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={current}
+                  onClick={() => setField('consoleTheme', t.key)}
+                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-[0.9375rem] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                    current
+                      ? 'border-action-primary bg-tint-primary font-semibold text-action-primary'
+                      : 'border-border text-text-secondary hover:bg-background-subtle'
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className="h-4 w-4 shrink-0 rounded-full border border-black/10"
+                    style={{ backgroundColor: t.swatch }}
+                  />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+          <Button loading={saveOrg.isPending} onClick={() => saveOrg.mutate()}>
+            Save workspace colour
+          </Button>
+        </fieldset>
+
+        <div className="mt-6 border-t border-border pt-5">
+          <p className="text-caption font-medium text-text-secondary">
+            Light or dark — this device only
+          </p>
+          <p className="mt-1 text-caption text-text-muted">
+            Yours alone. It is saved on this device and takes effect straight away.
+          </p>
+          <div className="mt-3">
+            <ColorSchemeSwitch />
+          </div>
+        </div>
+      </Card>
 
       <Card title="Public organizer profile">
         <p className="-mt-2 mb-4 text-caption text-text-secondary">

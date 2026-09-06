@@ -724,7 +724,20 @@ model Organization {
   /// had an event approved the ordinary way, so "trusted" always means an actual history.
   autoApproveEvents Boolean @default(false)
 
-  contactEmail  String?
+  contactEmail String?
+
+  /// The accent palette this organization's workspace is rendered in.
+  ///
+  /// Deliberately on the ORGANIZATION and not on the user. It is a brand, and a brand that
+  /// each team member picked separately is not one — the box office, the manager and the
+  /// owner should all be looking at the same thing, the way they would if the console were
+  /// their own site. Light or dark is the opposite: that is about a person's eyes and the
+  /// room they are sitting in, so it stays a per-device preference and never comes here.
+  ///
+  /// Null means the platform default. Only palettes this build ships are accepted, and an
+  /// unrecognised value falls back to the default rather than rendering an unthemed page.
+  consoleTheme String?
+
   // Public organizer profile (v1.2 WS6). All optional; empty = not shown.
   description   String?
   logoUrl       String?

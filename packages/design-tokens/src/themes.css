@@ -1,0 +1,142 @@
+/**
+ * Selectable accent palettes for an organizer's workspace.
+ *
+ * ── WHAT A THEME IS ALLOWED TO CHANGE ──────────────────────────────────────────────
+ * The accent family, and nothing else: the primary action colour, its hover, the pale tint
+ * behind pills and eyebrows, the focus ring, and the informational status pair that shares
+ * the accent by design. Backgrounds, body text, borders, and the success/warning/error
+ * colours are untouched in every theme.
+ *
+ * That restraint is the whole design. "Let people theme it" usually means letting them
+ * choose a palette nobody checked, and the predictable result is a workspace where the
+ * warning badge is unreadable in one organization and fine in another. Here the surfaces and
+ * the semantics stay fixed and only the brand colour moves, so there is a bounded set of
+ * pairs to verify — and `token-contrast.test.ts` verifies every one of them, for every
+ * theme, in both light and dark, from this file.
+ *
+ * ── HOW THE VALUES WERE CHOSEN ─────────────────────────────────────────────────────
+ * Solved, not sampled. For each hue the lightness was searched for the first value where the
+ * button label clears 4.5:1 WITH HEADROOM — the first version of this file picked the
+ * lightest passing accent and then had no room left for a tint that also had to clear 4.5:1
+ * against it, which is a contradiction you only discover by trying to satisfy both. So each
+ * accent targets ≥5.3:1 for its label, which leaves the tint somewhere to sit.
+ *
+ * ── ADDING ONE ────────────────────────────────────────────────────────────────────
+ * Add a light block and a dark block, then add the key to `ACCENT_THEMES` in
+ * `tokens.ts`. The contrast test reads this file and iterates whatever it finds, so a new
+ * palette is checked the moment it exists — and fails the build rather than a scan months
+ * later if its numbers do not work.
+ *
+ * The default is the platform blue in `tokens.css` and is deliberately NOT repeated here: an
+ * organization that has chosen nothing carries no attribute, so it renders exactly as every
+ * app in this repo did before themes existed.
+ */
+
+/* ── violet ─────────────────────────────────────────────────────────────────────── */
+[data-accent='violet'] {
+  --action-primary: 262 72% 58%;
+  --action-primary-hover: 262 72% 53%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 262 62% 96%;
+  --status-info: 262 72% 58%;
+  --tint-info: 262 62% 96%;
+  --ring: 262 72% 58%;
+}
+.dark[data-accent='violet'] {
+  --action-primary: 262 72% 67.5%;
+  --action-primary-hover: 262 72% 73.5%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 262 42% 16.7%;
+  --status-info: 262 72% 67.5%;
+  --tint-info: 262 42% 16.7%;
+  --ring: 262 72% 67.5%;
+}
+
+/* ── emerald ────────────────────────────────────────────────────────────────────── */
+[data-accent='emerald'] {
+  --action-primary: 162 74% 27.5%;
+  --action-primary-hover: 162 74% 22.5%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 162 40% 96%;
+  --status-info: 162 74% 27.5%;
+  --tint-info: 162 40% 96%;
+  --ring: 162 74% 27.5%;
+}
+.dark[data-accent='emerald'] {
+  --action-primary: 162 74% 50%;
+  --action-primary-hover: 162 74% 56%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 162 24% 27.4%;
+  --status-info: 162 74% 50%;
+  --tint-info: 162 24% 27.4%;
+  --ring: 162 74% 50%;
+}
+
+/*
+  ── amber ─────────────────────────────────────────────────────────────────────────
+  The darkest light-mode accent here, at 34%. A mid-amber cannot carry white text at AA —
+  that is a property of the colour, not of this palette — so the choice is a deep amber or no
+  amber at all. Deep amber it is; it reads as a considered bronze rather than a highlighter.
+*/
+[data-accent='amber'] {
+  --action-primary: 30 88% 34%;
+  --action-primary-hover: 30 88% 29%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 30 58% 96%;
+  --status-info: 30 88% 34%;
+  --tint-info: 30 58% 96%;
+  --ring: 30 88% 34%;
+}
+.dark[data-accent='amber'] {
+  --action-primary: 30 88% 50%;
+  --action-primary-hover: 30 88% 56%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 30 30% 19.3%;
+  --status-info: 30 88% 50%;
+  --tint-info: 30 30% 19.3%;
+  --ring: 30 88% 50%;
+}
+
+/* ── rose ───────────────────────────────────────────────────────────────────────── */
+[data-accent='rose'] {
+  --action-primary: 345 74% 46.5%;
+  --action-primary-hover: 345 74% 41.5%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 345 62% 96%;
+  --status-info: 345 74% 46.5%;
+  --tint-info: 345 62% 96%;
+  --ring: 345 74% 46.5%;
+}
+.dark[data-accent='rose'] {
+  --action-primary: 345 74% 61.5%;
+  --action-primary-hover: 345 74% 67.5%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 345 40% 14.5%;
+  --status-info: 345 74% 61.5%;
+  --tint-info: 345 40% 14.5%;
+  --ring: 345 74% 61.5%;
+}
+
+/*
+  ── slate ─────────────────────────────────────────────────────────────────────────
+  Nearly monochrome, and the one most likely to be chosen by an organization that already has
+  its own brand elsewhere: it gets out of the way rather than competing with a logo.
+*/
+[data-accent='slate'] {
+  --action-primary: 215 22% 44%;
+  --action-primary-hover: 215 22% 39%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 215 22% 96%;
+  --status-info: 215 22% 44%;
+  --tint-info: 215 22% 96%;
+  --ring: 215 22% 44%;
+}
+.dark[data-accent='slate'] {
+  --action-primary: 215 22% 55.5%;
+  --action-primary-hover: 215 22% 61.5%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 215 16% 12.9%;
+  --status-info: 215 22% 55.5%;
+  --tint-info: 215 16% 12.9%;
+  --ring: 215 22% 55.5%;
+}

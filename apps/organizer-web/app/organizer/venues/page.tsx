@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   api,
   Button,
@@ -9,10 +10,14 @@ import {
   DataTable,
   Dialog,
   Input,
+  LocationFields,
   PageHeader,
+  defaultLocation,
+  locationFrom,
   useToast,
   errorMessage,
   type Column,
+  type LocationValue,
   type Venue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
@@ -29,7 +34,7 @@ import { useOrg } from '@/components/org-context';
  * It is also the organizer's most durable object: events come and go, the hall stays.
  * Something you own for years should not live inside a form you pass through once.
  */
-const EMPTY = { name: '', city: '', country: 'India', address: '', capacity: '' };
+const EMPTY = { name: '', city: '', address: '', capacity: '' };
 
 export default function VenuesPage() {
   const { activeOrg } = useOrg();
@@ -44,25 +49,49 @@ export default function VenuesPage() {
   const [editing, setEditing] = useState<Venue | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  /*
+    Where the venue is, kept apart from the rest of the form because the three fields depend
+    on each other: the country decides which subdivisions exist and which clocks are plausible.
+  */
+  const [where, setWhere] = useState<LocationValue>({ country: 'India', region: '', timezone: '' });
 
   const openCreate = () => {
     setForm(EMPTY);
+    // Opens on a guess from the browser's locale, and says so. One click to correct.
+    setWhere(defaultLocation());
     setCreating(true);
   };
   const openEdit = (v: Venue) => {
     setForm({
       name: v.name,
       city: v.city,
-      country: v.country,
       address: v.address ?? '',
       capacity: v.capacity != null ? String(v.capacity) : '',
     });
+    setWhere(locationFrom(v));
     setEditing(v);
   };
   const close = () => {
     setCreating(false);
     setEditing(null);
   };
+
+  /*
+    Arriving from "Add venue" on the setup checklist opens the form.
+
+    That link used to point at the onboarding page itself — the page the organizer was
+    already on — so the button did nothing at all. Landing on a list and having to find the
+    button again would be an improvement and still not what was asked for; this lands on the
+    open form.
+  */
+  const params = useSearchParams();
+  const wantsNew = params.get('new') === '1';
+  useEffect(() => {
+    if (wantsNew) openCreate();
+    // Runs for the query parameter, not on every render: reopening the dialog after somebody
+    // closed it would make it impossible to dismiss.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsNew]);
 
   /*
     Blank optional fields are sent as undefined, not ''. An empty address box means "I did
@@ -72,7 +101,15 @@ export default function VenuesPage() {
   const payload = () => ({
     name: form.name.trim(),
     city: form.city.trim(),
-    country: form.country.trim() || 'India',
+    country: where.country.trim() || 'India',
+    /*
+      Sent as '' rather than undefined when cleared, so an organizer CAN unset a state they
+      picked by mistake. The address rule above is the opposite — there, blank means "not
+      filled in" — and the difference is that this field is a dropdown with an explicit
+      "Not specified" choice, which is somebody saying so rather than not answering.
+    */
+    region: where.region.trim(),
+    timezone: where.timezone || undefined,
     address: form.address.trim() || undefined,
     capacity: form.capacity ? Number(form.capacity) : undefined,
   });
@@ -190,20 +227,18 @@ export default function VenuesPage() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              id="venueCity"
-              label="City"
-              value={form.city}
-              onChange={(e) => setForm({ ...form, city: e.target.value })}
-            />
-            <Input
-              id="venueCountry"
-              label="Country"
-              value={form.country}
-              onChange={(e) => setForm({ ...form, country: e.target.value })}
-            />
-          </div>
+          <Input
+            id="venueCity"
+            label="City"
+            value={form.city}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+          />
+          <LocationFields
+            idPrefix="venue"
+            value={where}
+            onChange={setWhere}
+            countryHint="Sets the currency you sell in and the tax rules that apply."
+          />
           <Input
             id="venueAddress"
             label="Address (optional)"

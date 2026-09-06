@@ -183,16 +183,23 @@ export function Select({
   label,
   id,
   error,
+  hint,
   children,
   className = '',
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { label?: string; error?: string }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & {
+  label?: string;
+  error?: string;
+  /** Matches `Input`. A dropdown whose choice has consequences needs room to say so. */
+  hint?: string;
+}) {
   return (
     <div>
       {label && <FieldLabel htmlFor={id}>{label}</FieldLabel>}
       <div className="relative">
         <select
           id={id}
+          aria-describedby={hint && !error ? `${id}-hint` : undefined}
           className={`${fieldBase} cursor-pointer appearance-none pr-10 ${className}`}
           {...props}
         >
@@ -200,6 +207,11 @@ export function Select({
         </select>
         <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
       </div>
+      {hint && !error && (
+        <p id={`${id}-hint`} className="mt-1.5 text-caption text-text-muted">
+          {hint}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-1.5 text-caption text-status-error">
           {error}

@@ -24,6 +24,14 @@ export class VenuesService {
         name: input.name,
         city: input.city,
         country: input.country,
+        /*
+          The state/province, at last settable.
+
+          It decides India's place of supply — whether a sale is CGST + SGST or IGST — and
+          until now nothing in the product could write it, so every organizer-created venue
+          left it null and every sale from one looked intra-state.
+        */
+        region: input.region,
         // Omitted leaves the schema default. A country is not a timezone — several launch
         // markets span more than one — so this is never inferred from `country`.
         timezone: input.timezone,
@@ -62,6 +70,7 @@ export class VenuesService {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.city !== undefined ? { city: input.city } : {}),
         ...(input.country !== undefined ? { country: input.country } : {}),
+        ...(input.region !== undefined ? { region: input.region } : {}),
         ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
         ...(input.address !== undefined ? { address: input.address } : {}),
         ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),

@@ -1,4 +1,10 @@
 @import '@eticketsgo/design-tokens/tokens.css';
+/*
+  Accent palettes an organizer can choose. Imported AFTER the base tokens so a
+  `[data-accent]` block overrides the platform blue; without a data-accent attribute on the
+  document this file contributes nothing at all.
+*/
+@import '@eticketsgo/design-tokens/themes.css';
 
 @tailwind base;
 @tailwind components;

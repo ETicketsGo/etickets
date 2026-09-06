@@ -21,10 +21,20 @@ export * from './city';
   how the label and the stored value come to disagree, so there is one and both read it.
 */
 export { countryAliases, countryMatches, currencyForCountry } from '@eticketsgo/shared-types';
+export {
+  MARKETS,
+  DEFAULT_MARKET,
+  marketFor,
+  marketFromHint,
+  regionFor,
+  type Market,
+} from '@eticketsgo/shared-types';
 export * from './datetime-field';
 export * from './datetime-value';
 export * from './venue-map';
 export * from './price-breakdown';
 export * from './buyer-region';
+export * from './location-fields';
+export * from './workspace-theme';
 export * from './logo';
 export * from './printable-tickets';

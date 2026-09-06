@@ -42,14 +42,37 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-/** Responsive dashboard shell with a role-aware sidebar and user menu. */
+/**
+ * Responsive dashboard shell with a role-aware sidebar and user menu.
+ *
+ * ── WHOSE HEADER IS IT ─────────────────────────────────────────────────────────────
+ * An organizer spends their working day in here. The header used to say "ETicketsGo ·
+ * Organizer" and nothing else, so the answer to "whose software am I using" was, on every
+ * screen, ours — which is exactly the third-party-tool feeling this is meant to remove.
+ *
+ * `workspace` puts the organization's own name and logo in the CENTRE, where a masthead
+ * belongs, and the platform mark steps back to a small attribution on the left. Nothing is
+ * hidden: the customer-facing product is still ETicketsGo and pretending otherwise would
+ * confuse the person who has to raise a support ticket about it. It is a masthead, not a
+ * white-label — and the difference is that the attribution stays legible rather than being
+ * removed.
+ *
+ * Omit `workspace` and the shell renders exactly as it did, which is what admin does: there
+ * is no organization there whose masthead it could be.
+ */
 export function AppShell({
   brand,
   nav,
+  workspace,
+  headerAccessory,
   children,
 }: {
   brand: string;
   nav: NavItem[];
+  /** The organization this workspace belongs to. Its name is the masthead. */
+  workspace?: { name: string; logoUrl?: string | null };
+  /** Rendered beside the user menu — a theme switch, an org switcher. */
+  headerAccessory?: ReactNode;
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -95,7 +118,7 @@ export function AppShell({
   return (
     <div className="min-h-dvh bg-background-canvas">
       <header className="sticky top-0 z-30 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
-        <div className="flex items-center justify-between px-4 py-3 lg:px-6">
+        <div className="relative flex items-center justify-between px-4 py-3 lg:px-6">
           <div className="flex items-center gap-3">
             <button
               className="flex h-11 w-11 items-center justify-center rounded-md text-text-secondary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:hidden"
@@ -105,19 +128,72 @@ export function AppShell({
             >
               <Menu className="h-5 w-5" />
             </button>
-            <Link
-              href={items[0]?.href ?? '/'}
-              className="flex items-center gap-2 font-bold text-text-primary"
-            >
-              <span className="text-[1.05rem] tracking-tight">
-                ETickets<span className="text-action-primary">Go</span>
-              </span>
-              <span className="rounded-full bg-background-subtle px-2 py-0.5 text-caption font-medium text-text-muted">
-                {brand}
-              </span>
-            </Link>
+            {workspace ? (
+              /*
+                Attribution, not branding. Small, muted, and still a link home — somebody who
+                needs to say "I am on ETicketsGo" to a support agent can read it, and nobody
+                else has to look at it.
+              */
+              <Link
+                href={items[0]?.href ?? '/'}
+                className="hidden shrink-0 items-center gap-1.5 text-caption font-medium text-text-muted transition-colors hover:text-text-secondary sm:flex"
+              >
+                <span className="tracking-tight">
+                  ETickets<span className="text-action-primary">Go</span>
+                </span>
+                <span aria-hidden>·</span>
+                <span>{brand}</span>
+              </Link>
+            ) : (
+              <Link
+                href={items[0]?.href ?? '/'}
+                className="flex items-center gap-2 font-bold text-text-primary"
+              >
+                <span className="text-[1.05rem] tracking-tight">
+                  ETickets<span className="text-action-primary">Go</span>
+                </span>
+                <span className="rounded-full bg-background-subtle px-2 py-0.5 text-caption font-medium text-text-muted">
+                  {brand}
+                </span>
+              </Link>
+            )}
           </div>
+
+          {/*
+            The masthead.
+
+            Centred with absolute positioning rather than by being the middle flex child: the
+            two sides have different widths — a user's name is not the width of a menu button —
+            so a flex centre would sit wherever those happened to leave it, drifting as the
+            signed-in name changed. Absolute centring puts it in the middle of the HEADER,
+            which is what "centre aligned" means to the person looking at it.
+
+            `pointer-events-none` on the wrapper so an invisible band across the header cannot
+            swallow clicks meant for the controls behind it.
+          */}
+          {workspace && (
+            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+              <div className="pointer-events-auto flex max-w-[min(50vw,28rem)] items-center gap-2.5">
+                {workspace.logoUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={workspace.logoUrl}
+                    alt=""
+                    className="h-7 w-7 shrink-0 rounded-md object-cover"
+                  />
+                )}
+                <span
+                  className="truncate text-[1.05rem] font-bold tracking-tight text-text-primary"
+                  title={workspace.name}
+                >
+                  {workspace.name}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
+            {headerAccessory}
             {user && (
               <div className="flex items-center gap-2.5">
                 <div className="hidden text-right sm:block">

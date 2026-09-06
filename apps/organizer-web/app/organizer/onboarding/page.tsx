@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
@@ -10,7 +9,6 @@ import {
   Button,
   ButtonLink,
   Card,
-  Input,
   PageHeader,
   errorMessage,
   useToast,
@@ -61,25 +59,6 @@ export default function OnboardingPage() {
     (typeof progress.steps)[number]['key'],
     (typeof progress.steps)[number]
   >;
-
-  // ── Embedded venue create (reuses api.venues.create) ──
-  const [venue, setVenue] = useState({ name: '', city: '', capacity: '' });
-  const createVenue = useMutation({
-    mutationFn: () =>
-      api.venues.create({
-        organizationId: activeOrg.id,
-        name: venue.name.trim(),
-        city: venue.city.trim(),
-        country: 'India',
-        capacity: venue.capacity ? Number(venue.capacity) : undefined,
-      }),
-    onSuccess: () => {
-      toast.push('Venue added.', 'success');
-      setVenue({ name: '', city: '', capacity: '' });
-      qc.invalidateQueries({ queryKey: ['venues', activeOrg.id] });
-    },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
-  });
 
   // ── Load a sample DRAFT event (never published) using existing endpoints ──
   const loadSample = useMutation({
@@ -163,7 +142,15 @@ export default function OnboardingPage() {
           </ButtonLink>
         </Card>
 
-        {/* 2. Venue (embedded create) */}
+        {/*
+          2. Venue.
+
+          This card used to carry its OWN create form — name, city, capacity, and a hardcoded
+          country of India. Two forms for one object is how they drift, and they had: the
+          venues page asks where the venue is, this one assumed. It now sends the organizer to
+          the one form, which is also what the checklist link beside it does, so there is a
+          single answer to "where do I add a venue".
+        */}
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-action-primary">
@@ -175,53 +162,27 @@ export default function OnboardingPage() {
           {hasVenue ? (
             <>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {venuesQ.data?.length} venue(s) ready. You can add more from the event wizard.
+                {venuesQ.data?.length} venue(s) ready. You can add more any time.
               </p>
-              <ButtonLink href="/organizer/events/new" variant="outline" size="sm" className="mt-4">
-                Use in an event
-              </ButtonLink>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ButtonLink href="/organizer/venues" variant="outline" size="sm">
+                  Manage venues
+                </ButtonLink>
+                <ButtonLink href="/organizer/events/new" variant="outline" size="sm">
+                  Use in an event
+                </ButtonLink>
+              </div>
             </>
           ) : (
-            <form
-              className="mt-3 space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                createVenue.mutate();
-              }}
-            >
-              <Input
-                id="v-name"
-                label="Venue name"
-                value={venue.name}
-                onChange={(e) => setVenue({ ...venue, name: e.target.value })}
-                required
-              />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  id="v-city"
-                  label="City"
-                  value={venue.city}
-                  onChange={(e) => setVenue({ ...venue, city: e.target.value })}
-                  required
-                />
-                <Input
-                  id="v-cap"
-                  label="Capacity"
-                  type="number"
-                  min={1}
-                  value={venue.capacity}
-                  onChange={(e) => setVenue({ ...venue, capacity: e.target.value })}
-                />
-              </div>
-              <Button
-                type="submit"
-                size="sm"
-                loading={createVenue.isPending}
-                disabled={!venue.name.trim() || !venue.city.trim()}
-              >
+            <>
+              <p className="mt-1 text-[0.9375rem] text-text-muted">
+                The hall, theatre or ground where your events happen. Its country decides the
+                currency you sell in and the clock every show time is quoted in.
+              </p>
+              <ButtonLink href="/organizer/venues?new=1" size="sm" className="mt-4">
                 Add venue
-              </Button>
-            </form>
+              </ButtonLink>
+            </>
           )}
         </Card>
 

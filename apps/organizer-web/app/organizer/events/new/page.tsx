@@ -17,6 +17,9 @@ import {
   errorMessage,
   money,
   DateTimeField,
+  LocationFields,
+  defaultLocation,
+  type LocationValue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
@@ -106,7 +109,10 @@ function NewEventWizard() {
   const [isFree, setIsFree] = useState(false);
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
   const [venueId, setVenueId] = useState('');
-  const [newVenue, setNewVenue] = useState({ name: '', city: '', country: 'India', capacity: '' });
+  const [newVenue, setNewVenue] = useState({ name: '', city: '', capacity: '' });
+  // Same three interdependent answers as the venues page, from the same component — a venue
+  // created mid-wizard is a venue, and it was previously created without a state or a clock.
+  const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
   const [feeMode, setFeeMode] = useState('CUSTOMER_PAYS');
   const [sessions, setSessions] = useState<SessionDraft[]>([
     { startsAt: '', endsAt: '', screenId: '' },
@@ -203,7 +209,9 @@ function NewEventWizard() {
           organizationId: activeOrg.id,
           name: newVenue.name,
           city: newVenue.city,
-          country: newVenue.country,
+          country: newVenueWhere.country,
+          region: newVenueWhere.region,
+          timezone: newVenueWhere.timezone || undefined,
           capacity: newVenue.capacity ? Number(newVenue.capacity) : undefined,
         });
         finalVenueId = created.id;
@@ -377,33 +385,35 @@ function NewEventWizard() {
                 ))}
               </Select>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  id="vname"
-                  label="Venue name"
-                  value={newVenue.name}
-                  onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
-                  error={fieldErrors.venueName}
-                />
-                <Input
-                  id="vcity"
-                  label="City"
-                  value={newVenue.city}
-                  onChange={(e) => setNewVenue({ ...newVenue, city: e.target.value })}
-                  error={fieldErrors.venueCity}
-                />
-                <Input
-                  id="vcountry"
-                  label="Country"
-                  value={newVenue.country}
-                  onChange={(e) => setNewVenue({ ...newVenue, country: e.target.value })}
-                />
-                <Input
-                  id="vcap"
-                  label="Capacity"
-                  type="number"
-                  value={newVenue.capacity}
-                  onChange={(e) => setNewVenue({ ...newVenue, capacity: e.target.value })}
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    id="vname"
+                    label="Venue name"
+                    value={newVenue.name}
+                    onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
+                    error={fieldErrors.venueName}
+                  />
+                  <Input
+                    id="vcity"
+                    label="City"
+                    value={newVenue.city}
+                    onChange={(e) => setNewVenue({ ...newVenue, city: e.target.value })}
+                    error={fieldErrors.venueCity}
+                  />
+                  <Input
+                    id="vcap"
+                    label="Capacity"
+                    type="number"
+                    value={newVenue.capacity}
+                    onChange={(e) => setNewVenue({ ...newVenue, capacity: e.target.value })}
+                  />
+                </div>
+                <LocationFields
+                  idPrefix="newvenue"
+                  value={newVenueWhere}
+                  onChange={setNewVenueWhere}
+                  countryHint="Sets the currency you sell in and the tax rules that apply."
                 />
               </div>
             )}

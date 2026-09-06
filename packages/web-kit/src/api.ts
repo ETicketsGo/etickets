@@ -623,6 +623,10 @@ export const api = {
       name: string;
       city: string;
       country?: string;
+      /** State / province / emirate. Decides India's place of supply — see the venue schema. */
+      region?: string;
+      /** IANA zone. A start time means the time AT THE VENUE, never the server's. */
+      timezone?: string;
       address?: string;
       capacity?: number;
     }) => request<Venue>('/venues', { method: 'POST', body: JSON.stringify(body) }),
@@ -634,6 +638,8 @@ export const api = {
         name: string;
         city: string;
         country: string;
+        region: string;
+        timezone: string;
         address: string;
         capacity: number;
       }>,
@@ -2187,6 +2193,11 @@ export interface Organization {
   facebookUrl?: string | null;
   verified?: boolean;
   /**
+   * The accent palette this organization's workspace renders in. Null means the platform
+   * default. A brand belongs to the organization, so every member sees the same one.
+   */
+  consoleTheme?: string | null;
+  /**
    * This organizer's events go live without a reviewer. Admin-only to change, and off for
    * every new organization — see the API's Organization.autoApproveEvents.
    */
@@ -2203,6 +2214,8 @@ export interface OrganizationProfileInput {
   twitterUrl?: string;
   instagramUrl?: string;
   facebookUrl?: string;
+  /** One of the palettes the design system ships. '' resets to the platform default. */
+  consoleTheme?: string;
 }
 /** A cash booking as the counter sees it. */
 export interface CashBooking {
@@ -2264,6 +2277,10 @@ export interface Venue {
   name: string;
   city: string;
   country: string;
+  /** State / province / emirate. Null on every venue created before the field was settable. */
+  region: string | null;
+  /** IANA zone the venue keeps time in. Every show here is rendered in THIS. */
+  timezone: string;
   address: string | null;
   capacity: number | null;
   areas?: { id: string; name: string }[];

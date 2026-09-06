@@ -148,8 +148,19 @@ export function instantAtLocalTime(dayOffset: number, hhmm: string, timeZone: st
   return new Date(guess - (seenUtc - guess));
 }
 
-/** Shows for `days` days from today, every listed time, alternating films across screens. */
-export function buildShows(days = 3): ExternalShow[] {
+/**
+ * Shows for `days` days from today, every listed time, alternating films across screens.
+ *
+ * ── SHOWS THAT HAVE ALREADY STARTED ARE NOT LISTED ────────────────────────────────
+ * A catalogue advertises what you can still buy. The first version listed every slot on the
+ * current day regardless of the clock, which is not what an exhibitor publishes — and it also
+ * produced a catalogue the platform correctly refuses to import: a seat layout is created
+ * when the room is imported, and a show cannot be scheduled into a room whose layout did not
+ * exist yet. So the import quietly failed for the morning shows, and only after 10:30 in the
+ * cinema's own timezone, which is the sort of defect that passes all morning and fails all
+ * afternoon.
+ */
+export function buildShows(days = 3, now: Date = new Date()): ExternalShow[] {
   const shows: ExternalShow[] = [];
   const tz = QUBE_MOCK_CINEMA.timezone!;
   for (let day = 0; day < days; day++) {
@@ -157,6 +168,7 @@ export function buildShows(days = 3): ExternalShow[] {
       QUBE_MOCK_SHOW_TIMES.forEach((time, timeIndex) => {
         const movie = QUBE_MOCK_MOVIES[(screenIndex + timeIndex) % QUBE_MOCK_MOVIES.length];
         const startsAt = instantAtLocalTime(day, time, tz);
+        if (startsAt.getTime() <= now.getTime()) return;
         shows.push({
           // Deterministic and stable across restarts: the mapping layer keys on this, and an
           // id that changed on every boot would create a new internal show every sync.

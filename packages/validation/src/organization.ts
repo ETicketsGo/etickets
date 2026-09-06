@@ -29,6 +29,19 @@ export const updateOrganizationProfileSchema = z.object({
   facebookUrl: optionalUrl,
   contactEmail: z.union([emailSchema, z.literal('')]).optional(),
   contactPhone: z.string().trim().max(40).optional(),
+  /**
+   * The accent palette this organization's workspace is rendered in.
+   *
+   * An enum, not free text, and that is the point: a colour nobody checked is an
+   * accessibility regression waiting for one organization to find. Every palette named here
+   * has its contrast pairs verified by the design system's own build, in light and dark, so
+   * the set of things this field can say is exactly the set of things that are legible.
+   *
+   * '' clears it back to the platform default, matching every other field on this form.
+   */
+  consoleTheme: z
+    .union([z.enum(['default', 'violet', 'emerald', 'amber', 'rose', 'slate']), z.literal('')])
+    .optional(),
 });
 export type UpdateOrganizationProfileInput = z.infer<typeof updateOrganizationProfileSchema>;
 

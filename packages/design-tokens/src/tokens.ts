@@ -84,3 +84,32 @@ export const fontFamily = {
     'sans-serif',
   ],
 } as const;
+
+/**
+ * Accent palettes an organizer can choose for their workspace.
+ *
+ * The key is written to `[data-accent]` on the document element and matched by `themes.css`.
+ * `null` is the platform blue defined in `tokens.css` — an organization that has chosen
+ * nothing carries no attribute, so nothing about its rendering changes.
+ *
+ * A theme changes the ACCENT FAMILY only: the primary action colour, its hover, the tint
+ * behind pills, the focus ring and the informational pair. Surfaces, body text and the
+ * success/warning/error semantics are fixed in every theme, which is what keeps the number
+ * of colour pairs to verify finite — and every one of them is verified, per theme, by
+ * `token-contrast.test.ts`.
+ */
+export const ACCENT_THEMES = [
+  { key: 'default', label: 'ETicketsGo blue', swatch: '#1A5CEA' },
+  { key: 'violet', label: 'Violet', swatch: '#7A4EE0' },
+  { key: 'emerald', label: 'Emerald', swatch: '#127A5C' },
+  { key: 'amber', label: 'Amber', swatch: '#A35B0A' },
+  { key: 'rose', label: 'Rose', swatch: '#CF2352' },
+  { key: 'slate', label: 'Slate', swatch: '#5A6B84' },
+] as const;
+
+export type AccentTheme = (typeof ACCENT_THEMES)[number]['key'];
+
+/** Whether a stored value still names a palette this build ships. */
+export function isAccentTheme(value: string | null | undefined): value is AccentTheme {
+  return !!value && ACCENT_THEMES.some((t) => t.key === value);
+}
