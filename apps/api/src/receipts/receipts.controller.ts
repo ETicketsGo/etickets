@@ -46,6 +46,19 @@ export class ReceiptsController {
     return document;
   }
 
+  /*
+    Declared BEFORE `:id`, because Nest matches routes in order and `mine` would otherwise be
+    read as a receipt id — producing a 404 for a route that exists.
+  */
+  @Get('mine')
+  @ApiOperation({ summary: 'Every document issued to the signed-in buyer, newest first.' })
+  async mine(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(paginationSchema)) q: { page: number; pageSize: number },
+  ) {
+    return this.receipts.listForUser(user.id, { page: q.page, pageSize: q.pageSize });
+  }
+
   @Get('booking/:bookingId')
   @ApiOperation({ summary: 'List the documents issued for a booking.' })
   async listForBooking(@CurrentUser() user: RequestUser, @Param('bookingId') bookingId: string) {

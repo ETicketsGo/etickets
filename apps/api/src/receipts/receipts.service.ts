@@ -366,4 +366,54 @@ export class ReceiptsService {
     ]);
     return { items, total, page, pageSize };
   }
+
+  /**
+   * Every document issued to one buyer, across all their bookings.
+   *
+   * ── WHY THIS DID NOT EXIST ─────────────────────────────────────────────────────────
+   * A receipt could be fetched for a BOOKING you already had the id of, or listed for an
+   * ORGANIZATION you were a member of. There was nothing in between — so a customer who
+   * closed the confirmation page without saving their receipt had no route back to it at
+   * all, short of finding the booking again and knowing a receipts tab existed. Every
+   * financial document the platform issues to a person was reachable only by remembering
+   * where it came from.
+   *
+   * Scoped by `booking.userId`, so a guest checkout with no account is deliberately absent:
+   * those documents are reached through the guest booking link, and matching an email
+   * against a session is not an authorization.
+   */
+  async listForUser(userId: string, opts: { page?: number; pageSize?: number } = {}) {
+    const page = Math.max(1, opts.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 25));
+    const where: Prisma.ReceiptWhereInput = { booking: { userId } };
+    const [items, total] = await Promise.all([
+      this.prisma.receipt.findMany({
+        where,
+        orderBy: { issuedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          number: true,
+          kind: true,
+          issuedAt: true,
+          currency: true,
+          totalMinor: true,
+          taxMinor: true,
+          // What it was FOR. A list of numbers and amounts is not something a person can
+          // find their concert in.
+          booking: {
+            select: {
+              id: true,
+              reference: true,
+              event: { select: { title: true } },
+              eventSession: { select: { startsAt: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.receipt.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
+  }
 }

@@ -78,7 +78,10 @@ export const api = {
   // and opened as a blob — a plain link would open a tab carrying no Authorization header,
   // which is exactly the 401 this used to produce.
   bookingReceipts: wk.receipts.forBooking,
+  /** Every document issued to this account, for somebody who did not save theirs. */
+  myReceipts: wk.receipts.mine,
   openReceipt: wk.receipts.openHtml,
+  openReceiptHtml: wk.receipts.openHtml,
   // Alias for the pay call — returns { providerRef, clientActionUrl }. For real
   // Stripe the URL is an external hosted Checkout page; the local mock returns a
   // same-origin path handled by mockPay.
@@ -160,13 +163,16 @@ export const api = {
     userAgent?: string;
   }) => wk.push.subscribe(body),
   pushUnsubscribe: (endpoint: string) => wk.push.unsubscribe(endpoint),
-  // Notification center (v1.2 WS8): in-app inbox + read state.
-  notificationsInbox: (params?: {
-    limit?: number;
-    before?: string;
-    audience?: 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
-  }) => wk.notifications.inbox(params),
-  notificationsUnreadCount: () => wk.notifications.unreadCount(),
+  /*
+    Notification center (v1.2 WS8): in-app inbox + read state.
+
+    CUSTOMER is fixed here rather than passed by each screen. This is the customer site; there
+    is no page in it that should ever show an organizer's payout notices, and the one time
+    that was left to a caller it went wrong.
+  */
+  notificationsInbox: (params?: { limit?: number; before?: string }) =>
+    wk.notifications.inbox({ ...params, audience: 'CUSTOMER' }),
+  notificationsUnreadCount: () => wk.notifications.unreadCount('CUSTOMER'),
   markNotificationRead: (id: string) => wk.notifications.markRead(id),
-  markAllNotificationsRead: () => wk.notifications.markAllRead(),
+  markAllNotificationsRead: () => wk.notifications.markAllRead('CUSTOMER'),
 };

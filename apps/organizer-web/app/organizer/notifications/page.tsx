@@ -35,7 +35,9 @@ export default function NotificationsPage() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
   const markAll = useMutation({
-    mutationFn: () => api.notifications.markAllRead(),
+    // The organizer stream only: an owner clearing this must not silence their own ticket
+    // confirmations on the customer site.
+    mutationFn: () => api.notifications.markAllRead('ORGANIZER'),
     onSuccess: () => {
       toast.push('All caught up.', 'success');
       invalidate();

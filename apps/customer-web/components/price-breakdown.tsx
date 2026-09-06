@@ -71,11 +71,18 @@ function Line({ label, value, muted }: { label: string; value: string; muted?: b
 }
 
 /**
- * The platform fee, and what it is made of when somebody asks.
+ * The platform fee, and what it is made of.
  *
- * Collapsed by default: the answer to "what does this cost me" is one number, and a
- * checkout that itemises everything by default is one a buyer stops reading. Open, it names
- * where each part goes — which is the actual question behind "why is there a fee".
+ * ── OPEN BY DEFAULT ────────────────────────────────────────────────────────────────
+ * It was collapsed, on the theory that "what does this cost me" is one number and a
+ * checkout itemising everything is one a buyer stops reading. That reasoning is sound for a
+ * number a buyer already trusts, and this is not one: a fee appearing between the ticket
+ * price and the total is exactly the number people want explained, and putting the
+ * explanation behind a link asks them to work for it at the moment they are deciding
+ * whether to pay.
+ *
+ * So the parts are shown, and the control now collapses rather than reveals. A buyer who
+ * does not care can fold it away; one who does is not made to hunt.
  */
 function PlatformFeeLine({
   label,
@@ -93,7 +100,7 @@ function PlatformFeeLine({
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const money2 = (m: number) => money(m, currency, undefined, digits);
 
   return (

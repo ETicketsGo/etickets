@@ -174,23 +174,25 @@ export default function BookingsPage() {
               <div className="space-y-1.5 text-[0.9375rem]">
                 <div className="flex justify-between">
                   <span className="text-text-secondary">Subtotal</span>
-                  <span className="text-text-primary">{money(b.subtotalMinor)}</span>
+                  <span className="text-text-primary">{money(b.subtotalMinor, b.currency)}</span>
                 </div>
                 {b.discountMinor > 0 && (
                   <div className="flex justify-between">
                     <span className="text-text-secondary">Discount</span>
-                    <span className="text-text-primary">- {money(b.discountMinor)}</span>
+                    <span className="text-text-primary">
+                      - {money(b.discountMinor, b.currency)}
+                    </span>
                   </div>
                 )}
                 <div className="flex justify-between">
                   <span className="text-text-secondary">Fees</span>
                   <span className="text-text-primary">
-                    {money(b.bookingFeeMinor + b.paymentFeeMinor)}
+                    {money(b.bookingFeeMinor + b.paymentFeeMinor, b.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
                   <span className="text-text-primary">Total paid</span>
-                  <span className="text-text-primary">{money(b.totalMinor)}</span>
+                  <span className="text-text-primary">{money(b.totalMinor, b.currency)}</span>
                 </div>
               </div>
             </Card>
@@ -243,7 +245,7 @@ export default function BookingsPage() {
                       key={r.id}
                       className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-[0.9375rem]"
                     >
-                      <span className="text-text-primary">{money(r.amountMinor)}</span>
+                      <span className="text-text-primary">{money(r.amountMinor, b.currency)}</span>
                       <StatusBadge status={r.status} />
                     </li>
                   ))}
@@ -279,8 +281,8 @@ export default function BookingsPage() {
                   <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
                     <p className="font-medium text-text-primary">Refund requested</p>
                     <p className="mt-1 text-caption text-text-muted">
-                      {money(openRefund.amountMinor)} is with the organizer to review. We will email
-                      you when they decide — there is nothing else to do.
+                      {money(openRefund.amountMinor, b.currency)} is with the organizer to review.
+                      We will email you when they decide — there is nothing else to do.
                     </p>
                   </div>
                 );

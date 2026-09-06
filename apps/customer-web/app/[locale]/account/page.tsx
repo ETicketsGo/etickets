@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from '@/i18n/navigation';
-import { Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
+import { FileText, Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
 
@@ -15,6 +15,19 @@ const LINKS = [
     icon: Receipt,
   },
   { href: '/account/tickets', label: 'My tickets', hint: 'Your QR passes', icon: Ticket },
+  /*
+    Its own entry rather than something inside a booking.
+
+    People come looking for a receipt weeks later, for an expense claim, and they are not
+    thinking about which booking it belonged to — they are thinking "where are my receipts".
+    Filed under the booking it is only findable by somebody who already remembers the trip.
+  */
+  {
+    href: '/account/receipts',
+    label: 'Receipts',
+    hint: 'Invoices for your bookings',
+    icon: FileText,
+  },
   { href: '/account/saved', label: 'Saved events', hint: 'Your wishlist', icon: Heart },
   { href: '/account/following', label: 'Following', hint: 'Organizers you follow', icon: Users },
   { href: '/account/profile', label: 'Profile', hint: 'Name & account details', icon: UserRound },

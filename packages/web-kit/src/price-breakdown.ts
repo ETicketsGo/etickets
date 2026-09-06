@@ -110,6 +110,48 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     quote.bookingFeeMinor + quote.paymentFeeMinor;
 
   /*
+    ── A STORED LINE THAT CANNOT SAY WHAT IT IS ─────────────────────────────────────
+    `basis` and `inclusive` were not persisted on `BookingTaxLine` until recently, so a
+    booking made before then returns tax lines that state neither. Both defaults are wrong:
+    an unknown basis is treated as "not the fee's", and an unknown inclusiveness as "added",
+    which is precisely how "Review & pay" came to list four GST rows — the two on the tickets,
+    already inside the price, and the two on the fee, already inside the fee row — above a
+    total that none of them footed to.
+
+    The answer is not a guess. The total is known, and so is everything else on the booking,
+    so whether tax was ADDED is arithmetic: if the rows without it already reach the total,
+    nothing was added. That is a fact about this booking, not an assumption about the market
+    it was sold in.
+  */
+  const declared = (quote.taxLines ?? []).filter((t) => t.inclusive !== undefined);
+  const undeclared = (quote.taxLines ?? []).filter((t) => t.inclusive === undefined);
+
+  const addedMaintenance =
+    quote.maintenanceTreatment === 'ADDED_TO_TICKET_PRICE' ? (quote.maintenanceMinor ?? 0) : 0;
+  const withoutUndeclared =
+    quote.subtotalMinor -
+    quote.discountMinor +
+    platformFeeMinor +
+    addedMaintenance +
+    declared
+      .filter((t) => !t.inclusive && t.basis !== 'FEES')
+      .reduce((n, t) => n + t.amountMinor, 0);
+  const undeclaredSum = undeclared.reduce((n, t) => n + t.amountMinor, 0);
+  /*
+    Added only when adding them is what reaches the total. Anything else — including a
+    booking whose numbers do not reconcile for some third reason — is disclosed below the
+    total instead, because an inaccurate DESCRIPTION of tax that is already paid is a much
+    smaller wrong than a column of figures that does not sum to what is being charged.
+  */
+  const undeclaredWereAdded =
+    undeclaredSum > 0 && withoutUndeclared + undeclaredSum === quote.totalMinor;
+
+  const resolvedTax: BreakdownTaxLine[] = [
+    ...declared,
+    ...undeclared.map((t) => ({ ...t, inclusive: !undeclaredWereAdded })),
+  ];
+
+  /*
     Tax on the FEE is excluded from both lists: it is already stated inside the fee row, and
     listing it again would show the same money twice.
 
@@ -117,7 +159,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     comparing amounts is a guess, and it is wrong the moment the tax is inclusive — the base
     is then the fee minus its own tax.
   */
-  const ticketTax = (quote.taxLines ?? []).filter((tax) => tax.basis !== 'FEES');
+  const ticketTax = resolvedTax.filter((tax) => tax.basis !== 'FEES');
 
   const rows: BreakdownRow[] = [{ kind: 'tickets', amountMinor: quote.subtotalMinor }];
   if (quote.discountMinor > 0) {
@@ -150,7 +192,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
 
   return {
     rows,
-    includedTax: ticketTax.filter((tax) => tax.inclusive === true),
+    includedTax: mergeByRate(ticketTax.filter((tax) => tax.inclusive === true)),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
     platformFeeRateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
     platformFee: {
@@ -169,4 +211,30 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     },
     totalMinor: quote.totalMinor,
   };
+}
+
+/**
+ * One line per rate, not one per calculation.
+ *
+ * A cart can produce several lines carrying the same label — CGST on the tickets and CGST on
+ * the platform fee, or two ticket bands taxed at the same rate. Listed separately they read
+ * as two different taxes, and the reported screen showed exactly that: "CGST (9%)" twice with
+ * different amounts and nothing to say which was which.
+ *
+ * Merging by label and rate answers the question a buyer is actually asking — how much CGST
+ * is in this — with one number. Amounts are summed, so nothing is lost, and the bases are
+ * added too so the arithmetic on a receipt still reproduces.
+ */
+function mergeByRate(lines: BreakdownTaxLine[]): BreakdownTaxLine[] {
+  const merged = new Map<string, BreakdownTaxLine>();
+  for (const line of lines) {
+    const key = `${line.label}|${line.rateBasisPoints}`;
+    const seen = merged.get(key);
+    if (!seen) {
+      merged.set(key, { ...line });
+      continue;
+    }
+    seen.amountMinor += line.amountMinor;
+  }
+  return [...merged.values()];
 }

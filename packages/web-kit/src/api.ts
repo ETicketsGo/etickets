@@ -602,19 +602,28 @@ export const api = {
     /**
      * `audience` picks the stream: the organizer console asks for ORGANIZER, the customer
      * site for CUSTOMER. One person can hold both roles, and their payout notices and their
-     * own ticket purchases belong on different screens. Omitted returns everything.
+     * own ticket purchases belong on different screens.
+     *
+     * ── REQUIRED, NOT OPTIONAL ────────────────────────────────────────────────────
+     * The HTTP endpoint still treats it as optional, because an unknown client is better
+     * served everything than nothing. A caller in THIS repository is not an unknown client:
+     * it is one of three apps, each of which knows exactly whose stream it is showing, and a
+     * forgotten parameter here is how an organizer's event approvals turned up on the
+     * customer site. Making it required moves that from something to remember to something
+     * that does not compile.
      */
-    inbox: (
-      params: {
-        limit?: number;
-        before?: string;
-        audience?: 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
-      } = {},
-    ) => request<NotificationInbox>(`/notifications${qs(params)}`),
-    unreadCount: () => request<{ unreadCount: number }>('/notifications/unread-count'),
+    inbox: (params: { limit?: number; before?: string; audience: NotificationAudience }) =>
+      request<NotificationInbox>(`/notifications${qs(params)}`),
+    /** Scoped, so the bell on one site cannot count the other site's messages. */
+    unreadCount: (audience: NotificationAudience) =>
+      request<{ unreadCount: number }>(`/notifications/unread-count${qs({ audience })}`),
     markRead: (id: string) =>
       request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
-    markAllRead: () => request<{ updated: number }>('/notifications/read-all', { method: 'POST' }),
+    /** Scoped: clearing the customer inbox must not silence an organizer's payout notices. */
+    markAllRead: (audience: NotificationAudience) =>
+      request<{ updated: number }>(`/notifications/read-all${qs({ audience })}`, {
+        method: 'POST',
+      }),
   },
 
   venues: {
@@ -1140,6 +1149,14 @@ export const api = {
 
   receipts: {
     forBooking: (bookingId: string) => request<ReceiptSummary[]>(`/receipts/booking/${bookingId}`),
+    /**
+     * The buyer's own documents, across every booking.
+     *
+     * Somebody who closed the confirmation page without saving their receipt previously had
+     * no route back to it: documents were reachable by booking id or by organization, and a
+     * customer has neither to hand.
+     */
+    mine: (params: PageParams = {}) => request<Paged<MyReceiptRow>>(`/receipts/mine${qs(params)}`),
     get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
     /**
      * Open the printable document in a new tab.
@@ -2268,6 +2285,9 @@ export interface NotificationItem {
   readAt: string | null;
   createdAt: string;
 }
+/** Whose stream a surface is showing. Stated by every caller — see `notifications.inbox`. */
+export type NotificationAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
+
 export interface NotificationInbox {
   items: NotificationItem[];
   unreadCount: number;
@@ -3215,6 +3235,16 @@ export interface ReceiptListRow extends ReceiptSummary {
   booking: { id: string; reference: string | null; buyerName: string };
 }
 
+/** A buyer's own document, carrying enough of the booking to recognise what it was for. */
+export interface MyReceiptRow extends ReceiptSummary {
+  booking: {
+    id: string;
+    reference: string | null;
+    event: { title: string };
+    eventSession: { startsAt: string };
+  };
+}
+
 export interface ReceiptListPage {
   items: ReceiptListRow[];
   total: number;
@@ -3227,6 +3257,16 @@ export interface ReceiptTaxLine {
   rateBasisPoints: number;
   baseMinor: number;
   amountMinor: number;
+  /**
+   * What the rate was applied to. Absent on a booking made before it was stored.
+   *
+   * Without it a reader cannot tell the GST already inside the platform fee from the GST on
+   * the tickets — and the checkout showed both as extra rows above a total that contained
+   * them, charging the reader for the same money twice on screen.
+   */
+  basis?: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES';
+  /** Whether the tax sat inside the price. Absent on an older booking; see `priceBreakdown`. */
+  inclusive?: boolean;
 }
 
 /** The frozen document snapshot, exactly as it was issued. */

@@ -387,4 +387,51 @@ describe('integration-real-postgres: receipt numbering', () => {
     },
     60_000,
   );
+
+  /*
+    ── A BUYER'S OWN DOCUMENTS, AND ONLY THEIR OWN ─────────────────────────────────
+    `GET /receipts/mine` exists because a customer who closed the confirmation page had no
+    route back to their receipt: documents were reachable by booking id or by organization,
+    and a customer holds neither.
+
+    The scoping is the part worth a real database. These are financial documents naming a
+    person and an amount, and the filter is a join through `booking.userId` — the kind of
+    predicate that behaves differently against Prisma than it reads in the source, and whose
+    failure mode is showing one customer another customer's spending.
+  */
+  it('lists a buyer their own receipts, and nobody else’s', async () => {
+    if (!available) return;
+    const [mine, theirs] = await Promise.all([
+      db!.user.create({
+        data: { email: `mine-${suffix}@e.test`, fullName: 'Mine', passwordHash: 'x' },
+      }),
+      db!.user.create({
+        data: { email: `theirs-${suffix}@e.test`, fullName: 'Theirs', passwordHash: 'x' },
+      }),
+    ]);
+
+    const ownedByMe = await makeBooking();
+    const ownedByThem = await makeBooking();
+    const guest = await makeBooking();
+    await db!.booking.update({ where: { id: ownedByMe }, data: { userId: mine.id } });
+    await db!.booking.update({ where: { id: ownedByThem }, data: { userId: theirs.id } });
+
+    for (const id of [ownedByMe, ownedByThem, guest]) {
+      await db!.$transaction((tx: never) => receipts.issueForBooking(tx, id));
+    }
+
+    const page = await receipts.listForUser(mine.id);
+    expect(page.total).toBe(1);
+    expect(page.items[0].booking.id).toBe(ownedByMe);
+    // Not the other buyer's, and not the guest booking that belongs to no account.
+    const ids = page.items.map((r) => r.booking.id);
+    expect(ids).not.toContain(ownedByThem);
+    expect(ids).not.toContain(guest);
+
+    // And enough of the booking to recognise it: a list of numbers is not something a
+    // person can find their concert in.
+    expect(page.items[0].booking.event.title).toBeTruthy();
+
+    await db!.user.deleteMany({ where: { id: { in: [mine.id, theirs.id] } } });
+  }, 60_000);
 });

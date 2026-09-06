@@ -500,6 +500,123 @@ describe('integration-real-postgres: show pricing', () => {
     expect(view.timezone).toBe('Asia/Kolkata');
   });
 
+  /*
+    ── THE TICKET TYPE IS PRICED IN THE VENUE'S CURRENCY ────────────────────────────
+    Both places that seat a session wrote `currency: 'INR'`, unconditionally. A cinema in
+    Boise therefore had its seats stored in rupees — and the checkout then rendered "$20.00"
+    beside "1 × General ₹20", because one screen read the booking's currency and the other
+    read the ticket type's.
+
+    Nothing converted the number, which is what made it dangerous: every downstream figure was
+    self-consistent and only the symbol was wrong, so an organizer entering 499 for a US show
+    had no way to tell whether they had priced it at $499 or ₹499.
+  */
+  maybe('a seated show is priced in the venue’s currency, not always rupees', async () => {
+    const client = db as Client;
+    const usOrg = await client.organization.create({
+      data: { name: `USD ${suffix}`, slug: `usd-${suffix}` },
+    });
+    const usVenue = await client.venue.create({
+      data: {
+        organizationId: usOrg.id,
+        name: `Boise Hall ${suffix}`,
+        city: 'Boise',
+        country: 'United States',
+        timezone: 'America/Denver',
+      },
+    });
+    const usCinema = await client.cinema.create({
+      data: {
+        organizationId: usOrg.id,
+        venueId: usVenue.id,
+        name: `Boise Cinema ${suffix}`,
+        city: 'Boise',
+        timezone: 'America/Denver',
+      },
+    });
+    const usMovie = await client.movie.create({
+      data: {
+        organizationId: usOrg.id,
+        title: `US Film ${suffix}`,
+        slug: `us-film-${suffix}`,
+        runtimeMinutes: 100,
+        language: 'en',
+        status: 'PUBLISHED',
+      },
+    });
+    const usScreen = await client.screen.create({
+      data: { cinemaId: usCinema.id, name: 'S1', screenType: '2D', capacity: 2 },
+    });
+    const usMap = await client.seatMap.create({ data: { screenId: usScreen.id, name: 'L' } });
+    const usCat = await client.seatCategory.create({
+      data: { seatMapId: usMap.id, name: 'STANDARD', basePriceMinor: 2_000, sortOrder: 0 },
+    });
+    const usSection = await client.seatSection.create({
+      data: { seatMapId: usMap.id, name: 'S', sortOrder: 0 },
+    });
+    const usRow = await client.seatRow.create({
+      data: { sectionId: usSection.id, label: 'A', sortOrder: 0 },
+    });
+    await client.seat.createMany({
+      data: [1, 2].map((n) => ({
+        seatMapId: usMap.id,
+        rowId: usRow.id,
+        seatCategoryId: usCat.id,
+        label: `A${n}`,
+        colIndex: n,
+        kind: 'SEAT',
+      })),
+    });
+
+    const created = await service.scheduleShow(ORGANIZER, usMovie.id, {
+      screenId: usScreen.id,
+      startsAt: new Date('2031-05-01T02:30:00Z'),
+      endsAt: new Date('2031-05-01T04:10:00Z'),
+    } as never);
+
+    const types = await client.ticketType.findMany({
+      where: { eventSessionId: created.sessionId },
+      select: { currency: true },
+    });
+    expect(types.length).toBeGreaterThan(0);
+    expect(types.every((t: { currency: string }) => t.currency === 'USD')).toBe(true);
+
+    // And the Indian room in the same test run is still INR — the rule is "follow the venue",
+    // not "stop defaulting".
+    const inShow = await service.scheduleShow(ORGANIZER, movieId, {
+      screenId,
+      startsAt: new Date('2031-05-02T12:30:00Z'),
+      endsAt: new Date('2031-05-02T14:30:00Z'),
+    } as never);
+    const inTypes = await client.ticketType.findMany({
+      where: { eventSessionId: inShow.sessionId },
+      select: { currency: true },
+    });
+    expect(inTypes.every((t: { currency: string }) => t.currency === 'INR')).toBe(true);
+
+    await client.ticketInventory.deleteMany({
+      where: { ticketType: { eventSession: { event: { organizationId: usOrg.id } } } },
+    });
+    await client.ticketType.deleteMany({
+      where: { eventSession: { event: { organizationId: usOrg.id } } },
+    });
+    await client.showSeat.deleteMany({
+      where: { eventSession: { event: { organizationId: usOrg.id } } },
+    });
+    await client.eventSession.deleteMany({ where: { event: { organizationId: usOrg.id } } });
+    await client.event.deleteMany({ where: { organizationId: usOrg.id } });
+    await client.seat.deleteMany({ where: { seatMapId: usMap.id } });
+    await client.seatRow.deleteMany({ where: { sectionId: usSection.id } });
+    await client.seatSection.deleteMany({ where: { seatMapId: usMap.id } });
+    await client.seatCategory.deleteMany({ where: { seatMapId: usMap.id } });
+    await client.seatMap.deleteMany({ where: { screenId: usScreen.id } });
+    await client.screen.deleteMany({ where: { cinemaId: usCinema.id } });
+    await client.cinema.deleteMany({ where: { id: usCinema.id } });
+    await client.movie.deleteMany({ where: { id: usMovie.id } });
+    await client.venue.deleteMany({ where: { id: usVenue.id } });
+    await client.organization.deleteMany({ where: { id: usOrg.id } });
+  });
+
   maybe('a dry run copies nothing, priced or otherwise', async () => {
     await bulk('2031-08-01', ['14:00'], [{ id: standardId, price: 35000 }]);
     const r = await service.copySchedule(ORGANIZER, movieId, {

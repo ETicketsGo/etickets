@@ -608,6 +608,14 @@ export class BookingsService {
               rateBasisPoints: t.rateBasisPoints,
               baseMinor: t.baseMinor,
               amountMinor: t.amountMinor,
+              /*
+                Stored, at last. The calculator has always stated both; discarding them left
+                every reader of a booking guessing which lines were the fee's and which were
+                already inside the price — and the checkout guessed wrong in both directions
+                at once.
+              */
+              basis: t.basis,
+              inclusive: t.inclusive,
             })),
           },
           totalMinor: fees.totalMinor,
@@ -1495,6 +1503,14 @@ export class BookingsService {
               rateBasisPoints: t.rateBasisPoints,
               baseMinor: t.baseMinor,
               amountMinor: t.amountMinor,
+              /*
+                Stored, at last. The calculator has always stated both; discarding them left
+                every reader of a booking guessing which lines were the fee's and which were
+                already inside the price — and the checkout guessed wrong in both directions
+                at once.
+              */
+              basis: t.basis,
+              inclusive: t.inclusive,
             })),
           },
         },
@@ -1771,7 +1787,14 @@ export class BookingsService {
         // Itemised tax, so the customer's own view of what they paid matches the receipt
         // line for line rather than presenting one opaque total.
         taxLines: {
-          select: { label: true, rateBasisPoints: true, baseMinor: true, amountMinor: true },
+          select: {
+            label: true,
+            rateBasisPoints: true,
+            baseMinor: true,
+            amountMinor: true,
+            basis: true,
+            inclusive: true,
+          },
         },
         event: {
           select: {

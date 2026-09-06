@@ -138,15 +138,82 @@ describe('an older API that does not send the new fields', () => {
     expect(b.platformFeeRateBasisPoints).toBe(0);
   });
 
-  it('treats a tax line with no `inclusive` flag as ADDED, which is what it was', () => {
-    /*
-      Absent must mean "added", because that is how every quote behaved before the flag
-      existed. Guessing "inclusive" would move a real charge below the total and understate
-      what the rows come to.
-    */
-    const b = priceBreakdown(quote({ taxLines: [CGST], totalMinor: 32_288 + 5_522 - 2_288 }));
-    expect(b.includedTax).toHaveLength(0);
+  /*
+    ── A LINE THAT CANNOT SAY WHETHER IT WAS ADDED ────────────────────────────────
+    `basis` and `inclusive` were not stored on `BookingTaxLine` until recently, so a booking
+    made before then comes back with neither.
+
+    This used to assert "absent means added", on the reasoning that it is how quotes behaved
+    before the flag existed. The fixture it asserted it with gave the game away: a total of
+    ₹355.22 for a ₹300 subtotal and a ₹55.22 fee, with ₹22.88 of CGST that was plainly NOT in
+    it. Treating that as added produced rows coming to ₹378.10 above a ₹355.22 total — the
+    exact defect this file exists to catch, written into the file as an expectation.
+
+    The total is known, so this is arithmetic rather than a convention: if the rows without
+    the tax already reach the total, nothing was added.
+  */
+  it('reads an undeclared line as ADDED when the total leaves room for it', () => {
+    const b = priceBreakdown(quote({ taxLines: [CGST], totalMinor: 35_522 + 2_288 }));
     expect(b.rows.some((r) => r.label === 'CGST')).toBe(true);
+    expect(b.includedTax).toHaveLength(0);
+    expect(foots(quote({ taxLines: [CGST], totalMinor: 35_522 + 2_288 }))).toBe(true);
+  });
+
+  it('reads an undeclared line as INCLUSIVE when the total already contains it', () => {
+    const q = quote({ taxLines: [CGST], totalMinor: 35_522 });
+    const b = priceBreakdown(q);
+    expect(b.rows.some((r) => r.label === 'CGST')).toBe(false);
+    expect(b.includedTax.map((t) => t.label)).toEqual(['CGST']);
+    expect(foots(q)).toBe(true);
+  });
+
+  /*
+    The screen this was reported from, reproduced.
+
+    "Review & pay" listed CGST 9%, SGST 9%, CGST 9% and SGST 9% — the first pair inside the
+    ₹799 ticket price, the second pair inside the ₹18.46 platform fee — as four rows above a
+    ₹817.46 total. Adding what was on the screen came to ₹941, and the two pairs carried the
+    same label, so there was no way for the reader to tell which was which.
+
+    The event page for the same cart was correct, because its quote stated `basis` and
+    `inclusive` and the booking's stored lines did not.
+  */
+  it('does not double-count the fee’s own tax on a booking that predates `basis`', () => {
+    const undeclared = (label: string, amountMinor: number) => ({
+      label,
+      rateBasisPoints: 900,
+      amountMinor,
+    });
+    const q: BreakdownQuote = {
+      subtotalMinor: 79_900,
+      discountMinor: 0,
+      bookingFeeMinor: 1_500,
+      paymentFeeMinor: 1_628,
+      customerFeeInclusiveMinor: 1_846,
+      customerFeeMinor: 1_564,
+      feeTaxRateBasisPoints: 1_800,
+      taxLines: [
+        undeclared('CGST', 6_094),
+        undeclared('SGST', 6_094),
+        undeclared('CGST', 141),
+        undeclared('SGST', 141),
+      ],
+      totalMinor: 81_746,
+    };
+    const b = priceBreakdown(q);
+
+    // Two rows: the tickets and one all-in platform fee. Not six.
+    expect(b.rows.map((r) => r.kind)).toEqual(['tickets', 'platformFee']);
+    expect(foots(q)).toBe(true);
+    /*
+      And the tax is still stated — below the total, worded as already included, and merged to
+      ONE line per rate. Four lines carrying two labels is what the reported screen showed:
+      "CGST (9%)" twice with different amounts and nothing to say which was which.
+    */
+    expect(b.includedTax.map((t) => [t.label, t.amountMinor])).toEqual([
+      ['CGST', 6_094 + 141],
+      ['SGST', 6_094 + 141],
+    ]);
   });
 });
 

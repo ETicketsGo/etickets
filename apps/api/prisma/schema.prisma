@@ -2618,6 +2618,26 @@ model BookingTaxLine {
   baseMinor       Int
   amountMinor     Int
 
+  /// What this line was levied on: TICKETS, FEES or TICKETS_AND_FEES.
+  ///
+  /// The tax calculator has always known this and it was deliberately not stored, on the
+  /// reasoning that "a receipt and an auditor need label, rate, base and amount". They do —
+  /// but the CUSTOMER's breakdown needs more than that. Without a basis nothing downstream
+  /// can tell the tax already inside the platform fee from the tax on the tickets, so the
+  /// checkout listed the fee's GST as its own row while the fee row already contained it,
+  /// and charged the reader for the same money twice on screen.
+  basis           String?
+  /// Whether the tax sat INSIDE the price rather than being added to it.
+  ///
+  /// Indian GST on admission is inclusive: the ₹799 already contains it. Rendered as an
+  /// additive row it invites the reader to add it and reach a number nobody is charging —
+  /// which is exactly what "Review & pay" did, listing four GST rows above a total none of
+  /// them footed to.
+  ///
+  /// Both are nullable because thousands of rows predate them. See `priceBreakdown`, which
+  /// derives the answer arithmetically for a row that cannot state it.
+  inclusive       Boolean?
+
   createdAt DateTime @default(now())
 
   @@index([bookingId])

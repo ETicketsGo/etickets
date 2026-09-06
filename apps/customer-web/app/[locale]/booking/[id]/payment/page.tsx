@@ -337,7 +337,7 @@ export default function PaymentPage() {
             <Row
               key={idx}
               label={`${i.quantity} × ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
-              value={money(i.unitPriceMinor * i.quantity)}
+              value={money(i.unitPriceMinor * i.quantity, booking.currency)}
             />
           ))}
         </div>
@@ -465,7 +465,7 @@ export default function PaymentPage() {
       ) : (
         <>
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending ? k('processing') : `Pay ${money(booking.totalMinor)}`}
+            {pay.isPending ? k('processing') : `Pay ${money(booking.totalMinor, booking.currency)}`}
           </Button>
 
           {/* Booking confidence */}

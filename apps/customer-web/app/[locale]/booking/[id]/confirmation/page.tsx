@@ -168,7 +168,7 @@ export default function ConfirmationPage() {
               {t.label} ({(t.rateBasisPoints / 100).toFixed(t.rateBasisPoints % 100 === 0 ? 0 : 2)}
               %)
             </span>
-            <span className="text-text-primary">{money(t.amountMinor)}</span>
+            <span className="text-text-primary">{money(t.amountMinor, booking.currency)}</span>
           </div>
         ))}
         <div className="flex justify-between border-t border-border pt-3 text-[0.9375rem]">
@@ -178,7 +178,7 @@ export default function ConfirmationPage() {
           */}
           <span className="text-text-secondary">{free ? c('cost') : c('totalPaid')}</span>
           <span className="font-semibold text-text-primary">
-            {free ? tx('state.free') : money(booking.totalMinor)}
+            {free ? tx('state.free') : money(booking.totalMinor, booking.currency)}
           </span>
         </div>
         {receipt && (

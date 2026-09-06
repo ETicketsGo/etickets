@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
+import { currencyForCountry } from '../common/country';
 import type { RequestUser } from '../common/decorators';
 import {
   DEFAULT_TURNAROUND_MINUTES,
@@ -615,6 +616,33 @@ export class ShowsService {
    * capacity: a room described as holding fifty seats but drawn with five aisle gaps sells
    * forty-five, and the drawing is the one that admits people.
    */
+  /**
+   * The currency a session sells in: the one its VENUE is in.
+   *
+   * ── WHY THIS IS RESOLVED HERE AND NOT PASSED IN ───────────────────────────────
+   * Both places that create a ticket type for a seated session wrote `currency: 'INR'`,
+   * unconditionally. A cinema in Boise therefore had its seats priced in rupees, in the
+   * database — and the checkout then dutifully rendered "$20.00" beside "1 × General ₹20",
+   * because one screen read the booking's currency and another read the ticket type's.
+   *
+   * Threading a parameter through the three callers would fix today's bug and leave the next
+   * caller free to pass the wrong thing. Resolved at the point the row is written, "currency
+   * follows the venue" is a property of the write rather than a convention callers observe.
+   *
+   * INR remains the answer for a market with no mapping — the same fallback the booking and
+   * event paths already use, so all three agree rather than disagreeing in a new way.
+   */
+  private async currencyForSession(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+  ): Promise<string> {
+    const session = await tx.eventSession.findUnique({
+      where: { id: sessionId },
+      select: { event: { select: { venue: { select: { country: true } } } } },
+    });
+    return currencyForCountry(session?.event?.venue?.country) ?? 'INR';
+  }
+
   async seatSession(
     tx: Prisma.TransactionClient,
     sessionId: string,
@@ -626,6 +654,7 @@ export class ShowsService {
     for (const seat of sellableSeats(seatMap.seats)) {
       countByCategory.set(seat.seatCategoryId, (countByCategory.get(seat.seatCategoryId) ?? 0) + 1);
     }
+    const currency = await this.currencyForSession(tx, sessionId);
 
     for (const category of seatMap.categories) {
       const quantityTotal = countByCategory.get(category.id) ?? 0;
@@ -635,7 +664,7 @@ export class ShowsService {
           seatCategoryId: category.id,
           name: category.name,
           priceMinor: priceByCategory.get(category.id) ?? category.basePriceMinor,
-          currency: 'INR',
+          currency,
           quantityTotal,
           maxPerOrder: 10,
           status: 'ACTIVE',
@@ -959,6 +988,7 @@ export class ShowsService {
           },
         });
         const slot = instantToZonedWallClock(show.startsAt, timezone);
+        const currency = await this.currencyForSession(tx, session.id);
         for (const category of seatMap.categories) {
           const quantityTotal = countByCategory.get(category.id) ?? 0;
           await tx.ticketType.create({
@@ -970,7 +1000,7 @@ export class ShowsService {
                 priceByCategory.get(category.id) ??
                 priceForSlot?.(slot, category) ??
                 category.basePriceMinor,
-              currency: 'INR',
+              currency,
               quantityTotal,
               maxPerOrder: 10,
               status: 'ACTIVE',

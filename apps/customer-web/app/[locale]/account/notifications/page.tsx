@@ -15,7 +15,7 @@ export default function NotificationsPage() {
     queryKey: ['notifications', 'inbox', 'customer'],
     // CUSTOMER only — the mirror of the organizer console's filter, so a person with both
     // roles sees their tickets here and their payouts there.
-    queryFn: () => api.notificationsInbox({ limit: 50, audience: 'CUSTOMER' }),
+    queryFn: () => api.notificationsInbox({ limit: 50 }),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['notifications'] });

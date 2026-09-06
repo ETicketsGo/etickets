@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { MonitorPlay, Armchair, X, Clock, ChevronLeft, Accessibility } from 'lucide-react';
-import { useToast, VenueMap } from '@eticketsgo/web-kit';
+import { currencyForCountry, useToast, VenueMap } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
@@ -211,6 +211,16 @@ export default function SeatSelectionPage() {
     staleTime: 0,
   });
   const quote = quoteQ.data?.fees;
+  /*
+    What every price on this screen is in.
+
+    The quote is authoritative once there is something to price; before a seat is chosen
+    there is no quote, and the seat map still shows prices — so the venue's country answers,
+    which is the same rule the server uses. Without this, `money()` fell back to INR and a
+    seat map for a cinema in Boise priced every seat in rupees while the checkout that
+    followed priced it in dollars.
+  */
+  const currency = quote?.currency ?? currencyForCountry(layout?.country) ?? 'INR';
   const codeRejected = Boolean(appliedCode) && quoteQ.data?.coupon.applied === false;
 
   /** Offers the organizer chose to advertise. Private codes are typed, never listed. */
@@ -311,7 +321,7 @@ export default function SeatSelectionPage() {
                 focal={layout.focal}
                 sections={layout.sections}
                 onSelect={(id) => setSectionId(id)}
-                formatPrice={(minor) => money(minor)}
+                formatPrice={(minor) => money(minor, currency)}
                 pendingSectionId={isFetching ? sectionId : null}
               />
             </Card>
@@ -431,7 +441,7 @@ export default function SeatSelectionPage() {
                                     const color = cat?.colorHex ?? undefined;
                                     const isSelected = selected.includes(seat.id);
                                     const available = seat.status === 'AVAILABLE';
-                                    const priceLabel = cat ? money(cat.priceMinor) : '';
+                                    const priceLabel = cat ? money(cat.priceMinor, currency) : '';
                                     return (
                                       <span key={seat.id} className="flex">
                                         {gap > 0 && (
@@ -530,7 +540,7 @@ export default function SeatSelectionPage() {
                             backgroundColor: c.colorHex ? `${c.colorHex}22` : undefined,
                           }}
                         />
-                        {c.name} · {money(c.priceMinor)}
+                        {c.name} · {money(c.priceMinor, currency)}
                       </span>
                     ))}
                   </div>
@@ -603,7 +613,7 @@ export default function SeatSelectionPage() {
                         </p>
                       </div>
                       <span className="whitespace-nowrap text-[0.9375rem] text-text-secondary">
-                        {money((cat?.priceMinor ?? 0) * entry.seatIds.length)}
+                        {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
                       </span>
                     </div>
                   );

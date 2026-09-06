@@ -16,6 +16,7 @@ import {
   useToast,
   errorMessage,
   money,
+  currencyForCountry,
   DateTimeField,
   LocationFields,
   defaultLocation,
@@ -46,7 +47,8 @@ interface SessionDraft {
 interface TicketDraft {
   sessionIndex: number;
   name: string;
-  priceRupees: string;
+  /** Entered in MAJOR units of the venue's currency — rupees in India, dollars in the US. */
+  priceMajor: string;
   quantityTotal: string;
   maxPerOrder: string;
 }
@@ -114,6 +116,25 @@ function NewEventWizard() {
   // created mid-wizard is a venue, and it was previously created without a state or a clock.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
   const [feeMode, setFeeMode] = useState('CUSTOMER_PAYS');
+
+  /*
+    The currency this event will sell in, and the symbol on the price field.
+
+    Currency follows the VENUE on this platform — where the event is held decides what the
+    buyer is charged and which tax rules apply. The price box said "Price (₹)" whatever the
+    venue, so an organizer entering 499 for a show in Boise was told they were typing rupees
+    while the platform priced it in dollars. The number was never converted; only the label
+    lied, which is the worst version of that bug because everything downstream is consistent
+    and the organizer has no way to notice.
+  */
+  const chosenVenue = venuesQ.data?.find((v) => v.id === venueId);
+  const eventCountry = venueMode === 'new' ? newVenueWhere.country : chosenVenue?.country;
+  const eventCurrency = currencyForCountry(eventCountry) ?? 'INR';
+  /* Symbol only — the field holds a plain number, so a formatted amount would be misleading. */
+  const currencySymbol =
+    new Intl.NumberFormat(undefined, { style: 'currency', currency: eventCurrency })
+      .formatToParts(0)
+      .find((p) => p.type === 'currency')?.value ?? eventCurrency;
   const [sessions, setSessions] = useState<SessionDraft[]>([
     { startsAt: '', endsAt: '', screenId: '' },
   ]);
@@ -121,7 +142,7 @@ function NewEventWizard() {
     {
       sessionIndex: 0,
       name: 'General',
-      priceRupees: '499',
+      priceMajor: '499',
       quantityTotal: '100',
       maxPerOrder: '6',
     },
@@ -172,9 +193,9 @@ function NewEventWizard() {
         if (!t.name.trim()) e[`t${i}Name`] = 'Name is required.';
         if (
           !isFree &&
-          (t.priceRupees === '' ||
-            !Number.isFinite(Number(t.priceRupees)) ||
-            Number(t.priceRupees) < 0)
+          (t.priceMajor === '' ||
+            !Number.isFinite(Number(t.priceMajor)) ||
+            Number(t.priceMajor) < 0)
         )
           e[`t${i}Price`] = 'Enter a valid price (0 or more).';
         if (Number(t.quantityTotal) < 1) e[`t${i}Qty`] = 'Quantity must be at least 1.';
@@ -249,7 +270,7 @@ function NewEventWizard() {
           // Zero regardless of what the price box happens to hold: a free event's ticket
           // types must all be zero and the API refuses anything else, so sending the stale
           // contents of a disabled field would fail the whole creation with a confusing error.
-          priceMinor: isFree ? 0 : Math.round(Number(t.priceRupees) * 100),
+          priceMinor: isFree ? 0 : Math.round(Number(t.priceMajor) * 100),
           quantityTotal: Number(t.quantityTotal),
           maxPerOrder: Number(t.maxPerOrder) || 10,
         });
@@ -603,15 +624,15 @@ function NewEventWizard() {
                 */}
                 <Input
                   id={`tp${i}`}
-                  label="Price (₹)"
+                  label={`Price (${currencySymbol})`}
                   type="number"
-                  value={isFree ? '0' : t.priceRupees}
+                  value={isFree ? '0' : t.priceMajor}
                   disabled={isFree}
                   hint={isFree ? 'Free event — attendees pay nothing.' : undefined}
                   error={fieldErrors[`t${i}Price`]}
                   onChange={(e) =>
                     setTickets(
-                      tickets.map((x, j) => (j === i ? { ...x, priceRupees: e.target.value } : x)),
+                      tickets.map((x, j) => (j === i ? { ...x, priceMajor: e.target.value } : x)),
                     )
                   }
                 />
@@ -661,7 +682,7 @@ function NewEventWizard() {
                     // Not 0: session 0 may be seated, and a row bound to it is discarded.
                     sessionIndex: gaSessions[0]?.i ?? 0,
                     name: '',
-                    priceRupees: '',
+                    priceMajor: '',
                     quantityTotal: '',
                     maxPerOrder: '6',
                   },
@@ -752,7 +773,7 @@ function NewEventWizard() {
                       .filter((t) => !sessions[t.sessionIndex]?.screenId)
                       .map(
                         (t) =>
-                          `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceRupees) * 100))} × ${t.quantityTotal})`,
+                          `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceMajor) * 100), eventCurrency)} × ${t.quantityTotal})`,
                       )
                       .join(', ')
               }

@@ -267,9 +267,23 @@ export class NotificationService {
   }
 
   /** Count of unread in-app notifications for a user. */
-  async unreadCount(userId: string): Promise<number> {
+  /**
+   * Unread count, for ONE audience.
+   *
+   * The inbox learned to filter and this did not, so the customer site's bell counted an
+   * organizer's payout notices and event approvals — a badge promising unread messages that
+   * the list beneath it correctly refused to show. Two surfaces disagreeing about what the
+   * same person has waiting is worse than either being wrong alone.
+   */
+  async unreadCount(userId: string, audience?: MessageAudience): Promise<number> {
     return this.prisma.notification.count({
-      where: { userId, channel: 'in_app', status: 'SENT', readAt: null },
+      where: {
+        userId,
+        channel: 'in_app',
+        status: 'SENT',
+        readAt: null,
+        ...(audience ? { type: { in: typesForAudience(audience) } } : {}),
+      },
     });
   }
 
@@ -283,9 +297,21 @@ export class NotificationService {
   }
 
   /** Mark all of a user's unread in-app notifications read. Returns the count updated. */
-  async markAllRead(userId: string): Promise<number> {
+  async markAllRead(userId: string, audience?: MessageAudience): Promise<number> {
+    /*
+      Scoped to the audience the person is looking at. "Mark all read" on the customer site
+      used to clear an organizer's payout notices too — the one action where a merged stream
+      does not merely show the wrong thing, it destroys the signal that something needed
+      attention on a screen the person was not even on.
+    */
     const res = await this.prisma.notification.updateMany({
-      where: { userId, channel: 'in_app', status: 'SENT', readAt: null },
+      where: {
+        userId,
+        channel: 'in_app',
+        status: 'SENT',
+        readAt: null,
+        ...(audience ? { type: { in: typesForAudience(audience) } } : {}),
+      },
       data: { readAt: new Date() },
     });
     return res.count;
