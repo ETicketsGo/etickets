@@ -17,7 +17,7 @@ import {
   type OrganizationLegalIdentityInput,
   type OrganizationProfileInput,
 } from '@eticketsgo/web-kit';
-import { ACCENT_THEMES } from '@eticketsgo/web-kit';
+import { ACCENT_THEMES, MARKETS, marketFor, Select } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { ColorSchemeSwitch } from '@/components/workspace-chrome';
 
@@ -413,18 +413,78 @@ export default function SettingsPage() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {LEGAL_FIELDS.map((f) => (
-            <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
-              <Input
-                id={`legal-${f.key}`}
-                label={f.label}
-                placeholder={f.placeholder}
-                value={(legal[f.key] as string) ?? ''}
-                onChange={(e) => setLegalField(f.key, e.target.value)}
-              />
-              {f.hint ? <p className="mt-1 text-caption text-text-muted">{f.hint}</p> : null}
-            </div>
-          ))}
+          {LEGAL_FIELDS.map((f) => {
+            /*
+              ── THE TWO THAT DECIDE SOMETHING ARE PICKED, NOT TYPED ──────────────────
+              `registeredCountry` and `registeredRegion` are not description: the country
+              decides which tax rules can apply to this seller at all, and the region is what
+              a regional rule MATCHES ON. Typed, they have to equal a value the rules use,
+              exactly — and a mismatch does not fail, it silently matches nothing and the
+              seller is taxed under a rule nobody chose.
+
+              The rest stay free text on purpose. A registration number's format is its
+              authority's business, and an address is an address.
+            */
+            if (f.key === 'registeredCountry') {
+              return (
+                <div key={f.key}>
+                  <Select
+                    id={`legal-${f.key}`}
+                    label={f.label}
+                    hint="Decides which tax rules can apply to your sales."
+                    value={(legal[f.key] as string) ?? ''}
+                    onChange={(e) => {
+                      setLegalField(f.key, e.target.value);
+                      // A region belongs to a country; keeping the old one would leave a
+                      // Telangana registration on a Canadian entity.
+                      setLegalField('registeredRegion', '');
+                    }}
+                  >
+                    <option value="">Select a country…</option>
+                    {MARKETS.map((m) => (
+                      <option key={m.code} value={m.name}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            }
+            if (f.key === 'registeredRegion') {
+              const market = marketFor((legal.registeredCountry as string) ?? '');
+              return (
+                <div key={f.key}>
+                  <Select
+                    id={`legal-${f.key}`}
+                    label={market?.regionLabel ?? f.label}
+                    disabled={!market || market.regions.length === 0}
+                    hint={f.hint}
+                    value={(legal[f.key] as string) ?? ''}
+                    onChange={(e) => setLegalField(f.key, e.target.value)}
+                  >
+                    <option value="">{market ? 'Select…' : 'Pick a country first'}</option>
+                    {(market?.regions ?? []).map((r) => (
+                      <option key={r.name} value={r.name}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            }
+            return (
+              <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
+                <Input
+                  id={`legal-${f.key}`}
+                  label={f.label}
+                  placeholder={f.placeholder}
+                  value={(legal[f.key] as string) ?? ''}
+                  onChange={(e) => setLegalField(f.key, e.target.value)}
+                />
+                {f.hint ? <p className="mt-1 text-caption text-text-muted">{f.hint}</p> : null}
+              </div>
+            );
+          })}
         </div>
         <p className="mt-4 text-caption text-text-muted">
           We record your registration number exactly as you enter it and print it unchanged. We do

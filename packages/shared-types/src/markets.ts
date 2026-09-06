@@ -70,11 +70,18 @@ export interface Market {
   timezones: readonly string[];
 }
 
-/** India's states and union territories, from the GST reference list. */
-const IN_REGIONS: readonly MarketRegion[] = INDIA_STATES.map((s) => ({
-  name: s.name,
-  abbr: s.abbr,
-}));
+/**
+ * India's states and union territories, from the GST reference list, sorted by NAME.
+ *
+ * `INDIA_STATES` is ordered by GST state code, which is how the official list is published
+ * and is the right order for that file. It is the wrong order for a dropdown: it opens on
+ * Jammu and Kashmir, puts Assam above West Bengal, and leaves somebody scrolling a list of
+ * thirty-odd entries with no order they can predict. Sorted here rather than there, so the
+ * reference data keeps its meaning and the form gets an order a person can scan.
+ */
+const IN_REGIONS: readonly MarketRegion[] = [...INDIA_STATES]
+  .map((s) => ({ name: s.name, abbr: s.abbr }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 const US_REGIONS: readonly MarketRegion[] = [
   { name: 'Alabama', abbr: 'AL' },
@@ -188,9 +195,9 @@ const AE_REGIONS: readonly MarketRegion[] = [
 
 const GB_REGIONS: readonly MarketRegion[] = [
   { name: 'England' },
+  { name: 'Northern Ireland' },
   { name: 'Scotland' },
   { name: 'Wales' },
-  { name: 'Northern Ireland' },
 ];
 
 /**
@@ -200,6 +207,11 @@ const GB_REGIONS: readonly MarketRegion[] = [
  * be there — a form that opens on the answer most people need is a form most people do not
  * have to touch.
  */
+/*
+  Every region list is presented alphabetically. Asserted in `markets.spec.ts` rather than
+  left to whoever adds the next market: a list that is sorted by accident stops being sorted
+  the first time somebody appends to it.
+*/
 export const MARKETS: readonly Market[] = [
   {
     code: 'IN',

@@ -13,6 +13,8 @@ import {
   DataTable,
   money,
   useToast,
+  MARKETS,
+  marketFor,
   type Column,
   type FeeRule,
 } from '@eticketsgo/web-kit';
@@ -34,6 +36,8 @@ interface Draft {
   country: string;
   region: string;
   active: boolean;
+  /** True once an admin types their own label, so the derived one stops overwriting it. */
+  labelEdited?: boolean;
 }
 
 const toDraft = (r: FeeRule): Draft => ({
@@ -41,10 +45,51 @@ const toDraft = (r: FeeRule): Draft => ({
   minMinor: String(r.minMinor),
   maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
   feeMinor: String(r.feeMinor),
+  /*
+    An existing rule keeps whatever scope it has. A NEW one defaults to the country whose
+    currency it is in — see `defaultCountryFor`. Editing a USD band and being shown an empty
+    country box is an invitation to type "USA", which is not the spelling venues store.
+  */
   country: r.country ?? '*',
   region: r.region ?? '*',
   active: r.active,
+  // An existing label is the admin's, whatever produced it.
+  labelEdited: true,
 });
+
+/** The country whose currency this is — unambiguous across the platform's eight markets. */
+const defaultCountryFor = (currency: string): string =>
+  MARKETS.find((m) => m.currency === currency)?.name ?? '*';
+
+/** What a country calls its subdivisions, for the label on the second dropdown. */
+const regionLabelFor = (country: string): string =>
+  country === '*' ? 'State / province' : (marketFor(country)?.regionLabel ?? 'State / province');
+
+/**
+ * The label a band would be given, from the band itself.
+ *
+ * Ranges are written the way a person reads money, not in minor units: an admin typing 5000
+ * and 9999 into a USD band means "$50 – $99.99", and writing that out by hand is how a label
+ * comes to describe a range the rule no longer has.
+ */
+const bandLabel = (
+  draft: Pick<Draft, 'minMinor' | 'maxMinor'>,
+  currency: string | null,
+): string => {
+  if (!currency) return '';
+  const min = Number(draft.minMinor);
+  if (!Number.isFinite(min)) return '';
+  const from = money(min || 0, currency);
+  const rawMax = draft.maxMinor.trim();
+  if (rawMax === '') return `${from} and above`;
+  const max = Number(rawMax);
+  if (!Number.isFinite(max)) return '';
+  return `${from} – ${money(max, currency)}`;
+};
+
+/** Keeps the label in step with the bounds, unless the admin has taken it over. */
+const withDerivedLabel = (draft: Draft, currency: string | null): Draft =>
+  draft.labelEdited ? draft : { ...draft, label: bandLabel(draft, currency) };
 
 /** Where a band applies, for the list. */
 const scopeOf = (r: FeeRule): string =>
@@ -108,8 +153,12 @@ export default function AdminSettings() {
       minMinor: '',
       maxMinor: '',
       feeMinor: '',
-      // Anywhere by default: a new band is a national one unless somebody narrows it.
-      country: '*',
+      /*
+        Opens on the country this currency belongs to rather than "Anywhere". A USD band that
+        applies everywhere is not what anybody means — it would match an Indian venue selling
+        in rupees only if the fee resolver ignored currency, which it does not.
+      */
+      country: defaultCountryFor(currency),
       region: '*',
       active: true,
     });
@@ -271,22 +320,39 @@ export default function AdminSettings() {
       >
         {draft && dialogCurrency && (
           <div className="space-y-3">
+            {/*
+              The label writes itself from the band it describes.
+
+              It is what an admin reads in the table, and it was typed by hand next to the two
+              numbers it is meant to describe — so "$0–$9.99" outlived an edit to the bounds and
+              went on describing a band that no longer existed. Derived, it cannot disagree;
+              still editable, because a band sometimes deserves a name rather than a range.
+            */}
             <Input
               label="Label"
               value={draft.label}
-              onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+              hint={
+                draft.label === bandLabel(draft, dialogCurrency)
+                  ? 'Written from the amounts below. Type here to name it yourself.'
+                  : 'Custom. Clear it to go back to the amounts below.'
+              }
+              onChange={(e) => setDraft({ ...draft, label: e.target.value, labelEdited: true })}
             />
             <Input
               label={`From (minor units, ${dialogCurrency})`}
               inputMode="numeric"
               value={draft.minMinor}
-              onChange={(e) => setDraft({ ...draft, minMinor: e.target.value })}
+              onChange={(e) =>
+                setDraft(withDerivedLabel({ ...draft, minMinor: e.target.value }, dialogCurrency))
+              }
             />
             <Input
               label={`To (minor units — leave empty for "and above")`}
               inputMode="numeric"
               value={draft.maxMinor}
-              onChange={(e) => setDraft({ ...draft, maxMinor: e.target.value })}
+              onChange={(e) =>
+                setDraft(withDerivedLabel({ ...draft, maxMinor: e.target.value }, dialogCurrency))
+              }
             />
             <Input
               label={`Booking fee (minor units, ${dialogCurrency})`}
@@ -302,17 +368,52 @@ export default function AdminSettings() {
               online. A rule naming a state replaces the national schedule where it applies,
               so a national default can stay exactly as it is.
             */}
+            {/*
+              ── PICKED, NOT TYPED ─────────────────────────────────────────────────────
+              These were free-text boxes holding a country name and a region name that have to
+              match what a VENUE stores, exactly, for the rule to ever apply. A typo does not
+              fail here — it saves a rule that silently matches nothing, and the fee quietly
+              falls back to a broader band. That is the worst kind of configuration bug: it
+              looks like it worked.
+
+              The country also defaults to the market whose currency this band is in. Editing
+              a USD rule and being shown a blank country box invites somebody to type
+              "USA" — which is not what venues store.
+            */}
             <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Country (* for anywhere)"
+              <Select
+                label="Country"
                 value={draft.country}
-                onChange={(e) => setDraft({ ...draft, country: e.target.value })}
-              />
-              <Input
-                label="State / province (* for all)"
+                hint="Where the band applies. Anywhere is the national/global default."
+                onChange={(e) => setDraft({ ...draft, country: e.target.value, region: '*' })}
+              >
+                <option value="*">Anywhere</option>
+                {MARKETS.map((m) => (
+                  <option key={m.code} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label={regionLabelFor(draft.country)}
                 value={draft.region}
+                disabled={draft.country === '*'}
+                hint={
+                  draft.country === '*'
+                    ? 'Pick a country first — a state has to belong to one.'
+                    : 'A band naming a state replaces the national schedule where it applies.'
+                }
                 onChange={(e) => setDraft({ ...draft, region: e.target.value })}
-              />
+              >
+                <option value="*">
+                  All of {draft.country === '*' ? 'the country' : draft.country}
+                </option>
+                {(marketFor(draft.country)?.regions ?? []).map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
             </div>
             <Select
               label="Active"

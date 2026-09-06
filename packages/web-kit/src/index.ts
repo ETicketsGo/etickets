@@ -35,6 +35,7 @@ export * from './venue-map';
 export * from './price-breakdown';
 export * from './buyer-region';
 export * from './location-fields';
+export * from './coordinates';
 export * from './workspace-theme';
 export * from './logo';
 export * from './printable-tickets';

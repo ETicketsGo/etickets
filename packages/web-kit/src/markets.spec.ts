@@ -131,3 +131,28 @@ describe('loading an existing venue into the form', () => {
     expect(locationFrom({ country: 'India', region: null }).region).toBe('');
   });
 });
+
+/**
+ * A dropdown nobody can scan is a dropdown people get wrong.
+ *
+ * `INDIA_STATES` is ordered by GST state code — correct for the reference file, and the
+ * reason the venue form opened on Jammu and Kashmir with Assam above West Bengal. The order
+ * a form shows is a presentation decision, and this is where it is made.
+ */
+describe('every market lists its regions alphabetically', () => {
+  it.each(MARKETS.filter((m) => m.regions.length > 0).map((m) => [m.name, m] as const))(
+    '%s',
+    (_name, market) => {
+      const shown = market.regions.map((r) => r.name);
+      expect(shown).toEqual([...shown].sort((a, b) => a.localeCompare(b)));
+    },
+  );
+
+  it('keeps the GST reference file in its own order', () => {
+    // Sorting there would change what the file is: an official list, published in code order.
+    expect(INDIA_STATES[0].code).toBe('01');
+    expect(INDIA_STATES.map((s) => s.code)).toEqual(
+      [...INDIA_STATES].sort((a, b) => a.code.localeCompare(b.code)).map((s) => s.code),
+    );
+  });
+});

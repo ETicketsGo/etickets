@@ -1,6 +1,6 @@
 'use client';
 
-import { INDIA_STATES } from '@eticketsgo/shared-types';
+import { marketFor } from '@eticketsgo/shared-types';
 
 /**
  * "Which state are you in?", asked only where the answer changes anything.
@@ -59,8 +59,13 @@ export function BuyerRegionField({
         className="rounded-md border border-border bg-background px-3 py-2 text-[0.9375rem] text-text-primary"
       >
         <option value="">Prefer not to say</option>
-        {INDIA_STATES.map((s) => (
-          <option key={s.code} value={s.name}>
+        {/*
+          Alphabetical, from the shared market list. `INDIA_STATES` is ordered by GST code —
+          right for the reference file, wrong for a buyer scanning a dropdown at checkout, who
+          opens it on Jammu and Kashmir and finds Assam above West Bengal.
+        */}
+        {(marketFor('India')?.regions ?? []).map((s) => (
+          <option key={s.name} value={s.name}>
             {s.name}
           </option>
         ))}

@@ -2408,6 +2408,8 @@ export interface Cinema extends CinemaBody {
   id: string;
   status: string;
   screens?: Screen[];
+  /** The venue this room belongs to. Its country decides the currency the room prices in. */
+  venue?: { country: string; region: string | null } | null;
   /**
    * AUTHORITATIVE for every local date and time this client renders for the venue.
    *
@@ -2833,7 +2835,12 @@ export interface CreateEventBody {
   title: string;
   category: string;
   description?: string;
+  /** Prose shown to buyers. Describes the terms; the two below enforce them. */
   refundPolicy?: string;
+  /** Whether a refund can be requested at all. Omitted keeps the platform default (true). */
+  refundsEnabled?: boolean;
+  /** Hours before the session start after which refunds close. 0 = up to start time. */
+  refundCutoffHours?: number;
   feeMode: string;
   /** Declared, never inferred from the ticket prices — see the API's Event.isFree. */
   isFree?: boolean;

@@ -7,7 +7,10 @@ import {
   Button,
   Card,
   Input,
+  Select,
   Skeleton,
+  MARKETS,
+  marketFor,
   useToast,
   errorMessage,
   type OrganizationLegalIdentityFields,
@@ -124,17 +127,84 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
             : 'No tax registration on file, so documents are issued as plain receipts.'}
       </p>
 
+      {/*
+        ── WHERE THESE COME FROM ─────────────────────────────────────────────────────
+        Asked, reasonably: "how are we getting this information, I do not see anything on the
+        organizer side filling it". The organizer does fill it — Settings, "Legal and tax
+        details" — and this screen never said so, which makes it look like a back-office form
+        with no source and leaves an admin unsure whether typing here is normal or a
+        workaround.
+
+        It is the same record, and an admin editing it is acting on the organizer's behalf.
+        That is legitimate — support does it while somebody is on the phone — and it is
+        audited, so saying whose data it is matters more than hiding the fact.
+      */}
+      <p className="mb-4 text-caption text-text-muted">
+        The organizer maintains these themselves under{' '}
+        <strong>Settings → Legal and tax details</strong>. Editing here saves to the same record on
+        their behalf, and is recorded in the audit log.
+      </p>
+
       <div className="grid gap-3 sm:grid-cols-2">
-        {FIELDS.map((f) => (
-          <div key={f.key} className={f.key === 'legalName' ? 'sm:col-span-2' : undefined}>
-            <Input
-              label={f.label}
-              value={draft[f.key] ?? ''}
-              onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-            />
-            {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
-          </div>
-        ))}
+        {FIELDS.map((f) => {
+          /*
+            Country and state decide which tax rules apply and what a regional rule matches
+            on. Typed, a mismatch does not fail — it matches nothing, and the seller is taxed
+            under a rule nobody picked.
+          */
+          if (f.key === 'registeredCountry') {
+            return (
+              <div key={f.key}>
+                <Select
+                  label={f.label}
+                  value={draft[f.key] ?? ''}
+                  onChange={(e) =>
+                    setDraft({ ...draft, [f.key]: e.target.value, registeredRegion: '' })
+                  }
+                >
+                  <option value="">Select a country…</option>
+                  {MARKETS.map((m) => (
+                    <option key={m.code} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))}
+                </Select>
+                {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
+              </div>
+            );
+          }
+          if (f.key === 'registeredRegion') {
+            const market = marketFor(draft.registeredCountry ?? '');
+            return (
+              <div key={f.key}>
+                <Select
+                  label={market?.regionLabel ?? f.label}
+                  disabled={!market || market.regions.length === 0}
+                  value={draft[f.key] ?? ''}
+                  onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                >
+                  <option value="">{market ? 'Select…' : 'Pick a country first'}</option>
+                  {(market?.regions ?? []).map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name}
+                    </option>
+                  ))}
+                </Select>
+                {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
+              </div>
+            );
+          }
+          return (
+            <div key={f.key} className={f.key === 'legalName' ? 'sm:col-span-2' : undefined}>
+              <Input
+                label={f.label}
+                value={draft[f.key] ?? ''}
+                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+              />
+              {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
+            </div>
+          );
+        })}
       </div>
 
       <div className="mt-4 flex items-center gap-3">

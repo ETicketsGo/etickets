@@ -21,6 +21,7 @@ import {
   type CreateOnboardingBody,
   type MerchantOnboardingRow,
   type OnboardingStatusValue,
+  MARKETS,
   type PaymentEnvValue,
 } from '@eticketsgo/web-kit';
 
@@ -81,7 +82,7 @@ export default function MerchantOnboardingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Merchant onboarding"
-        description="Onboard and activate real merchants per environment. Secret references only — never bank credentials."
+        description="A merchant is the account a payment provider settles into — one per legal entity, per provider, per environment. It is what makes a Razorpay or Stripe payment land in a real bank account rather than a sandbox. Secret references only; never bank credentials."
       />
       <div className="flex items-center gap-3">
         <Select
@@ -177,17 +178,51 @@ function CreateDialog({
           value={form.displayName}
           onChange={(e) => setForm({ ...form, displayName: e.target.value })}
         />
+        {/*
+          ── PICKED, AND KEPT IN STEP ──────────────────────────────────────────────────
+          Two free-text boxes wanting an ISO-3166 alpha-2 code and an ISO-4217 code. Neither
+          is knowledge anybody should be asked to supply from memory into a form that
+          configures how real money is settled, and a typo — "UK" for GB, "RS" for INR —
+          produces a merchant record that looks configured and settles nowhere.
+
+          Choosing the country also fills the settlement currency, because the two are not
+          independent: a merchant registered in India settles in rupees. It stays editable for
+          the genuinely unusual case, and says what it defaulted to.
+        */}
         <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Country (ISO-2)"
+          <Select
+            label="Country of registration"
             value={form.country}
-            onChange={(e) => setForm({ ...form, country: e.target.value })}
-          />
-          <Input
+            hint="Where the legal entity is registered."
+            onChange={(e) => {
+              const market = MARKETS.find((m) => m.code === e.target.value);
+              setForm({
+                ...form,
+                country: e.target.value,
+                settlementCurrency: market?.currency ?? form.settlementCurrency,
+              });
+            }}
+          >
+            <option value="">Select a country…</option>
+            {MARKETS.map((m) => (
+              <option key={m.code} value={m.code}>
+                {m.name} ({m.code})
+              </option>
+            ))}
+          </Select>
+          <Select
             label="Settlement currency"
             value={form.settlementCurrency}
+            hint="What this merchant is paid out in."
             onChange={(e) => setForm({ ...form, settlementCurrency: e.target.value })}
-          />
+          >
+            <option value="">Select a currency…</option>
+            {[...new Set(MARKETS.map((m) => m.currency))].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Select

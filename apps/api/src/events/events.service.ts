@@ -110,6 +110,22 @@ export class EventsService {
         category: input.category,
         description: input.description,
         refundPolicy: input.refundPolicy,
+        /*
+          The refund RULE, at last settable.
+
+          `refundsEnabled` and `refundCutoffHours` have been on this model — and read by the
+          refund path — since the terms stopped being a platform constant. Nothing ever wrote
+          them. Every event took the defaults while its organizer typed their real terms into
+          a free-text box the software ignored, so the prose a buyer read and the behaviour
+          they got were two unrelated things.
+
+          Omitted still means the schema defaults (refunds on, 48 hours), so an event created
+          by anything that has not been updated behaves exactly as before.
+        */
+        ...(input.refundsEnabled !== undefined ? { refundsEnabled: input.refundsEnabled } : {}),
+        ...(input.refundCutoffHours !== undefined
+          ? { refundCutoffHours: input.refundCutoffHours }
+          : {}),
         feeMode: input.feeMode,
         isFree: input.isFree,
         status: EventStatus.DRAFT,
@@ -154,6 +170,9 @@ export class EventsService {
           feeMode: original.feeMode,
           isFree: original.isFree,
           refundPolicy: original.refundPolicy,
+          // A copy inherits the terms, not just the prose describing them.
+          refundsEnabled: original.refundsEnabled,
+          refundCutoffHours: original.refundCutoffHours,
           status: EventStatus.DRAFT,
         },
       });

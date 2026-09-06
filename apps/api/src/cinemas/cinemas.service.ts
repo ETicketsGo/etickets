@@ -176,7 +176,21 @@ export class CinemasService {
 
   async getForOrg(user: RequestUser, id: string) {
     await this.loadOwnedCinema(user, id, undefined);
-    return this.prisma.cinema.findUnique({ where: { id }, include: { screens: true } });
+    return this.prisma.cinema.findUnique({
+      where: { id },
+      include: {
+        screens: true,
+        /*
+          The venue's country, because it decides what this room prices in.
+
+          Without it the seat-map editor had nothing to go on and labelled every base-price
+          box "₹" — for a cinema anywhere in the world. Only the label was wrong, which is
+          precisely why nobody would catch it: the number goes on to be used consistently as
+          whatever the venue's currency really is.
+        */
+        venue: { select: { country: true, region: true } },
+      },
+    });
   }
 
   // ─── Screens ───

@@ -1,9 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import {
   api,
   Button,
@@ -25,6 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
+import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
 
 const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
 const FEE_MODES = [
@@ -90,6 +90,9 @@ function NewEventWizard() {
     category: template?.category ?? '',
     description: template?.description ?? '',
     refundPolicy: '',
+    /* The platform's existing behaviour, now stated rather than assumed. */
+    refundsEnabled: true,
+    refundCutoffHours: '48',
   });
   /*
     Whether the category is being picked or typed.
@@ -161,6 +164,62 @@ function NewEventWizard() {
       maxPerOrder: '6',
     },
   ]);
+
+  /*
+    ── THE DRAFT SURVIVES LEAVING THIS PAGE ──────────────────────────────────────────
+    The only route to a seat map is another screen, and this wizard held everything in
+    component state — so the product sent an organizer away to create a room and then threw
+    away everything they had typed. Reported exactly that way, and the second half of the
+    complaint ("it is still in rooms section") is the same defect: nothing brought them back.
+
+    Saved on every change and restored on return, with the organizer told it happened. Cleared
+    the moment a real event exists, so a finished wizard never offers to restore itself.
+  */
+  const draftState = {
+    step,
+    basics,
+    categoryMode,
+    isFree,
+    venueMode,
+    venueId,
+    newVenue,
+    newVenueWhere,
+    feeMode,
+    sessions,
+    tickets,
+  };
+  type DraftState = typeof draftState;
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
+  /* Set once a draft has been considered, so the first render cannot save over it. */
+  const hydrated = useRef(false);
+
+  useEffect(() => {
+    const found = readEventDraft<DraftState>(activeOrg.id);
+    hydrated.current = true;
+    if (!found) return;
+    const d = found.data;
+    setStep(d.step ?? 0);
+    setBasics(d.basics);
+    setCategoryMode(d.categoryMode);
+    setIsFree(d.isFree);
+    setVenueMode(d.venueMode);
+    setVenueId(d.venueId);
+    setNewVenue(d.newVenue);
+    setNewVenueWhere(d.newVenueWhere);
+    setFeeMode(d.feeMode);
+    setSessions(d.sessions);
+    setTickets(d.tickets);
+    setRestoredAt(found.savedAt);
+    // Runs for the organization, not for the draft: re-reading on every keystroke would fight
+    // the person typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrg.id]);
+
+  useEffect(() => {
+    // Never before the restore has had its turn, or an empty form overwrites a real draft.
+    if (!hydrated.current) return;
+    saveEventDraft(activeOrg.id, draftState);
+  });
 
   /*
     Sessions that still need ticket types typed by hand.
@@ -258,6 +317,8 @@ function NewEventWizard() {
         category: basics.category,
         description: basics.description || undefined,
         refundPolicy: basics.refundPolicy || undefined,
+        refundsEnabled: basics.refundsEnabled,
+        refundCutoffHours: Number(basics.refundCutoffHours),
         feeMode,
         isFree,
       });
@@ -294,6 +355,8 @@ function NewEventWizard() {
         submitForReview ? 'Event submitted for review.' : 'Draft event created.',
         'success',
       );
+      // The event exists; the draft is now a duplicate of something real.
+      clearEventDraft();
       router.push(`/organizer/events/${event.id}`);
     } catch (err) {
       setError(errorMessage(err));
@@ -309,6 +372,31 @@ function NewEventWizard() {
       />
 
       <Stepper steps={STEPS} current={step} />
+
+      {/*
+        Say that the form was refilled.
+
+        Silently restoring somebody's work is nearly as disorienting as losing it — they came
+        back expecting a blank wizard and found one with answers in it. Saying where those
+        came from, and offering to throw them away, turns a surprise into a choice.
+      */}
+      {restoredAt !== null && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background-subtle px-4 py-3">
+          <p className="text-caption text-text-secondary">
+            Picked up where you left off — saved {draftAge(restoredAt)}.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              clearEventDraft();
+              window.location.reload();
+            }}
+          >
+            Start over
+          </Button>
+        </div>
+      )}
 
       <Card>
         {step === 0 && (
@@ -362,13 +450,62 @@ function NewEventWizard() {
               value={basics.description}
               onChange={(e) => setBasics({ ...basics, description: e.target.value })}
             />
-            <Textarea
-              id="refund"
-              label="Refund policy"
-              rows={2}
-              value={basics.refundPolicy}
-              onChange={(e) => setBasics({ ...basics, refundPolicy: e.target.value })}
-            />
+            {/*
+              ── THE REFUND RULE, THEN THE PROSE ───────────────────────────────────────
+              This was one free-text box, and nothing read it. `refundsEnabled` and
+              `refundCutoffHours` have been on the event and enforced by the refund path all
+              along; nothing wrote them. So an organizer could type "no refunds" while the
+              platform went on offering them for 48 hours — the buyer reading the prose and
+              the software deciding the outcome were two unrelated things.
+
+              The two controls that DECIDE come first, and the box that describes comes after,
+              labelled as an addition rather than the rule.
+            */}
+            <fieldset className="space-y-3 rounded-md border border-border p-3">
+              <legend className="px-1 text-caption font-medium text-text-secondary">Refunds</legend>
+              <label className="flex items-start gap-3">
+                <input
+                  id="refunds-enabled"
+                  type="checkbox"
+                  className="mt-1 h-4 w-4"
+                  checked={basics.refundsEnabled}
+                  onChange={(e) => setBasics({ ...basics, refundsEnabled: e.target.checked })}
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Attendees can request a refund</span>
+                  <span className="mt-1 block text-text-muted">
+                    Turn this off and the refund button never appears. Your team can still refund
+                    someone by hand.
+                  </span>
+                </span>
+              </label>
+              {basics.refundsEnabled && (
+                <Select
+                  id="refund-cutoff"
+                  label="Refunds close"
+                  value={basics.refundCutoffHours}
+                  hint="Measured back from the session start. After this point the button is gone."
+                  onChange={(e) => setBasics({ ...basics, refundCutoffHours: e.target.value })}
+                >
+                  <option value="0">Right up to start time</option>
+                  <option value="2">2 hours before</option>
+                  <option value="24">24 hours before</option>
+                  <option value="48">48 hours before</option>
+                  <option value="72">3 days before</option>
+                  <option value="168">7 days before</option>
+                  <option value="336">14 days before</option>
+                </Select>
+              )}
+              <Textarea
+                id="refund"
+                label="Conditions (optional)"
+                rows={2}
+                placeholder="e.g. Refunds are less a ₹50 handling charge. Rain does not cancel."
+                hint="Shown to buyers alongside the rule above. Anything here is words, not behaviour — the two settings above are what the platform enforces."
+                value={basics.refundPolicy}
+                onChange={(e) => setBasics({ ...basics, refundPolicy: e.target.value })}
+              />
+            </fieldset>
             <label className="flex items-start gap-3 rounded-md border border-border p-3">
               <input
                 id="is-free"
@@ -556,13 +693,24 @@ function NewEventWizard() {
                         Buyers choose how many tickets they want — this is the only option because
                         none of your rooms has a published seat map yet. To sell numbered seats,
                         draw one under{' '}
-                        <Link
+                        {/*
+                          Opened in a NEW TAB, deliberately.
+
+                          Drawing a seat map is a prerequisite living on another screen, and
+                          sending somebody there mid-wizard is what lost their work in the first
+                          place. The draft survives either way now, but not leaving at all beats
+                          leaving and being restored: the half-filled form stays on screen behind
+                          them, exactly where they left it.
+                        */}
+                        <a
                           href="/organizer/cinemas"
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="font-medium text-action-primary underline underline-offset-2"
                         >
                           Rooms &amp; seat maps
-                        </Link>
-                        , then come back.
+                        </a>{' '}
+                        — it opens in a new tab, and what you have typed here is saved either way.
                       </>
                     ) : (
                       'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'

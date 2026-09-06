@@ -51,7 +51,28 @@ export const createEventSchema = z.object({
   category: z.string().trim().min(2).max(80),
   description: z.string().trim().max(8000).optional(),
   venueId: z.string().cuid(),
+  /**
+   * Free text shown to buyers. DESCRIBES the policy; the two fields below enforce it.
+   *
+   * ── WHY BOTH ──────────────────────────────────────────────────────────────────────
+   * This was the only refund input the product had, and nothing read it. An organizer could
+   * type "no refunds" while the platform went on offering them for 48 hours, or "refunds up
+   * to a week before" while the platform closed at 48 — and the buyer, reading the prose,
+   * had no way to know which one the software would actually do.
+   *
+   * Prose is still worth having: conditions, part-refunds, who to contact. It is a
+   * supplement to the rule, not the rule.
+   */
   refundPolicy: z.string().trim().max(2000).optional(),
+  /** Whether this event offers refunds at all. Default preserves existing behaviour. */
+  refundsEnabled: z.boolean().optional(),
+  /**
+   * Hours before the session starts after which refunds close. 0 means "up to start time".
+   *
+   * Capped at a year: a cut-off longer than the lead time on any real event is a typo, and
+   * an uncapped integer here silently becomes "never refundable" for a value like 99999.
+   */
+  refundCutoffHours: z.number().int().min(0).max(8_760).optional(),
   feeMode: z.nativeEnum(FeeMode).default(FeeMode.CUSTOMER_PAYS),
   /**
    * Nobody pays anything for this event.

@@ -16,6 +16,7 @@ import {
   errorMessage,
   money,
   type GenerateSeatMapBody,
+  currencyForCountry,
 } from '@eticketsgo/web-kit';
 import {
   expandRowLabels,
@@ -71,6 +72,23 @@ export default function ScreenSeatMapPage() {
     queryFn: () => api.cinemas.screens(id),
   });
   const screen = screensQ.data?.find((s) => s.id === screenId);
+
+  /*
+    The currency this room prices in, which is its VENUE's.
+
+    The base-price box said "Base price (₹)" for every room in the world. Nothing converted
+    the number — only the label was wrong — which is the version of that bug an organizer
+    cannot notice, because everything downstream stays consistent with whatever they typed.
+  */
+  const cinemaQ = useQuery({
+    queryKey: ['cinema', id],
+    queryFn: () => api.cinemas.get(id),
+  });
+  const roomCurrency = currencyForCountry(cinemaQ.data?.venue?.country) ?? 'INR';
+  const currencySymbol =
+    new Intl.NumberFormat(undefined, { style: 'currency', currency: roomCurrency })
+      .formatToParts(0)
+      .find((part) => part.type === 'currency')?.value ?? roomCurrency;
 
   const [name, setName] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ ...emptySection }]);
@@ -303,25 +321,44 @@ export default function ScreenSeatMapPage() {
                     )}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
+                    {/*
+                      ── SECTION vs CATEGORY ───────────────────────────────────────────
+                      Two boxes side by side, both wanting a name, neither saying what for.
+                      Reported as exactly that question.
+
+                      A SECTION is a place in the room — the balcony, the stalls. It is how
+                      seats are grouped on the map a buyer looks at.
+
+                      A CATEGORY is a price tier — Premium, Regular. It is what a ticket type
+                      is created from and what the seat costs.
+
+                      They are usually the same word, which is why one form asks for both and
+                      why nobody could tell them apart: a balcony IS the premium seats, most
+                      of the time. They come apart when a room has two blocks at one price, or
+                      one block sold at two.
+                    */}
                     <Input
                       id={`sec-${i}-name`}
                       label="Section name"
                       placeholder="e.g. Balcony"
+                      hint="Where it is in the room. Shown on the seat map."
                       value={s.name}
                       onChange={(e) => setSection(i, { name: e.target.value })}
                     />
                     <Input
                       id={`sec-${i}-cat`}
-                      label="Category name"
+                      label="Price category"
                       placeholder="e.g. Premium"
+                      hint="What these seats cost. Becomes a ticket type. Often the same idea as the section."
                       value={s.categoryName}
                       onChange={(e) => setSection(i, { categoryName: e.target.value })}
                     />
                     <Input
                       id={`sec-${i}-price`}
-                      label="Base price (₹)"
+                      label={`Base price (${currencySymbol})`}
                       type="number"
                       min={0}
+                      hint="The starting price. A showing can be priced above or below it."
                       value={s.basePrice}
                       onChange={(e) => setSection(i, { basePrice: e.target.value })}
                     />
@@ -332,13 +369,42 @@ export default function ScreenSeatMapPage() {
                       >
                         Colour
                       </label>
-                      <input
-                        id={`sec-${i}-color`}
-                        type="color"
-                        value={s.colorHex}
-                        onChange={(e) => setSection(i, { colorHex: e.target.value })}
-                        className="h-10 w-full cursor-pointer rounded-md border border-border bg-background-surface p-1"
-                      />
+                      {/*
+                        A swatch AND a hex box.
+
+                        The native colour input is a picker and nothing else: an organizer with
+                        a brand colour in hand had no way to enter it, only to hunt for it by
+                        eye. The two are bound to one value, so either way of choosing shows up
+                        in the other.
+                      */}
+                      <div className="flex gap-2">
+                        <input
+                          id={`sec-${i}-color`}
+                          type="color"
+                          value={s.colorHex}
+                          onChange={(e) => setSection(i, { colorHex: e.target.value })}
+                          className="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-border bg-background-surface p-1"
+                        />
+                        <input
+                          aria-label="Colour hex code"
+                          value={s.colorHex}
+                          spellCheck={false}
+                          placeholder="#2563EB"
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+                            /*
+                              Written through only when it is a colour. A half-typed "#2b" is
+                              left in the box but not applied, so the swatch never flickers
+                              through wrong colours while somebody types six characters.
+                            */
+                            setSection(i, {
+                              colorHex: /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash : raw,
+                            });
+                          }}
+                          className="h-10 w-full rounded-md border border-border bg-background-surface px-3 font-mono text-[0.9375rem] uppercase text-text-primary"
+                        />
+                      </div>
                     </div>
                   </div>
 

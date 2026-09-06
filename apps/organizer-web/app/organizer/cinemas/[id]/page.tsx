@@ -22,6 +22,7 @@ import {
   type Screen,
   type ScreenBody,
   type CinemaBody,
+  parseCoordinates,
 } from '@eticketsgo/web-kit';
 
 const SCREEN_TYPES = ['2D', '3D', 'IMAX', '4DX', 'Dolby Atmos', 'Recliner'];
@@ -88,6 +89,8 @@ export default function CinemaDetailPage() {
     longitude: '',
   });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  /* What was pasted, kept as typed so a partial paste is not silently rewritten mid-keystroke. */
+  const [geoPaste, setGeoPaste] = useState('');
 
   useEffect(() => {
     const c = cinemaQ.data;
@@ -369,9 +372,18 @@ export default function CinemaDetailPage() {
             error={fieldErrors.name}
           />
           <div className="grid gap-4 sm:grid-cols-2">
+            {/*
+              "What is brand?" — asked, fairly, of a box with a one-word label.
+
+              It is the chain a room belongs to: PVR, INOX, Cinepolis. A single independent
+              hall has none, which is why it is optional and why the hint says so rather than
+              leaving somebody guessing whether they are supposed to invent one.
+            */}
             <Input
               id="brand"
-              label="Brand"
+              label="Brand (optional)"
+              placeholder="e.g. PVR, INOX"
+              hint="The chain this venue belongs to, if any. Leave blank for an independent one."
               value={form.brand}
               onChange={(e) => setField('brand', e.target.value)}
             />
@@ -389,19 +401,85 @@ export default function CinemaDetailPage() {
             value={form.address}
             onChange={(e) => setField('address', e.target.value)}
           />
-          <div className="grid gap-4 sm:grid-cols-2">
+          {/*
+            ── COORDINATES, WITHOUT ASKING ANYONE TO KNOW THEM ─────────────────────────
+            Two empty boxes labelled Latitude and Longitude. Nobody has those to hand, and
+            somebody who goes to find them arrives with a string like "17.3850° N, 78.4867° E"
+            — which is not what either box wants, and which fails silently as an unparsed
+            number rather than telling them.
+
+            Three things fix it without a maps API key and without sending a venue's address
+            to a third party on every keystroke:
+
+              · Paste anything. A Google Maps URL, a "lat, lng" pair, a degrees-and-direction
+                string — all get parsed into the two fields.
+              · A link that opens a map search for the address already typed above, so
+                "find it" is one click rather than a separate task.
+              · The pair shown back as a link, so what was entered can be checked on a map
+                instead of trusted.
+
+            Coordinates stay OPTIONAL. They order search results by distance; nothing about
+            selling a ticket depends on them.
+          */}
+          <div className="space-y-3 rounded-md border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-caption font-medium text-text-secondary">
+                Map location (optional)
+              </p>
+              <a
+                href={`https://www.google.com/maps/search/${encodeURIComponent(
+                  [form.name, form.address, form.city].filter(Boolean).join(', '),
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-caption font-medium text-action-primary underline underline-offset-2"
+              >
+                Find this venue on a map
+              </a>
+            </div>
             <Input
-              id="latitude"
-              label="Latitude"
-              value={form.latitude}
-              onChange={(e) => setField('latitude', e.target.value)}
+              id="geo-paste"
+              label="Paste a location"
+              placeholder="17.3850, 78.4867 — or paste a Google Maps link"
+              hint="Anything with coordinates in it. We pull the two numbers out."
+              value={geoPaste}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setGeoPaste(raw);
+                const found = parseCoordinates(raw);
+                if (!found) return;
+                setField('latitude', String(found.latitude));
+                setField('longitude', String(found.longitude));
+              }}
             />
-            <Input
-              id="longitude"
-              label="Longitude"
-              value={form.longitude}
-              onChange={(e) => setField('longitude', e.target.value)}
-            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                id="latitude"
+                label="Latitude"
+                inputMode="decimal"
+                value={form.latitude}
+                onChange={(e) => setField('latitude', e.target.value)}
+              />
+              <Input
+                id="longitude"
+                label="Longitude"
+                inputMode="decimal"
+                value={form.longitude}
+                onChange={(e) => setField('longitude', e.target.value)}
+              />
+            </div>
+            {form.latitude && form.longitude && (
+              <a
+                href={`https://www.google.com/maps?q=${encodeURIComponent(
+                  `${form.latitude},${form.longitude}`,
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-caption font-medium text-action-primary underline underline-offset-2"
+              >
+                Check this pin on a map
+              </a>
+            )}
           </div>
           <Button loading={save.isPending} onClick={submit}>
             Save changes

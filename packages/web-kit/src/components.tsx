@@ -163,13 +163,30 @@ export function Textarea({
   label,
   id,
   error,
+  hint,
   className = '',
   ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string; error?: string }) {
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label?: string;
+  error?: string;
+  /** Matches `Input` and `Select`. A box whose contents have consequences needs to say so. */
+  hint?: string;
+}) {
   return (
     <div>
       {label && <FieldLabel htmlFor={id}>{label}</FieldLabel>}
-      <textarea id={id} className={`${fieldBase} ${className}`} aria-invalid={!!error} {...props} />
+      <textarea
+        id={id}
+        aria-describedby={hint && !error ? `${id}-hint` : undefined}
+        className={`${fieldBase} ${className}`}
+        aria-invalid={!!error}
+        {...props}
+      />
+      {hint && !error && (
+        <p id={`${id}-hint`} className="mt-1.5 text-caption text-text-muted">
+          {hint}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-1.5 text-caption text-status-error">
           {error}
