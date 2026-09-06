@@ -1,3 +1,6 @@
+import { HttpStatus } from '@nestjs/common';
+import { AppException, ErrorCodes } from '../../common/errors';
+
 /**
  * Cinema-shaped capabilities a REMOTE inventory source may additionally offer.
  *
@@ -145,4 +148,53 @@ export function hasCinemaCatalogue(p: unknown): p is CinemaCatalogueCapability {
 
 export function hasSeatMap(p: unknown): p is SeatMapCapability {
   return typeof (p as Partial<SeatMapCapability>)?.getSeatMap === 'function';
+}
+
+/**
+ * Refuse a reserved-seat sale through a provider that cannot describe seats.
+ *
+ * ── THE DEGRADATION THIS PREVENTS ──────────────────────────────────────────────────
+ * `availability()` answers in UNITS per ticket type, which is the right answer for general
+ * admission and an incomplete one for reserved seating. For a seated show the customer is not
+ * buying "one of 120" — they are buying F10, and only a provider that can enumerate seats can
+ * say whether F10 specifically is free.
+ *
+ * Without this guard a REMOTE provider with no seat map does not fail. It answers "120
+ * available", the seat picker has nothing to draw, and either the sale proceeds against a
+ * count — selling a seat the venue may have already sold — or the customer meets an empty
+ * room with no explanation. Both are silent, and both are discovered at the door.
+ *
+ * ── WHY A GUARD RATHER THAN A METHOD ON THE BASE CONTRACT ──────────────────────────
+ * Putting `getSeatMap()` on `InventoryProvider` would force a general-admission provider to
+ * implement a method it can only throw from, and would make every GA source look seat-capable
+ * to the type system. The requirement is not "every provider has seats" — it is "a SEATED
+ * SHOW needs a seat-capable provider", which is a property of the pairing, not of either half.
+ *
+ * Called at the point a seated show is about to be served by a provider, so the failure is at
+ * resolution rather than three steps later with a confusing symptom.
+ */
+export function requireSeatMapCapability(
+  provider: { name: string; capabilities: { authority: string } },
+  context: { eventSessionId?: string } = {},
+): asserts provider is typeof provider & SeatMapCapability {
+  if (hasSeatMap(provider)) return;
+  throw new AppException(
+    ErrorCodes.INVENTORY_SOURCE_UNSUPPORTED,
+    `This showing has reserved seating, and inventory provider '${provider.name}' cannot report ` +
+      'individual seats. A seated show cannot be sold against a unit count — it would be ' +
+      'impossible to tell whether the chosen seat is free.',
+    HttpStatus.NOT_IMPLEMENTED,
+    { provider: provider.name, ...context, requiredCapability: 'SeatMapCapability' },
+  );
+}
+
+/**
+ * Does this show need seat-level inventory?
+ *
+ * Reserved seating is a property of the ROOM the session is in, not of the experience type —
+ * the same decision the rest of the platform already makes. A movie in a general-admission
+ * hall is not seated; a conference in a seat-mapped auditorium is.
+ */
+export function needsSeatLevelInventory(session: { seatBased?: boolean | null }): boolean {
+  return session.seatBased === true;
 }
