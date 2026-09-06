@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MockExternalBookingProvider } from './mock-external-booking-provider';
+import { QubeMockExternalBookingProvider } from './qube-mock-external-booking.provider';
+import { InventorySourcingModule } from '../../inventory/sourcing/inventory-sourcing.module';
 import { ExternalBookingProviderRegistry } from './external-booking-provider.registry';
 
 /**
@@ -10,7 +12,16 @@ import { ExternalBookingProviderRegistry } from './external-booking-provider.reg
  * sourcing (P1), inventory sync (P4), and payment providers.
  */
 @Module({
-  providers: [MockExternalBookingProvider, ExternalBookingProviderRegistry],
-  exports: [ExternalBookingProviderRegistry, MockExternalBookingProvider],
+  imports: [InventorySourcingModule],
+  providers: [
+    MockExternalBookingProvider,
+    QubeMockExternalBookingProvider,
+    ExternalBookingProviderRegistry,
+  ],
+  exports: [
+    ExternalBookingProviderRegistry,
+    MockExternalBookingProvider,
+    QubeMockExternalBookingProvider,
+  ],
 })
 export class BookingProvidersModule {}

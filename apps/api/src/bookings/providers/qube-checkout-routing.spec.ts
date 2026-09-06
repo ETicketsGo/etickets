@@ -88,13 +88,37 @@ describe('checkout routes through the resolver to QUBE_MOCK', () => {
     const local = new WouldSellAnything();
     const resolver = resolverWith(qube, local);
 
-    const chosen = await resolver.resolve({ experienceType: 'MOVIE', eventSessionId: 'x' });
+    // The pin is the session's BINDING — the ProviderMapping row an operator approved. The
+    // orchestrator reads it from the session; here it is supplied directly.
+    const chosen = await resolver.resolve({
+      experienceType: 'MOVIE',
+      eventSessionId: 'x',
+      preferredProvider: 'qube_mock',
+    });
 
     // The assertion the mission asks for: provider resolved = QUBE_MOCK.
     expect(chosen.name).toBe('QUBE_MOCK');
     expect(chosen.capabilities.authority).toBe('REMOTE');
     expect(chosen.capabilities.failover).toBe(false);
     expect(local.wasCalled).toBe(false);
+  });
+
+  it('is NOT selected for an unbound session, however high its priority', async () => {
+    /*
+      Remote authority is a binding, never a default. Before this rule the decision was global:
+      putting an external source first in INVENTORY_PROVIDER_PRIORITY routed every session to
+      it — including events whose seats we own and whose buyers have never heard of the vendor.
+
+      QUBE_MOCK is first in priority order here and still must not be chosen.
+    */
+    const qube = inventory();
+    const local = new WouldSellAnything();
+    const resolver = resolverWith(qube, local);
+
+    const chosen = await resolver.resolve({ experienceType: 'MOVIE', eventSessionId: 'x' });
+
+    expect(chosen.name).toBe('local-test');
+    expect(chosen.capabilities.authority).toBe('LOCAL');
   });
 
   it('reserves, confirms, and leaves the seat SOLD at the remote authority', async () => {
@@ -170,13 +194,20 @@ describe('payment fails after a remote hold', () => {
     const booking = new QubeMockExternalBookingProvider(qube);
     const { show, seat } = await f10(qube);
 
-    await booking.createReservation({
+    const reserved = await booking.createReservation({
       providerInventoryRef: show,
       selection: { inventoryType: 'SEAT', seatRefs: [seat] },
       idempotencyKey: 'wf-payfail',
     });
-    // What the existing compensation path calls. No Qube-specific compensation exists.
-    const cancelled = await booking.cancelReservation({ idempotencyKey: 'wf-payfail' });
+    /*
+      Cancelled by RESERVATION reference, which is how the orchestrator has it: every call
+      after the reservation carries its own idempotency key, so the key identifies the CALL and
+      only the reference identifies the booking.
+    */
+    const cancelled = await booking.cancelReservation({
+      providerReservationId: reserved.providerReservationId,
+      idempotencyKey: 'wf-payfail:cancel',
+    });
     expect(cancelled.outcome).toBe('OK');
 
     const after = await qube.getSeatMap(show);
@@ -212,23 +243,30 @@ describe('an ambiguous confirmation', () => {
     const qube = inventory();
     const booking = new QubeMockExternalBookingProvider(qube);
     const { show, seat } = await f10(qube);
-    await booking.createReservation({
+    const reserved = await booking.createReservation({
       providerInventoryRef: show,
       selection: { inventoryType: 'SEAT', seatRefs: [seat] },
       idempotencyKey: 'wf-recover',
     });
+    const reservationId = reserved.providerReservationId as string;
 
     // The remote system commits, and the response is lost on the wire.
-    await booking.confirmReservation({ providerReservationId: 'x', idempotencyKey: 'wf-recover' });
+    await booking.confirmReservation({
+      providerReservationId: reservationId,
+      idempotencyKey: 'wf-recover:confirm',
+    });
 
-    const status = await booking.getBookingStatus({ idempotencyKey: 'wf-recover' });
+    const status = await booking.getBookingStatus({
+      providerReservationId: reservationId,
+      idempotencyKey: 'wf-recover:status',
+    });
     expect(status.status).toBe('CONFIRMED');
     expect(status.providerBookingId).toBeTruthy();
 
     // And the recovery does not produce a second booking.
     const retry = await booking.confirmReservation({
-      providerReservationId: 'x',
-      idempotencyKey: 'wf-recover',
+      providerReservationId: reservationId,
+      idempotencyKey: 'wf-recover:confirm',
     });
     expect(retry.providerBookingId).toBe(status.providerBookingId);
   });
@@ -251,8 +289,10 @@ describe('provider outage during checkout', () => {
     qube.setOutage('unavailable');
 
     await expect(
-      resolver.withFailover({ experienceType: 'MOVIE', eventSessionId: 'x' }, (p) =>
-        p.availability({ experienceType: 'MOVIE', eventSessionId: 'x', ticketTypeIds: ['tt'] }),
+      resolver.withFailover(
+        { experienceType: 'MOVIE', eventSessionId: 'x', preferredProvider: 'qube_mock' },
+        (p) =>
+          p.availability({ experienceType: 'MOVIE', eventSessionId: 'x', ticketTypeIds: ['tt'] }),
       ),
     ).rejects.toMatchObject({ code: 'INVENTORY_PROVIDER_UNAVAILABLE' });
 

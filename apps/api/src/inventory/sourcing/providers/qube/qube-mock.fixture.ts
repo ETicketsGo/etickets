@@ -96,8 +96,17 @@ export const QUBE_MOCK_CATEGORIES: ExternalSeatCategory[] = [
   { externalId: 'QBCAT-RECLINER', name: 'Recliner', priceMinor: 45_000, currency: 'INR' },
 ];
 
-/** Showtimes as the cinema advertises them, in its own local wall clock. */
-export const QUBE_MOCK_SHOW_TIMES = ['10:30', '13:45', '16:45', '19:30', '22:30'] as const;
+/**
+ * Showtimes as the cinema advertises them, in its own local wall clock.
+ *
+ * Spaced three hours apart, which is not decoration: the longest film here runs 152 minutes
+ * and a room needs turning round between screenings. The first version of this fixture used
+ * tighter, more natural-looking times and produced a schedule no cinema could actually run —
+ * the 16:45 show of a 2h32 film ends thirteen minutes before the 19:30 one starts. Nothing in
+ * the sandbox noticed, because nothing in the sandbox schedules a room; the platform's own
+ * scheduler did, the moment the catalogue was imported into it.
+ */
+export const QUBE_MOCK_SHOW_TIMES = ['10:30', '13:30', '16:30', '19:30', '22:45'] as const;
 
 /**
  * The instant a local wall-clock time in a given zone actually occurs.
@@ -184,7 +193,19 @@ const ROW_CATEGORY: Record<string, string> = {
   J: 'QBCAT-RECLINER',
 };
 
-export function buildSeats(showExternalId: string): ExternalSeat[] {
+/**
+ * The seats in a ROOM, not in a showing.
+ *
+ * A seat is a physical position: F10 is the same chair at the matinee and at the late show,
+ * and only its AVAILABILITY differs between them. Keying seat identity on the show would mean
+ * a new set of seat ids five times a day, and a mapping table that grew without bound while
+ * describing one unchanging room.
+ *
+ * Whether Qube models it this way is an open question — `qube-readiness.md` asks whether the
+ * layout is per-show or per-screen — and if the answer is per-show, the mapping layer absorbs
+ * it: this is exactly the kind of thing the seam exists to isolate.
+ */
+export function buildSeats(screenExternalId: string): ExternalSeat[] {
   const seats: ExternalSeat[] = [];
   for (const [row, categoryExternalId] of Object.entries(ROW_CATEGORY)) {
     // Recliners are wider, so there are fewer of them — the same reason a real room has.
@@ -199,7 +220,7 @@ export function buildSeats(showExternalId: string): ExternalSeat[] {
       // Two wheelchair spaces at the end of the last normal row, where the ramp reaches.
       const isWheelchair = row === 'C' && (n === 15 || n === 16);
       seats.push({
-        externalId: `QBSEAT-${showExternalId}-${row}${n}`,
+        externalId: `QBSEAT-${screenExternalId}-${row}${n}`,
         label: `${row}${n}`,
         row,
         number: n,

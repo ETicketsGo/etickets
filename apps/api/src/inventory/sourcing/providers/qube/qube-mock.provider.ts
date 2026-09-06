@@ -66,6 +66,14 @@ import {
  * which is exactly what ETicketsGo does not own — putting it in our Postgres would quietly
  * make the "remote" authority local and let a test pass for the wrong reason.
  */
+/**
+ * How the sandbox is failing right now.
+ *
+ * `timeout` never reaches the remote system; `commit_then_timeout` reaches it, is applied,
+ * and loses the response. Everything downstream sees the same thing, which is the point.
+ */
+export type OutageMode = 'none' | 'unavailable' | 'timeout' | 'commit_then_timeout';
+
 @Injectable()
 export class QubeMockInventoryProvider
   implements InventoryProvider, CinemaCatalogueCapability, SeatMapCapability
@@ -98,9 +106,17 @@ export class QubeMockInventoryProvider
 
   /** Simulated latency and outage, for exercising timeout and failover paths in tests. */
   private latencyMs = 0;
-  private outage: 'none' | 'unavailable' | 'timeout' = 'none';
+  private outage: OutageMode = 'none';
 
   private readonly shows = buildShows();
+  /**
+   * The provider's own record version, per external id.
+   *
+   * A remote catalogue needs SOME monotonic marker or an importer cannot tell a change from a
+   * redelivery — it is the first thing `qube-readiness.md` asks Qube for. The sandbox keeps
+   * one here so the sync layer's ordering rules are exercised for real rather than assumed.
+   */
+  private readonly revisions = new Map<string, number>();
   /** showExternalId → seat state, lazily built so an unvisited show costs nothing. */
   private readonly seatsByShow = new Map<string, ExternalSeat[]>();
   /** holdId → what it holds, so release and confirm act on the same seats. */
@@ -114,7 +130,7 @@ export class QubeMockInventoryProvider
   /* ── test/ops controls ─────────────────────────────────────────────────────────── */
 
   /** Simulate the vendor being down or slow. Test-only; never driven by request input. */
-  setOutage(mode: 'none' | 'unavailable' | 'timeout', latencyMs = 0): void {
+  setOutage(mode: OutageMode, latencyMs = 0): void {
     this.outage = mode;
     this.latencyMs = latencyMs;
   }
@@ -124,10 +140,33 @@ export class QubeMockInventoryProvider
     for (const hold of this.holds.values()) hold.expiresAt = 0;
   }
 
+  /**
+   * Move a showtime, the way an exhibitor does when a print runs late.
+   *
+   * The external id deliberately does NOT change. That is the whole point of the case: an
+   * importer keyed on identity updates the show it already has, and an importer keyed on
+   * anything else — the title, the start time, the position in a list — creates a second one
+   * and sells tickets for a screening that will not happen.
+   */
+  rescheduleShow(showExternalId: string, startsAt: Date, endsAt?: Date): void {
+    const show = this.shows.find((s) => s.externalId === showExternalId);
+    if (!show) throw new Error(`unknown show ${showExternalId}`);
+    show.startsAt = startsAt;
+    show.endsAt = endsAt ?? new Date(startsAt.getTime() + 150 * 60_000);
+    this.revisions.set(showExternalId, this.revision(showExternalId) + 1);
+  }
+
+  /** What version the remote system says this record is at. Starts at 1, never decreases. */
+  revision(externalId: string): number {
+    return this.revisions.get(externalId) ?? 1;
+  }
+
   reset(): void {
     this.seatsByShow.clear();
     this.holds.clear();
     this.idempotency.clear();
+    this.revisions.clear();
+    this.shows.splice(0, this.shows.length, ...buildShows());
     this.outage = 'none';
     this.latencyMs = 0;
   }
@@ -152,13 +191,28 @@ export class QubeMockInventoryProvider
         { provider: this.name, op },
       );
     }
-    if (this.outage === 'timeout') {
+    const timedOut = (): never => {
       throw new AppException(
         ErrorCodes.PROVIDER_TIMEOUT,
         `${this.name} did not respond in time (${op}). The outcome is UNKNOWN — do not assume it failed.`,
         HttpStatus.GATEWAY_TIMEOUT,
         { provider: this.name, op, outcome: 'UNKNOWN' },
       );
+    };
+    if (this.outage === 'timeout') timedOut();
+    /*
+      The dangerous half of a timeout, made reproducible.
+
+      'timeout' models a request that never landed. This models one that DID: the remote
+      system committed the booking and the response was lost on the way back. Both look
+      identical to us — an error and no answer — and they are the reason a timed-out
+      confirmation must be resolved by ASKING rather than by assuming. Without this mode a
+      test suite only ever exercises the harmless case and concludes the recovery works.
+    */
+    if (this.outage === 'commit_then_timeout') {
+      const result = fn();
+      timedOut();
+      return result;
     }
     return fn();
   }
@@ -166,7 +220,11 @@ export class QubeMockInventoryProvider
   private seatsFor(showExternalId: string): ExternalSeat[] {
     let seats = this.seatsByShow.get(showExternalId);
     if (!seats) {
-      seats = buildSeats(showExternalId).map((s) => ({
+      // Built from the SCREEN, because that is what the seats belong to; the per-show entry
+      // holds this showing's STATE of those same positions.
+      const screenExternalId =
+        this.shows.find((sh) => sh.externalId === showExternalId)?.screenExternalId ?? '';
+      seats = buildSeats(screenExternalId).map((s) => ({
         ...s,
         state: QUBE_MOCK_BLOCKED_LABELS.includes(s.label)
           ? ('BLOCKED' as ExternalSeatState)

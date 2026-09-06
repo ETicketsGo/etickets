@@ -19,8 +19,19 @@ What exists:
   `QUBE_PROVIDER_NOT_CONFIGURED`; `health()` reports unhealthy so it stays out of every
   candidate set rather than taking the registry down.
 
-The architecture has been proven against the sandbox. The integration has not been started,
-because starting it would mean inventing an API.
+- `QubeMockInventorySyncProvider` — the same invented cinema as a CATALOGUE FEED, so the
+  ADR-040 sync platform has something to ingest.
+- `QubeMockExternalBookingProvider` — the same invented cinema as a BOOKING LIFECYCLE, so the
+  ADR-042 orchestrator has something to reserve and confirm against.
+
+Three adapters, one sandbox, one switch (`INVENTORY_QUBE_MOCK_ENABLED`). They delegate to a
+single in-memory cinema rather than each holding a copy: two stores describing one venue agree
+only by luck, and the first divergence is a double sale no test can reproduce.
+
+The architecture has been proven against the sandbox, end to end — catalogue sync, operator
+approval, seat map, reservation, payment, confirmation, QR — through the running application
+against a real PostgreSQL and Redis. The integration has not been started, because starting it
+would mean inventing an API.
 
 ---
 
@@ -49,7 +60,10 @@ design the integration correctly without them.
 
 ### Seating
 
-- Seat layout endpoint, and whether the layout is per-show or per-screen
+- Seat layout endpoint, and whether the layout is per-show or per-screen (★ — the sandbox
+  models seats as belonging to the ROOM, with availability per showing. If Qube issues seat ids
+  per SHOW instead, seat mapping grows by one row per show per seat and the import strategy
+  changes; the seam absorbs it either way, but the answer decides the shape.)
 - Stable per-seat identifiers (★ — we must never key on row/number, which get renumbered)
 - How are seat categories/areas expressed, and do they carry price?
 - How are unavailable, blocked and house seats distinguished from sold ones?
@@ -70,6 +84,11 @@ design the integration correctly without them.
 
 - Confirmation endpoint, and the identifier it returns
 - **Is confirmation idempotent, and on what key?** (★)
+- **Does a reservation reference identify the booking for every later call** — confirm, cancel,
+  status — or does each call need its own correlation id? (★ — our orchestrator gives every call
+  a DIFFERENT idempotency key, so a provider that identifies a booking by "the key you sent"
+  rather than by the reservation reference cannot be driven safely. Getting this backwards in
+  the sandbox made confirmation return NOT_FOUND for a reservation that had succeeded.)
 - **Can a booking be looked up after an ambiguous timeout?** (★★ — this is the single
   capability that decides whether our reconciliation can be _correct_ rather than merely
   careful. Without it, a timed-out confirmation can only be resolved by guessing, and
@@ -144,3 +163,14 @@ resolves a dispute at the door.
 
 **Clock and timezone.** If showtimes arrive without an explicit zone, every schedule we display
 is a guess. India has one zone, which hides the bug until the day it does not.
+
+**A timetable we cannot run.** An exhibitor's schedule is not automatically valid in our model:
+our scheduler enforces a turnaround between films in the same room, and the sandbox's first
+timetable violated it — a 2h32 film at 16:30 ending thirteen minutes before the 19:30 show. On
+a real feed this will happen for reasons we do not control. The importer reports each refusal
+rather than forcing it, and somebody has to decide what a rejected showtime means commercially.
+
+**Who is the operator.** Every imported entity is created by an actor with organization
+membership, and every real-provider mapping needs a person to approve it. Which organization an
+imported cinema belongs to, and who approves its catalogue, is a commercial question we have
+not answered — see `catalogue-governance.md`.

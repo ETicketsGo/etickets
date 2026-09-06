@@ -125,3 +125,21 @@ export class BookingOwnerResolver {
     return ba.length === bb.length && timingSafeEqual(ba, bb);
   }
 }
+
+/**
+ * The principal the orchestrator hands to services that expect an authenticated caller.
+ *
+ * A workflow knows an owner ID and nothing else — no email, no roles — but `RequestUser` is
+ * the shape those services take, and several of them read fields beyond the id. Four separate
+ * sites cast `{ id }` to it; `PaymentsService.createIntent` reads `user.roles`, so every one
+ * of them threw `Cannot read properties of undefined` the first time a signed-in customer
+ * paid in active mode. One constructor, complete by construction.
+ *
+ * Roles are EMPTY on purpose. This principal is derived from the workflow's own owner, so it
+ * is only ever used to prove that the caller owns the booking; granting it an admin role it
+ * was never issued would turn an ownership check into a formality.
+ */
+export function principalForOwner(ownerId: string | undefined | null): RequestUser | undefined {
+  if (!ownerId) return undefined;
+  return { id: ownerId, email: '', fullName: '', roles: [] };
+}

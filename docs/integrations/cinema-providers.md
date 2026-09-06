@@ -77,6 +77,43 @@ production; a type guard cannot.
 
 ---
 
+## Remote authority is a binding, never a default
+
+A provider whose `capabilities.authority` is not `LOCAL` is only ever a candidate for a session
+explicitly bound to it. Priority order alone can never select one.
+
+That rule is new, and it closes a real gap. The decision used to be global: enabling an external
+source and putting it first in `INVENTORY_PROVIDER_PRIORITY` routed EVERY session to it,
+including events whose seats we own and whose ticket holders have never heard of the vendor.
+There is no deployment where "all inventory is remote" — there are deployments where SOME shows
+are, and which ones is a fact about each show.
+
+The binding is the session's `ProviderMapping` row, and the same row answers both questions the
+booking path asks:
+
+```
+ProviderMapping (status ACTIVE, internalEntityType 'eventSession')
+        │
+        ├─→ InventoryResolver      which provider owns this stock  (ADR-037)
+        └─→ ProviderAuthoritative  which remote reference to reserve (ADR-042)
+```
+
+Session beats event. An Event is "this film at this venue" and spans every screening of it, so
+an event-level reference would send every reservation to whichever showing the mapping happened
+to name. The event level remains as a fallback for inventory whose provider really does own a
+whole listing.
+
+## Seat ids are translated, never passed through
+
+Our seat id is a database key for a row in a layout we generated. The provider's is whatever
+their POS calls that chair. They are two namespaces with no reason to coincide, and the
+orchestrator translates between them through `ProviderMapping` (`externalEntityType: 'SEAT'`)
+before it reserves anything.
+
+An unmapped seat fails the checkout, closed, before any hold or payment. The alternative —
+passing our id through and hoping — reserves either nothing or the wrong seat, and the customer
+finds out which from the person already sitting in it.
+
 ## Identity
 
 **External ids are the only identity.** Never a title, a row label, a seat number or a
@@ -163,6 +200,16 @@ tests.
 
 ---
 
+## Catalogue import
+
+A provider catalogue is INGESTED automatically and PUBLISHED only by a person. Sync records
+identity in `ProviderMapping` at `status: UNMAPPED` and stops; an operator links or approves
+each record; only then can anything be sold. The sandbox is the single exception, dev/test only,
+refused at boot in production.
+
+See `catalogue-governance.md` for the modes, the operator surface, and exactly which fields may
+update by themselves afterwards.
+
 ## Adding a provider
 
 1. Implement `InventoryProvider`. Add `CinemaCatalogueCapability` / `SeatMapCapability` if the
@@ -186,14 +233,23 @@ the tests somebody remembered — and the differences surface as an incident.
 
 ```
 INVENTORY_SOURCING_ENABLED=true
-INVENTORY_QUBE_MOCK_ENABLED=true
+INVENTORY_QUBE_MOCK_ENABLED=true          # inventory + booking + sync adapters, one switch
+INVENTORY_SANDBOX_MATERIALIZATION_ENABLED=true
+INVENTORY_SYNC_ENABLED=true
+INVENTORY_SYNC_POLLING_ENABLED=true
+INVENTORY_SYNC_PROCESSING_ENABLED=true
+INVENTORY_SYNC_PROVIDER_ALLOWLIST=QUBE_MOCK
+BOOKING_ORCHESTRATOR_ENABLED=true
+BOOKING_ORCHESTRATOR_MODE=active
+BOOKING_PROVIDER_CONFIRMATION_ENABLED=true
 ```
 
-Both off by default, and `INVENTORY_QUBE_MOCK_ENABLED` must never be set in production: a
-sandbox provider serving a real customer sells seats in a cinema that does not exist.
+All off by default, and the sandbox flags are now REFUSED AT BOOT in any production-like
+environment rather than merely discouraged: a sandbox provider serving a real customer sells
+seats in a cinema that does not exist.
 
 The fixture is a Hyderabad multiplex — three screens, two fictional Telugu films, shows at
-10:30 / 13:45 / 16:45 / 19:30 / 22:30 across three days, built in `Asia/Kolkata` so the
+10:30 / 13:30 / 16:30 / 19:30 / 22:45 across three days, built in `Asia/Kolkata` so the
 schedule is the same whichever region the server runs in.
 
 See `qube-readiness.md` for what is still needed before any of this is real.

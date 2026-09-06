@@ -84,6 +84,22 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === 'true' || v === '1'),
+  /*
+    Let the sandbox catalogue create real internal cinemas, screens, films and shows.
+
+    OFF by default and refused in every production-like environment. Real provider catalogues
+    are NEVER auto-materialized: ADR-040 stops at an UNMAPPED mapping and an operator approves
+    each link, because a feed that can create and publish entities can also rename a storefront
+    and unpublish a show somebody holds a ticket for. This flag exists so the SANDBOX can be
+    driven end to end without building that auto-publisher.
+
+    It is also useless on its own — the materializer refuses any provider that is not the Qube
+    sandbox — so it cannot become a generic importer by being left on.
+  */
+  INVENTORY_SANDBOX_MATERIALIZATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   // Comma-separated provider priority order for the InventoryResolver (most-preferred
   // first, e.g. "direct,manual,aggregator"). Unset ⇒ a safe default that always
   // prefers LOCAL authoritative stock before any external source.
@@ -845,6 +861,25 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
       '  - BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED must be false in production (dev/test only).',
     );
   }
+  /*
+    The Qube sandbox, in all three of its guises — inventory authority, booking lifecycle,
+    catalogue sync. A sandbox provider serving a real customer sells seats in a cinema that
+    does not exist, and the customer finds out at a door that has never heard of them. The
+    docs already said "never in production"; until now nothing enforced it at boot.
+  */
+  if (isProdLike && cfg.INVENTORY_QUBE_MOCK_ENABLED) {
+    errors.push('  - INVENTORY_QUBE_MOCK_ENABLED must be false in production (sandbox only).');
+  }
+  if (isProdLike && cfg.INVENTORY_SANDBOX_MATERIALIZATION_ENABLED) {
+    errors.push(
+      '  - INVENTORY_SANDBOX_MATERIALIZATION_ENABLED must be false in production (real provider catalogues are operator-approved).',
+    );
+  }
+  if (cfg.INVENTORY_SANDBOX_MATERIALIZATION_ENABLED && !cfg.INVENTORY_QUBE_MOCK_ENABLED) {
+    errors.push(
+      '  - INVENTORY_SANDBOX_MATERIALIZATION_ENABLED requires INVENTORY_QUBE_MOCK_ENABLED (there is no other sandbox catalogue to materialize).',
+    );
+  }
   // Provider confirmation needs a provider adapter. The only adapter today is the mock, so
   // enabling confirmation requires the mock in non-prod, and is unsupported in prod (no real
   // adapter exists yet — fail rather than silently do nothing).
@@ -853,9 +888,15 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
       errors.push(
         '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED is not supported in production yet (no real external booking provider is integrated).',
       );
-    } else if (!cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED) {
+    } else if (
+      !cfg.BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED &&
+      !cfg.INVENTORY_QUBE_MOCK_ENABLED
+    ) {
+      // Confirmation needs SOME external booking adapter to drive. Both of today's are
+      // sandboxes; naming them individually keeps this honest about the fact that no real
+      // provider adapter exists yet, rather than implying one might.
       errors.push(
-        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED requires BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED (the only external booking provider today is the mock).',
+        '  - BOOKING_PROVIDER_CONFIRMATION_ENABLED requires an external booking provider: BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED or INVENTORY_QUBE_MOCK_ENABLED (both dev/test only).',
       );
     }
   }

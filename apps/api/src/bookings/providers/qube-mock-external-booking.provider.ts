@@ -89,6 +89,20 @@ export class QubeMockExternalBookingProvider implements ExternalBookingProvider 
     return `qbwf-${idempotencyKey}`;
   }
 
+  /**
+   * The RESERVATION reference is the identity for everything after the reservation.
+   *
+   * Confirm, cancel and status all carry the reservation id and each has its OWN idempotency
+   * key — `…:confirm`, `…:cancel`, `…:status`. Deriving the hold from the key therefore looked
+   * up a hold that had never existed, and confirmation came back NOT_FOUND for every booking
+   * that had reserved perfectly. That is not a mock detail: it is what "which request key
+   * identifies the booking" means in any real integration, and the answer is the reference the
+   * provider gave us, not the one we invented for this call.
+   */
+  private bookingIdFromReservation(providerReservationId: string): string {
+    return providerReservationId.replace(/^QBHOLD-/, '');
+  }
+
   async checkAvailability(req: ExternalAvailabilityRequest): Promise<ExternalAvailabilityResult> {
     try {
       const seatRefs = req.selection.seatRefs ?? [];
@@ -134,7 +148,7 @@ export class QubeMockExternalBookingProvider implements ExternalBookingProvider 
   }
 
   async confirmReservation(req: ExternalConfirmationRequest): Promise<ExternalConfirmationResult> {
-    const bookingId = this.bookingIdFor(req.idempotencyKey);
+    const bookingId = this.bookingIdFromReservation(req.providerReservationId);
     try {
       const res = await this.inventory.confirmBooking({
         experienceType: 'MOVIE',
@@ -160,7 +174,7 @@ export class QubeMockExternalBookingProvider implements ExternalBookingProvider 
       await this.inventory.cancelBooking({
         experienceType: 'MOVIE',
         eventSessionId: '',
-        bookingId: this.bookingIdFor(req.idempotencyKey),
+        bookingId: this.bookingIdFromReservation(req.providerReservationId ?? ''),
         lines: [],
       });
       return { outcome: 'OK', providerStatus: 'CANCELLED' };
@@ -177,7 +191,7 @@ export class QubeMockExternalBookingProvider implements ExternalBookingProvider 
    */
   async getBookingStatus(req: ExternalBookingStatusRequest): Promise<ExternalBookingStatusResult> {
     try {
-      const bookingId = this.bookingIdFor(req.idempotencyKey);
+      const bookingId = this.bookingIdFromReservation(req.providerReservationId ?? '');
       const found = await this.inventory.getExternalBooking(bookingId);
       return found.status === 'CONFIRMED'
         ? { outcome: 'OK', status: 'CONFIRMED', providerBookingId: found.externalBookingId }

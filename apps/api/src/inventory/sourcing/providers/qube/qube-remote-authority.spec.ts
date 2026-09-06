@@ -148,8 +148,14 @@ describe('an outage must never reach local stock', () => {
 
     const shows = await new QubeMockInventoryProvider().getShows({});
     await expect(
-      resolver.withFailover({ experienceType: 'MOVIE', eventSessionId: shows[0].externalId }, (p) =>
-        p.lockInventory(lockReq('bk-outage', shows[0].externalId, ['QBSEAT-any'])),
+      resolver.withFailover(
+        {
+          experienceType: 'MOVIE',
+          eventSessionId: shows[0].externalId,
+          // The session's binding to this provider. Remote authority is never a default.
+          preferredProvider: 'qube_mock',
+        },
+        (p) => p.lockInventory(lockReq('bk-outage', shows[0].externalId, ['QBSEAT-any'])),
       ),
     ).rejects.toMatchObject({ code: 'INVENTORY_PROVIDER_UNAVAILABLE' });
 
@@ -170,12 +176,19 @@ describe('an outage must never reach local stock', () => {
 
     const shows = await new QubeMockInventoryProvider().getShows({});
     await expect(
-      resolver.withFailover({ experienceType: 'MOVIE', eventSessionId: shows[0].externalId }, (p) =>
-        p.availability({
+      resolver.withFailover(
+        {
           experienceType: 'MOVIE',
           eventSessionId: shows[0].externalId,
-          ticketTypeIds: ['tt'],
-        }),
+          // The session's binding to this provider. Remote authority is never a default.
+          preferredProvider: 'qube_mock',
+        },
+        (p) =>
+          p.availability({
+            experienceType: 'MOVIE',
+            eventSessionId: shows[0].externalId,
+            ticketTypeIds: ['tt'],
+          }),
       ),
     ).rejects.toMatchObject({ code: 'PROVIDER_TIMEOUT' });
     expect(local.wasCalled).toBe(false);
@@ -192,8 +205,10 @@ describe('an outage must never reach local stock', () => {
     qube.setOutage('unavailable');
 
     await expect(
-      resolver.withFailover({ experienceType: 'MOVIE', eventSessionId: 'any' }, (p) =>
-        p.availability({ experienceType: 'MOVIE', eventSessionId: 'any', ticketTypeIds: ['tt'] }),
+      resolver.withFailover(
+        { experienceType: 'MOVIE', eventSessionId: 'any', preferredProvider: 'qube_mock' },
+        (p) =>
+          p.availability({ experienceType: 'MOVIE', eventSessionId: 'any', ticketTypeIds: ['tt'] }),
       ),
     ).rejects.toBeDefined();
     expect(local.wasCalled).toBe(false);

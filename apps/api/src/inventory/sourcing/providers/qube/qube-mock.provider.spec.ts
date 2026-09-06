@@ -1,7 +1,11 @@
 import { QubeMockInventoryProvider } from './qube-mock.provider';
 import { QubeInventoryProvider } from './qube.provider';
 import { describeCinemaProviderContract } from './cinema-provider-contract';
-import { QUBE_MOCK_CINEMA, QUBE_MOCK_PRESOLD_LABELS } from './qube-mock.fixture';
+import {
+  QUBE_MOCK_CINEMA,
+  QUBE_MOCK_PRESOLD_LABELS,
+  QUBE_MOCK_SHOW_TIMES,
+} from './qube-mock.fixture';
 import { hasCinemaCatalogue, hasSeatMap } from '../../cinema-capabilities.interface';
 import type { LockRequest } from '../../inventory-provider.interface';
 
@@ -83,14 +87,17 @@ describe('QUBE_MOCK as a remote authority', () => {
     }).format(new Date());
     const todays = await p.getShows({ date: today });
     expect(todays.length).toBeGreaterThan(0);
-    // A UTC-based filter would drop the 22:30 show, which is the next UTC day in +05:30.
+    // A UTC-based filter would drop the LAST show, which falls on the next UTC day in +05:30.
+    // Taken from the timetable rather than written out, so moving a showtime cannot leave this
+    // test asserting a time the cinema no longer runs.
+    const lastShow = QUBE_MOCK_SHOW_TIMES[QUBE_MOCK_SHOW_TIMES.length - 1];
     const local = new Intl.DateTimeFormat('en-GB', {
       timeZone: QUBE_MOCK_CINEMA.timezone,
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
     });
-    expect(todays.map((s) => local.format(s.startsAt))).toContain('22:30');
+    expect(todays.map((s) => local.format(s.startsAt))).toContain(lastShow);
   });
 
   it('never offers an aisle or a blocked seat for sale', async () => {

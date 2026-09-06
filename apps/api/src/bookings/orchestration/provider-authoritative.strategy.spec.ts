@@ -118,6 +118,15 @@ function make(
         payment: { status: opts.bookingPaymentStatus ?? 'REQUIRES_PAYMENT' },
       }),
     },
+    /*
+      The real payment fact, because recovery replays it rather than inventing one. The amount
+      matches the booking total on purpose: recovery that quotes a different figure is refused
+      by the local confirmation's amount check, which is how a recovered booking used to sit at
+      PENDING_PAYMENT forever with its seat already sold at the venue.
+    */
+    payment: {
+      findUnique: jest.fn().mockResolvedValue({ providerRef: 'pi_1', amountMinor: 5000 }),
+    },
     // The event-emitting advance runs advance(tx) + recordInTransaction(tx) in one tx.
     $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(txClient)),
   } as unknown as PrismaService;
@@ -278,6 +287,21 @@ describe('ProviderAuthoritativeStrategy.recoverStatus', () => {
     const res = await strat.recoverStatus('b1');
     expect(provider.getBookingStatus).toHaveBeenCalled();
     expect(res.classification).toBe('PROVIDER_CONFIRMED_LOCAL_PENDING');
+  });
+
+  it('refuses to confirm when nothing records the customer having paid', async () => {
+    /*
+      The provider says CONFIRMED and the workflow never reached PAYMENT_AUTHORIZED. Believing
+      the provider here would issue a ticket for money nobody took. It goes to a person.
+    */
+    const { strat, store } = make({
+      confirm: { outcome: 'OK', providerBookingId: 'mockbk_1' },
+      status: { outcome: 'OK', status: 'CONFIRMED' },
+    });
+    store.state = WS.PROVIDER_RESERVATION_PENDING;
+    store.providerReservationId = 'mockres_1';
+    const res = await strat.recoverStatus('b1');
+    expect(res.classification).toBe('PROVIDER_CONFIRMED_PAYMENT_MISSING');
   });
 
   it('recovers a rejected reservation to compensation-required', async () => {

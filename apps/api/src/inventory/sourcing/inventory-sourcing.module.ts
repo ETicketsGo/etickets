@@ -35,7 +35,15 @@ import { ProviderPriorityManager } from './provider-priority.manager';
     ProviderPriorityManager,
     InventoryResolver,
   ],
-  exports: [InventoryResolver, InventoryProviderRegistry, ProviderHealthMonitor],
+  exports: [
+    InventoryResolver,
+    InventoryProviderRegistry,
+    ProviderHealthMonitor,
+    // The sandbox itself, so the sync and booking adapters read the SAME in-memory cinema
+    // rather than each constructing their own. Two stores describing one venue agree only
+    // by luck, and the first divergence is a double sale no test can reproduce.
+    QubeMockInventoryProvider,
+  ],
 })
 export class InventorySourcingModule implements OnModuleInit {
   constructor(private readonly factory: InventoryProviderFactory) {}

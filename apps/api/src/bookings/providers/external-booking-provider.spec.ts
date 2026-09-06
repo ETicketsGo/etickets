@@ -1,6 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { AppException } from '../../common/errors';
 import { MockExternalBookingProvider } from './mock-external-booking-provider';
+import { QubeMockExternalBookingProvider } from './qube-mock-external-booking.provider';
+import { QubeMockInventoryProvider } from '../../inventory/sourcing/providers/qube/qube-mock.provider';
 import {
   ExternalBookingProviderRegistry,
   selectProviderSequence,
@@ -96,17 +98,31 @@ describe('ExternalBookingProviderRegistry', () => {
       get: (k: string) => (k === 'BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED' ? mockOn : undefined),
     }) as unknown as ConfigService;
 
+  /** Both sandboxes, constructed; whether either is REGISTERED is the flags' business. */
+  const registry = (config: ConfigService) =>
+    new ExternalBookingProviderRegistry(
+      config,
+      new MockExternalBookingProvider(),
+      new QubeMockExternalBookingProvider(new QubeMockInventoryProvider()),
+    );
+
   it('registers the mock only when its flag is on', () => {
-    expect(
-      new ExternalBookingProviderRegistry(cfg(false), new MockExternalBookingProvider()).list(),
-    ).toEqual([]);
-    const reg = new ExternalBookingProviderRegistry(cfg(true), new MockExternalBookingProvider());
-    expect(reg.list()).toContain('mock-external-booking');
+    expect(registry(cfg(false)).list()).toEqual([]);
+    expect(registry(cfg(true)).list()).toContain('mock-external-booking');
+  });
+
+  it('does not register the Qube sandbox unless its own flag is on', () => {
+    // Constructed always, registered never by default: an unflagged deployment cannot even
+    // resolve the name, so there is no path by which a sandbox serves a real customer.
+    expect(registry(cfg(true)).list()).not.toContain('QUBE_MOCK');
+    const on = {
+      get: (k: string) => k === 'INVENTORY_QUBE_MOCK_ENABLED',
+    } as unknown as ConfigService;
+    expect(registry(on).list()).toContain('QUBE_MOCK');
   });
 
   it('require() throws a safe typed failure for an unknown provider', () => {
-    const reg = new ExternalBookingProviderRegistry(cfg(false), new MockExternalBookingProvider());
-    expect(() => reg.require('nope')).toThrow(ExternalBookingException);
+    expect(() => registry(cfg(false)).require('nope')).toThrow(ExternalBookingException);
   });
 });
 

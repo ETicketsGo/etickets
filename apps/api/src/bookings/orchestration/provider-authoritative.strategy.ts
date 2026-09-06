@@ -21,12 +21,11 @@ import {
   bookingCompensationRequiredEvent,
   bookingManualReviewRequiredEvent,
 } from '../../common/domain-events/catalogue/provider-compensation-events';
-import type { RequestUser } from '../../common/decorators';
 import { BookingsService } from '../bookings.service';
 import { PaymentsService } from '../../payments/payments.service';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingWorkflowRepository } from './booking-workflow.repository';
-import { BookingOwnerResolver } from './booking-owner';
+import { BookingOwnerResolver, principalForOwner } from './booking-owner';
 import {
   BookingConfirmationBridge,
   type PreConfirmResult,
@@ -273,18 +272,71 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     );
   }
 
-  /** Resolve the external booking provider for a session via its P4 ProviderMapping. */
-  private async resolveProvider(eventId: string): Promise<{
+  /**
+   * Our seat ids, as the provider knows them.
+   *
+   * Every seat must have an ACTIVE `ProviderMapping` row of type SEAT. A missing one is a
+   * hard failure and not a fallback to passing our id through: a provider that does not
+   * recognise the reference either rejects the reservation (annoying) or matches something
+   * else (a customer in the wrong seat, discovered by the person already sitting in it).
+   *
+   * Order is preserved so a caller can still line refs up against the request.
+   */
+  private async providerSeatRefs(providerCode: string, seatIds: string[]): Promise<string[]> {
+    const rows = await this.prisma.providerMapping.findMany({
+      where: {
+        providerCode,
+        externalEntityType: 'SEAT',
+        internalEntityType: 'seat',
+        internalEntityId: { in: seatIds },
+        status: 'ACTIVE',
+      },
+      select: { externalEntityId: true, internalEntityId: true },
+    });
+    const byInternal = new Map(rows.map((r) => [r.internalEntityId as string, r.externalEntityId]));
+    const missing = seatIds.filter((id) => !byInternal.has(id));
+    if (missing.length > 0) {
+      throw new ExternalBookingException(ExternalBookingFailure.PROVIDER_MAPPING_MISSING, {
+        providerCode,
+        unmappedSeats: missing.length,
+      });
+    }
+    return seatIds.map((id) => byInternal.get(id) as string);
+  }
+
+  /**
+   * Resolve the external booking provider for a session via its P4 ProviderMapping.
+   *
+   * ── WHY THE SESSION, NOT JUST THE EVENT ────────────────────────────────────────────
+   * `providerInventoryRef` is what gets handed to the provider as "the thing to reserve
+   * against", and for a cinema that is the SHOWING. An Event is "this film at this venue" and
+   * spans every screening of it, so an event-level ref would send every 19:30 reservation to
+   * whichever showing the mapping happened to name.
+   *
+   * The event level is kept as a fallback for inventory whose provider really does own the
+   * whole listing — a single-session festival, an allocation covering one event — so nothing
+   * previously mapped that way changes. Most specific wins.
+   */
+  private async resolveProvider(session: { id: string; eventId: string }): Promise<{
     provider: ExternalBookingProvider;
     providerInventoryRef: string;
     providerCode: string;
   }> {
     const mapping = await this.prisma.providerMapping.findFirst({
-      where: { internalEntityType: 'event', internalEntityId: eventId, status: 'ACTIVE' },
+      where: {
+        status: 'ACTIVE',
+        OR: [
+          { internalEntityType: 'eventSession', internalEntityId: session.id },
+          { internalEntityType: 'event', internalEntityId: session.eventId },
+        ],
+      },
+      // 'eventSession' sorts after 'event', so the most specific binding is first.
+      orderBy: { internalEntityType: 'desc' },
     });
     if (!mapping) {
       throw new ExternalBookingException(ExternalBookingFailure.PROVIDER_MAPPING_MISSING, {
-        eventId,
+        eventSessionId: session.id,
+        eventId: session.eventId,
       });
     }
     const provider = this.registry.require(mapping.providerCode); // throws PROVIDER_MAPPING_MISSING if unregistered
@@ -313,11 +365,26 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
         HttpStatus.NOT_IMPLEMENTED,
       );
     }
-    const { provider, providerInventoryRef, providerCode } = await this.resolveProvider(
-      session.eventId,
-    );
+    const { provider, providerInventoryRef, providerCode } = await this.resolveProvider(session);
     // Capability-driven sequencing — fails BEFORE any payment for unsupported providers.
     selectProviderSequence(provider.capabilities());
+
+    /*
+      Translate OUR seat ids into the PROVIDER's, before anything is held, created or charged.
+
+      These are two different namespaces and there is no reason they would ever coincide: our
+      seat id is a database key for a row in a layout we generated, theirs is whatever their
+      POS calls that chair. Passing ours through unchanged reserves either nothing or, far
+      worse, the wrong seat — and the customer discovers which at the door.
+
+      Unmapped seats fail here, closed. The mapping is the only translation: never the label,
+      never the row and number, which get renumbered.
+    */
+    const requestedSeatIds = request.items.flatMap((i) => i.seatIds ?? []);
+    const providerSeatRefs =
+      requestedSeatIds.length > 0
+        ? await this.providerSeatRefs(providerCode, requestedSeatIds)
+        : [];
 
     const fingerprint = BookingWorkflowRepository.fingerprint([
       request.eventSessionId,
@@ -375,9 +442,7 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     // Local coordination hold (NOT provider confirmation, NOT authoritative sale).
     let booking: { id: string; totalMinor?: number; currency?: string };
     try {
-      const user: RequestUser | null = request.owner.ownerId
-        ? ({ id: request.owner.ownerId } as RequestUser)
-        : null;
+      const user = principalForOwner(request.owner.ownerId) ?? null;
       booking = (await this.bookings.create(
         user,
         {
@@ -398,6 +463,16 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     }
     await this.workflows.attachBooking(current.id, { bookingId: booking.id, lockId, fencingToken });
     current = (await this.workflows.get(current.id))!;
+    /*
+      LOCKED first, then PROVIDER_RESERVATION_PENDING.
+
+      The local coordination hold has just succeeded, and LOCKED is the state that says so.
+      This path used to jump straight from LOCK_PENDING to PROVIDER_RESERVATION_PENDING, which
+      the transition matrix has never permitted — every provider-authoritative initiation
+      through a real workflow repository failed on the first customer. It was invisible because
+      the strategy's own tests stub the repository, so the matrix was never consulted.
+    */
+    current = (await this.workflows.advance(current, WS.LOCKED)).workflow;
     current = (await this.workflows.advance(current, WS.PROVIDER_RESERVATION_PENDING)).workflow;
 
     // External reservation (idempotent). Persist the request key BEFORE reading the result so
@@ -412,8 +487,8 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     const reservation = await provider.createReservation({
       providerInventoryRef,
       selection:
-        seatIds.length > 0
-          ? { inventoryType: 'SEAT', seatRefs: seatIds }
+        providerSeatRefs.length > 0
+          ? { inventoryType: 'SEAT', seatRefs: providerSeatRefs }
           : {
               inventoryType: 'QUANTITY',
               quantity: request.items.reduce((s, i) => s + i.quantity, 0),
@@ -511,9 +586,7 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
 
-    const user: RequestUser | undefined = request.owner.ownerId
-      ? ({ id: request.owner.ownerId } as RequestUser)
-      : undefined;
+    const user = principalForOwner(request.owner.ownerId);
     const payment = await this.payments.createIntent(request.bookingId, user);
     const pp = (payment as { provider?: unknown }).provider;
     if (workflow.state === WS.PROVIDER_RESERVED) {
@@ -667,11 +740,65 @@ export class ProviderAuthoritativeStrategy implements OnModuleInit {
       await this.emitFact(
         bookingProviderStatusRecoveredEvent(this.eventBase(w, 'CONFIRMED')),
       ).catch(() => undefined);
-      await this.handlePaymentConfirmed({
-        bookingId,
-        providerRef: `recovered:${w.id}`,
-        amountMinor: 0,
-      }).catch(() => undefined);
+      /*
+        Recovery quotes the REAL payment, and never invents one.
+
+        This used to call the local confirmation with `providerRef: 'recovered:…'` and
+        `amountMinor: 0`. The local confirm compares the amount against the booking total and
+        refuses a mismatch — correctly, it is the guard that stops a signed webhook paying the
+        wrong amount — so every recovery threw, the throw was swallowed by the catch below, and
+        the booking sat at PENDING_PAYMENT while the venue had already sold the seat. The
+        customer had paid, the seat was gone, and nothing said so.
+
+        The payment fact exists and is verified: it is on the booking. Recovery's job is to
+        replay it, not to make one up.
+      */
+      const payment = await this.prisma.payment
+        .findUnique({ where: { bookingId }, select: { providerRef: true, amountMinor: true } })
+        .catch(() => null);
+      /*
+        Has a verified payment success actually happened?
+
+        NOT read from `Payment.status`: that column is set to SUCCEEDED by OUR confirmation, so
+        in exactly this situation — provider confirmed, local confirmation still outstanding —
+        it has not been written yet, and reading it would refuse every legitimate recovery.
+
+        The durable record is the workflow. These states are unreachable except by way of a
+        verified `payment.succeeded`, so being in one of them IS the evidence.
+      */
+      const paymentVerified = oneOf(w.state as WS, [
+        WS.PAYMENT_AUTHORIZED,
+        WS.PROVIDER_CONFIRM_PENDING,
+        WS.PROVIDER_CONFIRMED,
+        WS.CONFIRMING,
+        WS.CONFIRMED,
+      ]);
+      if (!payment || !paymentVerified) {
+        // The provider says confirmed and nothing here says the customer paid. That is a
+        // contradiction for a person to look at, not one to resolve by confirming.
+        await this.markReconcile(
+          w,
+          ExternalBookingFailure.PROVIDER_CONFIRMATION_AMBIGUOUS,
+          WS.MANUAL_REVIEW,
+        ).catch(() => undefined);
+        return { classification: 'PROVIDER_CONFIRMED_PAYMENT_MISSING' };
+      }
+      try {
+        await this.handlePaymentConfirmed({
+          bookingId,
+          providerRef: payment.providerRef ?? `recovered:${w.id}`,
+          amountMinor: payment.amountMinor,
+        });
+      } catch {
+        // A failure here leaves a confirmed provider booking and an unconfirmed local one —
+        // the one state that must never pass silently.
+        await this.markReconcile(
+          w,
+          ExternalBookingFailure.LOCAL_CONFIRMATION_FAILED_AFTER_PROVIDER_CONFIRM,
+          WS.MANUAL_REVIEW,
+        ).catch(() => undefined);
+        return { classification: 'PROVIDER_CONFIRMED_LOCAL_FAILED' };
+      }
       return { classification: 'PROVIDER_CONFIRMED_LOCAL_PENDING' };
     }
     if (status.status === 'REJECTED') {

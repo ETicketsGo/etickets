@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MockExternalBookingProvider } from './mock-external-booking-provider';
+import { QubeMockExternalBookingProvider } from './qube-mock-external-booking.provider';
 import { ExternalBookingException, ExternalBookingFailure } from './external-booking.errors';
 import type {
   ExternalBookingProvider,
@@ -17,9 +18,19 @@ import type {
 export class ExternalBookingProviderRegistry {
   private readonly providers = new Map<string, ExternalBookingProvider>();
 
-  constructor(config: ConfigService, mock: MockExternalBookingProvider) {
+  constructor(
+    config: ConfigService,
+    mock: MockExternalBookingProvider,
+    qubeMock: QubeMockExternalBookingProvider,
+  ) {
     if (config.get<boolean>('BOOKING_PROVIDER_CONFIRMATION_MOCK_ENABLED') === true) {
       this.providers.set(mock.providerCode, mock);
+    }
+    // The Qube sandbox's booking lifecycle, on the same switch as its inventory and sync
+    // adapters. Registering it separately would allow a deployment that can hold a seat at
+    // the sandbox but not confirm it — a hold nobody can turn into a ticket.
+    if (config.get<boolean>('INVENTORY_QUBE_MOCK_ENABLED') === true) {
+      this.providers.set(qubeMock.providerCode, qubeMock);
     }
   }
 

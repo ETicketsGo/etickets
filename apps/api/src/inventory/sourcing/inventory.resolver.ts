@@ -26,6 +26,19 @@ export interface ResolveContext {
  * Selection order = ProviderPriorityManager, with any trusted pin moved to the front,
  * filtered to providers the ProviderHealthMonitor currently believes healthy.
  *
+ * ── REMOTE AUTHORITY IS A BINDING, NEVER A DEFAULT ─────────────────────────────────
+ * A provider that does not own our stock (`authority !== 'LOCAL'`) is only ever a candidate
+ * for a session explicitly BOUND to it — the trusted pin. Priority order alone can never
+ * select one.
+ *
+ * Without that rule the decision was global: enabling an external source and putting it
+ * first in `INVENTORY_PROVIDER_PRIORITY` routed EVERY session to it, including events whose
+ * seats we own and whose ticket holders have never heard of the vendor. There is no such
+ * thing as a deployment where "all inventory is remote"; there are deployments where SOME
+ * shows are, and which ones is a fact about each show, recorded in its ProviderMapping.
+ *
+ * Local authority stays the default, so nothing about a locally-owned event changes.
+ *
  * Failover rule: `withFailover` attempts the primary, then the next candidate, and so
  * on — but ONLY steps past a provider whose `capabilities.failover` is true. An
  * authoritative LOCAL provider (failover=false) never fails over: a real sold-out /
@@ -53,10 +66,12 @@ export class InventoryResolver {
   /** Ordered HEALTHY candidates, most-preferred first (primary + failover targets). */
   async candidates(ctx: ResolveContext): Promise<InventoryProvider[]> {
     const order = this.orderedNames(ctx);
+    const pin = ctx.preferredProvider?.toLowerCase();
     const out: InventoryProvider[] = [];
     for (const name of order) {
       const provider = this.registry.get(name);
       if (!provider) continue;
+      if (provider.capabilities.authority !== 'LOCAL' && name !== pin) continue;
       if (!(await this.health.isHealthy(name))) continue;
       out.push(provider);
     }

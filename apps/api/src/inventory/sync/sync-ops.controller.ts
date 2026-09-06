@@ -47,7 +47,26 @@ export class SyncOpsController {
     return this.ops.providerHealth(providerCode);
   }
 
+  @Get('mappings')
+  @ApiOperation({
+    summary: 'The catalogue review queue: provider records awaiting an operator decision.',
+  })
+  listMappings(
+    @Query('providerCode') providerCode?: string,
+    @Query('status') status?: string,
+    @Query('externalEntityType') externalEntityType?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.ops.listMappings({
+      providerCode,
+      status,
+      externalEntityType,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Post('mappings/:id/resolve')
+  @ApiOperation({ summary: 'Link a provider record to an internal entity (verified, audited).' })
   resolveMapping(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,

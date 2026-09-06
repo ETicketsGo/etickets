@@ -3,13 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { MetricsService } from '../../metrics/metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { RequestUser } from '../../common/decorators';
 import { BookingsService } from '../bookings.service';
 import { PaymentsService } from '../../payments/payments.service';
 import { InventoryResolver } from '../../inventory/sourcing/inventory.resolver';
+import {
+  needsSeatLevelInventory,
+  requireSeatMapCapability,
+} from '../../inventory/sourcing/cinema-capabilities.interface';
 import { InventoryLockService } from '../../inventory/locking/inventory-lock.service';
 import { BookingWorkflowRepository } from './booking-workflow.repository';
-import { BookingOwnerResolver } from './booking-owner';
+import { BookingOwnerResolver, principalForOwner } from './booking-owner';
 import { BookingConfirmationBridge } from './booking-confirmation-bridge';
 import { ProviderAuthoritativeStrategy } from './provider-authoritative.strategy';
 import { AllocatedInventoryStrategy } from './allocated-inventory.strategy';
@@ -80,6 +83,38 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
     );
   }
 
+  /**
+   * Which provider this session is bound to, if any.
+   *
+   * Most specific wins: a mapping on the SESSION beats one on the EVENT. A cinema's Event is
+   * "this film at this venue" and spans many screenings, so the session is the level at which
+   * a provider actually owns stock — one showing can be sold by an exhibitor's system while
+   * another is not.
+   *
+   * Returns undefined for an unbound session, which is the overwhelmingly common case and
+   * means "our inventory, resolved locally".
+   */
+  private async boundProviderFor(
+    eventSessionId: string,
+    eventId: string,
+  ): Promise<string | undefined> {
+    const mapping = await this.prisma.providerMapping
+      .findFirst({
+        where: {
+          status: 'ACTIVE',
+          OR: [
+            { internalEntityType: 'eventSession', internalEntityId: eventSessionId },
+            { internalEntityType: 'event', internalEntityId: eventId },
+          ],
+        },
+        // 'eventSession' sorts after 'event', so the most specific binding comes first.
+        orderBy: { internalEntityType: 'desc' },
+        select: { providerCode: true },
+      })
+      .catch(() => null);
+    return mapping?.providerCode.toLowerCase();
+  }
+
   async initiate(request: InitiateBookingRequest): Promise<BookingOrchestrationResult> {
     const started = Date.now();
     const session = await this.prisma.eventSession.findUnique({
@@ -87,21 +122,46 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       select: {
         id: true,
         eventId: true,
+        // A session with a room sells SEATS; one without sells a count. The same question the
+        // booking service asks, asked here because it decides what a provider must be able to do.
+        screenId: true,
         event: { select: { experienceType: true, organizationId: true } },
       },
     });
     if (!session)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
 
-    // Server-side provider resolution. Inventory ownership mode selects the workflow strategy;
-    // clients never choose it, and a workflow cannot change strategy after initiation.
+    /*
+      Server-side provider resolution. Inventory ownership mode selects the workflow strategy;
+      clients never choose it, and a workflow cannot change strategy after initiation.
+
+      The binding comes from the session's own ProviderMapping — the row an operator approved
+      (or, in the sandbox, the materializer wrote). It is what makes remote authority a
+      property of THIS show rather than of the deployment: without it the resolver would fall
+      back to priority order, and a locally-owned event in the same database would route to
+      whichever external source happened to be listed first.
+    */
+    const boundProvider = await this.boundProviderFor(session.id, session.eventId);
     const provider = await this.resolver.resolve({
       experienceType: session.event.experienceType,
       eventSessionId: request.eventSessionId,
+      preferredProvider: boundProvider,
     });
 
     // PROVIDER_AUTHORITATIVE → the external provider owns inventory truth (P5.2B S3).
     if (provider.capabilities.authority !== 'LOCAL') {
+      /*
+        A seated show needs a provider that can describe seats.
+
+        `availability()` answers in units, which is the right answer for general admission and
+        an incomplete one here: the customer is not buying one of 120, they are buying F10.
+        A counting provider does not fail on its own — it answers "120 available", the seat
+        picker has nothing to draw, and the sale either proceeds against a count or the buyer
+        meets an empty room. Refused at resolution, where the reason is still legible.
+      */
+      if (needsSeatLevelInventory({ seatBased: Boolean(session.screenId) })) {
+        requireSeatMapCapability(provider, { eventSessionId: request.eventSessionId });
+      }
       if (!this.providerStrategy.enabled) {
         this.metrics.recordBookingOrchestration('initiate', 'unsupported_ownership');
         throw new AppException(
@@ -214,9 +274,7 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
           }
         : undefined;
     try {
-      const user: RequestUser | null = request.owner.ownerId
-        ? ({ id: request.owner.ownerId } as RequestUser)
-        : null;
+      const user = principalForOwner(request.owner.ownerId) ?? null;
       const booking = (await this.bookings.create(
         user,
         {
@@ -288,10 +346,9 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       );
     }
     // Idempotent: repeated beginPayment returns the same payment (createIntent is retry-safe).
-    const user: RequestUser | undefined =
-      workflow.selectedProviderCode && request.owner.ownerId
-        ? ({ id: request.owner.ownerId } as RequestUser)
-        : undefined;
+    const user = workflow.selectedProviderCode
+      ? principalForOwner(request.owner.ownerId)
+      : undefined;
     const payment = await this.payments.createIntent(request.bookingId, user);
     const pp = (payment as { provider?: unknown }).provider;
     const paymentProvider = typeof pp === 'string' ? pp : undefined;

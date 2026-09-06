@@ -11,6 +11,8 @@ import { ProviderSyncHealthService } from './sync-health.service';
 import { SyncOpsService } from './sync-ops.service';
 import { ManualInventorySyncProvider } from './providers/manual-sync.provider';
 import { MockAggregatorInventorySyncProvider } from './providers/mock-aggregator-sync.provider';
+import { QubeMockInventorySyncProvider } from './providers/qube-mock-sync.provider';
+import { InventorySourcingModule } from '../sourcing/inventory-sourcing.module';
 import { SyncWebhookController } from './sync-webhook.controller';
 import { SyncOpsController } from './sync-ops.controller';
 import { inventorySyncQueueProvider } from './sync-queue.provider';
@@ -24,6 +26,9 @@ import { inventorySyncQueueProvider } from './sync-queue.provider';
  * webhook route fails closed when disabled.
  */
 @Module({
+  // Sourcing is imported for the Qube sandbox instance only: the sync adapter must read the
+  // SAME cinema the booking path sells from.
+  imports: [InventorySourcingModule],
   controllers: [SyncWebhookController, SyncOpsController],
   providers: [
     inventorySyncQueueProvider,
@@ -38,6 +43,7 @@ import { inventorySyncQueueProvider } from './sync-queue.provider';
     SyncOpsService,
     ManualInventorySyncProvider,
     MockAggregatorInventorySyncProvider,
+    QubeMockInventorySyncProvider,
   ],
   exports: [
     SyncEventProcessor,
@@ -53,12 +59,22 @@ export class InventorySyncModule implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly manual: ManualInventorySyncProvider,
     private readonly mock: MockAggregatorInventorySyncProvider,
+    private readonly qubeMock: QubeMockInventorySyncProvider,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this.manual);
     if (this.config.get<boolean>('INVENTORY_SYNC_MOCK_PROVIDER_ENABLED')) {
       this.registry.register(this.mock);
+    }
+    /*
+      One switch for one sandbox. The Qube sandbox has three adapters — inventory authority,
+      booking lifecycle, catalogue sync — and they describe the same invented cinema, so
+      registering them independently would let a deployment sell from a catalogue it cannot
+      sync, or sync one it cannot sell. `INVENTORY_QUBE_MOCK_ENABLED` turns on all three.
+    */
+    if (this.config.get<boolean>('INVENTORY_QUBE_MOCK_ENABLED')) {
+      this.registry.register(this.qubeMock);
     }
   }
 }

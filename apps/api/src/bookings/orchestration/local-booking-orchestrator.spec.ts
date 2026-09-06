@@ -71,6 +71,8 @@ function make(
     },
     bookingWorkflow: { findMany: jest.fn().mockResolvedValue([]) },
     booking: { findUnique: jest.fn() },
+    // No binding: this session's inventory is ours, which is the ordinary case.
+    providerMapping: { findFirst: jest.fn().mockResolvedValue(null) },
   } as unknown as PrismaService;
   const config = {
     get: jest.fn((k: string) =>
