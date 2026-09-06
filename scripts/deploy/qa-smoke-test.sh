@@ -57,11 +57,36 @@ case "$b" in
   *) fail 'API readiness /api/ready' "${b:-no response}" ;;
 esac
 
+# Metrics must be CLOSED to an anonymous caller.
+#
+# This asserted HTTP 200 — that the scrape endpoint answered anybody who asked. It was written
+# when `/api/metrics` was `@Public()`, and it kept failing after the endpoint was locked down,
+# so every run of this script reported two red lines for a control working exactly as designed.
+# A check that always fails is worse than no check: it teaches whoever reads the output to skim
+# past red.
+#
+# What the endpoint publishes is `etg_gmv_minor_total` and the payment counters — revenue,
+# order volume and failure rates. 401 (a token is set, none was presented) and 404 (no token
+# configured, so the route behaves as if absent) are both closed; 200 is the failure.
 c=$(code_of "$API_BASE/api/metrics")
-[ "$c" = 200 ] && pass 'API metrics endpoint responds' "HTTP $c" || fail 'API metrics endpoint' "HTTP $c"
+if unreachable "$c"; then
+  fail 'metrics endpoint is closed to the public' 'no response'
+elif [ "$c" = 200 ]; then
+  fail 'metrics endpoint is closed to the public' "HTTP 200 — revenue counters are readable by anyone"
+else
+  pass 'metrics are closed to an anonymous caller' "HTTP $c"
+fi
 
-b=$(body_of "$API_BASE/api/metrics")
-case "$b" in *etg_*) pass 'metrics carry the etg_ namespace (the app answered, not a proxy)' ;; *) fail 'metrics namespace' ;; esac
+# With a token, prove the app itself answered rather than a proxy or an error page.
+if [ -n "${METRICS_TOKEN:-}" ]; then
+  b=$(body_of -H "Authorization: Bearer $METRICS_TOKEN" "$API_BASE/api/metrics")
+  case "$b" in
+    *etg_*) pass 'an authorised scrape carries the etg_ namespace' ;;
+    *) fail 'authorised metrics scrape' "${b:-no response}" ;;
+  esac
+else
+  skip 'authorised metrics scrape' 'set METRICS_TOKEN to check the scrape body'
+fi
 
 # ── 2. Web tiers ─────────────────────────────────────────────────────────────
 section '2. Web applications'
