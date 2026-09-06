@@ -3693,6 +3693,17 @@ export interface AnalyticsRevenue {
   netMinor: number;
   confirmedBookings: number;
 }
+/** The same figures, labelled with the currency they are in. */
+export interface AnalyticsCurrencyRevenue extends AnalyticsRevenue {
+  currency: string;
+}
+/** One market an organization trades in, and what it took there. */
+export interface AnalyticsCountryRevenue {
+  country: string;
+  currency: string;
+  grossMinor: number;
+  bookings: number;
+}
 export interface OrganizerAnalytics {
   organizationId: string;
   attendance: { issued: number; checkedIn: number; checkInRate: number };
@@ -3700,11 +3711,26 @@ export interface OrganizerAnalytics {
   repeatVisitors: { totalCustomers: number; repeatCustomers: number; rate: number };
   topTicketType: { name: string; quantity: number } | null;
   capacity: { sold: number; capacity: number; utilization: number };
-  /** Present only for OWNER/MANAGER + platform admins. */
-  revenue?: AnalyticsRevenue;
-  refunds?: { count: number; amountMinor: number; refundRate: number };
-  coupons?: { redemptions: number; discountMinor: number };
-  topEvents?: { eventId: string; title: string; grossMinor: number; bookings: number }[];
+  /**
+   * Present only for OWNER/MANAGER + platform admins, and a LIST.
+   *
+   * An organizer with venues in two countries has two sets of figures, not one. There is no
+   * correct combined total — the platform has no exchange-rate source, and inventing a
+   * reporting currency would show a number nobody was ever charged — so the dashboard renders
+   * one block per currency.
+   */
+  revenue?: AnalyticsCurrencyRevenue[];
+  refunds?: { currency: string; count: number; amountMinor: number; refundRate: number }[];
+  coupons?: { currency: string; redemptions: number; discountMinor: number }[];
+  /** Where the money came from. Empty for an organizer trading in one place. */
+  countries?: AnalyticsCountryRevenue[];
+  topEvents?: {
+    eventId: string;
+    title: string;
+    currency: string;
+    grossMinor: number;
+    bookings: number;
+  }[];
 }
 export interface VenueAnalytics {
   venue: { id: string; name: string; city: string };
@@ -4279,9 +4305,9 @@ export interface DailyRevenuePoint {
   netMinor: number;
   bookings: number;
 }
-export interface DailyRevenueReport {
-  from: string;
-  to: string;
+/** A whole revenue report, for one currency. */
+export interface CurrencyRevenueReport {
+  currency: string;
   totals: {
     grossMinor: number;
     platformFeesMinor: number;
@@ -4291,9 +4317,23 @@ export interface DailyRevenueReport {
   };
   series: DailyRevenuePoint[];
 }
+export interface DailyRevenueReport {
+  from: string;
+  to: string;
+  /**
+   * One block per currency traded in the window.
+   *
+   * This was a single `totals` and `series`, summed across every booking on the platform —
+   * valid only while every seller was in one country. There is no combined figure to offer
+   * instead: converting needs an exchange-rate source this platform does not have.
+   */
+  byCurrency: CurrencyRevenueReport[];
+}
 export interface OrganizerRevenueRow {
   organizationId: string;
   organizationName: string;
+  /** An organization selling in two currencies appears once per currency. */
+  currency: string;
   grossMinor: number;
   platformFeesMinor: number;
   refundsMinor: number;
@@ -4328,8 +4368,11 @@ export interface RefundReport {
 export interface PlatformFeesReport {
   from: string;
   to: string;
-  totals: { platformFeesMinor: number };
-  series: { day: string; feesMinor: number }[];
+  byCurrency: {
+    currency: string;
+    totals: { platformFeesMinor: number };
+    series: { day: string; feesMinor: number }[];
+  }[];
 }
 export interface TaxReport {
   from: string;

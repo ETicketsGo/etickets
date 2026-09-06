@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ExperienceType, PayoutStatus, RefundStatus } from '@eticketsgo/shared-types';
+import { ExperienceType, PayoutStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayoutsService } from '../payouts/payouts.service';
 import { AnalyticsService } from './analytics.service';
@@ -48,9 +48,23 @@ export interface DailyRevenuePoint {
   netMinor: number;
   bookings: number;
 }
-export interface DailyRevenueReport {
-  from: Date;
-  to: Date;
+
+/**
+ * A whole report, for one currency.
+ *
+ * ── WHY THE REPORT IS A LIST NOW ───────────────────────────────────────────────────
+ * These figures were `SUM("subtotalMinor")` across every booking on the platform. That is a
+ * valid number only while every seller is in one country. The moment a second currency
+ * appears it is rupees plus dollars, printed with one symbol, in a report an operator uses to
+ * decide things.
+ *
+ * There is no correct combined total to offer instead: converting needs an exchange-rate
+ * source this platform does not have and a rate valid at the time of each sale. So the report
+ * is per currency, and an operator reading a single-currency platform sees exactly what they
+ * saw before.
+ */
+export interface CurrencyRevenueReport {
+  currency: string;
   totals: {
     grossMinor: number;
     platformFeesMinor: number;
@@ -61,9 +75,18 @@ export interface DailyRevenueReport {
   series: DailyRevenuePoint[];
 }
 
+export interface DailyRevenueReport {
+  from: Date;
+  to: Date;
+  /** One entry per currency traded in the window, largest gross first. */
+  byCurrency: CurrencyRevenueReport[];
+}
+
 export interface OrganizerRevenueRow {
   organizationId: string;
   organizationName: string;
+  /** An organization selling in two currencies appears once per currency. */
+  currency: string;
   grossMinor: number;
   platformFeesMinor: number;
   refundsMinor: number;
@@ -110,75 +133,126 @@ export class BusinessReportsService {
   // ─────────────────────── 1. Daily revenue (time series) ───────────────────────
 
   async dailyRevenue(from: Date, to: Date): Promise<DailyRevenueReport> {
-    const [totals, refundTotals, grossByDay, refundByDay] = await Promise.all([
-      // Reuse: single-aggregate revenue block (gross + platform fees).
-      this.analytics.revenue(this.confirmedRange(from, to)),
-      // Reuse: single-aggregate completed-refund block.
-      this.analytics.refundStats({ createdAt: { gte: from, lte: to } }),
-      // Time dimension: one grouped date_trunc (no per-day loop).
+    /*
+      Every query here carries `currency` in its GROUP BY.
+
+      The previous version summed each column across all bookings and then handed the result
+      to a page that formatted it with one symbol. Adding a currency column to the grouping is
+      the entire fix — the totals were never a formatting problem, they were an invalid sum.
+    */
+    const [revenueRows, refundRows, grossByDay, refundByDay] = await Promise.all([
+      this.analytics.revenueByCurrency(this.confirmedRange(from, to)),
+      this.analytics.refundStatsByCurrency({ from, to }),
       this.prisma.$queryRaw<
-        { day: Date; gross: bigint; bookingfee: bigint; paymentfee: bigint; bookings: bigint }[]
+        {
+          day: Date;
+          currency: string;
+          gross: bigint;
+          bookingfee: bigint;
+          paymentfee: bigint;
+          bookings: bigint;
+        }[]
       >`
         SELECT date_trunc('day', "confirmedAt") AS day,
+               "currency" AS currency,
                SUM("subtotalMinor")::bigint AS gross,
                SUM("bookingFeeMinor")::bigint AS bookingfee,
                SUM("paymentFeeMinor")::bigint AS paymentfee,
                COUNT(*)::bigint AS bookings
         FROM "Booking"
         WHERE "confirmedAt" IS NOT NULL AND "confirmedAt" >= ${from} AND "confirmedAt" <= ${to}
-        GROUP BY 1 ORDER BY 1 ASC
+        GROUP BY 1, 2 ORDER BY 1 ASC
       `,
-      this.prisma.$queryRaw<{ day: Date; refunds: bigint }[]>`
-        SELECT date_trunc('day', "createdAt") AS day, SUM("amountMinor")::bigint AS refunds
-        FROM "Refund"
-        WHERE "status" = 'COMPLETED' AND "createdAt" >= ${from} AND "createdAt" <= ${to}
-        GROUP BY 1 ORDER BY 1 ASC
+      this.prisma.$queryRaw<{ day: Date; currency: string; refunds: bigint }[]>`
+        SELECT date_trunc('day', r."createdAt") AS day,
+               b."currency" AS currency,
+               SUM(r."amountMinor")::bigint AS refunds
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."status" = 'COMPLETED' AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
+        GROUP BY 1, 2 ORDER BY 1 ASC
       `,
     ]);
 
-    const byDay = new Map<string, DailyRevenuePoint>();
-    for (const r of grossByDay) {
-      const key = dayKey(r.day);
-      byDay.set(key, {
+    const refundTotals = new Map(refundRows.map((r) => [r.currency, r.amountMinor]));
+    /** currency → day → point. */
+    const byCurrency = new Map<string, Map<string, DailyRevenuePoint>>();
+    const dayMap = (currency: string) => {
+      const existing = byCurrency.get(currency);
+      if (existing) return existing;
+      const created = new Map<string, DailyRevenuePoint>();
+      byCurrency.set(currency, created);
+      return created;
+    };
+    const point = (currency: string, key: string): DailyRevenuePoint => {
+      const days = dayMap(currency);
+      const found = days.get(key);
+      if (found) return found;
+      const created: DailyRevenuePoint = {
         day: key,
-        grossMinor: Number(r.gross),
-        platformFeesMinor: Number(r.bookingfee) + Number(r.paymentfee),
+        grossMinor: 0,
+        platformFeesMinor: 0,
         refundsMinor: 0,
         netMinor: 0,
-        bookings: Number(r.bookings),
-      });
+        bookings: 0,
+      };
+      days.set(key, created);
+      return created;
+    };
+
+    for (const r of grossByDay) {
+      const p = point(r.currency, dayKey(r.day));
+      p.grossMinor = Number(r.gross);
+      p.platformFeesMinor = Number(r.bookingfee) + Number(r.paymentfee);
+      p.bookings = Number(r.bookings);
     }
     for (const r of refundByDay) {
-      const key = dayKey(r.day);
-      const point =
-        byDay.get(key) ??
-        ({
-          day: key,
+      point(r.currency, dayKey(r.day)).refundsMinor = Number(r.refunds);
+    }
+
+    const reports = revenueRows.map((rev) => {
+      const refundsMinor = refundTotals.get(rev.currency) ?? 0;
+      const series = [...(byCurrency.get(rev.currency)?.values() ?? [])]
+        .sort((a, b) => a.day.localeCompare(b.day))
+        .map((p) => ({ ...p, netMinor: p.grossMinor - p.refundsMinor }));
+      return {
+        currency: rev.currency,
+        totals: {
+          grossMinor: rev.grossMinor,
+          platformFeesMinor: rev.bookingFeesMinor + rev.paymentFeesMinor,
+          refundsMinor,
+          netMinor: rev.grossMinor - refundsMinor,
+          bookings: rev.confirmedBookings,
+        },
+        series,
+      };
+    });
+
+    /*
+      A currency with refunds but no sales in the window still gets a block. Dropping it would
+      hide money that moved — the one thing a revenue report must not do.
+    */
+    for (const r of refundRows) {
+      if (reports.some((x) => x.currency === r.currency)) continue;
+      reports.push({
+        currency: r.currency,
+        totals: {
           grossMinor: 0,
           platformFeesMinor: 0,
-          refundsMinor: 0,
-          netMinor: 0,
+          refundsMinor: r.amountMinor,
+          netMinor: -r.amountMinor,
           bookings: 0,
-        } satisfies DailyRevenuePoint);
-      point.refundsMinor = Number(r.refunds);
-      byDay.set(key, point);
+        },
+        series: [...(byCurrency.get(r.currency)?.values() ?? [])]
+          .sort((a, b) => a.day.localeCompare(b.day))
+          .map((p) => ({ ...p, netMinor: p.grossMinor - p.refundsMinor })),
+      });
     }
-    const series = [...byDay.values()]
-      .sort((a, b) => a.day.localeCompare(b.day))
-      .map((p) => ({ ...p, netMinor: p.grossMinor - p.refundsMinor }));
 
-    const platformFeesMinor = totals.bookingFeesMinor + totals.paymentFeesMinor;
     return {
       from,
       to,
-      totals: {
-        grossMinor: totals.grossMinor,
-        platformFeesMinor,
-        refundsMinor: refundTotals.amountMinor,
-        netMinor: totals.grossMinor - refundTotals.amountMinor,
-        bookings: totals.confirmedBookings,
-      },
-      series,
+      byCurrency: reports.sort((a, b) => b.totals.grossMinor - a.totals.grossMinor),
     };
   }
 
@@ -186,9 +260,16 @@ export class BusinessReportsService {
 
   async organizerRevenue(from: Date, to: Date, limit?: number) {
     const [grouped, refundGroups] = await Promise.all([
-      // Single grouped aggregate — one row per org, no per-org fan-out.
+      /*
+        Grouped by organization AND currency.
+
+        An organization selling in two countries appears twice — once per currency — rather
+        than once with the two added together. That is not a presentation choice: the sum of a
+        rupee and a dollar is not a quantity, and a "Top Organizers" table ordered on it ranks
+        by an accident of exchange rates nobody applied.
+      */
       this.prisma.booking.groupBy({
-        by: ['organizationId'],
+        by: ['organizationId', 'currency'],
         where: { confirmedAt: { gte: from, lte: to } },
         _sum: {
           subtotalMinor: true,
@@ -198,15 +279,21 @@ export class BusinessReportsService {
         },
         _count: { _all: true },
       }),
-      this.prisma.refund.groupBy({
-        by: ['organizationId'],
-        where: { status: RefundStatus.COMPLETED, createdAt: { gte: from, lte: to } },
-        _sum: { amountMinor: true },
-      }),
+      // Refunds carry no currency of their own; the booking they returned money from does.
+      this.prisma.$queryRaw<{ organizationid: string; currency: string; amount: bigint }[]>`
+        SELECT r."organizationId" AS organizationid,
+               b."currency" AS currency,
+               SUM(r."amountMinor")::bigint AS amount
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."status" = 'COMPLETED' AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
+        GROUP BY 1, 2
+      `,
     ]);
 
+    const key = (organizationId: string, currency: string) => `${organizationId}|${currency}`;
     const refundByOrg = new Map(
-      refundGroups.map((g) => [g.organizationId, g._sum.amountMinor ?? 0]),
+      refundGroups.map((g) => [key(g.organizationid, g.currency), Number(g.amount)]),
     );
     const orgs = await this.prisma.organization.findMany({
       where: { id: { in: grouped.map((g) => g.organizationId) } },
@@ -217,10 +304,11 @@ export class BusinessReportsService {
     let organizers: OrganizerRevenueRow[] = grouped.map((g) => {
       const gross = g._sum.subtotalMinor ?? 0;
       const organizerFee = g._sum.organizerFeeMinor ?? 0;
-      const refunds = refundByOrg.get(g.organizationId) ?? 0;
+      const refunds = refundByOrg.get(key(g.organizationId, g.currency)) ?? 0;
       return {
         organizationId: g.organizationId,
         organizationName: nameByOrg.get(g.organizationId) ?? g.organizationId,
+        currency: g.currency,
         grossMinor: gross,
         platformFeesMinor: (g._sum.bookingFeeMinor ?? 0) + (g._sum.paymentFeeMinor ?? 0),
         refundsMinor: refunds,
@@ -229,8 +317,19 @@ export class BusinessReportsService {
         bookings: g._count._all,
       };
     });
-    organizers.sort((a, b) => b.grossMinor - a.grossMinor);
-    if (limit && limit > 0) organizers = organizers.slice(0, limit);
+    /*
+      Sorted within a currency, then by currency, so the ordering never compares two units.
+      A single-currency platform reads exactly as it did.
+    */
+    organizers.sort((a, b) => a.currency.localeCompare(b.currency) || b.grossMinor - a.grossMinor);
+    if (limit && limit > 0) {
+      const seen = new Map<string, number>();
+      organizers = organizers.filter((row) => {
+        const n = (seen.get(row.currency) ?? 0) + 1;
+        seen.set(row.currency, n);
+        return n <= limit;
+      });
+    }
     return { from, to, organizers };
   }
 
@@ -318,8 +417,13 @@ export class BusinessReportsService {
     return {
       from,
       to,
-      totals: { platformFeesMinor: daily.totals.platformFeesMinor },
-      series: daily.series.map((s) => ({ day: s.day, feesMinor: s.platformFeesMinor })),
+      // Per currency, for the same reason as everything else here: the platform's fee income
+      // in rupees and in dollars are two figures, and one of them is not the sum.
+      byCurrency: daily.byCurrency.map((c) => ({
+        currency: c.currency,
+        totals: { platformFeesMinor: c.totals.platformFeesMinor },
+        series: c.series.map((s) => ({ day: s.day, feesMinor: s.platformFeesMinor })),
+      })),
     };
   }
 
@@ -517,16 +621,34 @@ export class BusinessReportsService {
 
   async dailyRevenueCsv(from: Date, to: Date): Promise<string> {
     const r = await this.dailyRevenue(from, to);
+    /*
+      `currency` is the first column, not a footnote.
+      
+      A spreadsheet is where a mixed-currency export does the most damage: the first thing
+      anyone does with a column of numbers is total it, and nothing in a CSV warns them that
+      two of the rows are in a different unit.
+    */
     return toCsv(
-      ['day', 'grossMinor', 'platformFeesMinor', 'refundsMinor', 'netMinor', 'bookings'],
-      r.series.map((s) => [
-        s.day,
-        s.grossMinor,
-        s.platformFeesMinor,
-        s.refundsMinor,
-        s.netMinor,
-        s.bookings,
-      ]),
+      [
+        'currency',
+        'day',
+        'grossMinor',
+        'platformFeesMinor',
+        'refundsMinor',
+        'netMinor',
+        'bookings',
+      ],
+      r.byCurrency.flatMap((c) =>
+        c.series.map((s) => [
+          c.currency,
+          s.day,
+          s.grossMinor,
+          s.platformFeesMinor,
+          s.refundsMinor,
+          s.netMinor,
+          s.bookings,
+        ]),
+      ),
     );
   }
 

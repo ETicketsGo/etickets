@@ -138,9 +138,21 @@ export class OrganizerAiService {
     let answer: string;
 
     if (/refund/.test(q)) {
+      /*
+        One clause per currency, joined — never a single figure.
+
+        These answers used to read the organization's totals as one number, which is only a
+        number when the organization sells in one currency. An organizer with venues in two
+        countries was told their refunds came to a sum of rupees and dollars added together,
+        in a sentence with a single symbol on it.
+      */
       const r = analytics.refunds;
       answer = r
-        ? `Refunds: ${r.count} totalling ${formatMinor(r.amountMinor)}.`
+        ? r.length === 0
+          ? 'No refunds have been completed.'
+          : `Refunds: ${r
+              .map((x) => `${x.count} totalling ${formatMinor(x.amountMinor, x.currency)}`)
+              .join('; ')}.`
         : 'Refund figures are restricted to owners and managers.';
       sources.push('analytics.refunds');
     } else if (/best|top|which ticket/.test(q)) {
@@ -151,10 +163,12 @@ export class OrganizerAiService {
       sources.push('analytics.topTicketType');
     } else if (/coupon/.test(q)) {
       const c = analytics.coupons;
-      answer =
-        c !== undefined
-          ? `${c} confirmed booking(s) used a coupon.`
-          : 'Coupon figures are restricted to owners and managers.';
+      answer = c
+        ? c.length === 0
+          ? 'No confirmed booking has used a coupon.'
+          : `${c.reduce((n, x) => n + x.redemptions, 0)} confirmed booking(s) used a coupon, ` +
+            `discounting ${c.map((x) => formatMinor(x.discountMinor, x.currency)).join(' and ')}.`
+        : 'Coupon figures are restricted to owners and managers.';
       sources.push('analytics.coupons');
     } else if (/today/.test(q)) {
       answer = await this.todaysSales(organizationId);
@@ -168,9 +182,13 @@ export class OrganizerAiService {
     } else if (/sell|sales|performing|revenue|how are/.test(q)) {
       const conv = analytics.conversion;
       const rev = analytics.revenue;
+      const gross =
+        rev && rev.length > 0
+          ? rev.map((r) => formatMinor(r.grossMinor, r.currency)).join(' and ')
+          : null;
       answer =
         `${conv.confirmed} confirmed of ${conv.total} bookings (${Math.round(conv.rate * 100)}% conversion)` +
-        (rev ? `, ${formatMinor(rev.grossMinor)} gross.` : '.');
+        (gross ? `, ${gross} gross.` : '.');
       sources.push('analytics.conversion', 'analytics.revenue');
     } else {
       answer =

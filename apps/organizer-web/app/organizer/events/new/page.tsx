@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import {
@@ -128,6 +129,19 @@ function NewEventWizard() {
     and the organizer has no way to notice.
   */
   const chosenVenue = venuesQ.data?.find((v) => v.id === venueId);
+  /*
+    What the room holds, if anybody has said.
+
+    Kept separate from the ticket quantities on purpose: capacity is a fact about the
+    building and quantity is a decision about this event. They are not the same number and
+    the wizard asks for both, one step apart, which is why they get mistaken for each other.
+  */
+  const venueCapacity =
+    venueMode === 'new'
+      ? newVenue.capacity
+        ? Number(newVenue.capacity)
+        : null
+      : (chosenVenue?.capacity ?? null);
   const eventCountry = venueMode === 'new' ? newVenueWhere.country : chosenVenue?.country;
   const eventCurrency = currencyForCountry(eventCountry) ?? 'INR';
   /* Symbol only — the field holds a plain number, so a formatted amount would be misleading. */
@@ -424,9 +438,16 @@ function NewEventWizard() {
                   />
                   <Input
                     id="vcap"
-                    label="Capacity"
+                    label="Venue capacity"
                     type="number"
                     value={newVenue.capacity}
+                    /*
+                      Named and explained, because it was read as "how many tickets am I
+                      selling" — which is the NEXT step's question and a different number.
+                      This one is a fact about the building; that one is a decision about
+                      this event.
+                    */
+                    hint="How many people the room holds. Each ticket type sets its own quantity — we warn you if they add up to more than this."
                     onChange={(e) => setNewVenue({ ...newVenue, capacity: e.target.value })}
                   />
                 </div>
@@ -512,14 +533,40 @@ function NewEventWizard() {
                       </option>
                     ))}
                   </Select>
+                  {/*
+                    ── WHY THIS DROPDOWN OFTEN HAS ONE OPTION ──────────────────────────
+                    It lists rooms that have a PUBLISHED seat map, and a new organization has
+                    none — so it shows "General admission" alone and reads as broken rather
+                    than as empty.
+
+                    The hint explaining that used to end "— Venues → Rooms", which is not
+                    where rooms are: the section is called "Rooms & seat maps" and lives at
+                    its own place in the sidebar. Sending somebody to a menu path that does
+                    not exist is worse than saying nothing, and this product has already lost
+                    the seat-map feature once to exactly that kind of misdirection. It is now
+                    a link, so it is one click rather than a hunt.
+                  */}
                   <p className="mt-1.5 text-caption text-text-muted">
-                    {roomsQ.isError
-                      ? "We couldn't load your rooms, so only general admission is available here."
-                      : s.screenId
-                        ? `Buyers pick a named seat. Ticket types are created from this room's seat categories and priced from them, so you won't need to add any on the next step.`
-                        : roomsQ.data?.length === 0
-                          ? 'Buyers choose how many tickets they want. To sell numbered seats, publish a seat map for a room first — Venues → Rooms.'
-                          : 'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'}
+                    {roomsQ.isError ? (
+                      "We couldn't load your rooms, so only general admission is available here."
+                    ) : s.screenId ? (
+                      `Buyers pick a named seat. Ticket types are created from this room's seat categories and priced from them, so you won't need to add any on the next step.`
+                    ) : roomsQ.data?.length === 0 ? (
+                      <>
+                        Buyers choose how many tickets they want — this is the only option because
+                        none of your rooms has a published seat map yet. To sell numbered seats,
+                        draw one under{' '}
+                        <Link
+                          href="/organizer/cinemas"
+                          className="font-medium text-action-primary underline underline-offset-2"
+                        >
+                          Rooms &amp; seat maps
+                        </Link>
+                        , then come back.
+                      </>
+                    ) : (
+                      'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'
+                    )}
                   </p>
                 </div>
                 {sessions.length > 1 && (
@@ -561,6 +608,35 @@ function NewEventWizard() {
 
         {step === 3 && !allSeated && (
           <div className="space-y-4">
+            {/*
+              ── MORE TICKETS THAN THE ROOM HOLDS ──────────────────────────────────────
+              A warning, not a block. Overselling a stated capacity is usually a mistake and
+              occasionally deliberate — standing room, a capacity nobody updated, two
+              sessions sharing one venue record — and the platform does not know which. What
+              it can do is notice, say so with both numbers, and let the organizer decide.
+
+              Counted per SESSION, because that is what fills the room. Summing every ticket
+              type across a three-night run and comparing that to one night's capacity would
+              cry wolf on the most ordinary setup there is.
+            */}
+            {venueCapacity !== null &&
+              gaSessions.map(({ i }) => {
+                const forSession = tickets
+                  .filter((t) => t.sessionIndex === i)
+                  .reduce((n, t) => n + (Number(t.quantityTotal) || 0), 0);
+                if (forSession <= venueCapacity) return null;
+                return (
+                  <p
+                    key={`cap-${i}`}
+                    role="status"
+                    className="rounded-md border border-status-warning/40 bg-tint-warning px-3 py-2 text-caption text-status-warning"
+                  >
+                    Session {i + 1} has {forSession.toLocaleString()} tickets on sale but the venue
+                    holds {venueCapacity.toLocaleString()}. Capacity is what the room seats;
+                    quantity is what you put on sale — change one of them if that is not deliberate.
+                  </p>
+                );
+              })}
             {sessions.some((x) => x.screenId) && (
               // Otherwise the shorter list of sessions in the dropdown below reads as a bug.
               <p className="text-caption text-text-muted">
@@ -638,9 +714,10 @@ function NewEventWizard() {
                 />
                 <Input
                   id={`tq${i}`}
-                  label="Quantity"
+                  label="Quantity on sale"
                   type="number"
                   value={t.quantityTotal}
+                  hint="How many of THIS ticket type are for sale. Not the venue's capacity."
                   onChange={(e) =>
                     setTickets(
                       tickets.map((x, j) =>

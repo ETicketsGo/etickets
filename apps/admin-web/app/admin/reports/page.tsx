@@ -124,50 +124,75 @@ function Section<T>({
 
 // ─────────────────────────── Sections ───────────────────────────
 
+/**
+ * One heading per currency, so nothing on this page is ever two units added together.
+ *
+ * The report used to be a single set of totals and one chart. That is correct for a platform
+ * with one market and arithmetic on incompatible units for a platform with two — a ₹799 sale
+ * and a $20 sale came back as 81,900 of something, drawn on one axis with one symbol.
+ *
+ * A single-currency platform renders exactly one block and reads as it always did.
+ */
+function CurrencyHeading({ currency }: { currency: string }) {
+  return (
+    <h3 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+      {currency}
+    </h3>
+  );
+}
+
 function DailyRevenueSection({ range }: { range: ReportRange }) {
   const query = useQuery({
     queryKey: ['admin', 'reports', 'daily-revenue', range],
     queryFn: () => api.admin.reports.dailyRevenue(range),
   });
-  const maxGross = Math.max(1, ...(query.data?.series.map((s) => s.grossMinor) ?? [1]));
   return (
-    <Section query={query} isEmpty={(d) => d.series.length === 0}>
+    <Section query={query} isEmpty={(d) => d.byCurrency.length === 0}>
       {(d) => (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
-              label="Gross ticket sales"
-              value={money(d.totals.grossMinor)}
-              tone="success"
-            />
-            <MetricCard
-              label="Platform fees"
-              value={money(d.totals.platformFeesMinor)}
-              tone="info"
-            />
-            <MetricCard
-              label="Refunds"
-              value={money(d.totals.refundsMinor)}
-              tone={d.totals.refundsMinor > 0 ? 'warning' : 'neutral'}
-            />
-            <MetricCard label="Net GMV" value={money(d.totals.netMinor)} />
-          </div>
-          <Card
-            title="Gross by day"
-            action={<ExportCsvButton report="daily-revenue" params={range} />}
-          >
-            <div className="space-y-2.5">
-              {d.series.map((s) => (
-                <BarRow
-                  key={s.day}
-                  label={s.day}
-                  value={s.grossMinor}
-                  max={maxGross}
-                  display={money(s.grossMinor)}
-                />
-              ))}
-            </div>
-          </Card>
+        <div className="space-y-8">
+          {d.byCurrency.map((c) => {
+            /* Scaled within its own currency — a shared axis would compare paise to cents. */
+            const maxGross = Math.max(1, ...c.series.map((s) => s.grossMinor));
+            return (
+              <div key={c.currency} className="space-y-5">
+                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <MetricCard
+                    label="Gross ticket sales"
+                    value={money(c.totals.grossMinor, c.currency)}
+                    tone="success"
+                  />
+                  <MetricCard
+                    label="Platform fees"
+                    value={money(c.totals.platformFeesMinor, c.currency)}
+                    tone="info"
+                  />
+                  <MetricCard
+                    label="Refunds"
+                    value={money(c.totals.refundsMinor, c.currency)}
+                    tone={c.totals.refundsMinor > 0 ? 'warning' : 'neutral'}
+                  />
+                  <MetricCard label="Net GMV" value={money(c.totals.netMinor, c.currency)} />
+                </div>
+                <Card
+                  title={`Gross by day — ${c.currency}`}
+                  action={<ExportCsvButton report="daily-revenue" params={range} />}
+                >
+                  <div className="space-y-2.5">
+                    {c.series.map((s) => (
+                      <BarRow
+                        key={s.day}
+                        label={s.day}
+                        value={s.grossMinor}
+                        max={maxGross}
+                        display={money(s.grossMinor, c.currency)}
+                      />
+                    ))}
+                  </div>
+                </Card>
+              </div>
+            );
+          })}
         </div>
       )}
     </Section>
@@ -181,31 +206,37 @@ function OrganizerRevenueSection({ range }: { range: ReportRange }) {
   });
   const columns: Column<OrganizerRevenueRow>[] = [
     { key: 'org', header: 'Organizer', render: (o) => o.organizationName },
+    /*
+      The currency is a column, not a footnote. An organization trading in two markets appears
+      once per market, and sorting "Gross" across the table would otherwise rank by whichever
+      currency has the smaller minor unit.
+    */
+    { key: 'currency', header: 'Currency', render: (o) => o.currency },
     {
       key: 'gross',
       header: 'Gross',
-      render: (o) => money(o.grossMinor),
+      render: (o) => money(o.grossMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.grossMinor,
     },
     {
       key: 'fees',
       header: 'Platform fees',
-      render: (o) => money(o.platformFeesMinor),
+      render: (o) => money(o.platformFeesMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.platformFeesMinor,
     },
     {
       key: 'refunds',
       header: 'Refunds',
-      render: (o) => money(o.refundsMinor),
+      render: (o) => money(o.refundsMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.refundsMinor,
     },
     {
       key: 'net',
       header: 'Net',
-      render: (o) => <span className="font-semibold">{money(o.netMinor)}</span>,
+      render: (o) => <span className="font-semibold">{money(o.netMinor, o.currency)}</span>,
       sortable: true,
       sortValue: (o) => o.netMinor,
     },
@@ -346,31 +377,38 @@ function PlatformFeesSection({ range }: { range: ReportRange }) {
     queryKey: ['admin', 'reports', 'platform-fees', range],
     queryFn: () => api.admin.reports.platformFees(range),
   });
-  const maxDay = Math.max(1, ...(query.data?.series.map((s) => s.feesMinor) ?? [1]));
   return (
-    <Section query={query} isEmpty={(d) => d.series.length === 0}>
+    <Section query={query} isEmpty={(d) => d.byCurrency.length === 0}>
       {(d) => (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard
-              label="Platform fee revenue"
-              value={money(d.totals.platformFeesMinor)}
-              tone="info"
-            />
-          </div>
-          <Card title="Fees by day">
-            <div className="space-y-2.5">
-              {d.series.map((s) => (
-                <BarRow
-                  key={s.day}
-                  label={s.day}
-                  value={s.feesMinor}
-                  max={maxDay}
-                  display={money(s.feesMinor)}
-                />
-              ))}
-            </div>
-          </Card>
+        <div className="space-y-8">
+          {d.byCurrency.map((c) => {
+            const maxDay = Math.max(1, ...c.series.map((s) => s.feesMinor));
+            return (
+              <div key={c.currency} className="space-y-5">
+                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MetricCard
+                    label="Platform fee revenue"
+                    value={money(c.totals.platformFeesMinor, c.currency)}
+                    tone="info"
+                  />
+                </div>
+                <Card title={`Fees by day — ${c.currency}`}>
+                  <div className="space-y-2.5">
+                    {c.series.map((s) => (
+                      <BarRow
+                        key={s.day}
+                        label={s.day}
+                        value={s.feesMinor}
+                        max={maxDay}
+                        display={money(s.feesMinor, c.currency)}
+                      />
+                    ))}
+                  </div>
+                </Card>
+              </div>
+            );
+          })}
         </div>
       )}
     </Section>

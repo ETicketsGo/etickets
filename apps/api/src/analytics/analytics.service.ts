@@ -30,6 +30,36 @@ export interface RefundMetrics {
   count: number;
   amountMinor: number;
 }
+
+/**
+ * Money, with the currency it is in.
+ *
+ * ── WHY EVERY AGGREGATE NEEDS THIS ─────────────────────────────────────────────────
+ * `SUM("subtotalMinor")` over a set of bookings is only a number if every booking is in the
+ * same currency. The platform sells in eight, an organizer may hold venues in more than one,
+ * and nothing in these queries filtered on it — so a report covering a ₹799 sale and a $20
+ * sale returned 81,900 minor units of nothing at all, formatted with whichever symbol the
+ * page happened to default to.
+ *
+ * It reads as a formatting bug and is not one. The addition itself is invalid, and no symbol
+ * makes it valid. So the aggregates group by currency and the callers render one block each;
+ * there is no code path left that can add two currencies together.
+ */
+export interface CurrencyRevenue extends RevenueMetrics {
+  currency: string;
+}
+export interface CurrencyRefunds extends RefundMetrics {
+  currency: string;
+}
+
+/** One market an organization actually trades in, and what it took there. */
+export interface CountryRevenue {
+  /** As stored on the venue: "India", "United States". */
+  country: string;
+  currency: string;
+  grossMinor: number;
+  bookings: number;
+}
 export interface AttendanceMetrics {
   issued: number;
   checkedIn: number;
@@ -54,11 +84,32 @@ export interface OrganizerAnalytics {
   topTicketType: { name: string; quantity: number } | null;
   /** Capacity utilization across all of the org's ticket types. Non-financial. */
   capacity: { sold: number; capacity: number; utilization: number };
-  /** Present only for OWNER/MANAGER + platform admins. */
-  revenue?: RevenueMetrics;
-  refunds?: RefundMetrics & { refundRate: number };
-  coupons?: { redemptions: number; discountMinor: number };
-  topEvents?: { eventId: string; title: string; grossMinor: number; bookings: number }[];
+  /**
+   * Present only for OWNER/MANAGER + platform admins.
+   *
+   * ── ONE BLOCK PER CURRENCY, NOT ONE TOTAL ──────────────────────────────────────
+   * `revenue` used to be a single set of figures summed across every booking the
+   * organization had ever taken. For an organizer selling in one country that was right; for
+   * one selling in two it was arithmetic on incompatible units, presented with whichever
+   * symbol the dashboard defaulted to.
+   *
+   * There is no correct single total — a platform with no exchange-rate source cannot make
+   * one, and inventing a "reporting currency" would put a number on the screen that nobody
+   * was ever charged. So the answer is a list, and a dashboard showing an organizer with one
+   * currency sees exactly what it always did.
+   */
+  revenue?: CurrencyRevenue[];
+  refunds?: (CurrencyRefunds & { refundRate: number })[];
+  coupons?: { currency: string; redemptions: number; discountMinor: number }[];
+  /** Where the money came from, so a multi-country organizer can see the split. */
+  countries?: CountryRevenue[];
+  topEvents?: {
+    eventId: string;
+    title: string;
+    currency: string;
+    grossMinor: number;
+    bookings: number;
+  }[];
 }
 
 /**
@@ -106,6 +157,111 @@ export class AnalyticsService {
       netMinor: grossMinor - organizerFeesMinor,
       confirmedBookings: agg._count,
     };
+  }
+
+  /**
+   * The same revenue block, split by the currency it was taken in.
+   *
+   * One grouped aggregate rather than a query per currency: the set of currencies is whatever
+   * is in the data, and asking the database which ones exist is cheaper and more honest than
+   * a list maintained here.
+   */
+  async revenueByCurrency(where: Prisma.BookingWhereInput): Promise<CurrencyRevenue[]> {
+    const groups = await this.prisma.booking.groupBy({
+      by: ['currency'],
+      where: { ...where, confirmedAt: { not: null } },
+      _sum: {
+        subtotalMinor: true,
+        bookingFeeMinor: true,
+        paymentFeeMinor: true,
+        organizerFeeMinor: true,
+        discountMinor: true,
+      },
+      _count: { _all: true },
+    });
+    return groups
+      .map((g) => {
+        const grossMinor = g._sum.subtotalMinor ?? 0;
+        const organizerFeesMinor = g._sum.organizerFeeMinor ?? 0;
+        return {
+          currency: g.currency,
+          grossMinor,
+          bookingFeesMinor: g._sum.bookingFeeMinor ?? 0,
+          paymentFeesMinor: g._sum.paymentFeeMinor ?? 0,
+          organizerFeesMinor,
+          discountMinor: g._sum.discountMinor ?? 0,
+          netMinor: grossMinor - organizerFeesMinor,
+          confirmedBookings: g._count._all,
+        };
+      })
+      .sort((a, b) => b.grossMinor - a.grossMinor);
+  }
+
+  /**
+   * Completed refunds, split by the currency of the booking they returned money from.
+   *
+   * A raw join rather than a Prisma `groupBy`: the currency is on `Booking`, and Prisma
+   * cannot group by a field on a relation. Denormalising a `currency` column onto `Refund`
+   * would also work and is the better long-term shape — but it is a money table, and adding
+   * a column to one to make a report easier is not a trade worth making today.
+   */
+  async refundStatsByCurrency(where: {
+    organizationId?: string;
+    from?: Date;
+    to?: Date;
+  }): Promise<CurrencyRefunds[]> {
+    const rows = await this.prisma.$queryRaw<{ currency: string; count: bigint; amount: bigint }[]>`
+      SELECT b."currency" AS currency,
+             COUNT(*)::bigint AS count,
+             SUM(r."amountMinor")::bigint AS amount
+      FROM "Refund" r
+      JOIN "Booking" b ON b."id" = r."bookingId"
+      WHERE r."status" = 'COMPLETED'
+        AND (${where.organizationId ?? null}::text IS NULL OR r."organizationId" = ${where.organizationId ?? null})
+        AND (${where.from ?? null}::timestamptz IS NULL OR r."createdAt" >= ${where.from ?? null})
+        AND (${where.to ?? null}::timestamptz IS NULL OR r."createdAt" <= ${where.to ?? null})
+      GROUP BY 1
+    `;
+    return rows.map((r) => ({
+      currency: r.currency,
+      count: Number(r.count),
+      amountMinor: Number(r.amount),
+    }));
+  }
+
+  /**
+   * What an organization took in each COUNTRY it sells in.
+   *
+   * Country rather than currency, because that is the question an operator asks: "how is my
+   * India business doing against my US one". The two happen to line up across the platform's
+   * eight markets, but they are not the same question — a currency is a property of the
+   * money, a country is a property of the business — and the country is the one they can act
+   * on.
+   *
+   * Taken from the VENUE, which is where the event was held and therefore what decided the
+   * currency, the tax rules and the payment route.
+   */
+  async countryRevenue(organizationId: string): Promise<CountryRevenue[]> {
+    const rows = await this.prisma.$queryRaw<
+      { country: string; currency: string; gross: bigint; bookings: bigint }[]
+    >`
+      SELECT v."country" AS country,
+             b."currency" AS currency,
+             SUM(b."subtotalMinor")::bigint AS gross,
+             COUNT(*)::bigint AS bookings
+      FROM "Booking" b
+      JOIN "Event" e ON e."id" = b."eventId"
+      JOIN "Venue" v ON v."id" = e."venueId"
+      WHERE b."organizationId" = ${organizationId} AND b."confirmedAt" IS NOT NULL
+      GROUP BY 1, 2
+      ORDER BY 3 DESC
+    `;
+    return rows.map((r) => ({
+      country: r.country,
+      currency: r.currency,
+      grossMinor: Number(r.gross),
+      bookings: Number(r.bookings),
+    }));
   }
 
   /** Completed-refund count + amount in one aggregate. Public for report reuse. */
@@ -213,11 +369,21 @@ export class AnalyticsService {
     return { name: ticketType?.name ?? ticketTypeId, quantity: top._sum.quantity ?? 0 };
   }
 
-  /** Confirmed bookings that redeemed a coupon (one count). */
-  private couponRedemptions(where: Prisma.BookingWhereInput): Promise<number> {
-    return this.prisma.booking.count({
+  /** Confirmed bookings that redeemed a coupon, and what was discounted, per currency. */
+  private async couponRedemptions(
+    where: Prisma.BookingWhereInput,
+  ): Promise<{ currency: string; redemptions: number; discountMinor: number }[]> {
+    const groups = await this.prisma.booking.groupBy({
+      by: ['currency'],
       where: { ...where, confirmedAt: { not: null }, couponId: { not: null } },
+      _sum: { discountMinor: true },
+      _count: { _all: true },
     });
+    return groups.map((g) => ({
+      currency: g.currency,
+      redemptions: g._count._all,
+      discountMinor: g._sum.discountMinor ?? 0,
+    }));
   }
 
   /** True when the caller may see money (platform admin, or org OWNER/MANAGER). */
@@ -255,6 +421,7 @@ export class AnalyticsService {
       refunds,
       couponRedemptions,
       topEvents,
+      countries,
     ] = await Promise.all([
       this.attendance({
         organizationId,
@@ -268,10 +435,11 @@ export class AnalyticsService {
         where: { ticketType: { eventSession: { event: { organizationId } } } },
         _sum: { quantityTotal: true, quantitySold: true },
       }),
-      showFinancials ? this.revenue({ organizationId }) : Promise.resolve(null),
-      showFinancials ? this.refundStats({ organizationId }) : Promise.resolve(null),
-      showFinancials ? this.couponRedemptions({ organizationId }) : Promise.resolve(0),
+      showFinancials ? this.revenueByCurrency({ organizationId }) : Promise.resolve(null),
+      showFinancials ? this.refundStatsByCurrency({ organizationId }) : Promise.resolve(null),
+      showFinancials ? this.couponRedemptions({ organizationId }) : Promise.resolve([]),
       showFinancials ? this.topEvents(organizationId) : Promise.resolve(null),
+      showFinancials ? this.countryRevenue(organizationId) : Promise.resolve(null),
     ]);
 
     const capacity = inventory._sum.quantityTotal ?? 0;
@@ -290,25 +458,47 @@ export class AnalyticsService {
     };
 
     if (showFinancials && revenue && refunds) {
-      const refundRate =
-        revenue.grossMinor > 0 ? Math.round((refunds.amountMinor / revenue.grossMinor) * 100) : 0;
-      result.revenue = { ...revenue, netMinor: revenue.netMinor - refunds.amountMinor };
-      result.refunds = { ...refunds, refundRate };
-      result.coupons = { redemptions: couponRedemptions, discountMinor: revenue.discountMinor };
+      /*
+        Refunds are netted off WITHIN a currency, never across.
+
+        A dollar refund does not reduce rupee revenue, and a refund rate computed by dividing
+        one by the other is a percentage of nothing. Matching on currency also means an
+        organizer with refunds in a currency they no longer sell in still sees them, as their
+        own row, rather than having them quietly subtracted from an unrelated total.
+      */
+      const refundByCurrency = new Map(refunds.map((r) => [r.currency, r]));
+      result.revenue = revenue.map((r) => {
+        const refunded = refundByCurrency.get(r.currency)?.amountMinor ?? 0;
+        return { ...r, netMinor: r.netMinor - refunded };
+      });
+      result.refunds = refunds.map((r) => {
+        const gross = revenue.find((v) => v.currency === r.currency)?.grossMinor ?? 0;
+        return { ...r, refundRate: gross > 0 ? Math.round((r.amountMinor / gross) * 100) : 0 };
+      });
+      result.coupons = couponRedemptions;
+      result.countries = countries ?? [];
       result.topEvents = topEvents ?? [];
     }
     return result;
   }
 
   /** Top events by gross confirmed sales for an organization (financials only). */
+  /**
+   * Best-selling events, each carrying the currency it sold in.
+   *
+   * Grouped by currency as well as event, because a "top 5 by revenue" list ordered on raw
+   * minor units ranks a $500 event below a ₹600 one. An event sells in exactly one currency,
+   * so this adds a label rather than splitting any row — and the caller can rank within a
+   * currency instead of across all of them.
+   */
   private async topEvents(organizationId: string) {
     const groups = await this.prisma.booking.groupBy({
-      by: ['eventId'],
+      by: ['eventId', 'currency'],
       where: { organizationId, confirmedAt: { not: null } },
       _sum: { subtotalMinor: true },
       _count: { _all: true },
       orderBy: { _sum: { subtotalMinor: 'desc' } },
-      take: 5,
+      take: 10,
     });
     const events = await this.prisma.event.findMany({
       where: { id: { in: groups.map((g) => g.eventId) } },
@@ -318,6 +508,7 @@ export class AnalyticsService {
     return groups.map((g) => ({
       eventId: g.eventId,
       title: titles.get(g.eventId) ?? 'Untitled',
+      currency: g.currency,
       grossMinor: g._sum.subtotalMinor ?? 0,
       bookings: g._count._all,
     }));

@@ -11,9 +11,25 @@ function bookingGroupBy(args: { by: string[] }) {
     ]);
   }
   if (args.by[0] === 'eventId') {
-    // top-events rows
+    // top-events rows, now carrying the currency the event sold in
     return Promise.resolve([
-      { eventId: 'e1', _sum: { subtotalMinor: 50000 }, _count: { _all: 3 } },
+      { eventId: 'e1', currency: 'INR', _sum: { subtotalMinor: 50000 }, _count: { _all: 3 } },
+    ]);
+  }
+  if (args.by[0] === 'currency') {
+    // revenueByCurrency / couponRedemptions
+    return Promise.resolve([
+      {
+        currency: 'INR',
+        _sum: {
+          subtotalMinor: 100000,
+          bookingFeeMinor: 5000,
+          paymentFeeMinor: 2000,
+          organizerFeeMinor: 3000,
+          discountMinor: 1000,
+        },
+        _count: { _all: 4 },
+      },
     ]);
   }
   // by userId → repeat-visitor rows (one per customer)
@@ -88,7 +104,16 @@ function makeService(
     ticketInventory: {
       aggregate: jest.fn().mockResolvedValue({ _sum: { quantityTotal: 200, quantitySold: 50 } }),
     },
-    $queryRaw: jest.fn().mockResolvedValue([]),
+    /*
+      Two raw joins run for an organizer with financial access, in this order: refunds by the
+      booking's currency, then the country split. Prisma cannot group by a relation field, so
+      both are hand-written SQL rather than `groupBy`.
+    */
+    $queryRaw: jest
+      .fn()
+      .mockResolvedValueOnce([{ currency: 'INR', count: 2n, amount: 10000n }])
+      .mockResolvedValueOnce([{ country: 'India', currency: 'INR', gross: 100000n, bookings: 4n }])
+      .mockResolvedValue([]),
     ...(opts.prisma ?? {}),
   };
   const access = {
@@ -130,12 +155,19 @@ describe('AnalyticsService.organizer', () => {
     const { service } = makeService({ membershipRole: 'ORGANIZER_MANAGER' });
     const r = await service.organizer(owner, 'o1');
 
-    expect(r.revenue?.grossMinor).toBe(100000);
+    /*
+      One block per currency. An organizer selling only in India sees exactly one, which is
+      what they always saw — the difference is that a second country now produces a second
+      block rather than being added into this one.
+    */
+    expect(r.revenue).toHaveLength(1);
+    expect(r.revenue?.[0].currency).toBe('INR');
+    expect(r.revenue?.[0].grossMinor).toBe(100000);
     // net = gross - organizerFee - refunds = 100000 - 3000 - 10000
-    expect(r.revenue?.netMinor).toBe(87000);
+    expect(r.revenue?.[0].netMinor).toBe(87000);
     // refundRate = refundAmount / gross = 10000 / 100000 = 10%
-    expect(r.refunds).toEqual({ count: 2, amountMinor: 10000, refundRate: 10 });
-    expect(r.coupons).toEqual({ redemptions: 4, discountMinor: 1000 });
+    expect(r.refunds).toEqual([{ currency: 'INR', count: 2, amountMinor: 10000, refundRate: 10 }]);
+    expect(r.coupons).toEqual([{ currency: 'INR', redemptions: 4, discountMinor: 1000 }]);
   });
 
   it('gates financial fields: a non-OWNER/MANAGER member sees no money and money queries never run', async () => {
@@ -149,14 +181,79 @@ describe('AnalyticsService.organizer', () => {
     expect(r.attendance.issued).toBe(10);
     // The revenue/refund aggregates must not be issued at all.
     expect(prisma.booking.aggregate).not.toHaveBeenCalled();
-    expect(prisma.refund.aggregate).not.toHaveBeenCalled();
+    // Refunds and the country split are raw joins now; neither may run for a non-financial role.
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('grants financial fields to platform admins regardless of membership', async () => {
     const { service, prisma } = makeService({ isAdmin: true, membershipRole: null });
     const r = await service.organizer(owner, 'o1');
-    expect(r.revenue?.grossMinor).toBe(100000);
+    expect(r.revenue?.[0].grossMinor).toBe(100000);
     expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The grouping itself, not a caller's mock of it.
+ *
+ * ── WHY THIS TEST EXISTS ───────────────────────────────────────────────────────────
+ * The multi-currency report test mocks `revenueByCurrency` and asserts the caller keeps two
+ * blocks apart. That is worth having and it does not touch this function — hardcoding
+ * `currency: 'INR'` here passed every one of those tests, because every fixture above happens
+ * to be Indian. A guarantee is only tested where it is implemented.
+ */
+describe('AnalyticsService.revenueByCurrency', () => {
+  it('labels each block with the currency it was actually taken in', async () => {
+    const { service } = makeService({
+      prisma: {
+        booking: {
+          groupBy: jest.fn().mockResolvedValue([
+            {
+              currency: 'USD',
+              _sum: {
+                subtotalMinor: 2000,
+                bookingFeeMinor: 99,
+                paymentFeeMinor: 42,
+                organizerFeeMinor: 0,
+                discountMinor: 0,
+              },
+              _count: { _all: 1 },
+            },
+            {
+              currency: 'INR',
+              _sum: {
+                subtotalMinor: 79900,
+                bookingFeeMinor: 1500,
+                paymentFeeMinor: 1628,
+                organizerFeeMinor: 500,
+                discountMinor: 0,
+              },
+              _count: { _all: 4 },
+            },
+          ]),
+        },
+      },
+    });
+
+    const rows = await service.revenueByCurrency({ organizationId: 'o1' });
+
+    // Two blocks, each carrying its OWN currency — not one label applied to both.
+    expect(rows.map((r) => r.currency).sort()).toEqual(['INR', 'USD']);
+    expect(rows.find((r) => r.currency === 'USD')?.grossMinor).toBe(2000);
+    expect(rows.find((r) => r.currency === 'INR')?.grossMinor).toBe(79900);
+    // Largest first, within the list — never summed into one figure.
+    expect(rows[0].currency).toBe('INR');
+    expect(rows.reduce((n, r) => n + r.grossMinor, 0)).toBe(81900);
+    // …and that 81900 is deliberately not something the function itself ever returns.
+    expect(rows).toHaveLength(2);
+  });
+
+  it('asks the database to group by currency, so the split is not done in memory', async () => {
+    const { service, prisma } = makeService();
+    await service.revenueByCurrency({ organizationId: 'o1' });
+    expect(prisma.booking.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ by: ['currency'] }),
+    );
   });
 });
 

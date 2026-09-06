@@ -1,11 +1,7 @@
 import { QubeMockInventoryProvider } from './qube-mock.provider';
 import { QubeInventoryProvider } from './qube.provider';
 import { describeCinemaProviderContract } from './cinema-provider-contract';
-import {
-  QUBE_MOCK_CINEMA,
-  QUBE_MOCK_PRESOLD_LABELS,
-  QUBE_MOCK_SHOW_TIMES,
-} from './qube-mock.fixture';
+import { QUBE_MOCK_CINEMA, QUBE_MOCK_PRESOLD_LABELS } from './qube-mock.fixture';
 import { hasCinemaCatalogue, hasSeatMap } from '../../cinema-capabilities.interface';
 import type { LockRequest } from '../../inventory-provider.interface';
 
@@ -78,26 +74,37 @@ describe('QUBE_MOCK as a remote authority', () => {
     expect(times).toContain('10:30');
   });
 
-  it('filters shows by the cinema’s calendar day, not UTC', async () => {
-    const today = new Intl.DateTimeFormat('en-CA', {
+  it('filters shows by the cinema’s calendar day, not the server’s', async () => {
+    /*
+      ── WHY THIS NO LONGER ASKS ABOUT "TODAY" ────────────────────────────────────────
+      It did, and it failed at 23:05 IST. The fixture stopped listing showtimes that have
+      already started — a catalogue advertises what you can still buy — so on any run after
+      the last screening of the day, "today" is legitimately empty and an assertion that it is
+      not is an assertion about the clock.
+
+      The behaviour actually worth pinning is the FILTER: a date means a date at the CINEMA. A
+      server in London asking for the Hyderabad programme on the 8th must get the Hyderabad
+      8th, not a window carved out of its own midnight. That is provable on whichever day the
+      fixture still has shows, at any hour.
+    */
+    const localDate = new Intl.DateTimeFormat('en-CA', {
       timeZone: QUBE_MOCK_CINEMA.timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).format(new Date());
-    const todays = await p.getShows({ date: today });
-    expect(todays.length).toBeGreaterThan(0);
-    // A UTC-based filter would drop the LAST show, which falls on the next UTC day in +05:30.
-    // Taken from the timetable rather than written out, so moving a showtime cannot leave this
-    // test asserting a time the cinema no longer runs.
-    const lastShow = QUBE_MOCK_SHOW_TIMES[QUBE_MOCK_SHOW_TIMES.length - 1];
-    const local = new Intl.DateTimeFormat('en-GB', {
-      timeZone: QUBE_MOCK_CINEMA.timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
     });
-    expect(todays.map((s) => local.format(s.startsAt))).toContain(lastShow);
+    const all = await p.getShows({});
+    expect(all.length).toBeGreaterThan(0);
+
+    // Whichever day the catalogue still advertises, ask for exactly that one.
+    const day = localDate.format(all[0].startsAt);
+    const onThatDay = await p.getShows({ date: day });
+
+    expect(onThatDay.length).toBeGreaterThan(0);
+    // Everything returned is on that cinema-local day …
+    expect(onThatDay.every((show) => localDate.format(show.startsAt) === day)).toBe(true);
+    // … and nothing on that day was left out, which is the half a UTC window gets wrong.
+    expect(onThatDay).toHaveLength(all.filter((s) => localDate.format(s.startsAt) === day).length);
   });
 
   it('never offers an aisle or a blocked seat for sale', async () => {

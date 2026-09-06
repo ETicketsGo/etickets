@@ -33,7 +33,22 @@ function makeService(
       netMinor: 97000,
       confirmedBookings: 10,
     }),
+    revenueByCurrency: jest.fn().mockResolvedValue([
+      {
+        currency: 'INR',
+        grossMinor: 100000,
+        bookingFeesMinor: 5000,
+        paymentFeesMinor: 2000,
+        organizerFeesMinor: 3000,
+        discountMinor: 0,
+        netMinor: 97000,
+        confirmedBookings: 10,
+      },
+    ]),
     refundStats: jest.fn().mockResolvedValue({ count: 2, amountMinor: 8000 }),
+    refundStatsByCurrency: jest
+      .fn()
+      .mockResolvedValue([{ currency: 'INR', count: 2, amountMinor: 8000 }]),
     repeatCustomers: jest
       .fn()
       .mockResolvedValue({ totalCustomers: 3, repeatCustomers: 2, rate: 67 }),
@@ -73,6 +88,7 @@ describe('BusinessReportsService.dailyRevenue', () => {
           .mockResolvedValueOnce([
             {
               day: new Date('2026-07-01'),
+              currency: 'INR',
               gross: 60000n,
               bookingfee: 3000n,
               paymentfee: 1000n,
@@ -80,24 +96,30 @@ describe('BusinessReportsService.dailyRevenue', () => {
             },
             {
               day: new Date('2026-07-02'),
+              currency: 'INR',
               gross: 40000n,
               bookingfee: 2000n,
               paymentfee: 1000n,
               bookings: 4n,
             },
           ])
-          .mockResolvedValueOnce([{ day: new Date('2026-07-02'), refunds: 8000n }]),
+          .mockResolvedValueOnce([
+            { day: new Date('2026-07-02'), currency: 'INR', refunds: 8000n },
+          ]),
       },
     });
 
     const r = await service.dailyRevenue(FROM, TO);
 
     // Reuses the AnalyticsService aggregate helpers (no duplicated totals query).
-    expect(analytics.revenue).toHaveBeenCalledTimes(1);
-    expect(analytics.refundStats).toHaveBeenCalledTimes(1);
+    expect(analytics.revenueByCurrency).toHaveBeenCalledTimes(1);
+    expect(analytics.refundStatsByCurrency).toHaveBeenCalledTimes(1);
 
-    expect(r.series).toHaveLength(2);
-    expect(r.series[0]).toEqual({
+    expect(r.byCurrency).toHaveLength(1);
+    const inr = r.byCurrency[0];
+    expect(inr.currency).toBe('INR');
+    expect(inr.series).toHaveLength(2);
+    expect(inr.series[0]).toEqual({
       day: '2026-07-01',
       grossMinor: 60000,
       platformFeesMinor: 4000,
@@ -105,7 +127,7 @@ describe('BusinessReportsService.dailyRevenue', () => {
       netMinor: 60000,
       bookings: 6,
     });
-    expect(r.series[1]).toEqual({
+    expect(inr.series[1]).toEqual({
       day: '2026-07-02',
       grossMinor: 40000,
       platformFeesMinor: 3000,
@@ -113,7 +135,7 @@ describe('BusinessReportsService.dailyRevenue', () => {
       netMinor: 32000,
       bookings: 4,
     });
-    expect(r.totals).toEqual({
+    expect(inr.totals).toEqual({
       grossMinor: 100000,
       platformFeesMinor: 7000,
       refundsMinor: 8000,
@@ -122,7 +144,7 @@ describe('BusinessReportsService.dailyRevenue', () => {
     });
     // The AnalyticsService.revenue where must carry the range in an AND clause so
     // it survives the helper's forced `confirmedAt: { not: null }`.
-    expect(analytics.revenue).toHaveBeenCalledWith({
+    expect(analytics.revenueByCurrency).toHaveBeenCalledWith({
       AND: [{ confirmedAt: { gte: FROM, lte: TO } }],
     });
     void prisma;
@@ -137,6 +159,7 @@ describe('BusinessReportsService.organizerRevenue', () => {
           groupBy: jest.fn().mockResolvedValue([
             {
               organizationId: 'o2',
+              currency: 'INR',
               _sum: {
                 subtotalMinor: 50000,
                 organizerFeeMinor: 1000,
@@ -147,6 +170,7 @@ describe('BusinessReportsService.organizerRevenue', () => {
             },
             {
               organizationId: 'o1',
+              currency: 'INR',
               _sum: {
                 subtotalMinor: 100000,
                 organizerFeeMinor: 3000,
@@ -157,11 +181,10 @@ describe('BusinessReportsService.organizerRevenue', () => {
             },
           ]),
         },
-        refund: {
-          groupBy: jest
-            .fn()
-            .mockResolvedValue([{ organizationId: 'o1', _sum: { amountMinor: 8000 } }]),
-        },
+        // Refunds are joined to Booking for their currency, so this is a raw query now.
+        $queryRaw: jest
+          .fn()
+          .mockResolvedValue([{ organizationid: 'o1', currency: 'INR', amount: 8000n }]),
         organization: {
           findMany: jest.fn().mockResolvedValue([
             { id: 'o1', name: 'Alpha' },
@@ -176,6 +199,7 @@ describe('BusinessReportsService.organizerRevenue', () => {
     expect(r.organizers[0]).toEqual({
       organizationId: 'o1',
       organizationName: 'Alpha',
+      currency: 'INR',
       grossMinor: 100000,
       platformFeesMinor: 7000,
       refundsMinor: 8000,
@@ -190,14 +214,66 @@ describe('BusinessReportsService.organizerRevenue', () => {
       prisma: {
         booking: {
           groupBy: jest.fn().mockResolvedValue([
-            { organizationId: 'o1', _sum: { subtotalMinor: 100 }, _count: { _all: 1 } },
-            { organizationId: 'o2', _sum: { subtotalMinor: 50 }, _count: { _all: 1 } },
+            {
+              organizationId: 'o1',
+              currency: 'INR',
+              _sum: { subtotalMinor: 100 },
+              _count: { _all: 1 },
+            },
+            {
+              organizationId: 'o2',
+              currency: 'INR',
+              _sum: { subtotalMinor: 50 },
+              _count: { _all: 1 },
+            },
           ]),
         },
       },
     });
     const r = await service.organizerRevenue(FROM, TO, 1);
     expect(r.organizers).toHaveLength(1);
+  });
+
+  /*
+    The limit is per currency, not across the table.
+
+    A global top-5 on a mixed-currency platform is a ranking of two incomparable units: the
+    largest dollar seller loses to a mid-sized Indian one because 100000 paise is a bigger
+    integer than 2000 cents. Per currency, "top 5" means something in each market.
+  */
+  it('applies the top-N limit within each currency, not across them', async () => {
+    const { service } = makeService({
+      prisma: {
+        booking: {
+          groupBy: jest.fn().mockResolvedValue([
+            {
+              organizationId: 'in1',
+              currency: 'INR',
+              _sum: { subtotalMinor: 100000 },
+              _count: { _all: 9 },
+            },
+            {
+              organizationId: 'in2',
+              currency: 'INR',
+              _sum: { subtotalMinor: 90000 },
+              _count: { _all: 8 },
+            },
+            {
+              organizationId: 'us1',
+              currency: 'USD',
+              _sum: { subtotalMinor: 2000 },
+              _count: { _all: 1 },
+            },
+          ]),
+        },
+      },
+    });
+    const r = await service.organizerRevenue(FROM, TO, 1);
+    // One per currency — the US seller is not squeezed out by a larger integer in paise.
+    expect(r.organizers.map((o) => [o.currency, o.organizationId])).toEqual([
+      ['INR', 'in1'],
+      ['USD', 'us1'],
+    ]);
   });
 });
 
@@ -275,6 +351,7 @@ describe('BusinessReportsService.platformFees', () => {
           .mockResolvedValueOnce([
             {
               day: new Date('2026-07-01'),
+              currency: 'INR',
               gross: 60000n,
               bookingfee: 3000n,
               paymentfee: 1000n,
@@ -285,8 +362,8 @@ describe('BusinessReportsService.platformFees', () => {
       },
     });
     const r = await service.platformFees(FROM, TO);
-    expect(r.totals.platformFeesMinor).toBe(7000); // from reused revenue aggregate
-    expect(r.series).toEqual([{ day: '2026-07-01', feesMinor: 4000 }]);
+    expect(r.byCurrency[0].totals.platformFeesMinor).toBe(7000); // from reused revenue aggregate
+    expect(r.byCurrency[0].series).toEqual([{ day: '2026-07-01', feesMinor: 4000 }]);
   });
 });
 
@@ -462,7 +539,7 @@ describe('toCsv (injection-safe)', () => {
     expect(lines[2]).toBe('"\'+cmd","ok"');
   });
 
-  it('dailyRevenueCsv emits a header + one row per day', async () => {
+  it('dailyRevenueCsv leads with the currency, one row per day per currency', async () => {
     const { service } = makeService({
       prisma: {
         $queryRaw: jest
@@ -470,6 +547,7 @@ describe('toCsv (injection-safe)', () => {
           .mockResolvedValueOnce([
             {
               day: new Date('2026-07-01'),
+              currency: 'INR',
               gross: 60000n,
               bookingfee: 3000n,
               paymentfee: 1000n,
@@ -481,10 +559,18 @@ describe('toCsv (injection-safe)', () => {
     });
     const csv = await service.dailyRevenueCsv(FROM, TO);
     const lines = csv.split('\r\n');
+    /*
+      `currency` is the first column, not a footnote.
+
+      A spreadsheet is where a mixed-currency export does the most damage: the first thing
+      anyone does with a column of numbers is total it, and nothing in a CSV warns them that
+      two of the rows are in a different unit.
+    */
     expect(lines[0]).toBe(
-      '"day","grossMinor","platformFeesMinor","refundsMinor","netMinor","bookings"',
+      '"currency","day","grossMinor","platformFeesMinor","refundsMinor","netMinor","bookings"',
     );
     expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain('"INR"');
     expect(lines[1]).toContain('"2026-07-01"');
   });
 });

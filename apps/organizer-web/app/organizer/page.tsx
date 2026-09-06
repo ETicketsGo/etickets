@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   api,
@@ -46,12 +47,31 @@ export default function OrganizerDashboard() {
     analyticsQ.refetch();
   };
 
-  const revenue = analytics?.revenue;
+  /*
+    ── MONEY IS PER MARKET, AND THE ORGANIZER PICKS WHICH ONE ────────────────────────
+    These cards used to read a single revenue figure summed across every booking the
+    organization had ever taken. For an organizer selling in one country that is right; for
+    one selling in two it added rupees to dollars and printed the result with one symbol.
+
+    There is no honest combined total to show instead — this platform has no exchange-rate
+    source — so the dashboard shows ONE market at a time and says which. An organizer with a
+    single market never sees the switch and reads exactly what they read before.
+  */
+  const revenues = analytics?.revenue ?? [];
+  const countries = analytics?.countries ?? [];
+  const [market, setMarket] = useState<string | null>(null);
+  const activeCurrency = market ?? revenues[0]?.currency ?? null;
+  const revenue = revenues.find((r) => r.currency === activeCurrency);
+  const refundsFor = analytics?.refunds?.find((r) => r.currency === activeCurrency);
+  const couponsFor = analytics?.coupons?.find((c) => c.currency === activeCurrency);
+  /** Countries feeding the selected currency — usually one, and named so it can be read. */
+  const marketCountries = countries.filter((c) => c.currency === activeCurrency);
+
   const sum = {
     gross: revenue?.grossMinor ?? 0,
     net: revenue?.netMinor ?? 0,
     fees: revenue?.bookingFeesMinor ?? 0,
-    refunds: analytics?.refunds?.amountMinor ?? 0,
+    refunds: refundsFor?.amountMinor ?? 0,
     sold: analytics?.attendance.issued ?? 0,
     checkins: analytics?.attendance.checkedIn ?? 0,
   };
@@ -63,9 +83,12 @@ export default function OrganizerDashboard() {
   const capacity = analytics?.capacity;
   const conversion = analytics?.conversion;
   const repeat = analytics?.repeatVisitors;
-  const coupons = analytics?.coupons;
-  const refundRate = analytics?.refunds?.refundRate ?? 0;
-  const topEvents = analytics?.topEvents ?? [];
+  const coupons = couponsFor;
+  const refundRate = refundsFor?.refundRate ?? 0;
+  /* Ranked within the selected market: a top-5 across currencies ranks by exchange accident. */
+  const topEvents = (analytics?.topEvents ?? [])
+    .filter((e) => e.currency === activeCurrency)
+    .slice(0, 5);
 
   if (isError)
     return (
@@ -101,16 +124,63 @@ export default function OrganizerDashboard() {
       ) : (
         <div className="space-y-5">
           <div>
-            <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
-              Revenue
-            </h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+                Revenue
+                {marketCountries.length > 0 && (
+                  <span className="ml-2 font-normal normal-case tracking-normal text-text-secondary">
+                    {marketCountries.map((c) => c.country).join(', ')}
+                  </span>
+                )}
+              </h2>
+              {/*
+                Shown only when there IS a choice. A single-market organizer is not asked to
+                make a decision that has one answer.
+              */}
+              {revenues.length > 1 && (
+                <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Market">
+                  {revenues.map((r) => {
+                    const label =
+                      countries.find((c) => c.currency === r.currency)?.country ?? r.currency;
+                    const on = r.currency === activeCurrency;
+                    return (
+                      <button
+                        key={r.currency}
+                        type="button"
+                        role="tab"
+                        aria-selected={on}
+                        onClick={() => setMarket(r.currency)}
+                        className={`rounded-md border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                          on
+                            ? 'border-action-primary bg-tint-primary text-action-primary'
+                            : 'border-border text-text-secondary hover:bg-background-subtle'
+                        }`}
+                      >
+                        {label} · {r.currency}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="Gross sales" value={money(sum.gross)} tone="success" />
-              <MetricCard label="Net revenue" value={money(sum.net)} tone="info" />
-              <MetricCard label="Booking fees" value={money(sum.fees)} />
+              <MetricCard
+                label="Gross sales"
+                value={money(sum.gross, activeCurrency ?? undefined)}
+                tone="success"
+              />
+              <MetricCard
+                label="Net revenue"
+                value={money(sum.net, activeCurrency ?? undefined)}
+                tone="info"
+              />
+              <MetricCard
+                label="Booking fees"
+                value={money(sum.fees, activeCurrency ?? undefined)}
+              />
               <MetricCard
                 label="Refunds"
-                value={money(sum.refunds)}
+                value={money(sum.refunds, activeCurrency ?? undefined)}
                 hint={`${refundRate}% of gross`}
                 tone={sum.refunds > 0 ? 'warning' : 'neutral'}
               />
@@ -159,7 +229,11 @@ export default function OrganizerDashboard() {
               <MetricCard
                 label="Coupons redeemed"
                 value={coupons?.redemptions ?? 0}
-                hint={coupons ? `${money(coupons.discountMinor)} discounted` : '—'}
+                hint={
+                  coupons
+                    ? `${money(coupons.discountMinor, activeCurrency ?? undefined)} discounted`
+                    : '—'
+                }
               />
               <MetricCard
                 label="Most popular ticket"
@@ -227,7 +301,7 @@ export default function OrganizerDashboard() {
                       </span>
                     </Link>
                     <span className="shrink-0 text-caption font-semibold text-text-secondary">
-                      {money(e.grossMinor)}
+                      {money(e.grossMinor, e.currency)}
                     </span>
                   </li>
                 ))}
