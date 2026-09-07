@@ -62,16 +62,31 @@ describe('the declared channel matrix', () => {
     expect(immediateChannels(type).sort()).toEqual([...expected].sort());
   });
 
-  it('a cancelled booking may use SMS, but not straight away', () => {
+  it('a cancelled SHOW may use SMS, but not straight away', () => {
     /*
       Both halves matter. Policy has to PERMIT SMS before anything may use it — that is the
       Phase 1 rule that stops a paid channel being reached by accident. But sending it
       alongside the other three means everybody with a phone gets four messages about one
       cancellation, and we pay for the one they were least likely to need.
     */
-    expect(channelsFor(NotificationType.BOOKING_CANCELLED)).toContain('sms');
-    expect(immediateChannels(NotificationType.BOOKING_CANCELLED)).not.toContain('sms');
-    expect(policyFor(NotificationType.BOOKING_CANCELLED).fallback).toMatchObject({ to: 'sms' });
+    expect(channelsFor(NotificationType.SHOW_CANCELLED)).toContain('sms');
+    expect(immediateChannels(NotificationType.SHOW_CANCELLED)).not.toContain('sms');
+    expect(policyFor(NotificationType.SHOW_CANCELLED).fallback).toMatchObject({ to: 'sms' });
+  });
+
+  it('a customer cancelling their OWN booking gets no SMS and no emergency', () => {
+    /*
+      The distinction the whole split exists for. "A booking was cancelled" includes somebody
+      cancelling it themselves, from their own account, on purpose — and for one phase that
+      message carried the emergency SMS fallback, which would have texted them thirty minutes
+      later, at our expense, about a decision they had just made.
+    */
+    const own = policyFor(NotificationType.BOOKING_CANCELLED);
+    expect(own.channels).not.toContain('sms');
+    expect(own.fallback).toBeUndefined();
+    expect(own.urgency).not.toBe('URGENT');
+    // The show being off is a different fact, and keeps the emergency.
+    expect(policyFor(NotificationType.SHOW_CANCELLED).urgency).toBe('URGENT');
   });
 
   it('a booking confirmation can never reach SMS at all', () => {
@@ -86,9 +101,9 @@ describe('the declared channel matrix', () => {
     expect(policyFor(NotificationType.REFUND_COMPLETED).fallback).toBeUndefined();
   });
 
-  it('a cancellation is the ONLY type that may reach SMS', () => {
+  it('a cancelled SHOW is the ONLY type that may reach SMS', () => {
     const withSms = Object.values(NotificationType).filter((t) => channelsFor(t).includes('sms'));
-    expect(withSms).toEqual([NotificationType.BOOKING_CANCELLED]);
+    expect(withSms).toEqual([NotificationType.SHOW_CANCELLED]);
   });
 
   it('an organizer payout stays on email and the console', () => {
@@ -135,7 +150,7 @@ describe('what a customer can turn off', () => {
     */
     const { resolver } = resolver_({ disabled: ['email', 'in_app', 'push', 'whatsapp'] });
     const out = await resolver.resolve({
-      type: NotificationType.BOOKING_CANCELLED,
+      type: NotificationType.SHOW_CANCELLED,
       recipient: RECIPIENT,
       known,
     });
@@ -248,7 +263,7 @@ describe('the deferred channel', () => {
   it('is unreachable by an ordinary caller, even one that names it', async () => {
     const { resolver } = resolver_();
     const out = await resolver.resolve({
-      type: NotificationType.BOOKING_CANCELLED,
+      type: NotificationType.SHOW_CANCELLED,
       recipient: RECIPIENT,
       requested: ['sms'],
       known,
@@ -259,7 +274,7 @@ describe('the deferred channel', () => {
   it('is reachable only by the fallback path', async () => {
     const { resolver } = resolver_();
     const out = await resolver.resolve({
-      type: NotificationType.BOOKING_CANCELLED,
+      type: NotificationType.SHOW_CANCELLED,
       recipient: RECIPIENT,
       requested: ['sms'],
       known,

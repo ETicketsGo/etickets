@@ -223,6 +223,20 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    The show being called off, which is a different message from the customer's own
+    cancellation below: it has to say WHICH show and WHEN it was, because the reader did not
+    initiate this and may be about to travel to it.
+  */
+  [NotificationType.SHOW_CANCELLED]: (l, p) => ({
+    subject: t(l, 'emails.SHOW_CANCELLED.subject'),
+    body: t(l, 'emails.SHOW_CANCELLED.body', {
+      event: str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent')),
+      reference: bookingName(l, p),
+      when: whenClause(l, p),
+    }),
+  }),
+
   [NotificationType.BOOKING_CANCELLED]: (l, p) => ({
     subject: t(l, 'emails.BOOKING_CANCELLED.subject'),
     body: t(l, 'emails.BOOKING_CANCELLED.body', { reference: bookingName(l, p) }),

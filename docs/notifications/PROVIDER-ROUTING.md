@@ -268,3 +268,81 @@ provider call and the local write means the retry is a genuinely new message to 
 attempt row is written as `ATTEMPTING` _before_ the call so the ambiguity is visible rather
 than silent. **This platform does not claim exactly-once delivery and should not be described
 as offering it.**
+
+---
+
+## Cost accounting (Phase 4)
+
+Full reasoning in [ADR-048](../adr/ADR-048-notification-cost-accounting.md).
+
+### Rates are configuration, and none ship
+
+No production prices are seeded. Real rates depend on a contract, a volume tier and a
+destination operator, and a plausible invented number in an accounting table is worse than none
+— it produces a total somebody will believe. **Until a rate is configured, every attempt is
+recorded `UNKNOWN`, which is not zero.**
+
+```
+POST /api/admin/notifications/analytics/rates    (PLATFORM_CONFIG)
+{
+  "provider": "ses", "channel": "email", "country": "*",
+  "unitPriceMicro": 100000,          // $0.10 per 1,000 = 100000 micro-USD per 1000
+  "currency": "USD", "billingUnit": "PER_1000",
+  "effectiveFrom": "2026-01-01T00:00:00Z",
+  "active": true, "source": "AWS SES pricing page, retrieved 2026-01-02"
+}
+```
+
+`unitPriceMicro` is **millionths of one currency unit**, not minor units. SES at a hundredth of
+a cent per email cannot be expressed in cents at all.
+
+| Provider     | Channel  | Typical billing unit                         | Notes                                                                  |
+| ------------ | -------- | -------------------------------------------- | ---------------------------------------------------------------------- |
+| SES          | email    | `PER_1000`                                   | Priced per thousand                                                    |
+| Twilio       | sms      | `PER_SEGMENT`                                | One logical SMS is not one billed SMS                                  |
+| MSG91        | sms      | `PER_SEGMENT`                                | Rupee sign ⇒ Unicode ⇒ 70 chars/segment                                |
+| MSG91 / Meta | whatsapp | `PER_CONVERSATION` or `PER_TEMPLATE_MESSAGE` | Use `category` for utility vs authentication                           |
+| Expo / FCM   | push     | `PER_MESSAGE` at 0                           | Configure the zero explicitly — that is `CONFIGURED_FREE`, not unknown |
+
+Overlapping active rates are **refused**. Superseding sets an end date; nothing is deleted, so
+past reports stay reproducible.
+
+### Reporting
+
+```
+GET /api/admin/notifications/analytics/summary                     FINANCE_READ
+GET /api/admin/notifications/analytics/costs?by=provider|channel|sendKind|country|event|booking
+GET /api/admin/notifications/analytics/providers
+GET /api/admin/notifications/analytics/events
+GET /api/admin/notifications/analytics/rates
+```
+
+Filters: `from`, `to`, `provider`, `channel`, `eventType`, `tenant`. Default window is 30 days —
+an unbounded scan of this table is an incident, not a report.
+
+**Every total carries `unknownCostAttempts` beside it.** Until that is zero the total is a
+floor. **Currencies are never added**; USD and INR come back as separate rows and there is no
+FX anywhere.
+
+### What the numbers mean
+
+- `notifications` — messages the platform decided to send.
+- `attempts` — times a provider was asked to carry one. Always ≥ notifications; a retry, a
+  fallback and an operator resend raise this and not the other.
+- `sendKind` — `PRIMARY` / `RETRY` / `FALLBACK` / `MANUAL_RESEND`. The emergency SMS and
+  support's resends are separable from ordinary traffic.
+- `outcomeClass` — whose failure it was. `POLICY_SUPPRESSED` and `NO_DESTINATION` are ours and
+  are excluded from provider health entirely.
+- `deliveryMeasurable: false` on push — FCM and Web Push have no per-message delivery callback,
+  so there is no delivery rate to report and a 0% would be a fabrication.
+
+### EXTERNAL SETUP REQUIRED
+
+1. **Configure a rate per provider, channel and market you actually use**, from your contracts
+   or invoices. Nothing is priced until you do, and every report will say so.
+2. Configure push explicitly at zero if it is free on your plan — a configured zero is
+   `CONFIGURED_FREE` and counts as a complete answer; an absent rate is `UNKNOWN` and does not.
+3. Set `category` rates for WhatsApp if your provider prices utility and authentication
+   differently.
+4. **Historical rows stay `UNKNOWN`.** Nothing was backfilled — writing zeros would turn "we
+   do not know" into "it was free" for every message sent before this phase.

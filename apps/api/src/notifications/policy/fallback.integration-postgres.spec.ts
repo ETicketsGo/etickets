@@ -118,6 +118,12 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await db.$disconnect();
   }, 60_000);
 
+  /*
+    A generous batch limit throughout.  scans every overdue intent in the database,
+    and this suite shares one with every other Postgres suite running beside it -- at the
+    default bound, another suite's leftovers can push this one's booking out of the batch and
+    the assertion fails for a reason that has nothing to do with the behaviour under test.
+  */
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(
       name,
@@ -131,7 +137,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
   /** A cancellation sent long enough ago that its fallback window has passed. */
   async function cancelled(bookingId: string) {
     await notifications.send({
-      type: NotificationType.BOOKING_CANCELLED,
+      type: NotificationType.SHOW_CANCELLED,
       userId,
       toEmail: EMAIL,
       payload: { bookingId, reference: `REF-${bookingId}` },
@@ -204,7 +210,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
       their own overdue cancellations behind, and the sweep is quite right to pick those up
       too -- a count would be asserting the order the tests happen to run in.
     */
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).toContain('sms');
   });
 
@@ -219,9 +225,13 @@ describe('integration-real-postgres: cross-channel fallback', () => {
       await cancelled(bookingId);
       await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
 
-      await fallbacks.runDue();
-      await fallbacks.runDue();
-      await Promise.allSettled([fallbacks.runDue(), fallbacks.runDue(), fallbacks.runDue()]);
+      await fallbacks.runDue(new Date(), 5_000);
+      await fallbacks.runDue(new Date(), 5_000);
+      await Promise.allSettled([
+        fallbacks.runDue(new Date(), 5_000),
+        fallbacks.runDue(new Date(), 5_000),
+        fallbacks.runDue(new Date(), 5_000),
+      ]);
 
       const sms = await db!.notification.count({
         where: { userId, channel: 'sms', payload: { path: ['bookingId'], equals: bookingId } },
@@ -236,7 +246,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await cancelled(bookingId);
     await attempt(bookingId, 'whatsapp', DeliveryState.DELIVERED);
 
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).not.toContain('sms');
   });
 
@@ -251,7 +261,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await cancelled(bookingId);
     await attempt(bookingId, 'push', DeliveryState.ACCEPTED);
 
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).not.toContain('sms');
   });
 
@@ -262,20 +272,20 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await cancelled(bookingId);
     await attempt(bookingId, 'whatsapp', DeliveryState.ACCEPTED);
 
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).toContain('sms');
   });
 
   maybe('does not open an SMS before the wait has elapsed', async () => {
     const bookingId = `bk-early-${suffix}`;
     await notifications.send({
-      type: NotificationType.BOOKING_CANCELLED,
+      type: NotificationType.SHOW_CANCELLED,
       userId,
       toEmail: EMAIL,
       payload: { bookingId, reference: `REF-${bookingId}` },
     });
 
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).not.toContain('sms');
   });
 
@@ -295,7 +305,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     });
     await attempt(bookingId, 'whatsapp', DeliveryState.UNDELIVERED);
 
-    await fallbacks.runDue();
+    await fallbacks.runDue(new Date(), 5_000);
     expect(await channelsFor(bookingId)).not.toContain('sms');
   });
 });

@@ -14,6 +14,9 @@ import { NotificationChannelRegistry } from './channels/notification-channel.reg
 import { NotificationProviderResolver } from './channels/notification-provider.resolver';
 import { NotificationPolicyResolver } from './policy/notification-policy.resolver';
 import { NotificationFallbackService } from './policy/fallback.service';
+import { NotificationRateService } from './cost/notification-rate.service';
+import { NotificationAnalyticsService } from './cost/notification-analytics.service';
+import { NotificationAnalyticsController } from './cost/notification-analytics.controller';
 import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { NotificationOpsService } from './delivery/notification-ops.service';
@@ -40,6 +43,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     WebPushController,
     MarketingConsentController,
     NotificationOpsController,
+    NotificationAnalyticsController,
     DeliveryWebhookController,
   ],
   providers: [
@@ -55,6 +59,9 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     // Policy (ADR-047): which channels, for whom -- and no provider names anywhere in it.
     NotificationPolicyResolver,
     NotificationFallbackService,
+    // Cost accounting (ADR-048): what a message cost, from a rate in force when it went.
+    NotificationRateService,
+    NotificationAnalyticsService,
     // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
     SuppressionService,
     DeliveryRecorderService,
@@ -94,6 +101,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationPolicyResolver,
     // Exported so the worker can sweep for fallbacks that are now due.
     NotificationFallbackService,
+    NotificationRateService,
   ],
 })
 export class NotificationsModule {}

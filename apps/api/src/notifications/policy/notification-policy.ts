@@ -115,25 +115,47 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
   },
 
   /*
-    A cancelled booking is what a customer sees when a show is called off, and it is the only
-    message on the platform worth paying for on every channel.
+    THE SHOW IS OFF. The one message on the platform worth paying for on every channel.
+
+    ── WHY THIS IS NOT BOOKING_CANCELLED ──────────────────────────────────────────────
+    It was, for one phase, and that was a mistake worth naming. "A booking was cancelled"
+    includes a customer cancelling their own booking, from their own account, deliberately —
+    and the emergency SMS fallback below would then have fired at somebody about a decision
+    they had just made, at our expense, thirty minutes after they made it.
+
+    The two facts differ in urgency, in channels and in cost, so they are two types. A
+    customer cancelling their own booking gets the ordinary notice above; this is the one
+    where somebody might otherwise travel to a dark venue.
 
     ── WHY SMS IS A FALLBACK AND NOT AN IMMEDIATE CHANNEL ─────────────────────────────
-    Sending it alongside the other three would mean everybody with a phone gets four
-    messages about one cancellation, and we pay for the one they were least likely to need.
-    Sending it only when nothing else worked costs almost nothing and reaches the person who
-    has no app, no data and no email set up — which is exactly who the SMS is for.
+    Sending it alongside the other three would mean everybody with a phone gets four messages
+    about one cancellation, and we pay for the one they were least likely to need. Sending it
+    only when nothing else worked costs almost nothing and reaches the person who has no app,
+    no data and no email — which is exactly who the SMS is for.
 
     Thirty minutes is not a guess at network latency. It is how long is acceptable for
-    somebody not to know their show is off, and it is long enough that a WhatsApp delivery
+    somebody not to know their show is off, and it is long past the point where a WhatsApp
     receipt has plainly arrived or plainly is not going to.
   */
-  [NotificationType.BOOKING_CANCELLED]: {
+  [NotificationType.SHOW_CANCELLED]: {
     channels: [E, A, P, W, S],
     urgency: 'URGENT',
     guaranteed: [E, A],
     fallback: { to: S, afterMinutes: 30, satisfiedBy: [W, P, E] },
     optInRequired: [W],
+  },
+
+  /*
+    One customer's booking is over — usually because they ended it themselves.
+
+    No SMS and no fallback. A confirmation of something somebody just did is not an emergency,
+    and paying for an urgent channel to tell them about their own decision is the clearest
+    possible waste. The record goes to email, where they can find it later.
+  */
+  [NotificationType.BOOKING_CANCELLED]: {
+    channels: [E, A, P],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
   },
 
   /* Money owed back. Email is the record; WhatsApp is where people ask "did it come through". */
@@ -242,6 +264,7 @@ export function permittedChannels(type: NotificationType, requested?: string[]):
 export const CRITICAL_TYPES: readonly NotificationType[] = [
   NotificationType.BOOKING_CONFIRMED,
   NotificationType.BOOKING_CANCELLED,
+  NotificationType.SHOW_CANCELLED,
   NotificationType.REFUND_COMPLETED,
   NotificationType.SETTLEMENT_RELEASED,
   NotificationType.SHOW_CHANGED,

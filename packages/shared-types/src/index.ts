@@ -12,6 +12,7 @@ export * from './india-states';
 export * from './markets';
 export * from './notification-routing';
 export * from './notification-delivery';
+export * from './notification-cost';
 export * from './notification-provider-status';
 export * from './cinema-pricing';
 export * from './metrics-access';

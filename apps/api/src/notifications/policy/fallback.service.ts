@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationType, DeliveryState } from '@eticketsgo/shared-types';
+import { NotificationType, DeliveryState, SendKind } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
 import { NotificationService } from '../notification.service';
@@ -81,6 +81,14 @@ export class NotificationFallbackService {
         },
         select: { intentKey: true },
         distinct: ['intentKey'],
+        /*
+          Oldest first. The batch is bounded so a mass cancellation cannot pull the whole
+          backlog into memory, and without an order the rows that get left for the next tick
+          are whichever the database happened to return -- so the person who has been waiting
+          longest to hear their show is off could be deferred indefinitely behind newer ones.
+          The most overdue is exactly who this sweep exists for.
+        */
+        orderBy: { createdAt: 'asc' },
         take: limit,
       });
 
@@ -170,8 +178,12 @@ export class NotificationFallbackService {
       intentKey: `${intentKey}:fallback`,
       // The one caller permitted to reach a channel policy holds back.
       allowDeferredChannel: true,
+      // The most expensive message this platform sends, labelled so a cost report can name
+      // it rather than burying it in the ordinary total.
+      sendReason: SendKind.FALLBACK,
     });
     this.metrics?.recordNotification(fallback.to, 'fallback', 'opened');
+    this.metrics?.recordNotificationFallback(type, fallback.to);
     return true;
   }
 }

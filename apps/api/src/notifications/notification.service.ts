@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationType } from '@eticketsgo/shared-types';
+import { NotificationType, OutcomeClass, SendKind } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationTemplateService } from './templates/notification-template.service';
@@ -46,6 +46,21 @@ export interface NotifyInput {
    * message, and only one of them goes out.
    */
   intentKey?: string | null;
+  /**
+   * The booking this message is about, when it is about one.
+   *
+   * A column rather than a payload field, because "what do notifications cost per booking"
+   * has to join -- and a JSON extraction over every row of the largest table on the platform
+   * is not a query anybody wants to run monthly.
+   */
+  bookingId?: string | null;
+  /**
+   * Why this send is happening: PRIMARY | RETRY | FALLBACK | MANUAL_RESEND.
+   *
+   * Cost reporting is why it exists. A fallback SMS and an ordinary confirmation email are
+   * both "notification cost" and nothing else about them is alike.
+   */
+  sendReason?: SendKind;
   /**
    * Permit the channel policy holds back as a fallback.
    *
@@ -300,6 +315,8 @@ export class NotificationService {
             recipientRef: recipient.userId ?? recipient.toEmail ?? '',
             payload,
           }),
+          bookingId: bookingIdFrom(payload),
+          sendReason: SendKind.PRIMARY,
         });
       }
     }
@@ -391,6 +408,8 @@ export class NotificationService {
         scheduledFor: state.scheduledFor,
         dedupeKey,
         intentKey,
+        bookingId: input.bookingId ?? bookingIdFrom(input.payload),
+        sendReason: input.sendReason ?? SendKind.PRIMARY,
       };
 
       if (!dedupeKey) {
@@ -459,6 +478,14 @@ export class NotificationService {
       const key = row.channel as ChannelKey;
       const channel = this.channels.resolve(row.channel);
       let deliveryId: string | null = null;
+      /*
+        Why this send is happening, which is the difference between a cost we planned and one
+        we chose. A fallback SMS is the most expensive message this platform sends and an
+        operator resend is support spending money on somebody's behalf; both vanish into a
+        total that lumps them in with a first attempt. The notification records the reason
+        when it is created and the attempt inherits it, rather than guessing from a counter.
+      */
+      const kind = (row.sendReason as SendKind | null) ?? undefined;
       try {
         if (!channel) throw new Error(`Unknown channel "${row.channel}"`);
         const rendered = this.renderFor(
@@ -498,7 +525,7 @@ export class NotificationService {
           sends again believing it is the first attempt. Written first, an ATTEMPTING row is
           the honest record of "we do not know whether this went out".
         */
-        deliveryId = await this.openAttempt(row.id, key, row.attempts + 1);
+        deliveryId = await this.openAttempt(row.id, key, row.attempts + 1, kind);
 
         const outcome = await channel.deliver(rendered);
         if (deliveryId) {
@@ -508,11 +535,28 @@ export class NotificationService {
               outcome.provider,
               outcome.reason ?? 'skipped',
             );
+            this.metrics?.recordNotificationAttempt(
+              key,
+              outcome.provider,
+              OutcomeClass.NO_DESTINATION,
+            );
           } else {
+            /*
+              The rendered body travels to pricing because one logical SMS is not one billed
+              SMS: a 200-character message is two segments, and the same message with a rupee
+              sign in it is Unicode and three. Without it, every long or non-Latin message
+              would be priced as one and the India bill would come as a surprise.
+            */
             await this.deliveries?.accepted(
               deliveryId,
               outcome.provider,
               outcome.providerMessageId ?? null,
+              { country: rendered.country, body: rendered.body },
+            );
+            this.metrics?.recordNotificationAttempt(
+              key,
+              outcome.provider,
+              OutcomeClass.PROVIDER_ACCEPTED,
             );
           }
         }
@@ -541,6 +585,7 @@ export class NotificationService {
           await this.deliveries
             ?.failed(deliveryId, 'none', err instanceof Error ? err.message : String(err))
             .catch(() => undefined);
+          this.metrics?.recordNotificationAttempt(key, 'none', OutcomeClass.PROVIDER_UNAVAILABLE);
         }
         // A provider that says "never" is believed the first time.
         const permanent = err instanceof TransportError && !err.retryable;
@@ -596,10 +641,11 @@ export class NotificationService {
     notificationId: string,
     channel: ChannelKey,
     attemptNumber: number,
+    sendKind?: SendKind,
   ): Promise<string | null> {
     if (!this.deliveries) return null;
     return this.deliveries
-      .open({ notificationId, provider: 'pending', channel, attemptNumber })
+      .open({ notificationId, provider: 'pending', channel, attemptNumber, sendKind })
       .catch(() => null);
   }
 
@@ -785,4 +831,17 @@ export class NotificationService {
       country: input.country ?? null,
     };
   }
+}
+
+/**
+ * The booking a payload is about, when it names one.
+ *
+ * Sixteen services already put `bookingId` in their payloads, so lifting it into a column
+ * costs nothing at the call sites and turns cost-per-booking from a JSON extraction over
+ * millions of rows into an indexed join. A caller may pass `bookingId` explicitly when its
+ * payload does not carry one.
+ */
+function bookingIdFrom(payload: Record<string, unknown> | undefined): string | null {
+  const id = payload?.['bookingId'];
+  return typeof id === 'string' && id.length > 0 ? id : null;
 }

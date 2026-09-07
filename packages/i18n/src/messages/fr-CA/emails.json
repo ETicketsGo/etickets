@@ -12,6 +12,10 @@
     "subject": "Rappel : votre événement approche",
     "body": "Ceci est un rappel pour {event}{startingAt}."
   },
+  "SHOW_CANCELLED": {
+    "subject": "Votre séance a été annulée",
+    "body": "Nous sommes désolés - {event} a été annulée. Votre réservation {reference} n'est plus valide{when}. Un remboursement suivra."
+  },
   "SHOW_CHANGED": {
     "subject": "Votre séance a été reportée",
     "body": "L'heure de {event} a changé. Votre réservation {reference} demeure valide{when}."

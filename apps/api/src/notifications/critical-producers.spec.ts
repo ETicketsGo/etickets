@@ -153,6 +153,7 @@ describe('what counts as critical', () => {
       'BOOKING_CONFIRMED',
       'REFUND_COMPLETED',
       'SETTLEMENT_RELEASED',
+      'SHOW_CANCELLED',
       'SHOW_CHANGED',
     ]);
   });

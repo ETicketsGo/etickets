@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
+  CostSource,
   DeliveryState,
+  OutcomeClass,
+  SendKind,
   advancesDelivery,
   resolveDeliveryState,
   suppressionFor,
@@ -8,6 +11,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
 import { SuppressionService } from './suppression.service';
+import { NotificationRateService } from '../cost/notification-rate.service';
 
 /**
  * The record of what a provider did with one message.
@@ -32,6 +36,12 @@ export class DeliveryRecorderService {
     private readonly prisma: PrismaService,
     private readonly suppression: SuppressionService,
     private readonly metrics?: MetricsService,
+    /*
+      Optional so the many suites that construct this recorder directly keep working. Without
+      it every attempt is priced UNKNOWN, which is the honest answer when nothing can quote a
+      rate -- and is exactly what a deployment with no rates configured records anyway.
+    */
+    private readonly rates?: NotificationRateService,
   ) {}
 
   /**
@@ -47,6 +57,8 @@ export class DeliveryRecorderService {
     provider: string;
     channel: string;
     attemptNumber: number;
+    /** PRIMARY | RETRY | FALLBACK | MANUAL_RESEND. Defaults from the attempt number. */
+    sendKind?: SendKind;
   }): Promise<string | null> {
     const created = await this.prisma.notificationDelivery
       .createMany({
@@ -57,6 +69,14 @@ export class DeliveryRecorderService {
             channel: input.channel,
             attemptNumber: input.attemptNumber,
             status: DeliveryState.ATTEMPTING,
+            /*
+              A second attempt on the same notification is a RETRY unless the caller says
+              otherwise -- which the fallback service and an operator resend both do. Derived
+              rather than assumed, so an attempt cannot be silently miscategorised into the
+              cheap bucket.
+            */
+            sendKind:
+              input.sendKind ?? (input.attemptNumber > 1 ? SendKind.RETRY : SendKind.PRIMARY),
           },
         ],
         // A duplicate means another worker already claimed this attempt number. Skipping is
@@ -79,34 +99,106 @@ export class DeliveryRecorderService {
     return row?.id ?? null;
   }
 
-  /** The provider took it and gave a reference. Acceptance, explicitly not delivery. */
+  /**
+   * The provider took it and gave a reference. Acceptance, explicitly not delivery — and the
+   * moment a charge becomes possible.
+   *
+   * ── WHY COST IS RECORDED HERE AND NEVER REMOVED LATER ──────────────────────────────
+   * Acceptance is what a provider bills for. A message that is accepted and then comes back
+   * UNDELIVERED, or bounces, or earns a spam complaint, was still carried and still costs the
+   * same. Deleting the cost when the outcome turns bad would produce a total that shrinks as
+   * things go wrong — the exact opposite of what an operator needs to see. Delivery outcome
+   * and money are separate facts and are stored as separate facts.
+   */
   async accepted(
     deliveryId: string,
     provider: string,
     providerMessageId: string | null,
+    context: { country?: string | null; category?: string | null; body?: string } = {},
   ): Promise<void> {
+    const at = new Date();
+    const row = await this.prisma.notificationDelivery.findUnique({
+      where: { id: deliveryId },
+      select: { channel: true },
+    });
+
+    const cost = this.rates
+      ? await this.rates
+          .estimate({
+            provider,
+            channel: row?.channel ?? 'unknown',
+            country: context.country,
+            category: context.category,
+            body: context.body,
+            at,
+          })
+          .catch(() => null)
+      : null;
+
     await this.prisma.notificationDelivery.update({
       where: { id: deliveryId },
       data: {
         status: DeliveryState.ACCEPTED,
+        outcomeClass: OutcomeClass.PROVIDER_ACCEPTED,
         provider,
         providerMessageId,
-        acceptedAt: new Date(),
+        acceptedAt: at,
+        // No rate configured leaves the row UNKNOWN. Never zero: see CostSource.
+        costMicro: cost?.costMicro ?? null,
+        costCurrency: cost?.costCurrency ?? null,
+        costSource: cost?.costSource ?? CostSource.UNKNOWN,
+        billedUnits: cost?.billedUnits ?? null,
+        costCalculatedAt: cost ? at : null,
       },
     });
+
+    if (cost) {
+      this.metrics?.recordNotificationCost(
+        row?.channel ?? 'unknown',
+        provider,
+        cost.costCurrency,
+        cost.costMicro,
+        cost.costSource,
+      );
+    }
   }
 
-  /** There was nowhere to deliver to. Not a failure, and never retried. */
-  async skipped(deliveryId: string, provider: string, reason: string): Promise<void> {
+  /**
+   * There was nowhere to send to, or we refused to.
+   *
+   * Neither is a provider failure and neither costs anything: the provider was never called.
+   * Recording them as attempts anyway is what lets a report answer "how many messages did we
+   * choose not to send, and why" without a second table — and `outcomeClass` is what keeps
+   * them out of the provider's failure rate.
+   */
+  async notAttempted(
+    deliveryId: string,
+    outcome: 'POLICY_SUPPRESSED' | 'NO_DESTINATION',
+    reason: string,
+  ): Promise<void> {
     await this.prisma.notificationDelivery.update({
       where: { id: deliveryId },
       data: {
         status: DeliveryState.REJECTED,
-        provider,
+        outcomeClass: outcome,
+        provider: 'none',
         failureCode: reason,
         failedAt: new Date(),
+        // Explicitly not CONFIGURED_FREE: nothing was sent, so there is no price to quote.
+        costSource: CostSource.UNKNOWN,
       },
     });
+  }
+
+  /**
+   * There was nowhere to deliver to. Not a failure, never retried, and never a charge.
+   *
+   * Kept as its own name because that is what the channels call it; it is
+   * {@link notAttempted} with the outcome that says the destination was missing rather than
+   * blocked.
+   */
+  async skipped(deliveryId: string, _provider: string, reason: string): Promise<void> {
+    await this.notAttempted(deliveryId, OutcomeClass.NO_DESTINATION, reason);
   }
 
   /** The send itself failed — nothing reached the provider, so nobody received anything. */
@@ -115,6 +207,12 @@ export class DeliveryRecorderService {
       where: { id: deliveryId },
       data: {
         status: DeliveryState.FAILED,
+        /*
+          A send that never reached a provider. Nobody received anything and nobody was
+          charged -- which is why this is UNAVAILABLE rather than REJECTED, and why no cost
+          is written: the attempt is real, the charge is not.
+        */
+        outcomeClass: OutcomeClass.PROVIDER_UNAVAILABLE,
         provider,
         // Truncated: a provider's error body can be a page long and this column is read in
         // a list view. It never contains the message or the destination.
@@ -174,10 +272,22 @@ export class DeliveryRecorderService {
 
     const next = resolveDeliveryState(current, input.state);
     const at = input.occurredAt ?? new Date();
+    /*
+      A provider refusing is theirs; a message it carried and could not deliver is usually the
+      destination's. Neither touches `costMicro` -- the provider carried it and charged for it
+      whatever came back afterwards.
+    */
+    const outcome =
+      next === DeliveryState.REJECTED
+        ? OutcomeClass.PROVIDER_REJECTED
+        : next === DeliveryState.DELIVERED || next === DeliveryState.READ
+          ? OutcomeClass.PROVIDER_ACCEPTED
+          : OutcomeClass.UNDELIVERABLE_DESTINATION;
     await this.prisma.notificationDelivery.update({
       where: { id: delivery.id },
       data: {
         status: next,
+        outcomeClass: outcome,
         providerStatus: input.providerStatus ?? undefined,
         failureCode: input.failureCode ?? undefined,
         failureReason: input.failureReason?.slice(0, 500) ?? undefined,

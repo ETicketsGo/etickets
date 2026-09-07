@@ -216,7 +216,7 @@ describe('what counts as a change worth sending', () => {
 });
 
 describe('SHOW_CHANGED is not a cancellation', () => {
-  it('does not use SMS — that is reserved for a booking being cancelled', () => {
+  it('does not use SMS — that is reserved for the SHOW being off', () => {
     /*
       A time change is important; it is not somebody arriving at a dark venue. SMS costs money
       per message and is the only channel that reaches a phone with no app, no data and no
@@ -229,7 +229,12 @@ describe('SHOW_CHANGED is not a cancellation', () => {
       'push',
       'whatsapp',
     ]);
-    expect(channelsFor(NotificationType.BOOKING_CANCELLED)).toContain('sms');
+    /*
+      And SHOW_CANCELLED, not BOOKING_CANCELLED. A customer cancelling their own booking is
+      not an emergency and does not earn an SMS; the show being called off is, and does.
+    */
+    expect(channelsFor(NotificationType.SHOW_CANCELLED)).toContain('sms');
+    expect(channelsFor(NotificationType.BOOKING_CANCELLED)).not.toContain('sms');
   });
 
   it('cancelling a show sends no SHOW_CHANGED', async () => {

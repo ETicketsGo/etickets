@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DeliveryState, isTerminalDelivery } from '@eticketsgo/shared-types';
+import { DeliveryState, SendKind, isTerminalDelivery } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
@@ -271,9 +271,20 @@ export class NotificationOpsService {
       to smuggle a second copy of an intent past the Phase 1 guarantee. What changes is that
       a new ATTEMPT will be opened, which is exactly what a resend is.
     */
+    /*
+      Marked MANUAL_RESEND so the provider charge it produces is attributable. Support
+      resending a ticket is a real cost incurred on somebody's behalf, and it is invisible in
+      a total that counts it as an ordinary send. The dedupe key is untouched -- this is not
+      a route around the Phase 1 guarantee, it is a new ATTEMPT on the same intent.
+    */
     await this.prisma.notification.update({
       where: { id: notificationId },
-      data: { status: 'PENDING', scheduledFor: new Date(), lastError: null },
+      data: {
+        status: 'PENDING',
+        scheduledFor: new Date(),
+        lastError: null,
+        sendReason: SendKind.MANUAL_RESEND,
+      },
     });
 
     await this.audit.record({

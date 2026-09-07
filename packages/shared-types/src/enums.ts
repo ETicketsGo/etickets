@@ -302,6 +302,19 @@ export const NotificationType = {
   EVENT_REMINDER: 'EVENT_REMINDER',
   BOOKING_CANCELLED: 'BOOKING_CANCELLED',
   /**
+   * The SHOW is off — as opposed to one customer having cancelled their own booking.
+   *
+   * ── WHY THIS IS NOT BOOKING_CANCELLED ──────────────────────────────────────────────
+   * They are different facts, and for one phase they were the same notification type. That
+   * put the emergency SMS fallback — the most expensive message this platform can send — on
+   * a message whose name means "this booking ended", which includes a customer ending it
+   * themselves, from their own account, deliberately. Nobody needs an urgent SMS about a
+   * decision they just made, and nobody should be billed for sending them one.
+   *
+   * BOOKING_CANCELLED stays the ordinary per-booking notice. This one is the emergency.
+   */
+  SHOW_CANCELLED: 'SHOW_CANCELLED',
+  /**
    * A show somebody already holds a ticket for has MATERIALLY changed — today, its start
    * time moved.
    *

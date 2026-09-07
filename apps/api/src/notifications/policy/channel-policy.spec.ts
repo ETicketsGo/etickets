@@ -34,22 +34,25 @@ describe('the paid channels are an allowlist, not a default', () => {
     expect(NOT_LISTED.length).toBeGreaterThan(10);
   });
 
-  it('SMS is allowed for exactly one thing today', () => {
+  it('SMS is allowed for exactly one thing today: the SHOW being off', () => {
     const withSms = Object.values(NotificationType).filter((t) => channelsFor(t).includes('sms'));
     /*
-      A cancelled booking, and nothing else. It is time-critical, it may be the difference
-      between somebody travelling to a closed venue or not, and SMS is the only channel that
-      reaches a phone with no app, no data and no email set up. Everything else has three
-      free channels carrying the same information.
+      ── AND NOT FOR A CUSTOMER CANCELLING THEIR OWN BOOKING ─────────────────────────
+      These were the same type for one phase, which put the emergency SMS on a message whose
+      name means "this booking ended" — including when the customer ended it themselves, from
+      their own account, deliberately. Nobody needs an urgent SMS about a decision they just
+      made, and nobody should pay to send them one.
     */
-    expect(withSms).toEqual([NotificationType.BOOKING_CANCELLED]);
+    expect(withSms).toEqual([NotificationType.SHOW_CANCELLED]);
+    expect(channelsFor(NotificationType.BOOKING_CANCELLED)).not.toContain('sms');
   });
 });
 
 describe('the launch policy', () => {
   it.each([
     [NotificationType.BOOKING_CONFIRMED, ['email', 'in_app', 'push', 'whatsapp']],
-    [NotificationType.BOOKING_CANCELLED, ['email', 'in_app', 'push', 'whatsapp', 'sms']],
+    [NotificationType.SHOW_CANCELLED, ['email', 'in_app', 'push', 'whatsapp', 'sms']],
+    [NotificationType.BOOKING_CANCELLED, ['email', 'in_app', 'push']],
     [NotificationType.REFUND_COMPLETED, ['email', 'in_app', 'push', 'whatsapp']],
     [NotificationType.PAYMENT_FAILED, ['email', 'in_app', 'push']],
     [NotificationType.EVENT_REMINDER, ['in_app', 'push', 'whatsapp']],
@@ -108,6 +111,7 @@ describe('duplicate suppression is opt-in for the same reason', () => {
     for (const t of [
       NotificationType.BOOKING_CONFIRMED,
       NotificationType.BOOKING_CANCELLED,
+      NotificationType.SHOW_CANCELLED,
       NotificationType.REFUND_COMPLETED,
       NotificationType.SETTLEMENT_RELEASED,
     ]) {

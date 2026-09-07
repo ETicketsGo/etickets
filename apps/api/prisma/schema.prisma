@@ -331,6 +331,13 @@ enum NotificationType {
   PAYMENT_FAILED
   EVENT_REMINDER
   BOOKING_CANCELLED
+  /// The SHOW is off, as opposed to one customer having cancelled their own booking.
+  ///
+  /// They are different facts and were briefly the same notification type, which put the
+  /// emergency SMS fallback on a message whose name means "this booking ended" -- including
+  /// when the customer ended it themselves, from their own account, deliberately. Nobody
+  /// needs an urgent SMS about a decision they just made.
+  SHOW_CANCELLED
   /// A show somebody already holds a ticket for has materially changed -- today, its start
   /// time moved. Rescheduling used to update the row, write an audit entry, and tell nobody.
   SHOW_CHANGED
@@ -2140,6 +2147,33 @@ model Notification {
   /// may legitimately repeat, and Postgres permits any number of nulls in a unique index —
   /// so this suppresses redelivery without suppressing a real second message.
   dedupeKey         String?          @unique
+  /// Why this message exists: PRIMARY | RETRY | FALLBACK | MANUAL_RESEND.
+  ///
+  /// On the NOTIFICATION as well as on each attempt, because the reason is decided when the
+  /// message is created -- a fallback SMS is a fallback before anything tries to send it --
+  /// and the attempt inherits it rather than guessing from an attempt number.
+  sendReason String @default("PRIMARY")
+
+  /// The booking this message is about, when it is about one.
+  ///
+  /// A column rather than a payload lookup: "what do notifications cost per booking" has to
+  /// join, and `payload->>'bookingId'` is a JSON extraction on every row of a table that grows
+  /// with every message the platform sends. Nullable because plenty of notifications -- an
+  /// organizer payout, a password reset -- are about no booking at all, and a report has to be
+  /// able to say how much of the spend that is.
+  ///
+  /// ── WHY THERE IS NO FOREIGN KEY ──────────────────────────────────────────────────
+  /// Because an accounting column must never be able to stop a message being sent. With a
+  /// constraint, a payload naming a booking that has since been deleted -- or a caller
+  /// passing an id from another environment -- makes the INSERT fail, and the notification is
+  /// lost. That trade is unacceptable in this direction: the column exists to answer a
+  /// finance question, and a finance question is not worth a customer's ticket.
+  ///
+  /// `ON DELETE SET NULL` would have been worse still. It quietly erases which booking a
+  /// message belonged to the moment the booking is removed, taking last quarter's
+  /// cost-per-booking with it.
+  bookingId String?
+
   /// The same identity WITHOUT the channel: what ties the email, the push and the WhatsApp
   /// message about one cancelled booking together.
   ///
@@ -2159,6 +2193,10 @@ model Notification {
   @@index([userId, channel, readAt])
   /// Serves the fallback sweep, which asks for the siblings of one intent.
   @@index([intentKey])
+  /// Cost per booking, and "which notifications belong to this booking" in support.
+  @@index([bookingId])
+  /// Every cost report by event type starts here: a window, then a type.
+  @@index([type, createdAt])
   // Serves the inbox cursor + `ORDER BY createdAt DESC` (v2.1 audit); the readAt
   // composite above only serves the unread-count/mark-all path.
   @@index([userId, channel, createdAt])
@@ -2215,6 +2253,41 @@ model NotificationDelivery {
   /// A short provider-supplied reason. Never contains the message or the destination.
   failureReason String?
 
+  /// Why this attempt happened: PRIMARY | RETRY | FALLBACK | MANUAL_RESEND.
+  ///
+  /// A fallback SMS is the most expensive message this platform sends and an operator
+  /// resend is support spending money on somebody's behalf. Both are invisible in a total
+  /// that does not separate them from an ordinary first send.
+  sendKind String @default("PRIMARY")
+
+  /// Whose fault the outcome was, in terms a health report can use as a denominator.
+  ///
+  /// PROVIDER_ACCEPTED | PROVIDER_REJECTED | PROVIDER_UNAVAILABLE |
+  /// UNDELIVERABLE_DESTINATION | POLICY_SUPPRESSED | NO_DESTINATION
+  ///
+  /// Counting a suppressed address or somebody with no phone number as "Twilio failed"
+  /// makes Twilio look broken because our customers have preferences -- and hides a real
+  /// outage inside a number that is always high.
+  outcomeClass String?
+
+  /// What this attempt cost, in MICROS -- millionths of `costCurrency`.
+  ///
+  /// Not minor units. SES is $0.10 per THOUSAND emails, which is a hundredth of a cent
+  /// each; in cents that rounds to zero or to one, and both are wrong by orders of
+  /// magnitude. Null means UNKNOWN and never zero: see `costSource`.
+  costMicro Int?
+  /// ISO-4217 of `costMicro`. Never mixed into a total with another currency.
+  costCurrency String?
+  /// PROVIDER_REPORTED | RATE_CARD | RECONCILED | UNKNOWN | CONFIGURED_FREE.
+  ///
+  /// CONFIGURED_FREE and UNKNOWN both leave a total unchanged and mean opposite things:
+  /// one says this is free, the other says we do not know. A report that shows both as 0
+  /// is lying about one of them.
+  costSource String @default("UNKNOWN")
+  /// Billed quantity -- SMS segments, emails, conversations. One message is not one charge.
+  billedUnits Int?
+  costCalculatedAt DateTime?
+
   attemptedAt DateTime  @default(now())
   acceptedAt  DateTime?
   deliveredAt DateTime?
@@ -2234,7 +2307,71 @@ model NotificationDelivery {
   /// ambiguity rather than the database refusing the write.
   @@index([provider, providerMessageId])
   @@index([status, createdAt])
+  /// The shape every cost and health report starts from: a window, then a provider and
+  /// channel. Composite rather than three single-column indexes, because no report ever asks
+  /// about a provider without also asking about a period.
   @@index([provider, channel, createdAt])
+  /// Serves the health denominators, which group by what went wrong within a window.
+  @@index([outcomeClass, createdAt])
+  /// Serves "what did fallbacks cost" and "what did support resend", which are the two
+  /// questions whose answers are otherwise buried in the total.
+  @@index([sendKind, createdAt])
+}
+
+/// What a provider charges, at a point in time.
+///
+/// ── WHY THIS IS A TABLE AND NOT A CONSTANT ────────────────────────────────────────
+/// Prices change, and they change per contract. A rate compiled into the application is a
+/// deploy every time a vendor renegotiates, and -- worse -- it silently reprices HISTORY,
+/// because yesterday's report would be recomputed at today's price. Effective dating is what
+/// makes a cost report about last month still true next year.
+///
+/// Modelled on TaxRule, which solves the same problem for the same reasons: `*` wildcards for
+/// scope, a priority for specificity, and an active flag so a rate can be written and
+/// reviewed before it starts applying to money.
+///
+/// ── WHY NO PRODUCTION PRICES SHIP IN THIS TABLE ───────────────────────────────────
+/// Because they would be invented. Real rates depend on a contract, a volume tier and a
+/// destination operator, and a plausible-looking number in an accounting table is worse than
+/// no number at all: it produces a total somebody will believe. Unconfigured stays UNKNOWN.
+model NotificationRate {
+  id String @id @default(cuid())
+
+  /// `ses`, `twilio`, `msg91`, `cloud`, `expo`, `fcm`, `log`.
+  provider String
+  /// email | sms | whatsapp | push | in_app
+  channel  String
+  /// ISO-3166 alpha-2, or `*` for any market.
+  country  String @default("*")
+  /// Where a provider prices by message class -- WhatsApp utility vs authentication vs
+  /// marketing. `*` for any.
+  category String @default("*")
+
+  /// Price of ONE billing unit, in millionths of `currency`. Integer; never a float.
+  unitPriceMicro Int
+  currency       String
+  /// PER_MESSAGE | PER_SEGMENT | PER_CONVERSATION | PER_TEMPLATE_MESSAGE | PER_1000 | PER_REQUEST
+  billingUnit    String
+
+  /// More specific wins. A country rate beats a `*` rate at the same instant.
+  priority Int     @default(100)
+  /// Off by default: a rate is written, reviewed, and only then applied to money.
+  active   Boolean @default(false)
+
+  effectiveFrom DateTime
+  /// Null means "still in force". A superseded rate gets an end date rather than a delete,
+  /// so a report about the period it covered can still be reproduced.
+  effectiveTo   DateTime?
+
+  /// Where the number came from: an invoice, a rate card, a contract clause.
+  source String?
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, provider, channel, country])
+  @@index([effectiveFrom, effectiveTo])
 }
 
 /// A destination that must not be sent to again.

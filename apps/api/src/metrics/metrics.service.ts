@@ -30,6 +30,10 @@ export class MetricsService {
   private readonly notifications: Counter<'channel' | 'provider' | 'result'>;
   private readonly notificationDeliveries: Counter<'channel' | 'provider' | 'state'>;
   private readonly notificationWebhooks: Counter<'provider' | 'result'>;
+  private readonly notificationAttempts: Counter<'channel' | 'provider' | 'outcome'>;
+  private readonly notificationCostMicros: Counter<'channel' | 'provider' | 'currency'>;
+  private readonly notificationCostUnknown: Counter<'channel' | 'provider'>;
+  private readonly notificationFallbacks: Counter<'event_type' | 'channel'>;
   private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
   private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
   private readonly inventoryLockOps: Counter<'op' | 'outcome'>;
@@ -193,6 +197,46 @@ export class MetricsService {
       name: 'etg_notification_webhooks_total',
       help: 'Notification delivery webhooks, by provider and processing result.',
       labelNames: ['provider', 'result'],
+      registers: [this.registry],
+    });
+    /*
+      Provider attempts by NORMALIZED outcome, which is the only denominator a health report
+      can honestly use. A suppressed address and somebody with no phone number are ours, not
+      the provider's, and counting them here as failures would make every provider look broken
+      in proportion to how many customers have preferences.
+    */
+    this.notificationAttempts = new Counter({
+      name: 'etg_notification_provider_attempts_total',
+      help: 'Notification delivery attempts, by channel, provider and normalized outcome class.',
+      labelNames: ['channel', 'provider', 'outcome'],
+      registers: [this.registry],
+    });
+    /*
+      Cost in MICROS -- millionths of a currency unit -- because a Prometheus counter is a
+      float and money must not be. Summing micros keeps every value an exact integer well
+      inside a double's 53-bit range, and the currency is a label rather than an assumption:
+      USD and INR are never added together.
+    */
+    this.notificationCostMicros = new Counter({
+      name: 'etg_notification_cost_micros_total',
+      help: 'Notification provider cost in millionths of a currency unit, by channel, provider and currency.',
+      labelNames: ['channel', 'provider', 'currency'],
+      registers: [this.registry],
+    });
+    /*
+      Counted separately and deliberately. A total with unknowns hidden inside it is a floor
+      presented as an answer; this is how far off it might be.
+    */
+    this.notificationCostUnknown = new Counter({
+      name: 'etg_notification_cost_unknown_total',
+      help: 'Delivery attempts for which no rate could be resolved. NOT zero-cost.',
+      labelNames: ['channel', 'provider'],
+      registers: [this.registry],
+    });
+    this.notificationFallbacks = new Counter({
+      name: 'etg_notification_fallback_total',
+      help: 'Cross-channel fallbacks opened, by event type and channel.',
+      labelNames: ['event_type', 'channel'],
       registers: [this.registry],
     });
     this.domainEventsPublished = new Counter({
@@ -574,6 +618,41 @@ export class MetricsService {
    */
   recordNotificationWebhook(provider: string, result: string): void {
     this.safe(() => this.notificationWebhooks.inc({ provider, result }));
+  }
+
+  /** One provider attempt, by the outcome class a health denominator can use. */
+  recordNotificationAttempt(channel: string, provider: string, outcome: string): void {
+    this.safe(() => this.notificationAttempts.inc({ channel, provider, outcome }));
+  }
+
+  /**
+   * What one attempt cost.
+   *
+   * An unpriced attempt increments the UNKNOWN counter instead of adding zero to the total.
+   * The two are the same number and opposite facts: one says the total is complete, the other
+   * says it is missing a component.
+   */
+  recordNotificationCost(
+    channel: string,
+    provider: string,
+    currency: string | null,
+    costMicro: number | null,
+    source: string,
+  ): void {
+    this.safe(() => {
+      if (costMicro === null || !currency) {
+        this.notificationCostUnknown.inc({ channel, provider });
+        return;
+      }
+      // A configured zero is a real price and belongs in the total, contributing nothing.
+      this.notificationCostMicros.inc({ channel, provider, currency }, costMicro);
+      void source;
+    });
+  }
+
+  /** A cross-channel fallback was opened — the most expensive thing the platform does. */
+  recordNotificationFallback(eventType: string, channel: string): void {
+    this.safe(() => this.notificationFallbacks.inc({ event_type: eventType, channel }));
   }
 
   recordDomainEventPublished(eventType: string, result: string): void {
