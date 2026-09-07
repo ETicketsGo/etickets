@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import {
   NotificationType,
@@ -370,17 +371,38 @@ export class SettlementService {
         idempotencyKey: `settlement_${settlement.id}_${settlement.transferredMinor}`,
         metadata: { settlementId: settlement.id, eventId: settlement.eventId },
       });
-      const released = await this.prisma.settlement.update({
-        where: { id },
-        data: {
-          status: 'TRANSFERRED',
-          providerTransferId: transfer.transferId,
-          reserveMinor: payable.reserveMinor,
-          payableMinor: payable.payableMinor,
-          transferredMinor: settlement.transferredMinor + payable.payableMinor,
-          releasedAt: new Date(),
-          failureMessage: null,
-        },
+      /*
+        The release and the organizer being told about it, in one transaction.
+
+        This was a bare `settlement.update` followed by a notification, and a payout is the
+        one message an organizer definitely goes looking for: the money has left this
+        platform, and if the notice is lost in the window between the two statements, nothing
+        records that it was owed and nothing retries it. Wrapping it is the smallest change
+        that makes the two facts inseparable.
+
+        The transfer itself is NOT in here and cannot be -- it already happened, at the
+        provider, above. What this transaction covers is the platform's own record of it and
+        the notice about it, which is exactly the pair that must not come apart.
+      */
+      const released = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.settlement.update({
+          where: { id },
+          data: {
+            status: 'TRANSFERRED',
+            providerTransferId: transfer.transferId,
+            reserveMinor: payable.reserveMinor,
+            payableMinor: payable.payableMinor,
+            transferredMinor: settlement.transferredMinor + payable.payableMinor,
+            releasedAt: new Date(),
+            failureMessage: null,
+          },
+        });
+        await this.notifyOrganizerInTransaction(tx, settlement.organizationId, {
+          type: NotificationType.SETTLEMENT_RELEASED,
+          settlementId: id,
+          amountMinor: payable.payableMinor,
+        });
+        return row;
       });
       await this.audit.record({
         actorUserId: actor.id,
@@ -389,11 +411,6 @@ export class SettlementService {
         entityType: 'Settlement',
         entityId: id,
         metadata: { transferId: transfer.transferId, amountMinor: payable.payableMinor, note },
-      });
-      await this.notifyOrganizer(settlement.organizationId, {
-        type: NotificationType.SETTLEMENT_RELEASED,
-        settlementId: id,
-        amountMinor: payable.payableMinor,
       });
       return released;
     } catch (err) {
@@ -567,18 +584,29 @@ export class SettlementService {
 
   // ─── Notifications (best-effort) ───
 
-  private async notifyOrganizer(
+  /**
+   * The transactional variant, for a payout release.
+   *
+   * The owners are read and written in the caller's transaction, so the notice cannot
+   * survive a rollback or be lost by a crash after one. It is a fan-out over the
+   * organization's owners -- a handful of people, not an audience -- so it stays a loop
+   * rather than reaching for the bulk path, and it does no provider I/O either way.
+   */
+  private async notifyOrganizerInTransaction(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     payload: Record<string, unknown> & { type: NotificationType },
   ) {
-    const owners = await this.prisma.organizationMember.findMany({
+    const owners = await tx.organizationMember.findMany({
       where: { organizationId, role: 'ORGANIZER_OWNER', status: 'ACTIVE' },
       select: { userId: true },
     });
     for (const o of owners) {
-      await this.notifications
-        .send({ type: payload.type, userId: o.userId, payload })
-        .catch(() => undefined);
+      await this.notifications.sendCritical(tx, {
+        type: payload.type,
+        userId: o.userId,
+        payload,
+      });
     }
   }
 

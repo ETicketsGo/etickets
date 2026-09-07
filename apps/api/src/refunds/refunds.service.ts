@@ -427,25 +427,32 @@ export class RefundsService {
       // it. The original receipt is never edited — it recorded a sale that genuinely
       // happened, and rewriting it would destroy the audit trail the pair exists to provide.
       await this.receipts.issueCreditNote(tx, refundId);
-    });
 
-    await this.notifications.send({
-      type: NotificationType.REFUND_COMPLETED,
-      userId: booking.userId,
-      toEmail: booking.buyerEmail,
-      // The reference and currency travel with it so the notice can name the booking the way
-      // the customer knows it, and show the amount as money rather than minor units.
-      //
-      // `refundId` is what makes duplicate suppression correct here. A booking can be
-      // refunded in parts, and two partial refunds of the same amount are two real refunds —
-      // so the refund's own id, not the booking's, is what separates one notice from the next.
-      payload: {
-        bookingId: booking.id,
-        refundId,
-        reference: booking.reference ?? '',
-        currency: booking.currency,
-        amountMinor: refund.amountMinor,
-      },
+      /*
+        Told in the same transaction that completes the refund, for the same reason the
+        credit note is issued in it: "the money went back" and "the customer knows the money
+        went back" must not be able to come apart. Enqueued after the commit, a crash in
+        between leaves somebody's refund invisible to them, and nothing to retry.
+
+        The reference and currency travel with it so the notice can name the booking the way
+        the customer knows it, and show the amount as money rather than minor units.
+
+        `refundId` is what makes duplicate suppression correct here. A booking can be
+        refunded in parts, and two partial refunds of the same amount are two real refunds --
+        so the refund's own id, not the booking's, separates one notice from the next.
+      */
+      await this.notifications.sendCritical(tx, {
+        type: NotificationType.REFUND_COMPLETED,
+        userId: booking.userId,
+        toEmail: booking.buyerEmail,
+        payload: {
+          bookingId: booking.id,
+          refundId,
+          reference: booking.reference ?? '',
+          currency: booking.currency,
+          amountMinor: refund.amountMinor,
+        },
+      });
     });
     await this.audit.record({
       actorUserId: user.id,

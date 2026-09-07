@@ -636,9 +636,6 @@ export class PaymentsService {
     const expectedUnits = ticketItems.reduce((s, i) => s + i.quantity, 0);
     const ticketCount = booking.items.reduce((s, i) => s + i.quantity, 0);
     let alreadyConfirmed = false;
-    // Captured out of the transaction so the notification can name the booking the way the
-    // customer sees it, rather than by its database id.
-    let assignedReference: string | null = null;
     // Collected as the tickets are minted, rather than read back afterwards: the seat labels
     // are already in hand at that point, and a second query would be asking the database to
     // repeat something this method just decided.
@@ -665,7 +662,6 @@ export class PaymentsService {
         country: booking.event.venue?.country,
         at: new Date(),
       });
-      assignedReference = reference;
       await tx.booking.update({ where: { id: booking.id }, data: { reference } });
 
       // Issue the receipt (or tax invoice) in the SAME transaction that confirms the
@@ -774,41 +770,47 @@ export class PaymentsService {
         confirmedAt: new Date().toISOString(),
       });
       await this.eventPublisher.recordInTransaction(tx, [confirmedEvent]);
+
+      /*
+        What the customer is actually told, written in the SAME transaction that confirms
+        the booking -- for exactly the reason the receipt above is.
+
+        Enqueued after the commit, there is a window between "the money is taken and the
+        booking is confirmed" and "the confirmation exists": a crash in it loses the message
+        permanently, because nothing recorded that it was owed. Rare, and unrecoverable, on
+        the one message that carries somebody's ticket.
+
+        This writes rows and nothing else. No provider is touched here, so the transaction
+        never waits on a network call and an SES outage still cannot roll back a payment.
+
+        Reported from QA: the confirmation read "Your booking cmt83vftr007l912we33eldkp is
+        confirmed for 2 ticket(s)." A cuid is a database identity; it means nothing to the
+        person who bought the ticket, cannot be read aloud to support, and is not what is
+        printed on their receipt. So the payload carries the things a human recognises.
+      */
+      await this.notifications.sendCritical(tx, {
+        type: NotificationType.BOOKING_CONFIRMED,
+        userId: booking.userId,
+        toEmail: booking.buyerEmail,
+        payload: {
+          bookingId: booking.id,
+          reference,
+          eventTitle: booking.event?.title ?? '',
+          startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
+          // Cinema first, then the venue. Without the fallback every non-cinema event fell
+          // back to UTC in the confirmation while the page showed the reader's own zone.
+          timeZone:
+            booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
+          seats: issuedSeatLabels.join(', '),
+          tickets: ticketCount,
+        },
+      });
     });
 
     if (alreadyConfirmed) {
       return { status: 'already_confirmed', bookingId: booking.id };
     }
 
-    /*
-      What the customer is actually told.
-
-      Reported from QA: the confirmation read "Your booking cmt83vftr007l912we33eldkp is
-      confirmed for 2 ticket(s)." A cuid is a database identity; it means nothing to the
-      person who bought the ticket, cannot be read aloud to support, and is not what is
-      printed on their receipt or their booking reference.
-
-      So the payload now carries the things a human recognises — the reference, what they are
-      going to, and when. The id is still included as a fallback for the rare case where a
-      reference could not be assigned, but it is no longer the headline.
-    */
-    await this.notifications.send({
-      type: NotificationType.BOOKING_CONFIRMED,
-      userId: booking.userId,
-      toEmail: booking.buyerEmail,
-      payload: {
-        bookingId: booking.id,
-        reference: assignedReference ?? booking.reference ?? '',
-        eventTitle: booking.event?.title ?? '',
-        startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
-        // Cinema first, then the venue. Without the fallback every non-cinema event fell
-        // back to UTC in the confirmation while the page showed the reader's own zone.
-        timeZone:
-          booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
-        seats: issuedSeatLabels.join(', '),
-        tickets: ticketCount,
-      },
-    });
     await this.audit.record({
       organizationId: booking.organizationId,
       action: 'BOOKING_CONFIRMED',

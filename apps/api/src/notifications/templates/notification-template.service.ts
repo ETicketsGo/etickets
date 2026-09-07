@@ -208,6 +208,21 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    The new time is rendered through the same `whenClause` the confirmation uses, so it lands
+    in the venue's zone and the reader's language. Getting that wrong here would be worse than
+    anywhere else on the platform: the entire message is a time, and a time in the wrong zone
+    sends somebody to the cinema on the wrong evening.
+  */
+  [NotificationType.SHOW_CHANGED]: (l, p) => ({
+    subject: t(l, 'emails.SHOW_CHANGED.subject'),
+    body: t(l, 'emails.SHOW_CHANGED.body', {
+      event: str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent')),
+      reference: bookingName(l, p),
+      when: whenClause(l, p),
+    }),
+  }),
+
   [NotificationType.BOOKING_CANCELLED]: (l, p) => ({
     subject: t(l, 'emails.BOOKING_CANCELLED.subject'),
     body: t(l, 'emails.BOOKING_CANCELLED.body', { reference: bookingName(l, p) }),

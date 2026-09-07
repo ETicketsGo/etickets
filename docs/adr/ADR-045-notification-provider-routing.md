@@ -126,3 +126,51 @@ password resets) carry a null key, and Postgres permits any number of nulls in a
 - `Notification` gains three nullable columns. No new tables.
 - Delivery receipts, bounce/complaint suppression, cost ledger and an admin delivery dashboard
   are explicitly deferred.
+
+---
+
+## Addendum (Phase 1 follow-up)
+
+### Critical notifications commit with the domain change
+
+Making `send()` a durable enqueue removed the provider from the payment path. It left the
+enqueue _after_ the commit, and therefore a crash window: booking confirmed, money taken,
+process dies, and the confirmation carrying somebody's ticket was never recorded — so nothing
+retried it, because nothing knew it was owed. Rare, permanent, and on the most important
+message the platform sends.
+
+`sendCritical(tx, input)` takes the transaction client as its **first, required** argument, so
+it cannot be omitted the way an optional trailing parameter can. `fanOutCritical(tx, …)` does
+the same for one fact reaching many people, in a single statement. Five types are classified
+critical: `BOOKING_CONFIRMED`, `BOOKING_CANCELLED`, `REFUND_COMPLETED`, `SETTLEMENT_RELEASED`,
+`SHOW_CHANGED`. Enforcement is three-layered: a required argument, a runtime error log if a
+critical type reaches `send()` without a transaction (which still writes the row — never lose
+the message), and a source-scanning test that fails the build if a producer uses the wrong
+method.
+
+`SettlementService.release` had no surrounding transaction at all. The provider transfer has
+already happened by then and cannot be inside a database transaction; what is now wrapped is
+the platform's own record of the release and the notice about it, which is the pair that must
+not come apart.
+
+### A unique violation must never reach the transaction
+
+The atomicity test found a defect introduced by the dedupe key itself. The insert caught
+`P2002` in JavaScript — but catching a constraint violation does not un-abort a PostgreSQL
+transaction. Once the statement fails the transaction is poisoned and the commit becomes a
+rollback. A redelivered webhook whose notification had already been written would therefore
+have **silently discarded the booking confirmation, the tickets and the receipt written
+alongside it**, and reported success. Idempotency would have destroyed committed work.
+
+Dedupable inserts now go through `createMany({ skipDuplicates: true })` — `ON CONFLICT DO
+NOTHING`, which never raises. Rows with no dedupe key keep a plain `create`, which cannot
+conflict and returns the id `schedule()` needs.
+
+### SHOW_CHANGED
+
+A material reschedule — the start time moved — notifies every booking still live on that
+session (`CONFIRMED` or `PARTIALLY_REFUNDED`), inside the reschedule transaction, so nobody is
+told about a change that rolled back and no committed change goes untold. `endsAt` is derived
+from the film's runtime and is never material on its own. Email, in-app, push and WhatsApp; no
+SMS, which stays reserved for `BOOKING_CANCELLED`. The dedupe subject is the booking **and the
+new start time**, so a show moved twice is two pieces of news and only the second is true.

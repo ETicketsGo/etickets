@@ -87,6 +87,8 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   // ── Operational messages to organizers and admins about their own money ─────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'TRANSACTIONAL',
   [NotificationType.SETTLEMENT_RELEASED]: 'TRANSACTIONAL',
+  // About a transaction they entered into: the show they bought a ticket for has moved.
+  [NotificationType.SHOW_CHANGED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_DISPUTE_OPENED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'TRANSACTIONAL',
   [NotificationType.TRANSFER_FAILED]: 'TRANSACTIONAL',
@@ -161,6 +163,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   // ── Somebody running events: their money, their applications ────────────────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'ORGANIZER',
   [NotificationType.SETTLEMENT_RELEASED]: 'ORGANIZER',
+  [NotificationType.SHOW_CHANGED]: 'CUSTOMER',
   [NotificationType.PAYMENT_DISPUTE_OPENED]: 'ORGANIZER',
   [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'ORGANIZER',
   [NotificationType.TRANSFER_FAILED]: 'ORGANIZER',

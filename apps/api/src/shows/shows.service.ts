@@ -5,6 +5,7 @@ import {
   BookingStatus,
   EventStatus,
   ExperienceType,
+  NotificationType,
   Role,
   SessionStatus,
 } from '@eticketsgo/shared-types';
@@ -18,6 +19,7 @@ import type {
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
+import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
 import { currencyForCountry } from '../common/country';
@@ -333,6 +335,13 @@ export class ShowsService {
     // working; both fall back to safe defaults.
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly config?: ConfigService,
+    /*
+      Optional for the same reason `audit` is: dozens of scheduling specs construct this
+      service directly with two arguments. A reschedule still works without it -- it simply
+      tells nobody, which is exactly what it did before this existed -- and the integration
+      tests that matter boot the real module and get the real one.
+    */
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   /** Minimum gap between two shows on one screen. See SHOW_TURNAROUND_MINUTES. */
@@ -1671,6 +1680,15 @@ export class ShowsService {
     );
     const screenId = session.screenId;
 
+    /*
+      ── IS THIS A CHANGE ANYBODY NEEDS TELLING ABOUT? ─────────────────────────────────
+      Only a move. Re-submitting the same start time is a no-op an operator makes by
+      clicking save twice, and `endsAt` is DERIVED from the film's runtime, so it never
+      moves on its own -- treating a recomputed end as material would mail every ticket
+      holder because somebody corrected a padding value by a minute.
+    */
+    const moved = startsAt.getTime() !== session.startsAt.getTime();
+
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Screen" WHERE id = ${screenId} FOR UPDATE`;
       // Ignore this session's own current window, or a show would always collide with
@@ -1684,14 +1702,92 @@ export class ShowsService {
           { reason: 'OVERLAPS_EXISTING_SHOW', conflictsWith: conflict.id },
         );
       }
-      return tx.eventSession.update({ where: { id: sessionId }, data: { startsAt, endsAt } });
+      const row = await tx.eventSession.update({
+        where: { id: sessionId },
+        data: { startsAt, endsAt },
+      });
+      if (moved) await this.notifyTicketHolders(tx, sessionId, startsAt);
+      return row;
     });
 
     await this.recordShowAudit(user, session, 'SHOW_RESCHEDULED', {
       from: { startsAt: session.startsAt, endsAt: session.endsAt },
       to: { startsAt, endsAt },
+      notified: moved,
     });
     return { sessionId, startsAt: updated.startsAt, endsAt: updated.endsAt };
+  }
+
+  /**
+   * Tell the people who already hold a ticket that the show has moved.
+   *
+   * ── THE GAP THIS CLOSES ───────────────────────────────────────────────────────────
+   * Rescheduling updated the session, wrote an audit entry, and told nobody. A customer who
+   * had paid found out by arriving at the old time. The operator saw a successful save.
+   *
+   * ── WHY IT IS IN THE RESCHEDULE TRANSACTION ───────────────────────────────────────
+   * Because the move and the telling must not be able to come apart. If the reschedule rolls
+   * back -- an overlap, a lock timeout -- nobody may be told about a change that did not
+   * happen; if it commits, everybody affected must already be owed a message, with no window
+   * in which a crash loses it silently.
+   *
+   * ── WHY IT IS ONE STATEMENT AND NOT A LOOP ────────────────────────────────────────
+   * This transaction is holding a `FOR UPDATE` lock on the screen row, and every other
+   * scheduling operation on that screen is queued behind it. A sold-out house on four
+   * channels is hundreds of rows; written one at a time that is hundreds of round trips with
+   * a scheduling lock held throughout. `fanOutCritical` reads preferences and locales once
+   * for the whole audience and inserts in a single statement.
+   *
+   * No provider is contacted here. The worker delivers, exactly as for every other
+   * notification, so a messaging outage cannot fail a reschedule.
+   */
+  private async notifyTicketHolders(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    startsAt: Date,
+  ): Promise<void> {
+    if (!this.notifications) return;
+    /*
+      Who is affected: whoever holds a live booking on THIS session. Cancelled and expired
+      bookings are not told -- their plans no longer involve this show -- and a fully refunded
+      booking is out for the same reason, while a partially refunded one still has tickets
+      and still needs to know.
+    */
+    const affected = await tx.booking.findMany({
+      where: {
+        eventSessionId: sessionId,
+        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] },
+      },
+      select: { id: true, userId: true, buyerEmail: true, reference: true },
+    });
+    if (affected.length === 0) return;
+
+    // The zone the show is IN, not the reader's. A time rendered in the wrong zone is the
+    // one mistake this message cannot survive: it sends somebody out on the wrong evening.
+    const zone = await tx.eventSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        screen: { select: { cinema: { select: { timezone: true } } } },
+        event: { select: { title: true, venue: { select: { timezone: true } } } },
+      },
+    });
+
+    await this.notifications.fanOutCritical(tx, {
+      type: NotificationType.SHOW_CHANGED,
+      recipients: affected.map((b) => ({
+        userId: b.userId,
+        toEmail: b.buyerEmail,
+        payload: {
+          bookingId: b.id,
+          reference: b.reference ?? '',
+          eventTitle: zone?.event?.title ?? '',
+          // Part of the dedupe subject as well as the message: a show rescheduled twice is
+          // two pieces of news, and only the second one is still true.
+          startsAt: startsAt.toISOString(),
+          timeZone: zone?.screen?.cinema?.timezone ?? zone?.event?.venue?.timezone ?? '',
+        },
+      })),
+    });
   }
 
   /** One audit shape for every scheduling operation, so the trail is queryable. */

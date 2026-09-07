@@ -123,6 +123,7 @@ it **cannot** use SMS or WhatsApp, whatever a caller asks for.
 | `REFUND_COMPLETED`    | ✅    | ✅     | ✅   | ✅       | —   |
 | `PAYMENT_FAILED`      | ✅    | ✅     | ✅   | —        | —   |
 | `EVENT_REMINDER`      | —     | ✅     | ✅   | ✅       | —   |
+| `SHOW_CHANGED`        | ✅    | ✅     | ✅   | ✅       | —   |
 | `SETTLEMENT_RELEASED` | ✅    | ✅     | —    | —        | —   |
 | everything else       | ✅    | ✅     | ✅   | —        | —   |
 
@@ -142,13 +143,13 @@ decision, not a notification one.
 
 Mapped onto what exists, rather than inventing duplicate events:
 
-| Asked for             | Status                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `TICKET_READY`        | The ticket is delivered by `BOOKING_CONFIRMED`. No separate type exists and one was not created.                           |
-| `SHOW_CHANGED`        | **No type and no producer.** `rescheduleShow` notifies nobody today. Real gap, needs a product decision, not a policy row. |
-| `REFUND_INITIATED`    | No type exists; only `REFUND_COMPLETED`.                                                                                   |
-| `ORGANIZER_PAYOUT`    | Mapped to `SETTLEMENT_RELEASED`.                                                                                           |
-| WhatsApp OTP fallback | Not built — see above.                                                                                                     |
+| Asked for             | Status                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `TICKET_READY`        | The ticket is delivered by `BOOKING_CONFIRMED`. No separate type exists and one was not created.                  |
+| `SHOW_CHANGED`        | **Built.** A material reschedule now tells every live booking on that session, inside the reschedule transaction. |
+| `REFUND_INITIATED`    | No type exists; only `REFUND_COMPLETED`.                                                                          |
+| `ORGANIZER_PAYOUT`    | Mapped to `SETTLEMENT_RELEASED`.                                                                                  |
+| WhatsApp OTP fallback | Not built — see above.                                                                                            |
 
 ---
 

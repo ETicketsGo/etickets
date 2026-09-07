@@ -79,7 +79,13 @@ function setup(opts: {
     refund: jest.fn().mockResolvedValue({ providerRef: 'mock_rf_1', status: 'COMPLETED' }),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    send: jest.fn().mockResolvedValue(undefined),
+    // Critical notifications are written IN the domain transaction now, so the stub
+    // captures the transaction client it was handed -- that IS the assertion.
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    fanOutCritical: jest.fn().mockResolvedValue(0),
+  };
   const inventory = { forSeating: jest.fn().mockReturnValue(strategy) };
   const config = { get: jest.fn().mockReturnValue('LOCAL') };
   const settlements = { onPaymentSucceeded: jest.fn().mockResolvedValue(undefined) };
@@ -194,7 +200,17 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     // No coupon on this booking.
     expect(tx.coupon.update).not.toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(notifications.send).toHaveBeenCalledTimes(1);
+    /*
+      Written INSIDE the confirm transaction, on the same client that issued the tickets.
+
+      Enqueued after the commit there is a window -- money taken, booking confirmed, process
+      dies -- in which the one message carrying somebody's ticket is lost permanently,
+      because nothing recorded that it was owed. Passing `tx` is what closes it, and passing
+      the SAME tx is what makes "confirmed" and "told" one fact.
+    */
+    expect(notifications.sendCritical).toHaveBeenCalledTimes(1);
+    expect(notifications.sendCritical.mock.calls[0][0]).toBe(tx);
+    expect(notifications.send).not.toHaveBeenCalled();
     expect(audit.record).toHaveBeenCalledTimes(1);
     // ADR-041 proof slice: the BookingConfirmed fact is recorded IN the confirm tx
     // (durable in outbox mode; no-op in_process) and delivered exactly once after commit,

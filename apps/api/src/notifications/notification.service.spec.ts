@@ -59,6 +59,11 @@ function setup(
         seq += 1;
         return Promise.resolve({ id: `created-${seq}`, ...data });
       }),
+      // Dedupable types insert through createMany + skipDuplicates: a unique violation
+      // raised mid-statement would abort the caller's whole transaction, taking the
+      // domain change with it. `ON CONFLICT DO NOTHING` never raises.
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'created-1' }),
       findMany: jest.fn().mockResolvedValue(opts.dueRows ?? []),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: opts.updateManyCount ?? 1 }),
@@ -95,6 +100,23 @@ function setup(
   return { service, prisma, templates, preferences, channels, deliver, consent };
 }
 
+/**
+ * The rows a send wrote, from whichever path wrote them.
+ *
+ * A dedupable type goes in through `createMany({ skipDuplicates })` so a collision cannot
+ * abort the caller's transaction; a type with no dedupe key uses a plain `create`, which
+ * cannot collide and hands back the id `schedule()` needs. Tests care about the rows, not
+ * which statement produced them.
+ */
+function writtenRows(prisma: {
+  notification: { create: jest.Mock; createMany: jest.Mock };
+}): Record<string, unknown>[] {
+  return [
+    ...prisma.notification.create.mock.calls.map((c) => c[0].data),
+    ...prisma.notification.createMany.mock.calls.flatMap((c) => c[0].data),
+  ];
+}
+
 describe('NotificationService.send hands over, it does not deliver', () => {
   /*
     ── WHAT THESE REPLACED ──────────────────────────────────────────────────────────────
@@ -115,16 +137,15 @@ describe('NotificationService.send hands over, it does not deliver', () => {
     });
 
     // Policy for a confirmed booking: email, the inbox, push, and WhatsApp.
-    expect(prisma.notification.create).toHaveBeenCalledTimes(4);
-    expect(prisma.notification.create).toHaveBeenCalledWith(
+    const rows = writtenRows(prisma);
+    expect(rows).toHaveLength(4);
+    expect(rows).toContainEqual(
       expect.objectContaining({
-        data: expect.objectContaining({
-          type: NotificationType.BOOKING_CONFIRMED,
-          channel: 'email',
-          locale: 'en',
-          status: 'PENDING',
-          scheduledFor: expect.any(Date),
-        }),
+        type: NotificationType.BOOKING_CONFIRMED,
+        channel: 'email',
+        locale: 'en',
+        status: 'PENDING',
+        scheduledFor: expect.any(Date),
       }),
     );
     // The whole point: nothing was delivered, so nothing about a provider can reach the
@@ -135,9 +156,9 @@ describe('NotificationService.send hands over, it does not deliver', () => {
   it('never writes a row claiming SENT', async () => {
     const { service, prisma } = setup();
     await service.send({ type: NotificationType.BOOKING_CONFIRMED, userId: 'u1', payload: {} });
-    for (const call of prisma.notification.create.mock.calls) {
-      expect(call[0].data.status).not.toBe('SENT');
-      expect(call[0].data.sentAt).toBeUndefined();
+    for (const data of writtenRows(prisma)) {
+      expect(data.status).not.toBe('SENT');
+      expect(data.sentAt).toBeUndefined();
     }
   });
 
@@ -149,7 +170,7 @@ describe('NotificationService.send hands over, it does not deliver', () => {
       payload: {},
       channels: ['email', 'push'],
     });
-    expect(prisma.notification.create).toHaveBeenCalledTimes(2);
+    expect(writtenRows(prisma)).toHaveLength(2);
   });
 
   it('a caller may NOT ask for a channel policy does not allow', async () => {
@@ -165,10 +186,8 @@ describe('NotificationService.send hands over, it does not deliver', () => {
       payload: {},
       channels: ['email', 'sms'],
     });
-    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
-    expect(prisma.notification.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ channel: 'email' }) }),
-    );
+    expect(writtenRows(prisma)).toHaveLength(1);
+    expect(writtenRows(prisma)[0]).toMatchObject({ channel: 'email' });
   });
 
   it('respects preferences: a disabled channel is not persisted', async () => {
@@ -179,7 +198,7 @@ describe('NotificationService.send hands over, it does not deliver', () => {
       payload: {},
       channels: ['email', 'push'],
     });
-    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    expect(writtenRows(prisma)).toHaveLength(1);
   });
 });
 

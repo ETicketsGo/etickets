@@ -301,6 +301,16 @@ export const NotificationType = {
   PAYMENT_FAILED: 'PAYMENT_FAILED',
   EVENT_REMINDER: 'EVENT_REMINDER',
   BOOKING_CANCELLED: 'BOOKING_CANCELLED',
+  /**
+   * A show somebody already holds a ticket for has MATERIALLY changed — today, its start
+   * time moved.
+   *
+   * The gap this closes: rescheduling a show updated the row, wrote an audit entry, and told
+   * nobody. A customer who had paid found out by arriving at the old time. It is deliberately
+   * distinct from BOOKING_CANCELLED, which says the booking is over; this one says the
+   * booking still stands and the plan around it has moved.
+   */
+  SHOW_CHANGED: 'SHOW_CHANGED',
   REFUND_COMPLETED: 'REFUND_COMPLETED',
   TICKET_CHECKED_IN: 'TICKET_CHECKED_IN',
   ATTENDEE_INVITED: 'ATTENDEE_INVITED',

@@ -12,6 +12,10 @@
     "subject": "Reminder: your event is coming up",
     "body": "This is a reminder for {event}{startingAt}."
   },
+  "SHOW_CHANGED": {
+    "subject": "Your show has been rescheduled",
+    "body": "The time of {event} has changed. Your booking {reference} is still valid{when}."
+  },
   "BOOKING_CANCELLED": {
     "subject": "Your booking was cancelled",
     "body": "Your booking {reference} has been cancelled."

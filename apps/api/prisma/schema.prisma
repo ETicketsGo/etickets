@@ -331,6 +331,9 @@ enum NotificationType {
   PAYMENT_FAILED
   EVENT_REMINDER
   BOOKING_CANCELLED
+  /// A show somebody already holds a ticket for has materially changed -- today, its start
+  /// time moved. Rescheduling used to update the row, write an audit entry, and tell nobody.
+  SHOW_CHANGED
   REFUND_COMPLETED
   TICKET_CHECKED_IN
   ATTENDEE_INVITED

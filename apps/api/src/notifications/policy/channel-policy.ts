@@ -69,6 +69,15 @@ export const CHANNEL_POLICY: Partial<Record<NotificationType, readonly ChannelKe
   */
   [NotificationType.EVENT_REMINDER]: [A, P, W],
 
+  /*
+    A show that moved. The customer still has a ticket and now has to act on new information,
+    so it goes everywhere a confirmation does.
+
+    No SMS. That is reserved for BOOKING_CANCELLED, where somebody may otherwise travel to a
+    venue with nothing on. A time change is important; it is not that.
+  */
+  [NotificationType.SHOW_CHANGED]: [E, A, P, W],
+
   /* Organizer money. Their console and their email; not their WhatsApp, not at 3am. */
   [NotificationType.SETTLEMENT_RELEASED]: [E, A],
 };
@@ -97,4 +106,30 @@ export function permittedChannels(type: NotificationType, requested?: string[]):
   const allowed = channelsFor(type);
   if (!requested) return allowed;
   return allowed.filter((c) => requested.includes(c));
+}
+
+/**
+ * The messages whose absence is a customer-facing failure, not an inconvenience.
+ *
+ * -- WHY THE LIST EXISTS SEPARATELY FROM THE CHANNEL POLICY ---------------------------
+ * These are the ones that must be written down in the SAME transaction as the domain change
+ * they describe. Everything else can be enqueued after a commit, because losing one to a
+ * crash in that window costs somebody a notification. Losing one of THESE costs somebody
+ * their ticket, or leaves them not knowing their money came back.
+ *
+ * `NotificationService.sendCritical` takes the transaction client as its FIRST and REQUIRED
+ * argument, so a producer of one of these cannot forget it by omitting an optional parameter.
+ * The runtime guard and the structural test in critical-producers.spec.ts exist because a
+ * required argument is only enforcement for code that calls the right method.
+ */
+export const CRITICAL_TYPES: readonly NotificationType[] = [
+  NotificationType.BOOKING_CONFIRMED,
+  NotificationType.BOOKING_CANCELLED,
+  NotificationType.REFUND_COMPLETED,
+  NotificationType.SETTLEMENT_RELEASED,
+  NotificationType.SHOW_CHANGED,
+];
+
+export function isCritical(type: NotificationType): boolean {
+  return CRITICAL_TYPES.includes(type);
 }

@@ -22,14 +22,24 @@ function makeDeps(overrides: {
     },
     organizationMember: { findMany: jest.fn().mockResolvedValue([]) },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    // The release and the organizer being told about it are now one transaction, so the
+    // payout notice cannot be lost in the window between the two writes.
+    $transaction: undefined as unknown as (fn: (tx: unknown) => unknown) => unknown,
   };
+  prisma.$transaction = (fn: (tx: unknown) => unknown) => fn(prisma);
   const provider = {
     name: 'stripe',
     createTransfer: overrides.createTransfer,
     reverseTransfer: overrides.reverseTransfer,
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    send: jest.fn().mockResolvedValue(undefined),
+    // Critical notifications are written IN the domain transaction now, so the stub
+    // captures the transaction client it was handed -- that IS the assertion.
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    fanOutCritical: jest.fn().mockResolvedValue(0),
+  };
   const config = { get: jest.fn().mockReturnValue(overrides.reserveBps ?? 0) };
   // SettlementService now resolves the transfer adapter by provider name.
   const resolver = { get: jest.fn().mockReturnValue(provider) };

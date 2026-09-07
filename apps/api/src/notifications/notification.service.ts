@@ -13,7 +13,7 @@ import {
   type MessageAudience,
 } from './message-class';
 import { ChannelKey, RenderedNotification } from './channels/notification-channel.interface';
-import { permittedChannels } from './policy/channel-policy';
+import { isCritical, permittedChannels } from './policy/channel-policy';
 import { dedupeKeyFor } from './policy/dedupe-key';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
@@ -132,7 +132,148 @@ export class NotificationService {
    * lose the message. Callers without a transaction are unchanged.
    */
   async send(input: NotifyInput, tx?: Prisma.TransactionClient): Promise<void> {
+    if (isCritical(input.type) && !tx) {
+      /*
+        Loud, and then it writes the row anyway.
+
+        This is the guard for the case `sendCritical` cannot cover: somebody reaches the
+        general method with a critical type, perhaps through a helper that takes the type as
+        a variable. Throwing here would turn a missing transaction into a failed payment,
+        which is the exact class of harm this whole phase removed. So the message is never
+        lost -- it is simply enqueued after the commit, with the weaker guarantee, and said
+        out loud so it is fixed rather than discovered later.
+      */
+      this.logger.error(
+        `${input.type} was enqueued OUTSIDE a transaction. Use sendCritical(tx, input) so ` +
+          `the notification commits with the domain change it describes.`,
+      );
+    }
     await this.enqueue(input, { scheduledFor: new Date(), status: 'PENDING' }, tx);
+  }
+
+  /**
+   * Record a critical notification IN the transaction that makes the fact true.
+   *
+   * -- THE WINDOW THIS CLOSES -------------------------------------------------------
+   * Moving delivery to the worker took the provider off the payment path, but left the
+   * enqueue after the commit. Between those two statements there is a crash window: the
+   * booking is confirmed, the money is taken, the process dies, and the confirmation
+   * that would have carried the ticket was never written down. Nothing retries it,
+   * because nothing recorded that it was owed. It is rare and it is permanent, which is
+   * the worst combination a customer-facing message can have.
+   *
+   * Written inside the transaction, the invariant is absolute in both directions: if the
+   * domain transition commits, its notification intent exists; if it rolls back, the
+   * intent does not.
+   *
+   * -- WHY THE TRANSACTION IS THE FIRST ARGUMENT ------------------------------------
+   * Because it cannot then be forgotten. An optional trailing `tx?` is a guarantee that
+   * depends on every future developer remembering it, which is not a guarantee. This
+   * signature makes omitting it a compile error.
+   *
+   * -- WHAT IS STILL NOT IN THE TRANSACTION ------------------------------------------
+   * Any provider. This writes rows. Delivery stays with the worker exactly as before, so
+   * the transaction never waits on a network call and an outage still cannot roll back a
+   * payment.
+   */
+  async sendCritical(tx: Prisma.TransactionClient, input: NotifyInput): Promise<void> {
+    await this.enqueue(input, { scheduledFor: new Date(), status: 'PENDING' }, tx);
+  }
+
+  /**
+   * One fact, many people, one statement.
+   *
+   * -- WHY THIS IS NOT A LOOP OVER sendCritical -------------------------------------
+   * A show with two hundred bookings on four channels is eight hundred rows. Written one
+   * at a time inside the transaction that is also holding a screen row lock, that is eight
+   * hundred round trips with a scheduling lock held throughout, and every other show on
+   * that screen waits behind it. So preferences and locales are read once for the whole
+   * audience, the rows are built in memory, and they go in as a single `createMany`.
+   *
+   * `skipDuplicates` is what makes redelivery safe: the unique index on `dedupeKey` would
+   * otherwise abort the entire statement -- and with it the domain change -- because one
+   * recipient had already been told. Here the already-told rows are simply not written,
+   * which is the correct outcome for all of them at once.
+   *
+   * Consent is not consulted, and does not need to be: fan-out is for TRANSACTIONAL facts
+   * about a booking somebody already holds, and {@link resolveChannelKeys} would reach the
+   * same conclusion one row at a time.
+   */
+  async fanOutCritical(
+    tx: Prisma.TransactionClient,
+    input: {
+      type: NotificationType;
+      /*
+        Each recipient carries its OWN payload rather than the caller supplying a lookup.
+
+        One person can hold two bookings on the same show. With a shared payload, or a
+        payload resolved by matching on who the recipient is, both of their messages would
+        name the same booking -- and, because the booking id is part of the dedupe subject,
+        the second would be discarded as a duplicate of the first. Two bookings affected by
+        a change are two things to be told.
+      */
+      recipients: {
+        userId: string | null;
+        toEmail: string | null;
+        payload: Record<string, unknown>;
+      }[];
+      country?: string | null;
+    },
+  ): Promise<number> {
+    if (input.recipients.length === 0) return 0;
+    if (!isTransactional(input.type)) {
+      // A commercial message needs a consent record per person per channel, which is a
+      // per-recipient decision this bulk path deliberately does not make.
+      throw new Error(`fanOutCritical is for transactional messages; ${input.type} is not one.`);
+    }
+
+    const channels = permittedChannels(input.type).filter((c) => this.channels.has(c));
+    const userIds = input.recipients.map((r) => r.userId).filter((id): id is string => Boolean(id));
+
+    // Two reads for the whole audience, however large it is.
+    const [users, prefs] = await Promise.all([
+      userIds.length
+        ? tx.user.findMany({ where: { id: { in: userIds } }, select: { id: true, locale: true } })
+        : Promise.resolve([] as { id: string; locale: string | null }[]),
+      userIds.length
+        ? tx.notificationPreference.findMany({
+            where: { userId: { in: userIds }, type: input.type, enabled: false },
+            select: { userId: true, channel: true },
+          })
+        : Promise.resolve([] as { userId: string; channel: string }[]),
+    ]);
+    const localeOf = new Map(users.map((u) => [u.id, u.locale ?? DEFAULT_LOCALE]));
+    const optedOut = new Set(prefs.map((p) => `${p.userId}:${p.channel}`));
+
+    const rows: Prisma.NotificationCreateManyInput[] = [];
+    for (const recipient of input.recipients) {
+      const payload = recipient.payload;
+      const locale = recipient.userId
+        ? (localeOf.get(recipient.userId) ?? DEFAULT_LOCALE)
+        : DEFAULT_LOCALE;
+      for (const channel of channels) {
+        if (recipient.userId && optedOut.has(`${recipient.userId}:${channel}`)) continue;
+        rows.push({
+          type: input.type,
+          userId: recipient.userId,
+          toEmail: recipient.toEmail,
+          payload: payload as Prisma.InputJsonValue,
+          channel,
+          locale,
+          status: 'PENDING',
+          scheduledFor: new Date(),
+          dedupeKey: dedupeKeyFor({
+            type: input.type,
+            channel,
+            recipientRef: recipient.userId ?? recipient.toEmail ?? '',
+            payload,
+          }),
+        });
+      }
+    }
+    if (rows.length === 0) return 0;
+    const created = await tx.notification.createMany({ data: rows, skipDuplicates: true });
+    return created.count;
   }
 
   /**
@@ -161,8 +302,18 @@ export class NotificationService {
    * memory is empty after a deploy and is not shared between instances; the index is true
    * for all of them at once.
    *
-   * A collision is therefore an expected outcome, not an error. It means somebody else has
-   * already written this exact intent, so there is nothing to do and nothing to report.
+   * -- WHY THE COLLISION MUST NOT BE ALLOWED TO RAISE --------------------------------
+   * This was originally a plain insert with the unique violation caught in JavaScript, and
+   * the integration test found what that actually does. Catching a constraint violation does
+   * not un-abort the PostgreSQL transaction it happened in: once the statement fails the
+   * whole transaction is poisoned, and the commit becomes a rollback. So a redelivered
+   * webhook -- whose notification had already been written -- would have silently DISCARDED
+   * the booking confirmation, the tickets and the receipt that had just been written
+   * alongside it, and reported success. Idempotency would have destroyed committed work.
+   *
+   * So a dedupable insert goes through `createMany({ skipDuplicates: true })`, which is
+   * `ON CONFLICT DO NOTHING` at the database and never raises. A collision is then what it
+   * should always have been: nothing happened, and the transaction is untouched.
    */
   private async enqueue(
     input: NotifyInput,
@@ -189,27 +340,36 @@ export class NotificationService {
         payload: input.payload,
         explicitIntent: input.intentKey,
       });
-      try {
-        const row = await db.notification.create({
-          data: {
-            type: input.type,
-            userId: input.userId ?? null,
-            toEmail: input.toEmail ?? null,
-            payload: input.payload as Prisma.InputJsonValue,
-            channel: key,
-            locale,
-            status: state.status,
-            scheduledFor: state.scheduledFor,
-            dedupeKey,
-          },
-          select: { id: true },
-        });
+      const data: Prisma.NotificationCreateManyInput = {
+        type: input.type,
+        userId: input.userId ?? null,
+        toEmail: input.toEmail ?? null,
+        payload: input.payload as Prisma.InputJsonValue,
+        channel: key,
+        locale,
+        status: state.status,
+        scheduledFor: state.scheduledFor,
+        dedupeKey,
+      };
+
+      if (!dedupeKey) {
+        // No key, so no index to conflict with: a plain insert cannot poison a transaction,
+        // and it hands back the id that `schedule()` needs in order to cancel later.
+        const row = await db.notification.create({ data, select: { id: true } });
         ids.push(row.id);
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
+        continue;
+      }
+
+      const created = await db.notification.createMany({ data: [data], skipDuplicates: true });
+      if (created.count === 0) {
         this.logger.log(`[${key}:${input.type}] already queued for this intent; not duplicated`);
         this.metrics?.recordNotification(key, 'none', 'deduplicated');
+        continue;
       }
+      // `createMany` returns a count, not rows. The id is only looked up when one was
+      // actually written, and the dedupe key is unique, so this finds exactly it.
+      const row = await db.notification.findFirst({ where: { dedupeKey }, select: { id: true } });
+      if (row) ids.push(row.id);
     }
     return ids;
   }
@@ -484,15 +644,4 @@ export class NotificationService {
       country: input.country ?? null,
     };
   }
-}
-
-/**
- * A Prisma unique-constraint violation (P2002).
- *
- * Matched on the code rather than the message so it survives a Prisma upgrade rewording it,
- * and narrowed by shape rather than `instanceof` so it still recognises the error when the
- * throw crosses a transaction client boundary.
- */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002';
 }

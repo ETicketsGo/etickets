@@ -26,6 +26,11 @@ function setup(opts: { deliver?: jest.Mock; dueRows?: Record<string, unknown>[] 
     user: { findUnique: jest.fn().mockResolvedValue({ locale: null }) },
     notification: {
       create: jest.fn().mockResolvedValue({ id: 'n1' }),
+      // Dedupable types insert through createMany + skipDuplicates: a unique violation
+      // raised mid-statement would abort the caller's whole transaction, taking the
+      // domain change with it. `ON CONFLICT DO NOTHING` never raises.
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'created-1' }),
       findMany: jest.fn().mockResolvedValue(opts.dueRows ?? []),
       update,
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
