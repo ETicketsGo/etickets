@@ -9,6 +9,24 @@ module.exports = {
   collectCoverageFrom: ['**/*.ts', '!**/*.module.ts', '!main.ts'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
+  /*
+    Never let Jest run this suite IN BAND.
+
+    Jest picks `cpus - 1` workers, and a two-core CI runner therefore picks one -- at which
+    point Jest stops forking and runs the tests in its own process. That is the difference
+    between a suite that exits and one that does not: the application leaves handles open
+    that survive `moduleRef.close()`, and a worker child gets torn down regardless while the
+    main process has to close them itself and cannot.
+
+    The symptom is brutal to diagnose from outside. Every test passes -- 2,906 of them, in
+    seventy-five seconds -- and then the process simply never returns, so the step burns its
+    entire budget and reports a timeout with a green suite inside it. Twice, before it was
+    understood, that looked like the tests themselves hanging.
+
+    Two workers is enough to force forking. It is not a fix for the leak, which is real and
+    still worth finding; it stops the leak from deciding whether CI can finish.
+  */
+  ...(process.env.CI ? { maxWorkers: 2 } : {}),
   moduleNameMapper: {
     '^@eticketsgo/shared-types$': '<rootDir>/../../../packages/shared-types/src/index.ts',
     '^@eticketsgo/validation$': '<rootDir>/../../../packages/validation/src/index.ts',

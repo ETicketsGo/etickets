@@ -150,10 +150,12 @@ jobs:
         # A hang here once burned 57 minutes of a runner before anyone stopped it, and the log
         # showed nothing at all: turbo groups a task's output and prints it when the task
         # finishes, so a task that never finishes prints nothing to say where it stopped.
-        # `--concurrency=1` streams each workspace live, so the last suite before a stall is in
-        # the log; `timeout-minutes` makes a stall fail in minutes rather than at the job limit.
+        # turbo groups a task's output and prints it on completion, so a task that never
+        # finishes prints nothing -- which is why the first two stalls here were undiagnosable
+        # from the log. `timeout-minutes` at least turns a stall into a failure in minutes
+        # rather than at the six-hour job limit.
         timeout-minutes: 25
-        run: npm run test -- --concurrency=1
+        run: npm run test
 
       - name: Build all apps
         run: npm run build
