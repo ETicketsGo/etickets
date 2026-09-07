@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CostSource, OutcomeClass, microsToDecimalString } from '@eticketsgo/shared-types';
+import {
+  CostSource,
+  OutcomeClass,
+  SendKind,
+  microsToDecimalString,
+  isCustomerTraffic,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface AnalyticsWindow {
@@ -144,6 +150,20 @@ export class NotificationAnalyticsService {
       suppressed: outcomes[OutcomeClass.POLICY_SUPPRESSED] ?? 0,
       noDestination: outcomes[OutcomeClass.NO_DESTINATION] ?? 0,
       byKind: Object.fromEntries(byKind.map((r) => [r.kind, Number(r.n)])),
+      /*
+        Operator certification traffic, separated from the customer figures above.
+
+        Its cost is inside `cost` -- a WhatsApp test in India is a real charge and hiding it
+        would understate the bill -- but it is not a customer message, so counting it in
+        "notifications sent" or in cost-per-booking would answer a business question with
+        engineering activity.
+      */
+      testAttempts: byKind
+        .filter((r) => !isCustomerTraffic(r.kind as SendKind))
+        .reduce((sum, r) => sum + Number(r.n), 0),
+      customerAttempts: byKind
+        .filter((r) => isCustomerTraffic(r.kind as SendKind))
+        .reduce((sum, r) => sum + Number(r.n), 0),
       cost: costs.map((r) => ({
         currency: r.currency ?? 'UNKNOWN',
         costMicro: Number(r.cost ?? 0),
@@ -291,6 +311,8 @@ export class NotificationAnalyticsService {
       WHERE d."createdAt" >= ${w.from} AND d."createdAt" <= ${w.to}
         AND n."bookingId" IS NOT NULL
         AND d."costMicro" IS NOT NULL
+        -- Certification traffic is not a customer message and must not move this average.
+        AND d."sendKind" <> 'TEST'
         ${this.providerClause(w)} ${this.channelClause(w)} ${this.tenantClause(w)}
       GROUP BY d."costCurrency"
     `;

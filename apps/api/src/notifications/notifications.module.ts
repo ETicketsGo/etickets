@@ -19,6 +19,7 @@ import { ShowCancelledNotificationHandler } from './producers/show-cancelled.han
 import { ShowReminderService } from './producers/show-reminder.service';
 import { NotificationPreferencesController } from './notification-preferences.controller';
 import { NotificationReadinessService } from './readiness/notification-readiness.service';
+import { MarketCertificationService } from './readiness/market-certification.service';
 import { NotificationReadinessController } from './readiness/notification-readiness.controller';
 import { NotificationRateService } from './cost/notification-rate.service';
 import { NotificationAnalyticsService } from './cost/notification-analytics.service';
@@ -28,6 +29,7 @@ import { SuppressionService } from './delivery/suppression.service';
 import { NotificationOpsService } from './delivery/notification-ops.service';
 import { NotificationOpsController } from './delivery/notification-ops.controller';
 import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.service';
+import { SnsVerifier } from './delivery/webhook/sns-verifier';
 import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
@@ -75,10 +77,12 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     ShowCancelledNotificationHandler,
     ShowReminderService,
     NotificationReadinessService,
+    MarketCertificationService,
     // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
     SuppressionService,
     DeliveryRecorderService,
     DeliveryWebhookService,
+    SnsVerifier,
     NotificationOpsService,
     EmailChannel,
     SmsChannel,

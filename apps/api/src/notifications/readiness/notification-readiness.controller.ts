@@ -5,6 +5,7 @@ import { AdminPermission, NotificationType, Role, SendKind } from '@eticketsgo/s
 import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { NotificationReadinessService } from './notification-readiness.service';
+import { MarketCertificationService } from './market-certification.service';
 import { NotificationService } from '../notification.service';
 import { AuditService } from '../../audit/audit.service';
 
@@ -40,6 +41,7 @@ const testSendSchema = z.object({
 export class NotificationReadinessController {
   constructor(
     private readonly readiness: NotificationReadinessService,
+    private readonly certification: MarketCertificationService,
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
   ) {}
@@ -56,6 +58,20 @@ export class NotificationReadinessController {
           .filter(Boolean)
       : undefined;
     return this.readiness.report(list);
+  }
+
+  @Get('certification')
+  @ApiOperation({
+    summary: 'Per-market certification, judged on delivery evidence rather than on configuration.',
+  })
+  certify(@Query('markets') markets?: string) {
+    const list = markets
+      ? markets
+          .split(',')
+          .map((m) => m.trim().toUpperCase())
+          .filter(Boolean)
+      : undefined;
+    return this.certification.report(list);
   }
 
   @Post('test-send')
@@ -85,11 +101,15 @@ export class NotificationReadinessController {
       channels: [body.channel],
       country: body.market,
       /*
-        Labelled so it is separable in every cost report. An operator testing WhatsApp in
-        India spends real money, and it should not quietly land in the customer-messaging
-        total.
+        TEST, not MANUAL_RESEND. A resend is support acting for a real customer about a real
+        booking; this is an engineer proving a provider works, to a destination they own.
+        Filed as a resend, every certification run would inflate the support figure and a
+        quiet month of testing would read as a support incident.
+
+        The COST is still counted -- a WhatsApp test in India is real money -- it is the
+        attribution that would be wrong.
       */
-      sendReason: SendKind.MANUAL_RESEND,
+      sendReason: SendKind.TEST,
       intentKey: `admin-test:${user.id}:${body.channel}:${Date.now()}`,
     });
 

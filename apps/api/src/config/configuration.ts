@@ -581,6 +581,22 @@ const envSchema = z.object({
   */
   /** Meta app secret, for X-Hub-Signature-256 on WhatsApp status callbacks. */
   WHATSAPP_APP_SECRET: z.string().optional(),
+  /**
+   * The token Meta echoes back when activating the webhook subscription.
+   *
+   * Without it the subscription cannot be created at all, so the status-callback handler is
+   * correct and never called -- Meta simply never starts sending.
+   */
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  /**
+   * The SES configuration set to send under.
+   *
+   * SES publishes delivery, bounce and complaint events only for messages sent WITH a
+   * configuration set that has an event destination. Omit it and the mail goes out, the API
+   * returns a message id, and not one callback ever arrives -- silently, with the topic
+   * configured and the subscription confirmed.
+   */
+  SES_CONFIGURATION_SET: z.string().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
@@ -611,7 +627,12 @@ const envSchema = z.object({
     to message somebody.
   */
   NOTIFICATION_REMINDER_LEAD_HOURS: z.coerce.number().default(24),
-  /** Random path secret embedded in the SNS subscription endpoint for SES events. */
+  /**
+   * Random path secret in the SNS subscription endpoint for SES events.
+   *
+   * Defence in depth, not the authority: since ADR-050 the SNS cryptographic signature is
+   * what actually authenticates an event. This is the cheap first filter in front of it.
+   */
   SES_WEBHOOK_SECRET: z.string().optional(),
   /*
     The PUBLIC base URL of this API, which is part of what Twilio signs.

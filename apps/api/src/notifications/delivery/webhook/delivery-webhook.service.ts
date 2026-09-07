@@ -19,6 +19,7 @@ import {
   verifySharedSecret,
   verifyTwilioSignature,
 } from './delivery-webhook.signatures';
+import { SnsVerifier, type SnsEnvelope } from './sns-verifier';
 
 export interface WebhookResult {
   received: true;
@@ -55,6 +56,13 @@ export class DeliveryWebhookService {
     private readonly config: ConfigService,
     private readonly recorder: DeliveryRecorderService,
     private readonly metrics: MetricsService,
+    /*
+      Optional so the suites that construct this service directly keep working. When it is
+      absent the endpoint falls back to the path secret alone -- which is the Phase 2
+      behaviour and is refused in production by the boot check, because a suppression endpoint
+      protected only by a URL is a way to stop a chosen person receiving their tickets.
+    */
+    private readonly sns?: SnsVerifier,
   ) {}
 
   /** Twilio SMS status callbacks (form-encoded, HMAC-SHA1 over URL + sorted fields). */
@@ -116,16 +124,46 @@ export class DeliveryWebhookService {
     headers: Record<string, unknown>;
     body: Record<string, unknown>;
   }): Promise<WebhookResult> {
+    /*
+      Two checks, in cheapness order. The path secret is defence in depth and costs a string
+      comparison; the signature is the authority and may cost a certificate fetch. A caller
+      that fails the first never reaches the second.
+    */
     if (!verifySharedSecret(this.config.get<string>('SES_WEBHOOK_SECRET'), input.secret)) {
       this.reject('ses');
     }
 
+    /*
+      ── THE SIGNATURE IS AUTHORITATIVE ──────────────────────────────────────────────
+      Phase 2 said in writing that the path secret authenticates the CALLER and not the BODY,
+      and that distinction is the whole risk: anyone who learns the URL can post a bounce for
+      any address, and a bounce SUPPRESSES a destination. That is a way to stop a chosen
+      person receiving their tickets, quietly, leaving a row that looks exactly like a real
+      one.
+    */
+    const verdict = this.sns
+      ? await this.sns.verify(input.body as SnsEnvelope)
+      : { ok: false as const, reason: 'unverified_no_verifier' as const };
+    if (!verdict.ok) {
+      this.logger.warn(`SNS message refused: ${verdict.reason}`);
+      this.reject('ses');
+    }
+
     const type = snsMessageType(input.headers, input.body);
-    if (type === 'SubscriptionConfirmation') {
+    if (type === 'SubscriptionConfirmation' || type === 'UnsubscribeConfirmation') {
+      /*
+        ── WHY THE URL IS STILL NOT FOLLOWED ───────────────────────────────────────────
+        Even now that the message is proven to be from Amazon, confirming automatically means
+        this endpoint attaches itself to whatever topic somebody with an AWS account points at
+        it -- and then trusts the events from it. The signature proves the SENDER, not that we
+        WANT the subscription.
+
+        So the token is logged, the host is logged, and a person confirms it once, on purpose,
+        in the console. It happens exactly as often as somebody sets up a topic.
+      */
       this.logger.warn(
-        'SNS subscription confirmation received. Confirm it deliberately in the AWS console; ' +
-          'this endpoint does not auto-confirm. SubscribeURL host: ' +
-          hostOf(input.body.SubscribeURL),
+        `SNS ${type} received and SIGNATURE-VERIFIED. Confirm it deliberately in the AWS ` +
+          `console; this endpoint does not auto-confirm. Host: ${hostOf(input.body.SubscribeURL)}`,
       );
       this.metrics.recordNotificationWebhook('ses', 'subscription_confirmation');
       return { received: true, applied: 0, duplicate: false };

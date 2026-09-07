@@ -17,8 +17,14 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  * MSG91      Nothing published. See {@link verifySharedSecret}.
  */
 
-/** Constant-time compare that also refuses length-mismatched inputs without leaking. */
-function safeEqual(a: string, b: string): boolean {
+/**
+ * Constant-time compare that also refuses length-mismatched inputs without leaking.
+ *
+ * Exported because Meta's subscription challenge compares a shared verify token, and a naive
+ * `===` there leaks the token's length and content through timing just as surely as it would
+ * on a signature.
+ */
+export function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;

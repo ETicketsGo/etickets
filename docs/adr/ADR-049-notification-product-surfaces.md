@@ -145,7 +145,10 @@ it means.
 ### 11. Test send: real path, operator's own destination
 
 `POST /admin/notifications/readiness/test-send`, `PLATFORM_CONFIG`, audited, labelled
-`MANUAL_RESEND` so it is separable in every cost report. It goes through the real policy,
+`MANUAL_RESEND` so it is separable in every cost report. (**Superseded by
+[ADR-050](./ADR-050-notification-launch-certification.md) §2**: certification traffic is now
+`TEST`. `MANUAL_RESEND` means support spending money on a customer's behalf, and filing test
+sends there made every certification run look like a support incident.) It goes through the real policy,
 suppression and routing — a test that bypassed those would prove the bypass works.
 
 The destination is typed by the operator. Resending a real customer's booking would message

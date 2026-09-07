@@ -38,6 +38,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 047 | Notification policy, consent and controlled cross-channel fallback              |
 | 048 | Notification cost accounting, rate cards and truthful denominators              |
 | 049 | Notification producers, customer preferences and WhatsApp opt-in rollout        |
+| 050 | Notification launch certification, SNS signature verification and TEST traffic  |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

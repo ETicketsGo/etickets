@@ -51,6 +51,9 @@ const NOT_PRODUCERS = new Set(
     // A settings surface: it LISTS the types a customer can express a preference about, and
     // sends none of them.
     'notifications/notification-preferences.controller.ts',
+    // A readiness report: it LISTS the types whose policy selects WhatsApp, so an operator
+    // knows which templates to get approved. It reads delivery evidence and sends nothing.
+    'notifications/readiness/market-certification.service.ts',
   ].map((p) => p.replace(/\//g, require('node:path').sep)),
 );
 

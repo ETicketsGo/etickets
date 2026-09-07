@@ -68,6 +68,22 @@ export class SesEmailTransport implements EmailTransport {
   readonly name = 'ses' as const;
   private readonly from: string;
   private readonly client: SESv2Client;
+  /**
+   * The SES configuration set, without which NO EVENT IS EVER PUBLISHED.
+   *
+   * ── WHY THIS IS NOT OPTIONAL IN PRACTICE ───────────────────────────────────────────
+   * SES emits delivery, bounce and complaint events through an event destination attached to
+   * a CONFIGURATION SET, and it only does so for messages sent WITH that configuration set
+   * named on them. Omit it and everything works: the mail goes out, the API returns a message
+   * id, the row says ACCEPTED — and not one callback ever arrives, so nothing is ever marked
+   * delivered and no bounce ever suppresses anything.
+   *
+   * That failure is completely silent from this side. The SNS topic is configured, the
+   * subscription is confirmed, the endpoint verifies signatures, and the reason nothing
+   * happens is one absent field on the send. It is left nullable only because a deployment
+   * that genuinely does not want events should not be forced to invent a name.
+   */
+  private readonly configurationSet?: string;
 
   constructor(config: ConfigService) {
     const region = requireKey(config, 'AWS_REGION');
@@ -80,6 +96,7 @@ export class SesEmailTransport implements EmailTransport {
       region,
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
     });
+    this.configurationSet = config.get<string>('SES_CONFIGURATION_SET') ?? undefined;
   }
 
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
@@ -90,6 +107,8 @@ export class SesEmailTransport implements EmailTransport {
       new SendEmailCommand({
         FromEmailAddress: this.from,
         Destination: { ToAddresses: [msg.toEmail] },
+        // Without this, SES publishes no events for the message and no callback ever arrives.
+        ...(this.configurationSet ? { ConfigurationSetName: this.configurationSet } : {}),
         Content: {
           Simple: {
             Subject: { Data: msg.subject },

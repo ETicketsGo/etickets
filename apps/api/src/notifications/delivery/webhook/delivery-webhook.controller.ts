@@ -1,9 +1,21 @@
-import { Body, Controller, Headers, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../../common/decorators';
+import { AppException, ErrorCodes } from '../../../common/errors';
+import { safeEqual } from './delivery-webhook.signatures';
 import { DeliveryWebhookService } from './delivery-webhook.service';
 
 /**
@@ -44,6 +56,40 @@ export class DeliveryWebhookController {
       body,
       signature: req.header('x-twilio-signature') ?? '',
     });
+  }
+
+  /**
+   * Meta's subscription challenge.
+   *
+   * ── WHY A GET ENDPOINT EXISTS AT ALL ───────────────────────────────────────────────
+   * Meta will not activate a webhook subscription until it has GET this URL with a token it
+   * was given in the app dashboard and received that request's `hub.challenge` back. Without
+   * it the subscription simply cannot be created — the POST handler below is perfectly
+   * correct and is never called, because Meta never starts sending.
+   *
+   * ── WHY IT COMPARES IN CONSTANT TIME AND ECHOES NOTHING OTHERWISE ──────────────────
+   * The verify token is a shared secret. A naive `===` leaks its length and content through
+   * timing, and echoing the challenge before checking the token would turn this into an open
+   * reflector for anybody who found the URL.
+   */
+  @Public()
+  @Get('whatsapp/cloud')
+  @ApiOperation({ summary: 'Meta webhook subscription challenge (hub.verify_token).' })
+  verifyMetaSubscription(
+    @Query('hub.mode') mode?: string,
+    @Query('hub.verify_token') token?: string,
+    @Query('hub.challenge') challenge?: string,
+  ) {
+    const expected = this.config.get<string>('WHATSAPP_VERIFY_TOKEN') ?? '';
+    if (mode !== 'subscribe' || !expected || !token || !safeEqual(expected, token)) {
+      throw new AppException(
+        ErrorCodes.UNAUTHORIZED,
+        'Verification failed.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    // Meta expects the raw challenge string, not JSON.
+    return challenge ?? '';
   }
 
   @Public()

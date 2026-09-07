@@ -11,6 +11,20 @@ export interface ComponentReadiness {
   state: ReadinessState;
   /** Never a secret. Names the KEY that is unset, never any part of its value. */
   detail?: string;
+  /**
+   * The deficiencies, separated so a reader can reason rather than parse.
+   *
+   * ── WHY THIS IS NOT JUST `detail` ──────────────────────────────────────────────────
+   * A missing credential and a missing RATE are both "PARTIAL" and are not the same problem:
+   * the first means nothing can be sent, the second means everything sends and nothing can be
+   * costed. The certification ladder treats them as different rungs, and text-matching a
+   * prose string to tell them apart is the kind of coupling that breaks the day somebody
+   * improves the wording.
+   */
+  missingCredentials?: string[];
+  missingRate?: boolean;
+  /** Provider-side artefacts that only exist in somebody's console — DLT templates, numbers. */
+  missingExternal?: string[];
 }
 
 export interface MarketReadiness {
@@ -56,9 +70,21 @@ export class NotificationReadinessService {
     const missing = keys.filter((k) => !this.set(k));
     if (missing.length === 0) return { key, label, state: 'CONFIGURED' };
     if (missing.length === keys.length) {
-      return { key, label, state: 'MISSING', detail: `Set ${keys.join(', ')}.` };
+      return {
+        key,
+        label,
+        state: 'MISSING',
+        detail: `Set ${keys.join(', ')}.`,
+        missingCredentials: missing,
+      };
     }
-    return { key, label, state: 'PARTIAL', detail: `Still missing: ${missing.join(', ')}.` };
+    return {
+      key,
+      label,
+      state: 'PARTIAL',
+      detail: `Still missing: ${missing.join(', ')}.`,
+      missingCredentials: missing,
+    };
   }
 
   /**
@@ -138,6 +164,7 @@ export class NotificationReadinessService {
       const check = this.require('email', `Email (${emailProvider})`, creds);
       if (check.state === 'CONFIGURED' && !(await this.rate(emailProvider, 'email', market))) {
         check.state = 'PARTIAL';
+        check.missingRate = true;
         check.detail = 'Sends, but has no rate configured — cost will report as UNKNOWN.';
       }
       components.push(check);
@@ -164,22 +191,29 @@ export class NotificationReadinessService {
         : { key: channel, label, state: 'MISSING' as ReadinessState };
 
       if (check.state === 'CONFIGURED') {
-        const missing: string[] = [];
-        if (!(await this.rate(provider, channel, market))) missing.push('no rate configured');
+        const external: string[] = [];
         /*
           MSG91 will carry nothing without an approved template, so a configured key alone is
-          not readiness — it is the appearance of it, which is worse.
+          not readiness — it is the appearance of it, which is worse. These live in somebody's
+          console and cannot be created from here.
         */
         if (provider === 'msg91' && channel === 'sms' && !this.set('MSG91_SMS_TEMPLATE_IDS')) {
-          missing.push('no DLT template ids (MSG91_SMS_TEMPLATE_IDS)');
+          external.push('MSG91_SMS_TEMPLATE_IDS (approved DLT templates)');
         }
         if (provider === 'msg91' && channel === 'whatsapp') {
-          if (!this.set('MSG91_WHATSAPP_NUMBER')) missing.push('MSG91_WHATSAPP_NUMBER');
-          if (!this.set('MSG91_WHATSAPP_TEMPLATES')) missing.push('MSG91_WHATSAPP_TEMPLATES');
+          if (!this.set('MSG91_WHATSAPP_NUMBER')) external.push('MSG91_WHATSAPP_NUMBER');
+          if (!this.set('MSG91_WHATSAPP_TEMPLATES')) external.push('MSG91_WHATSAPP_TEMPLATES');
         }
-        if (missing.length > 0) {
+        const noRate = !(await this.rate(provider, channel, market));
+
+        if (external.length > 0 || noRate) {
           check.state = 'PARTIAL';
-          check.detail = `Still missing: ${missing.join(', ')}.`;
+          check.missingExternal = external.length > 0 ? external : undefined;
+          check.missingRate = noRate || undefined;
+          check.detail = `Still missing: ${[
+            ...external,
+            ...(noRate ? ['no rate configured'] : []),
+          ].join(', ')}.`;
         }
       }
       components.push(check);

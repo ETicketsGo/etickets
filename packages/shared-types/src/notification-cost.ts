@@ -88,10 +88,34 @@ export const SendKind = {
   RETRY: 'RETRY',
   /** A different channel, opened because the preferred ones produced nothing. */
   FALLBACK: 'FALLBACK',
-  /** An operator deliberately sending it again. */
+  /** An operator deliberately sending it again, on a customer's behalf. */
   MANUAL_RESEND: 'MANUAL_RESEND',
+  /**
+   * Operator certification traffic. Not a customer message at all.
+   *
+   * ── WHY THIS IS NOT MANUAL_RESEND ──────────────────────────────────────────────────
+   * A resend is support acting for a real customer about a real booking, and "how much is
+   * support spending on people's behalf" is a question somebody will ask of that number. A
+   * test send is an engineer proving a provider works, addressed to a destination they own.
+   *
+   * Filed together, every certification run inflates the support figure and every quiet
+   * month of testing looks like a support incident. The cost is real either way and stays
+   * visible — it is the attribution that would be wrong.
+   */
+  TEST: 'TEST',
 } as const;
 export type SendKind = (typeof SendKind)[keyof typeof SendKind];
+
+/**
+ * Whether an attempt was a real customer message or operator traffic.
+ *
+ * Business counts — notifications sent, cost per booking, support resend volume — are about
+ * customers. A certification send is neither, so it is excluded from those and reported on
+ * its own. Its COST is still counted: a WhatsApp test in India is real money.
+ */
+export function isCustomerTraffic(kind: SendKind): boolean {
+  return kind !== SendKind.TEST;
+}
 
 /**
  * Why an attempt ended as it did, in terms that separate OUR failures from THEIRS.
