@@ -11,6 +11,7 @@ import { WEB_PUSH_DISPATCHER, selectWebPushDispatcher } from './web-push/web-pus
 import { NotificationTemplateService } from './templates/notification-template.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
+import { NotificationProviderResolver } from './channels/notification-provider.resolver';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
@@ -36,15 +37,23 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationTemplateService,
     NotificationPreferencesService,
     NotificationChannelRegistry,
+    NotificationProviderResolver,
     EmailChannel,
     SmsChannel,
     WhatsAppChannel,
     PushChannel,
     InAppChannel,
-    // Per-channel delivery transport, keyed on <CHANNEL>_PROVIDER (default `log`).
-    // Only the selected provider is constructed, so real credentials are never
-    // required unless that provider is chosen, and a selected provider with
-    // missing keys fails fast at construction.
+    /*
+      Email and push bind one transport for the whole process, chosen by EMAIL_PROVIDER and
+      PUSH_PROVIDER. That remains correct for them: SES serves every market, and a device
+      token names its own delivery service.
+
+      SMS and WhatsApp no longer bind here. Their provider depends on where the message is
+      going, which is not knowable at boot, so NotificationProviderResolver constructs them
+      lazily per route and caches them -- the same lazy-construct-and-cache arrangement that
+      lets Stripe and Razorpay run side by side in this process today. The tokens below stay
+      bound to the DEFAULT provider so anything still injecting them keeps working.
+    */
     { provide: EMAIL_TRANSPORT, inject: [ConfigService], useFactory: selectEmailTransport },
     { provide: SMS_TRANSPORT, inject: [ConfigService], useFactory: selectSmsTransport },
     { provide: WHATSAPP_TRANSPORT, inject: [ConfigService], useFactory: selectWhatsAppTransport },

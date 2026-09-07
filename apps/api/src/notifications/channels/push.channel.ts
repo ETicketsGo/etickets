@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   ChannelKey,
+  DeliveryOutcome,
   NotificationChannel,
   RenderedNotification,
 } from './notification-channel.interface';
@@ -38,8 +39,8 @@ export class PushChannel implements NotificationChannel {
     private readonly prisma?: PrismaService,
   ) {}
 
-  async deliver(msg: RenderedNotification): Promise<void> {
-    await this.transport.send(await this.withRegisteredDevices(msg));
+  async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
+    const outcome = await this.transport.send(await this.withRegisteredDevices(msg));
     // Browser Web Push fan-out to the recipient's subscriptions (best-effort).
     if (this.webPush && msg.userId) {
       const url = typeof msg.payload?.url === 'string' ? msg.payload.url : undefined;
@@ -47,6 +48,7 @@ export class PushChannel implements NotificationChannel {
         .dispatchToUser(msg.userId, { title: msg.subject, body: msg.body, url, tag: msg.type })
         .catch(() => undefined);
     }
+    return outcome;
   }
 
   /**

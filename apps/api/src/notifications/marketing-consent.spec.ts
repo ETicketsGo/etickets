@@ -68,46 +68,53 @@ describe('message classification', () => {
 });
 
 describe('NotificationService consent enforcement', () => {
-  it('delivers a ticket even though no marketing consent exists', async () => {
-    const { service, deliver, mayReceiveMarketing } = setup({ consentGranted: false });
+  /*
+    ── WHAT IS COUNTED, AND WHY IT CHANGED ──────────────────────────────────────────────
+    These used to count calls to `deliver`, because `send` delivered. It now hands over to
+    the worker instead, so the observable fact is whether a row was WRITTEN — which is the
+    better assertion anyway: a suppressed commercial message must leave no trace queued for
+    later, not merely go undelivered this instant.
+  */
+  it('queues a ticket even though no marketing consent exists', async () => {
+    const { service, prisma, mayReceiveMarketing } = setup({ consentGranted: false });
     await service.send({
       type: NotificationType.BOOKING_CONFIRMED,
       userId: 'u1',
       toEmail: 'buyer@example.test',
       payload: {},
     });
-    expect(deliver).toHaveBeenCalledTimes(3);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(3);
     // Not merely "it was allowed" — the consent store was never even asked. A
     // transactional message must not become dependent on a consent lookup that could
     // later fail, time out, or be misconfigured.
     expect(mayReceiveMarketing).not.toHaveBeenCalled();
   });
 
-  it('sends nothing commercial when no consent is on file', async () => {
-    const { service, deliver, mayReceiveMarketing } = setup({ consentGranted: false });
+  it('queues nothing commercial when no consent is on file', async () => {
+    const { service, prisma, mayReceiveMarketing } = setup({ consentGranted: false });
     await service.send({
       type: 'PROMOTIONAL_BLAST' as NotificationType,
       userId: 'u1',
       toEmail: 'buyer@example.test',
       payload: {},
     });
-    expect(deliver).not.toHaveBeenCalled();
+    expect(prisma.notification.create).not.toHaveBeenCalled();
     expect(mayReceiveMarketing).toHaveBeenCalled();
   });
 
-  it('sends a commercial message once consent is recorded', async () => {
-    const { service, deliver } = setup({ consentGranted: true });
+  it('queues a commercial message once consent is recorded', async () => {
+    const { service, prisma } = setup({ consentGranted: true });
     await service.send({
       type: 'PROMOTIONAL_BLAST' as NotificationType,
       userId: 'u1',
       toEmail: 'buyer@example.test',
       payload: {},
     });
-    expect(deliver).toHaveBeenCalledTimes(3);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(3);
   });
 
   it('asks per channel, so consenting to email does not consent to push', async () => {
-    const deliver = jest.fn().mockResolvedValue(undefined);
+    const deliver = jest.fn().mockResolvedValue({ provider: 'log' });
     const channels = {
       has: (c: string) => ['email', 'in_app', 'push'].includes(c),
       resolve: () => ({ deliver }),
@@ -115,10 +122,11 @@ describe('NotificationService consent enforcement', () => {
     const mayReceiveMarketing = jest.fn(
       async (_s: unknown, channel: string) => channel === 'email',
     );
+    const create = jest.fn().mockResolvedValue({ id: 'n' });
     const service = new NotificationService(
       {
         user: { findUnique: jest.fn().mockResolvedValue({ locale: null }) },
-        notification: { create: jest.fn().mockResolvedValue({ id: 'n' }) },
+        notification: { create },
       } as never,
       { render: () => ({ subject: 's', body: 'b' }) } as never,
       { resolveChannels: async (_u: unknown, _t: unknown, req: string[]) => req } as never,
@@ -131,7 +139,8 @@ describe('NotificationService consent enforcement', () => {
       toEmail: 'buyer@example.test',
       payload: {},
     });
-    expect(deliver).toHaveBeenCalledTimes(1);
+    // One row, for the one channel consent was given on.
+    expect(create).toHaveBeenCalledTimes(1);
     expect(mayReceiveMarketing.mock.calls.map((c) => c[1]).sort()).toEqual([
       'email',
       'in_app',

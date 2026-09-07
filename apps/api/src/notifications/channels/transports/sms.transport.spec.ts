@@ -55,7 +55,7 @@ describe('TwilioSmsTransport', () => {
   it('skips cleanly (no send, no throw) when payload has no phone', async () => {
     await expect(
       new TwilioSmsTransport(twilioConfig).send(msg({ payload: { bookingId: 'bk-1' } })),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ skipped: true, reason: 'no_destination' });
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 

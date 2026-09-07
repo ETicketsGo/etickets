@@ -4,12 +4,17 @@ import { SmsChannel } from './sms.channel';
 import { WhatsAppChannel } from './whatsapp.channel';
 import { PushChannel } from './push.channel';
 import { InAppChannel } from './in-app.channel';
+import { NotificationProviderResolver } from './notification-provider.resolver';
+import { ConfigService } from '@nestjs/config';
+
+/* No market map and no provider set: every route resolves to the log transport. */
+const providers = () => new NotificationProviderResolver(new ConfigService({}));
 
 function registry() {
   return new NotificationChannelRegistry(
     new EmailChannel(),
-    new SmsChannel(),
-    new WhatsAppChannel(),
+    new SmsChannel(providers()),
+    new WhatsAppChannel(providers()),
     new PushChannel(),
     new InAppChannel(),
   );

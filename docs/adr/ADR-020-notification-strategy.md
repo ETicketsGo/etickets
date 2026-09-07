@@ -1,6 +1,6 @@
 # ADR-020: Notification Strategy
 
-- **Status:** Accepted
+- **Status:** Accepted (provider note superseded by ADR-045)
 - **Date:** 2026-07-13
 - **Scope:** Notification Platform sprint (Prompt 3)
 
@@ -39,4 +39,8 @@ unchanged.
   first-class.
 - Providers remain unimplemented (log-only) — the extension surface is defined and
   tested; binding SendGrid/Twilio/FCM is a later, isolated change.
+  - **No longer true, and left here as the record of what was decided.** That later
+    change happened: SES, SendGrid, Twilio, Meta WhatsApp Cloud, FCM, Expo and VAPID
+    adapters all exist. Provider SELECTION was then reworked in ADR-045, because one
+    transport per process cannot express one provider per market.
 - Verified: typecheck (api + worker), 21 suites/116 tests, build, e2e green.

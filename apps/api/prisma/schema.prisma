@@ -2112,13 +2112,31 @@ model Notification {
   locale       String           @default("en")
   toEmail      String?
   payload      Json
-  // PENDING | SCHEDULED | SENT | FAILED | CANCELLED
+  /// PENDING | SCHEDULED | SENT | FAILED | CANCELLED
+  ///
+  /// PENDING now means what it says: written down, not yet accepted by any provider. It
+  /// used to be unreachable — `send()` created rows as SENT before it had tried to deliver
+  /// them, so the database recorded a successful send for every message a provider later
+  /// refused, and support had no way to tell the two apart.
   status       String           @default("PENDING")
   scheduledFor DateTime? // set for scheduled (deferred) sends
   attempts     Int              @default(0)
   lastError    String?
   sentAt       DateTime?
   cancelledAt  DateTime?
+
+  /// Which provider carried this message (`ses`, `msg91`, `twilio`, `log`, …).
+  ///
+  /// With one provider per channel this was derivable from configuration. With India on
+  /// MSG91 and North America on Twilio at the same time it is not, and without it nobody can
+  /// answer "whose outage is this" when one market's messages stop arriving.
+  provider          String?
+  /// The provider's own reference for the accepted message, for quoting to their support.
+  providerMessageId String?
+  /// Durable identity of the notification INTENT (see dedupe-key.ts). Null for types that
+  /// may legitimately repeat, and Postgres permits any number of nulls in a unique index —
+  /// so this suppresses redelivery without suppressing a real second message.
+  dedupeKey         String?          @unique
   // Read state for the in-app notification center (v1.2 WS8); null = unread.
   readAt       DateTime?
   createdAt    DateTime         @default(now())

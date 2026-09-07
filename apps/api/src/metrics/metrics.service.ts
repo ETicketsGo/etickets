@@ -27,6 +27,7 @@ export class MetricsService {
   private readonly slowQueries: Counter;
   private readonly paymentWebhooks: Counter<'provider' | 'result'>;
   private readonly paymentReconciliations: Counter<'result'>;
+  private readonly notifications: Counter<'channel' | 'provider' | 'result'>;
   private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
   private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
   private readonly inventoryLockOps: Counter<'op' | 'outcome'>;
@@ -156,6 +157,19 @@ export class MetricsService {
       registers: [this.registry],
     });
 
+    /*
+      Notifications had no metric at all, which is how SMS and WhatsApp were able to skip
+      every message they were ever given without anybody noticing: the failure produced a
+      warning line and nothing that could be graphed or alerted on. With two SMS providers
+      live in different markets, `provider` is what turns "messages stopped" into "MSG91
+      stopped".
+    */
+    this.notifications = new Counter({
+      name: 'etg_notifications_total',
+      help: 'Notification delivery attempts, by channel, provider and outcome.',
+      labelNames: ['channel', 'provider', 'result'],
+      registers: [this.registry],
+    });
     this.domainEventsPublished = new Counter({
       name: 'etg_domain_events_published_total',
       help: 'Domain events published, by event type and outcome (ADR-038).',
@@ -509,6 +523,17 @@ export class MetricsService {
    * Record a domain event publication outcome (ADR-038). `result` is one of
    * ok | no_handler | disabled | invalid — never any event payload/PII.
    */
+  /**
+   * One notification outcome: sent | skipped | failed | retried | deduplicated.
+   *
+   * `skipped` and `failed` are counted apart on purpose. A skip is a message with nowhere to
+   * go -- no phone number on file -- and a steady low rate of it is normal. A failure is a
+   * provider refusing, and any rate of that is worth waking up for.
+   */
+  recordNotification(channel: string, provider: string, result: string): void {
+    this.safe(() => this.notifications.inc({ channel, provider, result }));
+  }
+
   recordDomainEventPublished(eventType: string, result: string): void {
     this.safe(() => this.domainEventsPublished.inc({ event_type: eventType, result }));
   }

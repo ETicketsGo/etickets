@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getMessaging, Messaging } from 'firebase-admin/messaging';
-import { RenderedNotification } from '../notification-channel.interface';
+import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 import { payloadPushTokens } from './recipient.util';
 
 /** DI token for the push transport bound in notifications.module.ts. */
@@ -24,7 +24,8 @@ export const isExpoPushToken = (token: string): boolean =>
 
 /** A single push-send transport. */
 export interface PushTransport {
-  send(msg: RenderedNotification): Promise<void>;
+  readonly name: PushProviderName;
+  send(msg: RenderedNotification): Promise<DeliveryOutcome>;
 }
 
 /**
@@ -32,10 +33,12 @@ export interface PushTransport {
  * existing tests/e2e are unaffected.
  */
 export class PushLogTransport implements PushTransport {
+  readonly name = 'log' as const;
   private readonly logger = new Logger('Notification');
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     this.logger.log(`[push:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.subject}`);
+    return { provider: 'log' };
   }
 }
 
@@ -46,6 +49,7 @@ export class PushLogTransport implements PushTransport {
  * send is skipped (warn + return). Delivery errors propagate so retry works.
  */
 export class FcmPushTransport implements PushTransport {
+  readonly name = 'fcm' as const;
   private readonly logger = new Logger('Notification');
   private readonly messaging: Messaging;
 
@@ -65,20 +69,18 @@ export class FcmPushTransport implements PushTransport {
     this.messaging = getMessaging(app);
   }
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const tokens = payloadPushTokens(msg);
     if (tokens.length === 0) {
       this.logger.warn(
-        `[push:${msg.type}] no push recipient (payload.pushToken(s) missing) -> skipped for user ${
-          msg.userId ?? 'n/a'
-        }`,
+        `[push:${msg.type}] no registered device -> skipped for user ${msg.userId ?? 'n/a'}`,
       );
-      return;
+      return { provider: this.name, skipped: true, reason: 'no_device' };
     }
     const notification = { title: msg.subject, body: msg.body };
     if (tokens.length === 1) {
-      await this.messaging.send({ token: tokens[0], notification });
-      return;
+      const id = await this.messaging.send({ token: tokens[0], notification });
+      return { provider: this.name, providerMessageId: id };
     }
     const result = await this.messaging.sendEachForMulticast({ tokens, notification });
     if (result.failureCount > 0) {
@@ -88,6 +90,7 @@ export class FcmPushTransport implements PushTransport {
           (firstError ? `: ${firstError.message}` : ''),
       );
     }
+    return { provider: this.name };
   }
 }
 
@@ -128,18 +131,20 @@ export function selectPushTransport(config: ConfigService): PushTransport {
  * notification and trigger a retry that re-sends to the other forty-nine.
  */
 export class ExpoPushTransport implements PushTransport {
+  readonly name = 'expo' as const;
   private readonly logger = new Logger('Notification');
   private static readonly ENDPOINT = 'https://exp.host/--/api/v2/push/send';
   private static readonly CHUNK = 100;
 
   constructor(private readonly config: ConfigService) {}
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const tokens = payloadPushTokens(msg).filter(isExpoPushToken);
     if (tokens.length === 0) {
       this.logger.warn(`[push:${msg.type}] no Expo device token; skipping`);
-      return;
+      return { provider: this.name, skipped: true, reason: 'no_device' };
     }
+    const accepted: string[] = [];
 
     const accessToken = this.config.get<string>('EXPO_ACCESS_TOKEN');
     for (let i = 0; i < tokens.length; i += ExpoPushTransport.CHUNK) {
@@ -167,7 +172,10 @@ export class ExpoPushTransport implements PushTransport {
         throw new Error(`Expo push failed: HTTP ${res.status}`);
       }
 
-      const body = (await res.json()) as { data?: { status: string; message?: string }[] };
+      const body = (await res.json()) as {
+        data?: { status: string; id?: string; message?: string }[];
+      };
+      for (const t of body.data ?? []) if (t.status === 'ok' && t.id) accepted.push(t.id);
       const failures = (body.data ?? []).filter((t) => t.status !== 'ok');
       if (failures.length > 0) {
         // Per-device problems — an uninstalled app, a token from another project. Logged,
@@ -178,6 +186,9 @@ export class ExpoPushTransport implements PushTransport {
         );
       }
     }
+    // One ticket id when it went to a single device; with several, the id of the first
+    // accepted one is enough to find the batch in Expo's dashboard.
+    return { provider: this.name, providerMessageId: accepted[0] ?? null };
   }
 }
 

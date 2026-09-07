@@ -37,10 +37,19 @@ const WORKER_PORT =
     ? RAW_WORKER_PORT
     : 4100;
 const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
-// Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
-const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 30_000);
+/*
+  Every five seconds, not thirty.
+
+  This sweep used to carry only DEFERRED notifications -- reminders queued days ahead -- so a
+  thirty-second granularity was irrelevant. It now carries every notification the platform
+  sends, because delivery moved off the request path and behind this table, and thirty seconds
+  is a long time to wait for the email containing the ticket you just paid for.
+
+  Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
+*/
+const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 5_000);
 const NOTIFICATION_SWEEP_MS =
-  Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 30_000;
+  Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 5_000;
 const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
 const QUEUE_METRICS_MS =
   Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
@@ -159,8 +168,8 @@ async function main(): Promise<void> {
     },
   );
 
-  // Repeatable sweep that delivers due scheduled notifications. Idempotent:
-  // dispatchDue only acts on rows still SCHEDULED and past their scheduledFor.
+  // Repeatable sweep that delivers due notifications. Idempotent: dispatchDue only acts on
+  // rows still PENDING/SCHEDULED and past their scheduledFor.
   await queue.add(
     'dispatch-notifications',
     {},

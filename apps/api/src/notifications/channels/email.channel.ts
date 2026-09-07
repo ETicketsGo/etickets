@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   ChannelKey,
+  DeliveryOutcome,
   NotificationChannel,
   RenderedNotification,
 } from './notification-channel.interface';
@@ -22,7 +23,7 @@ export class EmailChannel implements NotificationChannel {
     private readonly transport: EmailTransport = new EmailLogTransport(),
   ) {}
 
-  async deliver(msg: RenderedNotification): Promise<void> {
-    await this.transport.send(msg);
+  async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
+    return this.transport.send(msg);
   }
 }

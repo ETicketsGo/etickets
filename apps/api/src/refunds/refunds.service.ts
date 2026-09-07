@@ -435,8 +435,13 @@ export class RefundsService {
       toEmail: booking.buyerEmail,
       // The reference and currency travel with it so the notice can name the booking the way
       // the customer knows it, and show the amount as money rather than minor units.
+      //
+      // `refundId` is what makes duplicate suppression correct here. A booking can be
+      // refunded in parts, and two partial refunds of the same amount are two real refunds —
+      // so the refund's own id, not the booking's, is what separates one notice from the next.
       payload: {
         bookingId: booking.id,
+        refundId,
         reference: booking.reference ?? '',
         currency: booking.currency,
         amountMinor: refund.amountMinor,

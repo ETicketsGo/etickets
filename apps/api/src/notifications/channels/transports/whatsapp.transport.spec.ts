@@ -61,9 +61,11 @@ describe('CloudWhatsAppTransport', () => {
   });
 
   it('skips cleanly (no fetch, no throw) when payload has no phone', async () => {
+    // A skip is now REPORTED rather than silent: nothing was delivered, and the row that
+    // records this will say so instead of claiming a successful send.
     await expect(
       new CloudWhatsAppTransport(cloudConfig).send(msg({ payload: {} })),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ skipped: true, reason: 'no_destination' });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

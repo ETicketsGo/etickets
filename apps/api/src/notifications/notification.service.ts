@@ -13,6 +13,10 @@ import {
   type MessageAudience,
 } from './message-class';
 import { ChannelKey, RenderedNotification } from './channels/notification-channel.interface';
+import { permittedChannels } from './policy/channel-policy';
+import { dedupeKeyFor } from './policy/dedupe-key';
+import { MetricsService } from '../metrics/metrics.service';
+import { TransportError } from './channels/transports/transport-http';
 
 /**
  * Input to {@link NotificationService.send}. `channels` and `locale` are
@@ -27,6 +31,17 @@ export interface NotifyInput {
   payload: Record<string, unknown>;
   channels?: string[];
   locale?: string;
+  /**
+   * The market this message is going into, when the sender knows it from its own records
+   * (a booking's venue, an organization's registered country). Used only to pick a provider.
+   */
+  country?: string | null;
+  /**
+   * A stable identity for the business intent, when the caller has one that is better than
+   * what can be derived from the payload. Two sends carrying the same intent are the same
+   * message, and only one of them goes out.
+   */
+  intentKey?: string | null;
 }
 
 /** Outcome counts from a scheduled-dispatch sweep. */
@@ -36,10 +51,8 @@ export interface DispatchSummary {
   retried: number;
 }
 
-// Every notification lands in email + the in-app inbox, and is push-ready (v1.4):
-// the `push` channel fans out to the user's registered browser subscriptions and
-// no-ops cleanly when there are none. All three respect per-user preferences.
-const DEFAULT_CHANNELS = ['email', 'in_app', 'push'];
+// The per-type channel policy now decides this; see policy/channel-policy.ts, whose
+// FALLBACK_CHANNELS is this same email + inbox + push list for any type not named there.
 const DEFAULT_LOCALE = 'en';
 
 /**
@@ -57,6 +70,7 @@ export class NotificationService {
     private readonly preferences: NotificationPreferencesService,
     private readonly channels: NotificationChannelRegistry,
     private readonly consent: MarketingConsentService,
+    private readonly metrics?: MetricsService,
   ) {}
 
   /**
@@ -89,26 +103,36 @@ export class NotificationService {
     return user?.locale ?? DEFAULT_LOCALE;
   }
 
-  async send(input: NotifyInput): Promise<void> {
-    const locale = await this.localeFor(input);
-    const resolved = await this.resolveChannelKeys(input);
-
-    for (const key of resolved) {
-      const rendered = this.renderFor(input, key, locale);
-      await this.prisma.notification.create({
-        data: {
-          type: input.type,
-          userId: input.userId ?? null,
-          toEmail: input.toEmail ?? null,
-          payload: input.payload as Prisma.InputJsonValue,
-          channel: key,
-          locale,
-          status: 'SENT',
-          sentAt: new Date(),
-        },
-      });
-      await this.channels.resolve(key)!.deliver(rendered);
-    }
+  /**
+   * Record a notification for delivery. Returns as soon as it is durably written.
+   *
+   * -- WHY THIS NO LONGER TALKS TO A PROVIDER ----------------------------------------
+   * It used to deliver inline, in the caller's request, unguarded. Sixteen services call
+   * this, and two of them call it immediately after money has moved: PaymentsService once a
+   * payment is captured and a booking confirmed, RefundsService once a refund has completed
+   * and a credit note has been issued. An unguarded await there means that when SES is slow
+   * or Twilio is down, the exception unwinds through a path whose work has ALREADY
+   * COMMITTED. The customer has been charged, the booking is confirmed in the database, and
+   * the request returns an error. A notification provider outage became a payment outage,
+   * and the only reason it never has is that the provider has always been `log`.
+   *
+   * So this now does one thing: it writes the rows. Provider I/O belongs to the worker,
+   * which already sweeps this table, already retries, and already has somewhere to record a
+   * failure. The caller cannot fail because of a provider it never called.
+   *
+   * -- WHY THE ROWS ARE PENDING AND NOT SENT -----------------------------------------
+   * Because at this moment nobody has sent anything. The old code wrote `status: 'SENT'`
+   * and `sentAt: now` BEFORE attempting delivery, so the database recorded a successful send
+   * for every message a provider subsequently refused, and support had no way to tell a
+   * delivered ticket from a dropped one.
+   *
+   * -- OPTIONALLY INSIDE THE CALLER'S TRANSACTION ------------------------------------
+   * Passing `tx` writes the rows in the same transaction as the business change, so a
+   * committed booking and its confirmation are one atomic fact and a crash in between cannot
+   * lose the message. Callers without a transaction are unchanged.
+   */
+  async send(input: NotifyInput, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.enqueue(input, { scheduledFor: new Date(), status: 'PENDING' }, tx);
   }
 
   /**
@@ -124,24 +148,68 @@ export class NotificationService {
       silently rewrites messages that were already composed — and the row already carries
       `locale` precisely so the dispatcher does not have to guess.
     */
+    return this.enqueue(input, { scheduledFor, status: 'SCHEDULED' });
+  }
+
+  /**
+   * The one place a notification row is created -- immediate and scheduled alike.
+   *
+   * -- HOW A DUPLICATE IS STOPPED ----------------------------------------------------
+   * By the unique index on `dedupeKey`, and by nothing else. Every mechanism that causes a
+   * duplicate outlives a process: a BullMQ job retried after a timeout, a worker restarted
+   * mid-batch, a redelivered event, two API instances handling the same webhook. A set in
+   * memory is empty after a deploy and is not shared between instances; the index is true
+   * for all of them at once.
+   *
+   * A collision is therefore an expected outcome, not an error. It means somebody else has
+   * already written this exact intent, so there is nothing to do and nothing to report.
+   */
+  private async enqueue(
+    input: NotifyInput,
+    state: { scheduledFor: Date; status: 'PENDING' | 'SCHEDULED' },
+    tx?: Prisma.TransactionClient,
+  ): Promise<string[]> {
+    /*
+      Locale is resolved at ENQUEUE time and stored on the row, not resolved again at send
+      time. A reminder queued three weeks ago should arrive in the language the person was
+      using when it was queued; re-resolving on dispatch would let a preference changed in
+      between silently rewrite messages that were already composed.
+    */
     const locale = await this.localeFor(input);
     const resolved = await this.resolveChannelKeys(input);
+    const db = tx ?? this.prisma;
+    const recipientRef = input.userId ?? input.toEmail ?? '';
 
     const ids: string[] = [];
     for (const key of resolved) {
-      const row = await this.prisma.notification.create({
-        data: {
-          type: input.type,
-          userId: input.userId ?? null,
-          toEmail: input.toEmail ?? null,
-          payload: input.payload as Prisma.InputJsonValue,
-          channel: key,
-          locale,
-          status: 'SCHEDULED',
-          scheduledFor,
-        },
+      const dedupeKey = dedupeKeyFor({
+        type: input.type,
+        channel: key,
+        recipientRef,
+        payload: input.payload,
+        explicitIntent: input.intentKey,
       });
-      ids.push(row.id);
+      try {
+        const row = await db.notification.create({
+          data: {
+            type: input.type,
+            userId: input.userId ?? null,
+            toEmail: input.toEmail ?? null,
+            payload: input.payload as Prisma.InputJsonValue,
+            channel: key,
+            locale,
+            status: state.status,
+            scheduledFor: state.scheduledFor,
+            dedupeKey,
+          },
+          select: { id: true },
+        });
+        ids.push(row.id);
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        this.logger.log(`[${key}:${input.type}] already queued for this intent; not duplicated`);
+        this.metrics?.recordNotification(key, 'none', 'deduplicated');
+      }
     }
     return ids;
   }
@@ -160,16 +228,27 @@ export class NotificationService {
   }
 
   /**
-   * Delivers all SCHEDULED notifications due at/before `now`. On success a row
-   * becomes SENT; on error attempts is incremented and lastError recorded, with
-   * the row marked FAILED only once attempts >= maxAttempts (otherwise it stays
-   * SCHEDULED for a later retry).
+   * Deliver every notification that is due -- immediate (PENDING) and scheduled alike.
+   *
+   * -- WHY PENDING IS SWEPT TOO ------------------------------------------------------
+   * PENDING used to be an unreachable status: `send()` created rows as SENT and delivered
+   * them in the caller's request, so the only thing this swept was deferred reminders. Now
+   * that immediate sends are written down and handed over, this is the ONLY thing that talks
+   * to a provider, which is precisely what keeps a provider outage out of the payment path.
+   *
+   * -- WHAT EACH OUTCOME MEANS -------------------------------------------------------
+   * SENT means a provider accepted it, and the provider and its reference are recorded
+   * alongside so somebody can later ask that provider what became of it. A skip -- no phone
+   * number, no registered device -- is also SENT-with-a-reason rather than FAILED: there was
+   * nothing to deliver to, and retrying that twelve times cannot change it. A permanent
+   * refusal (no DLT template, no route for the destination) goes straight to FAILED without
+   * burning retries, because the next attempt would be refused for the same reason.
    */
   async dispatchDue(now: Date = new Date(), maxAttempts = 3): Promise<DispatchSummary> {
     // Bounded per tick so a large scheduled blast (e.g. a 50k-attendee reminder) can't
-    // pull the whole backlog into memory; the remainder stays SCHEDULED for the next run.
+    // pull the whole backlog into memory; the remainder waits for the next run.
     const due = await this.prisma.notification.findMany({
-      where: { status: 'SCHEDULED', scheduledFor: { lte: now } },
+      where: { status: { in: ['PENDING', 'SCHEDULED'] }, scheduledFor: { lte: now } },
       orderBy: { scheduledFor: 'asc' },
       take: 500,
     });
@@ -190,28 +269,49 @@ export class NotificationService {
           key,
           row.locale,
         );
-        await channel.deliver(rendered);
+        const outcome = await channel.deliver(rendered);
         await this.prisma.notification.update({
           where: { id: row.id },
-          data: { status: 'SENT', sentAt: new Date() },
+          data: {
+            status: 'SENT',
+            sentAt: new Date(),
+            provider: outcome.provider,
+            providerMessageId: outcome.providerMessageId ?? null,
+            // A skip records WHY nothing went out. `lastError` is the only free-text field
+            // on the row and an operator reading it wants to see "no_destination" there,
+            // not an empty column and a status that claims success.
+            lastError: outcome.skipped ? (outcome.reason ?? 'skipped') : null,
+          },
         });
         summary.sent += 1;
+        this.metrics?.recordNotification(
+          key,
+          outcome.provider,
+          outcome.skipped ? 'skipped' : 'sent',
+        );
       } catch (err) {
         const attempts = row.attempts + 1;
-        const failed = attempts >= maxAttempts;
+        // A provider that says "never" is believed the first time.
+        const permanent = err instanceof TransportError && !err.retryable;
+        const failed = permanent || attempts >= maxAttempts;
         await this.prisma.notification.update({
           where: { id: row.id },
           data: {
             attempts,
             lastError: err instanceof Error ? err.message : String(err),
-            status: failed ? 'FAILED' : 'SCHEDULED',
+            status: failed ? 'FAILED' : row.status,
           },
         });
         if (failed) {
           summary.failed += 1;
-          this.logger.warn(`notification ${row.id} failed after ${attempts} attempt(s)`);
+          this.logger.warn(
+            `notification ${row.id} failed after ${attempts} attempt(s)` +
+              (permanent ? ' (permanent)' : ''),
+          );
+          this.metrics?.recordNotification(key, 'none', 'failed');
         } else {
           summary.retried += 1;
+          this.metrics?.recordNotification(key, 'none', 'retried');
         }
       }
     }
@@ -318,7 +418,13 @@ export class NotificationService {
   }
 
   private async resolveChannelKeys(input: NotifyInput): Promise<ChannelKey[]> {
-    const requested = input.channels ?? DEFAULT_CHANNELS;
+    /*
+      Policy decides which channels this KIND of message may use; the caller may then ask for
+      fewer, never more. That order is what makes fixing the SMS recipient bug safe: before
+      this, every type defaulted to the same list, so the moment SMS could actually reach
+      somebody, every notification on the platform would have started sending one.
+    */
+    const requested = permittedChannels(input.type, input.channels);
     const enabled = await this.preferences.resolveChannels(
       input.userId ?? null,
       input.type,
@@ -361,7 +467,7 @@ export class NotificationService {
 
   /** Renders a template for a single channel into a RenderedNotification. */
   private renderFor(
-    input: Pick<NotifyInput, 'type' | 'userId' | 'toEmail' | 'payload'>,
+    input: Pick<NotifyInput, 'type' | 'userId' | 'toEmail' | 'payload' | 'country'>,
     channel: ChannelKey,
     locale: string,
   ): RenderedNotification {
@@ -375,6 +481,18 @@ export class NotificationService {
       subject,
       body,
       payload: input.payload,
+      country: input.country ?? null,
     };
   }
+}
+
+/**
+ * A Prisma unique-constraint violation (P2002).
+ *
+ * Matched on the code rather than the message so it survives a Prisma upgrade rewording it,
+ * and narrowed by shape rather than `instanceof` so it still recognises the error when the
+ * throw crosses a transaction client boundary.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002';
 }

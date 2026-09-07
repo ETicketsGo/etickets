@@ -512,15 +512,58 @@ const envSchema = z.object({
   OTP_SMS_TEMPLATE: z.string().optional(),
 
   // --- SMS (recipient = payload.phone) ---
-  SMS_PROVIDER: z.enum(['log', 'twilio']).default('log'),
+  SMS_PROVIDER: z.enum(['log', 'twilio', 'msg91']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
+  /*
+    Which provider carries an SMS, by the market it is going INTO -- `IN=msg91,US=twilio,CA=twilio`.
+    An Indian operator will not deliver a transactional message that was not sent under a
+    DLT-registered sender, and Twilio's price into India is not one to pay for ticket volume,
+    so this is a requirement rather than a preference.
+
+    Leave it unset and SMS_PROVIDER above is the whole answer, which is what local development
+    and single-market deployments want. Set it, and a destination whose market cannot be
+    determined is REFUSED rather than sent through whichever provider happened to be default:
+    a misrouted message is either undeliverable or expensive, and neither shows up until a
+    customer says their ticket never arrived.
+  */
+  SMS_PROVIDER_BY_MARKET: z.string().optional(),
 
   // --- WhatsApp (recipient = payload.phone) ---
-  WHATSAPP_PROVIDER: z.enum(['log', 'cloud']).default('log'),
+  WHATSAPP_PROVIDER: z.enum(['log', 'cloud', 'msg91']).default('log'),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  /** Same shape as SMS_PROVIDER_BY_MARKET, e.g. `IN=msg91,US=cloud,CA=cloud`. */
+  WHATSAPP_PROVIDER_BY_MARKET: z.string().optional(),
+
+  /*
+    -- MSG91 (India SMS + WhatsApp) --------------------------------------------------
+    One account key serves both channels. NONE of the template settings have defaults, and
+    that is deliberate: an approved template id is a compliance artefact belonging to a DLT
+    registration, and a hardcoded one is either wrong or somebody else's. With no template
+    configured for a message type the transport refuses that send outright rather than
+    guessing, so a missing registration surfaces as a visible FAILED row naming the exact key
+    to set -- not as messages the API accepts and the carrier quietly drops.
+  */
+  MSG91_AUTH_KEY: z.string().optional(),
+  MSG91_SENDER_ID: z.string().optional(),
+  MSG91_BASE_URL: z.string().optional(),
+  MSG91_SMS_PATH: z.string().optional(),
+  MSG91_WHATSAPP_PATH: z.string().optional(),
+  MSG91_TIMEOUT_MS: z.coerce.number().default(10_000),
+  /** `BOOKING_CANCELLED=<dlt_template_id>,...` -- one approved template per message type. */
+  MSG91_SMS_TEMPLATE_IDS: z.string().optional(),
+  /** Fallback template id for types not named above. */
+  MSG91_SMS_TEMPLATE_ID: z.string().optional(),
+  /** The variable name in the approved template that receives the rendered message. */
+  MSG91_SMS_BODY_VAR: z.string().optional(),
+  /** The WhatsApp business number registered with MSG91 (their `integrated_number`). */
+  MSG91_WHATSAPP_NUMBER: z.string().optional(),
+  /** `BOOKING_CONFIRMED=<approved_template_name>,...` */
+  MSG91_WHATSAPP_TEMPLATES: z.string().optional(),
+  MSG91_WHATSAPP_TEMPLATE: z.string().optional(),
+  MSG91_WHATSAPP_LANGUAGE: z.string().optional(),
 
   // --- Push (recipient = payload.pushToken / payload.pushTokens) ---
   /*

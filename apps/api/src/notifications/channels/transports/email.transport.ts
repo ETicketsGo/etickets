@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sgMail from '@sendgrid/mail';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { RenderedNotification } from '../notification-channel.interface';
+import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 
 /** DI token for the email transport bound in notifications.module.ts. */
 export const EMAIL_TRANSPORT = Symbol('EMAIL_TRANSPORT');
@@ -16,7 +16,8 @@ export type EmailProviderName = 'log' | 'sendgrid' | 'ses';
  * NotificationChannel or NotificationService.
  */
 export interface EmailTransport {
-  send(msg: RenderedNotification): Promise<void>;
+  readonly name: EmailProviderName;
+  send(msg: RenderedNotification): Promise<DeliveryOutcome>;
 }
 
 /**
@@ -24,17 +25,20 @@ export interface EmailTransport {
  * original EmailChannel log so existing tests/e2e are unaffected.
  */
 export class EmailLogTransport implements EmailTransport {
+  readonly name = 'log' as const;
   private readonly logger = new Logger('Notification');
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     this.logger.log(
       `[email:${msg.type}] -> ${msg.toEmail ?? 'n/a'} :: ${JSON.stringify(msg.payload)}`,
     );
+    return { provider: 'log' };
   }
 }
 
 /** SendGrid transport (`@sendgrid/mail`). Requires SENDGRID_API_KEY + EMAIL_FROM. */
 export class SendGridEmailTransport implements EmailTransport {
+  readonly name = 'sendgrid' as const;
   private readonly from: string;
 
   constructor(config: ConfigService) {
@@ -43,21 +47,25 @@ export class SendGridEmailTransport implements EmailTransport {
     sgMail.setApiKey(apiKey);
   }
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     if (!msg.toEmail) {
       throw new Error('EmailTransport: rendered notification has no recipient (toEmail).');
     }
-    await sgMail.send({
+    const [res] = await sgMail.send({
       to: msg.toEmail,
       from: this.from,
       subject: msg.subject,
       text: msg.body,
     });
+    // SendGrid returns its queue id in a response header; absent, the send still happened.
+    const id = res?.headers?.['x-message-id'];
+    return { provider: this.name, providerMessageId: typeof id === 'string' ? id : null };
   }
 }
 
 /** AWS SES v2 transport (`@aws-sdk/client-sesv2`). Requires AWS_REGION + EMAIL_FROM. */
 export class SesEmailTransport implements EmailTransport {
+  readonly name = 'ses' as const;
   private readonly from: string;
   private readonly client: SESv2Client;
 
@@ -74,11 +82,11 @@ export class SesEmailTransport implements EmailTransport {
     });
   }
 
-  async send(msg: RenderedNotification): Promise<void> {
+  async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     if (!msg.toEmail) {
       throw new Error('EmailTransport: rendered notification has no recipient (toEmail).');
     }
-    await this.client.send(
+    const res = await this.client.send(
       new SendEmailCommand({
         FromEmailAddress: this.from,
         Destination: { ToAddresses: [msg.toEmail] },
@@ -90,6 +98,8 @@ export class SesEmailTransport implements EmailTransport {
         },
       }),
     );
+    // SES's own message id, which is what an AWS support case is opened against.
+    return { provider: this.name, providerMessageId: res.MessageId ?? null };
   }
 }
 
