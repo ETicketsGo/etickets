@@ -14,6 +14,12 @@ import { NotificationChannelRegistry } from './channels/notification-channel.reg
 import { NotificationProviderResolver } from './channels/notification-provider.resolver';
 import { NotificationPolicyResolver } from './policy/notification-policy.resolver';
 import { NotificationFallbackService } from './policy/fallback.service';
+import { ShowCancellationFanoutService } from './producers/show-cancellation-fanout.service';
+import { ShowCancelledNotificationHandler } from './producers/show-cancelled.handler';
+import { ShowReminderService } from './producers/show-reminder.service';
+import { NotificationPreferencesController } from './notification-preferences.controller';
+import { NotificationReadinessService } from './readiness/notification-readiness.service';
+import { NotificationReadinessController } from './readiness/notification-readiness.controller';
 import { NotificationRateService } from './cost/notification-rate.service';
 import { NotificationAnalyticsService } from './cost/notification-analytics.service';
 import { NotificationAnalyticsController } from './cost/notification-analytics.controller';
@@ -44,6 +50,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     MarketingConsentController,
     NotificationOpsController,
     NotificationAnalyticsController,
+    NotificationPreferencesController,
+    NotificationReadinessController,
     DeliveryWebhookController,
   ],
   providers: [
@@ -62,6 +70,11 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     // Cost accounting (ADR-048): what a message cost, from a rate in force when it went.
     NotificationRateService,
     NotificationAnalyticsService,
+    // Producers (ADR-049): the domain facts that become customer messages.
+    ShowCancellationFanoutService,
+    ShowCancelledNotificationHandler,
+    ShowReminderService,
+    NotificationReadinessService,
     // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
     SuppressionService,
     DeliveryRecorderService,
@@ -102,6 +115,10 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     // Exported so the worker can sweep for fallbacks that are now due.
     NotificationFallbackService,
     NotificationRateService,
+    // Exported so the worker can sweep for fan-outs and reminders that are due.
+    ShowCancellationFanoutService,
+    ShowCancelledNotificationHandler,
+    ShowReminderService,
   ],
 })
 export class NotificationsModule {}

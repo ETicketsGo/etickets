@@ -624,6 +624,36 @@ export const api = {
       request<{ updated: number }>(`/notifications/read-all${qs({ audience })}`, {
         method: 'POST',
       }),
+
+    /**
+     * What a person receives, and on what.
+     *
+     * The response carries `required` and `deferred` per channel, and a settings screen has
+     * to honour both. `required` means policy guarantees that channel whatever the person
+     * chooses -- a toggle for it would be a lie told twice, once by implying the message can
+     * be stopped and again when it arrives anyway. `deferred` is the emergency SMS, which is
+     * not something anybody opts into: it opens only when nothing else reached them.
+     */
+    preferences: () => request<NotificationPreferenceView>('/me/notification-preferences'),
+    setPreference: (body: { type: string; channel: string; enabled: boolean }) =>
+      request<NotificationPreferenceView>('/me/notification-preferences', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+
+    /**
+     * Consent, per channel, for a CATEGORY of message.
+     *
+     * `whatsapp` is permission to sell on WhatsApp; `whatsapp:transactional` is permission to
+     * use it to tell somebody about their own booking. Two different questions, and answering
+     * one with the other is how a person who declined offers stops receiving their tickets.
+     */
+    consent: () => request<ConsentView>('/me/marketing-consent'),
+    setConsent: (body: { channel: string; granted: boolean }) =>
+      request<ConsentView['channels']>('/me/marketing-consent', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
   },
 
   venues: {
@@ -2285,6 +2315,43 @@ export interface NotificationItem {
   readAt: string | null;
   createdAt: string;
 }
+/** One channel a person can be reached on, for one kind of message. */
+export interface NotificationChannelPreference {
+  channel: 'email' | 'sms' | 'whatsapp' | 'push' | 'in_app';
+  enabled: boolean;
+  /**
+   * Policy guarantees this one. A settings screen must show it as required rather than as a
+   * switch: nobody should be able to configure themselves into a state where a cancelled
+   * show reaches them nowhere, and a toggle that silently does nothing is worse than none.
+   */
+  required: boolean;
+  /** Held back as an emergency fallback — opened only when nothing else got through. */
+  deferred: boolean;
+}
+
+export interface NotificationPreferenceView {
+  /**
+   * Whether each channel has anywhere to send to. A WhatsApp switch offered to somebody with
+   * no phone number is a switch that cannot work; this is what lets the UI say so.
+   */
+  destinations: { hasPhone: boolean; phoneVerified: boolean; emailUsable: boolean };
+  types: {
+    type: string;
+    urgency: 'ROUTINE' | 'IMPORTANT' | 'URGENT';
+    channels: NotificationChannelPreference[];
+  }[];
+}
+
+export interface ConsentView {
+  channels: {
+    channel: string;
+    granted: boolean;
+    source: string | null;
+    decidedAt: string | null;
+  }[];
+  history: { channel: string; granted: boolean; source: string; createdAt: string }[];
+}
+
 /** Whose stream a surface is showing. Stated by every caller — see `notifications.inbox`. */
 export type NotificationAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
 

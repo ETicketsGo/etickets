@@ -79,6 +79,7 @@ export function ListRow({
   destructive = false,
   showChevron = true,
   accessibilityHint,
+  right,
 }: {
   label: string;
   value?: string;
@@ -87,9 +88,18 @@ export function ListRow({
   destructive?: boolean;
   showChevron?: boolean;
   accessibilityHint?: string;
+  /**
+   * A control at the trailing edge — a switch, usually.
+   *
+   * The row itself stays non-interactive when one is present: two hit targets stacked on top
+   * of each other means a tap near the switch does whichever the layout happened to put on
+   * top, and a screen reader announces one element that does two different things.
+   */
+  right?: ReactNode;
 }) {
   const { colors } = useTheme();
-  const interactive = Boolean(onPress);
+  // A row with its own control is not itself a button; see `right`.
+  const interactive = Boolean(onPress) && !right;
 
   return (
     <Pressable
@@ -117,6 +127,7 @@ export function ListRow({
           {value}
         </Text>
       ) : null}
+      {right}
       {interactive && showChevron ? (
         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       ) : null}

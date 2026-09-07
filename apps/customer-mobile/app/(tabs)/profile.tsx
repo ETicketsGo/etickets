@@ -66,6 +66,22 @@ export default function ProfileScreen() {
             <ListRow label="Time zone" value={deviceLocale.timeZone} showChevron={false} />
           </Section>
 
+          {isAuthenticated ? (
+            <Section title="Notifications">
+              {/*
+                Where somebody decides what reaches them, and the only place the platform can
+                ask whether it may use WhatsApp for their booking updates. Signed-in only:
+                there is no preference to hold for somebody with no account.
+              */}
+              <ListRow
+                label="Notification settings"
+                icon="notifications-outline"
+                accessibilityHint="Choose how we reach you about bookings and shows"
+                onPress={() => router.push('/account/notifications')}
+              />
+            </Section>
+          ) : null}
+
           <Section title="Legal">
             {legalLinks().map((link, index) => (
               <View key={link.key}>

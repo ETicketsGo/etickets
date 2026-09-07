@@ -13,6 +13,8 @@ import {
   FinanceReconciliationService,
   NotificationService,
   NotificationFallbackService,
+  ShowCancellationFanoutService,
+  ShowReminderService,
   PrismaService,
   RazorpayWebhookProcessor,
   SeatOverridesService,
@@ -59,6 +61,20 @@ const NOTIFICATION_SWEEP_MS =
 const RAW_FALLBACK_MS = Number(process.env.NOTIFICATION_FALLBACK_INTERVAL_MS ?? 60_000);
 const FALLBACK_SWEEP_MS =
   Number.isFinite(RAW_FALLBACK_MS) && RAW_FALLBACK_MS > 0 ? RAW_FALLBACK_MS : 60_000;
+/*
+  A minute for the cancellation guarantee, and five for reminders.
+
+  Neither is a latency-sensitive path: the cancellation fan-out is started immediately by the
+  domain-event handler and this sweep is the safety net behind it, and a reminder twenty-four
+  hours ahead does not care about five minutes. Running either at the dispatch cadence would
+  ask an expensive question hundreds of times per useful answer.
+*/
+const RAW_CANCELLATION_MS = Number(process.env.NOTIFICATION_FANOUT_INTERVAL_MS ?? 60_000);
+const CANCELLATION_SWEEP_MS =
+  Number.isFinite(RAW_CANCELLATION_MS) && RAW_CANCELLATION_MS > 0 ? RAW_CANCELLATION_MS : 60_000;
+const RAW_REMINDER_MS = Number(process.env.NOTIFICATION_REMINDER_INTERVAL_MS ?? 300_000);
+const REMINDER_SWEEP_MS =
+  Number.isFinite(RAW_REMINDER_MS) && RAW_REMINDER_MS > 0 ? RAW_REMINDER_MS : 300_000;
 const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
 const QUEUE_METRICS_MS =
   Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
@@ -134,6 +150,8 @@ async function main(): Promise<void> {
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
   const fallbacks = app.get(NotificationFallbackService);
+  const cancellationFanout = app.get(ShowCancellationFanoutService);
+  const reminders = app.get(ShowReminderService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
@@ -202,6 +220,42 @@ async function main(): Promise<void> {
     {
       repeat: { every: FALLBACK_SWEEP_MS },
       jobId: 'notification-fallbacks',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  /*
+    Tells the remaining ticket holders about a cancelled show.
+
+    The domain-event handler starts the fan-out the moment a show is cancelled, so this is
+    not the fast path -- it is the GUARANTEE. It asks the data who still has no cancellation
+    notice, which means it recovers on its own from a failed handler, a disabled outbox or a
+    process that died mid-batch, and it needs no cursor to do it.
+  */
+  await queue.add(
+    'notification-cancellation-fanout',
+    {},
+    {
+      repeat: { every: CANCELLATION_SWEEP_MS },
+      jobId: 'notification-cancellation-fanout',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Show reminders. OFF unless NOTIFICATION_REMINDERS_ENABLED -- turning it on starts
+  // messaging every ticket holder about every future show, which is a product launch.
+  await queue.add(
+    'notification-reminders',
+    {},
+    {
+      repeat: { every: REMINDER_SWEEP_MS },
+      jobId: 'notification-reminders',
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
@@ -319,6 +373,24 @@ async function main(): Promise<void> {
         if (summary.sent + summary.failed + summary.retried > 0) {
           log('info', 'dispatched scheduled notifications', { ...summary });
         }
+        return summary;
+      }
+      if (job.name === 'notification-cancellation-fanout') {
+        const summary = await cancellationFanout.sweep();
+        if (summary.notified > 0) log('info', 'show cancellation fanout', { ...summary });
+        return summary;
+      }
+      if (job.name === 'notification-reminders') {
+        /*
+          The tolerance must be at least as wide as the interval between ticks, or a show
+          whose exact reminder moment fell between two runs is never reminded about at all.
+          Generous is safe: a show caught twice still produces one message, because the
+          dedupe key decides that in the database.
+        */
+        const summary = await reminders.runDue(new Date(), {
+          toleranceMinutes: Math.max(30, Math.ceil(REMINDER_SWEEP_MS / 60_000) * 2),
+        });
+        if (summary.reminded > 0) log('info', 'sent show reminders', { ...summary });
         return summary;
       }
       if (job.name === 'notification-fallbacks') {

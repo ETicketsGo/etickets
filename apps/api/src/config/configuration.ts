@@ -597,6 +597,20 @@ const envSchema = z.object({
     are untouched, and the notification still goes.
   */
   WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED: z.string().optional(),
+  /*
+    Show reminders. OFF by default, and that default is the point: turning this on starts
+    messaging every ticket holder on the platform about every future show. That is a product
+    launch -- somebody has to have decided the copy is right and the volume is wanted -- not
+    a deployment.
+  */
+  NOTIFICATION_REMINDERS_ENABLED: z.string().optional(),
+  /*
+    How far ahead to remind, in hours. A cinema chain reminding people the evening before and
+    a festival reminding them a week before are both reasonable, and neither should be a
+    deploy. One wave only: additional timings are a decision about how often it is acceptable
+    to message somebody.
+  */
+  NOTIFICATION_REMINDER_LEAD_HOURS: z.coerce.number().default(24),
   /** Random path secret embedded in the SNS subscription endpoint for SES events. */
   SES_WEBHOOK_SECRET: z.string().optional(),
   /*

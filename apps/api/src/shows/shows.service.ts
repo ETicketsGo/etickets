@@ -20,6 +20,8 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { NotificationService } from '../notifications/notification.service';
+import { TransactionalEventPublisher } from '../common/domain-events/transactional-event-publisher';
+import { showCancelledEvent } from '../common/domain-events/catalogue/show-events';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
 import { currencyForCountry } from '../common/country';
@@ -342,6 +344,13 @@ export class ShowsService {
       tests that matter boot the real module and get the real one.
     */
     @Optional() private readonly notifications?: NotificationService,
+    /*
+      Optional like the rest: the scheduling suites construct this service directly. Without
+      it a cancellation still cancels and the fan-out sweep still finds the untold customers
+      from the data -- the event only makes the first of them hear within seconds rather than
+      within a minute.
+    */
+    @Optional() private readonly events?: TransactionalEventPublisher,
   ) {}
 
   /** Minimum gap between two shows on one screen. See SHOW_TURNAROUND_MINUTES. */
@@ -1624,6 +1633,36 @@ export class ShowsService {
         where: { eventSessionId: sessionId, status: { in: ['AVAILABLE', 'HELD'] } },
         data: { status: 'UNAVAILABLE', holdBookingId: null, holdExpiresAt: null },
       });
+
+      /*
+        ── THE FACT, RECORDED WITH THE CANCELLATION ──────────────────────────────────
+        Not a call to a notification service. Several hundred people hold tickets to a
+        sold-out screen and several thousand to a festival headliner; sending them from
+        here would make the organizer wait while we talk to four providers per customer,
+        and one timeout would fail the request — leaving them unsure whether the show is
+        cancelled at all.
+
+        So this records the fact in the same transaction that makes it true. If the
+        cancellation rolls back, nobody is told about a show that is still on; if it
+        commits, the fan-out is owed and the sweep will find it even if every process
+        between here and there dies.
+      */
+      await this.events?.recordInTransaction(tx, [
+        showCancelledEvent(
+          {
+            sessionId,
+            // The session's own eventId. The session loader selects only the organization
+            // and the movie off the event, and widening that select for one field on a
+            // cancellation would change every other caller's query.
+            eventId: session.eventId,
+            organizationId: session.event.organizationId,
+            startsAt: session.startsAt.toISOString(),
+            reason,
+            affectedBookings: affected.length,
+          },
+          { actorId: user.id, tenantId: session.event.organizationId },
+        ),
+      ]);
     });
 
     await this.recordShowAudit(user, session, 'SHOW_CANCELLED', {

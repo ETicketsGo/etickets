@@ -14,5 +14,6 @@ export {
   Spinner,
   Dialog,
   RatingStars,
+  Toggle,
   useToast,
 } from '@eticketsgo/web-kit';

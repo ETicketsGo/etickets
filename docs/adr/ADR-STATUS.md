@@ -37,6 +37,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 046 | Notification delivery receipts, suppression and idempotency limits              |
 | 047 | Notification policy, consent and controlled cross-channel fallback              |
 | 048 | Notification cost accounting, rate cards and truthful denominators              |
+| 049 | Notification producers, customer preferences and WhatsApp opt-in rollout        |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

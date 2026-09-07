@@ -10,6 +10,7 @@ export * from './connectivity';
 export * from './components';
 export * from './hooks';
 export * from './shell';
+export * from './toggle';
 export * from './providers';
 export * from './login';
 export * from './city';

@@ -48,8 +48,39 @@ const NOT_PRODUCERS = new Set(
     'notifications/policy/dedupe-key.ts',
     'notifications/message-class.ts',
     'notifications/templates/notification-template.service.ts',
+    // A settings surface: it LISTS the types a customer can express a preference about, and
+    // sends none of them.
+    'notifications/notification-preferences.controller.ts',
   ].map((p) => p.replace(/\//g, require('node:path').sep)),
 );
+
+/**
+ * Producers whose durability comes from a SWEEP rather than from a transaction.
+ *
+ * ── WHY THIS EXEMPTION EXISTS, AND WHY IT IS NOT A LOOPHOLE ────────────────────────
+ * `sendCritical(tx, …)` guarantees that a message is owed by writing it in the transaction
+ * that makes the fact true. That is the right mechanism when the audience is one person.
+ *
+ * It is the wrong one when the audience is a sold-out cinema. A show cancellation must not
+ * fan out to two thousand bookings inside the organizer's HTTP request, so the transaction
+ * records the FACT — the domain event, and the session's own CANCELLED status — and the
+ * fan-out happens afterwards. Losing a batch to a crash costs nothing, because "who still
+ * needs telling" is re-derivable from the data at any moment.
+ *
+ * That is a different guarantee, not a weaker one, and the test below checks the mechanism
+ * is actually present rather than taking the exemption on trust: a file listed here must
+ * have a sweep, and that sweep must re-derive its work with a NOT EXISTS. Deleting either
+ * fails the build, which is the whole point of naming them.
+ */
+const SWEEP_BACKED = new Map<string, string>([
+  [
+    'notifications/producers/show-cancellation-fanout.service.ts'.replace(
+      /\//g,
+      require('node:path').sep,
+    ),
+    'show cancellation fans out to a whole audience; the sweep re-derives who is left',
+  ],
+]);
 
 interface Mention {
   file: string;
@@ -98,6 +129,7 @@ describe('critical notifications are produced transactionally', () => {
     const sep = require('node:path').sep;
     const files = new Set(criticalMentions().map((m) => m.file));
     expect([...files].sort()).toEqual([
+      ['notifications', 'producers', 'show-cancellation-fanout.service.ts'].join(sep),
       ['payments', 'payments.service.ts'].join(sep),
       ['payments', 'settlement', 'settlement.service.ts'].join(sep),
       ['refunds', 'refunds.service.ts'].join(sep),
@@ -114,14 +146,36 @@ describe('critical notifications are produced transactionally', () => {
     const sep = require('node:path').sep;
     const offenders: string[] = [];
     for (const file of new Set(criticalMentions().map((m) => m.file))) {
+      if (SWEEP_BACKED.has(file)) continue;
       const src = readFileSync(join(SRC, file), 'utf8');
       if (!/sendCritical|fanOutCritical/.test(src)) offenders.push(file);
     }
     expect(offenders.map((f) => f.split(sep).join('/'))).toEqual([]);
   });
 
+  it('a sweep-backed producer really has the sweep it is exempted for', () => {
+    /*
+      The exemption is checked, not taken on trust. A file excused from `sendCritical` because
+      its work is re-derivable has to actually re-derive it — a sweep, and a NOT EXISTS that
+      finds who has not been told. Delete either and this fails, which is the only thing that
+      makes naming the file honest rather than a way to silence the guard.
+    */
+    for (const [file, why] of SWEEP_BACKED) {
+      const src = readFileSync(join(SRC, file), 'utf8');
+      expect({ file: why, hasSweep: /\basync sweep\(/.test(src) }).toEqual({
+        file: why,
+        hasSweep: true,
+      });
+      expect({ file: why, reDerives: /NOT EXISTS/.test(src) }).toEqual({
+        file: why,
+        reDerives: true,
+      });
+    }
+  });
+
   it('and no critical type is sent through the non-transactional method', () => {
     const offenders = criticalMentions()
+      .filter((m) => !SWEEP_BACKED.has(m.file))
       .map((m) => ({ ...m, call: enclosingCall(m.file, m.line) }))
       .filter((m) => m.call !== null)
       .filter((m) => !['sendCritical', 'fanOutCritical'].includes(m.call as string));
