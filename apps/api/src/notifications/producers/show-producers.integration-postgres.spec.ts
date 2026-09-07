@@ -151,7 +151,7 @@ describe('integration-real-postgres: show cancellation and reminders', () => {
       ),
     );
     fanout = new ShowCancellationFanoutService(db as never, notifications);
-  }, 90_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -164,7 +164,7 @@ describe('integration-real-postgres: show cancellation and reminders', () => {
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 90_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(
@@ -440,7 +440,7 @@ describe('integration-real-postgres: reminders', () => {
       notifications,
       new ConfigService({ NOTIFICATION_REMINDERS_ENABLED: 'true' }),
     );
-  }, 90_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -453,7 +453,7 @@ describe('integration-real-postgres: reminders', () => {
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 90_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

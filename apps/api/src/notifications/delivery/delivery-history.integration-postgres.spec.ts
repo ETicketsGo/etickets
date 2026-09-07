@@ -76,7 +76,7 @@ describe('integration-real-postgres: delivery history survives later facts', () 
     });
     userId = user.id;
     recorder = new DeliveryRecorderService(db as never, new SuppressionService(db as never));
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -87,7 +87,7 @@ describe('integration-real-postgres: delivery history survives later facts', () 
     });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

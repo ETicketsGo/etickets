@@ -117,7 +117,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
       rates,
     );
     analytics = new NotificationAnalyticsService(db as never);
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -126,7 +126,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
     await db.notificationRate.deleteMany({ where: { notes: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

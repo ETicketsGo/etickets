@@ -117,7 +117,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
       ),
     );
     fallbacks = new NotificationFallbackService(db as never, notifications);
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -125,7 +125,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   /*
     A generous batch limit throughout.  scans every overdue intent in the database,
@@ -371,7 +371,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
         new ConfigService({}),
       ),
     );
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -379,7 +379,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

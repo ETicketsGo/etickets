@@ -104,7 +104,7 @@ describe('integration-real-postgres: notification cost accounting', () => {
       undefined,
       rates,
     );
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -113,7 +113,7 @@ describe('integration-real-postgres: notification cost accounting', () => {
     await db.notificationRate.deleteMany({ where: { notes: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(

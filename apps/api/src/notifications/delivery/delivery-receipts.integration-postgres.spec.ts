@@ -91,7 +91,7 @@ describe('integration-real-postgres: delivery receipts', () => {
     );
     audit = { record: jest.fn().mockResolvedValue(undefined) };
     ops = new NotificationOpsService(db as never, audit as never, suppression);
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -103,7 +103,7 @@ describe('integration-real-postgres: delivery receipts', () => {
     await db.webhookEvent.deleteMany({ where: { provider: { startsWith: 'notification:' } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(
@@ -423,7 +423,7 @@ describe('integration-real-postgres: resend is not retry', () => {
       { record: jest.fn().mockResolvedValue(undefined) } as never,
       suppression,
     );
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -434,7 +434,7 @@ describe('integration-real-postgres: resend is not retry', () => {
     });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

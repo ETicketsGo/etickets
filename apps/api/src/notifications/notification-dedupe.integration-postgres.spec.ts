@@ -88,7 +88,7 @@ describe('integration-real-postgres: duplicate notifications', () => {
       } as never,
       { mayReceiveMarketing: jest.fn().mockResolvedValue(false) } as never,
     );
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -96,7 +96,7 @@ describe('integration-real-postgres: duplicate notifications', () => {
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(

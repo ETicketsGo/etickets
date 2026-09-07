@@ -134,7 +134,7 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
     americanUser = await make('sam', `+1415${String(Date.now()).slice(-7)}`);
     canadianUser = await make('mo', `+1416${String(Date.now()).slice(-7)}`);
     deliver = jest.fn();
-  }, 60_000);
+  }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
@@ -144,7 +144,7 @@ describe('integration-real-postgres: India, US and Canada notification flows', (
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await sweepLock?.release();
     await db.$disconnect();
-  }, 60_000);
+  }, 180_000);
 
   const maybe = (name: string, fn: () => Promise<void>) =>
     it(name, async () => {

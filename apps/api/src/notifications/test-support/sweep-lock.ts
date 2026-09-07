@@ -56,10 +56,36 @@ export interface SweepLock {
 const NOOP: SweepLock = { release: async () => undefined };
 
 /**
- * Take the sweep lock, waiting if another suite holds it.
+ * How long to keep trying before giving up and running unlocked.
  *
- * `pg_advisory_lock` blocks rather than failing, which is what is wanted: the second suite
- * should wait its turn, not error. Returns a handle whose `release()` is safe to call twice.
+ * Must stay comfortably BELOW the `beforeAll` timeout of every suite that acquires (180s), or
+ * the hook dies before the deadline is reached and the suite fails for a reason that has
+ * nothing to do with what it tests. Nine suites hold this lock for five to fifteen seconds
+ * each, so two minutes covers a full queue with room to spare.
+ */
+const ACQUIRE_DEADLINE_MS = 120_000;
+const ACQUIRE_POLL_MS = 250;
+
+/**
+ * Take the sweep lock, waiting up to a deadline, then proceeding WITHOUT it.
+ *
+ * -- WHY THIS POLLS INSTEAD OF BLOCKING, AND WHY IT GIVES UP --------------------------
+ * The first version used `pg_advisory_lock`, which blocks until the lock is free. That is
+ * the natural thing to reach for and it deadlocked CI for the better part of an hour.
+ *
+ * The mechanism: a suite whose `beforeAll` has Jest's default five-second timeout blocks on
+ * the lock, the hook times out, and Jest moves on -- but the QUERY is still pending on a
+ * connection nobody disconnects. When the holder releases, that orphaned query acquires the
+ * lock, and the handle it would have been released through was never returned to anyone. The
+ * lock is then held by a dead test for the rest of the run, and every suite behind it blocks
+ * forever. Slow, contended machines hit it; a fast laptop ran it five times clean.
+ *
+ * `pg_try_advisory_lock` returns immediately either way, so no query is ever left pending and
+ * there is nothing to orphan. Polling to a deadline keeps the serialization that these suites
+ * need, and giving up after it keeps the failure BOUNDED: past the deadline the suite runs
+ * unlocked, which is exactly the behaviour it had before this file existed. That can produce
+ * a flake. It cannot produce a hung pipeline, and between a rare re-run and an hour of
+ * silence the choice is not close.
  */
 export async function acquireSweepLock(url: string | undefined): Promise<SweepLock> {
   if (!url) return NOOP;
@@ -68,10 +94,30 @@ export async function acquireSweepLock(url: string | undefined): Promise<SweepLo
   const client = new PrismaClient({
     datasources: { db: { url: `${url}${separator}connection_limit=1` } },
   });
+  const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
+  let held = false;
   try {
-    await client.$executeRawUnsafe(`SELECT pg_advisory_lock(${SWEEP_LOCK_KEY})`);
+    do {
+      // `require`d client, so it is untyped here; the shape is asserted rather than generic.
+      const rows = (await client.$queryRawUnsafe(
+        `SELECT pg_try_advisory_lock(${SWEEP_LOCK_KEY}) AS locked`,
+      )) as { locked: boolean }[];
+      held = rows?.[0]?.locked === true;
+      if (held) break;
+      await new Promise((resolve) => setTimeout(resolve, ACQUIRE_POLL_MS));
+    } while (Date.now() < deadline);
   } catch {
     // A database that cannot take a lock is one the suite is about to skip against anyway.
+    await client.$disconnect().catch(() => undefined);
+    return NOOP;
+  }
+  if (!held) {
+    /*
+      Ran out of patience. Proceed unlocked rather than block: this suite may now interleave
+      with another and produce a confusing failure, which is recoverable, where a hang is not.
+    */
+    // eslint-disable-next-line no-console
+    console.warn('[sweep-lock] could not acquire within the deadline; running unlocked.');
     await client.$disconnect().catch(() => undefined);
     return NOOP;
   }
