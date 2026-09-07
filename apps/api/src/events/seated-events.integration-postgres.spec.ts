@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { EventSellabilityService } from './event-sellability.service';
 import { EventsService } from './events.service';
 import { ShowsService } from '../shows/shows.service';
 
@@ -101,7 +102,20 @@ describe('integration-real-postgres: a seated event', () => {
     }
 
     shows = new ShowsService(db as never, allowAll, noAudit, cfg);
-    events = new EventsService(db as never, allowAll, noAudit, noAudience, cfg, shows);
+    /*
+      A real sellability service against the real database. This suite seats sessions and
+      builds ticket types, which is exactly the configuration the check reads -- a stub here
+      would let a seating change that breaks sellability pass unnoticed.
+    */
+    events = new EventsService(
+      db as never,
+      allowAll,
+      noAudit,
+      noAudience,
+      cfg,
+      shows,
+      new EventSellabilityService(db as never),
+    );
 
     const org = await db!.organization.create({
       data: { name: `Seated ${suffix}`, slug: `seated-${suffix}` },

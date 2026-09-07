@@ -197,6 +197,20 @@ export const EVENT_POLICY: Partial<Record<NotificationType, EventPolicy>> = {
     optInRequired: [W],
   },
 
+  /*
+    An organizer's own listing is broken and losing them sales.
+
+    Email and the console, the same as settlement: this is addressed to somebody at work, it
+    is actionable only from a desk, and no part of it is improved by arriving on a personal
+    messaging app. Not URGENT -- nobody is about to travel to a dark venue -- but not routine
+    either, because every hour it stands is sales that quietly do not happen.
+  */
+  [NotificationType.EVENT_NOT_SELLABLE]: {
+    channels: [E, A],
+    urgency: 'IMPORTANT',
+    guaranteed: [E, A],
+  },
+
   /* Organizer money. Their console and their email; not their WhatsApp, not at 3am. */
   [NotificationType.SETTLEMENT_RELEASED]: {
     channels: [E, A],

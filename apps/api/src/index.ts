@@ -4,6 +4,8 @@ export { AppModule } from './app.module';
 export { BookingsService } from './bookings/bookings.service';
 export { LocalBookingOrchestrator } from './bookings/orchestration/local-booking-orchestrator.service';
 export { EventsService } from './events/events.service';
+// The worker sweeps for listings that became unsellable after they were published.
+export { EventSellabilitySweepService } from './events/event-sellability-sweep.service';
 export { PrismaService } from './prisma/prisma.service';
 export { NotificationService } from './notifications/notification.service';
 export { NotificationFallbackService } from './notifications/policy/fallback.service';

@@ -83,6 +83,8 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.ORGANIZATION_REJECTED]: 'TRANSACTIONAL',
   [NotificationType.EVENT_SUBMITTED]: 'TRANSACTIONAL',
   [NotificationType.EVENT_APPROVED]: 'TRANSACTIONAL',
+  // Their own listing is losing them sales. Not marketing, and not optional.
+  [NotificationType.EVENT_NOT_SELLABLE]: 'TRANSACTIONAL',
   [NotificationType.EVENT_REJECTED]: 'TRANSACTIONAL',
 
   // ── Operational messages to organizers and admins about their own money ─────────
@@ -172,6 +174,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.ORGANIZATION_APPROVED]: 'ORGANIZER',
   [NotificationType.ORGANIZATION_REJECTED]: 'ORGANIZER',
   [NotificationType.EVENT_APPROVED]: 'ORGANIZER',
+  [NotificationType.EVENT_NOT_SELLABLE]: 'ORGANIZER',
   [NotificationType.EVENT_REJECTED]: 'ORGANIZER',
 
   // ── The platform's own moderation queue ─────────────────────────────────────────

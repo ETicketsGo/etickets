@@ -56,6 +56,11 @@ function submitSetup(over: { autoApproveEvents?: boolean; orgStatus?: string } =
     { get: () => 'http://localhost:3000' } as never,
     // Seating a session is delegated to ShowsService; none of these cases uses a room.
     {} as never,
+    /*
+      The sellability check. Publishing consults it; these cases are about approval routing
+      and pricing, so it answers "nothing standing in the way" and stays out of them.
+    */
+    { check: async () => ({ sellable: true, blockers: [], warnings: [] }) } as never,
   );
   return { service, eventUpdate, notifyAdmins, notifyOrganizationOwners, record };
 }

@@ -365,6 +365,9 @@ enum NotificationType {
   EVENT_SUBMITTED
   EVENT_APPROVED
   EVENT_REJECTED
+  /// A published event whose checkout would refuse every customer. Publishing already
+  /// blocks this, so it only ever means one that BECAME unsellable after going live.
+  EVENT_NOT_SELLABLE
 
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED

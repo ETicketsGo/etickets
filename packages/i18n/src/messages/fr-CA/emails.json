@@ -84,6 +84,10 @@
     "subject": "« {event} » doit être modifié",
     "body": "« {event} » n'a pas été approuvé.{reason} Apportez les changements et soumettez-le de nouveau."
   },
+  "EVENT_NOT_SELLABLE": {
+    "subject": "« {event} » est en ligne mais ne peut pas être vendu",
+    "body": "Les clients trouvent « {event} » et sont refusés au paiement. {reason} Ouvrez l’événement dans votre console organisateur pour corriger cela."
+  },
   "generic": {
     "subject": "Notification : {type}",
     "body": "Vous avez une nouvelle notification ({type})."

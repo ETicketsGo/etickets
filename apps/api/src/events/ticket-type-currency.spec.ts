@@ -45,6 +45,7 @@ function setup(venueCountry: string | null) {
     stub, // audience
     stub, // config
     stub, // shows
+    stub, // sellability -- consulted at publish, and nothing here publishes
   );
   return { service, create };
 }

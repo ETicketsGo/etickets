@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { currencyForCountry } from '../common/country';
+import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 
@@ -75,6 +76,11 @@ export class EventsService {
       ShowsModule does not import EventsModule, so this direction introduces no cycle.
     */
     private readonly shows: ShowsService,
+    /*
+      The same rules checkout applies, asked before the event goes live rather than after
+      a customer has been taken to a seat map they cannot buy from.
+    */
+    private readonly sellabilityService: EventSellabilityService,
   ) {}
 
   /** First configured web origin, trailing slash trimmed (mirrors sharing.service). */
@@ -828,6 +834,17 @@ export class EventsService {
     return { ok: true };
   }
 
+  /**
+   * Whether a customer could complete a purchase for this event.
+   *
+   * Ownership is asserted here rather than in the controller, so the rule about who may read
+   * an event's prices and configuration stays in one place with every other read of it.
+   */
+  async sellability(user: RequestUser, id: string) {
+    await this.loadOwnedEvent(user, id);
+    return this.sellabilityService.check(id);
+  }
+
   async submitForReview(user: RequestUser, id: string) {
     const event = await this.loadOwnedEvent(user, id);
     const submittable: EventStatus[] = [EventStatus.DRAFT, EventStatus.PAUSED];
@@ -847,6 +864,31 @@ export class EventsService {
         ErrorCodes.CONFLICT,
         'Add at least one session and ticket type before submitting for review.',
         HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      Everything checkout will refuse, checked here instead.
+
+      Each of these was already enforced -- at the point of sale, where the person who meets
+      it is a customer with a card in their hand and the message is about our configuration.
+      An organizer whose seat categories are unmapped learned it from a stranger failing to
+      buy from them, days after publishing.
+
+      Refused rather than warned, because publishing an event nobody can buy from is not a
+      lesser version of publishing: the listing goes live, the storefront takes people all
+      the way to seat selection, and the sale fails at the last step. Every message names the
+      show and what to do about it.
+    */
+    const sellability = await this.sellabilityService.check(id);
+    if (!sellability.sellable) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This event cannot be sold yet, so publishing it would take customers to a checkout ` +
+          `that refuses them:\n` +
+          sellability.blockers.map((b) => `- ${b.message} ${b.fix}`).join('\n'),
+        HttpStatus.CONFLICT,
+        { blockers: sellability.blockers },
       );
     }
     const org = await this.prisma.organization.findUnique({

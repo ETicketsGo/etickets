@@ -348,6 +348,20 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    The reason is carried rather than summarised here: the sellability check already produced
+    a sentence naming the seat category or the ticket type, and re-deriving a vaguer one from
+    a code would tell the organizer less than the thing that found it.
+  */
+  [NotificationType.EVENT_NOT_SELLABLE]: (l, p) => {
+    const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
+    const reason = str(p, 'reason').trim();
+    return {
+      subject: t(l, 'emails.EVENT_NOT_SELLABLE.subject', { event }),
+      body: t(l, 'emails.EVENT_NOT_SELLABLE.body', { event, reason }),
+    };
+  },
+
   [NotificationType.EVENT_APPROVED]: (l, p) => {
     const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
     return {

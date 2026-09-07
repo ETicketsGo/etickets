@@ -349,6 +349,15 @@ export const NotificationType = {
   EVENT_SUBMITTED: 'EVENT_SUBMITTED',
   EVENT_APPROVED: 'EVENT_APPROVED',
   EVENT_REJECTED: 'EVENT_REJECTED',
+  /**
+   * A PUBLISHED event that nobody can complete a purchase for.
+   *
+   * Publishing already refuses an unsellable event, so this is only ever about one that
+   * BECAME unsellable afterwards -- a price edited above a ceiling, a room reassigned, a
+   * regulation changing under a listing that was fine when it went live. The listing stays
+   * up and the checkout refuses, and without this the first person to notice is a customer.
+   */
+  EVENT_NOT_SELLABLE: 'EVENT_NOT_SELLABLE',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

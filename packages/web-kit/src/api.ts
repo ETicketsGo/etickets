@@ -955,6 +955,14 @@ export const api = {
     deleteTicketType: (id: string) =>
       request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
+    /**
+     * Whether a customer could actually complete a purchase for this event.
+     *
+     * The same rules checkout enforces, asked before anybody is taken to a seat map they
+     * cannot buy from. Available at any point in an event's life, not only at publish: a
+     * blocker can appear on a live event when a price is edited or a room is reassigned.
+     */
+    sellability: (id: string) => request<EventSellability>(`/events/${id}/sellability`),
     duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
     promotion: (id: string) => request<EventPromotion>(`/events/${id}/promotion`),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
@@ -3448,6 +3456,31 @@ export interface ResolvedLocation {
    * beyond these comes from `location.cities({ q })`.
    */
   topCities: SellableCity[];
+}
+
+/** One thing standing between this event and a completed purchase. */
+export interface SellabilityIssue {
+  code: string;
+  /** What is wrong, in the organizer's vocabulary. */
+  message: string;
+  /** What to do about it. */
+  fix: string;
+  /** Where to go, relative to the organizer console. Null when there is no single screen. */
+  fixPath: string | null;
+  eventSessionId?: string;
+  /** The seat category, ticket type or currency the issue is about. */
+  subject?: string;
+}
+
+export interface EventSellability {
+  eventId: string;
+  /** False when at least one blocker exists. A warning never makes this false. */
+  sellable: boolean;
+  /** Sales that WILL be refused. */
+  blockers: SellabilityIssue[];
+  /** Sales that will succeed and are probably not what the organizer meant. */
+  warnings: SellabilityIssue[];
+  checkedAt: string;
 }
 
 export interface SectionFeed {

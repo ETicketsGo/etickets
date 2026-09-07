@@ -10,6 +10,7 @@ import {
   BookingsService,
   LocalBookingOrchestrator,
   EventsService,
+  EventSellabilitySweepService,
   FinanceReconciliationService,
   NotificationService,
   NotificationFallbackService,
@@ -72,6 +73,18 @@ const FALLBACK_SWEEP_MS =
 const RAW_CANCELLATION_MS = Number(process.env.NOTIFICATION_FANOUT_INTERVAL_MS ?? 60_000);
 const CANCELLATION_SWEEP_MS =
   Number.isFinite(RAW_CANCELLATION_MS) && RAW_CANCELLATION_MS > 0 ? RAW_CANCELLATION_MS : 60_000;
+/*
+  Hourly, and deliberately not faster.
+
+  This asks whether a PUBLISHED listing has become unsellable, which changes only when
+  somebody edits configuration or a rate order takes effect. Running it every few seconds
+  would re-answer a question whose answer moves a handful of times a week, against every
+  live event, for nothing. An hour is well inside "before the organizer's day is ruined" and
+  well outside "expensive".
+*/
+const RAW_SELLABILITY_MS = Number(process.env.EVENT_SELLABILITY_INTERVAL_MS ?? 3_600_000);
+const SELLABILITY_SWEEP_MS =
+  Number.isFinite(RAW_SELLABILITY_MS) && RAW_SELLABILITY_MS > 0 ? RAW_SELLABILITY_MS : 3_600_000;
 const RAW_REMINDER_MS = Number(process.env.NOTIFICATION_REMINDER_INTERVAL_MS ?? 300_000);
 const REMINDER_SWEEP_MS =
   Number.isFinite(RAW_REMINDER_MS) && RAW_REMINDER_MS > 0 ? RAW_REMINDER_MS : 300_000;
@@ -152,6 +165,7 @@ async function main(): Promise<void> {
   const fallbacks = app.get(NotificationFallbackService);
   const cancellationFanout = app.get(ShowCancellationFanoutService);
   const reminders = app.get(ShowReminderService);
+  const sellability = app.get(EventSellabilitySweepService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
@@ -241,6 +255,27 @@ async function main(): Promise<void> {
     {
       repeat: { every: CANCELLATION_SWEEP_MS },
       jobId: 'notification-cancellation-fanout',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  /*
+    Published events that nobody can buy from.
+
+    The publish gate refuses an unsellable event, so anything this finds became unsellable
+    AFTERWARDS -- a price edited above a ceiling, a room reassigned, a rate order taking
+    effect. The listing stays up and the checkout refuses, and nothing about that situation
+    produces a signal on its own: the first person to notice is a customer.
+  */
+  await queue.add(
+    'event-sellability-sweep',
+    {},
+    {
+      repeat: { every: SELLABILITY_SWEEP_MS },
+      jobId: 'event-sellability-sweep',
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
@@ -372,6 +407,15 @@ async function main(): Promise<void> {
         const summary = await notifications.dispatchDue();
         if (summary.sent + summary.failed + summary.retried > 0) {
           log('info', 'dispatched scheduled notifications', { ...summary });
+        }
+        return summary;
+      }
+      if (job.name === 'event-sellability-sweep') {
+        const summary = await sellability.sweep();
+        // Logged only when something is actually wrong. An hourly "0 unsellable" line is
+        // noise that makes the hour something IS wrong harder to spot.
+        if (summary.unsellable > 0) {
+          log('warn', 'published events that cannot be sold', { ...summary });
         }
         return summary;
       }

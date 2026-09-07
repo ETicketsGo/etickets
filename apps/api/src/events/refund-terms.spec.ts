@@ -25,7 +25,17 @@ function setup() {
   } as never;
   const access = { assertMember: jest.fn().mockResolvedValue(undefined) } as never;
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as never;
-  const service = new EventsService(prisma, access, audit, {} as never, {} as never, {} as never);
+  // The seventh argument is the sellability check. This suite only exercises event CREATION,
+  // which never consults it -- publishing is where it speaks.
+  const service = new EventsService(
+    prisma,
+    access,
+    audit,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
   return { service, created };
 }
 

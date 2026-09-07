@@ -84,6 +84,10 @@
     "subject": "“{event}” needs changes",
     "body": "“{event}” was not approved.{reason} Make the changes and submit it again."
   },
+  "EVENT_NOT_SELLABLE": {
+    "subject": "“{event}” is live but cannot be sold",
+    "body": "Customers can find “{event}” and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
+  },
   "generic": {
     "subject": "Notification: {type}",
     "body": "You have a new notification ({type})."
