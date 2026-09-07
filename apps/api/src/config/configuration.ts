@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  parseEnabledMarkets,
+  parseMarketProviderMap,
+  parseTemplateBindings,
+} from '@eticketsgo/shared-types';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -597,6 +602,44 @@ const envSchema = z.object({
    * configured and the subscription confirmed.
    */
   SES_CONFIGURATION_SET: z.string().optional(),
+  /**
+   * The markets this deployment deliberately sends notifications into, e.g. `IN,US,CA`.
+   *
+   * Separate from the provider routing tables, which say WHO carries a message and cannot
+   * say whether we are launched somewhere. Readiness demanded MSG91 templates for a Canada
+   * nobody had opened, and marked the whole platform not-ready for it -- a report that
+   * cannot tell a blocker from an unopened market is a report people learn to ignore.
+   *
+   * Unset keeps the three markets readiness already covered, so adding the key changes
+   * nothing by itself. An explicitly empty value means no market is open, which a
+   * pre-launch environment needs to be able to say.
+   */
+  NOTIFICATION_MARKETS: z.string().optional(),
+  /**
+   * Which provider template carries which notification, per locale.
+   *
+   * `provider:channel:TYPE:locale[:category]=externalId`, comma-separated. Supersedes
+   * MSG91_SMS_TEMPLATE_IDS and MSG91_WHATSAPP_TEMPLATES, which still work and are read at
+   * lower priority as wildcard-locale entries.
+   *
+   * No id appears in this repository and none ever should: a template id is granted by a
+   * regulator or a vendor and can be revoked by them.
+   */
+  NOTIFICATION_TEMPLATE_BINDINGS: z.string().optional(),
+  /** Fallback language code for a WhatsApp template bound at `*`. */
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
+  /**
+   * India DLT registration facts, recorded so readiness can say DLT_NOT_CONFIGURED rather
+   * than a generic MISSING.
+   *
+   * Held as configuration and never as code constants: a Principal Entity id is issued by a
+   * telecom operator and is specific to a legal entity, so compiling one in would be both
+   * wrong for anybody else and a deploy every time it changes. Nothing here is validated
+   * against a telecom system -- this platform records what it was told.
+   */
+  DLT_PRINCIPAL_ENTITY_ID: z.string().optional(),
+  /** The registered sender header. Must match MSG91_SENDER_ID; startup checks that it does. */
+  DLT_SENDER_HEADER: z.string().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
   /*
@@ -1098,6 +1141,108 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Notification configuration that is internally contradictory.
+ *
+ * -- WHAT THIS DOES AND DOES NOT REFUSE TO BOOT FOR --------------------------------
+ * It refuses only CONTRADICTIONS -- configuration that cannot be right whatever the operator
+ * intended. Incompleteness is not a contradiction: a market half-way through its provider
+ * setup is the normal state of a launch, it is what the readiness endpoint exists to report,
+ * and refusing to boot for it would mean an operator cannot run the very report that would
+ * tell them what is missing.
+ *
+ * The one exception is inherited and stays: `assertDeliverabilityHardening` refuses a
+ * production boot with EMAIL_PROVIDER=log, because that configuration charges customers and
+ * sends them nothing.
+ */
+function assertNotificationConfigConsistency(cfg: AppConfig): void {
+  const errors: string[] = [];
+  const enabled = parseEnabledMarkets(cfg.NOTIFICATION_MARKETS);
+
+  /*
+    A market that routes to a provider it is not enabled for. The routing table would send
+    real messages into a market this deployment says it is not open in -- one of the two
+    statements is wrong, and no default can pick which.
+  */
+  for (const [key, label] of [
+    ['SMS_PROVIDER_BY_MARKET', 'SMS'],
+    ['WHATSAPP_PROVIDER_BY_MARKET', 'WhatsApp'],
+  ] as const) {
+    const routed = Object.keys(parseMarketProviderMap(cfg[key]));
+    const stray = routed.filter((m) => !enabled.includes(m));
+    if (stray.length > 0) {
+      errors.push(
+        `  - ${key} routes ${label} for ${stray.join(', ')}, which NOTIFICATION_MARKETS does ` +
+          `not enable. Add the market or remove the route -- do not leave both.`,
+      );
+    }
+  }
+
+  /*
+    Opt-in enforcement with nothing that can collect an opt-in. Switching this on removes
+    WhatsApp from everybody who has not consented, and if consent cannot be recorded that is
+    everybody, permanently -- a silent shutdown of a channel, presented as a policy setting.
+  */
+  if (cfg.WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED === 'true') {
+    const anyWhatsApp =
+      (cfg.WHATSAPP_PROVIDER ?? 'log') !== 'log' ||
+      Object.keys(parseMarketProviderMap(cfg.WHATSAPP_PROVIDER_BY_MARKET)).length > 0;
+    if (!anyWhatsApp) {
+      errors.push(
+        '  - WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED=true with no WhatsApp provider routed. ' +
+          'It would suppress a channel that is not configured to send anything.',
+      );
+    }
+  }
+
+  /*
+    A DLT header that disagrees with the sender id actually used on the wire. Both are
+    present, so this is not incompleteness -- it is two answers to one question, and the
+    carrier will believe the one this platform sends, not the one recorded for readiness.
+  */
+  if (
+    cfg.DLT_SENDER_HEADER &&
+    cfg.MSG91_SENDER_ID &&
+    cfg.DLT_SENDER_HEADER.trim() !== cfg.MSG91_SENDER_ID.trim()
+  ) {
+    errors.push(
+      '  - DLT_SENDER_HEADER and MSG91_SENDER_ID disagree. The registered header and the ' +
+        'header actually sent must be the same string.',
+    );
+  }
+
+  /*
+    A binding naming a provider no channel routes to. Harmless at runtime and almost always
+    a typo in a provider name, which would otherwise present as "the template is not bound"
+    long after anybody remembers editing it.
+  */
+  const bindings = parseTemplateBindings(cfg.NOTIFICATION_TEMPLATE_BINDINGS);
+  const knownProviders = new Set(
+    [
+      cfg.SMS_PROVIDER,
+      cfg.WHATSAPP_PROVIDER,
+      ...Object.values(parseMarketProviderMap(cfg.SMS_PROVIDER_BY_MARKET)),
+      ...Object.values(parseMarketProviderMap(cfg.WHATSAPP_PROVIDER_BY_MARKET)),
+    ].filter((v): v is string => Boolean(v)),
+  );
+  if (knownProviders.size > 0) {
+    const orphan = [
+      ...new Set(bindings.filter((b) => !knownProviders.has(b.provider)).map((b) => b.provider)),
+    ];
+    if (orphan.length > 0) {
+      errors.push(
+        `  - NOTIFICATION_TEMPLATE_BINDINGS names provider(s) ${orphan.join(', ')} that no ` +
+          `channel routes to. Check the spelling against SMS_PROVIDER_BY_MARKET / ` +
+          `WHATSAPP_PROVIDER_BY_MARKET.`,
+      );
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(`Contradictory notification configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -1111,5 +1256,6 @@ export function loadConfig(): AppConfig {
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
+  assertNotificationConfigConsistency(parsed.data);
   return parsed.data;
 }

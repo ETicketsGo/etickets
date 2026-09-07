@@ -227,6 +227,10 @@ export function policyFor(type: NotificationType): EventPolicy {
  * use it — but permitting is not scheduling. Sending it up front would produce exactly the
  * duplicate-and-bill behaviour the fallback exists to avoid.
  */
+export function fallbackChannelFor(type: NotificationType): ChannelKey | null {
+  return policyFor(type).fallback?.to ?? null;
+}
+
 export function immediateChannels(type: NotificationType): ChannelKey[] {
   const policy = policyFor(type);
   const deferred = policy.fallback?.to;

@@ -1,6 +1,13 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { DeliveryState, SendKind, isTerminalDelivery } from '@eticketsgo/shared-types';
+import {
+  DeliveryState,
+  FailureClass,
+  SendKind,
+  isConfigurationBlocked,
+  isRetryableFailure,
+  isTerminalDelivery,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
@@ -21,6 +28,11 @@ import { maskPhone } from '../channels/transports/recipient.util';
  * WHETHER it arrived, and neither answer requires reading somebody's ticket details or
  * copying their phone number. The payload is summarised to its identifiers.
  */
+/** Classes meaning "a person must change something". Derived, never hand-listed. */
+const CONFIG_BLOCKED_CLASSES = Object.values(FailureClass).filter(isConfigurationBlocked);
+/** Classes a retry could have cleared, so exhaustion is worth revisiting. */
+const RETRYABLE_CLASSES = Object.values(FailureClass).filter(isRetryableFailure);
+
 @Injectable()
 export class NotificationOpsService {
   private readonly logger = new Logger('Notification');
@@ -41,6 +53,24 @@ export class NotificationOpsService {
     channel?: string;
     provider?: string;
     status?: string;
+    /**
+     * The normalized reason the last attempt failed.
+     *
+     * -- WHY STATUS ALONE WAS NOT ENOUGH ---------------------------------------------
+     * `status=FAILED` returns everything that did not go out, which after a launch is a
+     * single undifferentiated list: dead phone numbers, a provider that was down for ten
+     * minutes, and the twelve messages blocked on a DLT template somebody has to chase.
+     * They need completely different actions and only one of them is anybody's job today.
+     */
+    failureClass?: string;
+    /**
+     * `true` narrows to everything waiting on a person to change configuration or finish a
+     * registration -- the operator's own queue, which is the first thing to look at after a
+     * launch and was previously impossible to ask for.
+     */
+    configBlocked?: boolean;
+    /** Attempts exhausted rather than permanently refused: worth a resend once healthy. */
+    retryExhausted?: boolean;
     from?: Date;
     to?: Date;
     limit?: number;
@@ -59,6 +89,27 @@ export class NotificationOpsService {
         a scan, and is the only handle a support conversation ever starts from.
       */
       ...(q.reference ? { payload: { path: ['reference'], equals: q.reference } } : {}),
+      ...(q.failureClass ? { deliveries: { some: { failureClass: q.failureClass } } } : {}),
+      /*
+        Asked of the DELIVERY rows rather than the notification, because the classification
+        belongs to an attempt: the same notification can be rate-limited once and then blocked
+        on a template, and the useful question is which of those is true now.
+      */
+      ...(q.configBlocked
+        ? { deliveries: { some: { failureClass: { in: [...CONFIG_BLOCKED_CLASSES] } } } }
+        : {}),
+      /*
+        Exhausted, not refused. A message that used up its attempts against a provider that
+        was down is worth resending once the provider is back; one permanently refused is not,
+        and lumping them together makes a bulk resend either useless or wasteful.
+      */
+      ...(q.retryExhausted
+        ? {
+            status: 'FAILED',
+            attempts: { gte: 3 },
+            deliveries: { some: { failureClass: { in: [...RETRYABLE_CLASSES] } } },
+          }
+        : {}),
     };
 
     const rows = await this.prisma.notification.findMany({

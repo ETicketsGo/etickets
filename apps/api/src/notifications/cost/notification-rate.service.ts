@@ -102,6 +102,29 @@ export class NotificationRateService {
    * one message is one charge is out by a factor of three on exactly the messages an Indian
    * transactional template produces.
    */
+  /**
+   * Whether ANY active rate exists for a provider and channel.
+   *
+   * Distinct from `resolve`, which answers "what does this specific message cost" and needs a
+   * market and a category. A readiness report is asking a coarser question -- can this channel
+   * be costed at all -- and answering it with a full resolution would report "no rate" for a
+   * provider that is priced everywhere except the one market being asked about.
+   */
+  async hasActiveRate(provider: string, channel: string): Promise<boolean> {
+    const now = new Date();
+    const found = await this.prisma.notificationRate.findFirst({
+      where: {
+        active: true,
+        provider,
+        channel,
+        effectiveFrom: { lte: now },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }],
+      },
+      select: { id: true },
+    });
+    return Boolean(found);
+  }
+
   async estimate(q: RateQuery & { body?: string }): Promise<CostEstimate> {
     const rate = await this.resolve(q);
     if (!rate) {

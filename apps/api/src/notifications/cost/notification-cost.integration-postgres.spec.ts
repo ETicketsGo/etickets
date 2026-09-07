@@ -7,11 +7,15 @@ import {
   NotificationType,
   OutcomeClass,
   SendKind,
+  FailureClass,
+  isProviderOutcome,
+  reachedProvider,
 } from '@eticketsgo/shared-types';
 import { NotificationRateService } from './notification-rate.service';
 import { NotificationAnalyticsService } from './notification-analytics.service';
 import { DeliveryRecorderService } from '../delivery/delivery-recorder.service';
 import { SuppressionService } from '../delivery/suppression.service';
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 
 /**
  * integration-real-postgres — what the platform spent, and what it cannot account for.
@@ -57,6 +61,7 @@ describe('integration-real-postgres: notification cost accounting', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let rates: NotificationRateService;
   let analytics: NotificationAnalyticsService;
   let recorder: DeliveryRecorderService;
@@ -75,6 +80,13 @@ describe('integration-real-postgres: notification cost accounting', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+        These assertions are about GLOBAL evidence -- has ANY message through this provider
+        been accepted, does ANY callback exist -- which is exactly what makes the certification
+        ladder meaningful and exactly what another suite writing provider rows perturbs.
+        Serialized against the other suites that read or write that state.
+      */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -99,6 +111,7 @@ describe('integration-real-postgres: notification cost accounting', () => {
     await db.notification.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await db.notificationRate.deleteMany({ where: { notes: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 
@@ -338,11 +351,66 @@ describe('integration-real-postgres: notification cost accounting', () => {
 
   maybe('a send that never reached a provider costs nothing and blames nobody', async () => {
     const { deliveryId } = await attempt();
-    await recorder.failed(deliveryId, 'none', 'connection reset');
+    await recorder.failed(
+      deliveryId,
+      'none',
+      'connection reset',
+      FailureClass.TEMPORARY_PROVIDER_ERROR,
+    );
     const row = await db!.notificationDelivery.findUnique({ where: { id: deliveryId } });
     expect(row.costMicro).toBeNull();
     expect(row.costSource).toBe(CostSource.UNKNOWN);
     expect(row.outcomeClass).toBe(OutcomeClass.PROVIDER_UNAVAILABLE);
+  });
+
+  maybe('our own missing configuration is not counted against the provider', async () => {
+    /*
+      The distinction this whole classification exists for. Before it, an unconfigured market
+      produced an unbroken run of "provider unavailable" -- so the number meant to detect an
+      MSG91 outage sat at 100% for a market where we had never opened an account, and a real
+      outage would have been invisible inside it.
+    */
+    const { deliveryId } = await attempt();
+    await recorder.failed(
+      deliveryId,
+      'none',
+      'MSG91_AUTH_KEY is not set',
+      FailureClass.CONFIGURATION_ERROR,
+    );
+    const row = await db!.notificationDelivery.findUnique({ where: { id: deliveryId } });
+    expect(row.outcomeClass).toBe(OutcomeClass.CONFIGURATION_BLOCKED);
+    expect(row.failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+    // Nobody was called, so nobody may be billed and nobody's reliability may move.
+    expect(row.costMicro).toBeNull();
+    expect(isProviderOutcome(row.outcomeClass as OutcomeClass)).toBe(false);
+    expect(reachedProvider(row.outcomeClass as OutcomeClass)).toBe(false);
+  });
+
+  maybe('an unbound provider template is told apart from a provider refusing one', async () => {
+    const missing = await attempt();
+    await recorder.failed(
+      missing.deliveryId,
+      'none',
+      'no DLT template',
+      FailureClass.TEMPLATE_NOT_FOUND,
+    );
+    const refused = await attempt();
+    await recorder.failed(
+      refused.deliveryId,
+      'msg91',
+      'template not approved',
+      FailureClass.TEMPLATE_REJECTED,
+    );
+
+    const a = await db!.notificationDelivery.findUnique({ where: { id: missing.deliveryId } });
+    const b = await db!.notificationDelivery.findUnique({ where: { id: refused.deliveryId } });
+    /*
+      One is work for us and one is work for the provider, and they are the two most likely
+      launch failures in India. Filed identically, an operator cannot tell which console to
+      open.
+    */
+    expect(a.outcomeClass).toBe(OutcomeClass.CONFIGURATION_BLOCKED);
+    expect(b.outcomeClass).toBe(OutcomeClass.PROVIDER_REJECTED);
   });
 
   maybe('a suppressed destination produces no provider charge at all', async () => {
@@ -384,13 +452,31 @@ describe('integration-real-postgres: notification cost accounting', () => {
     const b = await attempt({ channel: 'sms' });
     await recorder.accepted(b.deliveryId, inr, 'm2');
 
+    /*
+      Asked of THIS test's two providers rather than of the whole window.
+
+      The unfiltered report is a global aggregate: every other suite's priced deliveries land
+      in the same window, so a magnitude assertion about "the USD total" was really an
+      assertion about how much USD traffic the rest of the run happened to produce. It passed
+      or failed on test ordering, which is not what it was ever trying to say.
+
+      What it means is that the two currencies are reported SEPARATELY and never summed, and
+      that is exactly what a per-provider report proves.
+    */
+    const usdOnly = await analytics.summary({ ...REPORT, provider: usd });
+    const inrOnly = await analytics.summary({ ...REPORT, provider: inr });
+    expect(usdOnly.cost.map((c) => c.currency)).toEqual(['USD']);
+    expect(inrOnly.cost.map((c) => c.currency)).toEqual(['INR']);
+    expect(inrOnly.cost[0].costMicro).toBeGreaterThanOrEqual(150_000);
+    // The USD send is one email at $0.10/1000 -- a hundredth of a cent. If the INR total had
+    // been folded in, this would be six orders of magnitude larger.
+    expect(usdOnly.cost[0].costMicro).toBeLessThan(150_000);
+
+    // And both still appear, separately, in the combined report.
     const summary = await analytics.summary(REPORT);
-    const currencies = summary.cost.map((c) => c.currency).sort();
-    expect(currencies).toEqual(expect.arrayContaining(['INR', 'USD']));
-    const inrRow = summary.cost.find((c) => c.currency === 'INR')!;
-    const usdRow = summary.cost.find((c) => c.currency === 'USD')!;
-    expect(inrRow.costMicro).toBeGreaterThanOrEqual(150_000);
-    expect(usdRow.costMicro).toBeLessThan(150_000);
+    expect(summary.cost.map((c) => c.currency).sort()).toEqual(
+      expect.arrayContaining(['INR', 'USD']),
+    );
   });
 
   maybe('reports unknown-cost attempts beside the total', async () => {

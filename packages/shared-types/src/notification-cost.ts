@@ -141,6 +141,20 @@ export const OutcomeClass = {
   POLICY_SUPPRESSED: 'POLICY_SUPPRESSED',
   /** Nowhere to send to: no phone on file, no registered device, no address. Ours. */
   NO_DESTINATION: 'NO_DESTINATION',
+  /**
+   * We could not even try: a credential, template or route this platform was supposed to
+   * hold is not configured. Ours, and fixable only by a human.
+   *
+   * -- WHY THIS IS NOT PROVIDER_UNAVAILABLE ------------------------------------------
+   * It was, for three phases, and it made every health report wrong in the same direction.
+   * A market with no MSG91 account yet produced an unbroken run of "MSG91 unavailable",
+   * which is the exact signal that is supposed to mean MSG91 is down. The number meant to
+   * detect an outage was pinned at 100% before the account existed.
+   *
+   * Kept outside `isProviderOutcome` and `reachedProvider` so it counts against nobody's
+   * reliability and is never priced -- no call was made, so no charge is possible.
+   */
+  CONFIGURATION_BLOCKED: 'CONFIGURATION_BLOCKED',
 } as const;
 export type OutcomeClass = (typeof OutcomeClass)[keyof typeof OutcomeClass];
 

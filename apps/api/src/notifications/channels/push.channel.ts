@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ChannelKey,
   DeliveryOutcome,
@@ -9,6 +10,7 @@ import { PUSH_TRANSPORT, PushLogTransport, PushTransport } from './transports/pu
 import { WebPushService } from '../web-push/web-push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { payloadPushTokens } from './transports/recipient.util';
+import { safeNotificationLink } from './link-safety';
 
 /**
  * Push channel. Delivers to the recipient's registered mobile devices and to their browser
@@ -37,13 +39,26 @@ export class PushChannel implements NotificationChannel {
     private readonly transport: PushTransport = new PushLogTransport(),
     private readonly webPush?: WebPushService,
     private readonly prisma?: PrismaService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const outcome = await this.transport.send(await this.withRegisteredDevices(msg));
     // Browser Web Push fan-out to the recipient's subscriptions (best-effort).
     if (this.webPush && msg.userId) {
-      const url = typeof msg.payload?.url === 'string' ? msg.payload.url : undefined;
+      /*
+        The tap target, checked against the sites this deployment owns.
+
+        It used to be whatever the payload said. A payload is assembled by whichever service
+        is sending, so any producer could put any URL into a notification that arrives under
+        this platform's name and icon -- a phishing primitive with our branding on it, needing
+        no compromise to exercise. An unowned or non-HTTPS link is dropped and the push still
+        goes: a notification without a deep link is mildly worse, and one carrying somebody
+        else's link is a different kind of thing entirely.
+      */
+      const url = this.config
+        ? (safeNotificationLink(this.config, msg.payload?.url) ?? undefined)
+        : undefined;
       await this.webPush
         .dispatchToUser(msg.userId, { title: msg.subject, body: msg.body, url, tag: msg.type })
         .catch(() => undefined);

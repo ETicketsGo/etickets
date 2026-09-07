@@ -39,12 +39,14 @@ function loadDatabaseUrl(): string | undefined {
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require('@prisma/client');
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 type Client = InstanceType<typeof PrismaClient>;
 
 describe('integration-real-postgres: show cancellation and reminders', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let fanout: ShowCancellationFanoutService;
   let notifications: NotificationService;
   let deliver: jest.Mock;
@@ -69,6 +71,12 @@ describe('integration-real-postgres: show cancellation and reminders', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+      Serialize against the other suites that call a GLOBAL sweep. Without it they deliver
+      one another's notifications through their own mocks, and an assertion passes alone and
+      fails in a full run. See test-support/sweep-lock.
+    */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -154,6 +162,7 @@ describe('integration-real-postgres: show cancellation and reminders', () => {
     await db.venue.deleteMany({ where: { id: venueId } });
     await db.organization.deleteMany({ where: { id: orgId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 90_000);
 
@@ -343,6 +352,7 @@ describe('integration-real-postgres: reminders', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let reminders: ShowReminderService;
   let notifications: NotificationService;
 
@@ -358,6 +368,12 @@ describe('integration-real-postgres: reminders', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+      Serialize against the other suites that call a GLOBAL sweep. Without it they deliver
+      one another's notifications through their own mocks, and an assertion passes alone and
+      fails in a full run. See test-support/sweep-lock.
+    */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       return;
     }
@@ -435,6 +451,7 @@ describe('integration-real-postgres: reminders', () => {
     await db.venue.deleteMany({ where: { id: venueId } });
     await db.organization.deleteMany({ where: { id: orgId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 90_000);
 

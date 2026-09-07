@@ -1,3 +1,5 @@
+import { FailureClass, failureClassForStatus, isRetryableFailure } from '@eticketsgo/shared-types';
+
 /**
  * The small amount of HTTP a messaging provider needs, and the error classification the
  * retry loop needs back.
@@ -11,21 +13,33 @@
  */
 
 /**
- * A provider refused or could not be reached.
+ * A provider refused, could not be reached, or was never configured.
  *
- * `retryable` is the whole point of the class. A 500 or a timeout means try again in a
- * minute; a 401 or a malformed-template 400 means trying again forever will not help and the
- * message should be marked FAILED so somebody looks at it.
+ * -- WHY THIS CARRIES A CLASS AND NOT A BOOLEAN ------------------------------------
+ * It used to carry `retryable: boolean`, which is the one bit the retry loop needs and the
+ * only bit anything recorded. Everything else about the failure was in the message string,
+ * so a missing MSG91 auth key, an unapproved DLT template, a dead phone number and Twilio
+ * being down were four rows that differed only in prose -- and all four were filed against
+ * the provider's reliability.
+ *
+ * The class is the fact; `retryable` is now DERIVED from it. That ordering matters: a future
+ * adapter cannot mark a missing credential retryable, because retryability is no longer
+ * something a call site gets to assert.
  */
 export class TransportError extends Error {
   constructor(
     message: string,
     readonly provider: string,
-    readonly retryable: boolean,
+    readonly failureClass: FailureClass,
     readonly status?: number,
   ) {
     super(message);
     this.name = 'TransportError';
+  }
+
+  /** Derived, never asserted. See the class comment. */
+  get retryable(): boolean {
+    return isRetryableFailure(this.failureClass);
   }
 }
 
@@ -68,7 +82,7 @@ export async function transportJson<T>(
     throw new TransportError(
       aborted ? `${provider} request timed out` : `${provider} could not be reached`,
       provider,
-      true,
+      FailureClass.TEMPORARY_PROVIDER_ERROR,
     );
   } finally {
     clearTimeout(timer);
@@ -92,7 +106,12 @@ export async function transportJson<T>(
     throw new TransportError(
       `${provider} returned HTTP ${res.status}${detail ? `: ${detail}` : ''}`,
       provider,
-      isRetryableStatus(res.status),
+      /*
+        The status is the starting point, not the answer. Most providers say 400 for both a
+        bad template and a bad number, so an adapter that can tell them apart catches this
+        and rethrows with the narrower class.
+      */
+      failureClassForStatus(res.status),
       res.status,
     );
   }

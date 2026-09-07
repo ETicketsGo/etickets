@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { DeliveryState, NotificationType } from '@eticketsgo/shared-types';
 import { DeliveryRecorderService } from './delivery-recorder.service';
 import { SuppressionService } from './suppression.service';
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 
 /**
  * integration-real-postgres — a later fact must not erase an earlier one.
@@ -42,6 +43,7 @@ describe('integration-real-postgres: delivery history survives later facts', () 
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let recorder: DeliveryRecorderService;
 
   const suffix = `hist-${Date.now()}`;
@@ -58,6 +60,12 @@ describe('integration-real-postgres: delivery history survives later facts', () 
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+        This suite WRITES provider delivery evidence -- the same rows the certification ladder
+        reads globally to decide whether a provider has ever worked. Serialized against the
+        other suites that read or write that state; see test-support/sweep-lock.
+      */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -77,6 +85,7 @@ describe('integration-real-postgres: delivery history survives later facts', () 
     await db.suppressedDestination.deleteMany({
       where: { destinationHash: SuppressionService.hash('email', EMAIL) },
     });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 

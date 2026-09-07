@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FailureClass } from '@eticketsgo/shared-types';
+import type { TemplateBindingService } from '../../templates/template-binding.service';
 import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 import { maskPhone, resolveDestination } from './recipient.util';
 import { TransportError, transportJson } from './transport-http';
@@ -51,16 +53,61 @@ export class CloudWhatsAppTransport implements WhatsAppTransport {
   private readonly logger = new Logger('Notification');
   private readonly url: string;
   private readonly accessToken: string;
+  private readonly bindings?: TemplateBindingService;
+  private readonly languageCode: string;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, bindings?: TemplateBindingService) {
     const phoneNumberId = requireKey(config, 'cloud', 'WHATSAPP_PHONE_NUMBER_ID');
     this.accessToken = requireKey(config, 'cloud', 'WHATSAPP_ACCESS_TOKEN');
     this.url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+    this.bindings = bindings;
+    this.languageCode = config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE') ?? 'en';
   }
 
+  /**
+   * Send a message as an APPROVED TEMPLATE.
+   *
+   * -- WHY THIS NO LONGER SENDS `type: 'text'` ---------------------------------------
+   * It did, and that could never have worked for anything this platform sends. WhatsApp
+   * permits free-form text only inside a 24-hour window that the RECIPIENT opens by writing
+   * to the business first. Every message here is business-initiated -- a booking
+   * confirmation, a cancelled show -- so no such window exists, and Meta refuses the send.
+   *
+   * The refusal would have arrived as a 400 on every North American WhatsApp message, at the
+   * moment credentials were first configured, and it would have read as a credential problem
+   * rather than a message-shape one. The MSG91 transport below already sent templates for
+   * exactly this reason; the two are now the same shape, which is what the capability matrix
+   * has said all along (`cloud.requiresTemplate = true`).
+   */
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
+
+    const bound = this.bindings?.resolve({
+      provider: this.name,
+      channel: 'whatsapp',
+      type: msg.type,
+      locale: msg.locale,
+    });
+    if (!bound) {
+      throw new TransportError(
+        `Meta WhatsApp has no approved template bound for ${msg.type} ` +
+          `(locale ${msg.locale ?? '*'}). Set ` +
+          `NOTIFICATION_TEMPLATE_BINDINGS=cloud:whatsapp:${msg.type}:*=<template_name>.`,
+        this.name,
+        FailureClass.TEMPLATE_NOT_FOUND,
+      );
+    }
+
+    /*
+      Meta's template variables are positional. A caller that knows the approved template
+      supplies them in order; otherwise the rendered message goes in as the single first
+      variable, which is what a one-slot template expects -- the same contract the MSG91
+      transport offers, so a producer never has to know which BSP is carrying it.
+    */
+    const values = Array.isArray(msg.payload?.['whatsappTemplateVars'])
+      ? (msg.payload['whatsappTemplateVars'] as unknown[]).map((v) => String(v))
+      : [msg.body];
 
     const { data } = await transportJson<CloudResponse>(this.name, this.url, {
       method: 'POST',
@@ -71,8 +118,19 @@ export class CloudWhatsAppTransport implements WhatsAppTransport {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to,
-        type: 'text',
-        text: { body: msg.body },
+        type: 'template',
+        template: {
+          name: bound.externalId,
+          // The binding's locale is the language the template was APPROVED in, which is more
+          // specific than any process-wide default, so it wins whenever it is not a wildcard.
+          language: { code: bound.locale === '*' ? this.languageCode : bound.locale },
+          components: [
+            {
+              type: 'body',
+              parameters: values.map((value) => ({ type: 'text', text: value })),
+            },
+          ],
+        },
       }),
     });
     this.logger.log(`[whatsapp:${msg.type}] cloud accepted -> ${maskPhone(to)}`);
@@ -110,10 +168,13 @@ export class Msg91WhatsAppTransport implements WhatsAppTransport {
   private readonly templates: Record<string, string>;
   private readonly defaultTemplate?: string;
   private readonly languageCode: string;
+  /** Canonical bindings when wired; the environment map below otherwise. */
+  private readonly bindings?: TemplateBindingService;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, bindings?: TemplateBindingService) {
     this.authKey = requireKey(config, 'msg91', 'MSG91_AUTH_KEY');
     this.integratedNumber = requireKey(config, 'msg91', 'MSG91_WHATSAPP_NUMBER');
+    this.bindings = bindings;
     const base = (config.get<string>('MSG91_BASE_URL') ?? 'https://control.msg91.com').replace(
       /\/+$/,
       '',
@@ -132,13 +193,20 @@ export class Msg91WhatsAppTransport implements WhatsAppTransport {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
 
-    const templateName = this.templates[msg.type] ?? this.defaultTemplate;
+    const bound = this.bindings?.resolve({
+      provider: this.name,
+      channel: 'whatsapp',
+      type: msg.type,
+      locale: msg.locale,
+    });
+    const templateName = bound?.externalId ?? this.templates[msg.type] ?? this.defaultTemplate;
     if (!templateName) {
       throw new TransportError(
-        `MSG91 has no approved WhatsApp template configured for ${msg.type}. ` +
-          `Set MSG91_WHATSAPP_TEMPLATES=${msg.type}=<template_name>.`,
+        `MSG91 has no approved WhatsApp template bound for ${msg.type} ` +
+          `(locale ${msg.locale ?? '*'}). Set ` +
+          `NOTIFICATION_TEMPLATE_BINDINGS=msg91:whatsapp:${msg.type}:*=<template_name>.`,
         this.name,
-        false,
+        FailureClass.TEMPLATE_NOT_FOUND,
       );
     }
 
@@ -167,7 +235,10 @@ export class Msg91WhatsAppTransport implements WhatsAppTransport {
           type: 'template',
           template: {
             name: templateName,
-            language: { code: this.languageCode, policy: 'deterministic' },
+            language: {
+              code: bound && bound.locale !== '*' ? bound.locale : this.languageCode,
+              policy: 'deterministic',
+            },
             to_and_components: [
               {
                 to: [to.replace(/^\+/, '')],
@@ -185,7 +256,7 @@ export class Msg91WhatsAppTransport implements WhatsAppTransport {
       throw new TransportError(
         `MSG91 refused the WhatsApp message: ${data.message ?? data.status}`,
         this.name,
-        false,
+        FailureClass.PERMANENT_REJECTION,
       );
     }
     this.logger.log(`[whatsapp:${msg.type}] msg91 accepted -> ${maskPhone(to)}`);
@@ -216,12 +287,13 @@ export function parseTemplateNames(raw: string | null | undefined): Record<strin
 export function buildWhatsAppTransport(
   name: WhatsAppProviderName,
   config: ConfigService,
+  bindings?: TemplateBindingService,
 ): WhatsAppTransport {
   switch (name) {
     case 'cloud':
-      return new CloudWhatsAppTransport(config);
+      return new CloudWhatsAppTransport(config, bindings);
     case 'msg91':
-      return new Msg91WhatsAppTransport(config);
+      return new Msg91WhatsAppTransport(config, bindings);
     case 'log':
     default:
       return new WhatsAppLogTransport();
@@ -236,12 +308,15 @@ export function selectWhatsAppTransport(config: ConfigService): WhatsAppTranspor
   );
 }
 
+/** A missing credential is OUR configuration, never the provider's failure. See sms.transport. */
 function requireKey(config: ConfigService, provider: string, key: string): string {
   const value = config.get<string>(key);
   if (!value) {
-    throw new Error(
+    throw new TransportError(
       `WhatsApp provider "${provider}" requires ${key} to be set. ` +
         `Use a test number/token for sandbox, live credentials for production.`,
+      provider,
+      FailureClass.CONFIGURATION_ERROR,
     );
   }
   return value;

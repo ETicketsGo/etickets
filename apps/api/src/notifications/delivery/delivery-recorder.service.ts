@@ -7,6 +7,8 @@ import {
   advancesDelivery,
   resolveDeliveryState,
   suppressionFor,
+  FailureClass,
+  outcomeClassForFailure,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
@@ -201,18 +203,38 @@ export class DeliveryRecorderService {
     await this.notAttempted(deliveryId, OutcomeClass.NO_DESTINATION, reason);
   }
 
-  /** The send itself failed — nothing reached the provider, so nobody received anything. */
-  async failed(deliveryId: string, provider: string, message: string): Promise<void> {
+  /**
+   * Record a failed attempt, classified.
+   *
+   * -- WHY THE CLASS IS A PARAMETER AND NOT A CONSTANT -------------------------------
+   * This wrote `PROVIDER_UNAVAILABLE` for every failure, whatever it was. A missing MSG91
+   * auth key, an unapproved DLT template and a dead phone number were all filed as the
+   * provider being unreachable -- so provider health counted our own unfinished setup
+   * against the provider, and the number meant to detect a real outage sat at 100% for a
+   * market we had not opened yet.
+   *
+   * The caller knows the class because the transport threw it. Defaulted, rather than made
+   * required, only so an unclassified throw from somewhere unexpected still records
+   * something -- and UNKNOWN_PROVIDER_ERROR is the honest label for that.
+   */
+  async failed(
+    deliveryId: string,
+    provider: string,
+    message: string,
+    failureClass: FailureClass = FailureClass.UNKNOWN_PROVIDER_ERROR,
+  ): Promise<void> {
     await this.prisma.notificationDelivery.update({
       where: { id: deliveryId },
       data: {
         status: DeliveryState.FAILED,
         /*
-          A send that never reached a provider. Nobody received anything and nobody was
-          charged -- which is why this is UNAVAILABLE rather than REJECTED, and why no cost
-          is written: the attempt is real, the charge is not.
+          Derived from the class, never asserted here. Configuration failures land in
+          CONFIGURATION_BLOCKED, which sits outside `isProviderOutcome` and `reachedProvider`
+          -- so they count against nobody's reliability and nothing is ever priced for a call
+          that was not made.
         */
-        outcomeClass: OutcomeClass.PROVIDER_UNAVAILABLE,
+        outcomeClass: outcomeClassForFailure(failureClass),
+        failureClass,
         provider,
         // Truncated: a provider's error body can be a page long and this column is read in
         // a list view. It never contains the message or the destination.

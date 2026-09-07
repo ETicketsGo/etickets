@@ -1,4 +1,4 @@
-import { NotificationType } from '@eticketsgo/shared-types';
+import { FailureClass, NotificationType } from '@eticketsgo/shared-types';
 import { NotificationService } from './notification.service';
 import { TransportError } from './channels/transports/transport-http';
 
@@ -182,7 +182,9 @@ describe('the status column tells the truth', () => {
     */
     const deliver = jest
       .fn()
-      .mockRejectedValue(new TransportError('no template configured', 'msg91', false));
+      .mockRejectedValue(
+        new TransportError('no template configured', 'msg91', FailureClass.TEMPLATE_NOT_FOUND),
+      );
     const { service, update } = setup({ deliver, dueRows: [dueRow({ channel: 'sms' })] });
 
     const summary = await service.dispatchDue();

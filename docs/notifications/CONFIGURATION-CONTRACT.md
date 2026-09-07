@@ -6,7 +6,7 @@ Every variable the notification platform reads, what happens without it, and whe
 
 ## How the columns were established
 
-- **Local** — parsed from `apps/api/.env`. **None of the 31 notification variables appear in
+- **Local** — parsed from `apps/api/.env`. **None of the notification variables appear in
   it.** Matches in `.env.example` / `.env.production.example` are documentation, not
   configuration.
 - **QA / Production** — `NOT VERIFIED`, and not verifiable from here. The certification
@@ -14,11 +14,17 @@ Every variable the notification platform reads, what happens without it, and whe
   not deployed**; the QA deployment predates it. Reading Railway variables directly would mean
   handling secrets to answer a question an endpoint answers without them.
 
-Fill those columns by deploying this branch and running, per environment:
+`DECLARED` means the key appears in `deploy/railway/env/<env>.env.example`, commented or
+otherwise, so a deployment is at least shown that it exists. The deploy gate now asserts that:
+removing one of these keys from a template fails `npm run verify:deploy`.
+
+Fill the remaining columns by deploying this branch and running, per environment:
 
 ```
-GET /api/admin/notifications/readiness              # per-variable presence, no values
+GET /api/admin/notifications/readiness/configuration   # per market/channel/provider, no values
 GET /api/admin/notifications/readiness/certification
+GET /api/admin/notifications/readiness/templates/sms
+GET /api/admin/notifications/readiness/templates/whatsapp
 ```
 
 ---
@@ -106,18 +112,44 @@ treats it as such rather than waiting forever for a receipt that does not exist.
 
 ---
 
+## Markets, templates and DLT (Phase 7)
+
+| Variable                         | Required market | Secret | Validation                                                                   | Local   | QA           | Prod         |
+| -------------------------------- | --------------- | ------ | ---------------------------------------------------------------------------- | ------- | ------------ | ------------ |
+| `NOTIFICATION_MARKETS`           | all             | no     | **boot fails** if a routing table names a market this does not enable        | MISSING | DECLARED     | DECLARED     |
+| `NOTIFICATION_TEMPLATE_BINDINGS` | IN, US, CA      | no     | malformed entries dropped; **boot fails** on a provider no channel routes to | MISSING | DECLARED     | DECLARED     |
+| `WHATSAPP_TEMPLATE_LANGUAGE`     | US, CA          | no     | fallback for a `*`-locale binding; defaults `en`                             | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `DLT_PRINCIPAL_ENTITY_ID`        | **IN**          | no     | recorded, never verified against a telecom system                            | MISSING | DECLARED     | DECLARED     |
+| `DLT_SENDER_HEADER`              | **IN**          | no     | **boot fails** if it disagrees with `MSG91_SENDER_ID`                        | MISSING | DECLARED     | DECLARED     |
+
+`NOTIFICATION_TEMPLATE_BINDINGS` supersedes `MSG91_SMS_TEMPLATE_IDS` and
+`MSG91_WHATSAPP_TEMPLATES`. Both still work, read at lower priority as **wildcard-locale**
+bindings — which is what they always meant, one id used for every language. The readiness
+report counts them under `legacyTemplateBindings` so they can be migrated deliberately rather
+than discovered when a French message goes out under an English approval.
+
+**Nothing here refuses to boot for being incomplete.** A market half-way through its provider
+setup is the normal state of a launch and is exactly what the readiness endpoint exists to
+report; refusing to start would mean an operator cannot run the report that would tell them
+what is missing. Boot refuses only **contradictions** — two settings that cannot both be what
+somebody meant — plus the inherited `EMAIL_PROVIDER=log` guard, which exists because that
+configuration charges customers and sends them nothing.
+
+---
+
 ## Behaviour flags
 
-| Variable                                 | Default  | Effect                                                                |
-| ---------------------------------------- | -------- | --------------------------------------------------------------------- |
-| `NOTIFICATION_REMINDERS_ENABLED`         | `false`  | 24h show reminders. **Off at launch.**                                |
-| `NOTIFICATION_REMINDER_LEAD_HOURS`       | `24`     | how far ahead                                                         |
-| `WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED` | `false`  | when true, WhatsApp is dropped for anyone who has not opted in        |
-| `ALLOW_UNDELIVERABLE_NOTIFICATIONS`      | unset    | escape hatch past the email boot guard. **Never to serve customers.** |
-| `NOTIFICATION_SWEEP_INTERVAL_MS`         | `5000`   | dispatch cadence (worker)                                             |
-| `NOTIFICATION_FALLBACK_INTERVAL_MS`      | `60000`  | fallback sweep                                                        |
-| `NOTIFICATION_FANOUT_INTERVAL_MS`        | `60000`  | cancellation fan-out safety net                                       |
-| `NOTIFICATION_REMINDER_INTERVAL_MS`      | `300000` | reminder sweep                                                        |
+| Variable                                 | Default    | Effect                                                                |
+| ---------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| `NOTIFICATION_REMINDERS_ENABLED`         | `false`    | 24h show reminders. **Off at launch.**                                |
+| `NOTIFICATION_REMINDER_LEAD_HOURS`       | `24`       | how far ahead                                                         |
+| `WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED` | `false`    | when true, WhatsApp is dropped for anyone who has not opted in        |
+| `ALLOW_UNDELIVERABLE_NOTIFICATIONS`      | unset      | escape hatch past the email boot guard. **Never to serve customers.** |
+| `NOTIFICATION_MARKETS`                   | `IN,US,CA` | which markets readiness reports on, and demands configuration for     |
+| `NOTIFICATION_SWEEP_INTERVAL_MS`         | `5000`     | dispatch cadence (worker)                                             |
+| `NOTIFICATION_FALLBACK_INTERVAL_MS`      | `60000`    | fallback sweep                                                        |
+| `NOTIFICATION_FANOUT_INTERVAL_MS`        | `60000`    | cancellation fan-out safety net                                       |
+| `NOTIFICATION_REMINDER_INTERVAL_MS`      | `300000`   | reminder sweep                                                        |
 
 There is deliberately **no** `NOTIFICATIONS_ENABLED` master switch. Readiness is already per
 market and per channel; one global flag would hide which part is actually ready, which is the
@@ -130,12 +162,14 @@ thing this whole phase exists to make visible.
 **India** — `EMAIL_PROVIDER=ses`, `EMAIL_FROM`, `AWS_REGION`, `SES_CONFIGURATION_SET`,
 `SES_WEBHOOK_SECRET`, `PUBLIC_API_URL`, `SMS_PROVIDER_BY_MARKET`, `MSG91_AUTH_KEY`,
 `MSG91_SENDER_ID`, `MSG91_SMS_TEMPLATE_IDS`, `MSG91_WEBHOOK_SECRET`,
-`WHATSAPP_PROVIDER_BY_MARKET`, `MSG91_WHATSAPP_NUMBER`, `MSG91_WHATSAPP_TEMPLATES`,
-`PUSH_PROVIDER=expo`.
+`WHATSAPP_PROVIDER_BY_MARKET`, `MSG91_WHATSAPP_NUMBER`, `PUSH_PROVIDER=expo`,
+`NOTIFICATION_MARKETS=IN`, `NOTIFICATION_TEMPLATE_BINDINGS`, `DLT_PRINCIPAL_ENTITY_ID`,
+`DLT_SENDER_HEADER`.
 
 **US / Canada** — the same email block, plus `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
 `TWILIO_FROM_NUMBER`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`,
-`WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `PUSH_PROVIDER=expo`.
+`WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `PUSH_PROVIDER=expo`, and
+`NOTIFICATION_MARKETS` / `NOTIFICATION_TEMPLATE_BINDINGS` extended to cover them.
 
 Plus, in both cases, a **rate per provider/channel/market** — otherwise every send costs
 `UNKNOWN` and certification holds at `EXTERNAL_VERIFICATION_REQUIRED`. A channel that can send

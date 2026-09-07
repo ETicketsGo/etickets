@@ -1,9 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { parseMarketProviderMap } from '@eticketsgo/shared-types';
+import {
+  parseEnabledMarkets,
+  parseMarketProviderMap,
+  requiresTemplateBinding,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TemplateBindingService } from '../templates/template-binding.service';
+import { fallbackChannelFor, immediateChannels } from '../policy/notification-policy';
+import { NotificationType } from '@eticketsgo/shared-types';
 
-export type ReadinessState = 'CONFIGURED' | 'PARTIAL' | 'MISSING' | 'DISABLED';
+export type ReadinessState =
+  | 'CONFIGURED'
+  | 'PARTIAL'
+  | 'MISSING'
+  | 'DISABLED'
+  /**
+   * India SMS specifically, blocked on a telecom registration nobody here can complete.
+   *
+   * -- WHY IT IS NOT JUST MISSING -----------------------------------------------------
+   * MISSING reads as "somebody forgot to set a variable", and the fix for that is five
+   * minutes. This is a registration with a telecom operator that takes days, involves a
+   * legal entity, and gates every SMS the platform will ever send in India. Reporting the
+   * two the same way puts a launch-blocking dependency in the same column as a typo.
+   */
+  | 'BLOCKED_DLT';
 
 export interface ComponentReadiness {
   key: string;
@@ -58,7 +79,13 @@ export class NotificationReadinessService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly bindings: TemplateBindingService,
   ) {}
+
+  /** The markets this deployment says it is open in. */
+  enabledMarkets(): string[] {
+    return parseEnabledMarkets(this.config.get<string>('NOTIFICATION_MARKETS'));
+  }
 
   private set(key: string): boolean {
     const v = this.config.get<string>(key);
@@ -143,6 +170,51 @@ export class NotificationReadinessService {
     }
   }
 
+  /**
+   * Which India DLT facts are still unrecorded.
+   *
+   * Recorded, not verified. Nothing here contacts a telecom system, and it must not: this
+   * platform can say what it was told and cannot say whether an operator has approved it.
+   * A populated list means the platform has not even been told, which is a strictly earlier
+   * problem than an approval being pending.
+   */
+  private dltGaps(): string[] {
+    const gaps: string[] = [];
+    if (!this.set('DLT_PRINCIPAL_ENTITY_ID')) gaps.push('DLT_PRINCIPAL_ENTITY_ID (PE ID)');
+    if (!this.set('DLT_SENDER_HEADER') && !this.set('MSG91_SENDER_ID')) {
+      gaps.push('DLT_SENDER_HEADER (registered sender header)');
+    }
+    if (this.unboundTypes('msg91', 'sms').length > 0) {
+      gaps.push('approved DLT template ids');
+    }
+    return gaps;
+  }
+
+  /**
+   * Notification types this channel is asked to carry with no template bound for them.
+   *
+   * Driven by POLICY rather than by a hand-kept list: the types a channel carries is
+   * already declared once, and a second copy here would be wrong the first time somebody
+   * changed the policy table.
+   */
+  private unboundTypes(provider: string, channel: string): string[] {
+    const types = Object.values(NotificationType).filter((t) =>
+      immediateChannels(t).includes(channel as never),
+    );
+    /*
+      SMS is a FALLBACK target, so it is deliberately absent from `immediateChannels` --
+      which would report nothing to bind for a channel that genuinely needs a template. The
+      fallback target is added back for exactly the types whose policy names it.
+    */
+    const viaFallback = Object.values(NotificationType).filter(
+      (t) => fallbackChannelFor(t) === channel,
+    );
+    const all = [...new Set([...types, ...viaFallback])];
+    return all
+      .filter((t) => !this.bindings.resolve({ provider, channel, type: t, locale: null }))
+      .map((t) => String(t));
+  }
+
   /** One market's readiness across every channel it uses. */
   async forMarket(market: string): Promise<MarketReadiness> {
     const components: ComponentReadiness[] = [];
@@ -162,10 +234,28 @@ export class NotificationReadinessService {
       const creds =
         emailProvider === 'ses' ? ['AWS_REGION', 'EMAIL_FROM'] : ['SENDGRID_API_KEY', 'EMAIL_FROM'];
       const check = this.require('email', `Email (${emailProvider})`, creds);
-      if (check.state === 'CONFIGURED' && !(await this.rate(emailProvider, 'email', market))) {
-        check.state = 'PARTIAL';
-        check.missingRate = true;
-        check.detail = 'Sends, but has no rate configured — cost will report as UNKNOWN.';
+      if (check.state === 'CONFIGURED') {
+        const external: string[] = [];
+        /*
+          SES publishes delivery, bounce and complaint events ONLY for messages sent with a
+          configuration set that has an event destination. Without it everything looks
+          healthy -- mail goes out, the API returns a message id, the row says ACCEPTED --
+          and not one callback ever arrives, so nothing is marked delivered and no bounce
+          ever suppresses anything. Configured-but-deaf is PARTIAL, not READY.
+        */
+        if (emailProvider === 'ses' && !this.set('SES_CONFIGURATION_SET')) {
+          external.push('SES_CONFIGURATION_SET (no delivery events without it)');
+        }
+        const noRate = !(await this.rate(emailProvider, 'email', market));
+        if (external.length > 0 || noRate) {
+          check.state = 'PARTIAL';
+          check.missingExternal = external.length > 0 ? external : undefined;
+          check.missingRate = noRate || undefined;
+          check.detail = `Still missing: ${[
+            ...external,
+            ...(noRate ? ['no rate configured'] : []),
+          ].join(', ')}.`;
+        }
       }
       components.push(check);
     }
@@ -193,16 +283,20 @@ export class NotificationReadinessService {
       if (check.state === 'CONFIGURED') {
         const external: string[] = [];
         /*
-          MSG91 will carry nothing without an approved template, so a configured key alone is
-          not readiness — it is the appearance of it, which is worse. These live in somebody's
-          console and cannot be created from here.
+          A provider that will carry NOTHING without an approved template is not ready
+          because its credential is set -- that is the appearance of readiness, which is
+          worse than its absence. Asked per notification TYPE, because policy selects
+          different types on different channels and one bound template does not cover the
+          five that WhatsApp carries.
         */
-        if (provider === 'msg91' && channel === 'sms' && !this.set('MSG91_SMS_TEMPLATE_IDS')) {
-          external.push('MSG91_SMS_TEMPLATE_IDS (approved DLT templates)');
+        if (requiresTemplateBinding(provider, channel)) {
+          const unbound = this.unboundTypes(provider, channel);
+          if (unbound.length > 0) {
+            external.push(`approved templates for ${unbound.join(', ')}`);
+          }
         }
-        if (provider === 'msg91' && channel === 'whatsapp') {
-          if (!this.set('MSG91_WHATSAPP_NUMBER')) external.push('MSG91_WHATSAPP_NUMBER');
-          if (!this.set('MSG91_WHATSAPP_TEMPLATES')) external.push('MSG91_WHATSAPP_TEMPLATES');
+        if (provider === 'msg91' && channel === 'whatsapp' && !this.set('MSG91_WHATSAPP_NUMBER')) {
+          external.push('MSG91_WHATSAPP_NUMBER');
         }
         const noRate = !(await this.rate(provider, channel, market));
 
@@ -214,6 +308,22 @@ export class NotificationReadinessService {
             ...external,
             ...(noRate ? ['no rate configured'] : []),
           ].join(', ')}.`;
+        }
+      }
+
+      /*
+        India SMS is not merely unconfigured, it is BLOCKED on a registration with a telecom
+        operator. Said in its own state so a launch review can tell a variable somebody
+        forgot from a dependency measured in days.
+      */
+      if (channel === 'sms' && market === 'IN' && provider === 'msg91') {
+        const dlt = this.dltGaps();
+        if (dlt.length > 0) {
+          check.state = 'BLOCKED_DLT';
+          check.missingExternal = [...(check.missingExternal ?? []), ...dlt];
+          check.detail =
+            `Blocked on DLT registration: ${dlt.join(', ')}. ` +
+            `None of this can be completed from this repository.`;
         }
       }
       components.push(check);
@@ -252,7 +362,13 @@ export class NotificationReadinessService {
     if (this.providerFor('sms', market) === 'twilio') expected.push('PUBLIC_API_URL');
     if (this.providerFor('sms', market) === 'msg91') expected.push('MSG91_WEBHOOK_SECRET');
     if (this.providerFor('whatsapp', market) === 'msg91') expected.push('MSG91_WEBHOOK_SECRET');
-    if (this.providerFor('whatsapp', market) === 'cloud') expected.push('WHATSAPP_APP_SECRET');
+    if (this.providerFor('whatsapp', market) === 'cloud') {
+      expected.push('WHATSAPP_APP_SECRET');
+      // Without the verify token Meta cannot ACTIVATE the subscription, so the (correct)
+      // status handler is never called. A missing token is not a degraded callback: it is no
+      // callback at all, and it looks identical to the provider being quiet.
+      expected.push('WHATSAPP_VERIFY_TOKEN');
+    }
 
     const check = this.require('delivery-callbacks', 'Delivery callbacks', [...new Set(expected)]);
     /*
@@ -264,17 +380,29 @@ export class NotificationReadinessService {
     return check;
   }
 
-  /** Every launch market, plus the platform-wide switches an operator needs to see. */
-  async report(markets: string[] = ['IN', 'US', 'CA']) {
-    const perMarket = await Promise.all(markets.map((m) => this.forMarket(m)));
+  /** Every ENABLED market, plus the platform-wide switches an operator needs to see. */
+  async report(markets?: string[]) {
+    const wanted = markets ?? this.enabledMarkets();
+    const perMarket = await Promise.all(wanted.map((m) => this.forMarket(m)));
     return {
       markets: perMarket,
+      /*
+        Named explicitly rather than left implicit in the list above, so a reader can tell
+        "Canada is fine" from "Canada was never asked about".
+      */
+      enabledMarkets: this.enabledMarkets(),
       platform: {
         whatsappOptInEnforced:
           this.config.get<string>('WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED') === 'true',
         remindersEnabled: this.config.get<string>('NOTIFICATION_REMINDERS_ENABLED') === 'true',
         reminderLeadHours: Number(this.config.get('NOTIFICATION_REMINDER_LEAD_HOURS') ?? 24),
         activeRates: await this.prisma.notificationRate.count({ where: { active: true } }),
+        /*
+          Bindings still coming from the superseded per-provider keys. Not a fault -- they
+          work -- but they carry no locale, so a French message resolves to a template
+          approved in English. Worth migrating deliberately rather than discovering.
+        */
+        legacyTemplateBindings: this.bindings.legacyCount(),
       },
       ok: perMarket.every((m) => m.ok),
     };

@@ -54,6 +54,9 @@ const NOT_PRODUCERS = new Set(
     // A readiness report: it LISTS the types whose policy selects WhatsApp, so an operator
     // knows which templates to get approved. It reads delivery evidence and sends nothing.
     'notifications/readiness/market-certification.service.ts',
+    // A declaration of what each type must be TOLD before it can be composed. It names types
+    // in order to describe them; it has no way to send one.
+    'notifications/templates/template-contract.ts',
   ].map((p) => p.replace(/\//g, require('node:path').sep)),
 );
 

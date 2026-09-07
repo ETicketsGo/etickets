@@ -6,6 +6,10 @@ import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../../commo
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { NotificationReadinessService } from './notification-readiness.service';
 import { MarketCertificationService } from './market-certification.service';
+import { NotificationDiagnosticsService } from './notification-diagnostics.service';
+import { CertificationEvidenceService } from './certification-evidence.service';
+import { TemplateReportService } from '../templates/template-report.service';
+import { NotificationRateService } from '../cost/notification-rate.service';
 import { NotificationService } from '../notification.service';
 import { AuditService } from '../../audit/audit.service';
 
@@ -18,6 +22,14 @@ import { AuditService } from '../../audit/audit.service';
  * makes their delivery history contain an event that never really happened to them. So a test
  * send names its own destination, and the operator types it.
  */
+const certifySchema = z.object({
+  provider: z.string().trim().min(1).max(40),
+  channel: z.enum(['email', 'sms', 'whatsapp', 'push']),
+  market: z.string().trim().min(1).max(8),
+  /** A ticket reference or what was checked. Never a credential -- see the model comment. */
+  notes: z.string().trim().max(1000).optional(),
+});
+
 const testSendSchema = z.object({
   channel: z.enum(['email', 'sms', 'whatsapp', 'push']),
   /** An address or E.164 number the operator controls. Never resolved from a customer. */
@@ -44,7 +56,82 @@ export class NotificationReadinessController {
     private readonly certification: MarketCertificationService,
     private readonly notifications: NotificationService,
     private readonly audit: AuditService,
+    private readonly diagnostics: NotificationDiagnosticsService,
+    private readonly evidence: CertificationEvidenceService,
+    private readonly templates: TemplateReportService,
+    private readonly rates: NotificationRateService,
   ) {}
+
+  @Get('configuration')
+  @RequiresAdmin(AdminPermission.OPS_READ)
+  @ApiOperation({
+    summary:
+      'Per market/channel/provider: config, template, webhook, rate and certification state. ' +
+      'Never returns secrets.',
+  })
+  configuration() {
+    return this.diagnostics.report();
+  }
+
+  @Get('templates/sms')
+  @RequiresAdmin(AdminPermission.OPS_READ)
+  @ApiOperation({
+    summary:
+      'Rendered length, encoding and segment count per SMS template — what a DLT submission ' +
+      'will cost to send, before it is submitted.',
+  })
+  smsTemplates(@Query('locales') locales?: string) {
+    const list = locales
+      ? locales
+          .split(',')
+          .map((l) => l.trim())
+          .filter(Boolean)
+      : undefined;
+    return this.templates.smsReport(list);
+  }
+
+  @Get('templates/whatsapp')
+  @RequiresAdmin(AdminPermission.OPS_READ)
+  @ApiOperation({
+    summary: 'Which WhatsApp templates need approval, their variables, consent and rate state.',
+  })
+  whatsAppTemplates() {
+    /*
+      The rate lookup is injected rather than done inside the report, so the report stays a
+      pure function of policy and bindings and can be unit-tested without a database.
+    */
+    return this.templates.whatsAppReport((provider) =>
+      this.rates.hasActiveRate(provider, 'whatsapp'),
+    );
+  }
+
+  @Get('certifications')
+  @RequiresAdmin(AdminPermission.OPS_READ)
+  @ApiOperation({ summary: 'The certification record per provider/channel/market.' })
+  certifications() {
+    return this.evidence.list();
+  }
+
+  /**
+   * A person asserts that a provider has been proven to work.
+   *
+   * `PLATFORM_CONFIG` and audited, because this is the record other people will rely on when
+   * deciding to open a market. It still refuses without delivery evidence -- an assertion is
+   * necessary and never sufficient.
+   */
+  @Post('certifications')
+  @RequiresAdmin(AdminPermission.PLATFORM_CONFIG)
+  @ApiOperation({ summary: 'Certify a provider/channel/market. Requires real delivery evidence.' })
+  recordCertification(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(certifySchema)) body: z.infer<typeof certifySchema>,
+  ) {
+    return this.evidence.certify(
+      user.id,
+      { provider: body.provider, channel: body.channel, market: body.market },
+      body.notes,
+    );
+  }
 
   @Get()
   @ApiOperation({

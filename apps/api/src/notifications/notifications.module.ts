@@ -37,6 +37,10 @@ import { WhatsAppChannel } from './channels/whatsapp.channel';
 import { PushChannel } from './channels/push.channel';
 import { InAppChannel } from './channels/in-app.channel';
 import { EMAIL_TRANSPORT, selectEmailTransport } from './channels/transports/email.transport';
+import { TemplateBindingService } from './templates/template-binding.service';
+import { TemplateReportService } from './templates/template-report.service';
+import { NotificationDiagnosticsService } from './readiness/notification-diagnostics.service';
+import { CertificationEvidenceService } from './readiness/certification-evidence.service';
 import { SMS_TRANSPORT, selectSmsTransport } from './channels/transports/sms.transport';
 import {
   WHATSAPP_TRANSPORT,
@@ -100,6 +104,10 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
       lets Stripe and Razorpay run side by side in this process today. The tokens below stay
       bound to the DEFAULT provider so anything still injecting them keeps working.
     */
+    TemplateBindingService,
+    TemplateReportService,
+    NotificationDiagnosticsService,
+    CertificationEvidenceService,
     { provide: EMAIL_TRANSPORT, inject: [ConfigService], useFactory: selectEmailTransport },
     { provide: SMS_TRANSPORT, inject: [ConfigService], useFactory: selectSmsTransport },
     { provide: WHATSAPP_TRANSPORT, inject: [ConfigService], useFactory: selectWhatsAppTransport },
@@ -107,6 +115,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
   ],
   exports: [
     NotificationService,
+    TemplateBindingService,
+    CertificationEvidenceService,
     // Exported so phone sign-in can deliver an OTP WITHOUT going through
     // `NotificationService`, which would persist the live code in a Notification row.
     SmsChannel,

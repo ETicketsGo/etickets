@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { NotificationType } from '@eticketsgo/shared-types';
+import { FailureClass, NotificationType } from '@eticketsgo/shared-types';
 import { Msg91SmsTransport, parseTemplateIds } from './sms.transport';
 import { Msg91WhatsAppTransport, parseTemplateNames } from './whatsapp.transport';
 import { TransportError } from './transport-http';
@@ -79,8 +79,14 @@ describe('MSG91 SMS', () => {
       .catch((e: unknown) => e as TransportError);
     expect(err).toBeInstanceOf(TransportError);
     expect((err as TransportError).retryable).toBe(false);
+    /*
+      Classified, not merely non-retryable. TEMPLATE_NOT_FOUND is what lets an operator
+      filter the queue down to "blocked on a template approval" -- and what keeps a missing
+      approval out of MSG91's failure rate, where it would look like an outage.
+    */
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
     // The message names the exact key to set, because that is what makes it actionable.
-    expect((err as TransportError).message).toContain('MSG91_SMS_TEMPLATE_IDS');
+    expect((err as TransportError).message).toContain('NOTIFICATION_TEMPLATE_BINDINGS');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -180,7 +186,8 @@ describe('MSG91 WhatsApp', () => {
       .send(msg({ channel: 'whatsapp' }))
       .catch((e: unknown) => e as TransportError);
     expect((err as TransportError).retryable).toBe(false);
-    expect((err as TransportError).message).toContain('MSG91_WHATSAPP_TEMPLATES');
+    expect((err as TransportError).failureClass).toBe(FailureClass.TEMPLATE_NOT_FOUND);
+    expect((err as TransportError).message).toContain('NOTIFICATION_TEMPLATE_BINDINGS');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

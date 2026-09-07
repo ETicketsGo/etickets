@@ -43,6 +43,7 @@ function loadDatabaseUrl(): string | undefined {
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PrismaClient } = require('@prisma/client');
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 type Client = InstanceType<typeof PrismaClient>;
 
 /** Older than the thirty minutes a cancellation's preferred channels are given. */
@@ -52,6 +53,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let notifications: NotificationService;
   let fallbacks: NotificationFallbackService;
   let recorder: DeliveryRecorderService;
@@ -71,6 +73,12 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+      Serialize against the other suites that call a GLOBAL sweep. Without it they deliver
+      one another's notifications through their own mocks, and an assertion passes alone and
+      fails in a full run. See test-support/sweep-lock.
+    */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -115,6 +123,7 @@ describe('integration-real-postgres: cross-channel fallback', () => {
     if (!db || !available) return;
     await db.notification.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 
@@ -314,6 +323,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let notifications: NotificationService;
   let deliver: jest.Mock;
 
@@ -327,6 +337,12 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+      Serialize against the other suites that call a GLOBAL sweep. Without it they deliver
+      one another's notifications through their own mocks, and an assertion passes alone and
+      fails in a full run. See test-support/sweep-lock.
+    */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       return;
     }
@@ -361,6 +377,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     if (!db || !available) return;
     await db.notification.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 
@@ -369,6 +386,32 @@ describe('integration-real-postgres: one channel failing does not recreate the o
       if (!available) return;
       await fn();
     });
+
+  /**
+   * The channels delivered FOR ONE BOOKING, sorted.
+   *
+   * ── WHY THE MOCK CALLS ARE FILTERED AND NOT JUST COUNTED ──────────────────────────
+   * `dispatchDue()` is the real sweep: it acts on every notification in the database that is
+   * pending and due, which is correct behaviour and exactly what makes a bare
+   * `deliver.mock.calls` assertion non-deterministic. Anything else that left a pending row
+   * — an earlier test in this file, another suite sharing the database, a run somebody
+   * interrupted — is swept too, and shows up as extra channels in a list this test believes
+   * is its own.
+   *
+   * That is not flakiness to be retried away; it is the assertion asking a question about
+   * the whole database when it means to ask about one booking. Every notification carries its
+   * `bookingId` in the payload, and the rendered message reaches the channel, so the calls
+   * can be attributed exactly. The assertions below are unchanged in strength — still the
+   * complete channel set, still an exact match — they are simply about the right rows.
+   */
+  const deliveredFor = (bookingId: string): string[] =>
+    deliver.mock.calls
+      .filter(
+        ([, message]) =>
+          (message as { payload?: { bookingId?: string } })?.payload?.bookingId === bookingId,
+      )
+      .map(([channel]) => channel as string)
+      .sort();
 
   maybe('a retry of the failed channel re-sends ONLY that channel', async () => {
     /*
@@ -391,13 +434,12 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     });
     await notifications.dispatchDue();
 
-    const first = deliver.mock.calls.map((c) => c[0]).sort();
-    expect(first).toEqual(['email', 'in_app', 'push', 'whatsapp']);
+    expect(deliveredFor(bookingId)).toEqual(['email', 'in_app', 'push', 'whatsapp']);
 
     // The second sweep. Only the channel that failed is still due.
     deliver.mockClear();
     await notifications.dispatchDue();
-    expect(deliver.mock.calls.map((c) => c[0])).toEqual(['whatsapp']);
+    expect(deliveredFor(bookingId)).toEqual(['whatsapp']);
   });
 
   maybe('a duplicate domain event sends nothing a second time', async () => {
@@ -419,7 +461,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     // The same event redelivered. Four rows already exist and all four are terminal.
     await send();
     await notifications.dispatchDue();
-    expect(deliver).not.toHaveBeenCalled();
+    expect(deliveredFor(bookingId)).toEqual([]);
 
     const rows = await db!.notification.count({
       where: { userId, payload: { path: ['bookingId'], equals: bookingId } },
@@ -451,7 +493,7 @@ describe('integration-real-postgres: one channel failing does not recreate the o
     });
     await notifications.dispatchDue();
 
-    const attempted = deliver.mock.calls.map((c) => c[0]).sort();
+    const attempted = deliveredFor(bookingId);
     // No provider was called for the suppressed destination -- not called and refused, not
     // called at all, so it cannot earn another bounce against the sending domain.
     expect(attempted).not.toContain('email');

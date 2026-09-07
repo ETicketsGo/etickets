@@ -43,13 +43,20 @@ export class NotificationOpsController {
 
   @Get()
   @RequiresAdmin(AdminPermission.OPS_READ)
-  @ApiOperation({ summary: 'Search notifications by reference, type, channel, provider, status.' })
+  @ApiOperation({
+    summary:
+      'Search notifications by reference, type, channel, provider, status, failure class, ' +
+      'configBlocked=true (waiting on a person) or retryExhausted=true (worth resending).',
+  })
   search(
     @Query('reference') reference?: string,
     @Query('type') type?: string,
     @Query('channel') channel?: string,
     @Query('provider') provider?: string,
     @Query('status') status?: string,
+    @Query('failureClass') failureClass?: string,
+    @Query('configBlocked') configBlocked?: string,
+    @Query('retryExhausted') retryExhausted?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
@@ -60,6 +67,9 @@ export class NotificationOpsController {
       channel,
       provider,
       status,
+      failureClass,
+      configBlocked: configBlocked === 'true',
+      retryExhausted: retryExhausted === 'true',
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
       limit: limit ? Number(limit) : undefined,

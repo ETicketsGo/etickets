@@ -1,5 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationType, OutcomeClass, SendKind } from '@eticketsgo/shared-types';
+import {
+  FailureClass,
+  NotificationType,
+  OutcomeClass,
+  SendKind,
+  isRetryableFailure,
+  outcomeClassForFailure,
+} from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationTemplateService } from './templates/notification-template.service';
@@ -581,14 +588,43 @@ export class NotificationService {
         );
       } catch (err) {
         const attempts = row.attempts + 1;
+        /*
+          What actually went wrong. A transport that threw deliberately says so; anything
+          else is genuinely unknown and is labelled as such rather than blamed on whoever
+          would have carried the message.
+        */
+        const failureClass =
+          err instanceof TransportError ? err.failureClass : FailureClass.UNKNOWN_PROVIDER_ERROR;
+        const outcome = outcomeClassForFailure(failureClass);
+        /*
+          The provider name, where one exists. A configuration failure has no provider -- the
+          route was never resolved or the credential was never there -- and recording one
+          would attribute our own unfinished setup to a company we have not called.
+        */
+        const attributedTo =
+          err instanceof TransportError && err.provider !== 'router' ? err.provider : 'none';
         if (deliveryId) {
           await this.deliveries
-            ?.failed(deliveryId, 'none', err instanceof Error ? err.message : String(err))
+            ?.failed(
+              deliveryId,
+              attributedTo,
+              err instanceof Error ? err.message : String(err),
+              failureClass,
+            )
             .catch(() => undefined);
-          this.metrics?.recordNotificationAttempt(key, 'none', OutcomeClass.PROVIDER_UNAVAILABLE);
+          this.metrics?.recordNotificationAttempt(key, attributedTo, outcome);
         }
-        // A provider that says "never" is believed the first time.
-        const permanent = err instanceof TransportError && !err.retryable;
+        /*
+          Retry only what could clear ON ITS OWN.
+
+          `retryable` is derived from the class, so this can no longer be got wrong one
+          adapter at a time. The practical effect is that a missing DLT template or an absent
+          credential now fails on the FIRST attempt instead of the third -- which is not
+          impatience: three attempts five seconds apart against a template that will not
+          exist until a telecom operator approves it next week is fifteen seconds of pretending
+          the outcome is in doubt, and it buries the row a human needs to see.
+        */
+        const permanent = !isRetryableFailure(failureClass);
         const failed = permanent || attempts >= maxAttempts;
         await this.prisma.notification.update({
           where: { id: row.id },
@@ -601,13 +637,13 @@ export class NotificationService {
         if (failed) {
           summary.failed += 1;
           this.logger.warn(
-            `notification ${row.id} failed after ${attempts} attempt(s)` +
-              (permanent ? ' (permanent)' : ''),
+            `notification ${row.id} failed after ${attempts} attempt(s) ` +
+              `[${failureClass}]${permanent ? ' (permanent)' : ''}`,
           );
-          this.metrics?.recordNotification(key, 'none', 'failed');
+          this.metrics?.recordNotification(key, attributedTo, 'failed');
         } else {
           summary.retried += 1;
-          this.metrics?.recordNotification(key, 'none', 'retried');
+          this.metrics?.recordNotification(key, attributedTo, 'retried');
         }
       }
     }

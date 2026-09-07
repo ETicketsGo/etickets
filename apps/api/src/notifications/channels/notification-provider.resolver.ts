@@ -5,6 +5,7 @@ import {
   routeNotificationProvider,
   type NotificationRoute,
 } from '@eticketsgo/shared-types';
+import { TemplateBindingService } from '../templates/template-binding.service';
 import type { RenderedNotification } from './notification-channel.interface';
 import { resolveDestination } from './transports/recipient.util';
 import {
@@ -43,7 +44,15 @@ export class NotificationProviderResolver {
   private readonly smsCache = new Map<string, SmsTransport>();
   private readonly whatsAppCache = new Map<string, WhatsAppTransport>();
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    /*
+      Optional so the resolver can still be constructed in tests that care only about
+      routing. Absent, the transports fall back to their environment template maps, which is
+      exactly the behaviour that shipped before bindings existed.
+    */
+    private readonly bindings?: TemplateBindingService,
+  ) {}
 
   /** The SMS transport for one message, or a refusal explaining why there is none. */
   routeSms(msg: RenderedNotification): Routed<SmsTransport> {
@@ -105,7 +114,7 @@ export class NotificationProviderResolver {
   private getSms(name: SmsProviderName): SmsTransport {
     const existing = this.smsCache.get(name);
     if (existing) return existing;
-    const built = buildSmsTransport(name, this.config);
+    const built = buildSmsTransport(name, this.config, this.bindings);
     this.smsCache.set(name, built);
     return built;
   }
@@ -113,7 +122,7 @@ export class NotificationProviderResolver {
   private getWhatsApp(name: WhatsAppProviderName): WhatsAppTransport {
     const existing = this.whatsAppCache.get(name);
     if (existing) return existing;
-    const built = buildWhatsAppTransport(name, this.config);
+    const built = buildWhatsAppTransport(name, this.config, this.bindings);
     this.whatsAppCache.set(name, built);
     return built;
   }

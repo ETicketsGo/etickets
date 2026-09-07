@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import twilio, { Twilio } from 'twilio';
+import { FailureClass, failureClassForStatus } from '@eticketsgo/shared-types';
+import type { TemplateBindingService } from '../../templates/template-binding.service';
 import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 import { maskPhone, resolveDestination } from './recipient.util';
 import { TransportError, transportJson } from './transport-http';
@@ -59,9 +61,53 @@ export class TwilioSmsTransport implements SmsTransport {
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
-    const created = await this.client.messages.create({ to, from: this.from, body: msg.body });
-    return { provider: this.name, providerMessageId: created.sid };
+    try {
+      const created = await this.client.messages.create({ to, from: this.from, body: msg.body });
+      return { provider: this.name, providerMessageId: created.sid };
+    } catch (err) {
+      /*
+        The Twilio SDK throws its own error object rather than returning a status, so nothing
+        upstream could classify it: an unroutable number, a suspended account and a genuine
+        outage all arrived as the same unrecognised throw and were filed as "Twilio
+        unavailable". Twilio's numeric codes are published and stable, and they are the only
+        thing that separates "this number does not exist" from "try again".
+      */
+      throw classifyTwilioError(err, this.name);
+    }
   }
+}
+
+/** Twilio's published error codes, narrowed to the distinctions that change what we do. */
+export function classifyTwilioError(err: unknown, provider: string): TransportError {
+  if (err instanceof TransportError) return err;
+  const e = err as { code?: number; status?: number; message?: string };
+  const message = e?.message ?? String(err);
+  const cls = (() => {
+    switch (e?.code) {
+      // 21211/21614: not a valid or SMS-capable number. 21610: the recipient sent STOP.
+      case 21211:
+      case 21214:
+      case 21614:
+        return FailureClass.INVALID_DESTINATION;
+      case 21610:
+        return FailureClass.COMPLIANCE_BLOCKED;
+      // 20003 authenticate, 20005 account not active, 20429 too many requests.
+      case 20003:
+      case 20005:
+        return FailureClass.AUTHENTICATION_ERROR;
+      case 20429:
+        return FailureClass.RATE_LIMIT;
+      // 30034/30032: US A2P 10DLC registration missing or the number is not permitted.
+      case 30032:
+      case 30034:
+        return FailureClass.COMPLIANCE_BLOCKED;
+      default:
+        return typeof e?.status === 'number'
+          ? failureClassForStatus(e.status)
+          : FailureClass.UNKNOWN_PROVIDER_ERROR;
+    }
+  })();
+  return new TransportError(`twilio: ${message}`, provider, cls, e?.status);
 }
 
 /**
@@ -100,8 +146,17 @@ export class Msg91SmsTransport implements SmsTransport {
   private readonly defaultTemplateId?: string;
   private readonly senderId?: string;
   private readonly bodyVar: string;
+  /**
+   * The canonical binding source, when one is wired.
+   *
+   * Optional because this transport is constructed directly in tests and by the legacy
+   * single-provider factory, and neither has a Nest container to hand. Absent, the
+   * environment maps below are the whole answer -- which is exactly the behaviour that
+   * shipped before, so nothing that works today stops working.
+   */
+  private readonly bindings?: TemplateBindingService;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, bindings?: TemplateBindingService) {
     this.authKey = requireKey(config, 'msg91', 'MSG91_AUTH_KEY');
     const base = (config.get<string>('MSG91_BASE_URL') ?? 'https://control.msg91.com').replace(
       /\/+$/,
@@ -111,6 +166,7 @@ export class Msg91SmsTransport implements SmsTransport {
     this.timeoutMs = Number(config.get('MSG91_TIMEOUT_MS') ?? 10_000);
     this.templateIds = parseTemplateIds(config.get<string>('MSG91_SMS_TEMPLATE_IDS'));
     this.defaultTemplateId = config.get<string>('MSG91_SMS_TEMPLATE_ID') ?? undefined;
+    this.bindings = bindings;
     this.senderId = config.get<string>('MSG91_SENDER_ID') ?? undefined;
     this.bodyVar = config.get<string>('MSG91_SMS_BODY_VAR') ?? 'body';
   }
@@ -119,7 +175,19 @@ export class Msg91SmsTransport implements SmsTransport {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
 
-    const templateId = this.templateIds[msg.type] ?? this.defaultTemplateId;
+    /*
+      Locale first, because a DLT template is approved for one wording in one language and
+      the ids differ. The legacy map has no locale, so it answers for every language -- which
+      is what it always did, and why it resolves after the canonical binding rather than
+      before it.
+    */
+    const bound = this.bindings?.resolve({
+      provider: this.name,
+      channel: 'sms',
+      type: msg.type,
+      locale: msg.locale,
+    });
+    const templateId = bound?.externalId ?? this.templateIds[msg.type] ?? this.defaultTemplateId;
     if (!templateId) {
       /*
         Permanent on purpose. There is no template to retry with, and retrying twelve times
@@ -127,10 +195,10 @@ export class Msg91SmsTransport implements SmsTransport {
         incomplete. The message names the exact key to set.
       */
       throw new TransportError(
-        `MSG91 has no DLT template configured for ${msg.type}. ` +
-          `Set MSG91_SMS_TEMPLATE_IDS=${msg.type}=<template_id> (or MSG91_SMS_TEMPLATE_ID).`,
+        `MSG91 has no DLT template bound for ${msg.type} (locale ${msg.locale ?? '*'}). ` +
+          `Set NOTIFICATION_TEMPLATE_BINDINGS=msg91:sms:${msg.type}:*=<dlt_template_id>.`,
         this.name,
-        false,
+        FailureClass.TEMPLATE_NOT_FOUND,
       );
     }
 
@@ -173,7 +241,9 @@ export class Msg91SmsTransport implements SmsTransport {
       throw new TransportError(
         `MSG91 refused the message: ${data.message ?? data.type}`,
         this.name,
-        false,
+        // MSG91 answers 200 for a refusal, so this is the provider having considered the
+        // message and declined it -- their answer, not our configuration.
+        FailureClass.PERMANENT_REJECTION,
       );
     }
     this.logger.log(`[sms:${msg.type}] msg91 accepted -> ${maskPhone(to)}`);
@@ -200,12 +270,16 @@ export function parseTemplateIds(raw: string | null | undefined): Record<string,
 }
 
 /** Construct one named SMS transport. Only the ones a route needs are ever built. */
-export function buildSmsTransport(name: SmsProviderName, config: ConfigService): SmsTransport {
+export function buildSmsTransport(
+  name: SmsProviderName,
+  config: ConfigService,
+  bindings?: TemplateBindingService,
+): SmsTransport {
   switch (name) {
     case 'twilio':
       return new TwilioSmsTransport(config);
     case 'msg91':
-      return new Msg91SmsTransport(config);
+      return new Msg91SmsTransport(config, bindings);
     case 'log':
     default:
       return new SmsLogTransport();
@@ -220,12 +294,23 @@ export function selectSmsTransport(config: ConfigService): SmsTransport {
   return buildSmsTransport(config.get<SmsProviderName>('SMS_PROVIDER') ?? 'log', config);
 }
 
+/**
+ * A credential this transport cannot work without.
+ *
+ * -- WHY IT THROWS A TransportError AND NOT A BARE Error ---------------------------
+ * It threw a plain `Error` before, which the dispatch loop could not classify -- so a market
+ * with no MSG91 account produced three retries, a fifteen-second gap, and a row filed against
+ * MSG91's reliability for a provider we had never called. It is a `CONFIGURATION_ERROR`: not
+ * retryable, not the provider's, and visible to an operator as work for them.
+ */
 function requireKey(config: ConfigService, provider: string, key: string): string {
   const value = config.get<string>(key);
   if (!value) {
-    throw new Error(
+    throw new TransportError(
       `SMS provider "${provider}" requires ${key} to be set. ` +
         `Use sandbox credentials for QA, live credentials for production.`,
+      provider,
+      FailureClass.CONFIGURATION_ERROR,
     );
   }
   return value;

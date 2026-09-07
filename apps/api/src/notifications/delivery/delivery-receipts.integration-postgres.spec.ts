@@ -6,6 +6,7 @@ import { DeliveryRecorderService } from './delivery-recorder.service';
 import { SuppressionService } from './suppression.service';
 import { NotificationOpsService } from './notification-ops.service';
 import { DeliveryWebhookService } from './webhook/delivery-webhook.service';
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 
 /**
  * integration-real-postgres — provider callbacks, out of order, twice, and about nothing.
@@ -43,6 +44,7 @@ describe('integration-real-postgres: delivery receipts', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let recorder: DeliveryRecorderService;
   let suppression: SuppressionService;
   let webhooks: DeliveryWebhookService;
@@ -63,6 +65,12 @@ describe('integration-real-postgres: delivery receipts', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+        This suite WRITES provider delivery evidence -- the same rows the certification ladder
+        reads globally to decide whether a provider has ever worked. Serialized against the
+        other suites that read or write that state; see test-support/sweep-lock.
+      */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -93,6 +101,7 @@ describe('integration-real-postgres: delivery receipts', () => {
       where: { destinationMask: { contains: 'ar***@example.test' } },
     });
     await db.webhookEvent.deleteMany({ where: { provider: { startsWith: 'notification:' } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 
@@ -376,6 +385,7 @@ describe('integration-real-postgres: resend is not retry', () => {
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let ops: NotificationOpsService;
   let suppression: SuppressionService;
   let recorder: DeliveryRecorderService;
@@ -388,6 +398,12 @@ describe('integration-real-postgres: resend is not retry', () => {
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+        This suite WRITES provider delivery evidence -- the same rows the certification ladder
+        reads globally to decide whether a provider has ever worked. Serialized against the
+        other suites that read or write that state; see test-support/sweep-lock.
+      */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       return;
     }
@@ -416,6 +432,7 @@ describe('integration-real-postgres: resend is not retry', () => {
     await db.suppressedDestination.deleteMany({
       where: { destinationHash: SuppressionService.hash('email', `resend+${suffix}@example.test`) },
     });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 

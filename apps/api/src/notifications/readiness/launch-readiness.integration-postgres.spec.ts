@@ -8,11 +8,13 @@ import {
   isCustomerTraffic,
 } from '@eticketsgo/shared-types';
 import { NotificationReadinessService } from './notification-readiness.service';
+import { TemplateBindingService } from '../templates/template-binding.service';
 import { MarketCertificationService } from './market-certification.service';
 import { NotificationRateService } from '../cost/notification-rate.service';
 import { NotificationAnalyticsService } from '../cost/notification-analytics.service';
 import { DeliveryRecorderService } from '../delivery/delivery-recorder.service';
 import { SuppressionService } from '../delivery/suppression.service';
+import { acquireSweepLock, type SweepLock } from '../test-support/sweep-lock';
 
 /**
  * integration-real-postgres — what "ready" means, and what it must not be allowed to mean.
@@ -66,6 +68,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
   const url = loadDatabaseUrl();
   let db: Client | undefined;
   let available = false;
+  let sweepLock: SweepLock | undefined;
   let rates: NotificationRateService;
   let recorder: DeliveryRecorderService;
   let analytics: NotificationAnalyticsService;
@@ -83,6 +86,13 @@ describe('integration-real-postgres: launch readiness and certification', () => 
     try {
       await db.$queryRaw`SELECT 1`;
       available = true;
+      /*
+        These assertions are about GLOBAL evidence -- has ANY message through this provider
+        been accepted, does ANY callback exist -- which is exactly what makes the certification
+        ladder meaningful and exactly what another suite writing provider rows perturbs.
+        Serialized against the other suites that read or write that state.
+      */
+      sweepLock = await acquireSweepLock(url);
     } catch {
       // eslint-disable-next-line no-console
       console.warn('[integration-real-postgres] SKIPPED — DB unavailable');
@@ -114,6 +124,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
     await db.notification.deleteMany({ where: { userId } });
     await db.user.deleteMany({ where: { email: { contains: suffix } } });
     await db.notificationRate.deleteMany({ where: { notes: { contains: suffix } } });
+    await sweepLock?.release();
     await db.$disconnect();
   }, 60_000);
 
@@ -127,7 +138,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
     const config = new ConfigService(env);
     return new MarketCertificationService(
       db as never,
-      new NotificationReadinessService(config, db as never),
+      new NotificationReadinessService(config, db as never, new TemplateBindingService(config)),
     );
   };
 
@@ -255,12 +266,32 @@ describe('integration-real-postgres: launch readiness and certification', () => 
     expect(email.action).toBeTruthy();
   });
 
+  /**
+   * A known baseline for the ladder.
+   *
+   * ── WHY A TEST DELETES ROWS IT DID NOT CREATE ─────────────────────────────────────
+   * The certification ladder deliberately reads GLOBAL evidence: "has ANY message through
+   * msg91/sms ever been accepted, has ANY callback ever arrived". That is what makes it
+   * meaningful — evidence is evidence, wherever it came from — and it is precisely why a
+   * test asserting "nothing has ever been sent" cannot be written against a shared database
+   * without first making that sentence true.
+   *
+   * Deleting is safe here and nowhere else: this suite holds the global notification lock, so
+   * no other suite is mid-run, and the rows being removed are other runs' leftovers rather
+   * than anybody's live fixture. Scoped to the two pairings the ladder asserts on.
+   */
+  const clearEvidenceFor = async (provider: string, channel: string) => {
+    if (!db || !available) return;
+    await db.notificationDelivery.deleteMany({ where: { provider, channel } });
+  };
+
   maybe('configured but never used is CONFIG_READY, not certified', async () => {
     /*
       The rung that stops a launch call being made on the strength of an environment variable.
       A perfectly configured MSG91 account with an unapproved template is exactly this state
       and will carry nothing.
     */
+    await clearEvidenceFor('msg91', 'sms');
     const report = await certifier(INDIA_CONFIGURED).forMarket('IN');
     const sms = report.channels.find((c) => c.channel === 'sms')!;
     expect(sms.level).toBe('CONFIG_READY');
@@ -272,6 +303,7 @@ describe('integration-real-postgres: launch readiness and certification', () => 
   maybe('accepted but never called back is EXTERNAL_VERIFICATION_REQUIRED', async () => {
     // The return path is unproven: the webhook may be unregistered, the signature may be
     // failing, or the correlation may be broken -- all identical from the send side.
+    await clearEvidenceFor('msg91', 'sms');
     await attempt({ provider: 'msg91', channel: 'sms', sendKind: SendKind.TEST, accept: true });
     const report = await certifier(INDIA_CONFIGURED).forMarket('IN');
     const sms = report.channels.find((c) => c.channel === 'sms')!;

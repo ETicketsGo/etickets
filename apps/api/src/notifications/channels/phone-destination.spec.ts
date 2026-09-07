@@ -30,7 +30,10 @@ function msg(over: Partial<RenderedNotification> = {}): RenderedNotification {
     locale: 'en',
     subject: 'S',
     body: 'Your show is cancelled',
-    payload: {},
+    // BOOKING_CANCELLED's contract requires a reference. This suite is about which NUMBER a
+    // message goes to, but the channel now refuses an incomplete message before it routes
+    // one -- so the fixture has to be a message the platform would actually send.
+    payload: { reference: 'ETG-IND-2026-000123' },
     userId: 'u1',
     ...over,
   };

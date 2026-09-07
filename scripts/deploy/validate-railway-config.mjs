@@ -257,6 +257,41 @@ const REQUIRED_VARS = [
   'PAYMENT_PROVIDER_NAME',
 ];
 
+/**
+ * Notification variables every environment template must DECLARE.
+ *
+ * Declared, not set to anything real: a commented placeholder counts, and that is the point.
+ * The failure this prevents is silent and expensive — a deployment brought up without ever
+ * having been shown that India needs a DLT header, or that Twilio signs the callback URL, or
+ * that SES publishes no events at all without a configuration set. Every one of those looks
+ * like everything working until a customer says their ticket never arrived.
+ */
+const NOTIFICATION_VARS = [
+  'NOTIFICATION_MARKETS',
+  'SMS_PROVIDER',
+  'WHATSAPP_PROVIDER',
+  'EMAIL_PROVIDER',
+  'PUSH_PROVIDER',
+  'NOTIFICATION_REMINDERS_ENABLED',
+  'WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED',
+];
+
+/**
+ * Keys that must at least be MENTIONED, even commented out.
+ *
+ * These are the ones whose absence is invisible rather than loud. Nothing errors without
+ * them; the platform simply never hears back from a provider, or never sends in a market.
+ */
+const NOTIFICATION_DOCUMENTED = [
+  'SMS_PROVIDER_BY_MARKET',
+  'WHATSAPP_PROVIDER_BY_MARKET',
+  'NOTIFICATION_TEMPLATE_BINDINGS',
+  'SES_CONFIGURATION_SET',
+  'WHATSAPP_VERIFY_TOKEN',
+  'DLT_PRINCIPAL_ENTITY_ID',
+  'PUBLIC_API_URL',
+];
+
 const ENV_TEMPLATES = [
   { file: 'qa.env.example', appEnv: 'QA', allowDummyGateway: true, envSecretsAllowed: true },
   // UAT may never hold a live key, so the env backend is permitted there. See
@@ -296,6 +331,15 @@ function validateEnvTemplate(tpl) {
 
   const text = readFileSync(path, 'utf8');
   const vars = parseEnvTemplate(text);
+
+  for (const key of NOTIFICATION_VARS) {
+    check(vars.has(key), where, `notification variable ${key} is not set`);
+  }
+  for (const key of NOTIFICATION_DOCUMENTED) {
+    // Mentioned anywhere in the file, commented or not. A template that never names
+    // SES_CONFIGURATION_SET is a deployment nobody will think to set it in.
+    check(text.includes(key), where, `notification variable ${key} is not documented`);
+  }
 
   for (const p of SECRET_PATTERNS) {
     const hit = text.match(p.re);
@@ -468,7 +512,10 @@ function validateDestructiveSurfaces() {
   //    allowlist that grows to include PRODUCTION, silently removes the protection.
   const guardPath = join(ROOT, 'apps/api/prisma/destructive-guard.ts');
   if (!existsSync(guardPath)) {
-    fail(where, 'apps/api/prisma/destructive-guard.ts is missing — nothing gates the destructive seed');
+    fail(
+      where,
+      'apps/api/prisma/destructive-guard.ts is missing — nothing gates the destructive seed',
+    );
   } else {
     const guard = readFileSync(guardPath, 'utf8');
     const allow = guard.match(/const RESETTABLE = \[([^\]]*)\]/);
@@ -491,7 +538,11 @@ function validateDestructiveSurfaces() {
     ['apps/api/prisma/db-reset.ts', 'assertDestructiveResetAllowed'],
   ]) {
     const p = join(ROOT, file);
-    check(existsSync(p) && readFileSync(p, 'utf8').includes(fn), where, `${file} does not call ${fn}()`);
+    check(
+      existsSync(p) && readFileSync(p, 'utf8').includes(fn),
+      where,
+      `${file} does not call ${fn}()`,
+    );
   }
 
   // 4. The destructive path must take a recovery point first, with no way past it.

@@ -182,3 +182,41 @@ export function routeNotificationProvider(ctx: NotificationRouteContext): Notifi
   }
   return { ok: false, refusal: 'ambiguous_market', market: null };
 }
+
+/**
+ * The markets this platform is deliberately sending notifications into.
+ *
+ * -- WHY MARKET ENABLEMENT IS SEPARATE FROM PROVIDER ROUTING ------------------------
+ * `SMS_PROVIDER_BY_MARKET` answers "who carries a message to India". It cannot answer "are
+ * we launched in India", and the two were being conflated: readiness reported a hardcoded
+ * IN/US/CA and marked the whole platform not-ready because Canada had no MSG91 templates --
+ * for a Canada nobody had decided to launch. An operator reading that report cannot tell a
+ * real blocker from a market that is not open yet, which makes the report worth ignoring.
+ *
+ * Enablement is therefore its own statement. A disabled market demands no credentials, no
+ * templates and no rates, and contributes nothing to whether the platform is ready. An
+ * enabled market must be completely configured, and says so loudly when it is not.
+ *
+ * -- WHY ONE LIST AND NOT ONE FLAG PER COUNTRY --------------------------------------
+ * `NOTIFICATIONS_INDIA_ENABLED`, `NOTIFICATIONS_US_ENABLED` and so on would need a new
+ * environment key, a new schema entry and a deploy for every country the platform ever
+ * enters, and the full picture would never be visible in one value. The rest of this
+ * subsystem already answers market questions with a comma list for exactly that reason.
+ */
+export function parseEnabledMarkets(
+  raw: string | null | undefined,
+  fallback: readonly string[] = ['IN', 'US', 'CA'],
+): string[] {
+  const parsed = (raw ?? '')
+    .split(',')
+    .map((entry) => normaliseMarket(entry))
+    .filter((m): m is string => Boolean(m));
+  /*
+    An unset value keeps the markets this platform already reported on, so adding the key
+    changes nothing by itself. An explicitly EMPTY value is a real answer -- "no market is
+    open" -- and is honoured, because a deployment that runs migrations before launch needs
+    to be able to say that without being handed three markets it never asked for.
+  */
+  if (raw === undefined || raw === null || raw.trim() === '') return [...fallback];
+  return [...new Set(parsed)];
+}
