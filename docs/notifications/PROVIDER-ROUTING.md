@@ -166,3 +166,98 @@ With two SMS providers live, `provider` is what turns "messages stopped" into "M
 
 Destinations are masked in logs to their calling code and last two digits (`+91***10`). The
 MSG91 auth key travels in a header and never appears in a log line or an error message.
+
+---
+
+## Delivery receipts (Phase 2)
+
+Full reasoning in [ADR-046](../adr/ADR-046-notification-delivery-receipts.md).
+
+### What each provider can actually tell us
+
+| Provider            | Send     | Provider ID captured | Delivery callback                         | Webhook built | Signature verification                               | Status mapped    |
+| ------------------- | -------- | -------------------- | ----------------------------------------- | ------------- | ---------------------------------------------------- | ---------------- |
+| SES                 | ✅       | ✅ `MessageId`       | ✅ Delivery / Bounce / Complaint, via SNS | ✅            | ⚠️ shared-secret path, **not** the SNS RSA signature | ✅               |
+| SendGrid            | ✅       | ✅ `x-message-id`    | ✅ Event Webhook                          | ❌            | —                                                    | ✅ mapping ready |
+| Twilio SMS          | ✅       | ✅ `sid`             | ✅ StatusCallback                         | ✅            | ✅ HMAC-SHA1 over URL + sorted fields                | ✅               |
+| Meta WhatsApp Cloud | ✅       | ✅ `messages[0].id`  | ✅ `statuses[]`                           | ✅            | ✅ HMAC-SHA256 over the raw body                     | ✅               |
+| MSG91 SMS           | ✅       | ✅ request id        | ✅ delivery report                        | ✅            | ⚠️ shared-secret path — **MSG91 publishes none**     | ✅               |
+| MSG91 WhatsApp      | ✅       | ✅ `request_id`      | ✅                                        | ✅            | ⚠️ same                                              | ✅               |
+| FCM                 | ✅       | ✅ message name      | ❌ **none exists** (BigQuery export only) | n/a           | n/a                                                  | n/a              |
+| Expo                | ✅       | ✅ ticket id         | ⚠️ receipts API is **pull**, not push     | ❌            | n/a                                                  | n/a              |
+| VAPID Web Push      | log-only | ❌                   | ❌ HTTP status only                       | n/a           | n/a                                                  | n/a              |
+
+**Push stops at ACCEPTED and always will.** Neither FCM nor Web Push has a per-message
+delivery callback. That is a property of the channel, not a gap in this work.
+
+### Endpoints
+
+```
+POST /api/notifications/webhooks/twilio            X-Twilio-Signature
+POST /api/notifications/webhooks/whatsapp/cloud    X-Hub-Signature-256
+POST /api/notifications/webhooks/msg91/:secret     shared secret in the path
+POST /api/notifications/webhooks/ses/:secret       shared secret in the path (SNS)
+```
+
+### Configuration
+
+```bash
+PUBLIC_API_URL=https://api.eticketsgo.com   # part of what Twilio signs — cannot be inferred
+WHATSAPP_APP_SECRET=...                     # Meta app secret
+MSG91_WEBHOOK_SECRET=<32+ random chars>
+SES_WEBHOOK_SECRET=<32+ random chars>
+```
+
+### EXTERNAL SETUP REQUIRED
+
+**Twilio** — set the Status Callback URL on the messaging service or per message.
+
+**Meta** — subscribe the app to the `messages` webhook field and point the callback at the
+endpoint above; the app secret must match `WHATSAPP_APP_SECRET`.
+
+**MSG91** — register the delivery-report URL, including the secret, in their dashboard. There
+is no signature to configure because they do not offer one.
+
+**SES** — this is the one with real AWS work:
+
+1. Create an SES **configuration set** and attach it to the sending identity.
+2. Add an **event destination** on that configuration set publishing `Delivery`, `Bounce` and
+   `Complaint` to an **SNS topic**.
+3. Subscribe the topic to `https://<api>/api/notifications/webhooks/ses/<SES_WEBHOOK_SECRET>`.
+4. **Confirm the subscription deliberately, in the AWS console.** The endpoint logs the
+   confirmation and does not auto-confirm — an endpoint that confirms whatever it is offered
+   will attach itself to any topic anybody points at it.
+5. Optionally restrict the topic's subscription policy to that endpoint.
+
+None of this is faked in tests. The receiver and normalizer are covered; the AWS side is not
+provisioned from here.
+
+### Operator surface
+
+```
+GET  /api/admin/notifications?reference=&type=&channel=&provider=&status=&from=&to=
+GET  /api/admin/notifications/health?hours=24
+GET  /api/admin/notifications/suppressions
+GET  /api/admin/notifications/:id
+POST /api/admin/notifications/:id/resend                 PLATFORM_CONFIG, audited
+POST /api/admin/notifications/suppressions/:id/lift      PLATFORM_CONFIG, audited
+```
+
+Reads need `OPS_READ`; the two mutating routes need `PLATFORM_CONFIG`. Recipients are masked
+and payloads are reduced to identifiers — diagnosing a delivery does not require reading
+somebody's ticket. **There is no admin UI yet**; this is the backend surface.
+
+### The guarantee, stated plainly
+
+| Layer                          | Guarantee                                               |
+| ------------------------------ | ------------------------------------------------------- |
+| Notification intent creation   | **exactly once** (unique `dedupeKey`)                   |
+| Worker execution               | **at least once**                                       |
+| Provider receiving the message | **at least once, at best**                              |
+| Webhook event application      | **exactly once** (unique `(provider, providerEventId)`) |
+
+No provider in the launch matrix accepts an idempotency key on a send, so a crash between the
+provider call and the local write means the retry is a genuinely new message to them. The
+attempt row is written as `ATTEMPTING` _before_ the call so the ambiguity is visible rather
+than silent. **This platform does not claim exactly-once delivery and should not be described
+as offering it.**

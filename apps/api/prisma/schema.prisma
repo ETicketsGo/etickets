@@ -2144,6 +2144,8 @@ model Notification {
   readAt       DateTime?
   createdAt    DateTime         @default(now())
 
+  deliveries NotificationDelivery[]
+
   @@index([userId])
   @@index([type])
   @@index([status, scheduledFor])
@@ -2154,6 +2156,123 @@ model Notification {
 }
 
 // Per-user opt-out for a (type, channel). Absence of a row = enabled.
+/// One attempt to hand a notification to a provider, and everything the provider said back.
+///
+/// ── WHY THIS IS NOT A COLUMN ON Notification ──────────────────────────────────────
+/// Phase 1 put `provider` and `providerMessageId` on the Notification and deliberately went
+/// no further, because with one attempt per row there was nothing more to model. Delivery
+/// receipts changed that in two ways at once.
+///
+/// A notification is retried. Each attempt gets its OWN provider message id, and a webhook
+/// arriving forty seconds later correlates on that id -- so a single column loses the first
+/// attempt's identity the moment a second one is made, and a late callback about attempt one
+/// would either be dropped as unknown or, worse, applied to attempt two.
+///
+/// And the states diverge. The intent can be SENT while the attempt that carried it BOUNCED.
+/// Those are different facts about different things, and squeezing them into one column
+/// means the row can only ever tell you the more recent one.
+///
+/// ── WHAT IS DELIBERATELY NOT DUPLICATED HERE ──────────────────────────────────────
+/// The recipient, the payload, the template, the locale, the tenant, the booking. All of it
+/// is on the Notification and is reachable through `notificationId`. Copying any of it would
+/// create a second place for a customer's email address to live and a second place for it to
+/// be wrong.
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  /// Which provider carried this attempt: ses, twilio, msg91, cloud, expo, log.
+  provider String
+  /// Denormalised from the notification ONLY because every operational query filters on it
+  /// and a provider-health query should not need a join to answer "how is SMS doing".
+  channel  String
+  /// 1 for the first attempt. Unique per notification, so a retry cannot collide with itself.
+  attemptNumber Int
+
+  /// The provider's own reference. Null until the provider answers -- and on a crash between
+  /// the send and this write, null is the honest record of "we do not know", which is what
+  /// makes the ambiguity visible instead of silent.
+  providerMessageId String?
+
+  /// The normalized lifecycle state. See DeliveryState in shared-types.
+  status String @default("PENDING")
+  /// The provider's own word for it, kept verbatim. A status this platform does not
+  /// recognise leaves `status` alone and is preserved here for a human to read.
+  providerStatus String?
+  /// The provider's error code, which is what separates "the number is dead" from "the
+  /// handset was off". Never a message body.
+  failureCode   String?
+  /// A short provider-supplied reason. Never contains the message or the destination.
+  failureReason String?
+
+  attemptedAt DateTime  @default(now())
+  acceptedAt  DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([notificationId, attemptNumber])
+  /// The correlation a webhook arrives with. Not unique: `log` and any provider that
+  /// reuses references must not be able to break ingestion, and the handler resolves
+  /// ambiguity rather than the database refusing the write.
+  @@index([provider, providerMessageId])
+  @@index([status, createdAt])
+  @@index([provider, channel, createdAt])
+}
+
+/// A destination that must not be sent to again.
+///
+/// ── WHY THIS IS NOT MarketingConsent ──────────────────────────────────────────────
+/// They answer different questions and confusing them breaks the platform in both
+/// directions. Consent asks "may we send this person promotional material", and its absence
+/// correctly blocks marketing while never touching a ticket. Suppression asks "is this
+/// destination usable at all", and it must stop TRANSACTIONAL mail too -- continuing to
+/// email an address that hard-bounces is what gets a sending domain throttled by SES.
+///
+/// Answering one with the other would either suppress somebody's ticket because they opted
+/// out of newsletters, or keep emailing a dead mailbox because they never opted out.
+///
+/// ── WHY IT IS PER CHANNEL ─────────────────────────────────────────────────────────
+/// A dead mailbox says nothing about a phone. Suppression is a fact about one destination on
+/// one channel, and a bounce must never silence the channels that still work.
+///
+/// ── WHY THE DESTINATION IS HASHED ─────────────────────────────────────────────────
+/// The only operation this table performs is "is this destination suppressed", which a hash
+/// answers exactly as well as plaintext. Storing the address instead would create a list of
+/// customer emails and phone numbers whose entire purpose is to be read on every send --
+/// and it would be the one table where a leak is a list of real, verified contact details.
+model SuppressedDestination {
+  id      String @id @default(cuid())
+  /// email | sms | whatsapp | push
+  channel String
+  /// SHA-256 of the normalized destination. Lower-cased email, or E.164 digits.
+  destinationHash String
+  /// Enough of the destination to recognise in a support conversation, never enough to use.
+  destinationMask String
+
+  /// HARD_BOUNCE | COMPLAINT | UNSUBSCRIBED | INVALID_DESTINATION | BLOCKED_BY_PROVIDER
+  reason   String
+  /// Which provider reported it, when one did.
+  provider String?
+  /// The delivery attempt this came from, for tracing it back to the event.
+  sourceDeliveryId String?
+
+  suppressedAt DateTime  @default(now())
+  /// Set only for reasons that genuinely expire. A hard bounce does not.
+  expiresAt    DateTime?
+  /// An operator lifting a suppression -- audited, and never a delete, so the history of why
+  /// a destination was blocked survives the decision to unblock it.
+  liftedAt     DateTime?
+  liftedBy     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([channel, destinationHash])
+  @@index([reason, suppressedAt])
+}
+
 model NotificationPreference {
   id        String           @id @default(cuid())
   userId    String

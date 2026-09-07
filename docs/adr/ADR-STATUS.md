@@ -34,6 +34,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 043 | Booking compensation and financial recovery                                     |
 | 044 | Session seating is a setting until the first commitment                         |
 | 045 | Market-aware notification provider routing (supersedes ADR-020's provider note) |
+| 046 | Notification delivery receipts, suppression and idempotency limits              |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

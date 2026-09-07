@@ -17,6 +17,9 @@ import { isCritical, permittedChannels } from './policy/channel-policy';
 import { dedupeKeyFor } from './policy/dedupe-key';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
+import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
+import { SuppressionService } from './delivery/suppression.service';
+import { resolvePhoneDestination } from './channels/phone-destination';
 
 /**
  * Input to {@link NotificationService.send}. `channels` and `locale` are
@@ -71,6 +74,13 @@ export class NotificationService {
     private readonly channels: NotificationChannelRegistry,
     private readonly consent: MarketingConsentService,
     private readonly metrics?: MetricsService,
+    /*
+      Optional so the twenty-odd suites that construct this service directly keep working.
+      Without them delivery still happens and is still truthful -- it simply is not recorded
+      per attempt and nothing is suppressed, which is exactly the Phase 1 behaviour.
+    */
+    private readonly deliveries?: DeliveryRecorderService,
+    private readonly suppression?: SuppressionService,
   ) {}
 
   /**
@@ -417,6 +427,7 @@ export class NotificationService {
     for (const row of due) {
       const key = row.channel as ChannelKey;
       const channel = this.channels.resolve(row.channel);
+      let deliveryId: string | null = null;
       try {
         if (!channel) throw new Error(`Unknown channel "${row.channel}"`);
         const rendered = this.renderFor(
@@ -429,7 +440,51 @@ export class NotificationService {
           key,
           row.locale,
         );
+
+        /*
+          Is this destination still usable?
+
+          Checked here rather than at enqueue because a destination can go bad between the
+          two -- a booking confirmed on Monday and a reminder queued for Friday, with a hard
+          bounce in between. Suppression is about whether the address WORKS, so unlike
+          consent it stops transactional messages too: continuing to email an address that
+          hard-bounces is what gets a sending domain throttled by SES.
+        */
+        const suppressed = await this.isSuppressed(key, rendered);
+        if (suppressed) {
+          await this.prisma.notification.update({
+            where: { id: row.id },
+            data: { status: 'FAILED', lastError: 'destination_suppressed' },
+          });
+          summary.failed += 1;
+          this.metrics?.recordNotification(key, 'none', 'suppressed');
+          continue;
+        }
+
+        /*
+          The attempt is opened BEFORE the provider is called, and that order is the whole
+          point. Written afterwards, a crash mid-call leaves no trace and the next sweep
+          sends again believing it is the first attempt. Written first, an ATTEMPTING row is
+          the honest record of "we do not know whether this went out".
+        */
+        deliveryId = await this.openAttempt(row.id, key, row.attempts + 1);
+
         const outcome = await channel.deliver(rendered);
+        if (deliveryId) {
+          if (outcome.skipped) {
+            await this.deliveries?.skipped(
+              deliveryId,
+              outcome.provider,
+              outcome.reason ?? 'skipped',
+            );
+          } else {
+            await this.deliveries?.accepted(
+              deliveryId,
+              outcome.provider,
+              outcome.providerMessageId ?? null,
+            );
+          }
+        }
         await this.prisma.notification.update({
           where: { id: row.id },
           data: {
@@ -451,6 +506,11 @@ export class NotificationService {
         );
       } catch (err) {
         const attempts = row.attempts + 1;
+        if (deliveryId) {
+          await this.deliveries
+            ?.failed(deliveryId, 'none', err instanceof Error ? err.message : String(err))
+            .catch(() => undefined);
+        }
         // A provider that says "never" is believed the first time.
         const permanent = err instanceof TransportError && !err.retryable;
         const failed = permanent || attempts >= maxAttempts;
@@ -476,6 +536,40 @@ export class NotificationService {
       }
     }
     return summary;
+  }
+
+  /**
+   * Whether the destination this message is going to has been blocked.
+   *
+   * Email reads the recipient off the row. SMS and WhatsApp have to resolve the number the
+   * same way the channel will -- from the recipient's own account -- because that is the
+   * destination that will actually be dialled, and checking anything else would check an
+   * address the message is not going to.
+   *
+   * Push is not checked: a device token is not a destination somebody can bounce or opt out
+   * of, and a dead token is handled by the transport unregistering it.
+   */
+  private async isSuppressed(
+    channel: ChannelKey,
+    rendered: RenderedNotification,
+  ): Promise<boolean> {
+    if (!this.suppression) return false;
+    if (channel === 'email') return this.suppression.isSuppressed('email', rendered.toEmail);
+    if (channel !== 'sms' && channel !== 'whatsapp') return false;
+    const addressed = await resolvePhoneDestination(rendered, this.prisma);
+    return this.suppression.isSuppressed(channel, addressed.destination);
+  }
+
+  /** Open a delivery attempt, tolerating the recorder being absent in unit fixtures. */
+  private async openAttempt(
+    notificationId: string,
+    channel: ChannelKey,
+    attemptNumber: number,
+  ): Promise<string | null> {
+    if (!this.deliveries) return null;
+    return this.deliveries
+      .open({ notificationId, provider: 'pending', channel, attemptNumber })
+      .catch(() => null);
   }
 
   /** Resolves the effective channel keys for an input, applying preferences. */

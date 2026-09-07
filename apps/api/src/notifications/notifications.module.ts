@@ -12,6 +12,12 @@ import { NotificationTemplateService } from './templates/notification-template.s
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
 import { NotificationProviderResolver } from './channels/notification-provider.resolver';
+import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
+import { SuppressionService } from './delivery/suppression.service';
+import { NotificationOpsService } from './delivery/notification-ops.service';
+import { NotificationOpsController } from './delivery/notification-ops.controller';
+import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.service';
+import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
@@ -27,7 +33,13 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
 
 @Global()
 @Module({
-  controllers: [NotificationsController, WebPushController, MarketingConsentController],
+  controllers: [
+    NotificationsController,
+    WebPushController,
+    MarketingConsentController,
+    NotificationOpsController,
+    DeliveryWebhookController,
+  ],
   providers: [
     WebPushService,
     { provide: WEB_PUSH_DISPATCHER, inject: [ConfigService], useFactory: selectWebPushDispatcher },
@@ -38,6 +50,11 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationPreferencesService,
     NotificationChannelRegistry,
     NotificationProviderResolver,
+    // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
+    SuppressionService,
+    DeliveryRecorderService,
+    DeliveryWebhookService,
+    NotificationOpsService,
     EmailChannel,
     SmsChannel,
     WhatsAppChannel,
@@ -67,6 +84,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationPreferencesService,
     AdminAudienceService,
     MarketingConsentService,
+    SuppressionService,
+    DeliveryRecorderService,
   ],
 })
 export class NotificationsModule {}

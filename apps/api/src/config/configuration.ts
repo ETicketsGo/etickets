@@ -565,6 +565,35 @@ const envSchema = z.object({
   MSG91_WHATSAPP_TEMPLATE: z.string().optional(),
   MSG91_WHATSAPP_LANGUAGE: z.string().optional(),
 
+  /*
+    -- Delivery callbacks (ADR-046) ----------------------------------------------------
+    Every one of these endpoints can SUPPRESS a destination, which is a way to stop somebody
+    receiving their tickets -- so none of them accepts an event it cannot attribute to the
+    provider that claims to have sent it.
+
+    Twilio and Meta publish signing schemes and are verified properly (HMAC-SHA1 over the URL
+    plus sorted fields, and HMAC-SHA256 over the raw body). MSG91 publishes none, and SES
+    signs through SNS with a certificate-fetch scheme that is worse than useless when
+    half-implemented; both therefore authenticate with a secret in the callback URL, which
+    authenticates the CALLER and not the body. That is weaker, it is written down as weaker,
+    and it is the strongest thing those two providers actually offer a dashboard-registered
+    callback.
+  */
+  /** Meta app secret, for X-Hub-Signature-256 on WhatsApp status callbacks. */
+  WHATSAPP_APP_SECRET: z.string().optional(),
+  /** Random path secret embedded in the MSG91 delivery-report URL. */
+  MSG91_WEBHOOK_SECRET: z.string().optional(),
+  /** Random path secret embedded in the SNS subscription endpoint for SES events. */
+  SES_WEBHOOK_SECRET: z.string().optional(),
+  /*
+    The PUBLIC base URL of this API, which is part of what Twilio signs.
+
+    Not inferable: behind a load balancer Express reconstructs the internal host, and the
+    signature then never matches -- an entire provider's callbacks silently rejected, with a
+    401 that looks exactly like an attack. Same reasoning as SQUARE_WEBHOOK_URL above.
+  */
+  PUBLIC_API_URL: z.string().optional(),
+
   // --- Push (recipient = payload.pushToken / payload.pushTokens) ---
   /*
     `expo` is the transport that matches what the MOBILE APP registers.

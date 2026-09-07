@@ -28,6 +28,8 @@ export class MetricsService {
   private readonly paymentWebhooks: Counter<'provider' | 'result'>;
   private readonly paymentReconciliations: Counter<'result'>;
   private readonly notifications: Counter<'channel' | 'provider' | 'result'>;
+  private readonly notificationDeliveries: Counter<'channel' | 'provider' | 'state'>;
+  private readonly notificationWebhooks: Counter<'provider' | 'result'>;
   private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
   private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
   private readonly inventoryLockOps: Counter<'op' | 'outcome'>;
@@ -168,6 +170,29 @@ export class MetricsService {
       name: 'etg_notifications_total',
       help: 'Notification delivery attempts, by channel, provider and outcome.',
       labelNames: ['channel', 'provider', 'result'],
+      registers: [this.registry],
+    });
+    /*
+      What the PROVIDER said, as distinct from what this platform did. `etg_notifications_total`
+      counts sends; this counts outcomes, and the gap between accepted and delivered is the
+      number that matters -- it is the one that was invisible when a row went to SENT the
+      moment SES returned an id.
+    */
+    this.notificationDeliveries = new Counter({
+      name: 'etg_notification_deliveries_total',
+      help: 'Provider-reported delivery outcomes, by channel, provider and normalized state.',
+      labelNames: ['channel', 'provider', 'state'],
+      registers: [this.registry],
+    });
+    /*
+      Webhook processing health. `unknown_message` and `signature_invalid` are the two worth
+      alerting on: a flood of the first means correlation is broken, and any of the second
+      means somebody is posting unsigned events at a public endpoint.
+    */
+    this.notificationWebhooks = new Counter({
+      name: 'etg_notification_webhooks_total',
+      help: 'Notification delivery webhooks, by provider and processing result.',
+      labelNames: ['provider', 'result'],
       registers: [this.registry],
     });
     this.domainEventsPublished = new Counter({
@@ -532,6 +557,23 @@ export class MetricsService {
    */
   recordNotification(channel: string, provider: string, result: string): void {
     this.safe(() => this.notifications.inc({ channel, provider, result }));
+  }
+
+  /** One provider-reported outcome: accepted | delivered | bounced | undelivered | … */
+  recordNotificationDelivery(provider: string, channel: string, state: string): void {
+    this.safe(() => this.notificationDeliveries.inc({ provider, channel, state }));
+  }
+
+  /**
+   * One webhook: accepted | duplicate | unknown_message | out_of_order | signature_invalid |
+   * malformed.
+   *
+   * Deliberately carries no message id, destination or user: a metric label is a cartesian
+   * dimension, and putting an identifier in one both leaks it into every scrape and explodes
+   * the series count.
+   */
+  recordNotificationWebhook(provider: string, result: string): void {
+    this.safe(() => this.notificationWebhooks.inc({ provider, result }));
   }
 
   recordDomainEventPublished(eventType: string, result: string): void {
