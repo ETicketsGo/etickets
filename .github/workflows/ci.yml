@@ -131,7 +131,18 @@ jobs:
       # asked whether Nest could build the graph. This runs that question on its own so a
       # failure says "the app cannot start" rather than being one line inside a long log.
       - name: Application boots (module graph resolves)
-        run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand
+        # --forceExit, and what it does NOT hide.
+        #
+        # The assertion is "Nest can build the graph", and it has completed and passed by the
+        # time this matters: Jest prints "1 passed" and then never exits. Under --runInBand the
+        # main process must exit itself, and the fully-constructed app holds handles that
+        # survive moduleRef.close() -- --detectOpenHandles attributes none of them, and the
+        # same spec exits cleanly inside `npm run test`, where Jest tears its workers down.
+        #
+        # So this masks a real teardown leak and nothing about the check itself. Without it the
+        # step hangs until the job limit, which is what it did the first time CI ever got far
+        # enough to run it -- the seed failure above had hidden this step for weeks.
+        run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand --forceExit
 
       - name: Unit tests
         run: npm run test
