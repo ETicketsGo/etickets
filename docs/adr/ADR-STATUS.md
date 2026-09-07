@@ -35,6 +35,7 @@ decisions were made and implemented; only the formal ADR document is outstanding
 | 044 | Session seating is a setting until the first commitment                         |
 | 045 | Market-aware notification provider routing (supersedes ADR-020's provider note) |
 | 046 | Notification delivery receipts, suppression and idempotency limits              |
+| 047 | Notification policy, consent and controlled cross-channel fallback              |
 
 ## Referenced in code/docs but not yet written up (024–035)
 

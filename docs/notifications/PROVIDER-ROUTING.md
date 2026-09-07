@@ -131,6 +131,13 @@ SMS is allowed for exactly one thing: a cancelled booking. It is time-critical, 
 difference between somebody travelling to a closed venue or not, and it is the only channel
 that reaches a phone with no app, no data and no email set up.
 
+**And since [ADR-047](../adr/ADR-047-notification-policy-and-fallback.md) it is not sent
+immediately.** SMS is the cancellation's FALLBACK: it opens 30 minutes later, once, and only
+if none of WhatsApp, push or email got through. Sending it alongside the others would mean four
+messages about one cancellation and a bill for the one the customer was least likely to need. A
+push the provider accepted counts as having got through, because neither FCM nor Web Push can
+report delivery and treating that silence as failure would text everybody with the app.
+
 Sign-in codes are not in this table. Phone OTP bypasses `NotificationService` entirely so a
 live credential is never written to a queryable `Notification.payload`, and it is SMS-only.
 WhatsApp OTP fallback is **not** implemented: making it safe means deciding what happens when

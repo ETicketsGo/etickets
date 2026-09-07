@@ -583,6 +583,20 @@ const envSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().optional(),
   /** Random path secret embedded in the MSG91 delivery-report URL. */
   MSG91_WEBHOOK_SECRET: z.string().optional(),
+  /*
+    Whether WhatsApp needs an affirmative opt-in before it may carry a TRANSACTIONAL message.
+
+    A different question from marketing consent, and kept separate from it: somebody who
+    opted out of offers has not asked to stop receiving their tickets. OFF by default, and
+    that default matters -- turning it on before the opt-in has been COLLECTED would stop
+    every existing customer's WhatsApp overnight, because absence of a consent record
+    correctly means no, and applying that retroactively to people who were never asked is not
+    compliance, it is an outage.
+
+    When on, a missing opt-in removes the WhatsApp channel and nothing else. Email and push
+    are untouched, and the notification still goes.
+  */
+  WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED: z.string().optional(),
   /** Random path secret embedded in the SNS subscription endpoint for SES events. */
   SES_WEBHOOK_SECRET: z.string().optional(),
   /*

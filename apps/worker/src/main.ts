@@ -12,6 +12,7 @@ import {
   EventsService,
   FinanceReconciliationService,
   NotificationService,
+  NotificationFallbackService,
   PrismaService,
   RazorpayWebhookProcessor,
   SeatOverridesService,
@@ -50,6 +51,14 @@ const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
 const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 5_000);
 const NOTIFICATION_SWEEP_MS =
   Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 5_000;
+/*
+  A minute, not five seconds. The fallback sweep asks whether enough TIME has passed with
+  nothing effective; running it at the dispatch cadence would ask that question hundreds of
+  times per answer, and the answer cannot change faster than the wait it is measuring.
+*/
+const RAW_FALLBACK_MS = Number(process.env.NOTIFICATION_FALLBACK_INTERVAL_MS ?? 60_000);
+const FALLBACK_SWEEP_MS =
+  Number.isFinite(RAW_FALLBACK_MS) && RAW_FALLBACK_MS > 0 ? RAW_FALLBACK_MS : 60_000;
 const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
 const QUEUE_METRICS_MS =
   Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
@@ -124,6 +133,7 @@ async function main(): Promise<void> {
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
+  const fallbacks = app.get(NotificationFallbackService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
@@ -176,6 +186,22 @@ async function main(): Promise<void> {
     {
       repeat: { every: NOTIFICATION_SWEEP_MS },
       jobId: 'dispatch-notifications',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Cross-channel fallback: a cancelled show whose preferred channels produced nothing gets
+  // an SMS, once, after the wait its policy declares. Idempotent -- the fallback is created
+  // through the ordinary send path and its intent key makes a second sweep a no-op.
+  await queue.add(
+    'notification-fallbacks',
+    {},
+    {
+      repeat: { every: FALLBACK_SWEEP_MS },
+      jobId: 'notification-fallbacks',
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
@@ -293,6 +319,17 @@ async function main(): Promise<void> {
         if (summary.sent + summary.failed + summary.retried > 0) {
           log('info', 'dispatched scheduled notifications', { ...summary });
         }
+        return summary;
+      }
+      if (job.name === 'notification-fallbacks') {
+        /*
+          Opens a paid channel only where the free ones produced nothing after the wait the
+          event declares. It runs on its own, slower schedule because it is asking a question
+          about time having passed -- checking every five seconds would answer "no" several
+          hundred times for every time it answers "yes".
+        */
+        const summary = await fallbacks.runDue();
+        if (summary.opened > 0) log('info', 'opened notification fallbacks', { ...summary });
         return summary;
       }
       if (job.name === 'outbox-dispatch') {

@@ -2140,6 +2140,13 @@ model Notification {
   /// may legitimately repeat, and Postgres permits any number of nulls in a unique index —
   /// so this suppresses redelivery without suppressing a real second message.
   dedupeKey         String?          @unique
+  /// The same identity WITHOUT the channel: what ties the email, the push and the WhatsApp
+  /// message about one cancelled booking together.
+  ///
+  /// Needed because a fallback has to ask a question about siblings — "did ANY of the
+  /// preferred channels get through" — and `dedupeKey` deliberately differs per channel, so
+  /// it cannot answer it. Not unique: several rows share it, which is the point.
+  intentKey         String?
   // Read state for the in-app notification center (v1.2 WS8); null = unread.
   readAt       DateTime?
   createdAt    DateTime         @default(now())
@@ -2150,6 +2157,8 @@ model Notification {
   @@index([type])
   @@index([status, scheduledFor])
   @@index([userId, channel, readAt])
+  /// Serves the fallback sweep, which asks for the siblings of one intent.
+  @@index([intentKey])
   // Serves the inbox cursor + `ORDER BY createdAt DESC` (v2.1 audit); the readAt
   // composite above only serves the unread-count/mark-all path.
   @@index([userId, channel, createdAt])
@@ -2209,6 +2218,12 @@ model NotificationDelivery {
   attemptedAt DateTime  @default(now())
   acceptedAt  DateTime?
   deliveredAt DateTime?
+  /// When the recipient opened it. WhatsApp is the only channel that can prove this.
+  ///
+  /// Its own column because a read is not a delivery. Writing the read time into
+  /// `deliveredAt` -- which is what happened before -- overwrote the fact of delivery with a
+  /// later fact about the same message, so the moment it actually arrived was lost.
+  readAt      DateTime?
   failedAt    DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

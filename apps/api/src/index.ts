@@ -6,6 +6,7 @@ export { LocalBookingOrchestrator } from './bookings/orchestration/local-booking
 export { EventsService } from './events/events.service';
 export { PrismaService } from './prisma/prisma.service';
 export { NotificationService } from './notifications/notification.service';
+export { NotificationFallbackService } from './notifications/policy/fallback.service';
 export { AuthService } from './auth/auth.service';
 export { FinanceReconciliationService } from './payments/finance/finance-reconciliation.service';
 export { StripeWebhookProcessor } from './payments/webhooks/stripe/stripe-webhook.processor';

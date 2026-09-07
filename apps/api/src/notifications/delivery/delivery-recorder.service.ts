@@ -151,7 +151,7 @@ export class DeliveryRecorderService {
     const delivery = await this.prisma.notificationDelivery.findFirst({
       where: { provider: input.provider, providerMessageId: input.providerMessageId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true, channel: true },
+      select: { id: true, status: true, channel: true, deliveredAt: true },
     });
 
     if (!delivery) {
@@ -181,8 +181,17 @@ export class DeliveryRecorderService {
         providerStatus: input.providerStatus ?? undefined,
         failureCode: input.failureCode ?? undefined,
         failureReason: input.failureReason?.slice(0, 500) ?? undefined,
-        deliveredAt:
-          next === DeliveryState.DELIVERED || next === DeliveryState.READ ? at : undefined,
+        /*
+          Each timestamp records ITS OWN fact, and none of them overwrites another.
+
+          `deliveredAt` previously took the read time too, so a WhatsApp message that was
+          delivered and then opened lost the moment it actually arrived -- replaced by a
+          later fact about the same message. And a DELIVERED that is later COMPLAINED must
+          keep its delivery time: `undefined` means "leave it alone" to Prisma, which is what
+          preserves the history without needing an event table to hold it.
+        */
+        deliveredAt: next === DeliveryState.DELIVERED && !delivery.deliveredAt ? at : undefined,
+        readAt: next === DeliveryState.READ ? at : undefined,
         failedAt: suppressionFor(next) || next === DeliveryState.UNDELIVERED ? at : undefined,
       },
     });

@@ -14,7 +14,8 @@ import {
 } from './message-class';
 import { ChannelKey, RenderedNotification } from './channels/notification-channel.interface';
 import { isCritical, permittedChannels } from './policy/channel-policy';
-import { dedupeKeyFor } from './policy/dedupe-key';
+import { NotificationPolicyResolver } from './policy/notification-policy.resolver';
+import { dedupeKeyFor, intentKeyFor } from './policy/dedupe-key';
 import { MetricsService } from '../metrics/metrics.service';
 import { TransportError } from './channels/transports/transport-http';
 import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
@@ -45,6 +46,16 @@ export interface NotifyInput {
    * message, and only one of them goes out.
    */
   intentKey?: string | null;
+  /**
+   * Permit the channel policy holds back as a fallback.
+   *
+   * A fallback channel is in the policy -- it has to be, before anything may use it -- but
+   * `immediateChannels` withholds it, because permitting is not scheduling. Only
+   * NotificationFallbackService sets this, after its wait has elapsed with nothing
+   * effective. Without the flag an ordinary caller cannot reach a deferred channel even by
+   * naming it, which is what stops a cancelled show sending an SMS the instant it happens.
+   */
+  allowDeferredChannel?: boolean;
 }
 
 /** Outcome counts from a scheduled-dispatch sweep. */
@@ -81,6 +92,12 @@ export class NotificationService {
     */
     private readonly deliveries?: DeliveryRecorderService,
     private readonly suppression?: SuppressionService,
+    /*
+      Optional for the same reason the two above are: a great many suites construct this
+      service directly. Without it the Phase 1 resolution runs -- policy plus preferences
+      plus marketing consent -- which is what those suites were written against.
+    */
+    private readonly policy?: NotificationPolicyResolver,
   ) {}
 
   /**
@@ -278,6 +295,11 @@ export class NotificationService {
             recipientRef: recipient.userId ?? recipient.toEmail ?? '',
             payload,
           }),
+          intentKey: intentKeyFor({
+            type: input.type,
+            recipientRef: recipient.userId ?? recipient.toEmail ?? '',
+            payload,
+          }),
         });
       }
     }
@@ -350,6 +372,14 @@ export class NotificationService {
         payload: input.payload,
         explicitIntent: input.intentKey,
       });
+      // The same identity WITHOUT the channel: what ties one intent's rows together, and the
+      // only way a fallback can ask "did ANY preferred channel get through".
+      const intentKey = intentKeyFor({
+        type: input.type,
+        recipientRef,
+        payload: input.payload,
+        explicitIntent: input.intentKey,
+      });
       const data: Prisma.NotificationCreateManyInput = {
         type: input.type,
         userId: input.userId ?? null,
@@ -360,6 +390,7 @@ export class NotificationService {
         status: state.status,
         scheduledFor: state.scheduledFor,
         dedupeKey,
+        intentKey,
       };
 
       if (!dedupeKey) {
@@ -672,6 +703,22 @@ export class NotificationService {
   }
 
   private async resolveChannelKeys(input: NotifyInput): Promise<ChannelKey[]> {
+    /*
+      One resolver answers the whole product question -- policy, then preference, then
+      consent -- and knows no provider names. Which vendor carries the resulting channel is
+      decided per message, later, from the destination.
+    */
+    if (this.policy) {
+      const resolved = await this.policy.resolve({
+        type: input.type,
+        recipient: { userId: input.userId, email: input.toEmail },
+        requested: input.channels,
+        known: (c) => this.channels.has(c),
+        allowDeferred: input.allowDeferredChannel === true,
+      });
+      return resolved.channels;
+    }
+
     /*
       Policy decides which channels this KIND of message may use; the caller may then ask for
       fewer, never more. That order is what makes fixing the SMS recipient bug safe: before

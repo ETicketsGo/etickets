@@ -44,6 +44,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const NOT_PRODUCERS = new Set(
   [
     'notifications/policy/channel-policy.ts',
+    'notifications/policy/notification-policy.ts',
     'notifications/policy/dedupe-key.ts',
     'notifications/message-class.ts',
     'notifications/templates/notification-template.service.ts',

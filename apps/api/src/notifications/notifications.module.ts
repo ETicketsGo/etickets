@@ -12,6 +12,8 @@ import { NotificationTemplateService } from './templates/notification-template.s
 import { NotificationPreferencesService } from './notification-preferences.service';
 import { NotificationChannelRegistry } from './channels/notification-channel.registry';
 import { NotificationProviderResolver } from './channels/notification-provider.resolver';
+import { NotificationPolicyResolver } from './policy/notification-policy.resolver';
+import { NotificationFallbackService } from './policy/fallback.service';
 import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { NotificationOpsService } from './delivery/notification-ops.service';
@@ -50,6 +52,9 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationPreferencesService,
     NotificationChannelRegistry,
     NotificationProviderResolver,
+    // Policy (ADR-047): which channels, for whom -- and no provider names anywhere in it.
+    NotificationPolicyResolver,
+    NotificationFallbackService,
     // Delivery receipts (ADR-046): what the provider said, as distinct from what we sent.
     SuppressionService,
     DeliveryRecorderService,
@@ -86,6 +91,9 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     MarketingConsentService,
     SuppressionService,
     DeliveryRecorderService,
+    NotificationPolicyResolver,
+    // Exported so the worker can sweep for fallbacks that are now due.
+    NotificationFallbackService,
   ],
 })
 export class NotificationsModule {}
