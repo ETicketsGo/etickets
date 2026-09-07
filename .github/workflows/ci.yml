@@ -145,7 +145,15 @@ jobs:
         run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand --forceExit
 
       - name: Unit tests
-        run: npm run test
+        # Bounded, and streamed.
+        #
+        # A hang here once burned 57 minutes of a runner before anyone stopped it, and the log
+        # showed nothing at all: turbo groups a task's output and prints it when the task
+        # finishes, so a task that never finishes prints nothing to say where it stopped.
+        # `--concurrency=1` streams each workspace live, so the last suite before a stall is in
+        # the log; `timeout-minutes` makes a stall fail in minutes rather than at the job limit.
+        timeout-minutes: 25
+        run: npm run test -- --concurrency=1
 
       - name: Build all apps
         run: npm run build
