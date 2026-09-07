@@ -111,6 +111,13 @@ jobs:
           # The reset empties every table and refuses to run without this, so that pointing a
           # seed at the wrong database takes a deliberate act rather than a default.
           SEED_ALLOW_DESTRUCTIVE: 'yes'
+          # WHICH database it is pointed at, which the guard refuses to assume.
+          #
+          # The guard allowlists LOCAL/DEV/TEST/CI/QA/UAT and refuses an unset APP_ENV
+          # outright -- "cannot tell where I am" is not a reason to empty eighty tables. CI
+          # never set it, so every run since the guard shipped has failed here, on a
+          # throwaway Postgres service container that is destroyed with the job.
+          APP_ENV: CI
         run: |
           npm run db:deploy
           npm run db:seed
