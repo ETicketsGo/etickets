@@ -802,6 +802,15 @@ export default function EventDetailPage() {
                     quote={quoteQ.data?.fees}
                     loading={quoteQ.isFetching}
                     fallbackTotalMinor={subtotal}
+                    /*
+                      What the tickets on this page are priced in, so the total before any
+                      quote matches the prices above it. Without this the breakdown had no
+                      currency until a ticket was chosen, and `money()` falls back to INR --
+                      so a dollar-priced event opened on a rupee total.
+                    */
+                    fallbackCurrency={
+                      event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
+                    }
                   />
                 </div>
 
