@@ -25,8 +25,19 @@ module.exports = {
 
     Two workers is enough to force forking. It is not a fix for the leak, which is real and
     still worth finding; it stops the leak from deciding whether CI can finish.
+
+    ── WHY THIS READS THE CPU COUNT AND NOT `process.env.CI` ────────────────────────
+    Because it did read `process.env.CI`, and that variable never arrived. Turbo runs in
+    strict environment mode by default: a task sees only what `turbo.json` declares in
+    `globalEnv`, and `CI` is not declared. So the guard silently evaluated false in the one
+    place it existed for, and the suite went on hanging while a local run -- which invokes
+    jest directly, with the variable present -- proved nothing.
+
+    The cpu count is a property of the machine and is always readable. On a two-core runner
+    this returns 2 and forces forking; on an eight-core laptop it returns 7, exactly what
+    Jest would have chosen anyway.
   */
-  ...(process.env.CI ? { maxWorkers: 2 } : {}),
+  maxWorkers: Math.max(2, require('node:os').cpus().length - 1),
   moduleNameMapper: {
     '^@eticketsgo/shared-types$': '<rootDir>/../../../packages/shared-types/src/index.ts',
     '^@eticketsgo/validation$': '<rootDir>/../../../packages/validation/src/index.ts',
