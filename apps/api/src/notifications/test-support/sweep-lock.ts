@@ -58,13 +58,22 @@ const NOOP: SweepLock = { release: async () => undefined };
 /**
  * How long to keep trying before giving up and running unlocked.
  *
- * Must stay comfortably BELOW the `beforeAll` timeout of every suite that acquires (180s), or
- * the hook dies before the deadline is reached and the suite fails for a reason that has
- * nothing to do with what it tests. Nine suites hold this lock for five to fifteen seconds
- * each, so two minutes covers a full queue with room to spare.
+ * ── WHY THIS NUMBER IS A COMPROMISE, AND WHAT IT COSTS EITHER WAY ──────────────────
+ * The lock is load-bearing, not decorative: with it permanently unavailable, `market-flows`
+ * and `fallback` both fail. They each call the global sweep, and a sweep delivers whatever
+ * is due through whichever suite's mock got there first, so two of them running at once
+ * corrupt each other regardless of how carefully their assertions are scoped.
+ *
+ * So giving up cheaply is not free -- it trades a hang for a flake. But waiting is not free
+ * either: at two minutes, nine suites each waiting out the deadline turned a hundred-second
+ * step into nineteen minutes.
+ *
+ * Forty-five seconds is comfortably longer than any of these suites takes to run, so in the
+ * ordinary case the wait never approaches it and the lock simply works. The worst case is
+ * bounded at roughly seven minutes rather than unbounded, which is the property that matters.
  */
-const ACQUIRE_DEADLINE_MS = 120_000;
-const ACQUIRE_POLL_MS = 250;
+const ACQUIRE_DEADLINE_MS = 45_000;
+const ACQUIRE_POLL_MS = 100;
 
 /**
  * Take the sweep lock, waiting up to a deadline, then proceeding WITHOUT it.
@@ -110,6 +119,15 @@ export async function acquireSweepLock(url: string | undefined): Promise<SweepLo
     // A database that cannot take a lock is one the suite is about to skip against anyway.
     await client.$disconnect().catch(() => undefined);
     return NOOP;
+  }
+  const waitedMs = Date.now() - (deadline - ACQUIRE_DEADLINE_MS);
+  /*
+    Reported when it is long enough to matter. Where the time went in a slow run has had to be
+    inferred from arithmetic twice; a line in the log is cheaper than a guess.
+  */
+  if (held && waitedMs > 1_000) {
+    // eslint-disable-next-line no-console
+    console.warn(`[sweep-lock] waited ${Math.round(waitedMs / 100) / 10}s for the lock.`);
   }
   if (!held) {
     /*
