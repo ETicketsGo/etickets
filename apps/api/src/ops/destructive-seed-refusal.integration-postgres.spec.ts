@@ -32,6 +32,25 @@ const UNREACHABLE = 'postgresql://nobody:nobody@127.0.0.1:1/definitely-not-a-dat
  * quotes and hands ts-node `{module:commonjs}`, which is not JSON. An environment variable has
  * no such problem on any platform.
  */
+/**
+ * How long the dispatcher gets before the child is killed.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ * `execFileSync` without a timeout is unbounded, and it blocks the Jest worker's event loop
+ * completely while it waits. A child that never exits is therefore not a failing test, it is
+ * a suite that never finishes — and this one did exactly that on CI, holding a step for its
+ * entire twenty-minute budget while every other suite had already reported.
+ *
+ * It went unnoticed because this file was added on the same day the destructive-seed guard
+ * broke CI's seed step, so the tests below it never ran there once. The first CI run to get
+ * past that step was the first to execute this file at all.
+ *
+ * Generous enough that a slow runner starting ts-node seven times is never the reason it
+ * fires: the guard's whole point is to refuse before touching anything, which takes no time
+ * at all.
+ */
+const RUN_TIMEOUT_MS = 45_000;
+
 const run = (env: Record<string, string>) => {
   try {
     const stdout = execFileSync('node', ['-r', 'ts-node/register', SCRIPT], {
@@ -44,11 +63,36 @@ const run = (env: Record<string, string>) => {
       },
       encoding: 'utf8',
       stdio: 'pipe',
+      timeout: RUN_TIMEOUT_MS,
+      // SIGKILL rather than SIGTERM: a child wedged inside a native call may not handle a
+      // polite signal, and the point of the timeout is that it always ends.
+      killSignal: 'SIGKILL',
     });
     return { code: 0, output: stdout };
   } catch (e) {
-    const err = e as { status?: number; stdout?: string; stderr?: string };
-    return { code: err.status ?? 1, output: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+    const err = e as {
+      status?: number;
+      stdout?: string;
+      stderr?: string;
+      signal?: string;
+      code?: string;
+    };
+    const output = `${err.stdout ?? ''}${err.stderr ?? ''}`;
+    /*
+      A timeout must NOT be reported as an ordinary non-zero exit.
+
+      Every assertion below checks that the dispatcher refused by exiting non-zero, and a
+      killed child also has no exit status -- so a hang would have satisfied the very
+      assertions written to prove the guard works. A test that passes because the thing it
+      tests never finished is worse than one that fails.
+    */
+    if (err.signal === 'SIGKILL' || err.code === 'ETIMEDOUT') {
+      throw new Error(
+        `The seed dispatcher did not exit within ${RUN_TIMEOUT_MS}ms and was killed. ` +
+          `This is not a refusal -- the guard never answered. Output so far:\n${output.slice(0, 2000)}`,
+      );
+    }
+    return { code: err.status ?? 1, output };
   }
 };
 
