@@ -120,7 +120,16 @@ function PlatformFeeLine({
         <span className="tabular-nums text-text-primary">{value}</span>
       </div>
       {open && (
-        <div className="mt-1 space-y-1 border-l-2 border-border pl-3">
+        /*
+          Identified, because "one row, not three" is a claim about ROWS and these are the
+          parts INSIDE one. Without a handle, a test asserting the old three-row layout is
+          gone cannot tell a nested detail from a sibling row, and reads this correct layout
+          as the defect it was written to catch.
+        */
+        <div
+          data-testid="platform-fee-parts"
+          className="mt-1 space-y-1 border-l-2 border-border pl-3"
+        >
           {parts.bookingFeeMinor > 0 && (
             <Line muted label={t('feeBookingPart')} value={money2(parts.bookingFeeMinor)} />
           )}

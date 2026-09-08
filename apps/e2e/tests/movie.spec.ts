@@ -62,7 +62,27 @@ test('customer books a movie seat and pays', async ({ page }) => {
     with the tax rate named in the label when there is one.
   */
   await expect(breakdown.getByText(/Platform fee/)).toBeVisible();
-  await expect(breakdown.getByText(/Booking fee|Payment fee/)).toHaveCount(0);
+  /*
+    The booking and payment fees still exist, and are now WHAT THE ONE ROW IS MADE OF rather
+    than rows of their own. They live inside the platform fee's own disclosure, so the check
+    is that they appear nowhere else: three sibling rows would put them outside it.
+
+    This asserted a flat count of zero, which was right when the parts were not rendered at
+    all and became wrong when the fee was made explainable in place. A buyer asking "what is
+    this fee" should not have to open a link to find out; the assertion had to learn the
+    difference between a row and a detail.
+  */
+  const feeParts = breakdown.getByTestId('platform-fee-parts');
+  await expect(feeParts.getByText(/Booking fee/)).toBeVisible();
+  /*
+    And nowhere else. Counting inside the disclosure against counting across the whole
+    breakdown says "these appear only as parts" without asserting anything about how the
+    markup is nested — a selector describing the DOM shape would fail the next time somebody
+    changed a wrapper for reasons that have nothing to do with this guarantee.
+  */
+  expect(await breakdown.getByText(/Booking fee/).count()).toBe(
+    await feeParts.getByText(/Booking fee/).count(),
+  );
 
   /*
     And the rows FOOT. This is the guarantee worth pinning: whatever the breakdown chooses
