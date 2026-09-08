@@ -144,18 +144,21 @@ jobs:
         # enough to run it -- the seed failure above had hidden this step for weeks.
         run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand --forceExit
 
-      - name: Unit tests
-        # Bounded, and streamed.
-        #
-        # A hang here once burned 57 minutes of a runner before anyone stopped it, and the log
-        # showed nothing at all: turbo groups a task's output and prints it when the task
-        # finishes, so a task that never finishes prints nothing to say where it stopped.
-        # turbo groups a task's output and prints it on completion, so a task that never
-        # finishes prints nothing -- which is why the first two stalls here were undiagnosable
-        # from the log. `timeout-minutes` at least turns a stall into a failure in minutes
-        # rather than at the six-hour job limit.
-        timeout-minutes: 25
-        run: npm run test
+      # ── The API suite runs OUTSIDE turbo, on purpose ──────────────────────────────
+      #
+      # turbo groups a task's output and prints it when the task completes, so a task that
+      # runs long prints nothing at all while it does. Three separate stalls in this step have
+      # had to be diagnosed by arithmetic against a known-good baseline, because the log held
+      # only a timeout wrapped around silence.
+      #
+      # Invoked directly, jest streams its progress, and a slow suite names itself.
+      - name: Unit tests (api)
+        timeout-minutes: 20
+        run: npx jest --config apps/api/jest.config.js --ci
+
+      - name: Unit tests (packages and web)
+        timeout-minutes: 10
+        run: npm run test -- --filter=!@eticketsgo/api
 
       - name: Build all apps
         run: npm run build
