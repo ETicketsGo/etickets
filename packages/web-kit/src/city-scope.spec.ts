@@ -48,6 +48,23 @@ describe('cityScope', () => {
     expect(cityScope(preference({ city: 'Mumbai', country: 'US' }))).toEqual({ city: 'Mumbai' });
   });
 
+  it('treats "all cities" as all cities IN THAT COUNTRY, not worldwide', () => {
+    /*
+      The decision this encodes, made after a visitor in the United States opened the
+      storefront with "All cities" selected and was led with a comedy night in Hyderabad and
+      a gig in Mumbai.
+
+      Clearing a city filter is how somebody stops narrowing to ONE city. It is not how they
+      ask to be shown another continent, in a currency their card would be charged in, for a
+      venue they cannot reach. So no city plus a known country is that country -- the header
+      names it, so the control is not quietly narrower than it claims.
+
+      The hook is what regressed here: it dropped the country whenever the city was cleared,
+      including on every page load for somebody whose stored choice was "all cities".
+    */
+    expect(cityScope(preference({ city: null, country: 'US' }))).toEqual({ country: 'US' });
+  });
+
   it('asks for everything when we know nothing', () => {
     // No hint must mean no filter — never a filter on an empty string, which would match
     // only venues with a blank country and show a dead platform.

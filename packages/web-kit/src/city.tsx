@@ -128,11 +128,21 @@ export function useCityPreference(): CityPreference {
       .then((result) => {
         if (cancelled) return;
         setTopCities(result.topCities);
-        // A stored '__all__' means they asked for everywhere; a country would undo that.
-        if (readStoredCity() === ALL_CITIES) return;
-        // `scopeCountry`, not `country`: the server has already checked we have something
-        // on sale there, and a scope we cannot fill is an empty storefront.
+        /*
+          The country scope is applied FIRST, and applies even to a stored "all cities".
+
+          It used to return early here, on the reading that somebody who asked for everywhere
+          meant the whole world. In practice "all cities" is how people stop filtering by ONE
+          city, not how they ask to be shown another continent — and the result was a visitor
+          in the United States being offered a comedy night in Hyderabad and a gig in Mumbai,
+          eight thousand miles away, in a currency their card would be charged in.
+
+          `scopeCountry`, not `country`: the server has already checked we have something on
+          sale there, so a country we cannot fill never becomes an empty storefront. When we
+          do not know where somebody is, this stays null and the feed is worldwide as before.
+        */
         setCountry(result.scopeCountry);
+        if (readStoredCity() === ALL_CITIES) return;
         if (readStoredCity() !== null) return; // their choice stands
         if (result.confident && result.city) {
           setCityState(result.city);
@@ -155,9 +165,17 @@ export function useCityPreference(): CityPreference {
     setCityState(next);
     setChosen(true);
     setSuggestion(null);
-    // Choosing "All cities" clears the country hint too. Somebody who asked for everywhere
-    // and still got only their own country would reasonably call the control broken.
-    if (next === null) setCountry(null);
+    /*
+      Clearing the city widens to the COUNTRY, not to the world -- so the country hint is
+      deliberately left alone here.
+
+      This used to drop it, on the reading that a control called "All cities" which still
+      filtered by country would read as broken. The opposite turned out to be true: what
+      reads as broken is a storefront in the United States leading with events in Mumbai and
+      Hyderabad. Nobody clearing a city filter is asking to be shown another continent, and
+      the panel says which country it is showing, so the control is not silently narrower
+      than it claims.
+    */
     // "All cities" is a real choice and is remembered as one — storing null would make the
     // next visit guess again at somebody who already said they wanted everything.
     writeStoredCity(next ?? ALL_CITIES);
@@ -388,7 +406,15 @@ export function CityPicker({
   }, [open]);
 
   const shown = results ?? topCities;
-  const label = city ?? allCitiesLabel;
+  /*
+    The chip names the scope it is actually applying.
+
+    With no city but a known country the feed is that country, and saying "All cities" there
+    invites exactly the question this change came from -- why am I being shown another
+    country? The country name is no longer than the label it replaces, which matters: this
+    chip is the widest thing in the header at 320px.
+  */
+  const label = city ?? country ?? allCitiesLabel;
 
   const choose = (next: string | null) => {
     setCity(next);
