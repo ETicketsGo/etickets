@@ -128,12 +128,27 @@ export function PricingCompliancePanel({ cinemaId }: { cinemaId: string }) {
   );
 }
 
+/**
+ * One term and its definition.
+ *
+ * ── WHY THE HINT LIVES INSIDE THE <dd> ─────────────────────────────────────────────
+ * It used to be a sibling `<p>`, which put a third element inside the wrapper and broke the
+ * definition list: a `<dl>` may only contain properly-ordered `<dt>`/`<dd>` groups, so a
+ * stray paragraph is a serious axe violation and, more to the point, leaves the hint
+ * unassociated with the value it explains for anyone using a screen reader.
+ *
+ * Nesting it in the `<dd>` fixes both at once. The hint IS part of the definition -- "set the
+ * format and climate type so the correct rate applies" is about the classification above it,
+ * and reading one without the other is how the advice gets lost.
+ */
 function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div>
       <dt className="text-caption uppercase tracking-wide text-text-muted">{label}</dt>
-      <dd className="text-text-primary">{value}</dd>
-      {hint && <p className="text-caption text-text-muted">{hint}</p>}
+      <dd className="text-text-primary">
+        {value}
+        {hint && <span className="block text-caption text-text-muted">{hint}</span>}
+      </dd>
     </div>
   );
 }

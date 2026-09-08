@@ -89,7 +89,9 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
     await page.getByLabel('Tax registration number').fill('29AABCU9603R1ZM');
     await page.getByLabel('Registered address', { exact: true }).fill('12 Residency Road');
     await page.getByLabel('City').fill('Bengaluru');
-    await page.getByLabel('Country').fill('India');
+    // A dropdown now, not a free-text box: country became a select so a venue cannot be
+    // given one the platform has no currency, tax or payment routing for.
+    await page.getByLabel('Country').selectOption({ label: 'India' });
     await page.getByLabel('Finance contact email').fill('finance@bengaluru-live.test');
     await page.getByRole('button', { name: 'Save legal and tax details' }).click();
 

@@ -47,7 +47,12 @@ test('customer books a movie seat and pays', async ({ page }) => {
   */
   const breakdown = page.getByTestId('price-breakdown');
   await expect(breakdown).toBeVisible({ timeout: 20_000 });
-  await expect(breakdown.getByText('Tickets')).toBeVisible();
+  /*
+    Exact, because the platform-fee line reads "Booking fee — ETicketsGo" and the brand name
+    contains the word. A substring match resolves to two elements and fails strict mode --
+    which is what it did the first time this suite ran after the fee breakdown was itemised.
+  */
+  await expect(breakdown.getByText('Tickets', { exact: true })).toBeVisible();
   /*
     ONE row for what the platform charges, not three.
 
