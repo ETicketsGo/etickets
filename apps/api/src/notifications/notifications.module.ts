@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { MarketingConsentController } from './marketing-consent.controller';
@@ -31,6 +31,7 @@ import { NotificationOpsController } from './delivery/notification-ops.controlle
 import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.service';
 import { SnsVerifier } from './delivery/webhook/sns-verifier';
 import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
+import { SnsBodyMiddleware, applySnsBodyParser } from './delivery/webhook/sns-body.middleware';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
@@ -87,6 +88,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     DeliveryRecorderService,
     DeliveryWebhookService,
     SnsVerifier,
+    SnsBodyMiddleware,
     NotificationOpsService,
     EmailChannel,
     SmsChannel,
@@ -135,4 +137,16 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     ShowReminderService,
   ],
 })
-export class NotificationsModule {}
+export class NotificationsModule implements NestModule {
+  /**
+   * SNS posts its notifications as `text/plain`, which the global JSON parser declines.
+   *
+   * Without this the SES webhook received an unparsed body and answered 500 to every genuine
+   * message Amazon sent — including the SubscriptionConfirmation, so the subscription could
+   * never be created in the first place. The parser is bound to that one route; see
+   * `sns-body.middleware.ts` for why it is not simply added to the global parser.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    applySnsBodyParser(consumer);
+  }
+}
