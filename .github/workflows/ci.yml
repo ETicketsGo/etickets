@@ -131,18 +131,16 @@ jobs:
       # asked whether Nest could build the graph. This runs that question on its own so a
       # failure says "the app cannot start" rather than being one line inside a long log.
       - name: Application boots (module graph resolves)
-        # --forceExit, and what it does NOT hide.
+        # No --forceExit here any more, deliberately.
         #
-        # The assertion is "Nest can build the graph", and it has completed and passed by the
-        # time this matters: Jest prints "1 passed" and then never exits. Under --runInBand the
-        # main process must exit itself, and the fully-constructed app holds handles that
-        # survive moduleRef.close() -- --detectOpenHandles attributes none of them, and the
-        # same spec exits cleanly inside `npm run test`, where Jest tears its workers down.
+        # It was added because this spec compiled the module graph without initialising it,
+        # and RedisService connects in its CONSTRUCTOR -- so walking the graph opened a socket
+        # that no lifecycle hook ever closed. One socket keeps the Node event loop alive: the
+        # test passed in under a second and Jest then hung until the step's budget ran out.
         #
-        # So this masks a real teardown leak and nothing about the check itself. Without it the
-        # step hangs until the job limit, which is what it did the first time CI ever got far
-        # enough to run it -- the seed failure above had hidden this step for weeks.
-        run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand --forceExit
+        # The spec now init()s before closing, so onModuleDestroy runs and the connection is
+        # actually released. Forcing an exit would only hide the next leak of the same kind.
+        run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand
 
       # ── The API suite runs OUTSIDE turbo, on purpose ──────────────────────────────
       #
