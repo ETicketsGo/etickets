@@ -105,6 +105,20 @@ export function takeBackup(dir = BACKUP_DIR): BackupFile {
     execFileSync('pg_dump', ['--format=custom', '--no-owner', '--no-acl', '--file', path, url], {
       stdio: ['ignore', 'ignore', 'pipe'],
       timeout: 30 * 60 * 1000,
+      /*
+        Bound the CONNECT, separately from the dump.
+
+        The thirty-minute timeout above is for the transfer, and a large database can
+        legitimately want it. Reaching the server should never take thirty minutes, and until
+        now nothing said so: pointed at a database that does not answer, this call would sit
+        for the full half hour before anyone found out, which is longer than most jobs that
+        would be waiting on it.
+
+        `connect_timeout` is libpq's own setting and applies only while establishing the
+        connection, so a slow dump of a healthy database is unaffected. Ten seconds is far
+        more than a reachable server needs and far less than a caller can afford to wait.
+      */
+      env: { ...process.env, PGCONNECT_TIMEOUT: process.env.PGCONNECT_TIMEOUT ?? '10' },
     });
   } catch (e) {
     const err = e as { stderr?: Buffer; message?: string };
