@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 
@@ -51,16 +53,52 @@ const UNREACHABLE = 'postgresql://nobody:nobody@127.0.0.1:1/definitely-not-a-dat
  */
 const RUN_TIMEOUT_MS = 45_000;
 
-const run = (env: Record<string, string>) => {
+/**
+ * A directory with nothing in it, used as the child's entire PATH.
+ *
+ * ── WHY A TEST HAS TO TAKE THE TOOLS AWAY ──────────────────────────────────────────
+ * The backup shells out to `pg_dump`, resolved from PATH. A test asserting what happens
+ * "when the backup cannot be taken" therefore has to MAKE the backup impossible — and until
+ * now it did not: it relied on the machine not having postgresql-client installed.
+ *
+ * That is true on this laptop and false on the CI runner, so the same test proved two
+ * different things depending on where it ran, and on the runner it did not prove anything at
+ * all: `pg_dump` existed, ran against a deliberately unreachable database, and sat there
+ * until the suite was killed.
+ *
+ * An empty PATH makes the premise true by construction, on every machine. Nothing else in
+ * the child needs it: node is already resolved by the parent, and ts-node resolves through
+ * node's own module lookup rather than PATH.
+ */
+const NO_TOOLS_DIR = mkdtempSync(join(tmpdir(), 'etg-no-tools-'));
+
+const run = (env: Record<string, string>, opts: { withoutExternalTools?: boolean } = {}) => {
+  const childEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    DATABASE_URL: UNREACHABLE,
+    TS_NODE_TRANSPILE_ONLY: 'true',
+    TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}',
+    ...env,
+  };
+  if (opts.withoutExternalTools) {
+    // Windows spells it `Path`, and the spread above carries whichever casing this platform
+    // uses — so every variant goes, or the original would quietly still apply.
+    for (const key of Object.keys(childEnv)) {
+      if (/^path$/i.test(key)) delete childEnv[key];
+    }
+    childEnv.PATH = NO_TOOLS_DIR;
+  }
   try {
-    const stdout = execFileSync('node', ['-r', 'ts-node/register', SCRIPT], {
-      env: {
-        ...process.env,
-        DATABASE_URL: UNREACHABLE,
-        TS_NODE_TRANSPILE_ONLY: 'true',
-        TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}',
-        ...env,
-      },
+    /*
+      `process.execPath`, not 'node'.
+
+      Node resolves the command through the PATH it is GIVEN, so emptying PATH to hide
+      pg_dump also hid node itself: the child failed to spawn at all and produced no output,
+      which looked like the guard saying nothing. The absolute path keeps the interpreter
+      reachable while the child's own tool lookups still find nothing.
+    */
+    const stdout = execFileSync(process.execPath, ['-r', 'ts-node/register', SCRIPT], {
+      env: childEnv,
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: RUN_TIMEOUT_MS,
@@ -174,12 +212,20 @@ describe('a destructive run with no recovery point', () => {
       as connecting and fails with a CONNECTION error instead. Either way this test fails; only
       the correct behaviour produces the abort message with no connection attempt.
     */
-    const r = run({
-      APP_ENV: 'QA',
-      SEED_OPERATION: 'full-reset',
-      SEED_ALLOW_DESTRUCTIVE: 'yes',
-      BACKUP_DIR: '/proc/self/cannot-create-this',
-    });
+    const r = run(
+      {
+        APP_ENV: 'QA',
+        SEED_OPERATION: 'full-reset',
+        SEED_ALLOW_DESTRUCTIVE: 'yes',
+        BACKUP_DIR: '/proc/self/cannot-create-this',
+      },
+      /*
+        Both belts. An uncreatable directory should stop `takeBackup` at its first step, and
+        an empty PATH stops it at the second even if some platform happens to allow the
+        first — which is exactly the difference that made this test meaningless on CI.
+      */
+      { withoutExternalTools: true },
+    );
 
     expect(r.code).not.toBe(0);
     expect(r.output).toMatch(/ABORTING: could not take a recovery point/i);
