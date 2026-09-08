@@ -102,8 +102,28 @@ test('customer books a movie seat and pays', async ({ page }) => {
     return match ? Number(match[2].replace(/,/g, '')) * (match[1] === '-' ? -1 : 1) : null;
   };
 
+  /*
+    The fee's own parts are excluded, because they are a DECOMPOSITION of a row, not rows.
+
+    "Platform fee" is followed, inside its disclosure, by the booking fee and payment fee it
+    is made of. Summing the breakdown's text wholesale therefore counts that money twice and
+    the footing check fails by exactly the fee -- which is what it did here: off by 14.20
+    against a total that was entirely correct.
+
+    Removing the disclosure's own lines leaves the rows a buyer reads as rows, which is what
+    this guarantee has always been about.
+  */
+  const partLines = new Set(
+    (await feeParts.count())
+      ? (await feeParts.innerText())
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+      : [],
+  );
   const visible = (await breakdown.innerText())
     .split('\n')
+    .filter((line) => !partLines.has(line.trim()))
     .map(trailingAmount)
     .filter((n): n is number => n !== null);
   const total = trailingAmount(await page.getByTestId('price-total').innerText());
