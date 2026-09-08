@@ -10,6 +10,13 @@ export * from './marketplace';
 export * from './country';
 export * from './india-states';
 export * from './markets';
+export * from './notification-routing';
+export * from './notification-delivery';
+export * from './notification-cost';
+export * from './notification-failure';
+export * from './notification-capability';
+export * from './notification-template-binding';
+export * from './notification-provider-status';
 export * from './cinema-pricing';
 export * from './metrics-access';
 // AI & Growth (v2.0) — pure deterministic engines + safety.

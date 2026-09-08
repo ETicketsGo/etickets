@@ -175,4 +175,18 @@ export const api = {
   notificationsUnreadCount: () => wk.notifications.unreadCount('CUSTOMER'),
   markNotificationRead: (id: string) => wk.notifications.markRead(id),
   markAllNotificationsRead: () => wk.notifications.markAllRead('CUSTOMER'),
+
+  /*
+    Settings, as opposed to the inbox above.
+
+    `notificationPreferences` answers "which channels do you want for which kind of message";
+    `consent` answers "may we send you this CATEGORY at all". Two different questions with two
+    different stores behind them, deliberately kept apart -- somebody who declines offers has
+    not asked to stop receiving their tickets.
+  */
+  notificationPreferences: () => wk.notifications.preferences(),
+  setNotificationPreference: (body: { type: string; channel: string; enabled: boolean }) =>
+    wk.notifications.setPreference(body),
+  consent: () => wk.notifications.consent(),
+  setConsent: (body: { channel: string; granted: boolean }) => wk.notifications.setConsent(body),
 };

@@ -9,6 +9,8 @@ import {
   PublicOrganizersController,
 } from './events.controller';
 import { EventsService } from './events.service';
+import { EventSellabilityService } from './event-sellability.service';
+import { EventSellabilitySweepService } from './event-sellability-sweep.service';
 import { PublicEventsService } from './public-events.service';
 
 @Module({
@@ -20,7 +22,18 @@ import { PublicEventsService } from './public-events.service';
     PublicOrganizersController,
     AdminEventsController,
   ],
-  providers: [EventsService, PublicEventsService],
-  exports: [EventsService, PublicEventsService],
+  providers: [
+    EventsService,
+    PublicEventsService,
+    EventSellabilityService,
+    EventSellabilitySweepService,
+  ],
+  exports: [
+    EventsService,
+    PublicEventsService,
+    EventSellabilityService,
+    // Exported so the worker can sweep for listings that became unsellable after publish.
+    EventSellabilitySweepService,
+  ],
 })
 export class EventsModule {}

@@ -12,6 +12,14 @@
     "subject": "Reminder: your event is coming up",
     "body": "This is a reminder for {event}{startingAt}."
   },
+  "SHOW_CANCELLED": {
+    "subject": "Your show has been cancelled",
+    "body": "We are sorry - {event} has been cancelled. Your booking {reference} is no longer valid{when}. A refund will follow."
+  },
+  "SHOW_CHANGED": {
+    "subject": "Your show has been rescheduled",
+    "body": "The time of {event} has changed. Your booking {reference} is still valid{when}."
+  },
   "BOOKING_CANCELLED": {
     "subject": "Your booking was cancelled",
     "body": "Your booking {reference} has been cancelled."
@@ -75,6 +83,10 @@
   "EVENT_REJECTED": {
     "subject": "“{event}” needs changes",
     "body": "“{event}” was not approved.{reason} Make the changes and submit it again."
+  },
+  "EVENT_NOT_SELLABLE": {
+    "subject": "“{event}” is live but cannot be sold",
+    "body": "Customers can find “{event}” and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
   },
   "generic": {
     "subject": "Notification: {type}",

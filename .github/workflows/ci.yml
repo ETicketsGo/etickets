@@ -111,6 +111,13 @@ jobs:
           # The reset empties every table and refuses to run without this, so that pointing a
           # seed at the wrong database takes a deliberate act rather than a default.
           SEED_ALLOW_DESTRUCTIVE: 'yes'
+          # WHICH database it is pointed at, which the guard refuses to assume.
+          #
+          # The guard allowlists LOCAL/DEV/TEST/CI/QA/UAT and refuses an unset APP_ENV
+          # outright -- "cannot tell where I am" is not a reason to empty eighty tables. CI
+          # never set it, so every run since the guard shipped has failed here, on a
+          # throwaway Postgres service container that is destroyed with the job.
+          APP_ENV: CI
         run: |
           npm run db:deploy
           npm run db:seed
@@ -124,10 +131,32 @@ jobs:
       # asked whether Nest could build the graph. This runs that question on its own so a
       # failure says "the app cannot start" rather than being one line inside a long log.
       - name: Application boots (module graph resolves)
+        # No --forceExit here any more, deliberately.
+        #
+        # It was added because this spec compiled the module graph without initialising it,
+        # and RedisService connects in its CONSTRUCTOR -- so walking the graph opened a socket
+        # that no lifecycle hook ever closed. One socket keeps the Node event loop alive: the
+        # test passed in under a second and Jest then hung until the step's budget ran out.
+        #
+        # The spec now init()s before closing, so onModuleDestroy runs and the connection is
+        # actually released. Forcing an exit would only hide the next leak of the same kind.
         run: npx jest --config apps/api/jest.config.js --testPathPattern="app-module-graph" --runInBand
 
-      - name: Unit tests
-        run: npm run test
+      # ── The API suite runs OUTSIDE turbo, on purpose ──────────────────────────────
+      #
+      # turbo groups a task's output and prints it when the task completes, so a task that
+      # runs long prints nothing at all while it does. Three separate stalls in this step have
+      # had to be diagnosed by arithmetic against a known-good baseline, because the log held
+      # only a timeout wrapped around silence.
+      #
+      # Invoked directly, jest streams its progress, and a slow suite names itself.
+      - name: Unit tests (api)
+        timeout-minutes: 20
+        run: npx jest --config apps/api/jest.config.js --ci
+
+      - name: Unit tests (packages and web)
+        timeout-minutes: 10
+        run: npm run test -- --filter=!@eticketsgo/api
 
       - name: Build all apps
         run: npm run build

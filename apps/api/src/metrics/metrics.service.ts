@@ -27,6 +27,13 @@ export class MetricsService {
   private readonly slowQueries: Counter;
   private readonly paymentWebhooks: Counter<'provider' | 'result'>;
   private readonly paymentReconciliations: Counter<'result'>;
+  private readonly notifications: Counter<'channel' | 'provider' | 'result'>;
+  private readonly notificationDeliveries: Counter<'channel' | 'provider' | 'state'>;
+  private readonly notificationWebhooks: Counter<'provider' | 'result'>;
+  private readonly notificationAttempts: Counter<'channel' | 'provider' | 'outcome'>;
+  private readonly notificationCostMicros: Counter<'channel' | 'provider' | 'currency'>;
+  private readonly notificationCostUnknown: Counter<'channel' | 'provider'>;
+  private readonly notificationFallbacks: Counter<'event_type' | 'channel'>;
   private readonly domainEventsPublished: Counter<'event_type' | 'result'>;
   private readonly domainEventHandlerDuration: Histogram<'event_type' | 'handler' | 'result'>;
   private readonly inventoryLockOps: Counter<'op' | 'outcome'>;
@@ -156,6 +163,82 @@ export class MetricsService {
       registers: [this.registry],
     });
 
+    /*
+      Notifications had no metric at all, which is how SMS and WhatsApp were able to skip
+      every message they were ever given without anybody noticing: the failure produced a
+      warning line and nothing that could be graphed or alerted on. With two SMS providers
+      live in different markets, `provider` is what turns "messages stopped" into "MSG91
+      stopped".
+    */
+    this.notifications = new Counter({
+      name: 'etg_notifications_total',
+      help: 'Notification delivery attempts, by channel, provider and outcome.',
+      labelNames: ['channel', 'provider', 'result'],
+      registers: [this.registry],
+    });
+    /*
+      What the PROVIDER said, as distinct from what this platform did. `etg_notifications_total`
+      counts sends; this counts outcomes, and the gap between accepted and delivered is the
+      number that matters -- it is the one that was invisible when a row went to SENT the
+      moment SES returned an id.
+    */
+    this.notificationDeliveries = new Counter({
+      name: 'etg_notification_deliveries_total',
+      help: 'Provider-reported delivery outcomes, by channel, provider and normalized state.',
+      labelNames: ['channel', 'provider', 'state'],
+      registers: [this.registry],
+    });
+    /*
+      Webhook processing health. `unknown_message` and `signature_invalid` are the two worth
+      alerting on: a flood of the first means correlation is broken, and any of the second
+      means somebody is posting unsigned events at a public endpoint.
+    */
+    this.notificationWebhooks = new Counter({
+      name: 'etg_notification_webhooks_total',
+      help: 'Notification delivery webhooks, by provider and processing result.',
+      labelNames: ['provider', 'result'],
+      registers: [this.registry],
+    });
+    /*
+      Provider attempts by NORMALIZED outcome, which is the only denominator a health report
+      can honestly use. A suppressed address and somebody with no phone number are ours, not
+      the provider's, and counting them here as failures would make every provider look broken
+      in proportion to how many customers have preferences.
+    */
+    this.notificationAttempts = new Counter({
+      name: 'etg_notification_provider_attempts_total',
+      help: 'Notification delivery attempts, by channel, provider and normalized outcome class.',
+      labelNames: ['channel', 'provider', 'outcome'],
+      registers: [this.registry],
+    });
+    /*
+      Cost in MICROS -- millionths of a currency unit -- because a Prometheus counter is a
+      float and money must not be. Summing micros keeps every value an exact integer well
+      inside a double's 53-bit range, and the currency is a label rather than an assumption:
+      USD and INR are never added together.
+    */
+    this.notificationCostMicros = new Counter({
+      name: 'etg_notification_cost_micros_total',
+      help: 'Notification provider cost in millionths of a currency unit, by channel, provider and currency.',
+      labelNames: ['channel', 'provider', 'currency'],
+      registers: [this.registry],
+    });
+    /*
+      Counted separately and deliberately. A total with unknowns hidden inside it is a floor
+      presented as an answer; this is how far off it might be.
+    */
+    this.notificationCostUnknown = new Counter({
+      name: 'etg_notification_cost_unknown_total',
+      help: 'Delivery attempts for which no rate could be resolved. NOT zero-cost.',
+      labelNames: ['channel', 'provider'],
+      registers: [this.registry],
+    });
+    this.notificationFallbacks = new Counter({
+      name: 'etg_notification_fallback_total',
+      help: 'Cross-channel fallbacks opened, by event type and channel.',
+      labelNames: ['event_type', 'channel'],
+      registers: [this.registry],
+    });
     this.domainEventsPublished = new Counter({
       name: 'etg_domain_events_published_total',
       help: 'Domain events published, by event type and outcome (ADR-038).',
@@ -509,6 +592,69 @@ export class MetricsService {
    * Record a domain event publication outcome (ADR-038). `result` is one of
    * ok | no_handler | disabled | invalid — never any event payload/PII.
    */
+  /**
+   * One notification outcome: sent | skipped | failed | retried | deduplicated.
+   *
+   * `skipped` and `failed` are counted apart on purpose. A skip is a message with nowhere to
+   * go -- no phone number on file -- and a steady low rate of it is normal. A failure is a
+   * provider refusing, and any rate of that is worth waking up for.
+   */
+  recordNotification(channel: string, provider: string, result: string): void {
+    this.safe(() => this.notifications.inc({ channel, provider, result }));
+  }
+
+  /** One provider-reported outcome: accepted | delivered | bounced | undelivered | … */
+  recordNotificationDelivery(provider: string, channel: string, state: string): void {
+    this.safe(() => this.notificationDeliveries.inc({ provider, channel, state }));
+  }
+
+  /**
+   * One webhook: accepted | duplicate | unknown_message | out_of_order | signature_invalid |
+   * malformed.
+   *
+   * Deliberately carries no message id, destination or user: a metric label is a cartesian
+   * dimension, and putting an identifier in one both leaks it into every scrape and explodes
+   * the series count.
+   */
+  recordNotificationWebhook(provider: string, result: string): void {
+    this.safe(() => this.notificationWebhooks.inc({ provider, result }));
+  }
+
+  /** One provider attempt, by the outcome class a health denominator can use. */
+  recordNotificationAttempt(channel: string, provider: string, outcome: string): void {
+    this.safe(() => this.notificationAttempts.inc({ channel, provider, outcome }));
+  }
+
+  /**
+   * What one attempt cost.
+   *
+   * An unpriced attempt increments the UNKNOWN counter instead of adding zero to the total.
+   * The two are the same number and opposite facts: one says the total is complete, the other
+   * says it is missing a component.
+   */
+  recordNotificationCost(
+    channel: string,
+    provider: string,
+    currency: string | null,
+    costMicro: number | null,
+    source: string,
+  ): void {
+    this.safe(() => {
+      if (costMicro === null || !currency) {
+        this.notificationCostUnknown.inc({ channel, provider });
+        return;
+      }
+      // A configured zero is a real price and belongs in the total, contributing nothing.
+      this.notificationCostMicros.inc({ channel, provider, currency }, costMicro);
+      void source;
+    });
+  }
+
+  /** A cross-channel fallback was opened — the most expensive thing the platform does. */
+  recordNotificationFallback(eventType: string, channel: string): void {
+    this.safe(() => this.notificationFallbacks.inc({ event_type: eventType, channel }));
+  }
+
   recordDomainEventPublished(eventType: string, result: string): void {
     this.safe(() => this.domainEventsPublished.inc({ event_type: eventType, result }));
   }

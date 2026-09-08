@@ -46,6 +46,7 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.BOOKING_CONFIRMED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_FAILED]: 'TRANSACTIONAL',
   [NotificationType.BOOKING_CANCELLED]: 'TRANSACTIONAL',
+  [NotificationType.SHOW_CANCELLED]: 'TRANSACTIONAL',
   [NotificationType.REFUND_COMPLETED]: 'TRANSACTIONAL',
   [NotificationType.TICKET_CHECKED_IN]: 'TRANSACTIONAL',
   [NotificationType.TICKET_TRANSFERRED]: 'TRANSACTIONAL',
@@ -82,11 +83,15 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.ORGANIZATION_REJECTED]: 'TRANSACTIONAL',
   [NotificationType.EVENT_SUBMITTED]: 'TRANSACTIONAL',
   [NotificationType.EVENT_APPROVED]: 'TRANSACTIONAL',
+  // Their own listing is losing them sales. Not marketing, and not optional.
+  [NotificationType.EVENT_NOT_SELLABLE]: 'TRANSACTIONAL',
   [NotificationType.EVENT_REJECTED]: 'TRANSACTIONAL',
 
   // ── Operational messages to organizers and admins about their own money ─────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'TRANSACTIONAL',
   [NotificationType.SETTLEMENT_RELEASED]: 'TRANSACTIONAL',
+  // About a transaction they entered into: the show they bought a ticket for has moved.
+  [NotificationType.SHOW_CHANGED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_DISPUTE_OPENED]: 'TRANSACTIONAL',
   [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'TRANSACTIONAL',
   [NotificationType.TRANSFER_FAILED]: 'TRANSACTIONAL',
@@ -147,6 +152,7 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.BOOKING_CONFIRMED]: 'CUSTOMER',
   [NotificationType.PAYMENT_FAILED]: 'CUSTOMER',
   [NotificationType.BOOKING_CANCELLED]: 'CUSTOMER',
+  [NotificationType.SHOW_CANCELLED]: 'CUSTOMER',
   [NotificationType.REFUND_COMPLETED]: 'CUSTOMER',
   [NotificationType.EVENT_REMINDER]: 'CUSTOMER',
   [NotificationType.TICKET_CHECKED_IN]: 'CUSTOMER',
@@ -161,12 +167,14 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   // ── Somebody running events: their money, their applications ────────────────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'ORGANIZER',
   [NotificationType.SETTLEMENT_RELEASED]: 'ORGANIZER',
+  [NotificationType.SHOW_CHANGED]: 'CUSTOMER',
   [NotificationType.PAYMENT_DISPUTE_OPENED]: 'ORGANIZER',
   [NotificationType.PAYMENT_DISPUTE_CLOSED]: 'ORGANIZER',
   [NotificationType.TRANSFER_FAILED]: 'ORGANIZER',
   [NotificationType.ORGANIZATION_APPROVED]: 'ORGANIZER',
   [NotificationType.ORGANIZATION_REJECTED]: 'ORGANIZER',
   [NotificationType.EVENT_APPROVED]: 'ORGANIZER',
+  [NotificationType.EVENT_NOT_SELLABLE]: 'ORGANIZER',
   [NotificationType.EVENT_REJECTED]: 'ORGANIZER',
 
   // ── The platform's own moderation queue ─────────────────────────────────────────

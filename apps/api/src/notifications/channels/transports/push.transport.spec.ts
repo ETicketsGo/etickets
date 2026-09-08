@@ -75,7 +75,7 @@ describe('FcmPushTransport', () => {
   it('skips cleanly (no send, no throw) when no token is present', async () => {
     await expect(
       new FcmPushTransport(fcmConfig).send(msg({ payload: { bookingId: 'bk-1' } })),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ skipped: true, reason: 'no_device' });
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockSendEachForMulticast).not.toHaveBeenCalled();
   });

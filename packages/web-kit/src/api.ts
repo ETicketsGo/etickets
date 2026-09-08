@@ -624,6 +624,36 @@ export const api = {
       request<{ updated: number }>(`/notifications/read-all${qs({ audience })}`, {
         method: 'POST',
       }),
+
+    /**
+     * What a person receives, and on what.
+     *
+     * The response carries `required` and `deferred` per channel, and a settings screen has
+     * to honour both. `required` means policy guarantees that channel whatever the person
+     * chooses -- a toggle for it would be a lie told twice, once by implying the message can
+     * be stopped and again when it arrives anyway. `deferred` is the emergency SMS, which is
+     * not something anybody opts into: it opens only when nothing else reached them.
+     */
+    preferences: () => request<NotificationPreferenceView>('/me/notification-preferences'),
+    setPreference: (body: { type: string; channel: string; enabled: boolean }) =>
+      request<NotificationPreferenceView>('/me/notification-preferences', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+
+    /**
+     * Consent, per channel, for a CATEGORY of message.
+     *
+     * `whatsapp` is permission to sell on WhatsApp; `whatsapp:transactional` is permission to
+     * use it to tell somebody about their own booking. Two different questions, and answering
+     * one with the other is how a person who declined offers stops receiving their tickets.
+     */
+    consent: () => request<ConsentView>('/me/marketing-consent'),
+    setConsent: (body: { channel: string; granted: boolean }) =>
+      request<ConsentView['channels']>('/me/marketing-consent', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
   },
 
   venues: {
@@ -925,6 +955,14 @@ export const api = {
     deleteTicketType: (id: string) =>
       request<{ ok: boolean }>(`/events/ticket-types/${id}`, { method: 'DELETE' }),
     submit: (id: string) => request<OrgEventDetail>(`/events/${id}/submit`, { method: 'POST' }),
+    /**
+     * Whether a customer could actually complete a purchase for this event.
+     *
+     * The same rules checkout enforces, asked before anybody is taken to a seat map they
+     * cannot buy from. Available at any point in an event's life, not only at publish: a
+     * blocker can appear on a live event when a price is edited or a room is reassigned.
+     */
+    sellability: (id: string) => request<EventSellability>(`/events/${id}/sellability`),
     duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
     promotion: (id: string) => request<EventPromotion>(`/events/${id}/promotion`),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
@@ -2285,6 +2323,43 @@ export interface NotificationItem {
   readAt: string | null;
   createdAt: string;
 }
+/** One channel a person can be reached on, for one kind of message. */
+export interface NotificationChannelPreference {
+  channel: 'email' | 'sms' | 'whatsapp' | 'push' | 'in_app';
+  enabled: boolean;
+  /**
+   * Policy guarantees this one. A settings screen must show it as required rather than as a
+   * switch: nobody should be able to configure themselves into a state where a cancelled
+   * show reaches them nowhere, and a toggle that silently does nothing is worse than none.
+   */
+  required: boolean;
+  /** Held back as an emergency fallback — opened only when nothing else got through. */
+  deferred: boolean;
+}
+
+export interface NotificationPreferenceView {
+  /**
+   * Whether each channel has anywhere to send to. A WhatsApp switch offered to somebody with
+   * no phone number is a switch that cannot work; this is what lets the UI say so.
+   */
+  destinations: { hasPhone: boolean; phoneVerified: boolean; emailUsable: boolean };
+  types: {
+    type: string;
+    urgency: 'ROUTINE' | 'IMPORTANT' | 'URGENT';
+    channels: NotificationChannelPreference[];
+  }[];
+}
+
+export interface ConsentView {
+  channels: {
+    channel: string;
+    granted: boolean;
+    source: string | null;
+    decidedAt: string | null;
+  }[];
+  history: { channel: string; granted: boolean; source: string; createdAt: string }[];
+}
+
 /** Whose stream a surface is showing. Stated by every caller — see `notifications.inbox`. */
 export type NotificationAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
 
@@ -3381,6 +3456,31 @@ export interface ResolvedLocation {
    * beyond these comes from `location.cities({ q })`.
    */
   topCities: SellableCity[];
+}
+
+/** One thing standing between this event and a completed purchase. */
+export interface SellabilityIssue {
+  code: string;
+  /** What is wrong, in the organizer's vocabulary. */
+  message: string;
+  /** What to do about it. */
+  fix: string;
+  /** Where to go, relative to the organizer console. Null when there is no single screen. */
+  fixPath: string | null;
+  eventSessionId?: string;
+  /** The seat category, ticket type or currency the issue is about. */
+  subject?: string;
+}
+
+export interface EventSellability {
+  eventId: string;
+  /** False when at least one blocker exists. A warning never makes this false. */
+  sellable: boolean;
+  /** Sales that WILL be refused. */
+  blockers: SellabilityIssue[];
+  /** Sales that will succeed and are probably not what the organizer meant. */
+  warnings: SellabilityIssue[];
+  checkedAt: string;
 }
 
 export interface SectionFeed {

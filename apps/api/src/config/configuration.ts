@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  parseEnabledMarkets,
+  parseMarketProviderMap,
+  parseTemplateBindings,
+} from '@eticketsgo/shared-types';
 
 /** Validated environment. Fails fast on boot if misconfigured. */
 const envSchema = z.object({
@@ -512,15 +517,174 @@ const envSchema = z.object({
   OTP_SMS_TEMPLATE: z.string().optional(),
 
   // --- SMS (recipient = payload.phone) ---
-  SMS_PROVIDER: z.enum(['log', 'twilio']).default('log'),
+  SMS_PROVIDER: z.enum(['log', 'twilio', 'msg91']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM_NUMBER: z.string().optional(),
+  /*
+    Which provider carries an SMS, by the market it is going INTO -- `IN=msg91,US=twilio,CA=twilio`.
+    An Indian operator will not deliver a transactional message that was not sent under a
+    DLT-registered sender, and Twilio's price into India is not one to pay for ticket volume,
+    so this is a requirement rather than a preference.
+
+    Leave it unset and SMS_PROVIDER above is the whole answer, which is what local development
+    and single-market deployments want. Set it, and a destination whose market cannot be
+    determined is REFUSED rather than sent through whichever provider happened to be default:
+    a misrouted message is either undeliverable or expensive, and neither shows up until a
+    customer says their ticket never arrived.
+  */
+  SMS_PROVIDER_BY_MARKET: z.string().optional(),
 
   // --- WhatsApp (recipient = payload.phone) ---
-  WHATSAPP_PROVIDER: z.enum(['log', 'cloud']).default('log'),
+  WHATSAPP_PROVIDER: z.enum(['log', 'cloud', 'msg91']).default('log'),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  /** Same shape as SMS_PROVIDER_BY_MARKET, e.g. `IN=msg91,US=cloud,CA=cloud`. */
+  WHATSAPP_PROVIDER_BY_MARKET: z.string().optional(),
+
+  /*
+    -- MSG91 (India SMS + WhatsApp) --------------------------------------------------
+    One account key serves both channels. NONE of the template settings have defaults, and
+    that is deliberate: an approved template id is a compliance artefact belonging to a DLT
+    registration, and a hardcoded one is either wrong or somebody else's. With no template
+    configured for a message type the transport refuses that send outright rather than
+    guessing, so a missing registration surfaces as a visible FAILED row naming the exact key
+    to set -- not as messages the API accepts and the carrier quietly drops.
+  */
+  MSG91_AUTH_KEY: z.string().optional(),
+  MSG91_SENDER_ID: z.string().optional(),
+  MSG91_BASE_URL: z.string().optional(),
+  MSG91_SMS_PATH: z.string().optional(),
+  MSG91_WHATSAPP_PATH: z.string().optional(),
+  MSG91_TIMEOUT_MS: z.coerce.number().default(10_000),
+  /** `BOOKING_CANCELLED=<dlt_template_id>,...` -- one approved template per message type. */
+  MSG91_SMS_TEMPLATE_IDS: z.string().optional(),
+  /** Fallback template id for types not named above. */
+  MSG91_SMS_TEMPLATE_ID: z.string().optional(),
+  /** The variable name in the approved template that receives the rendered message. */
+  MSG91_SMS_BODY_VAR: z.string().optional(),
+  /** The WhatsApp business number registered with MSG91 (their `integrated_number`). */
+  MSG91_WHATSAPP_NUMBER: z.string().optional(),
+  /** `BOOKING_CONFIRMED=<approved_template_name>,...` */
+  MSG91_WHATSAPP_TEMPLATES: z.string().optional(),
+  MSG91_WHATSAPP_TEMPLATE: z.string().optional(),
+  MSG91_WHATSAPP_LANGUAGE: z.string().optional(),
+
+  /*
+    -- Delivery callbacks (ADR-046) ----------------------------------------------------
+    Every one of these endpoints can SUPPRESS a destination, which is a way to stop somebody
+    receiving their tickets -- so none of them accepts an event it cannot attribute to the
+    provider that claims to have sent it.
+
+    Twilio and Meta publish signing schemes and are verified properly (HMAC-SHA1 over the URL
+    plus sorted fields, and HMAC-SHA256 over the raw body). MSG91 publishes none, and SES
+    signs through SNS with a certificate-fetch scheme that is worse than useless when
+    half-implemented; both therefore authenticate with a secret in the callback URL, which
+    authenticates the CALLER and not the body. That is weaker, it is written down as weaker,
+    and it is the strongest thing those two providers actually offer a dashboard-registered
+    callback.
+  */
+  /** Meta app secret, for X-Hub-Signature-256 on WhatsApp status callbacks. */
+  WHATSAPP_APP_SECRET: z.string().optional(),
+  /**
+   * The token Meta echoes back when activating the webhook subscription.
+   *
+   * Without it the subscription cannot be created at all, so the status-callback handler is
+   * correct and never called -- Meta simply never starts sending.
+   */
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  /**
+   * The SES configuration set to send under.
+   *
+   * SES publishes delivery, bounce and complaint events only for messages sent WITH a
+   * configuration set that has an event destination. Omit it and the mail goes out, the API
+   * returns a message id, and not one callback ever arrives -- silently, with the topic
+   * configured and the subscription confirmed.
+   */
+  SES_CONFIGURATION_SET: z.string().optional(),
+  /**
+   * The markets this deployment deliberately sends notifications into, e.g. `IN,US,CA`.
+   *
+   * Separate from the provider routing tables, which say WHO carries a message and cannot
+   * say whether we are launched somewhere. Readiness demanded MSG91 templates for a Canada
+   * nobody had opened, and marked the whole platform not-ready for it -- a report that
+   * cannot tell a blocker from an unopened market is a report people learn to ignore.
+   *
+   * Unset keeps the three markets readiness already covered, so adding the key changes
+   * nothing by itself. An explicitly empty value means no market is open, which a
+   * pre-launch environment needs to be able to say.
+   */
+  NOTIFICATION_MARKETS: z.string().optional(),
+  /**
+   * Which provider template carries which notification, per locale.
+   *
+   * `provider:channel:TYPE:locale[:category]=externalId`, comma-separated. Supersedes
+   * MSG91_SMS_TEMPLATE_IDS and MSG91_WHATSAPP_TEMPLATES, which still work and are read at
+   * lower priority as wildcard-locale entries.
+   *
+   * No id appears in this repository and none ever should: a template id is granted by a
+   * regulator or a vendor and can be revoked by them.
+   */
+  NOTIFICATION_TEMPLATE_BINDINGS: z.string().optional(),
+  /** Fallback language code for a WhatsApp template bound at `*`. */
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
+  /**
+   * India DLT registration facts, recorded so readiness can say DLT_NOT_CONFIGURED rather
+   * than a generic MISSING.
+   *
+   * Held as configuration and never as code constants: a Principal Entity id is issued by a
+   * telecom operator and is specific to a legal entity, so compiling one in would be both
+   * wrong for anybody else and a deploy every time it changes. Nothing here is validated
+   * against a telecom system -- this platform records what it was told.
+   */
+  DLT_PRINCIPAL_ENTITY_ID: z.string().optional(),
+  /** The registered sender header. Must match MSG91_SENDER_ID; startup checks that it does. */
+  DLT_SENDER_HEADER: z.string().optional(),
+  /** Random path secret embedded in the MSG91 delivery-report URL. */
+  MSG91_WEBHOOK_SECRET: z.string().optional(),
+  /*
+    Whether WhatsApp needs an affirmative opt-in before it may carry a TRANSACTIONAL message.
+
+    A different question from marketing consent, and kept separate from it: somebody who
+    opted out of offers has not asked to stop receiving their tickets. OFF by default, and
+    that default matters -- turning it on before the opt-in has been COLLECTED would stop
+    every existing customer's WhatsApp overnight, because absence of a consent record
+    correctly means no, and applying that retroactively to people who were never asked is not
+    compliance, it is an outage.
+
+    When on, a missing opt-in removes the WhatsApp channel and nothing else. Email and push
+    are untouched, and the notification still goes.
+  */
+  WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED: z.string().optional(),
+  /*
+    Show reminders. OFF by default, and that default is the point: turning this on starts
+    messaging every ticket holder on the platform about every future show. That is a product
+    launch -- somebody has to have decided the copy is right and the volume is wanted -- not
+    a deployment.
+  */
+  NOTIFICATION_REMINDERS_ENABLED: z.string().optional(),
+  /*
+    How far ahead to remind, in hours. A cinema chain reminding people the evening before and
+    a festival reminding them a week before are both reasonable, and neither should be a
+    deploy. One wave only: additional timings are a decision about how often it is acceptable
+    to message somebody.
+  */
+  NOTIFICATION_REMINDER_LEAD_HOURS: z.coerce.number().default(24),
+  /**
+   * Random path secret in the SNS subscription endpoint for SES events.
+   *
+   * Defence in depth, not the authority: since ADR-050 the SNS cryptographic signature is
+   * what actually authenticates an event. This is the cheap first filter in front of it.
+   */
+  SES_WEBHOOK_SECRET: z.string().optional(),
+  /*
+    The PUBLIC base URL of this API, which is part of what Twilio signs.
+
+    Not inferable: behind a load balancer Express reconstructs the internal host, and the
+    signature then never matches -- an entire provider's callbacks silently rejected, with a
+    401 that looks exactly like an attack. Same reasoning as SQUARE_WEBHOOK_URL above.
+  */
+  PUBLIC_API_URL: z.string().optional(),
 
   // --- Push (recipient = payload.pushToken / payload.pushTokens) ---
   /*
@@ -977,6 +1141,108 @@ function assertPlatformConfigConsistency(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Notification configuration that is internally contradictory.
+ *
+ * -- WHAT THIS DOES AND DOES NOT REFUSE TO BOOT FOR --------------------------------
+ * It refuses only CONTRADICTIONS -- configuration that cannot be right whatever the operator
+ * intended. Incompleteness is not a contradiction: a market half-way through its provider
+ * setup is the normal state of a launch, it is what the readiness endpoint exists to report,
+ * and refusing to boot for it would mean an operator cannot run the very report that would
+ * tell them what is missing.
+ *
+ * The one exception is inherited and stays: `assertDeliverabilityHardening` refuses a
+ * production boot with EMAIL_PROVIDER=log, because that configuration charges customers and
+ * sends them nothing.
+ */
+function assertNotificationConfigConsistency(cfg: AppConfig): void {
+  const errors: string[] = [];
+  const enabled = parseEnabledMarkets(cfg.NOTIFICATION_MARKETS);
+
+  /*
+    A market that routes to a provider it is not enabled for. The routing table would send
+    real messages into a market this deployment says it is not open in -- one of the two
+    statements is wrong, and no default can pick which.
+  */
+  for (const [key, label] of [
+    ['SMS_PROVIDER_BY_MARKET', 'SMS'],
+    ['WHATSAPP_PROVIDER_BY_MARKET', 'WhatsApp'],
+  ] as const) {
+    const routed = Object.keys(parseMarketProviderMap(cfg[key]));
+    const stray = routed.filter((m) => !enabled.includes(m));
+    if (stray.length > 0) {
+      errors.push(
+        `  - ${key} routes ${label} for ${stray.join(', ')}, which NOTIFICATION_MARKETS does ` +
+          `not enable. Add the market or remove the route -- do not leave both.`,
+      );
+    }
+  }
+
+  /*
+    Opt-in enforcement with nothing that can collect an opt-in. Switching this on removes
+    WhatsApp from everybody who has not consented, and if consent cannot be recorded that is
+    everybody, permanently -- a silent shutdown of a channel, presented as a policy setting.
+  */
+  if (cfg.WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED === 'true') {
+    const anyWhatsApp =
+      (cfg.WHATSAPP_PROVIDER ?? 'log') !== 'log' ||
+      Object.keys(parseMarketProviderMap(cfg.WHATSAPP_PROVIDER_BY_MARKET)).length > 0;
+    if (!anyWhatsApp) {
+      errors.push(
+        '  - WHATSAPP_TRANSACTIONAL_OPT_IN_REQUIRED=true with no WhatsApp provider routed. ' +
+          'It would suppress a channel that is not configured to send anything.',
+      );
+    }
+  }
+
+  /*
+    A DLT header that disagrees with the sender id actually used on the wire. Both are
+    present, so this is not incompleteness -- it is two answers to one question, and the
+    carrier will believe the one this platform sends, not the one recorded for readiness.
+  */
+  if (
+    cfg.DLT_SENDER_HEADER &&
+    cfg.MSG91_SENDER_ID &&
+    cfg.DLT_SENDER_HEADER.trim() !== cfg.MSG91_SENDER_ID.trim()
+  ) {
+    errors.push(
+      '  - DLT_SENDER_HEADER and MSG91_SENDER_ID disagree. The registered header and the ' +
+        'header actually sent must be the same string.',
+    );
+  }
+
+  /*
+    A binding naming a provider no channel routes to. Harmless at runtime and almost always
+    a typo in a provider name, which would otherwise present as "the template is not bound"
+    long after anybody remembers editing it.
+  */
+  const bindings = parseTemplateBindings(cfg.NOTIFICATION_TEMPLATE_BINDINGS);
+  const knownProviders = new Set(
+    [
+      cfg.SMS_PROVIDER,
+      cfg.WHATSAPP_PROVIDER,
+      ...Object.values(parseMarketProviderMap(cfg.SMS_PROVIDER_BY_MARKET)),
+      ...Object.values(parseMarketProviderMap(cfg.WHATSAPP_PROVIDER_BY_MARKET)),
+    ].filter((v): v is string => Boolean(v)),
+  );
+  if (knownProviders.size > 0) {
+    const orphan = [
+      ...new Set(bindings.filter((b) => !knownProviders.has(b.provider)).map((b) => b.provider)),
+    ];
+    if (orphan.length > 0) {
+      errors.push(
+        `  - NOTIFICATION_TEMPLATE_BINDINGS names provider(s) ${orphan.join(', ')} that no ` +
+          `channel routes to. Check the spelling against SMS_PROVIDER_BY_MARKET / ` +
+          `WHATSAPP_PROVIDER_BY_MARKET.`,
+      );
+    }
+  }
+
+  if (errors.length) {
+    throw new Error(`Contradictory notification configuration:\n${errors.join('\n')}`);
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -990,5 +1256,6 @@ export function loadConfig(): AppConfig {
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
+  assertNotificationConfigConsistency(parsed.data);
   return parsed.data;
 }

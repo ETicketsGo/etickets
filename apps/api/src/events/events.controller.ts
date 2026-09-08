@@ -163,6 +163,20 @@ export class EventsController {
     return this.events.attendees(user, id, q);
   }
 
+  /**
+   * Whether a customer could actually complete a purchase for this event.
+   *
+   * Read-only, and available at any point in an event's life rather than only at publish.
+   * A blocker can appear on a LIVE event -- a price edited above a ceiling, a seat map
+   * replaced -- and an organizer needs to be able to ask the question then too, not only
+   * once at the moment they submit.
+   */
+  @Get(':id/sellability')
+  @ApiOperation({ summary: 'Blockers and warnings a customer would hit at checkout.' })
+  async sellability(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.events.sellability(user, id);
+  }
+
   @Post(':id/submit')
   @ApiOperation({ summary: 'Submit an event for admin review.' })
   submit(@CurrentUser() user: RequestUser, @Param('id') id: string) {

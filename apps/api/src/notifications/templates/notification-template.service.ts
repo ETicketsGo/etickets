@@ -208,6 +208,35 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    The new time is rendered through the same `whenClause` the confirmation uses, so it lands
+    in the venue's zone and the reader's language. Getting that wrong here would be worse than
+    anywhere else on the platform: the entire message is a time, and a time in the wrong zone
+    sends somebody to the cinema on the wrong evening.
+  */
+  [NotificationType.SHOW_CHANGED]: (l, p) => ({
+    subject: t(l, 'emails.SHOW_CHANGED.subject'),
+    body: t(l, 'emails.SHOW_CHANGED.body', {
+      event: str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent')),
+      reference: bookingName(l, p),
+      when: whenClause(l, p),
+    }),
+  }),
+
+  /*
+    The show being called off, which is a different message from the customer's own
+    cancellation below: it has to say WHICH show and WHEN it was, because the reader did not
+    initiate this and may be about to travel to it.
+  */
+  [NotificationType.SHOW_CANCELLED]: (l, p) => ({
+    subject: t(l, 'emails.SHOW_CANCELLED.subject'),
+    body: t(l, 'emails.SHOW_CANCELLED.body', {
+      event: str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent')),
+      reference: bookingName(l, p),
+      when: whenClause(l, p),
+    }),
+  }),
+
   [NotificationType.BOOKING_CANCELLED]: (l, p) => ({
     subject: t(l, 'emails.BOOKING_CANCELLED.subject'),
     body: t(l, 'emails.BOOKING_CANCELLED.body', { reference: bookingName(l, p) }),
@@ -318,6 +347,20 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
       event: str(p, 'eventTitle', t(l, 'emails.fragments.anEvent')),
     }),
   }),
+
+  /*
+    The reason is carried rather than summarised here: the sellability check already produced
+    a sentence naming the seat category or the ticket type, and re-deriving a vaguer one from
+    a code would tell the organizer less than the thing that found it.
+  */
+  [NotificationType.EVENT_NOT_SELLABLE]: (l, p) => {
+    const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));
+    const reason = str(p, 'reason').trim();
+    return {
+      subject: t(l, 'emails.EVENT_NOT_SELLABLE.subject', { event }),
+      body: t(l, 'emails.EVENT_NOT_SELLABLE.body', { event, reason }),
+    };
+  },
 
   [NotificationType.EVENT_APPROVED]: (l, p) => {
     const event = str(p, 'eventTitle', t(l, 'emails.fragments.yourEvent'));

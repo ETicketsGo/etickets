@@ -1,10 +1,11 @@
-import { Global, Module, OnModuleInit } from '@nestjs/common';
+import { Global, Module, Optional, OnModuleInit } from '@nestjs/common';
 import { DOMAIN_EVENT_BUS, type DomainEventBus } from './domain-event-bus';
 import { InProcessDomainEventBus, domainEventBusProvider } from './in-process-domain-event-bus';
 import { TransactionalEventPublisher } from './transactional-event-publisher';
 import { BookingEventRecorder } from './handlers/booking-event.recorder';
 import { DomainEventType } from './catalogue/event-types';
 import { OutboxModule } from './outbox/outbox.module';
+import { ShowCancelledNotificationHandler } from '../../notifications/producers/show-cancelled.handler';
 
 /**
  * The domain event bus platform module (ADR-038). @Global so any domain module can
@@ -31,10 +32,24 @@ export class DomainEventsModule implements OnModuleInit {
   constructor(
     private readonly bus: InProcessDomainEventBus,
     private readonly bookingRecorder: BookingEventRecorder,
+    @Optional() private readonly showCancelled?: ShowCancelledNotificationHandler,
   ) {}
 
   onModuleInit(): void {
     const bus: DomainEventBus = this.bus;
     bus.subscribe(DomainEventType.BookingConfirmed, this.bookingRecorder);
+    /*
+      A cancelled show becomes customer messages. Subscribed here rather than called from
+      ShowsService, so the cancellation commits a FACT and the reaction to it is somebody
+      else's problem -- which is what stops a thousand-seat house being fanned out inside
+      the organizer's HTTP request.
+
+      Optional because this module is imported by suites that do not build the notification
+      module; an absent handler means the fan-out sweep is the only path, which is slower and
+      equally correct.
+    */
+    if (this.showCancelled) {
+      bus.subscribe(DomainEventType.SessionCancelled, this.showCancelled);
+    }
   }
 }

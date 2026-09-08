@@ -331,6 +331,16 @@ enum NotificationType {
   PAYMENT_FAILED
   EVENT_REMINDER
   BOOKING_CANCELLED
+  /// The SHOW is off, as opposed to one customer having cancelled their own booking.
+  ///
+  /// They are different facts and were briefly the same notification type, which put the
+  /// emergency SMS fallback on a message whose name means "this booking ended" -- including
+  /// when the customer ended it themselves, from their own account, deliberately. Nobody
+  /// needs an urgent SMS about a decision they just made.
+  SHOW_CANCELLED
+  /// A show somebody already holds a ticket for has materially changed -- today, its start
+  /// time moved. Rescheduling used to update the row, write an audit entry, and tell nobody.
+  SHOW_CHANGED
   REFUND_COMPLETED
   TICKET_CHECKED_IN
   ATTENDEE_INVITED
@@ -355,6 +365,9 @@ enum NotificationType {
   EVENT_SUBMITTED
   EVENT_APPROVED
   EVENT_REJECTED
+  /// A published event whose checkout would refuse every customer. Publishing already
+  /// blocks this, so it only ever means one that BECAME unsellable after going live.
+  EVENT_NOT_SELLABLE
 
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED
@@ -463,26 +476,27 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  refreshTokens           RefreshToken[]
-  invitationsSent         AccountInvitation[]      @relation("InvitationsSent")
-  invitationReceived      AccountInvitation?       @relation("InvitationsReceived")
-  passwordResetTokens     PasswordResetToken[]
-  cashCollected           Booking[]                @relation("CashCollected")
-  memberships             OrganizationMember[]
-  bookings                Booking[]
-  assignedTickets         Ticket[]                 @relation("TicketAttendee")
-  notifications           Notification[]
-  notificationPreferences NotificationPreference[]
-  pushSubscriptions       PushSubscription[]
-  devices                 UserDevice[]
-  feedback                Feedback[]
-  checkIns                CheckIn[]                @relation("CheckInActor")
-  auditLogs               AuditLog[]
-  seatOverrides           ShowSeat[]               @relation("SeatOverrideActor")
-  reviews                 Review[]
-  marketingConsents       MarketingConsent[]
-  adminGrants             AdminGrant[]             @relation("AdminGrantHolder")
-  adminGrantsIssued       AdminGrant[]             @relation("AdminGrantIssuer")
+  refreshTokens              RefreshToken[]
+  invitationsSent            AccountInvitation[]         @relation("InvitationsSent")
+  invitationReceived         AccountInvitation?          @relation("InvitationsReceived")
+  passwordResetTokens        PasswordResetToken[]
+  cashCollected              Booking[]                   @relation("CashCollected")
+  memberships                OrganizationMember[]
+  bookings                   Booking[]
+  assignedTickets            Ticket[]                    @relation("TicketAttendee")
+  notifications              Notification[]
+  notificationPreferences    NotificationPreference[]
+  pushSubscriptions          PushSubscription[]
+  devices                    UserDevice[]
+  feedback                   Feedback[]
+  checkIns                   CheckIn[]                   @relation("CheckInActor")
+  auditLogs                  AuditLog[]
+  seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
+  reviews                    Review[]
+  marketingConsents          MarketingConsent[]
+  notificationCertifications NotificationCertification[]
+  adminGrants                AdminGrant[]                @relation("AdminGrantHolder")
+  adminGrantsIssued          AdminGrant[]                @relation("AdminGrantIssuer")
 
   @@index([status])
 }
@@ -2112,27 +2126,392 @@ model Notification {
   locale       String           @default("en")
   toEmail      String?
   payload      Json
-  // PENDING | SCHEDULED | SENT | FAILED | CANCELLED
+  /// PENDING | SCHEDULED | SENT | FAILED | CANCELLED
+  ///
+  /// PENDING now means what it says: written down, not yet accepted by any provider. It
+  /// used to be unreachable — `send()` created rows as SENT before it had tried to deliver
+  /// them, so the database recorded a successful send for every message a provider later
+  /// refused, and support had no way to tell the two apart.
   status       String           @default("PENDING")
   scheduledFor DateTime? // set for scheduled (deferred) sends
   attempts     Int              @default(0)
   lastError    String?
   sentAt       DateTime?
   cancelledAt  DateTime?
+
+  /// Which provider carried this message (`ses`, `msg91`, `twilio`, `log`, …).
+  ///
+  /// With one provider per channel this was derivable from configuration. With India on
+  /// MSG91 and North America on Twilio at the same time it is not, and without it nobody can
+  /// answer "whose outage is this" when one market's messages stop arriving.
+  provider          String?
+  /// The provider's own reference for the accepted message, for quoting to their support.
+  providerMessageId String?
+  /// Durable identity of the notification INTENT (see dedupe-key.ts). Null for types that
+  /// may legitimately repeat, and Postgres permits any number of nulls in a unique index —
+  /// so this suppresses redelivery without suppressing a real second message.
+  dedupeKey         String? @unique
+  /// Why this message exists: PRIMARY | RETRY | FALLBACK | MANUAL_RESEND.
+  ///
+  /// On the NOTIFICATION as well as on each attempt, because the reason is decided when the
+  /// message is created -- a fallback SMS is a fallback before anything tries to send it --
+  /// and the attempt inherits it rather than guessing from an attempt number.
+  sendReason        String  @default("PRIMARY")
+
+  /// The booking this message is about, when it is about one.
+  ///
+  /// A column rather than a payload lookup: "what do notifications cost per booking" has to
+  /// join, and `payload->>'bookingId'` is a JSON extraction on every row of a table that grows
+  /// with every message the platform sends. Nullable because plenty of notifications -- an
+  /// organizer payout, a password reset -- are about no booking at all, and a report has to be
+  /// able to say how much of the spend that is.
+  ///
+  /// ── WHY THERE IS NO FOREIGN KEY ──────────────────────────────────────────────────
+  /// Because an accounting column must never be able to stop a message being sent. With a
+  /// constraint, a payload naming a booking that has since been deleted -- or a caller
+  /// passing an id from another environment -- makes the INSERT fail, and the notification is
+  /// lost. That trade is unacceptable in this direction: the column exists to answer a
+  /// finance question, and a finance question is not worth a customer's ticket.
+  ///
+  /// `ON DELETE SET NULL` would have been worse still. It quietly erases which booking a
+  /// message belonged to the moment the booking is removed, taking last quarter's
+  /// cost-per-booking with it.
+  bookingId String?
+
+  /// The same identity WITHOUT the channel: what ties the email, the push and the WhatsApp
+  /// message about one cancelled booking together.
+  ///
+  /// Needed because a fallback has to ask a question about siblings — "did ANY of the
+  /// preferred channels get through" — and `dedupeKey` deliberately differs per channel, so
+  /// it cannot answer it. Not unique: several rows share it, which is the point.
+  intentKey String?
   // Read state for the in-app notification center (v1.2 WS8); null = unread.
-  readAt       DateTime?
-  createdAt    DateTime         @default(now())
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  deliveries NotificationDelivery[]
 
   @@index([userId])
   @@index([type])
   @@index([status, scheduledFor])
   @@index([userId, channel, readAt])
+  /// Serves the fallback sweep, which asks for the siblings of one intent.
+  @@index([intentKey])
+  /// Cost per booking, and "which notifications belong to this booking" in support.
+  @@index([bookingId])
+  /// Every cost report by event type starts here: a window, then a type.
+  @@index([type, createdAt])
   // Serves the inbox cursor + `ORDER BY createdAt DESC` (v2.1 audit); the readAt
   // composite above only serves the unread-count/mark-all path.
   @@index([userId, channel, createdAt])
 }
 
 // Per-user opt-out for a (type, channel). Absence of a row = enabled.
+/// One attempt to hand a notification to a provider, and everything the provider said back.
+///
+/// ── WHY THIS IS NOT A COLUMN ON Notification ──────────────────────────────────────
+/// Phase 1 put `provider` and `providerMessageId` on the Notification and deliberately went
+/// no further, because with one attempt per row there was nothing more to model. Delivery
+/// receipts changed that in two ways at once.
+///
+/// A notification is retried. Each attempt gets its OWN provider message id, and a webhook
+/// arriving forty seconds later correlates on that id -- so a single column loses the first
+/// attempt's identity the moment a second one is made, and a late callback about attempt one
+/// would either be dropped as unknown or, worse, applied to attempt two.
+///
+/// And the states diverge. The intent can be SENT while the attempt that carried it BOUNCED.
+/// Those are different facts about different things, and squeezing them into one column
+/// means the row can only ever tell you the more recent one.
+///
+/// ── WHAT IS DELIBERATELY NOT DUPLICATED HERE ──────────────────────────────────────
+/// The recipient, the payload, the template, the locale, the tenant, the booking. All of it
+/// is on the Notification and is reachable through `notificationId`. Copying any of it would
+/// create a second place for a customer's email address to live and a second place for it to
+/// be wrong.
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  /// Which provider carried this attempt: ses, twilio, msg91, cloud, expo, log.
+  provider      String
+  /// Denormalised from the notification ONLY because every operational query filters on it
+  /// and a provider-health query should not need a join to answer "how is SMS doing".
+  channel       String
+  /// 1 for the first attempt. Unique per notification, so a retry cannot collide with itself.
+  attemptNumber Int
+
+  /// The provider's own reference. Null until the provider answers -- and on a crash between
+  /// the send and this write, null is the honest record of "we do not know", which is what
+  /// makes the ambiguity visible instead of silent.
+  providerMessageId String?
+
+  /// The normalized lifecycle state. See DeliveryState in shared-types.
+  status         String  @default("PENDING")
+  /// The provider's own word for it, kept verbatim. A status this platform does not
+  /// recognise leaves `status` alone and is preserved here for a human to read.
+  providerStatus String?
+  /// The provider's error code, which is what separates "the number is dead" from "the
+  /// handset was off". Never a message body.
+  failureCode    String?
+  /// A short provider-supplied reason. Never contains the message or the destination.
+  failureReason  String?
+
+  /// Why this attempt happened: PRIMARY | RETRY | FALLBACK | MANUAL_RESEND.
+  ///
+  /// A fallback SMS is the most expensive message this platform sends and an operator
+  /// resend is support spending money on somebody's behalf. Both are invisible in a total
+  /// that does not separate them from an ordinary first send.
+  sendKind String @default("PRIMARY")
+
+  /// Whose fault the outcome was, in terms a health report can use as a denominator.
+  ///
+  /// PROVIDER_ACCEPTED | PROVIDER_REJECTED | PROVIDER_UNAVAILABLE |
+  /// UNDELIVERABLE_DESTINATION | POLICY_SUPPRESSED | NO_DESTINATION
+  ///
+  /// Counting a suppressed address or somebody with no phone number as "Twilio failed"
+  /// makes Twilio look broken because our customers have preferences -- and hides a real
+  /// outage inside a number that is always high.
+  outcomeClass String?
+
+  /// WHAT went wrong, at the granularity an engineer or operator acts on.
+  ///
+  /// CONFIGURATION_ERROR | AUTHENTICATION_ERROR | RATE_LIMIT | TEMPORARY_PROVIDER_ERROR |
+  /// PERMANENT_REJECTION | INVALID_DESTINATION | TEMPLATE_NOT_FOUND | TEMPLATE_REJECTED |
+  /// COMPLIANCE_BLOCKED | UNKNOWN_PROVIDER_ERROR
+  ///
+  /// `outcomeClass` answers "whose fault, for a health denominator" and must stay small.
+  /// This answers "what do I do about it", where the distinctions are the whole point: a
+  /// missing DLT template and a rate limit were previously the same row with different prose.
+  /// Every value maps onto exactly one outcomeClass, so the two cannot disagree.
+  failureClass String?
+
+  /// What this attempt cost, in MICROS -- millionths of `costCurrency`.
+  ///
+  /// Not minor units. SES is $0.10 per THOUSAND emails, which is a hundredth of a cent
+  /// each; in cents that rounds to zero or to one, and both are wrong by orders of
+  /// magnitude. Null means UNKNOWN and never zero: see `costSource`.
+  costMicro        Int?
+  /// ISO-4217 of `costMicro`. Never mixed into a total with another currency.
+  costCurrency     String?
+  /// PROVIDER_REPORTED | RATE_CARD | RECONCILED | UNKNOWN | CONFIGURED_FREE.
+  ///
+  /// CONFIGURED_FREE and UNKNOWN both leave a total unchanged and mean opposite things:
+  /// one says this is free, the other says we do not know. A report that shows both as 0
+  /// is lying about one of them.
+  costSource       String    @default("UNKNOWN")
+  /// Billed quantity -- SMS segments, emails, conversations. One message is not one charge.
+  billedUnits      Int?
+  costCalculatedAt DateTime?
+
+  attemptedAt DateTime  @default(now())
+  acceptedAt  DateTime?
+  deliveredAt DateTime?
+  /// When the recipient opened it. WhatsApp is the only channel that can prove this.
+  ///
+  /// Its own column because a read is not a delivery. Writing the read time into
+  /// `deliveredAt` -- which is what happened before -- overwrote the fact of delivery with a
+  /// later fact about the same message, so the moment it actually arrived was lost.
+  readAt      DateTime?
+  failedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([notificationId, attemptNumber])
+  /// The correlation a webhook arrives with. Not unique: `log` and any provider that
+  /// reuses references must not be able to break ingestion, and the handler resolves
+  /// ambiguity rather than the database refusing the write.
+  @@index([provider, providerMessageId])
+  @@index([status, createdAt])
+  /// The shape every cost and health report starts from: a window, then a provider and
+  /// channel. Composite rather than three single-column indexes, because no report ever asks
+  /// about a provider without also asking about a period.
+  @@index([provider, channel, createdAt])
+  /// Serves the health denominators, which group by what went wrong within a window.
+  @@index([outcomeClass, createdAt])
+  /// Serves "what did fallbacks cost" and "what did support resend", which are the two
+  /// questions whose answers are otherwise buried in the total.
+  @@index([sendKind, createdAt])
+  /// Serves the operator's first question after a launch: "what is blocked on me".
+  @@index([failureClass, createdAt])
+}
+
+/// Whether a provider has ever demonstrably worked, and who says so.
+///
+/// -- WHY THIS IS A TABLE AND NOT DERIVED EVERY TIME --------------------------------
+/// Certification is currently computed by reading NotificationDelivery: is there a TEST
+/// send, did a callback come back. That is the right SOURCE of truth and it stays the
+/// source -- but it cannot hold the things a person contributes, and those turn out to
+/// matter more than the derivation:
+///
+///   WHO certified it, and when they said so. An automated read of delivery rows can say a
+///   callback arrived; it cannot say a named human looked at a handset and confirmed the
+///   message was legible, in the right language, with the right sender header.
+///
+///   WHY a market is still not certified. "Blocked on DLT approval, submitted 12 March,
+///   reference ABC" is the single most useful sentence in a launch review and there was
+///   nowhere to put it.
+///
+///   That evidence survives data retention. Delivery rows are prunable operational data;
+///   a certification decision is a record of a decision, and losing it to a cleanup job
+///   would silently un-certify a live market.
+///
+/// -- WHAT IT DELIBERATELY DOES NOT HOLD --------------------------------------------
+/// No credential, no recipient address or number, no message body. A certification record
+/// is exactly the kind of row that gets exported into a launch checklist, and it must be
+/// safe to read out loud.
+model NotificationCertification {
+  id String @id @default(cuid())
+
+  /// ses | twilio | msg91 | cloud | expo | fcm
+  provider String
+  /// email | sms | whatsapp | push
+  channel  String
+  /// ISO-3166 alpha-2, or `*` for a provider that is not market-specific.
+  market   String
+
+  /// CODE_READY | CONFIG_READY | CONTRACT_TESTED | EXTERNAL_VERIFICATION_REQUIRED |
+  /// LIVE_CERTIFIED | BLOCKED
+  ///
+  /// CONTRACT_TESTED is deliberately BELOW live certification and can never be promoted to
+  /// it by anything automated: it means the adapter was proven against a mocked provider,
+  /// which says our side is right and says nothing whatsoever about theirs.
+  state String @default("CODE_READY")
+
+  /// The last operator TEST send this platform accepted for this pairing.
+  lastSuccessfulTestAt     DateTime?
+  /// The last real provider callback observed. Null where the provider publishes none --
+  /// push has no delivery receipt, so null there is the expected state and not a gap.
+  lastSuccessfulCallbackAt DateTime?
+  /// When the mocked provider-contract suite last passed for this adapter.
+  lastContractTestAt       DateTime?
+
+  /// The person who asserted this state. Null for anything a machine derived.
+  certifiedByUserId String?
+  certifiedBy       User?     @relation(fields: [certifiedByUserId], references: [id], onDelete: SetNull)
+  certifiedAt       DateTime?
+
+  /// Free text for a human: a ticket reference, a DLT submission id, what is still missing.
+  /// Never a credential -- see the model comment.
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One row per pairing. A second row for the same provider/channel/market would let two
+  /// answers to "is India SMS certified" exist at once, which is the one thing this table
+  /// is for preventing.
+  @@unique([provider, channel, market])
+  @@index([state])
+}
+
+/// What a provider charges, at a point in time.
+///
+/// ── WHY THIS IS A TABLE AND NOT A CONSTANT ────────────────────────────────────────
+/// Prices change, and they change per contract. A rate compiled into the application is a
+/// deploy every time a vendor renegotiates, and -- worse -- it silently reprices HISTORY,
+/// because yesterday's report would be recomputed at today's price. Effective dating is what
+/// makes a cost report about last month still true next year.
+///
+/// Modelled on TaxRule, which solves the same problem for the same reasons: `*` wildcards for
+/// scope, a priority for specificity, and an active flag so a rate can be written and
+/// reviewed before it starts applying to money.
+///
+/// ── WHY NO PRODUCTION PRICES SHIP IN THIS TABLE ───────────────────────────────────
+/// Because they would be invented. Real rates depend on a contract, a volume tier and a
+/// destination operator, and a plausible-looking number in an accounting table is worse than
+/// no number at all: it produces a total somebody will believe. Unconfigured stays UNKNOWN.
+model NotificationRate {
+  id String @id @default(cuid())
+
+  /// `ses`, `twilio`, `msg91`, `cloud`, `expo`, `fcm`, `log`.
+  provider String
+  /// email | sms | whatsapp | push | in_app
+  channel  String
+  /// ISO-3166 alpha-2, or `*` for any market.
+  country  String @default("*")
+  /// Where a provider prices by message class -- WhatsApp utility vs authentication vs
+  /// marketing. `*` for any.
+  category String @default("*")
+
+  /// Price of ONE billing unit, in millionths of `currency`. Integer; never a float.
+  unitPriceMicro Int
+  currency       String
+  /// PER_MESSAGE | PER_SEGMENT | PER_CONVERSATION | PER_TEMPLATE_MESSAGE | PER_1000 | PER_REQUEST
+  billingUnit    String
+
+  /// More specific wins. A country rate beats a `*` rate at the same instant.
+  priority Int     @default(100)
+  /// Off by default: a rate is written, reviewed, and only then applied to money.
+  active   Boolean @default(false)
+
+  effectiveFrom DateTime
+  /// Null means "still in force". A superseded rate gets an end date rather than a delete,
+  /// so a report about the period it covered can still be reproduced.
+  effectiveTo   DateTime?
+
+  /// Where the number came from: an invoice, a rate card, a contract clause.
+  source String?
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, provider, channel, country])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+/// A destination that must not be sent to again.
+///
+/// ── WHY THIS IS NOT MarketingConsent ──────────────────────────────────────────────
+/// They answer different questions and confusing them breaks the platform in both
+/// directions. Consent asks "may we send this person promotional material", and its absence
+/// correctly blocks marketing while never touching a ticket. Suppression asks "is this
+/// destination usable at all", and it must stop TRANSACTIONAL mail too -- continuing to
+/// email an address that hard-bounces is what gets a sending domain throttled by SES.
+///
+/// Answering one with the other would either suppress somebody's ticket because they opted
+/// out of newsletters, or keep emailing a dead mailbox because they never opted out.
+///
+/// ── WHY IT IS PER CHANNEL ─────────────────────────────────────────────────────────
+/// A dead mailbox says nothing about a phone. Suppression is a fact about one destination on
+/// one channel, and a bounce must never silence the channels that still work.
+///
+/// ── WHY THE DESTINATION IS HASHED ─────────────────────────────────────────────────
+/// The only operation this table performs is "is this destination suppressed", which a hash
+/// answers exactly as well as plaintext. Storing the address instead would create a list of
+/// customer emails and phone numbers whose entire purpose is to be read on every send --
+/// and it would be the one table where a leak is a list of real, verified contact details.
+model SuppressedDestination {
+  id              String @id @default(cuid())
+  /// email | sms | whatsapp | push
+  channel         String
+  /// SHA-256 of the normalized destination. Lower-cased email, or E.164 digits.
+  destinationHash String
+  /// Enough of the destination to recognise in a support conversation, never enough to use.
+  destinationMask String
+
+  /// HARD_BOUNCE | COMPLAINT | UNSUBSCRIBED | INVALID_DESTINATION | BLOCKED_BY_PROVIDER
+  reason           String
+  /// Which provider reported it, when one did.
+  provider         String?
+  /// The delivery attempt this came from, for tracing it back to the event.
+  sourceDeliveryId String?
+
+  suppressedAt DateTime  @default(now())
+  /// Set only for reasons that genuinely expire. A hard bounce does not.
+  expiresAt    DateTime?
+  /// An operator lifting a suppression -- audited, and never a delete, so the history of why
+  /// a destination was blocked survives the decision to unblock it.
+  liftedAt     DateTime?
+  liftedBy     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([channel, destinationHash])
+  @@index([reason, suppressedAt])
+}
+
 model NotificationPreference {
   id        String           @id @default(cuid())
   userId    String
@@ -2626,7 +3005,7 @@ model BookingTaxLine {
   /// can tell the tax already inside the platform fee from the tax on the tickets, so the
   /// checkout listed the fee's GST as its own row while the fee row already contained it,
   /// and charged the reader for the same money twice on screen.
-  basis           String?
+  basis     String?
   /// Whether the tax sat INSIDE the price rather than being added to it.
   ///
   /// Indian GST on admission is inclusive: the ₹799 already contains it. Rendered as an
@@ -2636,7 +3015,7 @@ model BookingTaxLine {
   ///
   /// Both are nullable because thousands of rows predate them. See `priceBreakdown`, which
   /// derives the answer arithmetically for a row that cannot state it.
-  inclusive       Boolean?
+  inclusive Boolean?
 
   createdAt DateTime @default(now())
 

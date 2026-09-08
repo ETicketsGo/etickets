@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ChannelKey,
+  DeliveryOutcome,
   NotificationChannel,
   RenderedNotification,
 } from './notification-channel.interface';
@@ -15,7 +16,9 @@ export class InAppChannel implements NotificationChannel {
   readonly key: ChannelKey = 'in_app';
   private readonly logger = new Logger('Notification');
 
-  async deliver(msg: RenderedNotification): Promise<void> {
+  async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
     this.logger.debug(`[in_app:${msg.type}] -> user ${msg.userId ?? 'n/a'} (persisted row)`);
+    // The row itself is the delivery, so this is accepted the moment it is written.
+    return { provider: 'in_app' };
   }
 }

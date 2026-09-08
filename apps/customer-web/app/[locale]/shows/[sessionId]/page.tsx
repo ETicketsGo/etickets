@@ -14,6 +14,22 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
 import { BuyerRegionField } from '@eticketsgo/web-kit';
 
+/**
+ * Errors about the SHOW rather than about the seats.
+ *
+ * ── WHY THE CODE AND NOT THE STATUS ────────────────────────────────────────────────
+ * Both arrive as 409. A seat lost to somebody faster and a showing whose regulatory pricing
+ * was never configured are the same HTTP status, so the status cannot tell them apart — and
+ * every one of these is raised as VALIDATION_FAILED, while no seat conflict is.
+ *
+ * The distinction decides what happens to the buyer's cart. Every one of these means
+ * re-picking seats cannot possibly help: the price ceiling is unmapped, the event is marked
+ * free while its tickets carry a price, this organizer does not take cash. Clearing the
+ * selection for them throws away work the customer did for no reason, and the visible reset
+ * reads as the failure while the sentence explaining it scrolls past.
+ */
+const SHOW_LEVEL_ERROR_CODES = ['VALIDATION_FAILED'];
+
 const MAX_SEATS = 10;
 
 /**
@@ -275,13 +291,34 @@ export default function SeatSelectionPage() {
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
     onError: (e) => {
       if ((e as Error).message === 'login') return;
-      // A seat may have been taken between load and submit — reset + refetch.
+      /*
+        Only a seat that is genuinely gone justifies emptying the cart.
+
+        Every failure used to clear the selection and refetch, on the theory that a seat had
+        been taken between load and submit. That is one cause among many, and it was the only
+        one being served: a show whose regulatory pricing is not configured, a rejected coupon,
+        a validation error — all of them threw away the seats the buyer had just chosen, so the
+        real message flashed past next to a map that had visibly reset itself. The reset reads
+        as the failure, and the explanation goes unread.
+
+        A conflict means pick again. Anything else means read this and try again, with the
+        seats still selected.
+      */
+      const showLevel = e instanceof ApiRequestError && SHOW_LEVEL_ERROR_CODES.includes(e.code);
       toast.push(
         e instanceof ApiRequestError ? e.message : 'Some seats were just taken. Please pick again.',
         'error',
       );
-      setSelected([]);
-      refetch();
+      /*
+        Anything not identifiably about the show keeps the old behaviour: assume a seat went
+        and re-read the map. That is the safer default of the two -- leaving a stale selection
+        after a real conflict sends the buyer into a second failure -- so only the cases we
+        can positively identify as show-level are exempted.
+      */
+      if (!showLevel) {
+        setSelected([]);
+        refetch();
+      }
     },
   });
 
@@ -717,6 +754,9 @@ export default function SeatSelectionPage() {
                 quote={quote}
                 loading={quoteQ.isFetching}
                 fallbackTotalMinor={total}
+                // The same currency the seat map and the legend are priced in, so an empty
+                // cart does not open in a different one from the seats above it.
+                fallbackCurrency={currency}
                 totalLabel={sf('event.totalSeats', { count: selected.length })}
                 emptyNote={sf('event.priceAddSeat')}
               />

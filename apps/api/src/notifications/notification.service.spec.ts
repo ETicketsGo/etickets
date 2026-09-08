@@ -42,7 +42,8 @@ function setup(
     userLocale?: string | null;
   } = {},
 ) {
-  const deliver = opts.deliver ?? jest.fn().mockResolvedValue(undefined);
+  // A channel now reports WHICH provider accepted the message, so a delivery stub must too.
+  const deliver = opts.deliver ?? jest.fn().mockResolvedValue({ provider: 'log' });
 
   let seq = 0;
   const prisma = {
@@ -58,6 +59,11 @@ function setup(
         seq += 1;
         return Promise.resolve({ id: `created-${seq}`, ...data });
       }),
+      // Dedupable types insert through createMany + skipDuplicates: a unique violation
+      // raised mid-statement would abort the caller's whole transaction, taking the
+      // domain change with it. `ON CONFLICT DO NOTHING` never raises.
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'created-1' }),
       findMany: jest.fn().mockResolvedValue(opts.dueRows ?? []),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: opts.updateManyCount ?? 1 }),
@@ -94,8 +100,33 @@ function setup(
   return { service, prisma, templates, preferences, channels, deliver, consent };
 }
 
-describe('NotificationService.send (backward compatibility)', () => {
-  it('default (no channels/locale) persists email + in_app + push SENT rows and delivers to each', async () => {
+/**
+ * The rows a send wrote, from whichever path wrote them.
+ *
+ * A dedupable type goes in through `createMany({ skipDuplicates })` so a collision cannot
+ * abort the caller's transaction; a type with no dedupe key uses a plain `create`, which
+ * cannot collide and hands back the id `schedule()` needs. Tests care about the rows, not
+ * which statement produced them.
+ */
+function writtenRows(prisma: {
+  notification: { create: jest.Mock; createMany: jest.Mock };
+}): Record<string, unknown>[] {
+  return [
+    ...prisma.notification.create.mock.calls.map((c) => c[0].data),
+    ...prisma.notification.createMany.mock.calls.flatMap((c) => c[0].data),
+  ];
+}
+
+describe('NotificationService.send hands over, it does not deliver', () => {
+  /*
+    ── WHAT THESE REPLACED ──────────────────────────────────────────────────────────────
+    They used to be titled "backward compatibility" and asserted that `send` wrote rows with
+    status SENT and called `deliver` before returning. Both halves of that were the defect:
+    the row claimed a successful send before anything had been attempted, and the delivery
+    happened inside the caller — which for two of the sixteen callers is a request that has
+    already taken somebody's money.
+  */
+  it('writes a PENDING row per channel and calls no provider at all', async () => {
     const { service, prisma, deliver } = setup();
 
     await service.send({
@@ -105,54 +136,69 @@ describe('NotificationService.send (backward compatibility)', () => {
       payload: { bookingId: 'bk-1', tickets: 2 },
     });
 
-    // Default channels are email + in_app (inbox) + push (browser push, no-op w/o subs).
-    expect(prisma.notification.create).toHaveBeenCalledTimes(3);
-    expect(prisma.notification.create).toHaveBeenCalledWith(
+    // Policy for a confirmed booking: email, the inbox, push, and WhatsApp.
+    const rows = writtenRows(prisma);
+    expect(rows).toHaveLength(4);
+    expect(rows).toContainEqual(
       expect.objectContaining({
-        data: expect.objectContaining({
-          type: NotificationType.BOOKING_CONFIRMED,
-          channel: 'email',
-          locale: 'en',
-          status: 'SENT',
-          sentAt: expect.any(Date),
-        }),
+        type: NotificationType.BOOKING_CONFIRMED,
+        channel: 'email',
+        locale: 'en',
+        status: 'PENDING',
+        scheduledFor: expect.any(Date),
       }),
     );
-    expect(prisma.notification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ channel: 'in_app', status: 'SENT' }),
-      }),
-    );
-    expect(prisma.notification.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ channel: 'push', status: 'SENT' }),
-      }),
-    );
-    expect(deliver).toHaveBeenCalledTimes(3);
+    // The whole point: nothing was delivered, so nothing about a provider can reach the
+    // caller — not a timeout, not an outage, not a thrown error.
+    expect(deliver).not.toHaveBeenCalled();
   });
 
-  it('fans out to each requested channel when channels are given', async () => {
-    const { service, prisma, deliver } = setup();
+  it('never writes a row claiming SENT', async () => {
+    const { service, prisma } = setup();
+    await service.send({ type: NotificationType.BOOKING_CONFIRMED, userId: 'u1', payload: {} });
+    for (const data of writtenRows(prisma)) {
+      expect(data.status).not.toBe('SENT');
+      expect(data.sentAt).toBeUndefined();
+    }
+  });
+
+  it('a caller may ask for fewer channels than policy allows', async () => {
+    const { service, prisma } = setup();
     await service.send({
       type: NotificationType.BOOKING_CONFIRMED,
       userId: 'u1',
       payload: {},
-      channels: ['email', 'sms', 'push'],
+      channels: ['email', 'push'],
     });
-    expect(prisma.notification.create).toHaveBeenCalledTimes(3);
-    expect(deliver).toHaveBeenCalledTimes(3);
+    expect(writtenRows(prisma)).toHaveLength(2);
   });
 
-  it('respects preferences: a disabled channel is not persisted or delivered', async () => {
-    const { service, prisma, deliver } = setup({ disabledChannels: ['sms'] });
+  it('a caller may NOT ask for a channel policy does not allow', async () => {
+    /*
+      This is the guard that made fixing the SMS recipient bug safe. Before it, every type
+      shared one default channel list, so the moment SMS could actually reach a phone, a
+      confirmed booking would have started sending one to every buyer on the platform.
+    */
+    const { service, prisma } = setup();
     await service.send({
       type: NotificationType.BOOKING_CONFIRMED,
       userId: 'u1',
       payload: {},
       channels: ['email', 'sms'],
     });
-    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
-    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(writtenRows(prisma)).toHaveLength(1);
+    expect(writtenRows(prisma)[0]).toMatchObject({ channel: 'email' });
+  });
+
+  it('respects preferences: a disabled channel is not persisted', async () => {
+    const { service, prisma } = setup({ disabledChannels: ['push'] });
+    await service.send({
+      type: NotificationType.BOOKING_CONFIRMED,
+      userId: 'u1',
+      payload: {},
+      channels: ['email', 'push'],
+    });
+    expect(writtenRows(prisma)).toHaveLength(1);
   });
 });
 
@@ -165,7 +211,9 @@ describe('NotificationService.schedule', () => {
         type: NotificationType.EVENT_REMINDER,
         userId: 'u1',
         payload: {},
-        channels: ['email', 'sms'],
+        // A reminder's policy is inbox + push + WhatsApp; email is deliberately not on it,
+        // and asking for it does not put it there.
+        channels: ['email', 'push', 'in_app'],
       },
       when,
     );

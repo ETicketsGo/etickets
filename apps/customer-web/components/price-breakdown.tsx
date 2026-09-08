@@ -120,7 +120,16 @@ function PlatformFeeLine({
         <span className="tabular-nums text-text-primary">{value}</span>
       </div>
       {open && (
-        <div className="mt-1 space-y-1 border-l-2 border-border pl-3">
+        /*
+          Identified, because "one row, not three" is a claim about ROWS and these are the
+          parts INSIDE one. Without a handle, a test asserting the old three-row layout is
+          gone cannot tell a nested detail from a sibling row, and reads this correct layout
+          as the defect it was written to catch.
+        */
+        <div
+          data-testid="platform-fee-parts"
+          className="mt-1 space-y-1 border-l-2 border-border pl-3"
+        >
           {parts.bookingFeeMinor > 0 && (
             <Line muted label={t('feeBookingPart')} value={money2(parts.bookingFeeMinor)} />
           )}
@@ -154,6 +163,19 @@ export function PriceBreakdown({
   emptyNote,
   /** A free event has no money to break down; the caller says so rather than us guessing. */
   free = false,
+  /**
+   * What to price in before a quote exists.
+   *
+   * ── WHY THIS IS A PROP AND NOT A DEFAULT ───────────────────────────────────────────
+   * The currency came from the quote alone, so an empty cart had none — and `money()` falls
+   * back to INR when it is not told otherwise. A seat map for a cinema in Boise therefore
+   * opened on "Total (0 seats) ₹0", switched to dollars the moment a seat was picked, and
+   * switched back the moment the last one was removed.
+   *
+   * The caller already knows the answer: it resolves the venue's country to price the seat
+   * map itself. It just had no way to say so.
+   */
+  fallbackCurrency,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -161,9 +183,11 @@ export function PriceBreakdown({
   totalLabel?: string;
   emptyNote?: string;
   free?: boolean;
+  fallbackCurrency?: string;
 }) {
   const t = useTranslations('storefront.event');
-  const currency = quote?.currency;
+  // The quote still wins whenever there is one: it is what the buyer will be charged in.
+  const currency = quote?.currency ?? fallbackCurrency;
 
   /*
     The arithmetic lives in `@eticketsgo/web-kit` and is unit-tested there, because the one

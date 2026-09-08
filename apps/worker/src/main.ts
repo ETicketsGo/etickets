@@ -10,8 +10,12 @@ import {
   BookingsService,
   LocalBookingOrchestrator,
   EventsService,
+  EventSellabilitySweepService,
   FinanceReconciliationService,
   NotificationService,
+  NotificationFallbackService,
+  ShowCancellationFanoutService,
+  ShowReminderService,
   PrismaService,
   RazorpayWebhookProcessor,
   SeatOverridesService,
@@ -37,10 +41,53 @@ const WORKER_PORT =
     ? RAW_WORKER_PORT
     : 4100;
 const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
-// Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
-const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 30_000);
+/*
+  Every five seconds, not thirty.
+
+  This sweep used to carry only DEFERRED notifications -- reminders queued days ahead -- so a
+  thirty-second granularity was irrelevant. It now carries every notification the platform
+  sends, because delivery moved off the request path and behind this table, and thirty seconds
+  is a long time to wait for the email containing the ticket you just paid for.
+
+  Guard against a non-numeric env value (Number('') === 0, Number('x') === NaN).
+*/
+const RAW_SWEEP_MS = Number(process.env.NOTIFICATION_SWEEP_INTERVAL_MS ?? 5_000);
 const NOTIFICATION_SWEEP_MS =
-  Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 30_000;
+  Number.isFinite(RAW_SWEEP_MS) && RAW_SWEEP_MS > 0 ? RAW_SWEEP_MS : 5_000;
+/*
+  A minute, not five seconds. The fallback sweep asks whether enough TIME has passed with
+  nothing effective; running it at the dispatch cadence would ask that question hundreds of
+  times per answer, and the answer cannot change faster than the wait it is measuring.
+*/
+const RAW_FALLBACK_MS = Number(process.env.NOTIFICATION_FALLBACK_INTERVAL_MS ?? 60_000);
+const FALLBACK_SWEEP_MS =
+  Number.isFinite(RAW_FALLBACK_MS) && RAW_FALLBACK_MS > 0 ? RAW_FALLBACK_MS : 60_000;
+/*
+  A minute for the cancellation guarantee, and five for reminders.
+
+  Neither is a latency-sensitive path: the cancellation fan-out is started immediately by the
+  domain-event handler and this sweep is the safety net behind it, and a reminder twenty-four
+  hours ahead does not care about five minutes. Running either at the dispatch cadence would
+  ask an expensive question hundreds of times per useful answer.
+*/
+const RAW_CANCELLATION_MS = Number(process.env.NOTIFICATION_FANOUT_INTERVAL_MS ?? 60_000);
+const CANCELLATION_SWEEP_MS =
+  Number.isFinite(RAW_CANCELLATION_MS) && RAW_CANCELLATION_MS > 0 ? RAW_CANCELLATION_MS : 60_000;
+/*
+  Hourly, and deliberately not faster.
+
+  This asks whether a PUBLISHED listing has become unsellable, which changes only when
+  somebody edits configuration or a rate order takes effect. Running it every few seconds
+  would re-answer a question whose answer moves a handful of times a week, against every
+  live event, for nothing. An hour is well inside "before the organizer's day is ruined" and
+  well outside "expensive".
+*/
+const RAW_SELLABILITY_MS = Number(process.env.EVENT_SELLABILITY_INTERVAL_MS ?? 3_600_000);
+const SELLABILITY_SWEEP_MS =
+  Number.isFinite(RAW_SELLABILITY_MS) && RAW_SELLABILITY_MS > 0 ? RAW_SELLABILITY_MS : 3_600_000;
+const RAW_REMINDER_MS = Number(process.env.NOTIFICATION_REMINDER_INTERVAL_MS ?? 300_000);
+const REMINDER_SWEEP_MS =
+  Number.isFinite(RAW_REMINDER_MS) && RAW_REMINDER_MS > 0 ? RAW_REMINDER_MS : 300_000;
 const RAW_METRICS_MS = Number(process.env.QUEUE_METRICS_INTERVAL_MS ?? 15_000);
 const QUEUE_METRICS_MS =
   Number.isFinite(RAW_METRICS_MS) && RAW_METRICS_MS > 0 ? RAW_METRICS_MS : 15_000;
@@ -115,6 +162,10 @@ async function main(): Promise<void> {
   const events = app.get(EventsService);
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
+  const fallbacks = app.get(NotificationFallbackService);
+  const cancellationFanout = app.get(ShowCancellationFanoutService);
+  const reminders = app.get(ShowReminderService);
+  const sellability = app.get(EventSellabilitySweepService);
   const finance = app.get(FinanceReconciliationService);
   const auth = app.get(AuthService);
   const stripeWebhooks = app.get(StripeWebhookProcessor);
@@ -159,14 +210,87 @@ async function main(): Promise<void> {
     },
   );
 
-  // Repeatable sweep that delivers due scheduled notifications. Idempotent:
-  // dispatchDue only acts on rows still SCHEDULED and past their scheduledFor.
+  // Repeatable sweep that delivers due notifications. Idempotent: dispatchDue only acts on
+  // rows still PENDING/SCHEDULED and past their scheduledFor.
   await queue.add(
     'dispatch-notifications',
     {},
     {
       repeat: { every: NOTIFICATION_SWEEP_MS },
       jobId: 'dispatch-notifications',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Cross-channel fallback: a cancelled show whose preferred channels produced nothing gets
+  // an SMS, once, after the wait its policy declares. Idempotent -- the fallback is created
+  // through the ordinary send path and its intent key makes a second sweep a no-op.
+  await queue.add(
+    'notification-fallbacks',
+    {},
+    {
+      repeat: { every: FALLBACK_SWEEP_MS },
+      jobId: 'notification-fallbacks',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  /*
+    Tells the remaining ticket holders about a cancelled show.
+
+    The domain-event handler starts the fan-out the moment a show is cancelled, so this is
+    not the fast path -- it is the GUARANTEE. It asks the data who still has no cancellation
+    notice, which means it recovers on its own from a failed handler, a disabled outbox or a
+    process that died mid-batch, and it needs no cursor to do it.
+  */
+  await queue.add(
+    'notification-cancellation-fanout',
+    {},
+    {
+      repeat: { every: CANCELLATION_SWEEP_MS },
+      jobId: 'notification-cancellation-fanout',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  /*
+    Published events that nobody can buy from.
+
+    The publish gate refuses an unsellable event, so anything this finds became unsellable
+    AFTERWARDS -- a price edited above a ceiling, a room reassigned, a rate order taking
+    effect. The listing stays up and the checkout refuses, and nothing about that situation
+    produces a signal on its own: the first person to notice is a customer.
+  */
+  await queue.add(
+    'event-sellability-sweep',
+    {},
+    {
+      repeat: { every: SELLABILITY_SWEEP_MS },
+      jobId: 'event-sellability-sweep',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Show reminders. OFF unless NOTIFICATION_REMINDERS_ENABLED -- turning it on starts
+  // messaging every ticket holder about every future show, which is a product launch.
+  await queue.add(
+    'notification-reminders',
+    {},
+    {
+      repeat: { every: REMINDER_SWEEP_MS },
+      jobId: 'notification-reminders',
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
@@ -284,6 +408,44 @@ async function main(): Promise<void> {
         if (summary.sent + summary.failed + summary.retried > 0) {
           log('info', 'dispatched scheduled notifications', { ...summary });
         }
+        return summary;
+      }
+      if (job.name === 'event-sellability-sweep') {
+        const summary = await sellability.sweep();
+        // Logged only when something is actually wrong. An hourly "0 unsellable" line is
+        // noise that makes the hour something IS wrong harder to spot.
+        if (summary.unsellable > 0) {
+          log('warn', 'published events that cannot be sold', { ...summary });
+        }
+        return summary;
+      }
+      if (job.name === 'notification-cancellation-fanout') {
+        const summary = await cancellationFanout.sweep();
+        if (summary.notified > 0) log('info', 'show cancellation fanout', { ...summary });
+        return summary;
+      }
+      if (job.name === 'notification-reminders') {
+        /*
+          The tolerance must be at least as wide as the interval between ticks, or a show
+          whose exact reminder moment fell between two runs is never reminded about at all.
+          Generous is safe: a show caught twice still produces one message, because the
+          dedupe key decides that in the database.
+        */
+        const summary = await reminders.runDue(new Date(), {
+          toleranceMinutes: Math.max(30, Math.ceil(REMINDER_SWEEP_MS / 60_000) * 2),
+        });
+        if (summary.reminded > 0) log('info', 'sent show reminders', { ...summary });
+        return summary;
+      }
+      if (job.name === 'notification-fallbacks') {
+        /*
+          Opens a paid channel only where the free ones produced nothing after the wait the
+          event declares. It runs on its own, slower schedule because it is asking a question
+          about time having passed -- checking every five seconds would answer "no" several
+          hundred times for every time it answers "yes".
+        */
+        const summary = await fallbacks.runDue();
+        if (summary.opened > 0) log('info', 'opened notification fallbacks', { ...summary });
         return summary;
       }
       if (job.name === 'outbox-dispatch') {

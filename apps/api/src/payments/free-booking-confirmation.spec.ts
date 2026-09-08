@@ -77,7 +77,13 @@ function setup(over: Over = {}) {
     refund: jest.fn(),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    send: jest.fn().mockResolvedValue(undefined),
+    // Critical notifications are written IN the domain transaction now, so the stub
+    // captures the transaction client it was handed -- that IS the assertion.
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    fanOutCritical: jest.fn().mockResolvedValue(0),
+  };
   const razorpayOrders = { createOrder: jest.fn(), verify: jest.fn() };
 
   const service = new PaymentsService(
@@ -129,7 +135,9 @@ describe('PaymentsService.confirmFreeBooking', () => {
     expect(result).toMatchObject({ status: 'confirmed', bookingId: 'bk-1', tickets: 2 });
     expect(strategy.confirm).toHaveBeenCalled();
     expect(tx.ticket.create).toHaveBeenCalledTimes(2);
-    expect(notifications.send).toHaveBeenCalled();
+    // Free or not, the confirmation commits with the booking.
+    expect(notifications.sendCritical).toHaveBeenCalled();
+    expect(notifications.sendCritical.mock.calls[0][0]).toBe(tx);
   });
 
   it('writes no payment and no payment attempt', async () => {

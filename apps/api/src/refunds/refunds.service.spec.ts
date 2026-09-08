@@ -105,7 +105,13 @@ function setupProcess(opts: ProcessOpts = {}) {
   };
   const access = accessStub();
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    send: jest.fn().mockResolvedValue(undefined),
+    // Critical notifications are written IN the domain transaction now, so the stub
+    // captures the transaction client it was handed -- that IS the assertion.
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    fanOutCritical: jest.fn().mockResolvedValue(0),
+  };
   const receipts = {
     issueCreditNote: jest.fn().mockResolvedValue(undefined),
     issueForBooking: jest.fn().mockResolvedValue(undefined),
@@ -276,7 +282,7 @@ function setupRequest(opts: RequestOpts) {
     {} as never,
     access as never,
     audit as never,
-    { send: jest.fn() } as never,
+    { send: jest.fn(), sendCritical: jest.fn() } as never,
     new MetricsService(),
     { issueCreditNote: jest.fn() } as never,
   );

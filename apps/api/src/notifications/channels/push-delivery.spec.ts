@@ -37,7 +37,10 @@ const prismaWith = (tokens: string[], onQuery?: (args: unknown) => void) =>
 describe('the push channel finds the recipient’s devices', () => {
   it('sends to registered devices even when the caller passes no token', async () => {
     // The defect, stated as a test: this used to deliver to nobody.
-    const transport = { send: jest.fn().mockResolvedValue(undefined) };
+    const transport = {
+      name: 'log' as const,
+      send: jest.fn().mockResolvedValue({ provider: 'log' }),
+    };
     const channel = new PushChannel(transport, undefined, prismaWith(['ExponentPushToken[aaa]']));
 
     await channel.deliver(msg());
@@ -48,7 +51,10 @@ describe('the push channel finds the recipient’s devices', () => {
 
   it('excludes devices whose OS permission was denied', async () => {
     const seen: unknown[] = [];
-    const transport = { send: jest.fn().mockResolvedValue(undefined) };
+    const transport = {
+      name: 'log' as const,
+      send: jest.fn().mockResolvedValue({ provider: 'log' }),
+    };
     const channel = new PushChannel(
       transport,
       undefined,
@@ -66,7 +72,10 @@ describe('the push channel finds the recipient’s devices', () => {
   it('merges caller-supplied tokens with registered ones, without duplicates', async () => {
     // A caller may still address a specific device, or a recipient with no account. Both
     // sources are honoured so nothing that worked before changes.
-    const transport = { send: jest.fn().mockResolvedValue(undefined) };
+    const transport = {
+      name: 'log' as const,
+      send: jest.fn().mockResolvedValue({ provider: 'log' }),
+    };
     const channel = new PushChannel(transport, undefined, prismaWith(['shared', 'device-only']));
 
     await channel.deliver(msg({ payload: { pushTokens: ['caller-only', 'shared'] } }));
@@ -80,7 +89,10 @@ describe('the push channel finds the recipient’s devices', () => {
 
   it('still delivers when there is no user or no database', async () => {
     // The channel is a default for every notification; it must degrade, never block.
-    const transport = { send: jest.fn().mockResolvedValue(undefined) };
+    const transport = {
+      name: 'log' as const,
+      send: jest.fn().mockResolvedValue({ provider: 'log' }),
+    };
     await new PushChannel(transport, undefined, undefined).deliver(msg());
     await new PushChannel(transport, undefined, prismaWith([])).deliver(msg({ userId: null }));
     expect(transport.send).toHaveBeenCalledTimes(2);
@@ -92,7 +104,10 @@ describe('the push channel finds the recipient’s devices', () => {
       would fail the whole send and trigger a retry of all three channels over a database
       hiccup on the least important one.
     */
-    const transport = { send: jest.fn().mockResolvedValue(undefined) };
+    const transport = {
+      name: 'log' as const,
+      send: jest.fn().mockResolvedValue({ provider: 'log' }),
+    };
     const prisma = {
       userDevice: { findMany: jest.fn().mockRejectedValue(new Error('db down')) },
     } as never;

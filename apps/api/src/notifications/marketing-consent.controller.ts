@@ -5,8 +5,22 @@ import { MarketingConsentService } from './marketing-consent.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
-/** Channels a commercial message could go out on. Mirrors the notification channel keys. */
-const CONSENT_CHANNELS = ['email', 'push', 'sms', 'whatsapp'] as const;
+/**
+ * The consent scopes a person can decide about.
+ *
+ * ── WHY `whatsapp:transactional` LIVES HERE ────────────────────────────────────────
+ * Because it is the same kind of record — a subject, a channel, granted or withdrawn, when,
+ * and how it was obtained — kept append-only so a withdrawal is a new row rather than an
+ * edit. A second table because the model has "marketing" in its name would give the platform
+ * two places to look for one person's answer and two things to produce for a data-subject
+ * request.
+ *
+ * What it is NOT is the same QUESTION. `whatsapp` means "you may sell to me on WhatsApp";
+ * `whatsapp:transactional` means "you may use WhatsApp to tell me about my own booking".
+ * Somebody who declines offers has not asked to stop receiving their tickets, and a screen
+ * that bundles the two into one checkbox makes that mistake on their behalf.
+ */
+const CONSENT_CHANNELS = ['email', 'push', 'sms', 'whatsapp', 'whatsapp:transactional'] as const;
 
 const updateSchema = z.object({
   channel: z.enum(CONSENT_CHANNELS),
@@ -49,7 +63,16 @@ export class MarketingConsentController {
       caller can choose is not evidence of anything.
     */
     await this.consent.record({ userId: user.id, email: user.email }, body.channel, body.granted, {
-      source: body.granted ? 'account-settings' : 'withdrawn-by-user',
+      /*
+        The scope is part of the provenance, not just the channel. "Granted transactional
+        WhatsApp on the settings screen" and "granted marketing WhatsApp on the settings
+        screen" are two different permissions, and a history that records both as
+        `account-settings` on `whatsapp` cannot tell them apart afterwards — which is exactly
+        what a regulator or a data-subject request asks it to do.
+      */
+      source: body.granted
+        ? `account-settings:${body.channel}`
+        : `withdrawn-by-user:${body.channel}`,
       ipAddress: ip,
       userAgent,
     });

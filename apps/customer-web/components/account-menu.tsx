@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
+import { BellRing, ExternalLink, LogOut, Receipt, Store, Ticket, User } from 'lucide-react';
 import { api, initialsOf, useAuthUser } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -132,6 +132,20 @@ export function AccountMenu({ onSignOut }: { onSignOut: () => void }) {
           >
             <Receipt className="h-4 w-4" />
             My bookings
+          </Link>
+          {/*
+            Distinct from "Notifications", which is the inbox. This is where somebody decides
+            what arrives and where — including whether we may use WhatsApp for their booking
+            updates, which is a question they can otherwise never be asked.
+          */}
+          <Link
+            href="/account/notification-settings"
+            role="menuitem"
+            className={item}
+            onClick={() => setOpen(false)}
+          >
+            <BellRing className="h-4 w-4" />
+            Notification settings
           </Link>
           <Link
             href="/account/tickets"

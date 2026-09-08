@@ -15,6 +15,7 @@ import {
   titleCase,
   dateTime,
 } from '@eticketsgo/web-kit';
+import { SellabilityPanel } from '@/components/sellability-panel';
 
 export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
@@ -86,6 +87,15 @@ export default function EventOverview() {
           </p>
         )}
       </Card>
+
+      {/*
+        Above the submit button, because it decides whether that button will work. An
+        organizer who reads this first never meets the refusal; one who does not still gets
+        the same list back from the refusal itself.
+      */}
+      <div className="lg:col-span-2 lg:order-last">
+        <SellabilityPanel eventId={id} />
+      </div>
 
       <Card title="Status & actions">
         <div className="mb-4">

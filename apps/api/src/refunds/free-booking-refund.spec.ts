@@ -81,7 +81,13 @@ function setup(opts: { amountMinor: number; hasPayment: boolean }) {
 
   const strategy = { refund: jest.fn().mockResolvedValue(undefined) };
   const payments = { refundPayment: jest.fn().mockResolvedValue({ providerRef: 'rf_abc' }) };
-  const notifications = { send: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    send: jest.fn().mockResolvedValue(undefined),
+    // Critical notifications are written IN the domain transaction now, so the stub
+    // captures the transaction client it was handed -- that IS the assertion.
+    sendCritical: jest.fn().mockResolvedValue(undefined),
+    fanOutCritical: jest.fn().mockResolvedValue(0),
+  };
 
   const service = new RefundsService(
     prisma as never,
@@ -127,7 +133,7 @@ describe('cancelling a free booking', () => {
         data: expect.objectContaining({ status: RefundStatus.COMPLETED }),
       }),
     );
-    expect(notifications.send).toHaveBeenCalled();
+    expect(notifications.sendCritical).toHaveBeenCalled();
   });
 });
 

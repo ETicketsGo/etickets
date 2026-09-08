@@ -301,6 +301,29 @@ export const NotificationType = {
   PAYMENT_FAILED: 'PAYMENT_FAILED',
   EVENT_REMINDER: 'EVENT_REMINDER',
   BOOKING_CANCELLED: 'BOOKING_CANCELLED',
+  /**
+   * The SHOW is off — as opposed to one customer having cancelled their own booking.
+   *
+   * ── WHY THIS IS NOT BOOKING_CANCELLED ──────────────────────────────────────────────
+   * They are different facts, and for one phase they were the same notification type. That
+   * put the emergency SMS fallback — the most expensive message this platform can send — on
+   * a message whose name means "this booking ended", which includes a customer ending it
+   * themselves, from their own account, deliberately. Nobody needs an urgent SMS about a
+   * decision they just made, and nobody should be billed for sending them one.
+   *
+   * BOOKING_CANCELLED stays the ordinary per-booking notice. This one is the emergency.
+   */
+  SHOW_CANCELLED: 'SHOW_CANCELLED',
+  /**
+   * A show somebody already holds a ticket for has MATERIALLY changed — today, its start
+   * time moved.
+   *
+   * The gap this closes: rescheduling a show updated the row, wrote an audit entry, and told
+   * nobody. A customer who had paid found out by arriving at the old time. It is deliberately
+   * distinct from BOOKING_CANCELLED, which says the booking is over; this one says the
+   * booking still stands and the plan around it has moved.
+   */
+  SHOW_CHANGED: 'SHOW_CHANGED',
   REFUND_COMPLETED: 'REFUND_COMPLETED',
   TICKET_CHECKED_IN: 'TICKET_CHECKED_IN',
   ATTENDEE_INVITED: 'ATTENDEE_INVITED',
@@ -326,6 +349,15 @@ export const NotificationType = {
   EVENT_SUBMITTED: 'EVENT_SUBMITTED',
   EVENT_APPROVED: 'EVENT_APPROVED',
   EVENT_REJECTED: 'EVENT_REJECTED',
+  /**
+   * A PUBLISHED event that nobody can complete a purchase for.
+   *
+   * Publishing already refuses an unsellable event, so this is only ever about one that
+   * BECAME unsellable afterwards -- a price edited above a ceiling, a room reassigned, a
+   * regulation changing under a listing that was fine when it went live. The listing stays
+   * up and the checkout refuses, and without this the first person to notice is a customer.
+   */
+  EVENT_NOT_SELLABLE: 'EVENT_NOT_SELLABLE',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 
