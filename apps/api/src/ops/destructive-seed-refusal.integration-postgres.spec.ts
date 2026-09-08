@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
@@ -71,6 +71,26 @@ const RUN_TIMEOUT_MS = 45_000;
  * node's own module lookup rather than PATH.
  */
 const NO_TOOLS_DIR = mkdtempSync(join(tmpdir(), 'etg-no-tools-'));
+
+/**
+ * A backup directory that cannot exist, because its parent is a FILE.
+ *
+ * ── WHY NOT `/proc/self/...`, WHICH IS WHAT THIS USED ──────────────────────────────
+ * That path is meaningless on Windows, where it becomes a perfectly creatable directory on
+ * the current drive, and on the Linux runner it did something worse than fail: the child
+ * printed "taking a recovery point" and then never came back, so the suite was killed and
+ * the assertion never ran. Whatever `mkdir -p` does inside procfs there, it is not a prompt
+ * refusal, and a test should not be finding out.
+ *
+ * A regular file as the parent gives ENOTDIR from the operating system immediately, on every
+ * platform, with no special filesystem involved. The premise of this test is that the
+ * recovery point cannot be taken; this is the cheapest way to make that unambiguously true.
+ */
+const BLOCKED_BACKUP_DIR = (() => {
+  const file = join(mkdtempSync(join(tmpdir(), 'etg-not-a-dir-')), 'this-is-a-file');
+  writeFileSync(file, 'not a directory');
+  return join(file, 'backups');
+})();
 
 const run = (env: Record<string, string>, opts: { withoutExternalTools?: boolean } = {}) => {
   const childEnv: NodeJS.ProcessEnv = {
@@ -217,7 +237,7 @@ describe('a destructive run with no recovery point', () => {
         APP_ENV: 'QA',
         SEED_OPERATION: 'full-reset',
         SEED_ALLOW_DESTRUCTIVE: 'yes',
-        BACKUP_DIR: '/proc/self/cannot-create-this',
+        BACKUP_DIR: BLOCKED_BACKUP_DIR,
       },
       /*
         Both belts. An uncreatable directory should stop `takeBackup` at its first step, and
