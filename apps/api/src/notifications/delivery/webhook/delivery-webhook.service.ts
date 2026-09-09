@@ -20,6 +20,7 @@ import {
   verifyTwilioSignature,
 } from './delivery-webhook.signatures';
 import { SnsVerifier, type SnsEnvelope } from './sns-verifier';
+import { SnsConfirmationService } from './sns-confirmation.service';
 
 export interface WebhookResult {
   received: true;
@@ -63,6 +64,12 @@ export class DeliveryWebhookService {
       protected only by a URL is a way to stop a chosen person receiving their tickets.
     */
     private readonly sns?: SnsVerifier,
+    /*
+      Optional for the same reason as the verifier: the suites that construct this service by
+      hand pass neither, and a confirmation that is not captured is a missing convenience
+      rather than a broken webhook.
+    */
+    private readonly confirmations?: SnsConfirmationService,
   ) {}
 
   /** Twilio SMS status callbacks (form-encoded, HMAC-SHA1 over URL + sorted fields). */
@@ -116,8 +123,9 @@ export class DeliveryWebhookService {
    *
    * SNS confirms a subscription by POSTing a `SubscriptionConfirmation` with a URL that must
    * be fetched. That fetch is deliberately NOT automatic: an endpoint that confirms whatever
-   * subscription is offered will attach itself to any topic anybody points at it. The token
-   * is logged so an operator can confirm it once, on purpose.
+   * subscription is offered will attach itself to any topic anybody points at it. Only the
+   * URL's host is logged — the token is not — and outside production the URL is held for a
+   * one-time authenticated reveal so an operator can confirm it once, on purpose.
    */
   async ses(input: {
     secret: string;
@@ -158,13 +166,32 @@ export class DeliveryWebhookService {
         it -- and then trusts the events from it. The signature proves the SENDER, not that we
         WANT the subscription.
 
-        So the token is logged, the host is logged, and a person confirms it once, on purpose,
+        So the HOST is logged and the token is not, and a person confirms it once, on purpose,
         in the console. It happens exactly as often as somebody sets up a topic.
+
+        ── AND WHY THE TOKEN IS NOW HELD SOMEWHERE ─────────────────────────────────────
+        Keeping the token out of the logs left the operator with no way to perform the manual
+        step this design requires of them. Outside production, and only there, the URL is put
+        in one row behind an authenticated capability that reveals it once (ADR-052). This
+        runs AFTER the signature check above, so only a message proven to be from Amazon is
+        ever stored.
       */
       this.logger.warn(
         `SNS ${type} received and SIGNATURE-VERIFIED. Confirm it deliberately in the AWS ` +
           `console; this endpoint does not auto-confirm. Host: ${hostOf(input.body.SubscribeURL)}`,
       );
+      if (type === 'SubscriptionConfirmation' && this.confirmations) {
+        /*
+          An Unsubscribe token is deliberately not captured: acting on one would RE-subscribe,
+          which is not a step any operator here needs, and the narrowest store is the safest.
+        */
+        await this.confirmations.capture({
+          topicArn: typeof input.body.TopicArn === 'string' ? input.body.TopicArn : undefined,
+          messageId: typeof input.body.MessageId === 'string' ? input.body.MessageId : undefined,
+          subscribeUrl:
+            typeof input.body.SubscribeURL === 'string' ? input.body.SubscribeURL : undefined,
+        });
+      }
       this.metrics.recordNotificationWebhook('ses', 'subscription_confirmation');
       return { received: true, applied: 0, duplicate: false };
     }

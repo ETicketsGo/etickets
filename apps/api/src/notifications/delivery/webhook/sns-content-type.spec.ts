@@ -19,6 +19,7 @@ import { DeliveryWebhookController } from './delivery-webhook.controller';
 import { DeliveryWebhookService } from './delivery-webhook.service';
 import { SnsVerifier, SNS_FETCH, type SnsEnvelope } from './sns-verifier';
 import { SnsBodyMiddleware, applySnsBodyParser, SNS_WEBHOOK_ROUTE } from './sns-body.middleware';
+import { SnsConfirmationService } from './sns-confirmation.service';
 import { NotificationsModule } from '../../notifications.module';
 
 /**
@@ -161,9 +162,15 @@ function confirmation(type: 'SubscriptionConfirmation' | 'UnsubscribeConfirmatio
  * restated here. A separate test asserts that `NotificationsModule` calls it.
  */
 /** Mutable so a single test can unset the path secret without rebuilding the module. */
-const state: { secret: string | undefined; fetchedCertUrls: string[] } = {
+const state: {
+  secret: string | undefined;
+  fetchedCertUrls: string[];
+  /** Every capture the webhook attempted. Empty is the assertion for an unverified message. */
+  captured: { topicArn?: string; messageId?: string; subscribeUrl?: string }[];
+} = {
   secret: undefined,
   fetchedCertUrls: [],
+  captured: [],
 };
 
 @Module({
@@ -186,6 +193,14 @@ const state: { secret: string | undefined; fetchedCertUrls: string[] } = {
     { provide: PrismaService, useValue: {} },
     { provide: DeliveryRecorderService, useValue: {} },
     { provide: MetricsService, useValue: { recordNotificationWebhook: jest.fn() } },
+    {
+      provide: SnsConfirmationService,
+      useValue: {
+        capture: async (input: Record<string, string | undefined>) => {
+          state.captured.push(input);
+        },
+      },
+    },
   ],
 })
 class WebhookTestModule implements NestModule {
@@ -202,6 +217,7 @@ describe('the SES/SNS webhook over the wire', () => {
   beforeEach(async () => {
     if (!available) return;
     state.fetchedCertUrls = [];
+    state.captured = [];
     state.secret = SECRET;
 
     const moduleRef = await Test.createTestingModule({
@@ -293,6 +309,54 @@ describe('the SES/SNS webhook over the wire', () => {
   maybe('refuses a body that parses to something other than an object', async () => {
     const res = await post('"just-a-string"');
     expect(res.status).toBe(401);
+  });
+  /*
+    ── CAPTURE HAPPENS ONLY AFTER THE SIGNATURE IS PROVEN ──────────────────────────────
+    The confirmation token is held so an operator can complete the manual step. That is only
+    safe because the message has already been proven to come from Amazon. These three tests
+    are the boundary: they go through the real HTTP path, the real body parser and the real
+    verifier, and assert on whether anything was handed to the store at all.
+  */
+  maybe('captures a confirmation whose signature verifies', async () => {
+    await post(JSON.stringify(confirmation('SubscriptionConfirmation')));
+    expect(state.captured).toHaveLength(1);
+    expect(state.captured[0]).toMatchObject({
+      topicArn: 'arn:aws:sns:ap-south-2:1234:eticketsgo-ses-events',
+      messageId: 'msg-confirm',
+      subscribeUrl: 'https://sns.ap-south-2.amazonaws.com/?Action=ConfirmSubscription&Token=xyz',
+    });
+  });
+
+  maybe('never captures a confirmation carrying no signature', async () => {
+    const unsigned = { ...confirmation('SubscriptionConfirmation') };
+    delete (unsigned as Record<string, unknown>).Signature;
+    const res = await post(JSON.stringify(unsigned));
+    expect(res.status).toBe(401);
+    expect(state.captured).toEqual([]);
+  });
+
+  maybe('never captures a confirmation whose body was altered after signing', async () => {
+    const tampered = {
+      ...confirmation('SubscriptionConfirmation'),
+      // The attacker's own topic. Signed for a different one, so verification must fail.
+      TopicArn: 'arn:aws:sns:ap-south-2:9999:attacker-topic',
+    };
+    const res = await post(JSON.stringify(tampered));
+    expect(res.status).toBe(401);
+    expect(state.captured).toEqual([]);
+  });
+
+  maybe('never captures when the path secret is wrong, whatever the body says', async () => {
+    state.secret = 'a-different-secret';
+    const res = await post(JSON.stringify(confirmation('SubscriptionConfirmation')));
+    expect(res.status).toBe(401);
+    expect(state.captured).toEqual([]);
+  });
+
+  maybe('does not capture an UnsubscribeConfirmation, which would re-subscribe', async () => {
+    const res = await post(JSON.stringify(confirmation('UnsubscribeConfirmation')));
+    expect(res.status).toBeLessThan(300);
+    expect(state.captured).toEqual([]);
   });
 });
 

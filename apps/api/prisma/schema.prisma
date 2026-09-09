@@ -2412,6 +2412,62 @@ model NotificationCertification {
 /// deploy every time a vendor renegotiates, and -- worse -- it silently reprices HISTORY,
 /// because yesterday's report would be recomputed at today's price. Effective dating is what
 /// makes a cost report about last month still true next year.
+/// An SNS SubscriptionConfirmation that has been PROVEN to come from Amazon and is waiting for
+/// a person to act on it.
+///
+/// ── WHY THIS TABLE EXISTS ─────────────────────────────────────────────────────────
+/// The SES webhook deliberately refuses to auto-confirm: a valid signature proves the SENDER,
+/// not that we WANT the subscription, and auto-confirming would attach this endpoint to any
+/// topic somebody with an AWS account points at it. Confirmation is therefore a human act.
+///
+/// But the token that authorises it arrives once, inside the message body, and the handler
+/// deliberately logs only the SubscribeURL's HOST — because a token in a log is a token in
+/// every log aggregator, backup and screenshot thereafter. So there was no way for an operator
+/// to complete the very step the design requires of them.
+///
+/// This is the narrowest fix: hold the URL in one row, behind an authenticated capability,
+/// revealed once and audited.
+///
+/// ── WHY IT IS NOT ENCRYPTED AT REST ───────────────────────────────────────────────
+/// This repository has no key-management or encryption abstraction, and inventing one for a
+/// single QA-only column would be a worse outcome than the honest limitation: a general
+/// secret store is a real design decision, not a side effect of a webhook fix. So the row is
+/// protected by NEVER BEING WRITTEN outside a non-production environment (see the capture
+/// guard) rather than by cryptography. In QA the database already holds test bookings and
+/// notification payloads; a 72-hour SNS token is not the most sensitive thing in it.
+model SnsPendingConfirmation {
+  id       String @id @default(cuid())
+  topicArn String
+  /// SNS MessageId — the idempotency key. A retried delivery carries the same one, so the
+  /// unique index makes a redelivery a no-op rather than a second row.
+  messageId String @unique
+  /// Never logged, never returned by an unauthenticated route, never put in metrics or audit
+  /// metadata. Read exactly once through the admin reveal route.
+  subscribeUrl String
+  status       SnsConfirmationStatus @default(PENDING)
+  receivedAt   DateTime              @default(now())
+  /// SNS confirmation tokens are valid for three days; after that the row is useless and the
+  /// operator must ask AWS to send a new one.
+  expiresAt DateTime
+  /// Stamped by the one-time reveal. A second read returns metadata WITHOUT the URL.
+  revealedAt DateTime?
+  revealedBy String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, receivedAt])
+  @@index([topicArn, status])
+}
+
+enum SnsConfirmationStatus {
+  PENDING
+  /// Superseded: a newer confirmation arrived for the same topic, or the token aged out.
+  EXPIRED
+  /// An operator revealed the URL and reported the subscription confirmed. Never set by this
+  /// platform on its own — nothing here can observe AWS accepting the token.
+  CONFIRMED
+}
+
 ///
 /// Modelled on TaxRule, which solves the same problem for the same reasons: `*` wildcards for
 /// scope, a priority for specificity, and an active flag so a rate can be written and
