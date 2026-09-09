@@ -32,6 +32,7 @@ import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.serv
 import { SnsVerifier } from './delivery/webhook/sns-verifier';
 import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
 import { SnsBodyMiddleware, applySnsBodyParser } from './delivery/webhook/sns-body.middleware';
+import { SnsConfirmationService } from './delivery/webhook/sns-confirmation.service';
 import { EmailChannel } from './channels/email.channel';
 import { SmsChannel } from './channels/sms.channel';
 import { WhatsAppChannel } from './channels/whatsapp.channel';
@@ -89,6 +90,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     DeliveryWebhookService,
     SnsVerifier,
     SnsBodyMiddleware,
+    SnsConfirmationService,
     NotificationOpsService,
     EmailChannel,
     SmsChannel,
