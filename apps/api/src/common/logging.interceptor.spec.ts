@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { Logger, type CallHandler, type ExecutionContext } from '@nestjs/common';
 import { of } from 'rxjs';
 import { LoggingInterceptor } from './logging.interceptor';
@@ -11,10 +12,42 @@ function makeContext(req: unknown, res: unknown, type: 'http' | 'rpc' = 'http'):
   } as unknown as ExecutionContext;
 }
 
-function run(interceptor: LoggingInterceptor, context: ExecutionContext): Promise<void> {
+/**
+ * A response that behaves like the real one.
+ *
+ * The interceptor now records at the response's `finish` event rather than when the handler's
+ * observable completes, because only the response knows the status the client was actually
+ * given — see the file it tests. So the fake has to be an EventEmitter and has to finish, the
+ * way Express finishes one.
+ */
+function makeResponse(statusCode: number) {
+  const res = new EventEmitter() as EventEmitter & {
+    statusCode: number;
+    writableFinished: boolean;
+  };
+  res.statusCode = statusCode;
+  res.writableFinished = false;
+  return res;
+}
+
+function run(
+  interceptor: LoggingInterceptor,
+  context: ExecutionContext,
+  res?: ReturnType<typeof makeResponse>,
+): Promise<void> {
   const next: CallHandler = { handle: () => of({ ok: true }) };
   return new Promise<void>((resolve, reject) => {
-    interceptor.intercept(context, next).subscribe({ complete: resolve, error: reject });
+    interceptor.intercept(context, next).subscribe({
+      complete: () => {
+        // Express sets `writableFinished` immediately before emitting `finish`.
+        if (res) {
+          res.writableFinished = true;
+          res.emit('finish');
+        }
+        resolve();
+      },
+      error: reject,
+    });
   });
 }
 
@@ -39,9 +72,9 @@ describe('LoggingInterceptor', () => {
       headers: { authorization: 'Bearer super-secret-jwt' },
       body: { buyerEmail: 'buyer@example.com', card: '4242424242424242' },
     };
-    const res = { statusCode: 201 };
+    const res = makeResponse(201);
 
-    await run(interceptor, makeContext(req, res));
+    await run(interceptor, makeContext(req, res), res);
 
     expect(logSpy).toHaveBeenCalledTimes(1);
     const line = logSpy.mock.calls[0][0] as string;
@@ -83,7 +116,8 @@ describe('LoggingInterceptor', () => {
   it('falls back to "-" when no correlation id is present', async () => {
     const interceptor = new LoggingInterceptor(new MetricsService());
     const req = { method: 'GET', originalUrl: '/api/events', url: '/api/events' };
-    await run(interceptor, makeContext(req, { statusCode: 200 }));
+    const res = makeResponse(200);
+    await run(interceptor, makeContext(req, res), res);
     const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(parsed.correlationId).toBe('-');
   });
@@ -94,7 +128,8 @@ describe('LoggingInterceptor', () => {
     const interceptor = new LoggingInterceptor(metrics);
     const req = { method: 'GET', originalUrl: '/api/health', url: '/api/health' };
 
-    await run(interceptor, makeContext(req, { statusCode: 200 }));
+    const res = makeResponse(200);
+    await run(interceptor, makeContext(req, res), res);
 
     expect(logSpy).not.toHaveBeenCalled();
     expect(observeSpy).toHaveBeenCalledWith('GET', 200, expect.any(Number));
