@@ -15,6 +15,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { LoggingInterceptor } from './logging.interceptor';
+import { HttpObservationService } from './http-observation.service';
 import { AppException, ErrorCodes } from './errors';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -95,6 +96,7 @@ const observed: { method: string; status: number; seconds: number }[] = [];
           void observed.push({ method, status, seconds }),
       },
     },
+    HttpObservationService,
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
@@ -240,6 +242,7 @@ describe('a client that hangs up', () => {
             void observed.push({ method, status, seconds }),
         },
       },
+      HttpObservationService,
       { provide: APP_FILTER, useClass: AllExceptionsFilter },
       { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     ],

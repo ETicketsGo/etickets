@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Logger, type CallHandler, type ExecutionContext } from '@nestjs/common';
 import { of } from 'rxjs';
 import { LoggingInterceptor } from './logging.interceptor';
+import { HttpObservationService } from './http-observation.service';
 import { MetricsService } from '../metrics/metrics.service';
 
 function makeContext(req: unknown, res: unknown, type: 'http' | 'rpc' = 'http'): ExecutionContext {
@@ -62,7 +63,7 @@ describe('LoggingInterceptor', () => {
   it('emits a single JSON line with exactly the safe fields — no bodies, headers, tokens or PII', async () => {
     const metrics = new MetricsService();
     const observeSpy = jest.spyOn(metrics, 'observeHttp');
-    const interceptor = new LoggingInterceptor(metrics);
+    const interceptor = new LoggingInterceptor(new HttpObservationService(metrics));
 
     const req = {
       method: 'POST',
@@ -114,7 +115,7 @@ describe('LoggingInterceptor', () => {
   });
 
   it('falls back to "-" when no correlation id is present', async () => {
-    const interceptor = new LoggingInterceptor(new MetricsService());
+    const interceptor = new LoggingInterceptor(new HttpObservationService(new MetricsService()));
     const req = { method: 'GET', originalUrl: '/api/events', url: '/api/events' };
     const res = makeResponse(200);
     await run(interceptor, makeContext(req, res), res);
@@ -125,7 +126,7 @@ describe('LoggingInterceptor', () => {
   it('skips the log line for health/readiness probes but still records metrics', async () => {
     const metrics = new MetricsService();
     const observeSpy = jest.spyOn(metrics, 'observeHttp');
-    const interceptor = new LoggingInterceptor(metrics);
+    const interceptor = new LoggingInterceptor(new HttpObservationService(metrics));
     const req = { method: 'GET', originalUrl: '/api/health', url: '/api/health' };
 
     const res = makeResponse(200);
@@ -138,7 +139,7 @@ describe('LoggingInterceptor', () => {
   it('is a no-op for non-http execution contexts', async () => {
     const metrics = new MetricsService();
     const observeSpy = jest.spyOn(metrics, 'observeHttp');
-    const interceptor = new LoggingInterceptor(metrics);
+    const interceptor = new LoggingInterceptor(new HttpObservationService(metrics));
 
     await run(interceptor, makeContext({}, {}, 'rpc'));
 

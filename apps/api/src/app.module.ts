@@ -60,6 +60,8 @@ import { RolesGuard } from './auth/roles.guard';
 import { AdminPermissionGuard } from './auth/admin-permission.guard';
 import { MaintenanceGuard } from './ops/maintenance.guard';
 import { LoggingInterceptor } from './common/logging.interceptor';
+import { HttpObservationService } from './common/http-observation.service';
+import { HttpObservationMiddleware } from './common/http-observation.middleware';
 
 @Module({
   imports: [
@@ -140,6 +142,8 @@ import { LoggingInterceptor } from './common/logging.interceptor';
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    HttpObservationService,
+    HttpObservationMiddleware,
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     // MaintenanceGuard runs FIRST so non-exempt routes get a clean 503 during
     // maintenance (before auth challenges). OFF by default + fail-open, so this
@@ -159,5 +163,17 @@ export class AppModule implements NestModule {
     // (NestJS auto-converts it with a deprecation warning). '{*path}' matches every route exactly
     // as the old '*' did, so the correlation-ID middleware still runs on all requests.
     consumer.apply(CorrelationIdMiddleware).forRoutes('{*path}');
+    /*
+      Observation runs on every request, matched or not. An interceptor only runs once Nest
+      has matched a handler, so a request to a path that matches nothing produced a 404 for
+      the client and nothing at all in the request log or the metrics -- which is the shape of
+      scanner traffic, and the traffic most worth counting.
+
+      Applied AFTER the correlation-ID middleware so a recorded line carries the same id as
+      everything else said about that request. It records nothing itself; it arms a service
+      that latches on the request, so the interceptor arming the same request later is a
+      no-op and a matched request is still recorded exactly once.
+    */
+    consumer.apply(HttpObservationMiddleware).forRoutes('{*path}');
   }
 }
