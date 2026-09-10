@@ -113,5 +113,17 @@ export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 export const reviewDecisionSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),
   note: z.string().trim().max(1000).optional(),
+  /*
+    Approve despite a missing legal identity, deliberately and on the record.
+
+    An absolute requirement with no way past it strands the honest case the platform has not
+    thought of yet — a market whose registration type nobody has encoded, an organizer whose
+    paperwork is genuinely in a different form. So the gate holds by default and a reviewer
+    can step over it by saying so, which is audited with the reason.
+
+    Requiring the reason is the point. An override with an optional justification is a
+    checkbox somebody ticks; one that will not proceed without a sentence is a decision.
+  */
+  overrideIdentityCheck: z.object({ reason: z.string().trim().min(10).max(500) }).optional(),
 });
 export type ReviewDecisionInput = z.infer<typeof reviewDecisionSchema>;

@@ -187,6 +187,23 @@ export class AdminOrganizationsController {
     return this.orgs.adminList(q.status, q.page, q.pageSize);
   }
 
+  /**
+   * What a reviewer needs before deciding, in one call.
+   *
+   * Sits beside the decision rather than inside the list, because the list is a queue and
+   * this is the file: assembling it for fifty rows nobody will open would make the queue
+   * slow in order to answer a question nobody asked yet.
+   */
+  @Get(':id/review-signals')
+  @ApiOperation({
+    summary:
+      'Registration signals for review (admin): declared legal identity, owner account age ' +
+      'and email domain, other organizations by the same owner, and name collisions.',
+  })
+  reviewSignals(@Param('id') id: string) {
+    return this.orgs.reviewSignals(id);
+  }
+
   @Post(':id/review')
   @ApiOperation({ summary: 'Approve or reject an organization (admin).' })
   review(

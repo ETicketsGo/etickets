@@ -13,6 +13,7 @@ import type {
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { checkLegalIdentity, findNameCollisions } from './organization-identity';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -864,10 +865,116 @@ export class OrganizationsService {
     return { id: updated.id, autoApproveEvents: updated.autoApproveEvents };
   }
 
+  /**
+   * The facts a reviewer needs before letting an organization take money from the public.
+   *
+   * ── WHY THIS IS ASSEMBLED RATHER THAN STORED ───────────────────────────────────────
+   * Every one of these is derived from data the platform already holds, and every one of
+   * them changes: an account gets older, the same person registers a third organization, a
+   * near-identical name is approved next week. A snapshot taken at registration would be
+   * stale by the time anybody read it, and stale evidence is worse than none because it
+   * still looks like evidence.
+   */
+  async reviewSignals(orgId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      include: {
+        members: {
+          where: { role: Role.ORGANIZER_OWNER },
+          include: { user: { select: { id: true, email: true, createdAt: true } } },
+        },
+      },
+    });
+    if (!org)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+
+    const owner = org.members[0]?.user ?? null;
+
+    /*
+      Every other organization this person has registered, whatever its state.
+
+      A rejected one is the most interesting of all -- somebody turned down once and trying
+      again under a new name is precisely the pattern a reviewer wants raised, and it is
+      invisible from the row in front of them.
+    */
+    const otherOrgs = owner
+      ? await this.prisma.organization.findMany({
+          where: { id: { not: orgId }, members: { some: { userId: owner.id } } },
+          select: { id: true, name: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        })
+      : [];
+
+    /*
+      Candidates for a name collision, narrowed in the database only by "not this one".
+      Normalising cannot be expressed in SQL, so the comparison happens in memory; the cap
+      keeps that bounded, and a platform large enough to exceed it needs a real index rather
+      than a bigger number here.
+    */
+    const candidates = await this.prisma.organization.findMany({
+      where: { id: { not: orgId } },
+      select: { id: true, name: true, status: true },
+      take: 5000,
+    });
+
+    return {
+      organizationId: org.id,
+      name: org.name,
+      status: org.status,
+      registeredAt: org.createdAt.toISOString(),
+      identity: checkLegalIdentity(org),
+      owner: owner
+        ? {
+            userId: owner.id,
+            // The domain, not the address. A reviewer is judging "is this a business or a
+            // throwaway", and the local part is the reviewer knowing more than they need.
+            emailDomain: owner.email.includes('@') ? owner.email.split('@')[1] : null,
+            accountCreatedAt: owner.createdAt.toISOString(),
+            accountAgeDays: Math.floor(
+              (Date.now() - owner.createdAt.getTime()) / (24 * 60 * 60 * 1000),
+            ),
+          }
+        : null,
+      otherOrganizationsByOwner: otherOrgs.map((o) => ({
+        organizationId: o.id,
+        name: o.name,
+        status: o.status,
+        registeredAt: o.createdAt.toISOString(),
+      })),
+      nameCollisions: findNameCollisions(org.name, candidates),
+    };
+  }
+
   async review(admin: RequestUser, orgId: string, input: ReviewDecisionInput) {
     const org = await this.prisma.organization.findUnique({ where: { id: orgId } });
     if (!org)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+
+    /*
+      ── APPROVAL MEANS "MAY TAKE MONEY FROM THE PUBLIC UNDER THIS NAME" ─────────────
+      Until now that decision could be made on a name and an email address. The legal
+      identity fields existed and nothing ever required them, so an organization could reach
+      APPROVED having declared nothing about who it actually is -- and the first person to
+      need that is whoever has to trace a payout, or answer a customer asking who charged
+      them.
+
+      Only checked on APPROVE. Rejecting an organization that never filled its details in is
+      not merely allowed, it is the common case.
+    */
+    if (input.decision === 'APPROVE') {
+      const identity = checkLegalIdentity(org);
+      if (!identity.complete && !input.overrideIdentityCheck) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          `This organization has not declared ${identity.missing.join(', ')}. Ask them to ` +
+            `complete their legal details, or approve with a written reason if you are ` +
+            `satisfied some other way.`,
+          HttpStatus.CONFLICT,
+          { missing: identity.missing },
+        );
+      }
+    }
 
     const status =
       input.decision === 'APPROVE' ? OrganizationStatus.APPROVED : OrganizationStatus.REJECTED;
@@ -881,7 +988,21 @@ export class OrganizationsService {
       action: input.decision === 'APPROVE' ? 'ORGANIZATION_APPROVED' : 'ORGANIZATION_REJECTED',
       entityType: 'Organization',
       entityId: orgId,
-      metadata: { note: input.note },
+      /*
+        The override is recorded on the approval itself rather than as a separate entry, so
+        the row that says "approved" is the same row that says it was approved without a
+        declared identity, and why. Two entries could be read apart.
+      */
+      metadata: {
+        note: input.note,
+        ...(input.overrideIdentityCheck
+          ? {
+              identityCheckOverridden: true,
+              overrideReason: input.overrideIdentityCheck.reason,
+              missingAtApproval: checkLegalIdentity(org).missing,
+            }
+          : {}),
+      },
     });
 
     /*
