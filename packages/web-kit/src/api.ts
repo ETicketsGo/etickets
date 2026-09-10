@@ -3459,15 +3459,28 @@ export interface ResolvedLocation {
 }
 
 /** One thing standing between this event and a completed purchase. */
+/** Who can actually put a sellability issue right. */
+export type SellabilityOwner = 'ORGANIZER' | 'PLATFORM';
+
 export interface SellabilityIssue {
   code: string;
+  /**
+   * Who can fix it.
+   *
+   * `PLATFORM` issues carry no fix link, because there is no organizer-reachable control for
+   * them — a jurisdiction's ticket ceilings come from a government order, not a form.
+   */
+  owner: SellabilityOwner;
   /** What is wrong, in the organizer's vocabulary. */
   message: string;
   /** What to do about it. */
   fix: string;
   /** Where to go, relative to the organizer console. Null when there is no single screen. */
   fixPath: string | null;
+  /** Set only when exactly one show is affected. */
   eventSessionId?: string;
+  /** How many shows carry this same fault. */
+  affectedSessions: number;
   /** The seat category, ticket type or currency the issue is about. */
   subject?: string;
 }

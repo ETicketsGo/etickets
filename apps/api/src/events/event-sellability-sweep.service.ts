@@ -84,6 +84,29 @@ export class EventSellabilitySweepService {
         one worth reading.
       */
       const signature = [...new Set(report.blockers.map((b) => b.code))].sort().join('+');
+
+      /*
+        ── WHO IS ACTUALLY BEING ASKED TO ACT ──────────────────────────────────────────
+        Some of these faults cannot be fixed by the organizer at all: a jurisdiction with no
+        pricing policy needs a government order read and a rule written by whoever runs this
+        platform. Until now only the organization's owners were told, so the one message that
+        went out went to the only people who could do nothing about it, and nobody on the
+        platform side learned that a customer-facing event was unsellable.
+
+        The organizer-facing copy says the platform team has been told. This is the line that
+        makes that true, so it must stay in step with `regulatoryIssue()`.
+      */
+      const platformBlockers = report.blockers.filter((b) => b.owner === 'PLATFORM');
+      if (platformBlockers.length > 0) {
+        await this.audience.notifyAdmins(NotificationType.EVENT_NOT_SELLABLE, {
+          eventId: event.id,
+          eventTitle: event.title,
+          organizationId: event.organizationId,
+          reason: platformBlockers.map((b) => b.message).join(' '),
+          affectedSessions: platformBlockers.reduce((n, b) => n + b.affectedSessions, 0),
+          blockerCodes: [...new Set(platformBlockers.map((b) => b.code))].sort().join('+'),
+        });
+      }
       const sent = await this.audience.notifyOrganizationOwners(
         event.organizationId,
         NotificationType.EVENT_NOT_SELLABLE,
@@ -92,7 +115,16 @@ export class EventSellabilitySweepService {
           eventTitle: event.title,
           // The sentence the check already produced, not a summary of a code. It names the
           // seat category or the ticket type, which is the part that makes it actionable.
-          reason: report.blockers.map((b) => b.message).join(' '),
+          /*
+            One sentence per DISTINCT fault, not one per show. A 148-show event with a single
+            misconfigured jurisdiction used to produce the same sentence 148 times in one
+            email; the report now folds them, and the count carries what was lost.
+          */
+          reason: report.blockers
+            .map((b) =>
+              b.affectedSessions > 1 ? `${b.message} (${b.affectedSessions} shows)` : b.message,
+            )
+            .join(' '),
           /*
             Part of the notification's identity, via the dedupe table: eventId + blockerCodes.
             A fault that persists produces the same key and the repeat is discarded by the
