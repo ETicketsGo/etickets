@@ -10,6 +10,7 @@ import { Request, Response } from 'express';
 import { ErrorCodes } from './errors';
 import { captureException } from '../observability/sentry';
 import { PaymentProviderError, PaymentErrorCode } from '../payments/domain/payment-errors';
+import { safeRequestPath } from './request-path';
 
 interface ErrorEnvelope {
   code: string;
@@ -66,9 +67,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
-    // Path only (never the query string — it can carry tokens/PII), matching the
-    // request logging interceptor.
-    const path = (req.originalUrl || req.url || '').split('?')[0];
+    // Query string dropped and webhook credential segments redacted, by the same
+    // helper the request interceptor uses. See `request-path.ts`.
+    const path = safeRequestPath(req);
     if (status >= 500) {
       this.logger.error(
         `[${correlationId}] ${req.method} ${path} -> ${status}`,
@@ -79,7 +80,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       captureException(exception, {
         correlationId,
         method: req.method,
-        path: (req.originalUrl || req.url || '').split('?')[0],
+        // The redacted path, not the raw one: this leaves the estate entirely.
+        path,
       });
     } else {
       this.logger.warn(`[${correlationId}] ${req.method} ${path} -> ${status} ${body.code}`);

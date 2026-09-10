@@ -3,6 +3,7 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { MetricsService } from '../metrics/metrics.service';
+import { safeRequestPath } from './request-path';
 
 /**
  * Structured request logging: emits a single-line JSON object per request with
@@ -42,8 +43,9 @@ export class LoggingInterceptor implements NestInterceptor {
   private record(req: Request, status: number, start: number, correlationId: string): void {
     const ms = Date.now() - start;
     const method = req.method;
-    // Pathname only — never the query string (may carry tokens/PII).
-    const path = (req.originalUrl || req.url || '').split('?')[0];
+    // Pathname only, with the credential segment of a secret-bearing webhook route
+    // redacted. Never the query string. See `request-path.ts`.
+    const path = safeRequestPath(req);
 
     // Metrics are best-effort and never throw (guarded in MetricsService).
     this.metrics.observeHttp(method, status, ms / 1000);

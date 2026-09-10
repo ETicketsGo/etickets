@@ -151,6 +151,59 @@ export function parseMsg91(body: Record<string, unknown>): DeliveryEvent | null 
 }
 
 /**
+ * Which timestamp an SES event actually happened at.
+ *
+ * ── WHY `mail.timestamp` WAS THE WRONG ANSWER FOR EVERYTHING ───────────────────────
+ * Every SES event carries a `mail` envelope describing the ORIGINAL SEND, and using its
+ * timestamp for all of them means every event is dated to the moment the message was handed
+ * to SES rather than the moment the thing happened.
+ *
+ * That is not a rounding error. `occurredAt` becomes `deliveredAt` on the delivery row, and in
+ * the QA certification run it recorded 00:44:00.856 for a message our own clock accepted at
+ * 00:44:01.139 — a delivery stamped BEFORE the send it followed. At those speeds it looks like
+ * clock skew and nobody investigates. For a message greylisted for four hours, or a bounce a
+ * receiving server reports the next morning, the row would claim it all happened at send time,
+ * and the interval between accepting a message and learning its fate — the one number that
+ * says whether a destination is slow or broken — would always read as zero.
+ *
+ * ── WHY THE FALLBACK IS STILL `mail.timestamp` ─────────────────────────────────────
+ * AWS gives some event types their own timestamp and some none at all: `Reject` carries only a
+ * reason, `RenderingFailure` only an error, `Send` an empty object. For those the envelope
+ * time is genuinely the best available fact, so it is used deliberately rather than leaving
+ * the event undated — an event with no time at all is worse than one timed to its send.
+ */
+function sesOccurredAt(message: unknown, type: string): Date | undefined {
+  /*
+    The event-specific field, where AWS publishes one. Named per type rather than searched for,
+    because guessing at "whichever nested object has a timestamp" would silently pick up a new
+    field AWS adds later for something else entirely.
+  */
+  const OWN_TIMESTAMP: Record<string, string> = {
+    Delivery: 'delivery',
+    Bounce: 'bounce',
+    Complaint: 'complaint',
+    DeliveryDelay: 'deliveryDelay',
+    Open: 'open',
+    Click: 'click',
+    // Reject, RenderingFailure and Send publish no timestamp of their own; they fall through
+    // to the envelope below, which is the honest best available.
+  };
+
+  const own = OWN_TIMESTAMP[type];
+  const specific = own ? str(at(message, own, 'timestamp')) : null;
+  const envelope = str(at(message, 'mail', 'timestamp'));
+
+  for (const candidate of [specific, envelope]) {
+    if (!candidate) continue;
+    const parsed = new Date(candidate);
+    // A malformed timestamp must not become an Invalid Date on a row: fall through to the
+    // envelope, and to undefined if that is bad too, so the recorder stamps its own clock.
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return undefined;
+}
+
+/**
  * SES events, which arrive wrapped in an SNS notification.
  *
  * ── WHY THE BOUNCE TYPE MATTERS MORE THAN THE EVENT TYPE ───────────────────────────
@@ -168,8 +221,7 @@ export function parseSesEvent(message: unknown): DeliveryEvent[] {
   const messageId = str(at(message, 'mail', 'messageId'));
   if (!type || !messageId) return [];
 
-  const timestamp = str(at(message, 'mail', 'timestamp'));
-  const occurredAt = timestamp ? new Date(timestamp) : undefined;
+  const occurredAt = sesOccurredAt(message, type);
   const base = { providerMessageId: messageId, providerStatus: type, occurredAt };
 
   if (type === 'Bounce') {
