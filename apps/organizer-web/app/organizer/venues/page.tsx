@@ -223,7 +223,15 @@ export default function VenuesPage() {
         grouped.venues.map(({ venue, rooms: inside }) => {
           return (
             <Card key={venue.id}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
+              {/*
+                A stable hook for the end-to-end tests. They used to address table cells
+                and rows; this page has neither any more, and pinning them to the div
+                nesting instead would break on the next styling change.
+              */}
+              <div
+                data-testid="venue-card"
+                className="flex flex-wrap items-start justify-between gap-3"
+              >
                 <div className="min-w-0">
                   <h3 className="font-medium text-text-primary">{venue.name}</h3>
                   <p className="text-caption text-text-secondary">

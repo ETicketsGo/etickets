@@ -115,7 +115,7 @@ test.describe('finding reserved seating from a standing start', () => {
     */
     await page.locator('#name').fill(locationName);
     await page.locator('#city').fill('Hyderabad');
-    await page.getByRole('button', { name: 'Create location' }).click();
+    await page.getByRole('button', { name: 'Create room' }).click();
     await expect(page).toHaveURL(/\/organizer\/cinemas\/(?!new$)[^/]+/, { timeout: 30_000 });
 
     const cinemaId = page.url().split('/').filter(Boolean).pop()!;
