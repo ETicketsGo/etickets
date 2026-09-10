@@ -228,6 +228,113 @@ describe('SES events over SNS', () => {
   });
 });
 
+/**
+ * When an SES event actually happened.
+ *
+ * -- THE DEFECT THESE COVER -------------------------------------------------------
+ * Every SES event carries a `mail` envelope describing the ORIGINAL SEND, and the parser used
+ * its timestamp for all of them. So an event was dated to the moment the message was handed to
+ * SES rather than the moment the thing happened.
+ *
+ * It was found in the QA certification run: `deliveredAt` recorded 00:44:00.856 for a message
+ * our own clock accepted at 00:44:01.139 -- a delivery stamped BEFORE the send it followed. At
+ * those speeds it reads as clock skew. For a greylisted message, or a bounce reported the next
+ * morning, the row would claim the whole thing happened at send time, and the interval between
+ * accepting a message and learning its fate would always read as zero.
+ */
+describe('SES event timestamps', () => {
+  const SENT_AT = '2026-09-07T10:00:00.000Z';
+  const HAPPENED_AT = '2026-09-07T14:30:00.000Z';
+  const mail = { messageId: 'ses-ts', timestamp: SENT_AT, destination: ['a@b.test'] };
+
+  it('dates a delivery to the delivery, not to the send', () => {
+    const [e] = parseSesEvent({
+      eventType: 'Delivery',
+      mail,
+      delivery: { timestamp: HAPPENED_AT },
+    });
+    expect(e.occurredAt?.toISOString()).toBe(HAPPENED_AT);
+  });
+
+  it('dates a bounce to the bounce', () => {
+    const [e] = parseSesEvent({
+      eventType: 'Bounce',
+      mail,
+      bounce: {
+        timestamp: HAPPENED_AT,
+        bounceType: 'Permanent',
+        bouncedRecipients: [{ emailAddress: 'dead@b.test' }],
+      },
+    });
+    expect(e.occurredAt?.toISOString()).toBe(HAPPENED_AT);
+  });
+
+  it('dates a complaint to the complaint', () => {
+    const [e] = parseSesEvent({
+      eventType: 'Complaint',
+      mail,
+      complaint: { timestamp: HAPPENED_AT, complainedRecipients: [{ emailAddress: 'x@b.test' }] },
+    });
+    expect(e.occurredAt?.toISOString()).toBe(HAPPENED_AT);
+  });
+
+  it('dates a delivery delay to the delay', () => {
+    const [e] = parseSesEvent({
+      eventType: 'DeliveryDelay',
+      mail,
+      deliveryDelay: { timestamp: HAPPENED_AT, delayType: 'MailboxFull' },
+    });
+    expect(e.occurredAt?.toISOString()).toBe(HAPPENED_AT);
+  });
+
+  it('falls back to the envelope for the event types AWS gives no timestamp', () => {
+    // Reject carries only a reason, RenderingFailure only an error, Send an empty object.
+    // The envelope time is genuinely the best fact available, and an undated event would be
+    // worse than one dated to its send.
+    for (const eventType of ['Reject', 'RenderingFailure', 'Send']) {
+      const [e] = parseSesEvent({ eventType, mail, reject: { reason: 'Bad content' } });
+      expect(e?.occurredAt?.toISOString()).toBe(SENT_AT);
+    }
+  });
+
+  it('falls back to the envelope when the event object is missing its timestamp', () => {
+    const [e] = parseSesEvent({ eventType: 'Delivery', mail, delivery: {} });
+    expect(e.occurredAt?.toISOString()).toBe(SENT_AT);
+  });
+
+  it('falls back rather than producing an Invalid Date from a malformed timestamp', () => {
+    const [e] = parseSesEvent({
+      eventType: 'Delivery',
+      mail,
+      delivery: { timestamp: 'not-a-date' },
+    });
+    expect(e.occurredAt?.toISOString()).toBe(SENT_AT);
+  });
+
+  it('leaves the event undated when nothing usable is present, rather than inventing one', () => {
+    // undefined lets the recorder stamp its own clock; an Invalid Date would poison the row.
+    const [e] = parseSesEvent({
+      eventType: 'Delivery',
+      mail: { messageId: 'ses-ts', timestamp: 'rubbish' },
+      delivery: { timestamp: 'also-rubbish' },
+    });
+    expect(e.occurredAt).toBeUndefined();
+  });
+
+  /*
+    The regression, stated as the property rather than the mechanism: a delivery cannot be
+    dated before the send it followed just because the envelope timestamp was used.
+  */
+  it('never dates a delivery earlier than the send when SES reports both', () => {
+    const [e] = parseSesEvent({
+      eventType: 'Delivery',
+      mail,
+      delivery: { timestamp: HAPPENED_AT },
+    });
+    expect(e.occurredAt!.getTime()).toBeGreaterThanOrEqual(new Date(SENT_AT).getTime());
+  });
+});
+
 describe('proving the caller is who they claim to be', () => {
   it('accepts a correctly signed Twilio callback and rejects a tampered one', () => {
     const token = 'twilio-auth-token';
