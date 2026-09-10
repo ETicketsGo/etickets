@@ -42,7 +42,14 @@ test.describe('venues', () => {
 
   test('1: venues are reachable from the sidebar, next to Events', async ({ page }) => {
     await page.goto(`${ORGANIZER}/organizer`, { waitUntil: 'networkidle' });
-    await expect(page.getByRole('link', { name: 'Venues' })).toBeVisible({ timeout: 30_000 });
+    /*
+      One entry, covering venues AND the rooms inside them. They were two sections, so setting
+      up a single site meant crossing between them — and a room created without a venue makes
+      one named after itself, which put the same name in both lists as two unrelated things.
+    */
+    await expect(page.getByRole('link', { name: 'Venues & rooms' })).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   test('2: a venue can be added, and says what a venue is for', async ({ page }) => {
@@ -61,9 +68,13 @@ test.describe('venues', () => {
     await page.locator('#venueCapacity').fill('320');
     await page.getByRole('button', { name: 'Add venue' }).click();
 
-    await expect(page.getByRole('cell', { name: new RegExp(original) })).toBeVisible({
-      timeout: 30_000,
-    });
+    /*
+      Addressed as a card, not a table cell. Venues are listed with their rooms nested
+      underneath, which a table row cannot express.
+    */
+    await expect(
+      page.getByTestId('venue-card').filter({ hasText: new RegExp(original) }),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test('3: and the typo in its name can be corrected — which was impossible', async ({
@@ -72,9 +83,11 @@ test.describe('venues', () => {
   }) => {
     await page.goto(`${ORGANIZER}/organizer/venues`, { waitUntil: 'networkidle' });
 
-    const row = page.getByRole('row', { name: new RegExp(original) });
-    await expect(row).toBeVisible({ timeout: 30_000 });
-    await row.getByRole('button', { name: 'Edit' }).click();
+    const card = page.getByTestId('venue-card').filter({ hasText: new RegExp(original) });
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    // "Edit venue" rather than "Edit": rooms sit on this page too, and an ambiguous label
+    // here would be a coin toss over which object the click was about.
+    await card.getByRole('button', { name: 'Edit venue' }).click();
 
     await page.locator('#venueName').fill(corrected);
     await page.getByRole('button', { name: 'Save changes' }).click();

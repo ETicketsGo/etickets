@@ -30,11 +30,45 @@ function Issue({ issue, tone }: { issue: SellabilityIssue; tone: 'blocker' | 'wa
     tone === 'blocker'
       ? 'border-status-error/40 bg-status-error/5'
       : 'border-status-warning/40 bg-status-warning/5';
+  const platform = issue.owner === 'PLATFORM';
   return (
     <li className={`rounded-md border p-3 ${accent}`}>
-      <p className="text-sm font-medium text-text-primary">{issue.message}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {/*
+          Who owns it, said before the sentence itself.
+
+          An organizer reading a list of faults is deciding what to do next, and the first
+          thing worth knowing is whether any of it is theirs. Without this they read every
+          card as a task.
+        */}
+        <span
+          className={`rounded-full px-2 py-0.5 text-caption font-medium ${
+            platform
+              ? 'bg-surface-muted text-text-secondary'
+              : 'bg-status-error/15 text-status-error'
+          }`}
+        >
+          {platform ? 'We are fixing this' : 'You can fix this'}
+        </span>
+        {/*
+          One fault, however many shows carry it. The count replaces what used to be one
+          identical card per show — 148 of them on a season of a film, each naming a
+          different date, with no way to see they were one problem.
+        */}
+        {issue.affectedSessions > 1 && (
+          <span className="text-caption text-text-secondary">
+            {issue.affectedSessions} shows affected
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-sm font-medium text-text-primary">{issue.message}</p>
       {/* The fix, always. A problem statement with no next action is a complaint. */}
       <p className="mt-1 text-caption text-text-secondary">{issue.fix}</p>
+      {/*
+        A link only where one leads somewhere. `fixPath` is null for everything the organizer
+        cannot reach, and offering "Go and fix this" for those was the original defect: it
+        sent people to hunt for a control that does not exist.
+      */}
       {issue.fixPath && (
         <Link
           href={issue.fixPath}
@@ -90,7 +124,19 @@ export function SellabilityPanel({ eventId }: { eventId: string }) {
               organizer weighing whether to care deserves to know it.
             */}
             Customers would reach the seat map and be turned away at the last step. Publishing is
-            blocked until these are fixed.
+            blocked until these are fixed.{' '}
+            {/*
+              Whether any of it is theirs, in the first sentence they read.
+
+              "Publishing is blocked until these are fixed" is true and, when every fault
+              belongs to the platform, reads as an instruction to somebody who has no way to
+              carry it out. That was the whole complaint.
+            */}
+            {blockers.every((b) => b.owner === 'PLATFORM')
+              ? 'None of these are yours to fix — the platform team has been told, and this event can be published once they are resolved.'
+              : blockers.some((b) => b.owner === 'PLATFORM')
+                ? 'Some of these are ours, not yours; those are marked below.'
+                : ''}
           </p>
           <ul className="space-y-2">
             {blockers.map((b, i) => (

@@ -677,11 +677,11 @@ function NewEventWizard() {
                     than as empty.
 
                     The hint explaining that used to end "— Venues → Rooms", which is not
-                    where rooms are: the section is called "Rooms & seat maps" and lives at
-                    its own place in the sidebar. Sending somebody to a menu path that does
-                    not exist is worse than saying nothing, and this product has already lost
-                    the seat-map feature once to exactly that kind of misdirection. It is now
-                    a link, so it is one click rather than a hunt.
+                    where rooms are. Sending somebody to a menu path that does not exist is
+                    worse than saying nothing, and this product has already lost the seat-map
+                    feature once to exactly that kind of misdirection. It is now a link, so it
+                    is one click rather than a hunt — pointing at "Venues & rooms", which is
+                    where both live since they stopped being two sections.
                   */}
                   <p className="mt-1.5 text-caption text-text-muted">
                     {roomsQ.isError ? (
@@ -703,12 +703,12 @@ function NewEventWizard() {
                           them, exactly where they left it.
                         */}
                         <a
-                          href="/organizer/cinemas"
+                          href="/organizer/venues"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-medium text-action-primary underline underline-offset-2"
                         >
-                          Rooms &amp; seat maps
+                          Venues &amp; rooms
                         </a>{' '}
                         — it opens in a new tab, and what you have typed here is saved either way.
                       </>
