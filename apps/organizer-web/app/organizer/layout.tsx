@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Banknote,
   Coins,
-  MapPin,
   Ticket,
   Users,
   Settings,
@@ -34,23 +33,28 @@ const nav: NavItem[] = [
     had no page at all until now — a venue could only be created mid-wizard and never
     edited, while its name printed on every listing a customer saw.
   */
-  { label: 'Venues', href: '/organizer/venues', icon: MapPin },
+  /*
+    Venues and rooms, in one place, because they were never separable in practice.
+
+    "Cinemas" became "Rooms & seat maps" after a concert promoter read the sidebar, concluded
+    correctly that cinemas were not for them, and so never found the only route to a seat map.
+    The rename fixed the word and left the real problem: this was a SECOND places section
+    beside "Venues", and setting up one site meant crossing between them.
+
+    Worse, creating a room with no venue makes one, named after the room — so an organizer
+    could see the same name in both lists as two unrelated things, with nothing to explain it.
+
+    One entry, then, and "rooms" kept in the label because that is the word that made seat
+    maps findable. The film-specific pages inside still say cinema and screen, where those
+    words are accurate.
+  */
+  { label: 'Venues & rooms', href: '/organizer/venues', icon: Building2 },
   /*
     The box office counter's way in. Distinct from an event's order list, which answers "who
     bought for THIS show" — a counter is holding a phone call about a booking whose show it
     does not yet know.
   */
   { label: 'Find a booking', href: '/organizer/bookings', icon: Ticket },
-  /*
-    Named for what an organizer comes here to do, not for the row type underneath.
-
-    This was called "Cinemas", and it is the ONLY route to a seat map. A concert promoter
-    reading a long sidebar sees "Cinemas", correctly concludes it is not for them, and never
-    finds the thing that makes reserved seating possible — which is exactly the report that
-    prompted the rename. The rows really are cinemas in the database, and the film-specific
-    pages inside still say cinema and screen, because there those words are accurate.
-  */
-  { label: 'Rooms & seat maps', href: '/organizer/cinemas', icon: Building2 },
   // A distinct icon from Payouts: they sit near each other and mean opposite things —
   // money you hold in a tin, and money the platform sends you.
   { label: 'Counter', href: '/organizer/counter', icon: Coins },

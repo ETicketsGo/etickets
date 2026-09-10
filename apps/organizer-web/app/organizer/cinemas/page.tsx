@@ -64,10 +64,11 @@ export default function OrganizerCinemas() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Rooms & seat maps"
-        action={<ButtonLink href="/organizer/cinemas/new">New location</ButtonLink>}
+        title="Rooms"
+        description="Rooms live inside a venue. Venues & rooms shows both together."
+        action={<ButtonLink href="/organizer/cinemas/new">New room</ButtonLink>}
       />
-      <SearchInput value={q} onChange={setQ} placeholder="Search locations…" />
+      <SearchInput value={q} onChange={setQ} placeholder="Search rooms…" />
       <DataTable
         columns={columns}
         rows={rows}
@@ -78,7 +79,7 @@ export default function OrganizerCinemas() {
         onRowClick={(c) => router.push(`/organizer/cinemas/${c.id}`)}
         empty={
           <EmptyState
-            title="No locations yet"
+            title="No rooms yet"
             /*
               The old hint said "to start scheduling screenings", which reads to anybody not
               running a cinema as "this section is not for you" — and this is the only place

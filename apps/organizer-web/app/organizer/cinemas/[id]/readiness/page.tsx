@@ -69,7 +69,7 @@ export default function LaunchReadinessPage() {
         title={report ? `${report.cinemaName} — launch readiness` : 'Launch readiness'}
         description="What is configured, what needs review, and what is stopping this cinema opening."
         breadcrumbs={[
-          { label: 'Rooms & seat maps', href: '/organizer/cinemas' },
+          { label: 'Venues & rooms', href: '/organizer/venues' },
           { label: 'Launch readiness' },
         ]}
         action={

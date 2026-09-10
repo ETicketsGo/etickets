@@ -2479,10 +2479,24 @@ export interface CinemaBody {
   timezone?: string;
 }
 
-export interface Cinema extends CinemaBody {
+/*
+  `venueId` is omitted and redeclared because the request and the response genuinely differ:
+  on create it may be left out (the server makes a venue), and on read it is always present
+  and may be null. Widening the request type instead would let a caller send an explicit null
+  and mean something the API does not accept.
+*/
+export interface Cinema extends Omit<CinemaBody, 'venueId'> {
   id: string;
   status: string;
   screens?: Screen[];
+  /**
+   * Which venue this room sits in.
+   *
+   * Always set in practice: creating a room without one makes a venue for it, which is how
+   * an organization ends up with a venue and a room of the same name looking like two
+   * unrelated things in two different lists.
+   */
+  venueId: string | null;
   /** The venue this room belongs to. Its country decides the currency the room prices in. */
   venue?: { country: string; region: string | null } | null;
   /**

@@ -50,13 +50,21 @@ test.describe('finding reserved seating from a standing start', () => {
     await page.goto(`${ORGANIZER}/organizer`, { waitUntil: 'networkidle' });
 
     /*
-      "Cinemas" was the entire problem. The rows underneath really are cinema records — a
+      "Cinemas" was the original problem. The rows underneath really are cinema records — a
       Cinema owns a Screen and a Screen owns the seat map — but the label has to answer
       "would I click this to draw a seating plan for my concert?", and that one did not.
+
+      Renaming it to "Rooms & seat maps" fixed the word and left the real fault: it was a
+      SECOND places section beside "Venues", so setting up one site meant crossing between
+      them. They are now one entry, and "rooms" survives in the label because that is the
+      word that made seat maps findable at all.
     */
-    const rooms = page.getByRole('link', { name: 'Rooms & seat maps' });
+    const rooms = page.getByRole('link', { name: 'Venues & rooms' });
     await expect(rooms).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('link', { name: 'Cinemas', exact: true })).toHaveCount(0);
+    // The split itself is what regressed last time; assert there is exactly one way in.
+    await expect(page.getByRole('link', { name: 'Venues', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Rooms & seat maps' })).toHaveCount(0);
   });
 
   test('2: the empty state says what a room unlocks, for any kind of event', async ({ page }) => {
@@ -67,7 +75,7 @@ test.describe('finding reserved seating from a standing start', () => {
       tells a promoter running gigs that they are in the wrong place — while standing in the
       only place a seat map can be made.
     */
-    await expect(page.getByText(/No locations yet/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/No rooms yet/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/not only a film/)).toBeVisible();
     await expect(page.getByText(/scheduling screenings/)).toHaveCount(0);
   });
