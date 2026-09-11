@@ -210,6 +210,12 @@ export const WebhookProcessingStatus = {
   FAILED: 'FAILED',
   DEAD_LETTER: 'DEAD_LETTER',
   IGNORED: 'IGNORED',
+  /**
+   * A verified delivery callback that names a message this platform has not yet recorded a
+   * provider reference for. Held, not consumed: the worker records the reference moments
+   * after the provider accepts the send, and the event is applied then.
+   */
+  AWAITING_CORRELATION: 'AWAITING_CORRELATION',
 } as const;
 export type WebhookProcessingStatus =
   (typeof WebhookProcessingStatus)[keyof typeof WebhookProcessingStatus];

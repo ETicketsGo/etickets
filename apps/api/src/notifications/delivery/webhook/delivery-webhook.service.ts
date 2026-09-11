@@ -6,6 +6,9 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { AppException, ErrorCodes } from '../../../common/errors';
 import { DeliveryRecorderService } from '../delivery-recorder.service';
+import { SuppressionService } from '../suppression.service';
+import { redactProviderText } from '../../channels/transports/provider-text';
+import { ledgerKey, settleWebhookEvent, type StoredProviderEvent } from './provider-event-ledger';
 import {
   parseMetaCloud,
   parseMsg91,
@@ -27,6 +30,17 @@ export interface WebhookResult {
   applied: number;
   duplicate: boolean;
 }
+
+/**
+ * Which channels a provider's callbacks can be about, so a destination can be kept as a hash
+ * per channel (see DestinationRef). The hash includes the channel, and MSG91 carries two.
+ */
+const CALLBACK_CHANNELS: Record<string, readonly string[]> = {
+  twilio: ['sms'],
+  msg91: ['sms', 'whatsapp'],
+  cloud: ['whatsapp'],
+  ses: ['email'],
+};
 
 /**
  * Delivery callbacks, from every provider that sends them.
@@ -245,8 +259,8 @@ export class DeliveryWebhookService {
     let applied = 0;
     let duplicate = false;
     for (const event of events) {
-      const claimed = await this.claim(provider, event, rawPayload);
-      if (!claimed) {
+      const claimedId = await this.claim(provider, event, rawPayload);
+      if (!claimedId) {
         duplicate = true;
         this.metrics.recordNotificationWebhook(provider, 'duplicate');
         continue;
@@ -259,25 +273,22 @@ export class DeliveryWebhookService {
         failureCode: event.failureCode,
         failureReason: event.failureReason,
         destination: event.destination,
+        suppressionReason: event.suppressionReason,
         occurredAt: event.occurredAt,
       });
       if (outcome === 'applied') {
         applied += 1;
         this.metrics.recordNotificationWebhook(provider, 'applied');
       }
-      await this.prisma.webhookEvent
-        .updateMany({
-          where: { provider, providerEventId: event.eventId },
-          data: {
-            processingStatus:
-              outcome === 'unknown'
-                ? WebhookProcessingStatus.DEAD_LETTER
-                : WebhookProcessingStatus.PROCESSED,
-            processedAt: new Date(),
-            errorMessage: outcome === 'unknown' ? 'no matching delivery attempt' : null,
-          },
-        })
-        .catch(() => undefined);
+      /*
+        An event for a message not yet correlated is HELD, not consumed. Its unique key is
+        already written, so a redelivery would be refused as a duplicate: dropping it here
+        would lose it permanently. See ProviderEventReplayService.
+      */
+      if (outcome === 'unknown') {
+        this.metrics.recordNotificationWebhook(provider, 'awaiting_correlation');
+      }
+      await settleWebhookEvent(this.prisma, claimedId, outcome).catch(() => undefined);
     }
     return { received: true, applied, duplicate };
   }
@@ -293,34 +304,48 @@ export class DeliveryWebhookService {
     provider: string,
     event: DeliveryEvent,
     rawPayload: unknown,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
+    const key = ledgerKey(provider);
+    /*
+      The parsed event, not the provider's body. A raw Twilio callback carries the
+      recipient's phone number and a raw SES bounce carries their email address, and this
+      table is long-lived, widely readable and included in backups. What is kept is what is
+      needed to apply the event later: which message, what happened, and -- for a destination
+      that may need suppressing -- a hash and a mask, never the number or the address.
+    */
+    const stored: StoredProviderEvent = {
+      providerMessageId: event.providerMessageId,
+      state: event.state,
+      providerStatus: event.providerStatus ?? null,
+      failureCode: event.failureCode ?? null,
+      failureReason: event.failureReason ? redactProviderText(event.failureReason) : null,
+      suppressionReason: event.suppressionReason ?? null,
+      destinationRef: event.destination
+        ? SuppressionService.reference(event.destination, CALLBACK_CHANNELS[provider] ?? [])
+        : null,
+      occurredAt: event.occurredAt ? event.occurredAt.toISOString() : null,
+    };
     const created = await this.prisma.webhookEvent.createMany({
       data: [
         {
-          provider: `notification:${provider}`,
+          provider: key,
           providerEventId: event.eventId,
           eventType: event.providerStatus ?? event.state,
           payloadHash: createHash('sha256')
             .update(JSON.stringify(rawPayload ?? {}))
             .digest('hex'),
-          /*
-            The parsed event, not the provider's body. A raw Twilio callback carries the
-            recipient's phone number and a raw SES bounce carries their email address, and
-            this table is long-lived, widely readable and included in backups. What is kept
-            is what an operator needs: which message, what happened, and why.
-          */
-          payload: {
-            providerMessageId: event.providerMessageId,
-            state: event.state,
-            providerStatus: event.providerStatus ?? null,
-            failureCode: event.failureCode ?? null,
-          } as object,
+          payload: stored as object,
           processingStatus: WebhookProcessingStatus.RECEIVED,
         },
       ],
       skipDuplicates: true,
     });
-    return created.count === 1;
+    if (created.count !== 1) return null;
+    const row = await this.prisma.webhookEvent.findUnique({
+      where: { provider_providerEventId: { provider: key, providerEventId: event.eventId } },
+      select: { id: true },
+    });
+    return row?.id ?? null;
   }
 }
 

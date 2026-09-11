@@ -9,10 +9,11 @@ import {
   suppressionFor,
   FailureClass,
   outcomeClassForFailure,
+  type SuppressionReason,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsService } from '../../metrics/metrics.service';
-import { SuppressionService } from './suppression.service';
+import { SuppressionService, type DestinationRef } from './suppression.service';
 import { NotificationRateService } from '../cost/notification-rate.service';
 
 /**
@@ -266,6 +267,14 @@ export class DeliveryRecorderService {
     failureReason?: string | null;
     /** The destination, for suppression. Hashed immediately; never stored in the clear. */
     destination?: string | null;
+    /** The same, already reduced to hashes -- how a replayed event carries it. */
+    destinationRef?: DestinationRef | null;
+    /**
+     * A more specific reason than the state's own, when the event carries one (a STOP is
+     * UNSUBSCRIBED, not BLOCKED_BY_PROVIDER). Only ever refines a state that suppresses; it
+     * cannot make a non-suppressing outcome suppress.
+     */
+    suppressionReason?: SuppressionReason | null;
     occurredAt?: Date;
   }): Promise<'applied' | 'ignored' | 'unknown'> {
     const delivery = await this.prisma.notificationDelivery.findFirst({
@@ -334,7 +343,8 @@ export class DeliveryRecorderService {
       that was the original defect. It is NOT moved back on a DELIVERED, because SENT already
       means "handed over successfully" and there is nothing more truthful to say.
     */
-    const terminal = suppressionFor(next);
+    const stateSuppression = suppressionFor(next);
+    const terminal = stateSuppression ? (input.suppressionReason ?? stateSuppression) : null;
     if (terminal) {
       await this.prisma.notification
         .update({
@@ -346,10 +356,11 @@ export class DeliveryRecorderService {
 
     this.metrics?.recordNotificationDelivery(input.provider, delivery.channel, next);
 
-    if (terminal && input.destination) {
+    if (terminal && (input.destination || input.destinationRef)) {
       await this.suppression.suppress({
         channel: delivery.channel,
         destination: input.destination,
+        destinationRef: input.destinationRef,
         reason: terminal,
         provider: input.provider,
         sourceDeliveryId: delivery.id,

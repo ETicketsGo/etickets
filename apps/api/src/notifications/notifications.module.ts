@@ -29,6 +29,7 @@ import { SuppressionService } from './delivery/suppression.service';
 import { NotificationOpsService } from './delivery/notification-ops.service';
 import { NotificationOpsController } from './delivery/notification-ops.controller';
 import { DeliveryWebhookService } from './delivery/webhook/delivery-webhook.service';
+import { ProviderEventReplayService } from './delivery/webhook/provider-event-replay.service';
 import { SnsVerifier } from './delivery/webhook/sns-verifier';
 import { DeliveryWebhookController } from './delivery/webhook/delivery-webhook.controller';
 import { SnsBodyMiddleware, applySnsBodyParser } from './delivery/webhook/sns-body.middleware';
@@ -88,6 +89,7 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     SuppressionService,
     DeliveryRecorderService,
     DeliveryWebhookService,
+    ProviderEventReplayService,
     SnsVerifier,
     SnsBodyMiddleware,
     SnsConfirmationService,
@@ -132,6 +134,8 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
     NotificationPolicyResolver,
     // Exported so the worker can sweep for fallbacks that are now due.
     NotificationFallbackService,
+    // Exported so the worker can apply callbacks that arrived before their message was recorded.
+    ProviderEventReplayService,
     NotificationRateService,
     // Exported so the worker can sweep for fan-outs and reminders that are due.
     ShowCancellationFanoutService,

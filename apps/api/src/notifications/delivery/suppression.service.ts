@@ -24,6 +24,18 @@ import { maskPhone } from '../channels/transports/recipient.util';
  * real, verified customer contact details whose entire purpose is to be read on every send —
  * the worst possible combination of sensitivity and access frequency.
  */
+/**
+ * A destination in the only form the webhook ledger may keep it: its suppression hash on each
+ * channel it could belong to, and its mask. Never the address or number itself.
+ *
+ * Per channel because the hash includes the channel, and a callback does not always say which
+ * one it is about -- an MSG91 report may concern an SMS or a WhatsApp message.
+ */
+export interface DestinationRef {
+  hashes: Partial<Record<string, string>>;
+  mask: string;
+}
+
 @Injectable()
 export class SuppressionService {
   private readonly logger = new Logger('Notification');
@@ -57,6 +69,13 @@ export class SuppressionService {
     const [local, domain] = destination.trim().split('@');
     if (!domain) return '***';
     return `${local.slice(0, 2)}***@${domain}`;
+  }
+
+  /** See {@link DestinationRef}. `channels` must all be the same kind (phone, or email). */
+  static reference(destination: string, channels: readonly string[]): DestinationRef {
+    const hashes: Partial<Record<string, string>> = {};
+    for (const channel of channels) hashes[channel] = SuppressionService.hash(channel, destination);
+    return { hashes, mask: SuppressionService.mask(channels[0] ?? 'sms', destination) };
   }
 
   /**
@@ -93,19 +112,30 @@ export class SuppressionService {
    */
   async suppress(input: {
     channel: string;
-    destination: string;
+    /** The destination in the clear, when the caller has it... */
+    destination?: string | null;
+    /** ...or only its reference, when it arrives from the webhook ledger. */
+    destinationRef?: DestinationRef | null;
     reason: SuppressionReason;
     provider?: string | null;
     sourceDeliveryId?: string | null;
     expiresAt?: Date | null;
   }): Promise<void> {
-    const destinationHash = SuppressionService.hash(input.channel, input.destination);
+    const destinationHash = input.destination
+      ? SuppressionService.hash(input.channel, input.destination)
+      : input.destinationRef?.hashes[input.channel];
+    // A reference recorded for a different channel cannot name this destination here.
+    if (!destinationHash) return;
+    const destinationMask = input.destination
+      ? SuppressionService.mask(input.channel, input.destination)
+      : (input.destinationRef?.mask ?? '***');
+
     const created = await this.prisma.suppressedDestination.createMany({
       data: [
         {
           channel: input.channel,
           destinationHash,
-          destinationMask: SuppressionService.mask(input.channel, input.destination),
+          destinationMask,
           reason: input.reason,
           provider: input.provider ?? null,
           sourceDeliveryId: input.sourceDeliveryId ?? null,
@@ -117,13 +147,67 @@ export class SuppressionService {
       skipDuplicates: true,
     });
     if (created.count > 0) {
-      this.logger.warn(
-        `[${input.channel}] suppressed ${SuppressionService.mask(
-          input.channel,
-          input.destination,
-        )} (${input.reason})`,
+      this.logger.warn(`[${input.channel}] suppressed ${destinationMask} (${input.reason})`);
+      return;
+    }
+
+    /*
+      ── AN OPT-OUT RE-ARMS A LIFTED ROW ─────────────────────────────────────────────────
+      The row is unique per destination and a lift never deletes it, so a person who opted
+      out, opted back in, and then opted out AGAIN would otherwise stay lifted: the second
+      STOP is a duplicate insert and nothing changes. A legal instruction cannot be lost to a
+      unique index. Scoped to UNSUBSCRIBED on purpose -- every other reason keeps its
+      existing first-reason-wins behaviour.
+    */
+    if (input.reason === SuppressionReason.UNSUBSCRIBED) {
+      const rearmed = await this.prisma.suppressedDestination.updateMany({
+        where: { channel: input.channel, destinationHash, liftedAt: { not: null } },
+        data: {
+          reason: input.reason,
+          provider: input.provider ?? null,
+          sourceDeliveryId: input.sourceDeliveryId ?? null,
+          expiresAt: input.expiresAt ?? null,
+          suppressedAt: new Date(),
+          liftedAt: null,
+          liftedBy: null,
+        },
+      });
+      if (rearmed.count > 0) {
+        this.logger.warn(
+          `[${input.channel}] suppressed ${destinationMask} again (${input.reason})`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Lift an opt-out because the provider has just carried a message to that destination.
+   *
+   * Only for a provider that itself refuses opted-out numbers; see `SmsTransport.enforcesOptOut`.
+   * Only the UNSUBSCRIBED reason: a delivered message says the person opted back in, and says
+   * nothing about a hard bounce or a carrier block. Audited through `liftedBy`, never deleted.
+   */
+  async liftProviderOptOut(
+    channel: string,
+    destination: string,
+    provider: string,
+  ): Promise<boolean> {
+    const res = await this.prisma.suppressedDestination.updateMany({
+      where: {
+        channel,
+        destinationHash: SuppressionService.hash(channel, destination),
+        reason: SuppressionReason.UNSUBSCRIBED,
+        liftedAt: null,
+      },
+      data: { liftedAt: new Date(), liftedBy: `provider:${provider}` },
+    });
+    if (res.count > 0) {
+      this.logger.log(
+        `[${channel}] opt-out lifted for ${SuppressionService.mask(channel, destination)}: ` +
+          `${provider} accepted a message, so the recipient has opted back in`,
       );
     }
+    return res.count > 0;
   }
 
   /**

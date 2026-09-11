@@ -11,6 +11,7 @@ import { resolvePhoneDestination } from './phone-destination';
 import { FailureClass } from '@eticketsgo/shared-types';
 import { validateTemplatePayload } from '../templates/template-contract';
 import { TransportError } from './transports/transport-http';
+import { SuppressionService } from '../delivery/suppression.service';
 
 /**
  * SMS channel.
@@ -36,6 +37,11 @@ export class SmsChannel implements NotificationChannel {
   constructor(
     private readonly providers: NotificationProviderResolver,
     private readonly prisma?: PrismaService,
+    /*
+      Optional so the suites that build this channel by hand keep working. Absent, an opt-out
+      refusal still fails the send correctly -- it simply is not remembered for the next one.
+    */
+    private readonly suppression?: SuppressionService,
   ) {}
 
   async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
@@ -83,6 +89,39 @@ export class SmsChannel implements NotificationChannel {
         FailureClass.CONFIGURATION_ERROR,
       );
     }
-    return routed.transport.send(addressed);
+    const destination = addressed.destination as string;
+    try {
+      const outcome = await routed.transport.send(addressed);
+      /*
+        ── AN ACCEPTED SEND IS NEWS ABOUT AN OPT-OUT ──────────────────────────────────
+        A recipient who replied STOP and later START tells the PROVIDER, never us. A
+        provider that enforces opt-out would have refused this send if they were still opted
+        out, so its acceptance lifts the opt-out we recorded -- and only that reason: a dead
+        number or a carrier block is not something a successful send disproves.
+      */
+      if (!outcome.skipped && routed.transport.enforcesOptOut) {
+        await this.suppression
+          ?.liftProviderOptOut('sms', destination, routed.provider)
+          .catch(() => undefined);
+      }
+      return outcome;
+    } catch (err) {
+      /*
+        The provider refused because the recipient opted out. That is recorded here, where
+        the destination is known, so it applies to every path that texts this number --
+        the notification sweep checks suppression before it tries again.
+      */
+      if (err instanceof TransportError && err.suppression) {
+        await this.suppression
+          ?.suppress({
+            channel: 'sms',
+            destination,
+            reason: err.suppression,
+            provider: err.provider,
+          })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
   }
 }

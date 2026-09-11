@@ -59,6 +59,15 @@ describe('Twilio status callbacks', () => {
     expect(event?.destination).toBe('+919876543210');
   });
 
+  it('marks a STOP as an unsubscribe, and nothing else as one', () => {
+    const stop = parseTwilio({ MessageSid: 'SM7', MessageStatus: 'failed', ErrorCode: '21610' });
+    const dead = parseTwilio({ MessageSid: 'SM8', MessageStatus: 'failed', ErrorCode: '21211' });
+    const delivered = parseTwilio({ MessageSid: 'SM9', MessageStatus: 'delivered' });
+    expect(stop?.suppressionReason).toBe('UNSUBSCRIBED');
+    expect(dead?.suppressionReason).toBeNull();
+    expect(delivered?.suppressionReason).toBeNull();
+  });
+
   it('gives the same status on the same message the same event id, so a replay is caught', () => {
     const a = parseTwilio({ MessageSid: 'SM5', MessageStatus: 'delivered' });
     const b = parseTwilio({ MessageSid: 'SM5', MessageStatus: 'delivered' });

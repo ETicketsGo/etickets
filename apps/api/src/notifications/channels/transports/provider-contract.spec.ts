@@ -262,5 +262,30 @@ describe('provider contract: every adapter, against every provider misbehaviour'
       // message we might have delivered is the more expensive of the two mistakes.
       expect(err.retryable).toBe(true);
     });
+
+    it.each([
+      [20404, 'a Messaging Service or account that does not exist'],
+      [21212, 'a sender that is not ours'],
+      [21408, 'a region not enabled in Geographic Permissions'],
+      [21606, 'a sender that cannot send SMS'],
+      [21608, 'a trial account texting an unverified number'],
+    ])('code %i is our CONFIGURATION, not their outage (%s)', (code) => {
+      const err = classifyTwilioError({ code, status: 400, message: 'x' }, 'twilio');
+      expect(err.failureClass).toBe(FailureClass.CONFIGURATION_ERROR);
+      expect(err.retryable).toBe(false);
+    });
+
+    it('keeps the code, loses the number, and marks only a STOP as an unsubscribe', () => {
+      const dead = classifyTwilioError(
+        { code: 21211, status: 400, message: "The 'To' number +919999000011 is not valid." },
+        'twilio',
+      );
+      expect(dead.providerCode).toBe('21211');
+      expect(dead.message).not.toContain('9999000011');
+      expect(dead.suppression).toBeUndefined();
+
+      const stop = classifyTwilioError({ code: 21610, status: 400, message: 'x' }, 'twilio');
+      expect(stop.suppression).toBe('UNSUBSCRIBED');
+    });
   });
 });

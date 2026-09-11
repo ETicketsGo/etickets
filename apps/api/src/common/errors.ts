@@ -71,6 +71,13 @@ export const ErrorCodes = {
   /** The caller is asking too often — used where the cost of a request is somebody else's. */
   ORGANIZATION_LIMIT_REACHED: 'ORGANIZATION_LIMIT_REACHED',
   RATE_LIMITED: 'RATE_LIMITED',
+  /**
+   * A text message cannot be delivered to this number: it is not a reachable mobile, or its
+   * owner has opted out. Deliberately one code for both, so it cannot be used to learn which.
+   */
+  SMS_UNDELIVERABLE: 'SMS_UNDELIVERABLE',
+  /** Text messaging is not working right now. Says nothing about which provider or why. */
+  SMS_UNAVAILABLE: 'SMS_UNAVAILABLE',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   INTERNAL: 'INTERNAL',
 } as const;

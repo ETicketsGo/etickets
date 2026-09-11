@@ -28,6 +28,8 @@ describe('loadConfig deliverability hardening', () => {
     PAYMENT_WEBHOOK_SECRET: STRONG,
     CORS_ORIGINS: 'https://app.eticketsgo.com',
     PAYMENT_PROVIDER_NAME: 'stripe',
+    // SMS routed, so these cases isolate the MAIL rule; configuration.sms.spec.ts owns SMS.
+    SMS_PROVIDER_BY_MARKET: 'IN=msg91,US=twilio,CA=twilio',
     ...extra,
   });
 

@@ -1,4 +1,9 @@
-import { FailureClass, failureClassForStatus, isRetryableFailure } from '@eticketsgo/shared-types';
+import {
+  FailureClass,
+  failureClassForStatus,
+  isRetryableFailure,
+  type SuppressionReason,
+} from '@eticketsgo/shared-types';
 
 /**
  * The small amount of HTTP a messaging provider needs, and the error classification the
@@ -27,14 +32,30 @@ import { FailureClass, failureClassForStatus, isRetryableFailure } from '@eticke
  * something a call site gets to assert.
  */
 export class TransportError extends Error {
+  /**
+   * The provider's own error code (Twilio's `21211`), kept apart from the prose.
+   *
+   * The code names the fault and nothing about the person, so it can be logged and stored
+   * anywhere; the message is provider prose and has to be sanitized before it is kept.
+   */
+  readonly providerCode?: string;
+  /**
+   * Set only when the refusal is itself an instruction about the destination -- a recipient
+   * who replied STOP. The channel records it, so the next message is not attempted at all.
+   */
+  readonly suppression?: SuppressionReason;
+
   constructor(
     message: string,
     readonly provider: string,
     readonly failureClass: FailureClass,
     readonly status?: number,
+    detail: { providerCode?: string; suppression?: SuppressionReason } = {},
   ) {
     super(message);
     this.name = 'TransportError';
+    this.providerCode = detail.providerCode;
+    this.suppression = detail.suppression;
   }
 
   /** Derived, never asserted. See the class comment. */

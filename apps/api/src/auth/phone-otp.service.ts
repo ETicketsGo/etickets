@@ -1,4 +1,4 @@
-import { phoneOnlyEmail } from '@eticketsgo/shared-types';
+import { FailureClass, phoneOnlyEmail } from '@eticketsgo/shared-types';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -6,7 +6,9 @@ import { randomInt } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { SmsChannel } from '../notifications/channels/sms.channel';
-import { normalisePhone } from './phone';
+import { TransportError } from '../notifications/channels/transports/transport-http';
+import { messageContentLoggable } from '../notifications/channels/transports/content-logging';
+import { maskPhone, normalisePhone } from './phone';
 
 /**
  * Signing in with a mobile number and a one-time code.
@@ -130,28 +132,78 @@ export class PhoneOtpService {
       this.config.get<string>('OTP_SMS_TEMPLATE') ??
       '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.';
     const body = template.replace('{code}', code).replace('{minutes}', String(OTP_TTL_MINUTES));
-    await this.sms.deliver({
-      type: 'ACCOUNT_SECURITY' as never,
-      channel: 'sms',
-      locale: 'en',
-      subject: 'Your sign-in code',
-      body,
-      // The transport reads the recipient from `payload.phone`.
-      payload: { phone },
-    });
+    try {
+      await this.sms.deliver({
+        type: 'ACCOUNT_SECURITY' as never,
+        channel: 'sms',
+        locale: 'en',
+        subject: 'Your sign-in code',
+        body,
+        // The transport reads the recipient from `payload.phone`.
+        payload: { phone },
+      });
+    } catch (err) {
+      // A code nobody received must not stay redeemable.
+      await this.prisma.phoneOtp
+        .updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } })
+        .catch(() => undefined);
+      throw this.sendFailure(phone, err);
+    }
 
     /*
       In local development the SMS provider is `log`, which writes the body to the console —
-      that is how a developer signs in without a Twilio account. Outside LOCAL/DEV the code
+      that is how a developer signs in without a provider account. Outside LOCAL/DEV the code
       is never written anywhere it could be read: not the log, not the response, not an audit
-      row. A code in a log file is a code in whatever ships that log file.
+      row. A code in a log file is a code in whatever ships that log file. The rule is the
+      same one the log transport applies, so the two cannot disagree.
     */
-    const appEnv = this.config.get<string>('APP_ENV') ?? 'LOCAL';
-    if (['LOCAL', 'DEV'].includes(appEnv)) {
+    if (messageContentLoggable(this.config)) {
       this.logger.debug(`[dev only] OTP for ${phone} is ${code}`);
     }
 
     return { sent: true, expiresInMinutes: OTP_TTL_MINUTES };
+  }
+
+  /**
+   * What the caller is told when the code could not be sent.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * The SMS provider's error used to escape this method unhandled. The person got a 500, and
+   * the exception filter logged the stack and reported it to Sentry -- carrying the provider's
+   * own message, which names the number it refused. A provider outage became a server error
+   * with a phone number attached.
+   *
+   * ── WHAT IT SAYS, AND WHAT IT DOES NOT ─────────────────────────────────────────────
+   * Two answers only. The number cannot be texted -- not a reachable mobile, or its owner opted
+   * out -- which is worth telling the person because retrying will not help. Or texting is not
+   * working right now. Neither names a provider, an error code or a reason beyond that: the
+   * response goes to whoever typed the number, who is not necessarily its owner, and "this
+   * number has opted out" is a fact about somebody else.
+   *
+   * The log keeps the class, the provider's code and a masked number -- enough to act on.
+   */
+  private sendFailure(phone: string, err: unknown): AppException {
+    const transport = err instanceof TransportError ? err : null;
+    const failureClass = transport?.failureClass ?? FailureClass.UNKNOWN_PROVIDER_ERROR;
+    this.logger.warn(
+      `sign-in code not sent to ${maskPhone(phone)} [${failureClass}` +
+        `${transport?.providerCode ? ` ${transport.providerCode}` : ''}]`,
+    );
+
+    const numberCannotBeTexted =
+      failureClass === FailureClass.INVALID_DESTINATION || Boolean(transport?.suppression);
+    if (numberCannotBeTexted) {
+      return new AppException(
+        ErrorCodes.SMS_UNDELIVERABLE,
+        "We can't send a text message to this number. Check it, or sign in with your email address.",
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    return new AppException(
+      ErrorCodes.SMS_UNAVAILABLE,
+      "We couldn't send a sign-in code just now. Try again in a few minutes, or sign in with your email address.",
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
   }
 
   /**

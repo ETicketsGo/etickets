@@ -2,8 +2,10 @@ import {
   DeliveryState,
   metaFailureState,
   normalizeProviderStatus,
+  providerOptOut,
   sesBounceState,
   twilioFailureState,
+  type SuppressionReason,
 } from '@eticketsgo/shared-types';
 
 /**
@@ -31,6 +33,11 @@ export interface DeliveryEvent {
    * Hashed the moment it is used; never stored in the clear.
    */
   destination?: string | null;
+  /**
+   * Why the destination must stop receiving traffic, when the event says more than its state
+   * does. A STOP arrives as an ordinary REJECTED; this is what records it as the opt-out it is.
+   */
+  suppressionReason?: SuppressionReason | null;
   occurredAt?: Date;
   /** A provider-unique id for this EVENT, for replay protection. */
   eventId: string;
@@ -77,6 +84,7 @@ export function parseTwilio(body: Record<string, unknown>): DeliveryEvent | null
     failureCode: errorCode,
     // `To` is on the callback and is exactly the destination that would be suppressed.
     destination: str(body.To),
+    suppressionReason: providerOptOut('twilio', errorCode),
   };
 }
 
@@ -147,6 +155,7 @@ export function parseMsg91(body: Record<string, unknown>): DeliveryEvent | null 
     failureCode: str(body.errCode) ?? str(body.errorCode),
     failureReason: str(body.description) ?? str(body.desc),
     destination: str(body.number) ?? str(body.mobile) ?? str(body.recipient),
+    suppressionReason: providerOptOut('msg91', status),
   };
 }
 

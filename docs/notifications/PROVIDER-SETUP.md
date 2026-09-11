@@ -133,20 +133,29 @@ MSG91_WHATSAPP_LANGUAGE=en
 
 ## 4. Twilio — US and Canada SMS
 
-1. Account, and a number or Messaging Service that can reach both countries.
-2. **US A2P 10DLC registration** (brand + campaign). Unregistered traffic to US numbers is
-   filtered by carriers.
-3. Set the **Status Callback URL** to
-   `https://<PUBLIC_API_URL>/api/notifications/webhooks/twilio`.
-4. Check **Geographic Permissions** allows US and CA.
+1. Account, and an SMS-capable sender: a **toll-free number** (one verification covers US and
+   Canada) or a **10DLC number** (A2P brand + campaign for US recipients). Neither sends to
+   US/Canada until that registration is approved.
+2. A **Messaging Service** with that sender in its pool. Every send goes through it — the
+   code has no from-number setting, because a message sent from a bare number asks Twilio for
+   no delivery callbacks at all.
+3. On the Messaging Service, set **Delivery Status Callback** to
+   `<PUBLIC_API_URL>/api/notifications/webhooks/twilio`. The readiness report prints the exact
+   URL.
+4. **Geographic Permissions**: US and CA only.
+5. Keep Twilio's **Advanced Opt-Out** on. A STOP is recorded here as `UNSUBSCRIBED`, and a
+   later accepted send (after START) lifts it.
 
 ```bash
-TWILIO_ACCOUNT_SID= / TWILIO_AUTH_TOKEN= / TWILIO_FROM_NUMBER=
-PUBLIC_API_URL=https://<public api host>   # part of what Twilio signs — cannot be inferred
+# api AND worker
+TWILIO_ACCOUNT_SID= / TWILIO_AUTH_TOKEN= / TWILIO_MESSAGING_SERVICE_SID=MG…
+SMS_PROVIDER_BY_MARKET=IN=log,US=twilio,CA=twilio   # QA, while MSG91 is not enabled
+# api only
+PUBLIC_API_URL=https://<public api host>   # origin only — part of what Twilio signs
 ```
 
 If `PUBLIC_API_URL` does not exactly match the URL Twilio calls, **every callback fails
-signature verification** and looks identical to an attack.
+signature verification** and looks identical to an attack. Boot refuses a value with a path.
 
 ---
 

@@ -93,12 +93,17 @@ approval, how many variables each needs, and whether a rate exists.
 
 ### Twilio — SMS
 
-- [ ] Account and a number or Messaging Service reaching both countries
-- [ ] **A2P 10DLC** brand and campaign registered (US carriers filter unregistered traffic)
-- [ ] Geographic permissions allow US and CA
-- [ ] Status callback URL set to `https://<PUBLIC_API_URL>/api/notifications/webhooks/twilio`
-- [ ] `PUBLIC_API_URL` matches that URL **byte for byte** — Twilio signs the URL, and a
-      mismatch fails every callback in a way indistinguishable from an attack
+- [ ] Account and an SMS-capable sender (toll-free number, or 10DLC number)
+- [ ] **Toll-free verification** approved, or **A2P 10DLC** brand and campaign registered —
+      neither kind of sender reaches US/Canada without it
+- [ ] **Messaging Service** created with the sender in its pool; its SID set as
+      `TWILIO_MESSAGING_SERVICE_SID` on api and worker
+- [ ] Messaging Service **Delivery Status Callback** set to the URL the readiness report
+      prints (`<PUBLIC_API_URL>/api/notifications/webhooks/twilio`)
+- [ ] `PUBLIC_API_URL` (api only) matches that URL **byte for byte** — Twilio signs the URL,
+      and a mismatch fails every callback in a way indistinguishable from an attack
+- [ ] Geographic permissions: US and CA only
+- [ ] Advanced Opt-Out left on
 - [ ] Twilio rate configured
 
 ### Meta WhatsApp Cloud

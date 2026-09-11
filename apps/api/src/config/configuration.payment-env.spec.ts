@@ -34,6 +34,8 @@ describe('loadConfig payment environment key safety', () => {
     // not start. Every production fixture therefore names a real transport.
     EMAIL_PROVIDER: 'sendgrid',
     EMAIL_FROM: 'tickets@eticketsgo.com',
+    // The same rule for text messages: phone sign-in cannot work in SMS log mode.
+    SMS_PROVIDER_BY_MARKET: 'IN=msg91,US=twilio,CA=twilio',
   });
 
   beforeEach(() => {
@@ -120,6 +122,8 @@ describe('loadConfig payment environment key safety', () => {
       NODE_ENV: 'production',
       EMAIL_PROVIDER: 'sendgrid',
       EMAIL_FROM: 'tickets@eticketsgo.com',
+      // Staging serves rehearsal traffic, so SMS must be routed too (see configuration.sms.spec).
+      SMS_PROVIDER_BY_MARKET: 'IN=msg91,US=twilio,CA=twilio',
       STRIPE_SECRET_KEY: 'sk_test_abc123',
       PAYMENT_PROVIDER_NAME: 'stripe',
     };
