@@ -53,6 +53,8 @@ export default function EventDetailPage() {
   });
 
   const [sessionId, setSessionId] = useState<string | null>(null);
+  /* Which of the event's images the hero shows. The cover (0) until the buyer picks another. */
+  const [activeImage, setActiveImage] = useState(0);
   /*
     Optional, only rendered for Indian venues, and PREFILLED from the last answer.
 
@@ -343,7 +345,21 @@ export default function EventDetailPage() {
       />
     );
 
-  const heroImage = apiAssetUrl(event.imagePath);
+  /*
+    Every image the organizer gave, cover first — or just the cover from an API that predates
+    galleries. The hero shows the chosen one; the strip below it chooses.
+  */
+  const gallery = (
+    event.images?.length
+      ? event.images.map((image) => image.path)
+      : event.imagePath
+        ? [event.imagePath]
+        : []
+  )
+    .map((path) => apiAssetUrl(path))
+    .filter((url): url is string => Boolean(url));
+  const shownImage = Math.min(activeImage, Math.max(gallery.length - 1, 0));
+  const heroImage = gallery[shownImage] ?? null;
 
   return (
     <div className="space-y-8">
@@ -403,6 +419,34 @@ export default function EventDetailPage() {
           </button>
         </div>
       </div>
+
+      {/*
+        The rest of the organizer's images, as buttons that put one in the hero. Buttons with a
+        pressed state rather than a carousel: every image is one tab-stop away, a screen reader
+        hears which is showing, and nothing moves by itself.
+      */}
+      {gallery.length > 1 && (
+        <ul className="-mt-4 flex gap-2 overflow-x-auto pb-1" aria-label={sf('event.galleryLabel')}>
+          {gallery.map((url, index) => (
+            <li key={url} className="shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveImage(index)}
+                aria-pressed={index === shownImage}
+                aria-label={sf('event.galleryShow', { index: index + 1, total: gallery.length })}
+                className={`block overflow-hidden rounded-md border-2 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                  index === shownImage
+                    ? 'border-action-primary'
+                    : 'border-transparent opacity-75 hover:opacity-100'
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="" loading="lazy" className="h-16 w-28 object-cover" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Left column */}

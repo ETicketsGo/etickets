@@ -17,9 +17,14 @@ import {
   errorMessage,
 } from '@eticketsgo/web-kit';
 import { EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
-import { EventImagePicker, prepareEventImage } from '@/components/event-image-picker';
+import { EventGalleryEditor, prepareEventImage } from '@/components/event-image-picker';
 
 const EDITABLE = ['DRAFT', 'UNDER_REVIEW', 'PAUSED'];
+/*
+  Images follow a looser rule than the fields above: they can change while the event is live,
+  because a picture is not part of what a buyer agreed to. Only a finished event is locked.
+*/
+const IMAGES_LOCKED = ['CANCELLED', 'COMPLETED', 'ARCHIVED'];
 const FEE_MODES = ['CUSTOMER_PAYS', 'ORGANIZER_PAYS', 'SHARED'];
 
 export default function EditEvent() {
@@ -77,25 +82,45 @@ export default function EditEvent() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
-  /* The image saves on its own, the moment it is chosen — it is not part of "Save changes". */
+  /*
+    Images save on their own, the moment they change — they are not part of "Save changes".
+    Several chosen at once go up one after another, so they land in the order they were picked.
+  */
   const [imageError, setImageError] = useState<string | null>(null);
-  const uploadImage = useMutation({
-    mutationFn: async (file: File) => api.events.uploadImage(id, await prepareEventImage(file)),
+  const refreshEvent = () => qc.invalidateQueries({ queryKey: ['event', id] });
+  const addImages = useMutation({
+    mutationFn: async (files: File[]) => {
+      let failed: string | null = null;
+      for (const file of files) {
+        try {
+          await api.events.addImage(id, await prepareEventImage(file));
+        } catch (err) {
+          failed = `${file.name}: ${errorMessage(err)}`;
+        }
+      }
+      if (failed) throw new Error(failed);
+    },
     onSuccess: () => {
       setImageError(null);
-      toast.push('Image updated.', 'success');
-      qc.invalidateQueries({ queryKey: ['event', id] });
+      toast.push('Images added.', 'success');
     },
     onError: (e) => setImageError(errorMessage(e)),
+    onSettled: refreshEvent,
   });
   const removeImage = useMutation({
-    mutationFn: () => api.events.removeImage(id),
+    mutationFn: (imageId: string) => api.events.removeImage(id, imageId),
     onSuccess: () => {
       setImageError(null);
       toast.push('Image removed.', 'success');
-      qc.invalidateQueries({ queryKey: ['event', id] });
     },
     onError: (e) => setImageError(errorMessage(e)),
+    onSettled: refreshEvent,
+  });
+  const reorderImages = useMutation({
+    mutationFn: (imageIds: string[]) => api.events.reorderImages(id, imageIds),
+    onSuccess: () => setImageError(null),
+    onError: (e) => setImageError(errorMessage(e)),
+    onSettled: refreshEvent,
   });
 
   if (isError)
@@ -164,13 +189,24 @@ export default function EditEvent() {
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           disabled={!editable}
         />
-        <EventImagePicker
-          previewUrl={apiAssetUrl(event.imagePath)}
-          disabled={!editable}
-          busy={uploadImage.isPending || removeImage.isPending}
+        <EventGalleryEditor
+          tiles={(event.images ?? []).map((image) => ({
+            key: image.id,
+            url: apiAssetUrl(image.path) ?? '',
+          }))}
+          disabled={IMAGES_LOCKED.includes(event.status)}
+          busy={addImages.isPending || removeImage.isPending || reorderImages.isPending}
           error={imageError}
-          onPick={(file) => uploadImage.mutate(file)}
-          onClear={event.imagePath ? () => removeImage.mutate() : undefined}
+          note={
+            IMAGES_LOCKED.includes(event.status)
+              ? `This event is ${event.status.toLowerCase()}, so its images can no longer be changed.`
+              : !editable
+                ? 'Images can be changed while the event is live; the other fields need it paused.'
+                : null
+          }
+          onAdd={(files) => addImages.mutate(files)}
+          onRemove={(imageId) => removeImage.mutate(imageId)}
+          onReorder={(imageIds) => reorderImages.mutate(imageIds)}
         />
         <Textarea
           id="refund"

@@ -15,18 +15,21 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   // over this column, so every typo an organizer typed became its own row on the front page.
   await page.getByLabel('Category').selectOption('Music');
   /*
-    An image, as an organizer adds one. The picker resizes it in the browser before it is ever
-    sent, so a one-pixel PNG goes up as a JPEG — which is what the API is asserted to store.
+    Images, as an organizer adds them — two at once. The picker resizes each in the browser
+    before it is ever sent, so a one-pixel PNG goes up as a JPEG, which is what the API is
+    asserted to store. The first is the cover.
   */
-  await page.getByLabel('Event image').setInputFiles({
-    name: 'poster.png',
+  const pixel = (name: string) => ({
+    name,
     mimeType: 'image/png',
     buffer: Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
       'base64',
     ),
   });
-  await expect(page.getByRole('img', { name: 'Event image preview' })).toBeVisible();
+  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('venue.png')]);
+  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 2 — venue (pick the first existing venue)
@@ -86,17 +89,33 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   await expect(page.getByText(title)).toBeVisible();
 
   /*
-    The image went up with the event, and the API serves it as an image anyone's page can load.
+    Both images went up with the event, in order, and the API serves each as an image anyone's
+    page can load.
   */
   await page.goto(`${ORGANIZER}/organizer/events/${eventId}/edit`);
-  const preview = page.getByRole('img', { name: 'Event image preview' });
-  await expect(preview).toBeVisible({ timeout: 20_000 });
-  const src = await preview.getAttribute('src');
-  expect(src).toMatch(/\/public\/events\/[^/]+\/image\?v=[0-9a-f]{16}$/);
-  const served = await page.request.get(src!);
+  const tiles = page.getByRole('img', { name: /^Event image \d of 2/ });
+  await expect(tiles).toHaveCount(2, { timeout: 20_000 });
+  const firstSrc = await tiles.nth(0).getAttribute('src');
+  const secondSrc = await tiles.nth(1).getAttribute('src');
+  expect(firstSrc).toMatch(/\/public\/events\/[^/]+\/images\/[^/?]+\?v=[0-9a-f]{16}$/);
+  expect(secondSrc).not.toBe(firstSrc);
+  const served = await page.request.get(firstSrc!);
   expect(served.status()).toBe(200);
   expect(served.headers()['content-type']).toBe('image/jpeg');
   expect(served.headers()['cross-origin-resource-policy']).toBe('cross-origin');
+
+  // The second becomes the cover, and the order is saved — not just redrawn.
+  await page.getByRole('button', { name: 'Make cover: image 2' }).click();
+  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toHaveAttribute(
+    'src',
+    secondSrc!,
+  );
+  await page.reload();
+  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toHaveAttribute(
+    'src',
+    secondSrc!,
+    { timeout: 20_000 },
+  );
 
   /*
     Reported from QA: "I created an event and published it; creating a new event still shows

@@ -36,12 +36,54 @@ import {
 import { EventsService } from './events.service';
 import { PublicEventsService } from './public-events.service';
 import { EventImageService, type UploadedImageFile } from './event-image.service';
-import { EVENT_IMAGE_MAX_BYTES, eventImageVersion } from './event-image';
+import { EVENT_IMAGE_MAX_BYTES, EVENT_IMAGE_MAX_COUNT, eventImageVersion } from './event-image';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
 const updateEventBody = createEventSchema.partial();
+const reorderImagesBody = z.object({
+  imageIds: z.array(z.string().min(1).max(64)).min(1).max(EVENT_IMAGE_MAX_COUNT),
+});
+
+/**
+ * A stored event image as the HTTP response.
+ *
+ * Served with `Cross-Origin-Resource-Policy: cross-origin` because the storefront, console and
+ * app are other origins, and helmet's default `same-origin` would block every `<img>`. A
+ * locked-down CSP and `nosniff` mean the bytes can only ever be rendered as an image. The URL
+ * carries a version from the bytes' hash, so a matching `v` is cached forever and anything
+ * else — an old link, a hand-typed URL — only briefly.
+ */
+function sendEventImage(
+  res: Response,
+  image: { bytes: Uint8Array; contentType: string; sha256: string } | null,
+  version: string | undefined,
+  ifNoneMatch: string | undefined,
+): void {
+  if (!image) {
+    res.status(404).json({ code: 'NOT_FOUND', message: 'This event has no image.' });
+    return;
+  }
+  const current = eventImageVersion(image.sha256);
+  const etag = `"${current}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader(
+    'Cache-Control',
+    version === current ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+  );
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (ifNoneMatch === etag) {
+    res.status(304).end();
+    return;
+  }
+  const bytes = Buffer.from(image.bytes);
+  res.setHeader('Content-Type', image.contentType);
+  res.setHeader('Content-Length', String(bytes.length));
+  res.status(200).end(bytes);
+}
 
 @ApiTags('events')
 @ApiBearerAuth()
@@ -105,26 +147,44 @@ export class EventsController {
   }
 
   /*
-    The event's image: one file, multipart. The size cap is enforced where multer reads the
-    stream, so an oversized upload is refused with 413 before it is buffered in full.
+    The event's images. One file per request, multipart, added after the existing ones. The
+    size cap is enforced where multer reads the stream, so an oversized upload is refused with
+    413 before it is buffered in full. Allowed while the event is live; see EventImageService.
   */
-  @Put(':id/image')
-  @ApiOperation({ summary: 'Upload or replace the event image (JPG, PNG or WebP, max 2 MB).' })
+  @Post(':id/images')
+  @ApiOperation({
+    summary:
+      'Add an image to the event (JPG, PNG or WebP, max 2 MB, up to 10). First is the cover.',
+  })
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: EVENT_IMAGE_MAX_BYTES, files: 1 } }),
   )
-  uploadImage(
+  addImage(
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,
     @UploadedFile() file?: UploadedImageFile,
   ) {
-    return this.images.put(user, id, file);
+    return this.images.add(user, id, file);
   }
 
-  @Delete(':id/image')
-  @ApiOperation({ summary: 'Remove the event image.' })
-  removeImage(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.images.remove(user, id);
+  @Put(':id/images/order')
+  @ApiOperation({ summary: 'Put every event image in order; the first becomes the cover.' })
+  reorderImages(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(reorderImagesBody)) body: z.infer<typeof reorderImagesBody>,
+  ) {
+    return this.images.reorder(user, id, body.imageIds);
+  }
+
+  @Delete(':id/images/:imageId')
+  @ApiOperation({ summary: 'Remove one image from the event.' })
+  removeImage(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+  ) {
+    return this.images.remove(user, id, imageId);
   }
 
   @Post(':id/sessions')
@@ -319,36 +379,29 @@ export class PublicEventsController {
   @Public()
   @SkipThrottle()
   @Get(':id/image')
-  @ApiOperation({ summary: 'An event’s image.' })
+  @ApiOperation({ summary: 'An event’s cover image (kept for links from before galleries).' })
   async image(
     @Param('id') id: string,
     @Query('v') version: string | undefined,
     @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const image = await this.images.read(id);
-    if (!image) {
-      res.status(404).json({ code: 'NOT_FOUND', message: 'This event has no image.' });
-      return;
-    }
-    const current = eventImageVersion(image.sha256);
-    const etag = `"${current}"`;
-    res.setHeader('ETag', etag);
-    res.setHeader(
-      'Cache-Control',
-      version === current ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
-    );
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Content-Security-Policy', "default-src 'none'");
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    if (ifNoneMatch === etag) {
-      res.status(304).end();
-      return;
-    }
-    const bytes = Buffer.from(image.bytes);
-    res.setHeader('Content-Type', image.contentType);
-    res.setHeader('Content-Length', String(bytes.length));
-    res.status(200).end(bytes);
+    sendEventImage(res, await this.images.readCover(id), version, ifNoneMatch);
+  }
+
+  /** One of an event's images. Not throttled, for the same reason as the cover above. */
+  @Public()
+  @SkipThrottle()
+  @Get(':id/images/:imageId')
+  @ApiOperation({ summary: 'One of an event’s images.' })
+  async galleryImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    sendEventImage(res, await this.images.read(id, imageId), version, ifNoneMatch);
   }
 }
 

@@ -25,7 +25,11 @@ import {
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
-import { EventImagePicker, prepareEventImage } from '@/components/event-image-picker';
+import {
+  EVENT_IMAGE_MAX_COUNT,
+  EventGalleryEditor,
+  prepareEventImage,
+} from '@/components/event-image-picker';
 
 const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
 const FEE_MODES = [
@@ -205,24 +209,42 @@ function NewEventWizard() {
   const committed = useRef(false);
 
   /*
-    The image, already resized, held until the event exists to attach it to.
+    The images, already resized and in the organizer's order, held until the event exists to
+    attach them to. The first is the cover.
 
     Deliberately NOT part of the saved draft: the draft is localStorage, a few megabytes for the
-    whole origin, and an image would crowd out the answers it exists to protect. A restored
-    draft says so beside the picker.
+    whole origin, and images would crowd out the answers it exists to protect. A restored draft
+    says so beside the picker.
   */
-  const [image, setImage] = useState<Blob | null>(null);
+  const [images, setImages] = useState<{ key: string; blob: Blob; url: string }[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  useEffect(() => {
-    if (!image) {
-      setImagePreview(null);
-      return undefined;
+  const [preparingImages, setPreparingImages] = useState(false);
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+  // Object URLs are released when the wizard goes away; each removal releases its own.
+  useEffect(() => () => imagesRef.current.forEach((image) => URL.revokeObjectURL(image.url)), []);
+
+  const addImages = async (files: File[]) => {
+    setImageError(null);
+    setPreparingImages(true);
+    const room = EVENT_IMAGE_MAX_COUNT - imagesRef.current.length;
+    const prepared: { key: string; blob: Blob; url: string }[] = [];
+    let problem: string | null =
+      files.length > room
+        ? `Only ${EVENT_IMAGE_MAX_COUNT} images fit — the first ${Math.max(room, 0)} were added.`
+        : null;
+    for (const file of files.slice(0, Math.max(room, 0))) {
+      try {
+        const blob = await prepareEventImage(file);
+        prepared.push({ key: crypto.randomUUID(), blob, url: URL.createObjectURL(blob) });
+      } catch (err) {
+        problem = `${file.name}: ${err instanceof Error ? err.message : 'could not be used.'}`;
+      }
     }
-    const url = URL.createObjectURL(image);
-    setImagePreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [image]);
+    setImages((current) => [...current, ...prepared]);
+    setImageError(problem);
+    setPreparingImages(false);
+  };
 
   useEffect(() => {
     const found = readEventDraft<DraftState>(activeOrg.id);
@@ -383,15 +405,18 @@ function NewEventWizard() {
         });
       }
       /*
-        Attached before submitting, while the event is still a draft and editable — and so the
-        admin reviewing it sees the image the buyers will. A failed upload does not undo an
-        event that now exists; the organizer is told, and can add it from Edit.
+        Attached before submitting, in the organizer's order — so the first uploaded is the
+        cover, and the admin reviewing the event sees the images buyers will. One at a time so
+        the order on the server is the order chosen here. A failed upload does not undo an
+        event that now exists; the organizer is told, and can add the rest from Edit.
       */
       let imageFailed: string | null = null;
-      if (image) {
+      let imagesFailed = 0;
+      for (const image of images) {
         try {
-          await api.events.uploadImage(event.id, image);
+          await api.events.addImage(event.id, image.blob);
         } catch (err) {
+          imagesFailed += 1;
           imageFailed = errorMessage(err);
         }
       }
@@ -405,7 +430,10 @@ function NewEventWizard() {
         'success',
       );
       if (imageFailed) {
-        toast.push(`The image was not uploaded: ${imageFailed} Add it from Edit event.`, 'error');
+        toast.push(
+          `${imagesFailed === 1 ? 'An image was' : `${imagesFailed} images were`} not uploaded: ${imageFailed} Add ${imagesFailed === 1 ? 'it' : 'them'} from Edit event.`,
+          'error',
+        );
       }
       router.push(`/organizer/events/${event.id}`);
     } catch (err) {
@@ -500,26 +528,30 @@ function NewEventWizard() {
               value={basics.description}
               onChange={(e) => setBasics({ ...basics, description: e.target.value })}
             />
-            <EventImagePicker
-              previewUrl={imagePreview}
+            <EventGalleryEditor
+              tiles={images.map((image) => ({ key: image.key, url: image.url }))}
+              busy={preparingImages}
               error={imageError}
               note={
-                restoredAt !== null && !image
-                  ? 'Images are not kept in a saved draft — choose it again if you had one.'
+                restoredAt !== null && images.length === 0
+                  ? 'Images are not kept in a saved draft — add them again if you had some.'
                   : null
               }
-              onPick={(file) => {
-                setImageError(null);
-                prepareEventImage(file)
-                  .then(setImage)
-                  .catch((err: unknown) => {
-                    setImage(null);
-                    setImageError(
-                      err instanceof Error ? err.message : 'That image could not be used.',
-                    );
-                  });
-              }}
-              onClear={() => setImage(null)}
+              onAdd={(files) => void addImages(files)}
+              onRemove={(key) =>
+                setImages((current) => {
+                  const gone = current.find((image) => image.key === key);
+                  if (gone) URL.revokeObjectURL(gone.url);
+                  return current.filter((image) => image.key !== key);
+                })
+              }
+              onReorder={(keys) =>
+                setImages((current) =>
+                  keys
+                    .map((key) => current.find((image) => image.key === key))
+                    .filter((image): image is (typeof current)[number] => Boolean(image)),
+                )
+              }
             />
             {/*
               ── THE REFUND RULE, THEN THE PROSE ───────────────────────────────────────
@@ -1024,7 +1056,10 @@ function NewEventWizard() {
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
             <Row label="Admission" value={isFree ? 'Free — no payment taken' : 'Paid'} />
-            <Row label="Image" value={image ? 'Added' : 'None'} />
+            <Row
+              label="Images"
+              value={images.length === 0 ? 'None' : `${images.length} — the first is the cover`}
+            />
             <Row
               label="Venue"
               value={
