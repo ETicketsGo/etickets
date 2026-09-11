@@ -1,11 +1,13 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import {
   api,
   Button,
   Card,
+  Dialog,
   ButtonLink,
   Skeleton,
   ErrorState,
@@ -51,6 +53,20 @@ export default function EventOverview() {
     mutationFn: () => api.events.resume(id),
     onSuccess: onSuccess('Resume'),
     onError,
+  });
+  const router = useRouter();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.events.remove(id),
+    onSuccess: () => {
+      toast.push('Event deleted.', 'success');
+      qc.invalidateQueries({ queryKey: ['events'] });
+      router.push('/organizer/events');
+    },
+    onError: (e) => {
+      setConfirmDelete(false);
+      onError(e);
+    },
   });
 
   if (isError)
@@ -133,8 +149,52 @@ export default function EventOverview() {
           <ButtonLink href={`/organizer/events/${id}/checkin`} variant="ghost" className="w-full">
             Open check-in
           </ButtonLink>
+          {/*
+            Deleting is for an event nobody has bought into. Once there are bookings the button
+            is replaced by the reason, and pausing — above — is how sales stop.
+          */}
+          <div className="border-t border-border pt-2">
+            {(event._count?.bookings ?? 0) === 0 ? (
+              <Button
+                variant="ghost"
+                className="w-full text-status-error"
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete event
+              </Button>
+            ) : (
+              <p className="text-caption text-text-muted">
+                This event has bookings, so it cannot be deleted. Pause it to stop sales.
+              </p>
+            )}
+          </div>
         </div>
       </Card>
+
+      <Dialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this event?"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDelete(false)}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>
+              Delete event
+            </Button>
+          </>
+        }
+      >
+        <p>
+          <span className="font-medium text-text-primary">{event.title}</span> will be deleted, with
+          its sessions, ticket types and images. This cannot be undone.
+        </p>
+      </Dialog>
     </div>
   );
 }

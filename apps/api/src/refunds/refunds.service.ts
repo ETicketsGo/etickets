@@ -182,7 +182,9 @@ export class RefundsService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
-        include: { booking: { select: { buyerEmail: true, eventId: true } } },
+        // A Refund has no currency column; it is paid back in its booking's. Without it the
+        // queue formatted every amount as rupees.
+        include: { booking: { select: { buyerEmail: true, eventId: true, currency: true } } },
       }),
     ]);
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };

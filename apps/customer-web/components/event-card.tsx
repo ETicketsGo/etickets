@@ -36,14 +36,28 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
         className={`relative flex h-40 items-center justify-center bg-gradient-to-br ${gradientFor(event.id)}`}
       >
         {imageUrl && !imageBroken ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imageUrl}
-            alt=""
-            loading="lazy"
-            onError={() => setImageBroken(true)}
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
-          />
+          /*
+            Whole, over a blurred copy of itself — the same treatment as the event page. Cropped
+            to fill the card, a logo or a portrait poster lost its edges on the front page.
+          */
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              aria-hidden
+              src={imageUrl}
+              alt=""
+              loading="lazy"
+              className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt=""
+              loading="lazy"
+              onError={() => setImageBroken(true)}
+              className="relative h-full w-full object-contain transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
+            />
+          </>
         ) : (
           <span className="select-none text-5xl font-bold text-text-primary/25">
             {event.title.charAt(0)}

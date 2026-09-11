@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   api,
   apiAssetUrl,
@@ -17,7 +17,12 @@ import {
   errorMessage,
 } from '@eticketsgo/web-kit';
 import { EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
-import { EventGalleryEditor, prepareEventImage } from '@/components/event-image-picker';
+import {
+  EVENT_IMAGE_MAX_COUNT,
+  EventGalleryEditor,
+  prepareEventImage,
+  type GalleryTile,
+} from '@/components/event-image-picker';
 
 const EDITABLE = ['DRAFT', 'UNDER_REVIEW', 'PAUSED'];
 /*
@@ -84,29 +89,84 @@ export default function EditEvent() {
 
   /*
     Images save on their own, the moment they change — they are not part of "Save changes".
-    Several chosen at once go up one after another, so they land in the order they were picked.
+
+    Each picked file shows as a tile at once, from the organizer's own copy, marked uploading.
+    Uploads run one after another through a single queue — also across separate picks — so
+    images land in the order they were chosen. A saved image replaces its tile only after the
+    event has been read back, so the picture never blinks out between the two; a refused one
+    keeps its tile with the reason until it is dismissed.
   */
   const [imageError, setImageError] = useState<string | null>(null);
+  const [pending, setPending] = useState<GalleryTile[]>([]);
+  const nextKey = useRef(0);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const objectUrls = useRef(new Set<string>());
   const refreshEvent = () => qc.invalidateQueries({ queryKey: ['event', id] });
-  const addImages = useMutation({
-    mutationFn: async (files: File[]) => {
-      let failed: string | null = null;
-      for (const file of files) {
+
+  // Release the local previews when the organizer leaves the page.
+  useEffect(() => {
+    const urls = objectUrls.current;
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
+  const preview = (file: File) => {
+    const url = URL.createObjectURL(file);
+    objectUrls.current.add(url);
+    return url;
+  };
+  const release = (url: string) => {
+    URL.revokeObjectURL(url);
+    objectUrls.current.delete(url);
+  };
+  const markFailed = (key: string, error: string) =>
+    setPending((tiles) =>
+      tiles.map((tile) => (tile.key === key ? { ...tile, status: 'failed', error } : tile)),
+    );
+
+  const addImages = (files: File[]) => {
+    setImageError(null);
+    const room = Math.max(
+      0,
+      EVENT_IMAGE_MAX_COUNT -
+        (event?.images?.length ?? 0) -
+        pending.filter((tile) => tile.status === 'uploading').length,
+    );
+    const batch = files.map((file, i) => ({
+      file,
+      tile: {
+        key: `pending-${++nextKey.current}`,
+        url: preview(file),
+        ...(i < room
+          ? { status: 'uploading' as const }
+          : {
+              status: 'failed' as const,
+              error: `An event can have up to ${EVENT_IMAGE_MAX_COUNT} images.`,
+            }),
+      },
+    }));
+    setPending((tiles) => [...tiles, ...batch.map((b) => b.tile)]);
+
+    queue.current = queue.current.then(async () => {
+      let saved = 0;
+      for (const { file, tile } of batch) {
+        if (tile.status !== 'uploading') continue;
         try {
           await api.events.addImage(id, await prepareEventImage(file));
+          await refreshEvent();
+          saved += 1;
+          setPending((tiles) => tiles.filter((t) => t.key !== tile.key));
+          release(tile.url);
         } catch (err) {
-          failed = `${file.name}: ${errorMessage(err)}`;
+          markFailed(tile.key, errorMessage(err));
         }
       }
-      if (failed) throw new Error(failed);
-    },
-    onSuccess: () => {
-      setImageError(null);
-      toast.push('Images added.', 'success');
-    },
-    onError: (e) => setImageError(errorMessage(e)),
-    onSettled: refreshEvent,
-  });
+      if (saved > 0) {
+        toast.push(saved === 1 ? 'Image added.' : `${saved} images added.`, 'success');
+      }
+    });
+  };
+
+  const uploadingCount = pending.filter((tile) => tile.status === 'uploading').length;
   const removeImage = useMutation({
     mutationFn: (imageId: string) => api.events.removeImage(id, imageId),
     onSuccess: () => {
@@ -190,12 +250,16 @@ export default function EditEvent() {
           disabled={!editable}
         />
         <EventGalleryEditor
-          tiles={(event.images ?? []).map((image) => ({
-            key: image.id,
-            url: apiAssetUrl(image.path) ?? '',
-          }))}
+          tiles={[
+            ...(event.images ?? []).map((image) => ({
+              key: image.id,
+              url: apiAssetUrl(image.path) ?? '',
+            })),
+            ...pending,
+          ]}
           disabled={IMAGES_LOCKED.includes(event.status)}
-          busy={addImages.isPending || removeImage.isPending || reorderImages.isPending}
+          // Order and removal wait for uploads, so a reorder never names a half-saved list.
+          busy={uploadingCount > 0 || removeImage.isPending || reorderImages.isPending}
           error={imageError}
           note={
             IMAGES_LOCKED.includes(event.status)
@@ -204,8 +268,16 @@ export default function EditEvent() {
                 ? 'Images can be changed while the event is live; the other fields need it paused.'
                 : null
           }
-          onAdd={(files) => addImages.mutate(files)}
-          onRemove={(imageId) => removeImage.mutate(imageId)}
+          onAdd={addImages}
+          onRemove={(key) => {
+            const failed = pending.find((tile) => tile.key === key);
+            if (failed) {
+              setPending((tiles) => tiles.filter((tile) => tile.key !== key));
+              release(failed.url);
+            } else {
+              removeImage.mutate(key);
+            }
+          }}
           onReorder={(imageIds) => reorderImages.mutate(imageIds)}
         />
         <Textarea

@@ -338,7 +338,7 @@ export default function OrganizerDashboard() {
                 <div className="flex justify-between">
                   <span className="text-text-muted">Net amount</span>
                   <span className="font-semibold text-text-primary">
-                    {money(latestPayout.netMinor)}
+                    {money(latestPayout.netMinor, latestPayout.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between">

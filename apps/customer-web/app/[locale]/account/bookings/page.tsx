@@ -109,27 +109,43 @@ export default function BookingsPage() {
         </div>
       ) : list.data && list.data.data.length > 0 ? (
         <div className="space-y-3">
+          {/*
+            A card with one control that opens it, not a button wrapping the whole card.
+
+            The row was a <button> containing the reference's own Copy button — a button inside
+            a button, which a screen reader cannot operate and axe reports as nested-interactive.
+            The title is the button now, named by the event, and its ::after stretches over the
+            card so a click anywhere still opens it; the reference sits above that layer so its
+            Copy button stays its own control.
+          */}
           {list.data.data.map((row) => (
-            <button
+            <div
               key={row.id}
-              onClick={() => setSelectedId(row.id)}
-              className="flex w-full items-center justify-between gap-4 rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="relative flex w-full items-center justify-between gap-4 rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all focus-within:ring-2 focus-within:ring-ring/50 hover:-translate-y-0.5 hover:shadow-md"
             >
               <div className="min-w-0">
-                <p className="truncate font-semibold text-text-primary">{row.event.title}</p>
+                <p className="font-semibold text-text-primary">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(row.id)}
+                    className="block w-full truncate text-left after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-none"
+                  >
+                    {row.event.title}
+                  </button>
+                </p>
                 <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
-                  <CalendarDays className="h-3.5 w-3.5" />
+                  <CalendarDays className="h-3.5 w-3.5" aria-hidden />
                   {dateTime(row.eventSession.startsAt)}
                   {ticketCount(row) && ` · ${ticketCount(row)}`}
                 </p>
                 {row.reference && (
-                  <p className="mt-1 text-caption text-text-muted">
+                  <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
                     <ReferenceCode value={row.reference} label="Booking reference" />
                   </p>
                 )}
               </div>
               <StatusBadge status={row.status} />
-            </button>
+            </div>
           ))}
         </div>
       ) : (

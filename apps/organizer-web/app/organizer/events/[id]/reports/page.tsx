@@ -90,15 +90,18 @@ export default function ReportsTab() {
     }
   };
 
+  // The report's own currency: `money()` without one formats as rupees, so a USD event read ₹.
+  const currency = r.currency;
+  const commerceCurrency = commerceQ.data?.currency;
   const byType: Column<(typeof r.salesByTicketType)[number]>[] = [
     { key: 't', header: 'Ticket type', render: (x) => x.ticketType },
     { key: 'q', header: 'Sold', render: (x) => x.quantity },
-    { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor) },
+    { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor, currency) },
   ];
   const byDay: Column<(typeof r.salesByDay)[number]>[] = [
     { key: 'd', header: 'Day', render: (x) => dateOnly(x.day) },
     { key: 'b', header: 'Bookings', render: (x) => x.bookings },
-    { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor) },
+    { key: 'g', header: 'Gross', render: (x) => money(x.grossMinor, currency) },
   ];
 
   return (
@@ -133,18 +136,26 @@ export default function ReportsTab() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Gross sales" value={money(r.grossTicketSalesMinor)} tone="success" />
-        <MetricCard label="Net revenue" value={money(r.netOrganizerRevenueMinor)} tone="info" />
-        <MetricCard label="Booking fees" value={money(r.bookingFeesMinor)} />
+        <MetricCard
+          label="Gross sales"
+          value={money(r.grossTicketSalesMinor, currency)}
+          tone="success"
+        />
+        <MetricCard
+          label="Net revenue"
+          value={money(r.netOrganizerRevenueMinor, currency)}
+          tone="info"
+        />
+        <MetricCard label="Booking fees" value={money(r.bookingFeesMinor, currency)} />
         <MetricCard
           label="Refunds"
-          value={money(r.refundsMinor)}
+          value={money(r.refundsMinor, currency)}
           tone={r.refundsMinor > 0 ? 'warning' : 'neutral'}
         />
         <MetricCard label="Tickets sold" value={r.ticketsSold} />
         <MetricCard label="Tickets remaining" value={r.ticketsRemaining} />
         <MetricCard label="Checked in" value={r.checkInCount} />
-        <MetricCard label="Payment fees" value={money(r.paymentFeesMinor)} />
+        <MetricCard label="Payment fees" value={money(r.paymentFeesMinor, currency)} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -186,20 +197,29 @@ export default function ReportsTab() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               label="Add-on revenue"
-              value={money(commerceQ.data.addOnRevenueMinor)}
+              value={money(commerceQ.data.addOnRevenueMinor, commerceQ.data.currency)}
               tone="success"
             />
             <MetricCard
               label="Bundle revenue"
-              value={money(commerceQ.data.bundleRevenueMinor)}
+              value={money(commerceQ.data.bundleRevenueMinor, commerceQ.data.currency)}
               tone="info"
             />
-            <MetricCard label="Donations" value={money(commerceQ.data.donationTotalMinor)} />
-            <MetricCard label="Parking" value={money(commerceQ.data.parkingRevenueMinor)} />
-            <MetricCard label="Merchandise" value={money(commerceQ.data.merchandiseRevenueMinor)} />
+            <MetricCard
+              label="Donations"
+              value={money(commerceQ.data.donationTotalMinor, commerceQ.data.currency)}
+            />
+            <MetricCard
+              label="Parking"
+              value={money(commerceQ.data.parkingRevenueMinor, commerceQ.data.currency)}
+            />
+            <MetricCard
+              label="Merchandise"
+              value={money(commerceQ.data.merchandiseRevenueMinor, commerceQ.data.currency)}
+            />
             <MetricCard
               label="Food & beverage"
-              value={money(commerceQ.data.foodBeverageRevenueMinor)}
+              value={money(commerceQ.data.foodBeverageRevenueMinor, commerceQ.data.currency)}
             />
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -212,7 +232,7 @@ export default function ReportsTab() {
                   {
                     key: 'g',
                     header: 'Gross',
-                    render: (x: { grossMinor: number }) => money(x.grossMinor),
+                    render: (x: { grossMinor: number }) => money(x.grossMinor, commerceCurrency),
                   },
                 ]}
                 rows={commerceQ.data.topAddOns}
@@ -231,7 +251,7 @@ export default function ReportsTab() {
                   {
                     key: 'g',
                     header: 'Gross',
-                    render: (x: { grossMinor: number }) => money(x.grossMinor),
+                    render: (x: { grossMinor: number }) => money(x.grossMinor, commerceCurrency),
                   },
                 ]}
                 rows={commerceQ.data.bundles}

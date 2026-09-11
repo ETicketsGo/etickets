@@ -146,6 +146,14 @@ export class EventsController {
     return this.events.update(user, id, body);
   }
 
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Delete an event that has no bookings (with its sessions, tickets and images).',
+  })
+  remove(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.events.remove(user, id);
+  }
+
   /*
     The event's images. One file per request, multipart, added after the existing ones. The
     size cap is enforced where multer reads the stream, so an oversized upload is refused with

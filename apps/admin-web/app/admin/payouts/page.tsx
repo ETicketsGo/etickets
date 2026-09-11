@@ -62,17 +62,23 @@ export default function AdminPayouts() {
       header: 'Organizer',
       render: (p) => p.organization?.name ?? p.organizationId.slice(0, 8),
     },
+    /*
+      Each payout in its own currency — they were all printed as rupees. Sorting by amount
+      compares minor units across currencies, which only orders rows of the same currency
+      meaningfully; the currency column sits beside it for that reason.
+    */
+    { key: 'currency', header: 'Currency', render: (p) => p.currency },
     {
       key: 'gross',
       header: 'Gross',
-      render: (p) => money(p.grossMinor),
+      render: (p) => money(p.grossMinor, p.currency),
       sortable: true,
       sortValue: (p) => p.grossMinor,
     },
     {
       key: 'net',
       header: 'Net',
-      render: (p) => <span className="font-semibold">{money(p.netMinor)}</span>,
+      render: (p) => <span className="font-semibold">{money(p.netMinor, p.currency)}</span>,
       sortable: true,
       sortValue: (p) => p.netMinor,
     },
@@ -153,7 +159,7 @@ export default function AdminPayouts() {
       >
         {confirm && (
           <p>
-            Confirm settlement of <strong>{money(confirm.netMinor)}</strong> to{' '}
+            Confirm settlement of <strong>{money(confirm.netMinor, confirm.currency)}</strong> to{' '}
             {confirm.organization?.name ?? 'this organizer'}.
           </p>
         )}

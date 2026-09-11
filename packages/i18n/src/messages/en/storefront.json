@@ -52,6 +52,15 @@
     "taxDetailsHide": "Hide tax details",
     "galleryLabel": "Event images",
     "galleryShow": "Show image {index} of {total}",
+    "galleryOpen": "View all {total} photos",
+    "galleryOpenOne": "View photo",
+    "galleryPrevious": "Previous image",
+    "galleryNext": "Next image",
+    "galleryClose": "Close photos",
+    "galleryCounter": "{index} / {total}",
+    "galleryImageAlt": "{title} — image {index} of {total}",
+    "gstIncludedSummary": "Includes {amount} GST",
+    "taxIncludedSummary": "Includes {amount} tax",
     "feeBreakdownNote": "The booking fee is ours. Payment processing is what the card or UPI network charges to move the money."
   },
   "seats": {

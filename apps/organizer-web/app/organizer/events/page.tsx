@@ -7,6 +7,7 @@ import {
   api,
   Button,
   DataTable,
+  Dialog,
   StatusBadge,
   ButtonLink,
   Select,
@@ -37,6 +38,7 @@ export default function OrganizerEvents() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState<OrgEventRow | null>(null);
   const PAGE_SIZE = 10;
 
   const qc = useQueryClient();
@@ -54,6 +56,19 @@ export default function OrganizerEvents() {
       router.push(`/organizer/events/${created.id}`);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.events.remove(id),
+    onSuccess: () => {
+      toast.push('Event deleted.', 'success');
+      qc.invalidateQueries({ queryKey: ['events', activeOrg.id] });
+      setDeleting(null);
+    },
+    onError: (e) => {
+      toast.push(errorMessage(e), 'error');
+      setDeleting(null);
+    },
   });
 
   const rows = useMemo(() => {
@@ -105,7 +120,11 @@ export default function OrganizerEvents() {
       key: 'actions',
       header: '',
       render: (e) => (
-        <div className="flex justify-end gap-2">
+        /*
+          The row itself opens the event, so clicks on these buttons stop here — otherwise a
+          Delete would also navigate away from the dialog it just opened.
+        */
+        <div className="flex justify-end gap-2" onClick={(ev) => ev.stopPropagation()}>
           <ButtonLink href={`/organizer/events/${e.id}`} variant="outline" size="sm">
             Manage
           </ButtonLink>
@@ -116,6 +135,24 @@ export default function OrganizerEvents() {
             onClick={() => duplicate.mutate(e.id)}
           >
             Duplicate
+          </Button>
+          {/*
+            Only while nobody has booked. Disabled with the reason rather than hidden, so an
+            organizer looking for the button learns why it is not available.
+          */}
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={e._count.bookings > 0}
+            title={
+              e._count.bookings > 0
+                ? 'This event has bookings, so it cannot be deleted. Pause it instead.'
+                : undefined
+            }
+            aria-label={`Delete ${e.title}`}
+            onClick={() => setDeleting(e)}
+          >
+            Delete
           </Button>
         </div>
       ),
@@ -162,6 +199,31 @@ export default function OrganizerEvents() {
         empty={<div className="p-8 text-center text-text-muted">No events match your filters.</div>}
       />
       <Pagination page={currentPage} totalPages={totalPages} onChange={setPage} />
+
+      <Dialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete this event?"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleting(null)} disabled={remove.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={remove.isPending}
+              onClick={() => deleting && remove.mutate(deleting.id)}
+            >
+              Delete event
+            </Button>
+          </>
+        }
+      >
+        <p>
+          <span className="font-medium text-text-primary">{deleting?.title}</span> will be deleted,
+          with its sessions, ticket types and images. This cannot be undone.
+        </p>
+      </Dialog>
     </div>
   );
 }

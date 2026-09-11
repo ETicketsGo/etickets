@@ -115,6 +115,16 @@ function TicketsLine({
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const hasDetail = included.length > 0 || includedMaintenanceMinor > 0;
+  /*
+    The amount, on the closed control. "Tax details" alone read as though no tax was shown at
+    all — reported as "not showing GST details" — so the total inside the ticket price is on
+    the button itself and the per-rate lines are one tap away.
+  */
+  const includedTotal = included.reduce((sum, tax) => sum + tax.amountMinor, 0);
+  const summaryKey =
+    included.length > 0 && included.every((tax) => /GST/i.test(tax.label))
+      ? 'gstIncludedSummary'
+      : 'taxIncludedSummary';
 
   return (
     <div>
@@ -129,7 +139,11 @@ function TicketsLine({
               aria-controls={panelId}
               className="rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
             >
-              {open ? t('taxDetailsHide') : t('taxDetailsShow')}
+              {open
+                ? t('taxDetailsHide')
+                : includedTotal > 0
+                  ? t(summaryKey, { amount: money(includedTotal, currency, undefined, digits) })
+                  : t('taxDetailsShow')}
             </button>
           )}
         </span>

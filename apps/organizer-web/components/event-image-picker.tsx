@@ -1,7 +1,7 @@
 'use client';
 
-import { useId, useRef } from 'react';
-import { ArrowLeft, ArrowRight, ImagePlus } from 'lucide-react';
+import { useId, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, ArrowRight, ImagePlus, Loader2 } from 'lucide-react';
 import { Button } from '@eticketsgo/web-kit';
 
 /** What the picker offers, and what the API will recognise from the bytes. */
@@ -53,10 +53,18 @@ export async function prepareEventImage(file: Blob): Promise<Blob> {
   throw new Error('That image is too large even after resizing. Try a smaller one.');
 }
 
-/** One image as the editor shows it: something to key it by, and something to display. */
+/**
+ * One image as the editor shows it.
+ *
+ * `status` is absent for an image that is saved (or, in the wizard, ready to save). An image
+ * still going up is `uploading`, shown at once from the organizer's own file so they see what
+ * they picked straight away; one that was refused is `failed`, with the reason on the tile.
+ */
 export interface GalleryTile {
   key: string;
   url: string;
+  status?: 'uploading' | 'failed';
+  error?: string;
 }
 
 const ICON_BUTTON =
@@ -65,12 +73,18 @@ const TEXT_BUTTON =
   'inline-flex h-8 items-center rounded-md px-2 text-caption font-medium text-text-secondary hover:bg-background-subtle hover:text-text-primary disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
 
 /**
- * An event's images: add several, remove any, put them in order, and choose the cover.
+ * An event's images: add several — by picking or by dropping them — remove any, put them in
+ * order, and choose the cover.
  *
  * ── THE FIRST IMAGE IS THE COVER ───────────────────────────────────────────────────
  * One rule instead of a separate "cover" flag that could point at an image since deleted. The
  * cover is what browse shows on the card and what the event page opens on; the rest are the
  * gallery beneath it. "Make cover" moves an image to the front; the arrows move it one place.
+ *
+ * ── WHAT UPLOADING LOOKS LIKE ──────────────────────────────────────────────────────
+ * A picked image appears as a tile immediately, marked "Uploading…", and becomes an ordinary
+ * tile when it is saved; a refused one stays, marked with why, until it is removed. Nothing
+ * disappears into a spinner on a button with no sign of which files are going where.
  *
  * Presentational: the caller decides whether a change is saved at once (an event that exists)
  * or held until the event is created (the wizard).
@@ -99,14 +113,22 @@ export function EventGalleryEditor({
   const inputId = useId();
   const hintId = useId();
   const input = useRef<HTMLInputElement>(null);
-  const full = tiles.length >= max;
+  const [dragging, setDragging] = useState(false);
+  const ready = tiles.filter((tile) => !tile.status);
+  const uploading = tiles.filter((tile) => tile.status === 'uploading').length;
+  const full = ready.length + uploading >= max;
   const locked = disabled || busy;
 
   const move = (from: number, to: number) => {
-    const keys = tiles.map((tile) => tile.key);
+    const keys = ready.map((tile) => tile.key);
     const [moved] = keys.splice(from, 1);
     keys.splice(to, 0, moved);
     onReorder(keys);
+  };
+
+  const accept = (files: File[]) => {
+    const images = files.filter((file) => EVENT_IMAGE_TYPES.includes(file.type));
+    if (images.length) onAdd(images);
   };
 
   return (
@@ -115,83 +137,130 @@ export function EventGalleryEditor({
         <label htmlFor={inputId} className="block text-sm font-medium text-text-primary">
           Event images <span className="font-normal text-text-muted">(optional)</span>
         </label>
-        <span className="text-caption text-text-muted">
-          {tiles.length} of {max}
+        <span className="text-caption text-text-muted" aria-live="polite">
+          {ready.length} of {max}
+          {uploading > 0 ? ` · uploading ${uploading}` : ''}
         </span>
       </div>
 
-      {tiles.length > 0 ? (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {tiles.map((tile, index) => {
-            const n = index + 1;
-            return (
-              <li
-                key={tile.key}
-                className="overflow-hidden rounded-md border border-border bg-background-surface"
-              >
-                <div className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={tile.url}
-                    alt={`Event image ${n} of ${tiles.length}${index === 0 ? ', the cover' : ''}`}
-                    className="aspect-video w-full object-cover"
-                  />
-                  {index === 0 && (
-                    <span className="absolute left-2 top-2 rounded bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white">
-                      Cover
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-1 p-1.5">
-                  <button
-                    type="button"
-                    className={ICON_BUTTON}
-                    aria-label={`Move image ${n} earlier`}
-                    disabled={locked || index === 0}
-                    onClick={() => move(index, index - 1)}
-                  >
-                    <ArrowLeft className="h-4 w-4" aria-hidden />
-                  </button>
-                  <button
-                    type="button"
-                    className={ICON_BUTTON}
-                    aria-label={`Move image ${n} later`}
-                    disabled={locked || index === tiles.length - 1}
-                    onClick={() => move(index, index + 1)}
-                  >
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </button>
-                  {index > 0 && (
-                    <button
-                      type="button"
-                      className={TEXT_BUTTON}
-                      aria-label={`Make cover: image ${n}`}
-                      disabled={locked}
-                      onClick={() => move(index, 0)}
-                    >
-                      Make cover
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`${TEXT_BUTTON} ml-auto text-status-error`}
-                    aria-label={`Remove image ${n}`}
-                    disabled={locked}
-                    onClick={() => onRemove(tile.key)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <div className="flex aspect-[3/1] w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background-subtle text-text-muted">
-          <ImagePlus className="h-8 w-8" aria-hidden />
-          <span className="text-sm">No images yet</span>
-        </div>
-      )}
+      <div
+        onDragOver={(e) => {
+          if (disabled || full) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (disabled || full) return;
+          accept(Array.from(e.dataTransfer.files));
+        }}
+        className={`rounded-md border-2 border-dashed p-2 transition-colors ${
+          dragging ? 'border-action-primary bg-tint-primary' : 'border-border'
+        }`}
+      >
+        {tiles.length > 0 ? (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {tiles.map((tile) => {
+              const index = ready.indexOf(tile);
+              const n = index + 1;
+              const saved = !tile.status;
+              return (
+                <li
+                  key={tile.key}
+                  className="overflow-hidden rounded-md border border-border bg-background-surface"
+                >
+                  <div className="relative bg-background-subtle">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={tile.url}
+                      alt={
+                        saved
+                          ? `Event image ${n} of ${ready.length}${index === 0 ? ', the cover' : ''}`
+                          : tile.status === 'uploading'
+                            ? 'Image uploading'
+                            : 'Image not uploaded'
+                      }
+                      className={`aspect-video w-full object-contain ${saved ? '' : 'opacity-50'}`}
+                    />
+                    {saved && index === 0 && (
+                      <span className="absolute left-2 top-2 rounded bg-black/75 px-1.5 py-0.5 text-caption font-medium text-white">
+                        Cover
+                      </span>
+                    )}
+                    {tile.status === 'uploading' && (
+                      <span className="absolute inset-0 flex items-center justify-center gap-2 text-caption font-medium text-text-primary">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        Uploading…
+                      </span>
+                    )}
+                    {tile.status === 'failed' && (
+                      <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-status-error/10 p-2 text-center text-caption text-status-error">
+                        <AlertTriangle className="h-4 w-4" aria-hidden />
+                        {tile.error ?? 'Not uploaded'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 p-1.5">
+                    {saved && (
+                      <>
+                        <button
+                          type="button"
+                          className={ICON_BUTTON}
+                          aria-label={`Move image ${n} earlier`}
+                          disabled={locked || index === 0}
+                          onClick={() => move(index, index - 1)}
+                        >
+                          <ArrowLeft className="h-4 w-4" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={ICON_BUTTON}
+                          aria-label={`Move image ${n} later`}
+                          disabled={locked || index === ready.length - 1}
+                          onClick={() => move(index, index + 1)}
+                        >
+                          <ArrowRight className="h-4 w-4" aria-hidden />
+                        </button>
+                        {index > 0 && (
+                          <button
+                            type="button"
+                            className={TEXT_BUTTON}
+                            aria-label={`Make cover: image ${n}`}
+                            disabled={locked}
+                            onClick={() => move(index, 0)}
+                          >
+                            Make cover
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {tile.status !== 'uploading' && (
+                      <button
+                        type="button"
+                        className={`${TEXT_BUTTON} ml-auto text-status-error`}
+                        aria-label={
+                          saved ? `Remove image ${n}` : 'Dismiss image that was not uploaded'
+                        }
+                        disabled={saved && locked}
+                        onClick={() => onRemove(tile.key)}
+                      >
+                        {saved ? 'Remove' : 'Dismiss'}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="flex aspect-[3/1] w-full flex-col items-center justify-center gap-2 text-center text-text-muted">
+            <ImagePlus className="h-8 w-8" aria-hidden />
+            <span className="text-sm">Drag images here, or choose them below</span>
+          </div>
+        )}
+      </div>
 
       <input
         ref={input}
@@ -202,27 +271,26 @@ export function EventGalleryEditor({
         aria-label="Event images"
         aria-describedby={hintId}
         className="sr-only"
-        disabled={locked || full}
+        disabled={disabled || full}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           // Cleared so the same file can be chosen again after it was removed.
           e.target.value = '';
-          if (files.length) onAdd(files);
+          accept(files);
         }}
       />
       <Button
         type="button"
         variant="outline"
         size="sm"
-        loading={busy}
         disabled={disabled || full}
         onClick={() => input.current?.click()}
       >
-        {full ? `${max} images added` : tiles.length ? 'Add more images' : 'Add images'}
+        {full ? `${max} images added` : ready.length ? 'Add more images' : 'Choose images'}
       </Button>
       <p id={hintId} className="text-caption text-text-muted">
         Up to {max}. The first image is the cover — shown on cards and at the top of your event
-        page. JPG, PNG or WebP; wide images work best (16:9, at least 1200 × 675).
+        page, shown whole rather than cropped. JPG, PNG or WebP; drag several in at once.
       </p>
       {note && <p className="text-caption text-text-secondary">{note}</p>}
       {error && (

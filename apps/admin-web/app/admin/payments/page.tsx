@@ -48,7 +48,7 @@ export default function AdminPayments() {
     {
       key: 'amount',
       header: 'Amount',
-      render: (p) => money(p.amountMinor),
+      render: (p) => money(p.amountMinor, p.currency),
       sortable: true,
       sortValue: (p) => p.amountMinor,
     },

@@ -13,6 +13,7 @@ import {
   Drawer,
   money,
   dateTime,
+  currencyForCountry,
   type Column,
   type OrderRow,
 } from '@eticketsgo/web-kit';
@@ -44,6 +45,14 @@ export default function OrdersTab() {
         q: applied || undefined,
       }),
   });
+  /*
+    Money carries its own currency, or `money()` formats it as rupees and a USD order reads ₹.
+    Each order row carries its booking's currency; the venue's is only the fallback for a
+    response from an API that predates it.
+  */
+  const eventQ = useQuery({ queryKey: ['event', id], queryFn: () => api.events.get(id) });
+  const venueCurrency = currencyForCountry(eventQ.data?.venue?.country) ?? 'INR';
+  const currencyOf = (o: OrderRow) => o.currency ?? venueCurrency;
 
   const columns: Column<OrderRow>[] = [
     {
@@ -69,7 +78,7 @@ export default function OrdersTab() {
       header: 'Total',
       sortable: true,
       sortValue: (o) => o.totalMinor,
-      render: (o) => money(o.totalMinor),
+      render: (o) => money(o.totalMinor, currencyOf(o)),
     },
     {
       key: 'status',
@@ -141,7 +150,7 @@ export default function OrdersTab() {
             <Field label="Buyer" value={selected.buyerName} />
             <Field label="Email" value={selected.buyerEmail} />
             <Field label="Tickets" value={String(selected.ticketCount)} />
-            <Field label="Total" value={money(selected.totalMinor)} />
+            <Field label="Total" value={money(selected.totalMinor, currencyOf(selected))} />
             <div className="flex justify-between">
               <dt className="text-text-muted">Status</dt>
               <dd>

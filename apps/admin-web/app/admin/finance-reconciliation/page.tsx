@@ -80,7 +80,7 @@ export default function FinanceReconciliationPage() {
     {
       key: 'amount',
       header: 'Amount',
-      render: (r) => (r.amountMinor != null ? money(r.amountMinor) : '—'),
+      render: (r) => (r.amountMinor != null ? money(r.amountMinor, r.currency ?? undefined) : '—'),
     },
     {
       key: 'status',

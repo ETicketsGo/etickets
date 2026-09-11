@@ -81,11 +81,13 @@ export default function AdminBookingDetail() {
 
         <Card title="Amounts">
           <dl className="space-y-2 text-sm">
-            <Row label="Subtotal" value={money(b.subtotalMinor)} />
-            {b.discountMinor > 0 && <Row label="Discount" value={`- ${money(b.discountMinor)}`} />}
-            <Row label="Booking fee" value={money(b.bookingFeeMinor)} />
-            <Row label="Payment fee" value={money(b.paymentFeeMinor)} />
-            <Row label="Total" value={money(b.totalMinor)} />
+            <Row label="Subtotal" value={money(b.subtotalMinor, b.currency)} />
+            {b.discountMinor > 0 && (
+              <Row label="Discount" value={`- ${money(b.discountMinor, b.currency)}`} />
+            )}
+            <Row label="Booking fee" value={money(b.bookingFeeMinor, b.currency)} />
+            <Row label="Payment fee" value={money(b.paymentFeeMinor, b.currency)} />
+            <Row label="Total" value={money(b.totalMinor, b.currency)} />
           </dl>
         </Card>
       </div>
@@ -113,7 +115,7 @@ export default function AdminBookingDetail() {
             {refundsQ.data.map((r) => (
               <li key={r.id} className="flex items-center justify-between py-2">
                 <div>
-                  <p className="text-text-primary">{money(r.amountMinor)}</p>
+                  <p className="text-text-primary">{money(r.amountMinor, b.currency)}</p>
                   <p className="text-xs text-text-muted">{r.reason}</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -177,8 +179,8 @@ export default function AdminBookingDetail() {
       >
         {confirmApprove && (
           <p>
-            This will refund <strong>{money(confirmApprove.amountMinor)}</strong> to the buyer. This
-            action cannot be undone.
+            This will refund <strong>{money(confirmApprove.amountMinor, b.currency)}</strong> to the
+            buyer. This action cannot be undone.
           </p>
         )}
       </Dialog>
