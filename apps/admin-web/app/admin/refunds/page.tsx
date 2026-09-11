@@ -41,7 +41,7 @@ export default function AdminRefunds() {
     {
       key: 'amount',
       header: 'Amount',
-      render: (r) => money(r.amountMinor),
+      render: (r) => money(r.amountMinor, r.booking?.currency),
       sortable: true,
       sortValue: (r) => r.amountMinor,
     },

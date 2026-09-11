@@ -7,12 +7,15 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   CalendarDays,
-  ChevronRight,
   MapPin,
   ShieldCheck,
   Ticket,
   Share2,
+  ChevronLeft,
+  ChevronRight,
+  Images,
 } from 'lucide-react';
+import { ImageLightbox } from '@/components/image-lightbox';
 import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
@@ -55,6 +58,8 @@ export default function EventDetailPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   /* Which of the event's images the hero shows. The cover (0) until the buyer picks another. */
   const [activeImage, setActiveImage] = useState(0);
+  /* Which image is open full screen, or null. */
+  const [lightbox, setLightbox] = useState<number | null>(null);
   /*
     Optional, only rendered for Indian venues, and PREFILLED from the last answer.
 
@@ -366,27 +371,85 @@ export default function EventDetailPage() {
       {/* Hero */}
       <div className="relative overflow-hidden rounded-lg border border-border shadow-sm">
         <div
-          className={`relative flex h-52 items-end p-6 sm:h-64 ${
+          className={`relative flex items-end p-6 ${
             heroImage
-              ? 'bg-background-subtle'
-              : 'bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle'
+              ? 'h-64 bg-black sm:h-96'
+              : 'h-52 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle sm:h-64'
           }`}
         >
           {/*
-            The organizer's image behind the title, darkened toward the bottom where the text
-            sits so the title reads on any photo. Decorative: the title says what it is.
+            ── THE WHOLE IMAGE, NOT A CROP OF IT ─────────────────────────────────────────
+            The image was stretched across the strip with `object-cover`, which cut the edges
+            off anything that was not already a wide landscape — the organizer's logo lost its
+            ends on QA. It is now shown whole (`object-contain`) over a blurred copy of itself,
+            so a portrait poster, a square logo and a wide photo all read properly and the
+            strip never shows empty bars. The picture opens full screen; the title below it is
+            what says what the event is, so the images carry no alt text of their own here.
           */}
           {heroImage && (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={heroImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <img
+                aria-hidden
+                src={heroImage}
+                alt=""
+                className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
+              />
+              <button
+                type="button"
+                onClick={() => setLightbox(shownImage)}
+                aria-label={
+                  gallery.length > 1
+                    ? sf('event.galleryOpen', { total: gallery.length })
+                    : sf('event.galleryOpenOne')
+                }
+                className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-white/70"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={heroImage}
+                  src={heroImage}
+                  alt=""
+                  className="h-full w-full animate-fade-in object-contain"
+                />
+              </button>
               <div
                 aria-hidden
-                className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/5"
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent"
               />
+              {gallery.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveImage((shownImage - 1 + gallery.length) % gallery.length)
+                    }
+                    aria-label={sf('event.galleryPrevious')}
+                    className="absolute left-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <ChevronLeft className="h-5 w-5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveImage((shownImage + 1) % gallery.length)}
+                    aria-label={sf('event.galleryNext')}
+                    className="absolute right-3 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <ChevronRight className="h-5 w-5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLightbox(shownImage)}
+                    className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-caption font-medium text-white backdrop-blur transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <Images className="h-3.5 w-3.5" aria-hidden />
+                    {sf('event.galleryOpen', { total: gallery.length })}
+                  </button>
+                </>
+              )}
             </>
           )}
-          <div className="relative z-10">
+          <div className="pointer-events-none relative z-10">
             <Badge tone="info">{event.category}</Badge>
             <h1
               className={`mt-3 text-h2 font-bold tracking-tight sm:text-h1 ${
@@ -447,6 +510,17 @@ export default function EventDetailPage() {
           ))}
         </ul>
       )}
+      <ImageLightbox
+        images={gallery}
+        index={lightbox}
+        title={event.title}
+        onIndexChange={(index) => {
+          setLightbox(index);
+          // Closing leaves the hero on the image the buyer was looking at.
+          setActiveImage(index);
+        }}
+        onClose={() => setLightbox(null)}
+      />
 
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Left column */}

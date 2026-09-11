@@ -131,6 +131,61 @@ describe('what goes where', () => {
   });
 });
 
+describe('a booking read back without the all-in fee', () => {
+  /*
+    Reported from QA: Review & pay showed ₹499 + ₹10.18 + ₹10 under "Total payable ₹522.82".
+    The booking gave the fee before tax and its tax lines, but not the all-in figure the quote
+    gives, so the GST on the fees had no row.
+  */
+  const bookingShaped: BreakdownQuote = {
+    subtotalMinor: 49_900,
+    discountMinor: 0,
+    bookingFeeMinor: 1_000,
+    paymentFeeMinor: 1_018,
+    customerFeeMinor: 2_018,
+    taxLines: [
+      {
+        label: 'CGST',
+        rateBasisPoints: 900,
+        amountMinor: 3_806,
+        basis: 'TICKETS',
+        inclusive: true,
+      },
+      {
+        label: 'SGST',
+        rateBasisPoints: 900,
+        amountMinor: 3_806,
+        basis: 'TICKETS',
+        inclusive: true,
+      },
+      { label: 'CGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+      { label: 'SGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+    ],
+    totalMinor: 52_282,
+  };
+
+  it('rebuilds the GST on the fees from the tax lines, so the rows reach the total', () => {
+    const b = priceBreakdown(bookingShaped);
+    expect(b.rows.map((r) => [r.kind, r.amountMinor])).toEqual([
+      ['tickets', 49_900],
+      ['paymentFee', 1_018],
+      ['platformFee', 1_000],
+      ['feeTax', 364],
+    ]);
+    expect(b.rows.find((r) => r.kind === 'feeTax')?.rateBasisPoints).toBe(1_800);
+    expect(foots(bookingShaped)).toBe(true);
+  });
+
+  it('matches what the checkout quote shows for the same order', () => {
+    const quoted = priceBreakdown({
+      ...bookingShaped,
+      customerFeeInclusiveMinor: 2_382,
+      feeTaxRateBasisPoints: 1_800,
+    });
+    expect(priceBreakdown(bookingShaped).rows).toEqual(quoted.rows);
+  });
+});
+
 describe('the fees, divided', () => {
   it('reproduces the QA cart line for line: ₹499 + ₹10.18 + ₹10 + ₹3.64 = ₹522.82', () => {
     const q: BreakdownQuote = {

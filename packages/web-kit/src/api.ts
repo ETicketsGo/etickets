@@ -939,6 +939,8 @@ export const api = {
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CreateEventBody>) =>
       request<OrgEventDetail>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Delete an event with no bookings. Refused (409) with the reason when it has any. */
+    remove: (id: string) => request<{ ok: boolean }>(`/events/${id}`, { method: 'DELETE' }),
     /**
      * Add one image after the event's existing ones (the first image is the cover). JPG, PNG or
      * WebP, at most 2 MB — resize before sending. Up to ten per event.
@@ -1253,8 +1255,9 @@ export const api = {
 
   payouts: {
     forOrg: (organizationId: string) => request<Payout[]>(`/payouts${qs({ organizationId })}`),
+    /** One payout per currency the scope has money in. */
     generate: (organizationId: string, eventId?: string) =>
-      request<Payout>('/payouts/generate', {
+      request<Payout[]>('/payouts/generate', {
         method: 'POST',
         body: JSON.stringify({ organizationId, eventId }),
       }),
@@ -2971,6 +2974,8 @@ export interface OrgEventDetail {
   imagePath?: string | null;
   /** Every image, cover first. */
   images?: OrgEventImage[];
+  /** Bookings of any status. An event with none can be deleted. */
+  _count?: { bookings: number };
 }
 export interface CreateEventBody {
   organizationId: string;
@@ -3015,6 +3020,8 @@ export interface OrderRow {
   buyerName: string;
   buyerEmail: string;
   totalMinor: number;
+  /** The booking's own currency. */
+  currency: string;
   createdAt: string;
   ticketCount: number;
   paymentStatus: string | null;
@@ -3335,7 +3342,8 @@ export interface RefundRow {
   reason: string;
   ticketIds: string[];
   createdAt: string;
-  booking?: { buyerEmail: string; eventId: string };
+  /** `currency` is the booking's: a refund is paid back in it and has no column of its own. */
+  booking?: { buyerEmail: string; eventId: string; currency: string };
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
@@ -3669,6 +3677,8 @@ export interface SettlementDetail extends SettlementRow {
 
 export interface EventReport {
   event: { id: string; title: string; status: string };
+  /** The event's selling currency. Money carries its own: `money()` without one shows rupees. */
+  currency: string;
   grossTicketSalesMinor: number;
   bookingFeesMinor: number;
   paymentFeesMinor: number;
@@ -3782,6 +3792,8 @@ export type PublicBundle = OrgBundle;
 
 export interface CommerceReport {
   event: { id: string; title: string };
+  /** The event's selling currency. Money carries its own: `money()` without one shows rupees. */
+  currency: string;
   addOnRevenueMinor: number;
   bundleRevenueMinor: number;
   donationTotalMinor: number;
@@ -3955,6 +3967,11 @@ export interface AdminDashboard {
   platformRevenueMinor: number;
   totalBookings: number;
   refundVolumeMinor: number;
+  /**
+   * The money figures per currency sold in, biggest market first. The three totals above add
+   * currencies together and are kept only for older clients — show these instead.
+   */
+  money?: CurrencyMoney[];
   activeOrganizers: number;
   publishedEvents: number;
   paymentFailures: number;
@@ -3962,6 +3979,14 @@ export interface AdminDashboard {
   confirmedBookings: number;
   pendingOrganizers?: number;
   pendingEvents?: number;
+}
+/** A market's money on the platform overview: every figure in one currency. */
+export interface CurrencyMoney {
+  currency: string;
+  gmvMinor: number;
+  platformRevenueMinor: number;
+  refundVolumeMinor: number;
+  paidBookings: number;
 }
 export interface AdminEventRow {
   id: string;
@@ -3979,6 +4004,8 @@ export interface AdminBookingRow {
   status: string;
   buyerEmail: string;
   totalMinor: number;
+  /** Money carries its own currency: `money()` without one formats as rupees. */
+  currency: string;
   createdAt: string;
   event: { title: string };
   paymentStatus: string | null;
@@ -3987,6 +4014,8 @@ export interface AdminPaymentRow {
   id: string;
   status: string;
   amountMinor: number;
+  /** Money carries its own currency: `money()` without one formats as rupees. */
+  currency: string;
   provider: string;
   providerRef: string | null;
   createdAt: string;

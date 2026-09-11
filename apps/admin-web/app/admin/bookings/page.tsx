@@ -59,7 +59,7 @@ export default function AdminBookings() {
     {
       key: 'total',
       header: 'Total',
-      render: (b) => money(b.totalMinor),
+      render: (b) => money(b.totalMinor, b.currency),
       sortable: true,
       sortValue: (b) => b.totalMinor,
     },

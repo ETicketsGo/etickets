@@ -127,7 +127,7 @@ export default function AdminEventDetail() {
                 <ul className="mt-1 text-text-secondary">
                   {(s.ticketTypes ?? []).map((t) => (
                     <li key={t.id}>
-                      {t.name} — {money(t.priceMinor)} × {t.quantityTotal}
+                      {t.name} — {money(t.priceMinor, t.currency)} × {t.quantityTotal}
                     </li>
                   ))}
                   {(!s.ticketTypes || s.ticketTypes.length === 0) && (

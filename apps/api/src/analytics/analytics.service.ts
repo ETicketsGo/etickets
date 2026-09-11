@@ -645,6 +645,8 @@ export class AnalyticsService {
     ]);
 
     return {
+      // Per currency, as the dashboard reports it. The two totals below add currencies together.
+      money: dashboard.money,
       gmvMinor: dashboard.gmvMinor,
       platformRevenueMinor: dashboard.platformRevenueMinor,
       bookings: dashboard.totalBookings,

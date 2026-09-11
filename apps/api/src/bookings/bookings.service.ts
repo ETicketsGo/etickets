@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { feeTaxSummary } from '../pricing/fee-tax';
 import {
   BookingItemKind,
   BookingStatus,
@@ -1862,6 +1863,12 @@ export class BookingsService {
     }
     return {
       ...booking,
+      /*
+        The fees all-in, with the GST on them — the same figures the checkout quote gives, from
+        the lines this booking stored. Without them the payment screen lost the "GST on fees"
+        row and its rows no longer added up to the total it asked for.
+      */
+      ...feeTaxSummary(booking.taxLines, booking.customerFeeMinor),
       seatLabels,
       // Cinema first (a screen's own zone is the most specific fact), then the venue.
       timeZone:

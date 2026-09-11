@@ -567,9 +567,9 @@ function OperationsSection() {
   const settlementColumns: Column<SettlementLine>[] = [
     { key: 'provider', header: 'Provider', render: (r) => <strong>{r.provider}</strong> },
     { key: 'currency', header: 'Currency', render: (r) => r.currency },
-    { key: 'gross', header: 'Gross', render: (r) => money(r.grossMinor) },
-    { key: 'refunded', header: 'Refunded', render: (r) => money(r.refundedMinor) },
-    { key: 'net', header: 'Net', render: (r) => <strong>{money(r.netMinor)}</strong> },
+    { key: 'gross', header: 'Gross', render: (r) => money(r.grossMinor, r.currency) },
+    { key: 'refunded', header: 'Refunded', render: (r) => money(r.refundedMinor, r.currency) },
+    { key: 'net', header: 'Net', render: (r) => <strong>{money(r.netMinor, r.currency)}</strong> },
     { key: 'count', header: 'Payments', render: (r) => r.count },
   ];
 

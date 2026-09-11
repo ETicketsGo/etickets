@@ -47,23 +47,40 @@ function PayoutsInner() {
 
   const generate = useMutation({
     mutationFn: () => api.payouts.generate(activeOrg.id),
-    onSuccess: () => {
-      toast.push('Settlement generated.', 'success');
+    onSuccess: (created) => {
+      toast.push(
+        created.length === 1
+          ? 'Settlement generated.'
+          : `${created.length} settlements generated — one per currency.`,
+        'success',
+      );
       qc.invalidateQueries({ queryKey: ['payouts', activeOrg.id] });
       setConfirmOpen(false);
     },
-    onError: (e) => toast.push(errorMessage(e), 'error'),
+    onError: (e) => {
+      toast.push(errorMessage(e), 'error');
+      setConfirmOpen(false);
+    },
   });
 
+  /*
+    Each payout in its own currency. They were all printed as rupees, and generated as rupees
+    too, whatever the tickets had been sold in.
+  */
   const columns: Column<Payout>[] = [
     { key: 'created', header: 'Created', render: (p) => dateOnly(p.createdAt) },
-    { key: 'gross', header: 'Gross', render: (p) => money(p.grossMinor) },
-    { key: 'fees', header: 'Fees', render: (p) => money(p.bookingFeeMinor + p.paymentFeeMinor) },
-    { key: 'refunds', header: 'Refunds', render: (p) => money(p.refundMinor) },
+    { key: 'currency', header: 'Currency', render: (p) => p.currency },
+    { key: 'gross', header: 'Gross', render: (p) => money(p.grossMinor, p.currency) },
+    {
+      key: 'fees',
+      header: 'Fees',
+      render: (p) => money(p.bookingFeeMinor + p.paymentFeeMinor, p.currency),
+    },
+    { key: 'refunds', header: 'Refunds', render: (p) => money(p.refundMinor, p.currency) },
     {
       key: 'net',
       header: 'Net',
-      render: (p) => <span className="font-semibold">{money(p.netMinor)}</span>,
+      render: (p) => <span className="font-semibold">{money(p.netMinor, p.currency)}</span>,
     },
     { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} /> },
     { key: 'paid', header: 'Paid', render: (p) => (p.paidAt ? dateOnly(p.paidAt) : '—') },
@@ -120,8 +137,8 @@ function PayoutsInner() {
           </>
         }
       >
-        This creates a new settlement record for {activeOrg.name} covering all unsettled revenue.
-        Continue?
+        This creates settlement records for {activeOrg.name} covering all unsettled revenue — one
+        for each currency you have sold in. Continue?
       </Dialog>
     </div>
   );

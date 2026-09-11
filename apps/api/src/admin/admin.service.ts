@@ -43,6 +43,8 @@ export class AdminService {
         status: b.status,
         buyerEmail: b.buyerEmail,
         totalMinor: b.totalMinor,
+        // An amount without its currency gets formatted as rupees; a USD booking read "₹".
+        currency: b.currency,
         createdAt: b.createdAt,
         event: { title: b.event.title },
         paymentStatus: b.payment?.status ?? null,
@@ -68,6 +70,8 @@ export class AdminService {
         id: p.id,
         status: p.status,
         amountMinor: p.amountMinor,
+        // Money carries its own currency: the page cannot know a Stripe charge was dollars.
+        currency: p.currency,
         provider: p.provider,
         providerRef: p.providerRef,
         createdAt: p.createdAt,

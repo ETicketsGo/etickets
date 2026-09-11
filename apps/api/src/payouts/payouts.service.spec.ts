@@ -6,13 +6,31 @@ import type { RequestUser } from '../common/decorators';
 
 const user = { id: 'u1', roles: [] } as never;
 
-function makeService(overrides: Record<string, unknown> = {}) {
+const paidRow = (currency: string, subtotal: number, organizerFee = 0) => ({
+  currency,
+  _sum: {
+    subtotalMinor: subtotal,
+    bookingFeeMinor: 100,
+    paymentFeeMinor: 50,
+    organizerFeeMinor: organizerFee,
+  },
+});
+
+function makeService(
+  overrides: Record<string, unknown> = {},
+  paid: object[] = [paidRow('INR', 10_000)],
+  refunds: object[] = [],
+) {
+  let created = 0;
   const prisma = {
-    booking: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
-    refund: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
+    booking: { groupBy: jest.fn().mockResolvedValue(paid) },
+    $queryRaw: jest.fn().mockResolvedValue(refunds),
     payout: {
-      findFirst: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue({ id: 'p1', netMinor: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: `p${++created}`,
+        ...data,
+      })),
       findUnique: jest
         .fn()
         .mockResolvedValue({ id: 'p1', status: PayoutStatus.PENDING, organizationId: 'o1' }),
@@ -31,7 +49,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
 describe('PayoutsService (double-payout guards)', () => {
   it('generate refuses when an open payout already exists for the scope', async () => {
     const { service } = makeService({
-      payout: { findFirst: jest.fn().mockResolvedValue({ id: 'open1' }) },
+      payout: { findMany: jest.fn().mockResolvedValue([{ id: 'open1', currency: 'INR' }]) },
     });
     await expect(service.generate(user, 'o1')).rejects.toBeInstanceOf(AppException);
   });
@@ -41,7 +59,48 @@ describe('PayoutsService (double-payout guards)', () => {
     await service.generate(user, 'o1');
     expect(prisma.payout.create).toHaveBeenCalled();
   });
+});
 
+/*
+  Reported from QA: the dashboards added rupees, dollars and Canadian dollars into one figure.
+  Payouts did the same at the source — every booking summed, whatever it was sold in, and the
+  payout stored in the default currency. An organizer would have been paid rupees plus dollars
+  as a number of rupees.
+*/
+describe('PayoutsService.generate — one payout per currency', () => {
+  it('settles each currency on its own, in its own currency', async () => {
+    const { service, prisma } = makeService(
+      {},
+      [paidRow('INR', 49_900, 1_000), paidRow('USD', 3_000, 100)],
+      [{ currency: 'USD', amountMinor: BigInt(500) }],
+    );
+    const payouts = await service.generate(user, 'o1');
+    expect(payouts).toHaveLength(2);
+    const byCurrency = Object.fromEntries(
+      prisma.payout.create.mock.calls.map(([{ data }]) => [data.currency, data]),
+    );
+    expect(byCurrency.INR).toMatchObject({ grossMinor: 49_900, refundMinor: 0, netMinor: 48_900 });
+    expect(byCurrency.USD).toMatchObject({ grossMinor: 3_000, refundMinor: 500, netMinor: 2_400 });
+  });
+
+  it('still settles the dollars when the rupees already have an open payout', async () => {
+    const { service, prisma } = makeService(
+      { payout: { findMany: jest.fn().mockResolvedValue([{ id: 'open', currency: 'INR' }]) } },
+      [paidRow('INR', 10_000), paidRow('USD', 2_000)],
+    );
+    const payouts = await service.generate(user, 'o1');
+    expect(payouts.map((p) => p.currency)).toEqual(['USD']);
+    expect(prisma.payout.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates nothing when there is no paid revenue, rather than a zero payout', async () => {
+    const { service, prisma } = makeService({}, [], []);
+    await expect(service.generate(user, 'o1')).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(prisma.payout.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PayoutsService (markPaid)', () => {
   it('markPaid is idempotent: a second finalize is rejected (claim count 0)', async () => {
     const { service } = makeService({
       payout: {

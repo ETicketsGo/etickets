@@ -78,7 +78,9 @@ export default function RefundDetail() {
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Amount</dt>
-              <dd className="font-semibold text-text-primary">{money(refund.amountMinor)}</dd>
+              <dd className="font-semibold text-text-primary">
+                {money(refund.amountMinor, refund.booking?.currency)}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-text-muted">Buyer</dt>
@@ -151,7 +153,7 @@ export default function RefundDetail() {
         }
       >
         <p>
-          This will refund <strong>{money(refund.amountMinor)}</strong> to{' '}
+          This will refund <strong>{money(refund.amountMinor, refund.booking?.currency)}</strong> to{' '}
           {refund.booking?.buyerEmail ?? 'the buyer'}. This action cannot be undone.
         </p>
       </Dialog>

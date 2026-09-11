@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   api,
@@ -25,8 +26,17 @@ export default function AdminDashboard() {
     queryKey: ['admin', 'audit', 1],
     queryFn: () => api.admin.audit({ page: 1, pageSize: 8 }),
   });
+  /*
+    ── ONE MARKET AT A TIME ───────────────────────────────────────────────────────────
+    The money cards summed rupees, dollars and Canadian dollars into one figure and printed it
+    with a rupee sign. They now show one currency, chosen here, the biggest market first. The
+    counts beside them (bookings, organizers, events) are not money and stay platform-wide.
+  */
+  const [currency, setCurrency] = useState<string | null>(null);
 
   const d = dash.data;
+  const markets = d?.money ?? [];
+  const market = markets.find((m) => m.currency === currency) ?? markets[0];
 
   if (dash.isError)
     return (
@@ -40,6 +50,27 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <PageHeader title="Platform overview" description="Marketplace health at a glance." />
 
+      {markets.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Currency">
+          <span className="text-sm text-text-muted">Money shown in</span>
+          {markets.map((m) => (
+            <button
+              key={m.currency}
+              type="button"
+              onClick={() => setCurrency(m.currency)}
+              aria-pressed={m.currency === market?.currency}
+              className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                m.currency === market?.currency
+                  ? 'border-action-primary bg-tint-primary text-action-primary'
+                  : 'border-border text-text-secondary hover:bg-background-subtle'
+              }`}
+            >
+              {m.currency}
+            </button>
+          ))}
+        </div>
+      )}
+
       {dash.isLoading || !d ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -48,13 +79,28 @@ export default function AdminDashboard() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Gross merchandise value" value={money(d.gmvMinor)} tone="success" />
-          <MetricCard label="Platform revenue" value={money(d.platformRevenueMinor)} tone="info" />
-          <MetricCard label="Total bookings" value={d.totalBookings} />
+          <MetricCard
+            label="Gross merchandise value"
+            value={market ? money(market.gmvMinor, market.currency) : '—'}
+            hint={
+              market
+                ? `${market.paidBookings} paid booking${market.paidBookings === 1 ? '' : 's'} in ${market.currency}`
+                : 'No paid bookings yet'
+            }
+            tone="success"
+          />
+          <MetricCard
+            label="Platform revenue"
+            value={market ? money(market.platformRevenueMinor, market.currency) : '—'}
+            hint={market ? `Booking and payment fees, ${market.currency}` : undefined}
+            tone="info"
+          />
+          <MetricCard label="Total bookings" value={d.totalBookings} hint="All currencies" />
           <MetricCard
             label="Refund volume"
-            value={money(d.refundVolumeMinor)}
-            tone={d.refundVolumeMinor > 0 ? 'warning' : 'neutral'}
+            value={market ? money(market.refundVolumeMinor, market.currency) : '—'}
+            hint={market ? `Completed refunds, ${market.currency}` : undefined}
+            tone={market && market.refundVolumeMinor > 0 ? 'warning' : 'neutral'}
           />
           <MetricCard label="Active organizers" value={d.activeOrganizers} />
           <MetricCard label="Published events" value={d.publishedEvents} />

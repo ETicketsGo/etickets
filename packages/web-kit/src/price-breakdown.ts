@@ -102,10 +102,22 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     All-in when the API supplies it, and the two fee components added together when it does
     not — an older API is still correct, just without the fee's tax folded in.
   */
+  /*
+    ── WHEN THE ALL-IN FIGURE IS MISSING ────────────────────────────────────────────
+    A booking read back from the API carried only the fee before tax, so its breakdown had no
+    GST on the fees: Review & pay showed ₹499 + ₹10.18 + ₹10 under a total of ₹522.82. The tax
+    lines levied on the fees are on the booking, so the all-in figure is rebuilt from them —
+    the same arithmetic the quote does — rather than letting the rows fall short of the total.
+  */
+  const feeTaxLines = (quote.taxLines ?? []).filter((t) => t.basis === 'FEES');
+  const addedFeeTaxMinor = feeTaxLines
+    .filter((t) => t.inclusive === false)
+    .reduce((n, t) => n + t.amountMinor, 0);
+  const feeTaxRateBasisPoints =
+    quote.feeTaxRateBasisPoints ?? feeTaxLines.reduce((n, t) => n + t.rateBasisPoints, 0);
   const feesAllInMinor =
     quote.customerFeeInclusiveMinor ??
-    quote.customerFeeMinor ??
-    quote.bookingFeeMinor + quote.paymentFeeMinor;
+    (quote.customerFeeMinor ?? quote.bookingFeeMinor + quote.paymentFeeMinor) + addedFeeTaxMinor;
 
   /*
     ── A STORED LINE THAT CANNOT SAY WHAT IT IS ─────────────────────────────────────
@@ -209,7 +221,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
       rows.push({
         kind: 'feeTax',
         amountMinor: parts.taxMinor,
-        rateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
+        rateBasisPoints: feeTaxRateBasisPoints,
       });
     }
   } else if (feesAllInMinor > 0) {
@@ -220,7 +232,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     rows,
     includedTax: mergeByRate(ticketTax.filter((tax) => tax.inclusive === true)),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
-    platformFeeRateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
+    platformFeeRateBasisPoints: feeTaxRateBasisPoints,
     platformFee: {
       totalMinor: feesAllInMinor,
       bookingFeeMinor: parts?.bookingFeeMinor ?? quote.bookingFeeMinor,

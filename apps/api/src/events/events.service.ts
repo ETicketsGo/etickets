@@ -331,6 +331,8 @@ export class EventsService {
       where: { id: event.id },
       include: {
         venue: true,
+        // So the console can say up front whether the event can still be deleted.
+        _count: { select: { bookings: true } },
         // Ids and hashes, to name each image's URL. The bytes are only ever read by the image route.
         images: {
           select: { id: true, sha256: true, contentType: true, sizeBytes: true },
@@ -400,6 +402,8 @@ export class EventsService {
         buyerName: b.buyerName,
         buyerEmail: b.buyerEmail,
         totalMinor: b.totalMinor,
+        // The booking's own currency, so the console never has to guess it from the venue.
+        currency: b.currency,
         createdAt: b.createdAt,
         ticketCount: b._count.tickets,
         paymentStatus: b.payment?.status ?? null,
@@ -988,6 +992,80 @@ export class EventsService {
     });
 
     return updated;
+  }
+
+  /**
+   * Deletes an event nobody has bought into.
+   *
+   * ── WHEN IT IS ALLOWED ─────────────────────────────────────────────────────────────
+   * Requested by the owner: an organizer who created an event by mistake, or no longer wants
+   * it, can delete it — as long as no tickets were sold. The rule is stricter than "sold": ANY
+   * booking, even an expired hold or a cancelled one, is a record of somebody's attempt to
+   * buy, and the database refuses to orphan it. Settlements and payouts are financial records
+   * and block it too. What can be deleted takes its sessions, ticket types, inventory, seats,
+   * images, reviews and add-ons with it.
+   *
+   * An event that cannot be deleted can still be paused, which stops sales.
+   */
+  async remove(user: RequestUser, id: string) {
+    const event = await this.loadOwnedEvent(user, id);
+    const refusal = await this.deletionBlocker(id, this.prisma);
+    if (refusal) {
+      throw new AppException(ErrorCodes.CONFLICT, refusal, HttpStatus.CONFLICT);
+    }
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Asked again inside the transaction: a booking can land between the check and here.
+        const late = await this.deletionBlocker(id, tx);
+        if (late) throw new AppException(ErrorCodes.CONFLICT, late, HttpStatus.CONFLICT);
+        // Rows that name the event without a foreign key, so nothing is left pointing at it.
+        await tx.checkInManifest.deleteMany({ where: { eventId: id } });
+        await tx.checkInDevice.updateMany({
+          where: { eventId: id },
+          data: { eventId: null, eventSessionId: null },
+        });
+        await tx.event.delete({ where: { id } });
+      });
+    } catch (err) {
+      if (err instanceof AppException) throw err;
+      // P2003: a row the checks did not name still refers to the event. Refuse, do not 500.
+      if ((err as { code?: string }).code === 'P2003') {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This event has records attached to it, so it cannot be deleted. Pause it instead.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw err;
+    }
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: event.organizationId,
+      action: 'EVENT_DELETED',
+      entityType: 'Event',
+      entityId: id,
+      metadata: { title: event.title, status: event.status },
+    });
+    return { ok: true };
+  }
+
+  /** Why this event cannot be deleted, in words for the organizer — or null when it can. */
+  private async deletionBlocker(
+    id: string,
+    db: Pick<Prisma.TransactionClient, 'booking' | 'settlement' | 'payout'>,
+  ): Promise<string | null> {
+    const [bookings, settlements, payouts] = await Promise.all([
+      db.booking.count({ where: { eventId: id } }),
+      db.settlement.count({ where: { eventId: id } }),
+      db.payout.count({ where: { eventId: id } }),
+    ]);
+    if (bookings > 0) {
+      return `This event has ${bookings} booking${bookings === 1 ? '' : 's'}, so it cannot be deleted. Pause it to stop sales instead.`;
+    }
+    if (settlements > 0 || payouts > 0) {
+      return 'This event has settlement records, so it cannot be deleted. Pause it to stop sales instead.';
+    }
+    return null;
   }
 
   async setPaused(user: RequestUser, id: string, paused: boolean) {

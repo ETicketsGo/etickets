@@ -250,7 +250,15 @@ test.describe('accessibility sweep: the organizer console', () => {
       and handing one to `RegExp` turns "Free Talk 1787820625017" into something that matches
       almost anything — which would let this pass against the wrong control.
     */
-    const opener = firstRow.getByRole('button', { name: title.slice(0, 20), exact: false });
+    /*
+      Looked for in the first cell, which is what this asserts. The row's actions carry the
+      title in their names too ("Delete <title>", so a screen reader knows which event), and a
+      whole-row search would find those as well.
+    */
+    const opener = firstRow
+      .locator('td')
+      .first()
+      .getByRole('button', { name: title.slice(0, 20), exact: false });
     await expect(opener, 'the first cell should carry a named control').toBeVisible();
 
     await opener.focus();

@@ -52,6 +52,15 @@
     "taxDetailsHide": "Masquer le détail des taxes",
     "galleryLabel": "Images de l’événement",
     "galleryShow": "Afficher l’image {index} sur {total}",
+    "galleryOpen": "Voir les {total} photos",
+    "galleryOpenOne": "Voir la photo",
+    "galleryPrevious": "Image précédente",
+    "galleryNext": "Image suivante",
+    "galleryClose": "Fermer les photos",
+    "galleryCounter": "{index} / {total}",
+    "galleryImageAlt": "{title} — image {index} sur {total}",
+    "gstIncludedSummary": "Comprend {amount} de TPS",
+    "taxIncludedSummary": "Comprend {amount} de taxes",
     "feeBreakdownNote": "Les frais de réservation nous reviennent. Le traitement du paiement correspond aux frais du réseau de carte ou UPI pour transférer l'argent."
   },
   "seats": {

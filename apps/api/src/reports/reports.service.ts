@@ -20,6 +20,23 @@ export class ReportsService {
     private readonly access: OrgAccessService,
   ) {}
 
+  /**
+   * The currency an event sells in, for its organizer reports.
+   *
+   * Report totals are bare minor units; without a currency the console formatted them as
+   * rupees, so a USD event's sales read "₹". Ticket types are created in the venue's
+   * currency, so the first one names the event's. An event with none has sold nothing, and
+   * its zeros read the same in any currency.
+   */
+  private async eventCurrency(eventId: string): Promise<string> {
+    const first = await this.prisma.ticketType.findFirst({
+      where: { eventSession: { eventId } },
+      orderBy: { createdAt: 'asc' },
+      select: { currency: true },
+    });
+    return first?.currency ?? 'INR';
+  }
+
   /** Organizer report for a single event (section 18). */
   async organizerEventReport(user: RequestUser, eventId: string) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
@@ -88,9 +105,11 @@ export class ReportsService {
     const refunds = refundAgg._sum.amountMinor ?? 0;
     const totalStock = inventory._sum.quantityTotal ?? 0;
     const sold = inventory._sum.quantitySold ?? 0;
+    const currency = await this.eventCurrency(eventId);
 
     return {
       event: { id: event.id, title: event.title, status: event.status },
+      currency,
       grossTicketSalesMinor: gross,
       bookingFeesMinor: bookingFees,
       paymentFeesMinor: paymentFees,
@@ -226,9 +245,11 @@ export class ReportsService {
     }
 
     const typeTotal = (type: string) => byType.get(type)?.grossMinor ?? 0;
+    const currency = await this.eventCurrency(eventId);
 
     return {
       event: { id: event.id, title: event.title },
+      currency,
       addOnRevenueMinor,
       bundleRevenueMinor,
       donationTotalMinor: typeTotal('DONATION'),
@@ -277,39 +298,77 @@ export class ReportsService {
   /** Platform-wide admin dashboard (section 18). */
   async adminDashboard() {
     const [
-      gmvAgg,
-      feeAgg,
+      paidByCurrency,
+      refundsByCurrency,
       totalBookings,
-      refundAgg,
       activeOrganizers,
       publishedEvents,
       paymentFailures,
       upcomingPayouts,
     ] = await Promise.all([
-      this.prisma.booking.aggregate({
+      /*
+        ── MONEY IS PER CURRENCY ──────────────────────────────────────────────────────
+        Reported from QA: the overview showed "Gross merchandise value ₹11,389.60" — rupees,
+        dollars and Canadian dollars added together and printed with a rupee sign. A sum
+        across currencies is not an amount of anything. Every money figure is grouped by the
+        currency the booking was sold in, and the page shows one market at a time.
+      */
+      this.prisma.booking.groupBy({
+        by: ['currency'],
         where: { confirmedAt: { not: null } },
-        _sum: { totalMinor: true },
+        _sum: { totalMinor: true, bookingFeeMinor: true, paymentFeeMinor: true },
+        _count: { _all: true },
       }),
-      this.prisma.booking.aggregate({
-        where: { confirmedAt: { not: null } },
-        _sum: { bookingFeeMinor: true, paymentFeeMinor: true },
-      }),
+      // A refund carries no currency of its own; it is in the currency of the booking it returns.
+      this.prisma.$queryRaw<{ currency: string; amountMinor: bigint | number | null }[]>`
+        SELECT b."currency" AS currency, COALESCE(SUM(r."amountMinor"), 0) AS "amountMinor"
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."status" = 'COMPLETED'
+        GROUP BY b."currency"`,
       this.prisma.booking.count(),
-      this.prisma.refund.aggregate({
-        where: { status: RefundStatus.COMPLETED },
-        _sum: { amountMinor: true },
-      }),
       this.prisma.organization.count({ where: { status: OrganizationStatus.APPROVED } }),
       this.prisma.event.count({ where: { status: EventStatus.PUBLISHED } }),
       this.prisma.payment.count({ where: { status: PaymentStatus.FAILED } }),
       this.prisma.payout.count({ where: { status: { in: ['PENDING', 'SCHEDULED'] } } }),
     ]);
 
+    const refunds = new Map(
+      refundsByCurrency.map((row) => [row.currency.toUpperCase(), Number(row.amountMinor ?? 0)]),
+    );
+    const currencies = new Set([
+      ...paidByCurrency.map((row) => row.currency.toUpperCase()),
+      ...refunds.keys(),
+    ]);
+    const money = [...currencies]
+      .map((currency) => {
+        const paid = paidByCurrency.filter((row) => row.currency.toUpperCase() === currency);
+        const sum = (pick: (row: (typeof paidByCurrency)[number]) => number | null | undefined) =>
+          paid.reduce((total, row) => total + (pick(row) ?? 0), 0);
+        return {
+          currency,
+          gmvMinor: sum((row) => row._sum.totalMinor),
+          platformRevenueMinor: sum(
+            (row) => (row._sum.bookingFeeMinor ?? 0) + (row._sum.paymentFeeMinor ?? 0),
+          ),
+          refundVolumeMinor: refunds.get(currency) ?? 0,
+          paidBookings: sum((row) => row._count._all),
+        };
+      })
+      // The biggest market first, so the page opens on the figures that matter most.
+      .sort((a, b) => b.gmvMinor - a.gmvMinor || a.currency.localeCompare(b.currency));
+
     return {
-      gmvMinor: gmvAgg._sum.totalMinor ?? 0,
-      platformRevenueMinor: (feeAgg._sum.bookingFeeMinor ?? 0) + (feeAgg._sum.paymentFeeMinor ?? 0),
+      /** One entry per currency sold in. The only money a screen should show. */
+      money,
+      /**
+       * Sums ACROSS currencies — kept so an older client does not break, and never to be shown:
+       * they add rupees to dollars. Use `money`.
+       */
+      gmvMinor: money.reduce((total, row) => total + row.gmvMinor, 0),
+      platformRevenueMinor: money.reduce((total, row) => total + row.platformRevenueMinor, 0),
       totalBookings,
-      refundVolumeMinor: refundAgg._sum.amountMinor ?? 0,
+      refundVolumeMinor: money.reduce((total, row) => total + row.refundVolumeMinor, 0),
       activeOrganizers,
       publishedEvents,
       paymentFailures,

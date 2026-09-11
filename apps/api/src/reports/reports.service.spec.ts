@@ -32,7 +32,10 @@ function makeService(membership: { status: string; role: string } | null) {
     ticket: { count: jest.fn().mockResolvedValue(0) },
     ticketInventory: { aggregate: jest.fn().mockResolvedValue({ _sum: {} }) },
     bookingItem: { groupBy: jest.fn().mockResolvedValue([]) },
-    ticketType: { findMany: jest.fn().mockResolvedValue([]) },
+    ticketType: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue({ currency: 'USD' }),
+    },
     $queryRaw: jest.fn().mockResolvedValue([]),
   };
   const access = new OrgAccessService(prisma as never);
@@ -54,6 +57,21 @@ describe('ReportsService.organizerEventReport financial-read gating', () => {
     const report = await service.organizerEventReport(asUser(), 'ev-1');
     expect(report).toMatchObject({ event: { id: 'ev-1' } });
     expect(prisma.booking.aggregate).toHaveBeenCalled();
+  });
+
+  it("carries the event's selling currency, so its totals are not formatted as rupees", async () => {
+    const { service } = makeService({ status: 'ACTIVE', role: Role.ORGANIZER_OWNER });
+    await expect(service.organizerEventReport(asUser(), 'ev-1')).resolves.toMatchObject({
+      currency: 'USD',
+    });
+  });
+
+  it('falls back to INR for an event with no ticket types yet', async () => {
+    const { service, prisma } = makeService({ status: 'ACTIVE', role: Role.ORGANIZER_OWNER });
+    prisma.ticketType.findFirst.mockResolvedValueOnce(null);
+    await expect(service.organizerEventReport(asUser(), 'ev-1')).resolves.toMatchObject({
+      currency: 'INR',
+    });
   });
 
   it('allows ORGANIZER_MANAGER', async () => {
