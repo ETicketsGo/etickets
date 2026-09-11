@@ -41,12 +41,24 @@ certified as written:
   `AWAITING_CORRELATION` with a PII-free copy of the event (hash + mask for the destination),
   applied by the worker the moment it records the SID and by a one-minute sweep, and
   dead-lettered after an hour. Nothing waits inside the HTTP request.
-- **Opt-out is explicit.** A STOP (Twilio 21610, MSG91 `unsubscribed`) suppresses as
-  `UNSUBSCRIBED`, whether it arrives as a callback or as a refusal at send time. Because inbound
-  START goes to the provider and not to us, a later send the provider ACCEPTS lifts that
-  opt-out (audited as `provider:twilio`, never deleted); a later STOP re-arms a lifted row.
+- **Opt-out follows Twilio, through Twilio's own keyword webhook.** Twilio Advanced Opt-Out is
+  the authority: it classifies STOP/START/HELP (custom and per-language keywords included),
+  replies to the sender, and blocks or unblocks at the Messaging Service. It exposes no API to
+  read or report that list, so the only provider-supported synchronisation is its report of
+  each keyword — `OptOutType` on the Messaging Service's incoming-message webhook.
+  `POST /api/notifications/webhooks/twilio/inbound` verifies the signature, acts on `OptOutType`
+  only (never the body), stores the sender only as a hash, answers empty TwiML, and records each
+  inbound SID in the ledger so a redelivered STOP cannot undo a later START. STOP →
+  `UNSUBSCRIBED` (re-arming a lifted row); START → lifts only that reason; HELP → nothing.
+  A claimed-but-unapplied keyword is re-applied by the sweep unless a later keyword for the same
+  number was already processed.
+  The earlier design lifted an opt-out only when Twilio later ACCEPTED a send; scheduled sends
+  are refused locally while suppressed, so that could never happen and a START was lost. The
+  acceptance signal is kept as a secondary repair (an OTP Twilio accepts proves the number is not
+  blocked), audited distinctly (`provider:twilio:accepted` vs `provider:twilio:start`).
+  STOP reported as a send-time refusal (21610) or a status callback still suppresses too.
   Scheduled notifications check suppression before sending; phone sign-in does not, and leaves
-  the decision to the provider, which enforces opt-out itself.
+  the decision to Twilio, which enforces opt-out itself.
 - **Routing tables name only known providers**, and `PUBLIC_API_URL` must be an origin.
 
 ## Consequences

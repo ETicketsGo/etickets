@@ -8,12 +8,20 @@ import { AppException, ErrorCodes } from '../../../common/errors';
 import { DeliveryRecorderService } from '../delivery-recorder.service';
 import { SuppressionService } from '../suppression.service';
 import { redactProviderText } from '../../channels/transports/provider-text';
-import { ledgerKey, settleWebhookEvent, type StoredProviderEvent } from './provider-event-ledger';
+import {
+  TWILIO_INBOUND,
+  applyOptOut,
+  ledgerKey,
+  settleWebhookEvent,
+  type StoredOptOutEvent,
+  type StoredProviderEvent,
+} from './provider-event-ledger';
 import {
   parseMetaCloud,
   parseMsg91,
   parseSesEvent,
   parseTwilio,
+  parseTwilioInbound,
   type DeliveryEvent,
 } from './delivery-webhook.parsers';
 import {
@@ -84,6 +92,12 @@ export class DeliveryWebhookService {
       rather than a broken webhook.
     */
     private readonly confirmations?: SnsConfirmationService,
+    /*
+      Required by the inbound opt-out webhook, which writes suppression directly. Optional in
+      the signature only so the suites that build this service by hand for other providers
+      keep working; the module always provides it.
+    */
+    private readonly suppression?: SuppressionService,
   ) {}
 
   /** Twilio SMS status callbacks (form-encoded, HMAC-SHA1 over URL + sorted fields). */
@@ -98,6 +112,70 @@ export class DeliveryWebhookService {
     }
     const event = parseTwilio(input.body);
     return this.ingest('twilio', event ? [event] : [], input.body);
+  }
+
+  /**
+   * Inbound SMS to the Messaging Service -- used for Advanced Opt-Out keywords and nothing else.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * A STOP is recorded locally as UNSUBSCRIBED, and scheduled messages then refuse to text the
+   * number. The only other way this platform learned about a START was Twilio ACCEPTING a later
+   * send -- but the local suppression is exactly what stops that send being attempted. A
+   * customer who texted START could stay suppressed here indefinitely while Twilio would have
+   * delivered to them. Twilio publishes no API to read its opt-out list, so the keyword itself,
+   * as Twilio reports it to this webhook, is the synchronisation.
+   *
+   * ── WHAT IT DOES NOT DO ────────────────────────────────────────────────────────────
+   * It does not reply (Twilio already has, in the sender's language), does not read the message
+   * body, does not store the number, and does not act on anything Twilio did not classify as an
+   * opt-out keyword. It is not a conversation endpoint.
+   *
+   * Recorded in the same ledger as delivery callbacks, keyed on the inbound message SID, so a
+   * redelivered STOP cannot re-suppress somebody who has since texted START.
+   */
+  async twilioInbound(input: {
+    url: string;
+    body: Record<string, unknown>;
+    signature: string;
+  }): Promise<{ applied: boolean; duplicate: boolean }> {
+    const token = this.config.get<string>('TWILIO_AUTH_TOKEN');
+    if (!token || !verifyTwilioSignature(token, input.url, input.body, input.signature)) {
+      this.reject(TWILIO_INBOUND);
+    }
+    const event = parseTwilioInbound(input.body);
+    if (!event) {
+      // An ordinary reply, or Advanced Opt-Out is off. Acknowledged; nothing is kept.
+      this.metrics.recordNotificationWebhook(TWILIO_INBOUND, 'no_actionable_event');
+      return { applied: false, duplicate: false };
+    }
+    if (!this.suppression) {
+      throw new Error('Inbound opt-out webhook requires SuppressionService');
+    }
+
+    const stored: StoredOptOutEvent = {
+      kind: 'opt_out',
+      optOutType: event.optOutType,
+      destinationRef: SuppressionService.reference(event.from, ['sms']),
+    };
+    const claimedId = await this.claimRow(
+      ledgerKey(TWILIO_INBOUND),
+      event.messageSid,
+      event.optOutType,
+      stored,
+      input.body,
+    );
+    if (!claimedId) {
+      this.metrics.recordNotificationWebhook(TWILIO_INBOUND, 'duplicate');
+      return { applied: false, duplicate: true };
+    }
+
+    const outcome = await applyOptOut(this.suppression, stored);
+    await settleWebhookEvent(this.prisma, claimedId, outcome).catch(() => undefined);
+    this.metrics.recordNotificationWebhook(
+      TWILIO_INBOUND,
+      outcome === 'applied' ? `opt_out_${event.optOutType.toLowerCase()}` : 'no_change',
+    );
+    return { applied: outcome === 'applied', duplicate: false };
   }
 
   /** Meta WhatsApp Cloud status callbacks (HMAC-SHA256 over the RAW body). */
@@ -325,16 +403,33 @@ export class DeliveryWebhookService {
         : null,
       occurredAt: event.occurredAt ? event.occurredAt.toISOString() : null,
     };
+    return this.claimRow(
+      key,
+      event.eventId,
+      event.providerStatus ?? event.state,
+      stored,
+      rawPayload,
+    );
+  }
+
+  /** Write one ledger row, or return null when its (provider, eventId) already exists. */
+  private async claimRow(
+    key: string,
+    providerEventId: string,
+    eventType: string,
+    stored: object,
+    rawPayload: unknown,
+  ): Promise<string | null> {
     const created = await this.prisma.webhookEvent.createMany({
       data: [
         {
           provider: key,
-          providerEventId: event.eventId,
-          eventType: event.providerStatus ?? event.state,
+          providerEventId,
+          eventType,
           payloadHash: createHash('sha256')
             .update(JSON.stringify(rawPayload ?? {}))
             .digest('hex'),
-          payload: stored as object,
+          payload: stored,
           processingStatus: WebhookProcessingStatus.RECEIVED,
         },
       ],
@@ -342,7 +437,7 @@ export class DeliveryWebhookService {
     });
     if (created.count !== 1) return null;
     const row = await this.prisma.webhookEvent.findUnique({
-      where: { provider_providerEventId: { provider: key, providerEventId: event.eventId } },
+      where: { provider_providerEventId: { provider: key, providerEventId } },
       select: { id: true },
     });
     return row?.id ?? null;

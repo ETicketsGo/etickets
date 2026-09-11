@@ -250,7 +250,7 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
       });
       expect(await suppression.isSuppressed('sms', PHONE)).toBe(true);
 
-      expect(await suppression.liftProviderOptOut('sms', PHONE, 'twilio')).toBe(true);
+      expect(await suppression.liftProviderOptOut('sms', PHONE, 'twilio', 'accepted')).toBe(true);
       expect(await suppression.isSuppressed('sms', PHONE)).toBe(false);
       const lifted = await db!.suppressedDestination.findUnique({
         where: {
@@ -262,7 +262,7 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
       });
       // Audited, never deleted.
       expect(lifted).toMatchObject({
-        liftedBy: 'provider:twilio',
+        liftedBy: 'provider:twilio:accepted',
         reason: SuppressionReason.UNSUBSCRIBED,
       });
 
@@ -281,7 +281,7 @@ describe('integration-real-postgres: callback ledger, SES regression and opt-out
         where: { channel_destinationHash: { channel: 'sms', destinationHash: hash } },
         data: { reason: SuppressionReason.BLOCKED_BY_PROVIDER },
       });
-      expect(await suppression.liftProviderOptOut('sms', PHONE, 'twilio')).toBe(false);
+      expect(await suppression.liftProviderOptOut('sms', PHONE, 'twilio', 'accepted')).toBe(false);
       expect(await suppression.isSuppressed('sms', PHONE)).toBe(true);
     });
 

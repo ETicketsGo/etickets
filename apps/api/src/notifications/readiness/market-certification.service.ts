@@ -308,7 +308,7 @@ export class MarketCertificationService {
       case 'ses':
         return 'Create an SES configuration set with an SNS event destination for Delivery/Bounce/Complaint/Reject, subscribe the endpoint, and confirm the subscription in the AWS console.';
       case 'twilio':
-        return 'Set the Delivery Status Callback on the Twilio Messaging Service named by TWILIO_MESSAGING_SERVICE_SID to PUBLIC_API_URL + /api/notifications/webhooks/twilio, exactly as the readiness report prints it.';
+        return 'On the Twilio Messaging Service named by TWILIO_MESSAGING_SERVICE_SID: set the Delivery Status Callback to PUBLIC_API_URL + /api/notifications/webhooks/twilio, set the incoming-message webhook to PUBLIC_API_URL + /api/notifications/webhooks/twilio/inbound, and enable Advanced Opt-Out — exactly as the readiness report prints them.';
       case 'msg91':
         return `Register the MSG91 delivery-report URL (including MSG91_WEBHOOK_SECRET) for ${channel}.`;
       case 'cloud':

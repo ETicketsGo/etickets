@@ -93,15 +93,17 @@ export class SmsChannel implements NotificationChannel {
     try {
       const outcome = await routed.transport.send(addressed);
       /*
-        ── AN ACCEPTED SEND IS NEWS ABOUT AN OPT-OUT ──────────────────────────────────
-        A recipient who replied STOP and later START tells the PROVIDER, never us. A
-        provider that enforces opt-out would have refused this send if they were still opted
-        out, so its acceptance lifts the opt-out we recorded -- and only that reason: a dead
-        number or a carrier block is not something a successful send disproves.
+        ── AN ACCEPTED SEND IS SECONDARY NEWS ABOUT AN OPT-OUT ────────────────────────
+        START reaches us through the provider's inbound keyword webhook, which is the primary
+        way an opt-out is lifted (scheduled sends are refused while a number is suppressed, so
+        they can never produce this signal). This is the repair path for a keyword webhook
+        that was missed: a provider that enforces opt-out would have refused this send had the
+        recipient still been opted out -- typically a sign-in code, which is not gated locally.
+        Only the opt-out reason; a dead number or a carrier block is not disproved by a send.
       */
       if (!outcome.skipped && routed.transport.enforcesOptOut) {
         await this.suppression
-          ?.liftProviderOptOut('sms', destination, routed.provider)
+          ?.liftProviderOptOut('sms', destination, routed.provider, 'accepted')
           .catch(() => undefined);
       }
       return outcome;

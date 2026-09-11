@@ -181,30 +181,45 @@ export class SuppressionService {
   }
 
   /**
-   * Lift an opt-out because the provider has just carried a message to that destination.
+   * Lift an opt-out because the provider says the recipient is opted in again.
    *
-   * Only for a provider that itself refuses opted-out numbers; see `SmsTransport.enforcesOptOut`.
-   * Only the UNSUBSCRIBED reason: a delivered message says the person opted back in, and says
-   * nothing about a hard bounce or a carrier block. Audited through `liftedBy`, never deleted.
+   * Two kinds of evidence, recorded distinctly in `liftedBy`:
+   *   - `start`    the recipient texted START and the provider reported it (the primary path);
+   *   - `accepted` a provider that itself refuses opted-out numbers just accepted a message to
+   *                this one, which it would not have done had they still been opted out.
+   *
+   * Only the UNSUBSCRIBED reason: opting back in says nothing about a hard bounce or a carrier
+   * block. Never deleted, so the history of why the number was blocked survives.
    */
   async liftProviderOptOut(
     channel: string,
-    destination: string,
+    destination: string | DestinationRef,
     provider: string,
+    evidence: 'start' | 'accepted',
   ): Promise<boolean> {
+    const destinationHash =
+      typeof destination === 'string'
+        ? SuppressionService.hash(channel, destination)
+        : destination.hashes[channel];
+    if (!destinationHash) return false;
     const res = await this.prisma.suppressedDestination.updateMany({
       where: {
         channel,
-        destinationHash: SuppressionService.hash(channel, destination),
+        destinationHash,
         reason: SuppressionReason.UNSUBSCRIBED,
         liftedAt: null,
       },
-      data: { liftedAt: new Date(), liftedBy: `provider:${provider}` },
+      data: { liftedAt: new Date(), liftedBy: `provider:${provider}:${evidence}` },
     });
     if (res.count > 0) {
+      const mask =
+        typeof destination === 'string'
+          ? SuppressionService.mask(channel, destination)
+          : destination.mask;
       this.logger.log(
-        `[${channel}] opt-out lifted for ${SuppressionService.mask(channel, destination)}: ` +
-          `${provider} accepted a message, so the recipient has opted back in`,
+        `[${channel}] opt-out lifted for ${mask} (${provider}: ${
+          evidence === 'start' ? 'recipient texted START' : 'provider accepted a message'
+        })`,
       );
     }
     return res.count > 0;

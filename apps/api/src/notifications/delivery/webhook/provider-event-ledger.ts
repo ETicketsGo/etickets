@@ -1,10 +1,10 @@
 import {
+  SuppressionReason,
   WebhookProcessingStatus,
   type DeliveryState,
-  type SuppressionReason,
 } from '@eticketsgo/shared-types';
 import type { PrismaService } from '../../../prisma/prisma.service';
-import type { DestinationRef } from '../suppression.service';
+import type { DestinationRef, SuppressionService } from '../suppression.service';
 
 /**
  * The ledger of verified delivery callbacks, and the one way a row in it is settled.
@@ -48,6 +48,52 @@ export interface StoredProviderEvent {
   suppressionReason?: SuppressionReason | null;
   destinationRef?: DestinationRef | null;
   occurredAt?: string | null;
+}
+
+/** The ledger name for Twilio inbound opt-out keywords, kept apart from status callbacks. */
+export const TWILIO_INBOUND = 'twilio-inbound';
+
+/**
+ * An opt-out keyword, as the ledger keeps it: what Twilio decided, and the sender as a hash.
+ * Never the number and never what they wrote.
+ */
+export interface StoredOptOutEvent {
+  kind: 'opt_out';
+  optOutType: 'STOP' | 'START' | 'HELP';
+  destinationRef: DestinationRef;
+}
+
+export function isStoredOptOut(payload: unknown): payload is StoredOptOutEvent {
+  return (payload as { kind?: unknown } | null)?.kind === 'opt_out';
+}
+
+/**
+ * Make local suppression agree with what Twilio just enforced.
+ *
+ * STOP suppresses the number as UNSUBSCRIBED -- and re-arms a lifted row, so a second STOP is
+ * never lost. START lifts ONLY that reason: a hard failure or a carrier block is not something
+ * a customer can undo by texting a keyword. HELP changes nothing; Twilio has already answered.
+ */
+export async function applyOptOut(
+  suppression: Pick<SuppressionService, 'suppress' | 'liftProviderOptOut'>,
+  event: StoredOptOutEvent,
+): Promise<'applied' | 'ignored'> {
+  switch (event.optOutType) {
+    case 'STOP':
+      await suppression.suppress({
+        channel: 'sms',
+        destinationRef: event.destinationRef,
+        reason: SuppressionReason.UNSUBSCRIBED,
+        provider: 'twilio',
+      });
+      return 'applied';
+    case 'START':
+      return (await suppression.liftProviderOptOut('sms', event.destinationRef, 'twilio', 'start'))
+        ? 'applied'
+        : 'ignored';
+    default:
+      return 'ignored';
+  }
 }
 
 export type SettleOutcome = 'applied' | 'ignored' | 'unknown' | 'expired';

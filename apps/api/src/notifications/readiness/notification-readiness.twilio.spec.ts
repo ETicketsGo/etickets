@@ -65,8 +65,13 @@ describe('readiness for Twilio SMS', () => {
       'delivery-callbacks',
     );
     expect(callbacks.detail).toContain(
-      'https://api-qa.eticketsgo.com/api/notifications/webhooks/twilio',
+      'https://api-qa.eticketsgo.com/api/notifications/webhooks/twilio,',
     );
+    // And the inbound keyword webhook, without which opt-out state cannot follow Twilio.
+    expect(callbacks.detail).toContain(
+      'https://api-qa.eticketsgo.com/api/notifications/webhooks/twilio/inbound',
+    );
+    expect(callbacks.detail).toMatch(/Advanced Opt-Out/);
   });
 });
 

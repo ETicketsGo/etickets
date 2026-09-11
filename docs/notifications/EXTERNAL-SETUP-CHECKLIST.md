@@ -102,8 +102,11 @@ approval, how many variables each needs, and whether a rate exists.
       prints (`<PUBLIC_API_URL>/api/notifications/webhooks/twilio`)
 - [ ] `PUBLIC_API_URL` (api only) matches that URL **byte for byte** — Twilio signs the URL,
       and a mismatch fails every callback in a way indistinguishable from an attack
+- [ ] Messaging Service **Incoming Messages** webhook set to
+      `<PUBLIC_API_URL>/api/notifications/webhooks/twilio/inbound` (POST)
+- [ ] **Advanced Opt-Out enabled** on the Messaging Service — without it Twilio still blocks
+      STOPped numbers but never reports `OptOutType`, so local opt-out state cannot follow
 - [ ] Geographic permissions: US and CA only
-- [ ] Advanced Opt-Out left on
 - [ ] Twilio rate configured
 
 ### Meta WhatsApp Cloud

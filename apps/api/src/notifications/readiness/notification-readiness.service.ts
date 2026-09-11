@@ -397,10 +397,14 @@ export class NotificationReadinessService {
       with a signature, not with the URL -- and getting it byte-for-byte right is the whole
       difficulty, so it is computed from the same values the controller uses to verify.
     */
-    const twilioCallback = this.twilioCallbackUrl();
+    const twilioCallback = this.twilioWebhookUrl('twilio');
+    const twilioInbound = this.twilioWebhookUrl('twilio/inbound');
     const where =
-      this.providerFor('sms', market) === 'twilio' && twilioCallback
-        ? `Twilio: set the Messaging Service Delivery Status Callback to ${twilioCallback}. `
+      this.providerFor('sms', market) === 'twilio' && twilioCallback && twilioInbound
+        ? `Twilio: on the Messaging Service set the Delivery Status Callback to ` +
+          `${twilioCallback}, set Incoming Messages to send a webhook to ${twilioInbound}, and ` +
+          `enable Advanced Opt-Out — without it STOP/START never reach this platform and ` +
+          `opt-out state cannot follow Twilio. `
         : '';
     /*
       Whether the provider is actually POSTING to us is a fact about their dashboard, which
@@ -411,15 +415,15 @@ export class NotificationReadinessService {
     return check;
   }
 
-  /** `${PUBLIC_API_URL}/${prefix}/notifications/webhooks/twilio`, or null when unset. */
-  private twilioCallbackUrl(): string | null {
+  /** `${PUBLIC_API_URL}/${prefix}/notifications/webhooks/${route}`, or null when unset. */
+  private twilioWebhookUrl(route: string): string | null {
     const base = (this.config.get<string>('PUBLIC_API_URL') ?? '').trim().replace(/\/+$/, '');
     if (!base) return null;
     const prefix = (this.config.get<string>('API_GLOBAL_PREFIX') ?? 'api').replace(
       /^\/+|\/+$/g,
       '',
     );
-    return `${base}${prefix ? `/${prefix}` : ''}/notifications/webhooks/twilio`;
+    return `${base}${prefix ? `/${prefix}` : ''}/notifications/webhooks/${route}`;
   }
 
   private async awaitingCorrelation(): Promise<number | null> {

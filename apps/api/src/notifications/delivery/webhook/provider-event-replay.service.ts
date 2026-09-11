@@ -3,11 +3,16 @@ import { WebhookProcessingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { DeliveryRecorderService } from '../delivery-recorder.service';
+import { SuppressionService } from '../suppression.service';
 import {
   CORRELATION_WINDOW_MS,
   LEDGER_PREFIX,
+  TWILIO_INBOUND,
+  applyOptOut,
+  isStoredOptOut,
   ledgerKey,
   settleWebhookEvent,
+  type StoredOptOutEvent,
   type StoredProviderEvent,
 } from './provider-event-ledger';
 
@@ -68,6 +73,8 @@ export class ProviderEventReplayService {
     private readonly prisma: PrismaService,
     private readonly recorder: DeliveryRecorderService,
     private readonly metrics?: MetricsService,
+    /* Needed to re-apply an opt-out keyword a crashed process claimed but never applied. */
+    private readonly suppression?: SuppressionService,
   ) {}
 
   /** Apply what arrived early for one message, now that its SID is recorded. */
@@ -142,6 +149,8 @@ export class ProviderEventReplayService {
     });
     if (claim.count !== 1) return 'skipped';
 
+    if (isStoredOptOut(row.payload)) return this.replayOptOut(row, row.payload);
+
     if (!event?.providerMessageId || !event.state) {
       // A row nobody can apply. Dead-lettered rather than retried forever.
       await settleWebhookEvent(this.prisma, row.id, 'expired');
@@ -182,6 +191,48 @@ export class ProviderEventReplayService {
       );
       return 'unknown';
     }
+  }
+
+  /**
+   * An opt-out keyword that was claimed and never applied -- the process died in between.
+   *
+   * ── WHY IT CHECKS FOR A NEWER KEYWORD FIRST ────────────────────────────────────────
+   * Keywords are only meaningful in order. If this stale row is a STOP and the same number has
+   * since texted START (which was applied), re-applying the STOP now would suppress somebody
+   * who opted back in -- the exact sticky state this webhook exists to prevent. So a keyword is
+   * re-applied only when no later keyword for that number has already been processed.
+   *
+   * Never dead-lettered: a STOP is a legal instruction and has no expiry.
+   */
+  private async replayOptOut(
+    row: LedgerRow,
+    event: StoredOptOutEvent,
+  ): Promise<'applied' | 'ignored' | 'unknown'> {
+    if (!this.suppression) {
+      await this.prisma.webhookEvent
+        .update({
+          where: { id: row.id },
+          data: { processingStatus: row.processingStatus as never },
+        })
+        .catch(() => undefined);
+      return 'unknown';
+    }
+    const hash = event.destinationRef?.hashes?.sms;
+    const newer = hash
+      ? await this.prisma.webhookEvent.findFirst({
+          where: {
+            provider: ledgerKey(TWILIO_INBOUND),
+            processingStatus: WebhookProcessingStatus.PROCESSED,
+            createdAt: { gt: row.createdAt },
+            payload: { path: ['destinationRef', 'hashes', 'sms'], equals: hash },
+          },
+          select: { id: true },
+        })
+      : null;
+    const outcome = newer ? 'ignored' : await applyOptOut(this.suppression, event);
+    await settleWebhookEvent(this.prisma, row.id, outcome);
+    if (outcome === 'applied') this.metrics?.recordNotificationWebhook(TWILIO_INBOUND, 'replayed');
+    return outcome;
   }
 }
 

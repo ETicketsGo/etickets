@@ -142,9 +142,14 @@ MSG91_WHATSAPP_LANGUAGE=en
 3. On the Messaging Service, set **Delivery Status Callback** to
    `<PUBLIC_API_URL>/api/notifications/webhooks/twilio`. The readiness report prints the exact
    URL.
-4. **Geographic Permissions**: US and CA only.
-5. Keep Twilio's **Advanced Opt-Out** on. A STOP is recorded here as `UNSUBSCRIBED`, and a
-   later accepted send (after START) lifts it.
+4. On the Messaging Service **Integration → Incoming Messages**, choose _Send a webhook_ with
+   Request URL `<PUBLIC_API_URL>/api/notifications/webhooks/twilio/inbound` (HTTP POST).
+5. Enable **Advanced Opt-Out** on the Messaging Service. It is what makes Twilio report a
+   keyword as `OptOutType=STOP|START|HELP`; the endpoint acts on that and nothing else, never
+   reads the message body, and never replies (Twilio already has). STOP records the number as
+   `UNSUBSCRIBED`; START lifts only that reason; HELP changes nothing. Twilio exposes no API to
+   read its opt-out list, so this webhook is the synchronisation.
+6. **Geographic Permissions**: US and CA only.
 
 ```bash
 # api AND worker

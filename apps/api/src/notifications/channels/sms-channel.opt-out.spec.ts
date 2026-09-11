@@ -72,12 +72,13 @@ describe('the SMS channel and opt-outs', () => {
   });
 
   it('lifts a recorded opt-out when a provider that enforces opt-out accepts a message', async () => {
+    // The secondary repair path; the START keyword webhook is the primary one.
     const { channel, suppression } = build({
       enforcesOptOut: true,
       send: jest.fn().mockResolvedValue({ provider: 'twilio', providerMessageId: 'SM1' }),
     });
     await channel.deliver(msg());
-    expect(suppression.liftProviderOptOut).toHaveBeenCalledWith('sms', PHONE, 'twilio');
+    expect(suppression.liftProviderOptOut).toHaveBeenCalledWith('sms', PHONE, 'twilio', 'accepted');
   });
 
   it('does not lift anything on a transport that cannot know about opt-outs', async () => {

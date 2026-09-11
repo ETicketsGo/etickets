@@ -88,6 +88,41 @@ export function parseTwilio(body: Record<string, unknown>): DeliveryEvent | null
   };
 }
 
+/** Twilio Advanced Opt-Out's three classifications of an inbound message. */
+export type OptOutKeyword = 'STOP' | 'START' | 'HELP';
+
+/** An inbound message Twilio classified as an opt-out keyword. */
+export interface InboundOptOutEvent {
+  /** The inbound message's own SID. One inbound message is one event. */
+  messageSid: string;
+  optOutType: OptOutKeyword;
+  /** Who sent the keyword. Reduced to a hash before anything is stored or acted on. */
+  from: string;
+}
+
+/**
+ * An inbound SMS to the Messaging Service, reduced to the one fact this platform acts on.
+ *
+ * ── WHY ONLY `OptOutType`, AND NEVER THE BODY ──────────────────────────────────────
+ * With Advanced Opt-Out enabled, Twilio classifies the message itself -- against its default
+ * keywords, the account's custom keywords, and their per-language variants -- replies to the
+ * sender, and blocks or unblocks the number at the Messaging Service. It then tells the webhook
+ * what it decided in `OptOutType`: STOP, START or HELP.
+ *
+ * Twilio is the authority on that decision, because Twilio is what enforces it. Matching the
+ * body here would be a second keyword list that disagrees with Twilio's the first time a
+ * keyword is customised, and it would mean reading what a customer wrote to us. A message
+ * without `OptOutType` is not an opt-out as far as Twilio is concerned, so it is not one here.
+ */
+export function parseTwilioInbound(body: Record<string, unknown>): InboundOptOutEvent | null {
+  const messageSid = str(body.MessageSid) ?? str(body.SmsMessageSid) ?? str(body.SmsSid);
+  const from = str(body.From);
+  const type = str(body.OptOutType)?.trim().toUpperCase();
+  if (!messageSid || !from) return null;
+  if (type !== 'STOP' && type !== 'START' && type !== 'HELP') return null;
+  return { messageSid, optOutType: type, from };
+}
+
 /**
  * Meta's WhatsApp Cloud webhook nests statuses under entry[].changes[].value.statuses[].
  * One POST can carry several, for several messages.
