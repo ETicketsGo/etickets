@@ -1,5 +1,22 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { z } from 'zod';
 import { AdminPermission, EventStatus, Role } from '@eticketsgo/shared-types';
 import {
@@ -18,6 +35,8 @@ import {
 } from '@eticketsgo/validation';
 import { EventsService } from './events.service';
 import { PublicEventsService } from './public-events.service';
+import { EventImageService, type UploadedImageFile } from './event-image.service';
+import { EVENT_IMAGE_MAX_BYTES, eventImageVersion } from './event-image';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -28,7 +47,10 @@ const updateEventBody = createEventSchema.partial();
 @ApiBearerAuth()
 @Controller('events')
 export class EventsController {
-  constructor(private readonly events: EventsService) {}
+  constructor(
+    private readonly events: EventsService,
+    private readonly images: EventImageService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create an event (draft).' })
@@ -80,6 +102,29 @@ export class EventsController {
     @Body(new ZodValidationPipe(updateEventBody)) body: z.infer<typeof updateEventBody>,
   ) {
     return this.events.update(user, id, body);
+  }
+
+  /*
+    The event's image: one file, multipart. The size cap is enforced where multer reads the
+    stream, so an oversized upload is refused with 413 before it is buffered in full.
+  */
+  @Put(':id/image')
+  @ApiOperation({ summary: 'Upload or replace the event image (JPG, PNG or WebP, max 2 MB).' })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: EVENT_IMAGE_MAX_BYTES, files: 1 } }),
+  )
+  uploadImage(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: UploadedImageFile,
+  ) {
+    return this.images.put(user, id, file);
+  }
+
+  @Delete(':id/image')
+  @ApiOperation({ summary: 'Remove the event image.' })
+  removeImage(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.images.remove(user, id);
   }
 
   @Post(':id/sessions')
@@ -213,7 +258,10 @@ export class EventsController {
 @ApiTags('public')
 @Controller('public/events')
 export class PublicEventsController {
-  constructor(private readonly publicEvents: PublicEventsService) {}
+  constructor(
+    private readonly publicEvents: PublicEventsService,
+    private readonly images: EventImageService,
+  ) {}
 
   @Public()
   @Get()
@@ -256,6 +304,51 @@ export class PublicEventsController {
   @ApiOperation({ summary: 'Get a published event by slug.' })
   getBySlug(@Param('slug') slug: string) {
     return this.publicEvents.getBySlug(slug);
+  }
+
+  /**
+   * An event's image, for any page that shows the event.
+   *
+   * Not throttled: a browse page asks for one per card, and the global per-IP limit exists for
+   * requests that cost work, not for an immutable image a browser caches after the first load.
+   *
+   * Served with `Cross-Origin-Resource-Policy: cross-origin` because the storefront, console
+   * and app are other origins, and helmet's default `same-origin` would block every `<img>`.
+   * A locked-down CSP and `nosniff` mean the bytes can only ever be rendered as an image.
+   */
+  @Public()
+  @SkipThrottle()
+  @Get(':id/image')
+  @ApiOperation({ summary: 'An event’s image.' })
+  async image(
+    @Param('id') id: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const image = await this.images.read(id);
+    if (!image) {
+      res.status(404).json({ code: 'NOT_FOUND', message: 'This event has no image.' });
+      return;
+    }
+    const current = eventImageVersion(image.sha256);
+    const etag = `"${current}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader(
+      'Cache-Control',
+      version === current ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+    );
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (ifNoneMatch === etag) {
+      res.status(304).end();
+      return;
+    }
+    const bytes = Buffer.from(image.bytes);
+    res.setHeader('Content-Type', image.contentType);
+    res.setHeader('Content-Length', String(bytes.length));
+    res.status(200).end(bytes);
   }
 }
 

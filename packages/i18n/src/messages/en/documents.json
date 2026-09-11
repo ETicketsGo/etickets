@@ -15,15 +15,20 @@
     "amount": "Amount",
     "subtotal": "Subtotal",
     "discount": "Discount",
-    "bookingFee": "Booking fee",
+    "bookingFee": "Platform fee",
+    "fees": "Booking and payment fees",
     "total": "Total",
     "totalRefunded": "Total refunded",
     "reverses": "Reverses {reference}",
     "taxRegistration": "Tax registration",
     "noTaxInvoice": "This is not a tax invoice.",
     "taxIncluded": "Includes {label} @ {rate} on {base}",
+    "taxIncludedInTickets": "Included in ticket price: {label} @ {rate} on {base}",
+    "taxAdded": "{label} @ {rate} on {base}",
+    "taxAddedOnFees": "{label} @ {rate} on fees of {base}",
+    "taxTotal": "Total tax in this order",
     "taxIncludedNote": "Tax shown is already included in the total above.",
-    "paymentFee": "Payment processing"
+    "paymentFee": "Payment processing fee"
   },
   "ticket": {
     "title": "Ticket",

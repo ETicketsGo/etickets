@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { refundTax, ticketPrices } from '../refunds/refund-tax';
 import {
   buildReceiptDocument,
   negateTotals,
@@ -10,6 +11,7 @@ import {
   type ReceiptKindName,
   type ReceiptLine,
   type ReceiptSeller,
+  type ReceiptTaxLine,
   type ReceiptTotals,
 } from './receipt-document';
 
@@ -154,6 +156,8 @@ export class ReceiptsService {
         rateBasisPoints: t.rateBasisPoints,
         baseMinor: t.baseMinor,
         amountMinor: t.amountMinor,
+        basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+        inclusive: t.inclusive ?? null,
       })),
       totals,
       /*
@@ -198,7 +202,7 @@ export class ReceiptsService {
     const refund = await tx.refund.findUnique({
       where: { id: refundId },
       include: {
-        booking: { include: { taxLines: true } },
+        booking: { include: { taxLines: true, items: true } },
         creditNote: { select: { id: true } },
       },
     });
@@ -226,15 +230,42 @@ export class ReceiptsService {
       moved, and no fee moved.
     */
     const taxMinor = refund.taxMinor ?? 0;
+
+    /*
+      Which of that tax was ADDED to the returned tickets and which was already inside them.
+
+      A refund of an Indian ticket returns its GST inside the ₹499, not on top of it, so the
+      credit note's subtotal is the ticket price and the GST is disclosed as included — the
+      same per-line reading the sale receipt uses. Worked out from the tickets the refund
+      names, with the rule the refund itself was priced by.
+
+      A refund that names no tickets predates this and recorded its tax as added; it keeps
+      the arithmetic it was issued with.
+    */
+    const refundedTickets = refund.ticketIds.length
+      ? await tx.ticket.findMany({
+          where: { id: { in: refund.ticketIds } },
+          select: { ticketTypeId: true },
+        })
+      : [];
+    const { priceByType, bookingTicketsMinor } = ticketPrices(booking.items);
+    const ticketsMinor = refundedTickets.reduce(
+      (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
+      0,
+    );
+    const perLine =
+      ticketsMinor > 0 ? refundTax(booking.taxLines, ticketsMinor, bookingTicketsMinor) : null;
+    const addedTaxMinor = perLine ? perLine.addedMinor : taxMinor;
+
     const positive: ReceiptTotals = {
-      subtotalMinor: refund.amountMinor - taxMinor,
+      subtotalMinor: refund.amountMinor - addedTaxMinor,
       discountMinor: 0,
       feeMinor: 0,
       taxMinor,
       totalMinor: refund.amountMinor,
     };
     const totals = negateTotals(positive);
-    /** Share of each original tax line being reversed, for the itemised breakdown. */
+    /** Share of each original tax line being reversed, for a refund that names no tickets. */
     const taxShare = booking.taxMinor > 0 ? taxMinor / booking.taxMinor : 0;
 
     const document = buildReceiptDocument({
@@ -259,12 +290,23 @@ export class ReceiptsService {
           lineTotalMinor: -refund.amountMinor,
         },
       ],
-      taxLines: booking.taxLines.map((t) => ({
-        label: t.label,
-        rateBasisPoints: t.rateBasisPoints,
-        baseMinor: -Math.round(t.baseMinor * taxShare),
-        amountMinor: -Math.round(t.amountMinor * taxShare),
-      })),
+      taxLines: perLine
+        ? perLine.lines.map((t) => ({
+            label: t.label,
+            rateBasisPoints: t.rateBasisPoints,
+            baseMinor: -t.baseMinor,
+            amountMinor: -t.amountMinor,
+            basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+            inclusive: t.inclusive,
+          }))
+        : booking.taxLines.map((t) => ({
+            label: t.label,
+            rateBasisPoints: t.rateBasisPoints,
+            baseMinor: -Math.round(t.baseMinor * taxShare),
+            amountMinor: -Math.round(t.amountMinor * taxShare),
+            basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+            inclusive: t.inclusive ?? null,
+          })),
       totals,
       reverses: sale ? { number: sale.number, issuedAt: sale.issuedAt } : null,
       reason: refund.reason,

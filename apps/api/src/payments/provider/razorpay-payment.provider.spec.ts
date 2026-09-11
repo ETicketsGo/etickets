@@ -90,13 +90,26 @@ describe('RazorpayPaymentProvider', () => {
     const signed = signWebhook({
       event: 'payment.failed',
       payload: {
-        payment: { entity: { id: 'pay_2', amount: 50_000, notes: { bookingId: 'bk_2' } } },
+        payment: {
+          entity: {
+            id: 'pay_2',
+            amount: 50_000,
+            notes: { bookingId: 'bk_2' },
+            error_code: 'BAD_REQUEST_ERROR',
+            error_reason: 'international_transaction_not_allowed',
+          },
+        },
       },
     });
     const event = await makeProvider().verifyWebhook(signed);
     expect(event.type).toBe('payment.failed');
     expect(event.bookingId).toBe('bk_2');
     expect(event.amountMinor).toBe(50_000);
+    // Why, as well as that: the buyer is told the card was international, not "try again".
+    expect(event.failure).toEqual({
+      reason: 'INTERNATIONAL_CARD_NOT_ACCEPTED',
+      providerCode: 'international_transaction_not_allowed',
+    });
   });
 
   it('verifyWebhook rejects an invalid signature', async () => {

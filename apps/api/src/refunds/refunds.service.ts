@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
+import { refundTax, ticketPrices } from './refund-tax';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -105,7 +106,7 @@ export class RefundsService {
     }
     const targetTickets = refundable;
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
-    const priceByType = new Map(items.map((i) => [i.ticketTypeId, i.unitPriceMinor]));
+    const { priceByType, bookingTicketsMinor } = ticketPrices(items);
     const ticketsMinor = targetTickets.reduce(
       (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
       0,
@@ -119,17 +120,15 @@ export class RefundsService {
       supply happened, and undoing the supply undoes the reason for collecting it. Keeping it
       would mean the customer paid tax on a ticket they no longer hold.
 
-      Each rate is re-applied to the amount actually being returned rather than apportioned
-      out of the original total, so the arithmetic on the credit note is reproducible from the
-      rate and the base exactly as it was on the invoice. Nothing here decides WHAT rate
-      applies — that is TaxRule configuration, and with none active this whole block is zero.
+      HOW it goes back depends on how it was charged — inside the ticket price or added to it,
+      on the tickets or on the fees — which is decided per line in `refundTax`. Treating every
+      line as added refunded Indian GST twice and refused the refund as exceeding the balance.
+      Nothing here decides WHAT rate applies — that is TaxRule configuration, and with none
+      active this whole block is zero.
     */
-    const taxMinor = (booking.taxLines ?? []).reduce(
-      (sum, line) =>
-        sum + Math.round((Math.min(ticketsMinor, line.baseMinor) * line.rateBasisPoints) / 10_000),
-      0,
-    );
-    const amountMinor = ticketsMinor + taxMinor;
+    const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor);
+    const taxMinor = tax.taxMinor;
+    const amountMinor = ticketsMinor + tax.addedMinor;
 
     // Never let cumulative refunds exceed what was paid.
     const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);

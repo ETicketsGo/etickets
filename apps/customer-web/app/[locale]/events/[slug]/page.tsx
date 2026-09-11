@@ -13,7 +13,7 @@ import {
   Ticket,
   Share2,
 } from 'lucide-react';
-import { RatingStars, useToast, errorMessage } from '@eticketsgo/web-kit';
+import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
@@ -236,6 +236,7 @@ export default function EventDetailPage() {
       nextSessionAt: event.sessions[0]?.startsAt ?? null,
       fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
       currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+      imagePath: event.imagePath ?? null,
     });
     try {
       const saved = JSON.parse(localStorage.getItem(`etg_sel_${slug}`) ?? 'null') as {
@@ -342,17 +343,47 @@ export default function EventDetailPage() {
       />
     );
 
+  const heroImage = apiAssetUrl(event.imagePath);
+
   return (
     <div className="space-y-8">
       {/* Hero */}
       <div className="relative overflow-hidden rounded-lg border border-border shadow-sm">
-        <div className="flex h-52 items-end bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle p-6 sm:h-64">
+        <div
+          className={`relative flex h-52 items-end p-6 sm:h-64 ${
+            heroImage
+              ? 'bg-background-subtle'
+              : 'bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle'
+          }`}
+        >
+          {/*
+            The organizer's image behind the title, darkened toward the bottom where the text
+            sits so the title reads on any photo. Decorative: the title says what it is.
+          */}
+          {heroImage && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={heroImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/5"
+              />
+            </>
+          )}
           <div className="relative z-10">
             <Badge tone="info">{event.category}</Badge>
-            <h1 className="mt-3 text-h2 font-bold tracking-tight text-text-primary sm:text-h1">
+            <h1
+              className={`mt-3 text-h2 font-bold tracking-tight sm:text-h1 ${
+                heroImage ? 'text-white' : 'text-text-primary'
+              }`}
+            >
               {event.title}
             </h1>
-            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.9375rem] text-text-secondary">
+            <p
+              className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.9375rem] ${
+                heroImage ? 'text-white/90' : 'text-text-secondary'
+              }`}
+            >
               <span className="flex items-center gap-1.5">
                 <MapPin className="h-4 w-4" />
                 {event.venue.name}, {event.venue.city}
@@ -365,7 +396,7 @@ export default function EventDetailPage() {
           </div>
           <button
             onClick={share}
-            className="absolute right-4 top-4 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
+            className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
           >
             <Share2 className="h-3.5 w-3.5" />
             {shared ? 'Copied!' : 'Share'}

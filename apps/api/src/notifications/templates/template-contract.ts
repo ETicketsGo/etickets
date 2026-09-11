@@ -85,9 +85,13 @@ export const TEMPLATE_CONTRACTS: Partial<Record<NotificationType, TemplateContra
     optional: ['eventTitle', 'refundStatus'],
   },
 
+  /*
+    What did not get paid for, and how much. NOT the reference: a booking only gets one when it
+    is paid, so requiring it declared a variable this message can never have.
+  */
   [NotificationType.PAYMENT_FAILED]: {
-    required: ['reference'],
-    optional: ['reason'],
+    required: ['eventTitle', 'amountMinor', 'currency'],
+    optional: ['startsAt', 'timeZone', 'reason', 'heldUntil'],
   },
 };
 

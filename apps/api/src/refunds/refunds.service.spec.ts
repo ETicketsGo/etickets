@@ -242,12 +242,19 @@ describe('RefundsService.process', () => {
 
 interface RequestOpts {
   /** Tax lines snapshotted on the booking. Empty by default — the shipped state. */
-  taxLines?: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[];
+  taxLines?: {
+    label: string;
+    rateBasisPoints: number;
+    baseMinor: number;
+    amountMinor: number;
+    basis?: string | null;
+    inclusive?: boolean | null;
+  }[];
   bookingTickets: Array<{ id: string; status: string; ticketTypeId: string }>;
   ticketIds?: string[];
   priorRefunds?: Array<{ ticketIds: string[]; amountMinor: number; status: string }>;
   totalMinor?: number;
-  items?: Array<{ ticketTypeId: string; unitPriceMinor: number }>;
+  items?: Array<{ ticketTypeId: string; unitPriceMinor: number; quantity?: number }>;
 }
 
 function setupRequest(opts: RequestOpts) {
@@ -396,6 +403,118 @@ describe('RefundsService.request hardening', () => {
         data: expect.objectContaining({ amountMinor: 5600, taxMinor: 600 }),
       }),
     );
+  });
+
+  /*
+    Reported from QA: "Refund amount exceeds the remaining refundable balance" on a ₹522.82
+    booking for one ₹499 ticket. The GST inside the ticket price was added on top of it, and the
+    GST on the non-refunded fee went back too: ₹499 + ₹76.12 + ₹3.64 = ₹578.76.
+  */
+  describe('Indian GST: inside the ticket price, and on the fees', () => {
+    const qaBooking = (over: Partial<RequestOpts> = {}) =>
+      setupRequest({
+        bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+        totalMinor: 52_282,
+        items: [{ ticketTypeId: 't1', unitPriceMinor: 49_900, quantity: 1 }],
+        taxLines: [
+          {
+            label: 'CGST',
+            rateBasisPoints: 900,
+            baseMinor: 42_288,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          {
+            label: 'SGST',
+            rateBasisPoints: 900,
+            baseMinor: 42_288,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          {
+            label: 'CGST',
+            rateBasisPoints: 900,
+            baseMinor: 2_018,
+            amountMinor: 182,
+            basis: 'FEES',
+            inclusive: false,
+          },
+          {
+            label: 'SGST',
+            rateBasisPoints: 900,
+            baseMinor: 2_018,
+            amountMinor: 182,
+            basis: 'FEES',
+            inclusive: false,
+          },
+        ],
+        ...over,
+      });
+
+    it('refunds the ticket price, with its GST inside it — not ₹578.76, and not refused', async () => {
+      const { service, prisma } = qaBooking();
+      await service.request(ADMIN, { bookingId: 'b1' } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // ₹499 back. The ₹76.12 of ticket GST is recorded as the tax inside it; the fee and
+          // its ₹3.64 of GST stay, as fees always have.
+          data: expect.objectContaining({ amountMinor: 49_900, taxMinor: 7_612 }),
+        }),
+      );
+    });
+
+    it('returns a share of the included GST for a partial refund', async () => {
+      const { service, prisma } = qaBooking({
+        bookingTickets: [
+          { id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+          { id: 'tk2', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+        ],
+        items: [{ ticketTypeId: 't1', unitPriceMinor: 49_900, quantity: 2 }],
+        totalMinor: 104_564,
+        taxLines: [
+          {
+            label: 'CGST',
+            rateBasisPoints: 900,
+            baseMinor: 84_576,
+            amountMinor: 7_612,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+        ],
+      });
+      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amountMinor: 49_900, taxMinor: 3_806 }),
+        }),
+      );
+    });
+
+    it('still ADDS a declared added tax on the tickets — a US-style sales tax', async () => {
+      const { service, prisma } = setupRequest({
+        bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+        totalMinor: 100_000,
+        items: [{ ticketTypeId: 't1', unitPriceMinor: 5_000 }],
+        taxLines: [
+          {
+            label: 'Sales tax',
+            rateBasisPoints: 1_000,
+            baseMinor: 6_000,
+            amountMinor: 600,
+            basis: 'TICKETS',
+            inclusive: false,
+          },
+        ],
+      });
+      await service.request(ADMIN, { bookingId: 'b1' } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amountMinor: 5_500, taxMinor: 500 }),
+        }),
+      );
+    });
   });
 
   it('creates a refund for genuinely refundable tickets', async () => {

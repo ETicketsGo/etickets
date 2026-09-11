@@ -25,6 +25,7 @@ import {
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
+import { EventImagePicker, prepareEventImage } from '@/components/event-image-picker';
 
 const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
 const FEE_MODES = [
@@ -192,6 +193,36 @@ function NewEventWizard() {
   const [restoredAt, setRestoredAt] = useState<number | null>(null);
   /* Set once a draft has been considered, so the first render cannot save over it. */
   const hydrated = useRef(false);
+  /*
+    Set once the event really exists, so nothing can write the draft back.
+
+    Reported: "I created an event yesterday and published it; creating a new event still shows
+    the previous event's review page". The draft WAS cleared after creation — and the save
+    effect below, which runs after every render, wrote it straight back on the next one (the
+    success toast is enough) before the navigation away had finished. The finished event then
+    came back as a draft at the Review step, every time.
+  */
+  const committed = useRef(false);
+
+  /*
+    The image, already resized, held until the event exists to attach it to.
+
+    Deliberately NOT part of the saved draft: the draft is localStorage, a few megabytes for the
+    whole origin, and an image would crowd out the answers it exists to protect. A restored
+    draft says so beside the picker.
+  */
+  const [image, setImage] = useState<Blob | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!image) {
+      setImagePreview(null);
+      return undefined;
+    }
+    const url = URL.createObjectURL(image);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
 
   useEffect(() => {
     const found = readEventDraft<DraftState>(activeOrg.id);
@@ -217,7 +248,8 @@ function NewEventWizard() {
 
   useEffect(() => {
     // Never before the restore has had its turn, or an empty form overwrites a real draft.
-    if (!hydrated.current) return;
+    // Never after the event exists, or a finished event is offered back as a draft.
+    if (!hydrated.current || committed.current) return;
     saveEventDraft(activeOrg.id, draftState);
   });
 
@@ -350,13 +382,31 @@ function NewEventWizard() {
           maxPerOrder: Number(t.maxPerOrder) || 10,
         });
       }
+      /*
+        Attached before submitting, while the event is still a draft and editable — and so the
+        admin reviewing it sees the image the buyers will. A failed upload does not undo an
+        event that now exists; the organizer is told, and can add it from Edit.
+      */
+      let imageFailed: string | null = null;
+      if (image) {
+        try {
+          await api.events.uploadImage(event.id, image);
+        } catch (err) {
+          imageFailed = errorMessage(err);
+        }
+      }
       if (submitForReview) await api.events.submit(event.id);
+      // The event exists; the draft is now a duplicate of something real. Stop saving FIRST —
+      // the toast below re-renders this page, and that render would write the draft back.
+      committed.current = true;
+      clearEventDraft();
       toast.push(
         submitForReview ? 'Event submitted for review.' : 'Draft event created.',
         'success',
       );
-      // The event exists; the draft is now a duplicate of something real.
-      clearEventDraft();
+      if (imageFailed) {
+        toast.push(`The image was not uploaded: ${imageFailed} Add it from Edit event.`, 'error');
+      }
       router.push(`/organizer/events/${event.id}`);
     } catch (err) {
       setError(errorMessage(err));
@@ -449,6 +499,27 @@ function NewEventWizard() {
               rows={4}
               value={basics.description}
               onChange={(e) => setBasics({ ...basics, description: e.target.value })}
+            />
+            <EventImagePicker
+              previewUrl={imagePreview}
+              error={imageError}
+              note={
+                restoredAt !== null && !image
+                  ? 'Images are not kept in a saved draft — choose it again if you had one.'
+                  : null
+              }
+              onPick={(file) => {
+                setImageError(null);
+                prepareEventImage(file)
+                  .then(setImage)
+                  .catch((err: unknown) => {
+                    setImage(null);
+                    setImageError(
+                      err instanceof Error ? err.message : 'That image could not be used.',
+                    );
+                  });
+              }}
+              onClear={() => setImage(null)}
             />
             {/*
               ── THE REFUND RULE, THEN THE PROSE ───────────────────────────────────────
@@ -953,6 +1024,7 @@ function NewEventWizard() {
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
             <Row label="Admission" value={isFree ? 'Free — no payment taken' : 'Paid'} />
+            <Row label="Image" value={image ? 'Added' : 'None'} />
             <Row
               label="Venue"
               value={

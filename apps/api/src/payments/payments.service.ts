@@ -840,14 +840,36 @@ export class PaymentsService {
   }
 
   private async fail(event: PaymentEvent) {
-    const booking = await this.prisma.booking.findUnique({ where: { id: event.bookingId } });
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: event.bookingId },
+      include: {
+        event: { select: { title: true, venue: { select: { timezone: true } } } },
+        eventSession: {
+          select: {
+            startsAt: true,
+            screen: { select: { cinema: { select: { timezone: true } } } },
+          },
+        },
+      },
+    });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
 
-    await this.prisma.payment.update({
-      where: { bookingId: booking.id },
-      data: { status: PaymentStatus.FAILED },
-    });
+    /*
+      A failed attempt on a booking that is ALREADY paid.
+
+      The buyer tried a card that was refused, then paid with net banking; the refusal's
+      webhook can land after the success. Marking the payment FAILED would contradict a
+      confirmed booking, and a "payment failed" notification would tell somebody holding a
+      ticket that they do not have one. The attempt is still recorded; nothing else changes.
+    */
+    const alreadyPaid = booking.status === BookingStatus.CONFIRMED;
+    if (!alreadyPaid) {
+      await this.prisma.payment.update({
+        where: { bookingId: booking.id },
+        data: { status: PaymentStatus.FAILED },
+      });
+    }
     await this.prisma.paymentAttempt.create({
       data: {
         payment: { connect: { bookingId: booking.id } },
@@ -856,12 +878,37 @@ export class PaymentsService {
         rawEvent: event as unknown as object,
       },
     });
-    await this.notifications.send({
-      type: NotificationType.PAYMENT_FAILED,
-      userId: booking.userId,
-      toEmail: booking.buyerEmail,
-      payload: { bookingId: booking.id },
-    });
+    if (!alreadyPaid) {
+      /*
+        What the buyer needs to act, and nothing they do not.
+
+        It said "We could not process the payment for booking cmtwoqn9g000aediehsf66ngg" -- a
+        database id, because a booking has no public reference until it is paid -- with no
+        event, no amount, no reason and no hint of what to do. It now names the event and
+        time, the amount, why it failed, and how long the seats are held.
+
+        One per booking: a buyer retrying at the checkout is already looking at the reason on
+        screen, and a notification per attempt fills their inbox with the same news.
+      */
+      await this.notifications.send({
+        type: NotificationType.PAYMENT_FAILED,
+        userId: booking.userId,
+        toEmail: booking.buyerEmail,
+        intentKey: `payment-failed:${booking.id}`,
+        payload: {
+          bookingId: booking.id,
+          reference: booking.reference ?? '',
+          eventTitle: booking.event?.title ?? '',
+          startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
+          timeZone:
+            booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? '',
+          amountMinor: booking.totalMinor,
+          currency: booking.currency,
+          reason: event.failure?.reason ?? '',
+          heldUntil: booking.holdExpiresAt?.toISOString() ?? '',
+        },
+      });
+    }
     this.metrics.recordPaymentFailed();
     // The inventory hold stays until it expires, allowing the buyer to retry.
     return { status: 'failed', bookingId: booking.id };

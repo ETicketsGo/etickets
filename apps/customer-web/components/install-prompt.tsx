@@ -57,7 +57,7 @@ export function InstallPrompt() {
     <div
       role="dialog"
       aria-label="Install ETicketsGo"
-      className="fixed inset-x-3 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-border bg-background-surface p-3 shadow-lg lg:bottom-4"
+      className="fixed inset-x-3 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-border bg-background-surface p-3 shadow-lg lg:bottom-4 print:hidden"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-tint-primary text-action-primary">
         <Download className="h-5 w-5" />

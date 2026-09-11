@@ -12,6 +12,7 @@ import { EventsService } from './events.service';
 import { EventSellabilityService } from './event-sellability.service';
 import { EventSellabilitySweepService } from './event-sellability-sweep.service';
 import { PublicEventsService } from './public-events.service';
+import { EventImageService } from './event-image.service';
 
 @Module({
   imports: [PricingModule, ShowsModule],
@@ -25,6 +26,7 @@ import { PublicEventsService } from './public-events.service';
   providers: [
     EventsService,
     PublicEventsService,
+    EventImageService,
     EventSellabilityService,
     EventSellabilitySweepService,
   ],

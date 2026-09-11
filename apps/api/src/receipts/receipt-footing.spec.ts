@@ -168,6 +168,100 @@ describe('receipt footing — tax added on top', () => {
   });
 });
 
+describe('receipt footing — GST inside the ticket AND added to the fee (one Indian order)', () => {
+  /*
+    RCT-2026-000001 from QA, exactly. One ₹499 ticket with GST inside its price, a ₹10 booking
+    fee and ₹10.18 payment processing with GST ADDED to them:
+
+        ticket  ₹499.00  = ₹422.88 taxable + ₹38.06 CGST + ₹38.06 SGST   (inside)
+        fees     ₹20.18  + ₹1.82 CGST + ₹1.82 SGST                         (added)
+        total   ₹522.82  = 499 + 20.18 + 3.64
+
+    The receipt decided "inclusive or not" once for the whole document. 499 + 20.18 is not
+    522.82, so it judged the document exclusive and printed all four GST rows above the total:
+    a column adding to ₹598.94 under a total of ₹522.82.
+  */
+  const ticketGst = { rateBasisPoints: 900, baseMinor: 42_288, amountMinor: 3_806 };
+  const feeGst = { rateBasisPoints: 900, baseMinor: 2_018, amountMinor: 182 };
+  const mixed = (declared: boolean) =>
+    doc({
+      number: 'RCT-2026-000001',
+      lines: [{ description: 'Gold', quantity: 1, unitPriceMinor: 49_900, lineTotalMinor: 49_900 }],
+      totals: {
+        subtotalMinor: 49_900,
+        discountMinor: 0,
+        feeMinor: 2_018,
+        taxMinor: 7_976,
+        totalMinor: 52_282,
+      },
+      feeParts: { bookingFeeMinor: 1_000, paymentFeeMinor: 1_018 },
+      taxLines: [
+        { label: 'CGST', ...ticketGst, ...(declared ? { basis: 'TICKETS', inclusive: true } : {}) },
+        { label: 'SGST', ...ticketGst, ...(declared ? { basis: 'TICKETS', inclusive: true } : {}) },
+        { label: 'CGST', ...feeGst, ...(declared ? { basis: 'FEES', inclusive: false } : {}) },
+        { label: 'SGST', ...feeGst, ...(declared ? { basis: 'FEES', inclusive: false } : {}) },
+      ],
+    } as Partial<ReceiptDocument>);
+
+  const split = (html: string) => {
+    const rows = totalsRows(html);
+    const totalAt = rows.findIndex((r) => r.label === 'Total');
+    return { rows, totalAt, above: rows.slice(0, totalAt), below: rows.slice(totalAt + 1) };
+  };
+
+  it('FOOTS: ticket + booking fee + processing + GST on the fees = ₹522.82', () => {
+    const { rows, totalAt, above } = split(renderReceiptHtml(mixed(true), 'en'));
+    expect(rows[totalAt].amount).toBe(52_282);
+    // Payment processing, then the platform fee — the order the checkout shows.
+    expect(above.map((r) => r.amount)).toEqual([49_900, 1_018, 1_000, 182, 182]);
+    expect(above.map((r) => r.label).slice(1, 3)).toEqual([
+      'Payment processing fee',
+      'Platform fee',
+    ]);
+    expect(above.reduce((sum, r) => sum + r.amount, 0)).toBe(52_282);
+  });
+
+  it('puts the GST on the fees above the total, saying it is on the fees', () => {
+    const { above } = split(renderReceiptHtml(mixed(true), 'en'));
+    const feeTax = above.filter((r) => /GST/.test(r.label));
+    expect(feeTax).toHaveLength(2);
+    for (const row of feeTax) expect(row.label).toMatch(/@ 9% on fees of ₹20\.18/);
+  });
+
+  it('puts the GST inside the ticket price below the total, saying so in words', () => {
+    const { below } = split(renderReceiptHtml(mixed(true), 'en'));
+    const ticketTax = below.filter((r) => /GST/.test(r.label));
+    expect(ticketTax.map((r) => r.amount)).toEqual([3_806, 3_806]);
+    for (const row of ticketTax) {
+      expect(row.label).toMatch(/^Included in ticket price: [CS]GST @ 9% on ₹422\.88$/);
+    }
+  });
+
+  it('states the total tax once, so nobody has to add four rows on two sides of the total', () => {
+    const { below } = split(renderReceiptHtml(mixed(true), 'en'));
+    expect(below.at(-1)).toEqual({ label: 'Total tax in this order', amount: 7_976 });
+  });
+
+  it('gets a document issued BEFORE lines declared themselves right from the arithmetic', () => {
+    /*
+      Every receipt already issued is immutable JSON with no `inclusive` on its lines. The two
+      lines whose sum closes the gap between subtotal + fee and the total are the added ones.
+    */
+    const legacy = split(renderReceiptHtml(mixed(false), 'en'));
+    const declared = split(renderReceiptHtml(mixed(true), 'en'));
+    expect(legacy.above.map((r) => r.amount)).toEqual(declared.above.map((r) => r.amount));
+    expect(legacy.below.map((r) => r.amount)).toEqual(declared.below.map((r) => r.amount));
+    expect(legacy.above.reduce((sum, r) => sum + r.amount, 0)).toBe(52_282);
+  });
+
+  it('reads the same way in French', () => {
+    const html = renderReceiptHtml(mixed(true), 'fr-CA');
+    expect(html).toMatch(/Compris dans le prix des billets : CGST/);
+    expect(html).toMatch(/sur des frais de/);
+    expect(html).toMatch(/Total des taxes de cette commande/);
+  });
+});
+
 describe('receipt footing — no tax at all', () => {
   it('is unchanged when nothing was taxed, which is what ships by default', () => {
     const untaxed = doc({

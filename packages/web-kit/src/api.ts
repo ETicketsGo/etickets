@@ -108,6 +108,16 @@ export function errorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+/**
+ * An API-served asset (an event image) as a URL a browser can load.
+ *
+ * The API returns a PATH, not a URL, because it cannot know which host a given client reaches
+ * it on — the same event is served to the storefront, the organizer console and the app.
+ */
+export function apiAssetUrl(path: string | null | undefined): string | null {
+  return path ? `${API_URL}${path}` : null;
+}
+
 let refreshInFlight: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
@@ -144,7 +154,9 @@ interface Options extends RequestInit {
 
 async function request<T>(path: string, options: Options = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body) headers.set('content-type', 'application/json');
+  // A file upload sets its own multipart boundary; forcing JSON onto it makes the body unreadable.
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (options.body && !isForm) headers.set('content-type', 'application/json');
   if (options.auth !== false && tokenStore.access) {
     headers.set('authorization', `Bearer ${tokenStore.access}`);
   }
@@ -927,6 +939,14 @@ export const api = {
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CreateEventBody>) =>
       request<OrgEventDetail>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    /** Replace the event's image. JPG, PNG or WebP, at most 2 MB — resize before sending. */
+    uploadImage: (id: string, image: Blob, filename = 'event-image.jpg') => {
+      const form = new FormData();
+      form.append('file', image, filename);
+      return request<{ imagePath: string }>(`/events/${id}/image`, { method: 'PUT', body: form });
+    },
+    removeImage: (id: string) =>
+      request<{ ok: boolean }>(`/events/${id}/image`, { method: 'DELETE' }),
     /** Rooms with a published seat map that an event could be seated in. */
     seatingRooms: (organizationId: string) =>
       request<SeatingRoom[]>(`/events/seating-rooms${qs({ organizationId })}`),
@@ -1801,12 +1821,16 @@ export interface PublicEventCard {
   nextSessionAt: string | null;
   fromPriceMinor: number | null;
   currency: string;
+  /** The organizer's image, as a path for `apiAssetUrl`. Absent on saved cards from before. */
+  imagePath?: string | null;
 }
 export interface PublicEvent {
   id: string;
   title: string;
   slug: string;
   category: string;
+  /** The organizer's image, as a path for `apiAssetUrl`. Null when none was uploaded. */
+  imagePath?: string | null;
   description: string | null;
   refundPolicy: string | null;
   feeMode: string;
@@ -2917,6 +2941,8 @@ export interface OrgEventDetail {
   venue: Venue;
   organizationId: string;
   sessions: EventSession[];
+  /** The event's image, as a path for `apiAssetUrl`. Null when none was uploaded. */
+  imagePath?: string | null;
 }
 export interface CreateEventBody {
   organizationId: string;

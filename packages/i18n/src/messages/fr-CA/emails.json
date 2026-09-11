@@ -5,8 +5,19 @@
     "body": "{count} confirmé(s){forEvent}{when}.{seats} Numéro de réservation {reference}."
   },
   "PAYMENT_FAILED": {
+    "subjectWithEvent": "Échec du paiement pour {event}",
     "subject": "Échec du paiement",
-    "body": "Nous n'avons pas pu traiter le paiement de la réservation {reference}. Veuillez réessayer."
+    "body": "Votre paiement{amount}{forEvent}{when} n'a pas abouti, et aucun billet n'a été émis.{reason}{retry} Si votre banque affiche un débit pour cette tentative, il sera annulé automatiquement."
+  },
+  "paymentFailureReason": {
+    "INTERNATIONAL_CARD_NOT_ACCEPTED": " La carte a été émise hors de l'Inde, et les cartes internationales ne sont pas acceptées pour ce paiement. Utilisez une carte émise en Inde ou un autre mode de paiement.",
+    "CARD_DECLINED": " Votre banque a refusé la carte.",
+    "INSUFFICIENT_FUNDS": " Les fonds disponibles étaient insuffisants.",
+    "AUTHENTICATION_FAILED": " L'étape de vérification (code à usage unique ou vérification de la carte) n'a pas été complétée.",
+    "CANCELLED": " Le paiement a été annulé avant d'être complété.",
+    "TIMED_OUT": " Le délai a expiré avant que votre banque ne confirme le paiement.",
+    "BANK_UNAVAILABLE": " Votre banque ou le réseau de paiement ne répondait pas.",
+    "METHOD_NOT_AVAILABLE": " Ce mode de paiement n'est pas offert pour cette réservation."
   },
   "EVENT_REMINDER": {
     "subject": "Rappel : votre événement approche",
@@ -99,6 +110,9 @@
     "seats": " Sièges {seats}.",
     "startingAt": " à compter de {startsAt}",
     "reason": " Motif : {reason}.",
+    "amountOf": " de {amount}",
+    "heldUntil": " Vos sièges sont retenus jusqu'à {time}. Revenez à la page de paiement d'ici là pour réessayer avec une autre carte ou un autre mode de paiement.",
+    "retryLater": " Vous pouvez faire une nouvelle réservation en tout temps.",
     "ref": " ({ref})",
     "yourBooking": "votre réservation",
     "yourEvent": "votre événement",

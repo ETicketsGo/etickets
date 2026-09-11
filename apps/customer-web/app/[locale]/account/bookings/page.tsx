@@ -20,6 +20,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
@@ -170,31 +171,34 @@ export default function BookingsPage() {
               )}
             </div>
 
-            <Card className="p-4">
-              <div className="space-y-1.5 text-[0.9375rem]">
-                <div className="flex justify-between">
-                  <span className="text-text-secondary">Subtotal</span>
-                  <span className="text-text-primary">{money(b.subtotalMinor, b.currency)}</span>
-                </div>
-                {b.discountMinor > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Discount</span>
-                    <span className="text-text-primary">
-                      - {money(b.discountMinor, b.currency)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-text-secondary">Fees</span>
-                  <span className="text-text-primary">
-                    {money(b.bookingFeeMinor + b.paymentFeeMinor, b.currency)}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
-                  <span className="text-text-primary">Total paid</span>
-                  <span className="text-text-primary">{money(b.totalMinor, b.currency)}</span>
-                </div>
-              </div>
+            {/*
+              The same breakdown the buyer paid against, not a sum of its own.
+
+              This added the booking and payment fees and called that "Fees", leaving out the
+              GST on them: ₹499 + ₹20.18 under "Total paid ₹522.82". Two numbers that do not add
+              up to the third, on the screen where somebody checks what they were charged.
+            */}
+            <Card className="p-4 [&>div]:border-t-0 [&>div]:pt-0">
+              <PriceBreakdown
+                quote={{
+                  currency: b.currency,
+                  subtotalMinor: b.subtotalMinor,
+                  discountMinor: b.discountMinor,
+                  bookingFeeMinor: b.bookingFeeMinor,
+                  paymentFeeMinor: b.paymentFeeMinor,
+                  customerFeeInclusiveMinor: b.customerFeeInclusiveMinor,
+                  customerFeeMinor: b.customerFeeMinor,
+                  feeTaxRateBasisPoints: b.feeTaxRateBasisPoints,
+                  feeTaxMinor: b.feeTaxMinor,
+                  maintenanceMinor: b.maintenanceMinor,
+                  maintenanceTreatment: b.maintenanceTreatment,
+                  taxLines: b.taxLines,
+                  totalMinor: b.totalMinor,
+                }}
+                free={b.totalMinor === 0 && !b.payment}
+                totalLabel="Total paid"
+                note={null}
+              />
             </Card>
 
             <div>

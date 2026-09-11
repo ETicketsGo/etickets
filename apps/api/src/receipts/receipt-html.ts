@@ -92,6 +92,57 @@ function formatRate(basisPoints: number): string {
   return `${(basisPoints / 100).toFixed(basisPoints % 100 === 0 ? 0 : 2)}%`;
 }
 
+/**
+ * For each tax line: is it already inside the total (true) or added to it (false)?
+ *
+ * A line that states it is believed. A document issued before lines stated it is worked out
+ * from the arithmetic, which is exact rather than assumed: the lines that were ADDED are the
+ * ones that close the gap between subtotal + fee and the total. With every line undeclared
+ * that is a small subset search (a receipt carries a handful of tax lines). If no subset closes
+ * the gap -- a document that does not reconcile for some other reason -- the lines are
+ * disclosed below the total rather than added, because describing tax already paid a little
+ * imprecisely is a smaller wrong than a column that does not sum to what was charged.
+ */
+export function resolveInclusiveLines(d: ReceiptDocument): boolean[] {
+  const lines = d.taxLines ?? [];
+  const declared = lines.map((l) => (typeof l.inclusive === 'boolean' ? l.inclusive : null));
+  const unknown = declared.flatMap((v, i) => (v === null ? [i] : []));
+  if (unknown.length === 0) return declared as boolean[];
+
+  const addedDeclared = lines.reduce(
+    (sum, l, i) => (declared[i] === false ? sum + l.amountMinor : sum),
+    0,
+  );
+  const gap =
+    d.totals.totalMinor -
+    (d.totals.subtotalMinor - Math.abs(d.totals.discountMinor) + d.totals.feeMinor) -
+    addedDeclared;
+
+  const resolved = declared.slice();
+  const assign = (addedSet: Set<number>) => {
+    for (const i of unknown) resolved[i] = !addedSet.has(i);
+    return resolved as boolean[];
+  };
+
+  if (gap === 0) return assign(new Set());
+  // 2^n subsets; a real receipt has a handful of tax lines, and the cap keeps a malformed one
+  // from turning a page render into a search.
+  if (unknown.length <= 12) {
+    for (let mask = 1; mask < 1 << unknown.length; mask += 1) {
+      let sum = 0;
+      const chosen = new Set<number>();
+      unknown.forEach((lineIndex, bit) => {
+        if (mask & (1 << bit)) {
+          sum += lines[lineIndex].amountMinor;
+          chosen.add(lineIndex);
+        }
+      });
+      if (sum === gap) return assign(chosen);
+    }
+  }
+  return assign(new Set());
+}
+
 function addressLines(d: ReceiptDocument): string[] {
   const a = d.seller.address;
   return [
@@ -147,59 +198,85 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
     `<tr class="${cls}"><th colspan="3">${esc(label)}</th><td class="num">${money(value)}</td></tr>`;
 
   /*
-    Is the tax INSIDE the total, or added to it?
+    Is each tax INSIDE the total, or added to it?
 
-    Derived from the arithmetic rather than stored, because the document is an immutable
-    snapshot written before inclusive tax existed and re-deriving is exact: an exclusive
-    receipt foots as subtotal + fee + tax, an inclusive one as subtotal + fee alone.
+    This distinction is the whole bug, twice over. The tax rows used to sit BETWEEN the booking
+    fee and the total, which is right when the tax is added and badly wrong when it is not: an
+    Indian receipt for a ₹100 ticket showed ₹100 + ₹7.10 + ₹8.17 + ₹8.17 above a total of
+    ₹107.10. A receipt that does not add up is not a presentation preference; it is a receipt
+    nobody can check.
 
-    This distinction is the whole bug. The tax rows used to sit BETWEEN the booking fee and
-    the total, which is right when the tax is added and badly wrong when it is not: an Indian
-    receipt for a ₹100 ticket showed ₹100 + ₹7.10 + ₹8.17 + ₹8.17 above a total of ₹107.10,
-    so anybody adding the column got ₹123.44 and a document that does not foot. A receipt
-    that does not add up is not a presentation preference; it is a receipt nobody can check.
+    ── PER LINE, NOT PER DOCUMENT ───────────────────────────────────────────────────
+    This used to decide once, for the whole receipt, whether tax was inside the total or added
+    to it. An Indian order is both at once: GST on the ticket is inside the ₹499 ticket price,
+    GST on the platform fee is added to the fee. Subtotal + fee therefore never equalled the
+    total, the document was judged "exclusive", and all four GST rows were printed above the
+    total -- ₹499 + ₹10 + ₹10.18 + ₹38.06 + ₹38.06 + ₹1.82 + ₹1.82 against a total of ₹522.82.
+    Anybody checking it got ₹598.94.
+
+    Now each line says which it is, and only the added ones stand in the column that is added.
   */
-  const taxTotal = d.taxLines.reduce((sum, t) => sum + t.amountMinor, 0);
-  const taxIsIncluded =
-    taxTotal > 0 &&
-    d.totals.subtotalMinor - Math.abs(d.totals.discountMinor) + d.totals.feeMinor ===
-      d.totals.totalMinor;
+  const included = resolveInclusiveLines(d);
+  const addedLines = d.taxLines.filter((_, i) => !included[i]);
+  const includedLines = d.taxLines.filter((_, i) => included[i]);
 
-  const exclusiveTaxRows =
-    d.taxLines.length && !taxIsIncluded
-      ? d.taxLines
-          .map(
-            (t) =>
-              `<tr><th colspan="3">${esc(t.label)} @ ${esc(formatRate(t.rateBasisPoints))} on ${money(
-                t.baseMinor,
-              )}</th><td class="num">${money(t.amountMinor)}</td></tr>`,
-          )
-          .join('')
-      : '';
+  const exclusiveTaxRows = addedLines
+    // `line`, not `t` — `t` is the translator in this scope.
+    .map(
+      (line) =>
+        `<tr><th colspan="3">${esc(
+          t(
+            locale,
+            line.basis === 'FEES'
+              ? 'documents.receipt.taxAddedOnFees'
+              : 'documents.receipt.taxAdded',
+            {
+              label: line.label,
+              rate: formatRate(line.rateBasisPoints),
+              base: money(line.baseMinor),
+            },
+          ),
+        )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
+    )
+    .join('');
 
   /*
     Below the total, and labelled as already in it.
 
-    "Includes CGST @ 9% on ₹90.76" states the same figures the tax authority needs while
-    making it unambiguous that they are a breakdown of the number above, not an addition to
-    it — which is exactly how an Indian ticket receipt reads.
+    "Included in ticket price: CGST @ 9% on ₹422.88" states the figures the tax authority needs
+    while making it unambiguous that they are a breakdown of the number above, not an addition
+    to it — which is exactly how an Indian ticket receipt reads.
   */
-  const inclusiveTaxRows = taxIsIncluded
-    ? d.taxLines
-        // `line`, not `t` — `t` is the translator in this scope, and shadowing it here
-        // silently turns a tax line into a function call.
-        .map(
-          (line) =>
-            `<tr class="incl"><th colspan="3">${esc(
-              t(locale, 'documents.receipt.taxIncluded', {
-                label: line.label,
-                rate: formatRate(line.rateBasisPoints),
-                base: money(line.baseMinor),
-              }),
-            )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
-        )
-        .join('')
-    : '';
+  const inclusiveTaxRows = includedLines
+    .map(
+      (line) =>
+        `<tr class="incl"><th colspan="3">${esc(
+          t(
+            locale,
+            line.basis === 'TICKETS'
+              ? 'documents.receipt.taxIncludedInTickets'
+              : 'documents.receipt.taxIncluded',
+            {
+              label: line.label,
+              rate: formatRate(line.rateBasisPoints),
+              base: money(line.baseMinor),
+            },
+          ),
+        )}</th><td class="num">${money(line.amountMinor)}</td></tr>`,
+    )
+    .join('');
+
+  /*
+    One number for "how much tax is in what I paid" -- the question the separate rows above and
+    below the total leave a reader to answer with arithmetic. Shown only when tax appears on both
+    sides of the total, where that arithmetic is genuinely confusing.
+  */
+  const taxTotalRow =
+    addedLines.length > 0 && includedLines.length > 0
+      ? `<tr class="incl total-tax"><th colspan="3">${label('taxTotal')}</th><td class="num">${money(
+          d.taxLines.reduce((sum, line) => sum + line.amountMinor, 0),
+        )}</td></tr>`
+      : '';
 
   const notes = d.notes.map((n) => `<li>${esc(n)}</li>`).join('');
 
@@ -309,13 +386,18 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
         d.feeParts &&
         d.feeParts.bookingFeeMinor + d.feeParts.paymentFeeMinor === d.totals.feeMinor &&
         d.totals.feeMinor !== 0
-          ? `${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}${
+          ? /*
+              Payment processing first, then the platform's own fee — the order the checkout
+              shows them in, so the receipt reads line for line against what was agreed to.
+            */
+            `${
               d.feeParts.paymentFeeMinor !== 0
                 ? totalRow(label('paymentFee'), d.feeParts.paymentFeeMinor)
                 : ''
-            }`
+            }${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}`
           : d.totals.feeMinor !== 0
-            ? totalRow(label('bookingFee'), d.totals.feeMinor)
+            ? // Parts unknown or not footing: the two together, named as the two together.
+              totalRow(label('fees'), d.totals.feeMinor)
             : ''
       }
       ${exclusiveTaxRows}
@@ -325,6 +407,7 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
         'grand',
       )}
       ${inclusiveTaxRows}
+      ${taxTotalRow}
     </tfoot>
   </table>
 

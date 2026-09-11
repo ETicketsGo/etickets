@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
-import { gradientFor, useToast } from '@eticketsgo/web-kit';
+import { apiAssetUrl, gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
@@ -15,6 +15,12 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
   const toast = useToast();
   const [saved, setSaved] = useState(false);
   useEffect(() => setSaved(isSaved(event.id)), [event.id]);
+  /*
+    The organizer's image when there is one, the lettered gradient when there is not — or when
+    the image fails to load, so a missing file is never a broken-image icon on the front page.
+  */
+  const imageUrl = apiAssetUrl(event.imagePath);
+  const [imageBroken, setImageBroken] = useState(false);
   const toggle = () => {
     const nowSaved = toggleSaved(event);
     setSaved(nowSaved);
@@ -29,9 +35,20 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
       <div
         className={`relative flex h-40 items-center justify-center bg-gradient-to-br ${gradientFor(event.id)}`}
       >
-        <span className="select-none text-5xl font-bold text-text-primary/25">
-          {event.title.charAt(0)}
-        </span>
+        {imageUrl && !imageBroken ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            onError={() => setImageBroken(true)}
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
+          />
+        ) : (
+          <span className="select-none text-5xl font-bold text-text-primary/25">
+            {event.title.charAt(0)}
+          </span>
+        )}
         <div className="absolute left-3 top-3">
           <Badge tone="info">{event.category}</Badge>
         </div>

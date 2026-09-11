@@ -45,7 +45,7 @@ export function Header() {
   const a = useTranslations('common.action');
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md print:hidden">
       {/*
         Wraps rather than overflows.
 

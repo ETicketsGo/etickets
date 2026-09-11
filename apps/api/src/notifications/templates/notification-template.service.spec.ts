@@ -151,6 +151,86 @@ describe('NotificationTemplateService', () => {
     });
   });
 
+  /*
+    Reported from QA: "Payment failed notifications not helping to understand anything". It
+    read "We could not process the payment for booking cmtwoqn9g000aediehsf66ngg. Please try
+    again." — a database id, because an unpaid booking has no reference; no event, no amount,
+    no reason; and it arrived twice for two attempts.
+  */
+  describe('a failed payment says what, how much, why and what now', () => {
+    const failed = {
+      bookingId: 'cmtwoqn9g000aediehsf66ngg',
+      reference: '',
+      eventTitle: 'Kantara Chapter 1',
+      startsAt: '2026-09-12T14:30:00.000Z',
+      timeZone: 'Asia/Kolkata',
+      amountMinor: 52_282,
+      currency: 'INR',
+      reason: 'INTERNATIONAL_CARD_NOT_ACCEPTED',
+      heldUntil: '2026-09-11T21:05:00.000Z',
+    };
+
+    it('names the event in the subject', () => {
+      expect(svc.render(NotificationType.PAYMENT_FAILED, 'en', failed).subject).toBe(
+        'Payment failed for Kantara Chapter 1',
+      );
+    });
+
+    it('never quotes the database id', () => {
+      const out = svc.render(NotificationType.PAYMENT_FAILED, 'en', failed);
+      expect(`${out.subject} ${out.body}`).not.toContain('cmtwoqn9g');
+      // Nor for a payload queued before these fields existed, which carried only the id.
+      const old = svc.render(NotificationType.PAYMENT_FAILED, 'en', { bookingId: 'bk-1' });
+      expect(`${old.subject} ${old.body}`).not.toContain('bk-1');
+      expect(old.body).not.toMatch(/[{}]/);
+    });
+
+    it('states the amount, the show time at the venue, and that no tickets were issued', () => {
+      const { body } = svc.render(NotificationType.PAYMENT_FAILED, 'en', failed);
+      expect(body).toContain('₹522.82');
+      expect(body).toContain('Kantara Chapter 1');
+      expect(body).toMatch(/12 Sept?,? 2026/);
+      expect(body).toContain('no tickets were issued');
+    });
+
+    it('says WHY, in words a buyer can act on', () => {
+      const { body } = svc.render(NotificationType.PAYMENT_FAILED, 'en', failed);
+      expect(body).toContain('issued outside India');
+      expect(body).toContain('Use a card issued in India or another payment method');
+    });
+
+    it('says how long the seats are held, at the venue clock', () => {
+      // 21:05 UTC is 2:35 the next morning in Kolkata.
+      const { body } = svc.render(NotificationType.PAYMENT_FAILED, 'en', failed);
+      expect(body).toMatch(/held until 2:35/);
+    });
+
+    it('invents no reason when the provider gave none it recognised', () => {
+      const { body } = svc.render(NotificationType.PAYMENT_FAILED, 'en', {
+        ...failed,
+        reason: 'UNKNOWN',
+      });
+      expect(body).not.toMatch(/outside India|declined|funds|OTP|timed out/);
+      expect(body).toContain('did not go through');
+    });
+
+    it('offers a way forward even when the hold time is unknown', () => {
+      const { body } = svc.render(NotificationType.PAYMENT_FAILED, 'en', {
+        ...failed,
+        heldUntil: '',
+      });
+      expect(body).not.toContain('held until');
+      expect(body).toContain('start a new booking');
+    });
+
+    it('is written in French for a French reader', () => {
+      const out = svc.render(NotificationType.PAYMENT_FAILED, 'fr-CA', failed);
+      expect(out.subject).toBe('Échec du paiement pour Kantara Chapter 1');
+      expect(out.body).toContain("émise hors de l'Inde");
+      expect(out.body).not.toMatch(/did not go through|issued outside/);
+    });
+  });
+
   it('falls back to en when the requested locale is missing', () => {
     const enOut = svc.render(NotificationType.REFUND_COMPLETED, 'en', { bookingId: 'bk-9' });
     const frOut = svc.render(NotificationType.REFUND_COMPLETED, 'fr', { bookingId: 'bk-9' });

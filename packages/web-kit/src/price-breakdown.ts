@@ -16,10 +16,9 @@
  *   - The storefront did it too, found by an e2e assertion that the rows foot.
  *
  * ── WHY THIS IS DATA AND NOT JSX ───────────────────────────────────────────────────
- * The decision — which amounts belong above the total, which belong below it, and what the
- * platform's fee comes to all-in — is arithmetic, and arithmetic is testable. The
- * component turns the result into rows and translated labels. Neither half can quietly
- * change the money.
+ * The decision — which amounts belong above the total, which are already inside the ticket
+ * price, and how the fee divides — is arithmetic, and arithmetic is testable. The component
+ * turns the result into rows and translated labels. Neither half can quietly change the money.
  */
 
 import type { MaintenanceTreatment } from '@eticketsgo/shared-types';
@@ -39,12 +38,13 @@ export interface BreakdownQuote {
   discountMinor: number;
   bookingFeeMinor: number;
   paymentFeeMinor: number;
-  /** The platform fee all-in. Absent on an older API. */
+  /** The customer's fees all-in, tax on them included. Absent on an older API. */
   customerFeeInclusiveMinor?: number;
+  /** The customer's share of the booking + payment fees, before tax on them. */
   customerFeeMinor?: number;
-  /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
+  /** The combined rate charged on the fees — 1800 for 18%, 0 when untaxed. */
   feeTaxRateBasisPoints?: number;
-  /** Tax inside the all-in fee, in minor units. Zero or absent when the fee is untaxed. */
+  /** Tax on the fees, in minor units. Zero or absent when the fees are untaxed. */
   feeTaxMinor?: number;
   /** A statutory per-ticket maintenance charge for the order, if one applies. */
   maintenanceMinor?: number;
@@ -53,7 +53,14 @@ export interface BreakdownQuote {
   totalMinor: number;
 }
 
-export type BreakdownRowKind = 'tickets' | 'discount' | 'platformFee' | 'maintenance' | 'tax';
+/**
+ * `paymentFee` — what the card or UPI network charges to move the money.
+ * `platformFee` — ETicketsGo's own booking fee.
+ * `feeTax`     — tax charged on those two.
+ * `fees`       — the two together, only when a booking cannot be divided exactly.
+ */
+export type BreakdownRowKind =
+  'tickets' | 'discount' | 'maintenance' | 'tax' | 'paymentFee' | 'platformFee' | 'feeTax' | 'fees';
 
 export interface BreakdownRow {
   kind: BreakdownRowKind;
@@ -67,33 +74,24 @@ export interface BreakdownRow {
 export interface Breakdown {
   /** Shown above the total. These MUST sum to `totalMinor`. */
   rows: BreakdownRow[];
-  /** Shown below the total, worded as already included. Not part of the sum. */
+  /** Already inside the ticket price — disclosed with the tickets, never added. */
   includedTax: BreakdownTaxLine[];
   /**
-   * A maintenance charge already inside the ticket price — disclosed below the total, never
-   * added to it. Zero-length when none applies or when the charge was added instead.
+   * A maintenance charge already inside the ticket price — disclosed with the tickets, never
+   * added to the total. Zero when none applies or when the charge was added instead.
    */
   includedMaintenanceMinor: number;
-  /** The rate named inside the platform-fee label; 0 when the fee is untaxed. */
+  /** The rate charged on the fees; 0 when they are untaxed. */
   platformFeeRateBasisPoints: number;
   /**
-   * What the single platform-fee row is MADE OF, for a surface that wants to show it.
-   *
-   * ── WHY BOTH A TOTAL AND ITS PARTS ─────────────────────────────────────────────
-   * The row stays one line because "what does this platform cost me" is one question, and
-   * three lines hand the customer arithmetic to do. But the parts go to different places —
-   * the booking fee is the platform's, the payment fee covers processing the card — and a
-   * buyer who wants to know that is entitled to. So the aggregate is what is shown, and this
-   * is what can be opened.
-   *
-   * These MUST sum to the platform-fee row. A surface that shows the parts instead of the
-   * total is showing the same money, not different money.
+   * Everything the customer pays on top of the tickets, and what it is made of. The parts sum
+   * to `totalMinor`, and they are exactly the fee rows above.
    */
   platformFee: {
     totalMinor: number;
     bookingFeeMinor: number;
     paymentFeeMinor: number;
-    /** Tax charged on the fee itself, already inside `totalMinor`. */
+    /** Tax charged on the fees. */
     taxMinor: number;
   };
   totalMinor: number;
@@ -104,7 +102,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     All-in when the API supplies it, and the two fee components added together when it does
     not — an older API is still correct, just without the fee's tax folded in.
   */
-  const platformFeeMinor =
+  const feesAllInMinor =
     quote.customerFeeInclusiveMinor ??
     quote.customerFeeMinor ??
     quote.bookingFeeMinor + quote.paymentFeeMinor;
@@ -131,7 +129,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   const withoutUndeclared =
     quote.subtotalMinor -
     quote.discountMinor +
-    platformFeeMinor +
+    feesAllInMinor +
     addedMaintenance +
     declared
       .filter((t) => !t.inclusive && t.basis !== 'FEES')
@@ -139,9 +137,9 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   const undeclaredSum = undeclared.reduce((n, t) => n + t.amountMinor, 0);
   /*
     Added only when adding them is what reaches the total. Anything else — including a
-    booking whose numbers do not reconcile for some third reason — is disclosed below the
-    total instead, because an inaccurate DESCRIPTION of tax that is already paid is a much
-    smaller wrong than a column of figures that does not sum to what is being charged.
+    booking whose numbers do not reconcile for some third reason — is disclosed as included
+    instead, because an inaccurate DESCRIPTION of tax that is already paid is a much smaller
+    wrong than a column of figures that does not sum to what is being charged.
   */
   const undeclaredWereAdded =
     undeclaredSum > 0 && withoutUndeclared + undeclaredSum === quote.totalMinor;
@@ -152,8 +150,8 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   ];
 
   /*
-    Tax on the FEE is excluded from both lists: it is already stated inside the fee row, and
-    listing it again would show the same money twice.
+    Tax on the FEES is excluded from both lists: it has its own fee row below, and listing
+    the lines again would show the same money twice.
 
     Filtered on `basis`, which the API states. Working out which line was the fee's by
     comparing amounts is a guess, and it is wrong the moment the tax is inclusive — the base
@@ -164,9 +162,6 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
   const rows: BreakdownRow[] = [{ kind: 'tickets', amountMinor: quote.subtotalMinor }];
   if (quote.discountMinor > 0) {
     rows.push({ kind: 'discount', amountMinor: -quote.discountMinor });
-  }
-  if (platformFeeMinor > 0) {
-    rows.push({ kind: 'platformFee', amountMinor: platformFeeMinor });
   }
 
   /*
@@ -190,26 +185,80 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     });
   }
 
+  /*
+    ── THE FEES, EACH ON ITS OWN LINE ───────────────────────────────────────────────
+    They were one "Platform fee (incl. 18% GST)" row that opened to show its parts. Reported
+    from QA: "it is not good to include the payment fee in the platform fee — the user thinks
+    we are taking it". The payment fee is what the card or UPI network charges; folding it into
+    a row named after the platform said the opposite.
+
+    So: payment processing, the platform's own fee, and the tax on both, as three rows.
+
+    The booking can carry the FULL fees while the customer pays only a share of them (the
+    organizer covers the rest). The customer's share is then divided in the same proportion,
+    so the rows still foot to what they are charged. With no share to divide by — an older API
+    — the two are one row rather than a guess.
+  */
+  const parts = feeParts(quote, feesAllInMinor);
+  if (parts) {
+    if (parts.paymentFeeMinor > 0)
+      rows.push({ kind: 'paymentFee', amountMinor: parts.paymentFeeMinor });
+    if (parts.bookingFeeMinor > 0)
+      rows.push({ kind: 'platformFee', amountMinor: parts.bookingFeeMinor });
+    if (parts.taxMinor > 0) {
+      rows.push({
+        kind: 'feeTax',
+        amountMinor: parts.taxMinor,
+        rateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
+      });
+    }
+  } else if (feesAllInMinor > 0) {
+    rows.push({ kind: 'fees', amountMinor: feesAllInMinor });
+  }
+
   return {
     rows,
     includedTax: mergeByRate(ticketTax.filter((tax) => tax.inclusive === true)),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
     platformFeeRateBasisPoints: quote.feeTaxRateBasisPoints ?? 0,
     platformFee: {
-      totalMinor: platformFeeMinor,
-      bookingFeeMinor: quote.bookingFeeMinor,
-      paymentFeeMinor: quote.paymentFeeMinor,
-      /*
-        Derived rather than trusted, so the parts always foot to the whole.
-
-        `feeTaxMinor` is what the API says the fee's tax was; the difference is what is left
-        after the two components. They agree in every case the API is correct, and when they
-        do not, the number that must be right is the one that makes the disclosure add up to
-        the row above it — otherwise opening the detail shows a customer a contradiction.
-      */
-      taxMinor: Math.max(0, platformFeeMinor - quote.bookingFeeMinor - quote.paymentFeeMinor),
+      totalMinor: feesAllInMinor,
+      bookingFeeMinor: parts?.bookingFeeMinor ?? quote.bookingFeeMinor,
+      paymentFeeMinor: parts?.paymentFeeMinor ?? quote.paymentFeeMinor,
+      taxMinor:
+        parts?.taxMinor ??
+        Math.max(0, feesAllInMinor - quote.bookingFeeMinor - quote.paymentFeeMinor),
     },
     totalMinor: quote.totalMinor,
+  };
+}
+
+/**
+ * The customer's fees divided into payment processing, platform fee and tax — or null when
+ * they cannot be divided without inventing a number.
+ *
+ * Always sums to `feesAllInMinor`: the payment part is rounded, the platform part takes the
+ * remainder of the pre-tax share, and the tax is what is left of the all-in figure.
+ */
+function feeParts(
+  quote: BreakdownQuote,
+  feesAllInMinor: number,
+): { paymentFeeMinor: number; bookingFeeMinor: number; taxMinor: number } | null {
+  const fullMinor = quote.bookingFeeMinor + quote.paymentFeeMinor;
+  const shareMinor =
+    quote.customerFeeMinor ??
+    (quote.customerFeeInclusiveMinor === undefined ? fullMinor : undefined);
+  if (shareMinor === undefined || shareMinor < 0 || shareMinor > feesAllInMinor) return null;
+  const paymentFeeMinor =
+    fullMinor <= 0
+      ? 0
+      : shareMinor === fullMinor
+        ? quote.paymentFeeMinor
+        : Math.round((quote.paymentFeeMinor * shareMinor) / fullMinor);
+  return {
+    paymentFeeMinor,
+    bookingFeeMinor: shareMinor - paymentFeeMinor,
+    taxMinor: feesAllInMinor - shareMinor,
   };
 }
 
@@ -222,8 +271,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
  * different amounts and nothing to say which was which.
  *
  * Merging by label and rate answers the question a buyer is actually asking — how much CGST
- * is in this — with one number. Amounts are summed, so nothing is lost, and the bases are
- * added too so the arithmetic on a receipt still reproduces.
+ * is in this — with one number. Amounts are summed, so nothing is lost.
  */
 function mergeByRate(lines: BreakdownTaxLine[]): BreakdownTaxLine[] {
   const merged = new Map<string, BreakdownTaxLine>();

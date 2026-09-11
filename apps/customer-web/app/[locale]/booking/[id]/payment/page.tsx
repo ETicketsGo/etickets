@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { Stepper } from '@eticketsgo/web-kit';
+import { razorpayFailureReason } from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { money, dateTime } from '@/lib/format';
@@ -155,6 +156,11 @@ export default function PaymentPage() {
       if (payResult.provider === 'razorpay' && payResult.razorpay) {
         const rzp = payResult.razorpay;
         const Razorpay = await loadRazorpay();
+        /*
+          Whether this Checkout session saw a refusal. Closing the window after one is not a
+          cancellation, and the reason must not be overwritten by "Payment was cancelled".
+        */
+        let failed = false;
         const checkout = new Razorpay({
           key: rzp.keyId,
           order_id: rzp.orderId,
@@ -176,15 +182,26 @@ export default function PaymentPage() {
                 qc.invalidateQueries({ queryKey: ['booking', id] });
                 router.push(`/booking/${id}/confirmation`);
               } catch {
-                setError(
-                  'We couldn’t verify your payment. If you were charged, it will be confirmed shortly — check “My bookings”.',
-                );
+                setError(k('verifyFailed'));
               }
             })();
           },
           modal: {
-            ondismiss: () => setError(k('paymentCancelled')),
+            ondismiss: () => {
+              if (!failed) setError(k('paymentCancelled'));
+            },
           },
+        });
+        /*
+          Why the payment was refused, in words the buyer can act on.
+
+          Without this listener every refusal surfaced as "Payment was cancelled" once the
+          window closed. On QA that hid Razorpay's actual answer — the account takes Indian
+          cards only — and buyers retried the same international test card again and again.
+        */
+        checkout.on('payment.failed', (response) => {
+          failed = true;
+          setError(k(`failure.${razorpayFailureReason(response.error)}`));
         });
         checkout.open();
         return { redirected: true as const };
@@ -203,11 +220,7 @@ export default function PaymentPage() {
       // The API returns 402 for a declined/insufficient-funds payment — tell the
       // buyer specifically so they can try another method (see all-exceptions.filter).
       const status = (err as { status?: number }).status;
-      setError(
-        status === 402
-          ? 'Your payment was declined. Please try a different card or payment method.'
-          : k('paymentFailed'),
-      );
+      setError(status === 402 ? k('failure.CARD_DECLINED') : k('paymentFailed'));
     },
   });
 

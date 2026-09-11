@@ -1287,6 +1287,8 @@ model Event {
   addOns      AddOn[]
   bundles     Bundle[]
   settlements Settlement[]
+  /// The event's poster or banner, if the organizer gave one.
+  image       EventImage?
 
   @@index([organizationId])
   @@index([status])
@@ -1295,6 +1297,33 @@ model Event {
   @@index([movieId])
   @@index([venueId])
   @@index([status, experienceType, publishedAt])
+}
+
+/// An event's image — the poster a buyer sees on the card and above the event page.
+///
+/// ── WHY THE BYTES LIVE IN POSTGRES ────────────────────────────────────────────────
+/// There is no object storage on this platform, and the app servers' disks are wiped on every
+/// deploy, so a file written there would vanish at the next release. An image is one row per
+/// event, capped at 2 MB and resized in the browser before upload, which Postgres holds without
+/// strain and backs up with everything else. When the catalogue outgrows that, this table is
+/// the one place to point at S3 — the public URL is served by the API either way.
+///
+/// ── WHY ITS OWN TABLE ─────────────────────────────────────────────────────────────
+/// So an event row never drags an image's bytes into a listing query. Cards select the hash,
+/// never the bytes; only the image endpoint reads them.
+model EventImage {
+  id               String   @id @default(cuid())
+  eventId          String   @unique
+  event            Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// Detected from the file's own bytes, never taken from the upload's claim.
+  contentType      String
+  bytes            Bytes
+  sizeBytes        Int
+  /// Of the bytes; its prefix versions the public URL so a replaced image is fetched afresh.
+  sha256           String
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model Review {

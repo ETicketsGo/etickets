@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { money } from '@/lib/format';
 import { useTranslations } from 'next-intl';
-import { priceBreakdown, moneyFractionDigits } from '@eticketsgo/web-kit';
+import { priceBreakdown, moneyFractionDigits, type BreakdownTaxLine } from '@eticketsgo/web-kit';
 
 /**
  * What the buyer will actually be charged, itemised, before they commit to anything.
@@ -16,13 +16,14 @@ import { priceBreakdown, moneyFractionDigits } from '@eticketsgo/web-kit';
  * ₹1,033.26 payable: a booking fee and a payment fee the buyer met one screen later.
  *
  * Two screens showing the same money in two ways is how they come to disagree, so there is
- * one of these now and both use it.
+ * one of these now, and the event page, seat map, payment, confirmation and booking details
+ * all use it.
  *
  * ── WHERE THE NUMBERS COME FROM ────────────────────────────────────────────────────
  * `POST /bookings/quote`, which prices the cart with the same code the booking itself uses
- * and holds nothing. That matters more than it sounds: a breakdown computed on the client
- * would be a second implementation of fee tiers and tax, and the first time the two
- * disagreed the customer would be the one to find out.
+ * and holds nothing — or the booking's own snapshot once it exists. A breakdown computed on
+ * the client would be a second implementation of fee tiers and tax, and the first time the
+ * two disagreed the customer would be the one to find out.
  *
  * The currency comes from the quote rather than from a default. `money()` falls back to INR
  * when it is not told otherwise, so a total rendered without it is correct only for as long
@@ -34,13 +35,13 @@ export interface QuotedFees {
   discountMinor: number;
   bookingFeeMinor: number;
   paymentFeeMinor: number;
-  /** The platform fee all-in. Falls back to booking + payment fee on an older API. */
+  /** The customer's fees all-in. Falls back to booking + payment fee on an older API. */
   customerFeeInclusiveMinor?: number;
   customerFeeMinor?: number;
-  /** The combined rate inside the all-in fee — 1800 for 18%, 0 when untaxed. */
+  /** The combined rate on the fees — 1800 for 18%, 0 when untaxed. */
   feeTaxRateBasisPoints?: number;
   feeTaxMinor?: number;
-  /** A statutory per-ticket charge; disclosed below the total when it is already included. */
+  /** A statutory per-ticket charge; disclosed with the tickets when it is already included. */
   maintenanceMinor?: number;
   maintenanceTreatment?:
     'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
@@ -61,90 +62,105 @@ function ratePercent(basisPoints: number): string {
   return (basisPoints / 100).toFixed(basisPoints % 100 === 0 ? 0 : 2);
 }
 
-function Line({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+function Line({
+  label,
+  value,
+  muted,
+  hint,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  hint?: string;
+}) {
   return (
-    <div className="flex items-center justify-between gap-4 text-[0.9375rem]">
-      <span className={muted ? 'text-text-muted' : 'text-text-secondary'}>{label}</span>
+    <div className="flex items-start justify-between gap-4 text-[0.9375rem]">
+      <span className={muted ? 'text-text-muted' : 'text-text-secondary'}>
+        <span>{label}</span>
+        {hint ? <span className="block text-caption text-text-muted">{hint}</span> : null}
+      </span>
       <span className="tabular-nums text-text-primary">{value}</span>
     </div>
   );
 }
 
 /**
- * The platform fee, and what it is made of.
+ * The tickets, and the tax already inside their price.
  *
- * ── OPEN BY DEFAULT ────────────────────────────────────────────────────────────────
- * It was collapsed, on the theory that "what does this cost me" is one number and a
- * checkout itemising everything is one a buyer stops reading. That reasoning is sound for a
- * number a buyer already trusts, and this is not one: a fee appearing between the ticket
- * price and the total is exactly the number people want explained, and putting the
- * explanation behind a link asks them to work for it at the moment they are deciding
- * whether to pay.
+ * ── WHY THE TAX LIVES HERE, FOLDED ─────────────────────────────────────────────────
+ * It sat below the total as "Includes CGST (9%) ₹38.06". Correct, and still read as a
+ * charge: it was the last money on the screen, after the number the buyer was agreeing to.
+ * Reported from QA — it belongs with the ticket price it is part of, and a buyer who wants it
+ * can open it.
  *
- * So the parts are shown, and the control now collapses rather than reveals. A buyer who
- * does not care can fold it away; one who does is not made to hunt.
+ * Closed by default: the ticket price already contains it, so it changes nothing about what
+ * is paid. The panel stays in the DOM, hidden, so its toggle always points at something real.
  */
-function PlatformFeeLine({
+function TicketsLine({
   label,
   value,
-  parts,
-  rateBasisPoints,
+  included,
+  includedMaintenanceMinor,
   currency,
   digits,
 }: {
   label: string;
   value: string;
-  parts: { bookingFeeMinor: number; paymentFeeMinor: number; taxMinor: number };
-  rateBasisPoints: number;
+  included: BreakdownTaxLine[];
+  includedMaintenanceMinor: number;
   currency?: string;
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
-  const [open, setOpen] = useState(true);
-  const money2 = (m: number) => money(m, currency, undefined, digits);
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const hasDetail = included.length > 0 || includedMaintenanceMinor > 0;
 
   return (
     <div>
       <div className="flex items-center justify-between gap-4 text-[0.9375rem]">
-        <span className="flex items-center gap-2 text-text-secondary">
-          {label}
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
-          >
-            {open ? t('feeBreakdownHide') : t('feeBreakdownShow')}
-          </button>
+        <span className="flex flex-wrap items-center gap-x-2 text-text-secondary">
+          <span>{label}</span>
+          {hasDetail && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-controls={panelId}
+              className="rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+            >
+              {open ? t('taxDetailsHide') : t('taxDetailsShow')}
+            </button>
+          )}
         </span>
         <span className="tabular-nums text-text-primary">{value}</span>
       </div>
-      {open && (
-        /*
-          Identified, because "one row, not three" is a claim about ROWS and these are the
-          parts INSIDE one. Without a handle, a test asserting the old three-row layout is
-          gone cannot tell a nested detail from a sibling row, and reads this correct layout
-          as the defect it was written to catch.
-        */
+      {hasDetail && (
         <div
-          data-testid="platform-fee-parts"
+          id={panelId}
+          hidden={!open}
+          data-testid="included-tax"
           className="mt-1 space-y-1 border-l-2 border-border pl-3"
         >
-          {parts.bookingFeeMinor > 0 && (
-            <Line muted label={t('feeBookingPart')} value={money2(parts.bookingFeeMinor)} />
-          )}
-          {parts.paymentFeeMinor > 0 && (
-            <Line muted label={t('feePaymentPart')} value={money2(parts.paymentFeeMinor)} />
-          )}
-          {/* Only when the fee is actually taxed. A 0% line is noise pretending to be rigour. */}
-          {parts.taxMinor > 0 && (
+          {included.map((tax) => (
+            <Line
+              key={`incl-${tax.label}-${tax.rateBasisPoints}`}
+              muted
+              label={t('taxIncluded', {
+                label: tax.label,
+                rate: `${ratePercent(tax.rateBasisPoints)}%`,
+              })}
+              value={money(tax.amountMinor, currency, undefined, digits)}
+            />
+          ))}
+          {includedMaintenanceMinor > 0 && (
             <Line
               muted
-              label={t('feeTaxPart', { rate: `${ratePercent(rateBasisPoints)}%` })}
-              value={money2(parts.taxMinor)}
+              label={t('maintenanceIncluded')}
+              value={money(includedMaintenanceMinor, currency, undefined, digits)}
             />
           )}
-          <p className="text-caption text-text-muted">{t('feeBreakdownNote')}</p>
+          <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
         </div>
       )}
     </div>
@@ -171,11 +187,15 @@ export function PriceBreakdown({
    * back to INR when it is not told otherwise. A seat map for a cinema in Boise therefore
    * opened on "Total (0 seats) ₹0", switched to dollars the moment a seat was picked, and
    * switched back the moment the last one was removed.
-   *
-   * The caller already knows the answer: it resolves the venue's country to price the seat
-   * map itself. It just had no way to say so.
    */
   fallbackCurrency,
+  /**
+   * Replaces "this is the final price" once a quote exists; `null` shows nothing.
+   *
+   * That sentence is a promise about money not yet taken. On a confirmation, where the money
+   * HAS been taken, it answers a question nobody is asking.
+   */
+  note,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -184,6 +204,7 @@ export function PriceBreakdown({
   emptyNote?: string;
   free?: boolean;
   fallbackCurrency?: string;
+  note?: string | null;
 }) {
   const t = useTranslations('storefront.event');
   // The quote still wins whenever there is one: it is what the buyer will be charged in.
@@ -192,9 +213,7 @@ export function PriceBreakdown({
   /*
     The arithmetic lives in `@eticketsgo/web-kit` and is unit-tested there, because the one
     thing this component must never get wrong is a number. The rule it enforces: the rows
-    rendered above the total add up to the total. That has been broken twice — both times by
-    showing tax that was already inside the price as though it were being added — and a test
-    that checked labels would have passed on both occasions.
+    rendered above the total add up to the total.
   */
   const breakdown = quote ? priceBreakdown(quote) : null;
 
@@ -202,8 +221,7 @@ export function PriceBreakdown({
     One number of decimals for the whole breakdown, decided from the amounts in it.
 
     Deciding per row prints "₹300" above "₹55.22", where the decimal points do not line up
-    and the first row reads as a different kind of number from the second. Whole-rupee carts
-    — which is most of them — still show ₹300 and ₹350 with no trailing noise.
+    and the first row reads as a different kind of number from the second.
   */
   const digits = breakdown
     ? moneyFractionDigits(
@@ -226,68 +244,63 @@ export function PriceBreakdown({
 
   return (
     <div className="border-t border-border pt-4">
-      {quote ? (
+      {breakdown ? (
         <div className="space-y-1" data-testid="price-breakdown">
-          {breakdown!.rows.map((row) => {
-            /*
-              One row for what the platform costs, not three. The booking fee, the payment
-              fee and the tax on them were separate lines; none of the three answers what a
-              buyer is asking, and adding them up was work being handed to the customer.
-            */
-            const LABELS: Record<string, () => string> = {
-              tickets: () => t('lineTickets'),
-              discount: () => t('lineDiscount'),
-              // A statutory charge, and its own row only when it is ADDED — an included one
-              // is disclosed below the total instead, because it is already in the price.
-              maintenance: () => t('maintenanceCharge'),
-              platformFee: () =>
-                breakdown!.platformFeeRateBasisPoints > 0
-                  ? t('platformFeeInclusive', {
-                      rate: `${ratePercent(breakdown!.platformFeeRateBasisPoints)}%`,
-                    })
-                  : t('platformFee'),
-            };
-            /*
-              A lookup rather than a fifth nested ternary. The chain was already three deep
-              and this row would have made it four — at which point the thing deciding what a
-              customer is shown becomes unreadable, and unreadable is how the wrong label ends
-              up on the wrong number.
-            */
-            const label =
-              LABELS[row.kind]?.() ?? `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
+          {breakdown.rows.map((row) => {
             const value =
               row.amountMinor < 0
                 ? `- ${money(-row.amountMinor, currency, undefined, digits)}`
                 : money(row.amountMinor, currency, undefined, digits);
+            const key = `${row.kind}-${row.label ?? ''}-${row.rateBasisPoints ?? ''}`;
 
-            /*
-              The platform fee stays ONE row and gains a way to open it.
-
-              Three lines hand the customer arithmetic; one line with no explanation asks them
-              to trust a number. The parts go to genuinely different places — the booking fee
-              is ours, the payment fee is what the card or UPI network charges — and a buyer
-              who wants to know that should not have to ask support.
-            */
-            if (row.kind === 'platformFee') {
+            if (row.kind === 'tickets') {
               return (
-                <PlatformFeeLine
-                  key="platformFee"
-                  label={label}
+                <TicketsLine
+                  key={key}
+                  label={t('lineTickets')}
                   value={value}
-                  parts={breakdown!.platformFee}
-                  rateBasisPoints={breakdown!.platformFeeRateBasisPoints}
+                  included={breakdown.includedTax}
+                  includedMaintenanceMinor={breakdown.includedMaintenanceMinor}
                   currency={currency}
                   digits={digits}
                 />
               );
             }
-            return (
-              <Line
-                key={`${row.kind}-${row.label ?? ''}-${row.rateBasisPoints ?? ''}`}
-                label={label}
-                value={value}
-              />
-            );
+            /*
+              Payment processing says who charges it. Folded into "Platform fee" it read as
+              money the platform keeps — the reported complaint — when it is what the card or
+              UPI network charges to move the payment.
+            */
+            if (row.kind === 'paymentFee') {
+              return (
+                <Line
+                  key={key}
+                  label={t('feePaymentPart')}
+                  hint={t('paymentFeeHint')}
+                  value={value}
+                />
+              );
+            }
+            /*
+              A lookup rather than a nested ternary: the thing deciding what a customer is shown
+              should stay readable, because unreadable is how the wrong label ends up on the
+              wrong number.
+            */
+            const LABELS: Record<string, () => string> = {
+              discount: () => t('lineDiscount'),
+              // A statutory charge, and its own row only when it is ADDED — an included one is
+              // disclosed with the tickets instead, because it is already in the price.
+              maintenance: () => t('maintenanceCharge'),
+              platformFee: () => t('platformFee'),
+              feeTax: () =>
+                (row.rateBasisPoints ?? 0) > 0
+                  ? t('feeTaxPart', { rate: `${ratePercent(row.rateBasisPoints ?? 0)}%` })
+                  : t('feeTaxNoRate'),
+              fees: () => t('feesCombined'),
+            };
+            const label =
+              LABELS[row.kind]?.() ?? `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
+            return <Line key={key} label={label} value={value} />;
           })}
         </div>
       ) : null}
@@ -305,44 +318,20 @@ export function PriceBreakdown({
           {money(quote ? quote.totalMinor : (fallbackTotalMinor ?? 0), currency, undefined, digits)}
         </span>
       </div>
-      {/*
-        An INCLUDED maintenance charge is disclosed here, never added above. It is already
-        inside the ticket price — listing it as a row would ask the customer to add it a
-        second time and produce a column that does not foot.
-      */}
-      {breakdown && breakdown.includedMaintenanceMinor > 0 && (
-        <div className="mt-2">
-          <Line
-            muted
-            label={t('maintenanceIncluded')}
-            value={money(breakdown.includedMaintenanceMinor, currency, undefined, digits)}
-          />
-        </div>
+      {quote && note === null ? null : (
+        <p className="mt-1 text-caption text-text-muted">
+          {/*
+            Three different states, three different sentences. The old copy said the same
+            apologetic thing in all of them, which meant it was wrong in the one case that
+            matters — when we DO know the full amount and could simply say so.
+          */}
+          {quote
+            ? (note ?? t('priceIsFinal'))
+            : loading
+              ? t('priceWorking')
+              : (emptyNote ?? t('priceAddOne'))}
+        </p>
       )}
-      {breakdown && breakdown.includedTax.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {breakdown.includedTax.map((tax) => (
-            <Line
-              key={`incl-${tax.label}-${tax.rateBasisPoints}`}
-              muted
-              label={t('taxIncluded', {
-                label: tax.label,
-                rate: `${ratePercent(tax.rateBasisPoints)}%`,
-              })}
-              value={money(tax.amountMinor, currency, undefined, digits)}
-            />
-          ))}
-          <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
-        </div>
-      )}
-      <p className="mt-1 text-caption text-text-muted">
-        {/*
-          Three different states, three different sentences. The old copy said the same
-          apologetic thing in all of them, which meant it was wrong in the one case that
-          matters — when we DO know the full amount and could simply say so.
-        */}
-        {quote ? t('priceIsFinal') : loading ? t('priceWorking') : (emptyNote ?? t('priceAddOne'))}
-      </p>
     </div>
   );
 }

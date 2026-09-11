@@ -63,7 +63,63 @@ export interface PrintableTicketsProps {
   autoPrint?: boolean;
 }
 
+/**
+ * What the saved PDF is called: "CMD-Hyd - ETG-IND-2026-000009 - ETicketsGo ticket".
+ *
+ * A browser names "Save as PDF" after the document title, and every account page carried the
+ * site's tagline — so each ticket anybody saved was "ETicketsGo — Sell tickets, check in
+ * guests, understand your events.pdf", indistinguishable from the last one. Characters a file
+ * system refuses are dropped rather than left for the browser to mangle.
+ */
+export function ticketsDocumentTitle(tickets: WalletTicket[], copyLabel?: string): string {
+  const first = tickets[0];
+  return [
+    first?.event.title,
+    first?.bookingRef ?? first?.serial,
+    tickets.length === 1 ? 'ETicketsGo ticket' : 'ETicketsGo tickets',
+    copyLabel,
+  ]
+    .filter(Boolean)
+    .join(' - ')
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function PrintableTickets({ tickets, copyLabel, autoPrint }: PrintableTicketsProps) {
+  const title = tickets.length ? ticketsDocumentTitle(tickets, copyLabel) : '';
+  /*
+    Named before the print dialog can open — and HELD, not just set.
+
+    Next.js writes a page's metadata <title> itself, and on a full page load (a refresh, a
+    bookmark) it wrote it after this effect had run: the dialog opened with the site's tagline
+    and the PDF was named after it again. Setting it once only worked when the sheet was reached
+    by navigating inside the app.
+
+    The WHOLE document is watched, not just <head>: Next 15 streams metadata, and the <title> it
+    streams can land in <body>, where a head-only observer never sees it replaced. Whenever
+    anything writes a title, this one is put back, for as long as the sheet is on screen; the
+    equality check stops it echoing.
+  */
+  useEffect(() => {
+    if (!title) return undefined;
+    const previous = document.title;
+    const hold = () => {
+      if (document.title !== title) document.title = title;
+    };
+    hold();
+    const observer = new MutationObserver(hold);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+      document.title = previous;
+    };
+  }, [title]);
+
   /*
     Print only once there is something to print. Calling print() on mount produces a sheet of
     skeletons: the browser does not wait for a query to settle, and the customer gets paper
@@ -71,9 +127,13 @@ export function PrintableTickets({ tickets, copyLabel, autoPrint }: PrintableTic
   */
   useEffect(() => {
     if (!autoPrint || tickets.length === 0) return undefined;
-    const id = setTimeout(() => window.print(), 300);
+    const id = setTimeout(() => {
+      // Named at the instant the dialog opens, whatever wrote a title in the last 300ms.
+      if (title) document.title = title;
+      window.print();
+    }, 300);
     return () => clearTimeout(id);
-  }, [autoPrint, tickets.length]);
+  }, [autoPrint, tickets.length, title]);
 
   if (tickets.length === 0) return null;
 
