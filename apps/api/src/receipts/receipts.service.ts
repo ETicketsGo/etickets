@@ -10,6 +10,7 @@ import {
   type ReceiptKindName,
   type ReceiptLine,
   type ReceiptSeller,
+  type ReceiptTaxLine,
   type ReceiptTotals,
 } from './receipt-document';
 
@@ -154,6 +155,8 @@ export class ReceiptsService {
         rateBasisPoints: t.rateBasisPoints,
         baseMinor: t.baseMinor,
         amountMinor: t.amountMinor,
+        basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+        inclusive: t.inclusive ?? null,
       })),
       totals,
       /*
@@ -264,6 +267,8 @@ export class ReceiptsService {
         rateBasisPoints: t.rateBasisPoints,
         baseMinor: -Math.round(t.baseMinor * taxShare),
         amountMinor: -Math.round(t.amountMinor * taxShare),
+        basis: (t.basis as ReceiptTaxLine['basis']) ?? null,
+        inclusive: t.inclusive ?? null,
       })),
       totals,
       reverses: sale ? { number: sale.number, issuedAt: sale.issuedAt } : null,

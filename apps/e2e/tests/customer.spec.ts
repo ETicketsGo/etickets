@@ -46,6 +46,20 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await expect(qrs).toHaveCount(2);
   await expect(qrs.first()).toHaveAttribute('src', /^data:image\//);
 
+  /*
+    What was bought, and THIS booking's tickets one click away.
+
+    Reported from QA: the confirmation named no ticket lines, and the only way onward was
+    "All my tickets" — every ticket the account has ever bought, where the booking just made
+    had to be found again. Each QR now opens its own ticket too.
+  */
+  await expect(page.getByTestId('confirmation-order')).toContainText('× 2');
+  await expect(page.getByRole('link', { name: 'View tickets' })).toHaveAttribute(
+    'href',
+    /\/account\/bookings\/[^/]+\/tickets$/,
+  );
+  await expect(page.getByRole('link', { name: 'Open ticket' })).toHaveCount(2);
+
   // Ticket wallet: the multi-ticket booking shows as ONE booking group card
   await page.getByRole('link', { name: 'All my tickets' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/);

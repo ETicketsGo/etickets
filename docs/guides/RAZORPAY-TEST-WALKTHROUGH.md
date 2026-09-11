@@ -98,6 +98,25 @@ Razorpay dashboard, or use a domestic test card. Domestic test numbers are liste
 Razorpay dashboard itself**, which is the only source that reflects your account — this
 file deliberately no longer quotes any, because that is the mistake it is correcting.
 
+### Why "Indian test cards" were refused on QA (checked 2026-09-11)
+
+Read from the Razorpay API for the QA account, not guessed:
+
+- **Every refused card attempt** was a Visa (last 4 `1111` and `3274`) that Razorpay
+  classified as **international** and refused with
+  `BAD_REQUEST_ERROR / international_transaction_not_allowed` —
+  _"This business accepts domestic (Indian) card payments only"_. Tables of "Razorpay India
+  test cards" found on the web are largely the older public numbers, which the test gateway
+  now treats as international. Razorpay's own public test-card page currently lists only
+  US and international cards.
+- **Two domestic cards did succeed** on this account on 2026-09-07: a Mastercard credit card
+  issued by HDFC (last 4 `1006`) and a Visa debit card (last 4 `1007`). Take the full numbers
+  from the dashboard's test-card list.
+- Nothing in the platform was broken. What _was_ broken is that the reason never reached the
+  buyer: the checkout said "Payment was cancelled" and the email quoted a database id. The
+  checkout now shows the reason ("This card was issued outside India…"), and the
+  payment-failed email names the event, amount, reason and how long the seats are held.
+
 **UPI needs enabling** — Razorpay Dashboard → Settings → Configuration → Payment Methods —
 before any UPI id is worth trying.
 

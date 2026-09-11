@@ -5,8 +5,19 @@
     "body": "{count} confirmed{forEvent}{when}.{seats} Booking reference {reference}."
   },
   "PAYMENT_FAILED": {
+    "subjectWithEvent": "Payment failed for {event}",
     "subject": "Payment failed",
-    "body": "We could not process the payment for booking {reference}. Please try again."
+    "body": "Your payment{amount}{forEvent}{when} did not go through, and no tickets were issued.{reason}{retry} If your bank shows a debit for this attempt, it will be reversed automatically."
+  },
+  "paymentFailureReason": {
+    "INTERNATIONAL_CARD_NOT_ACCEPTED": " The card was issued outside India, and international cards are not accepted for this payment. Use a card issued in India or another payment method.",
+    "CARD_DECLINED": " Your bank declined the card.",
+    "INSUFFICIENT_FUNDS": " There were not enough funds available.",
+    "AUTHENTICATION_FAILED": " The OTP or card verification step was not completed.",
+    "CANCELLED": " The payment was cancelled before it completed.",
+    "TIMED_OUT": " The payment timed out before your bank confirmed it.",
+    "BANK_UNAVAILABLE": " Your bank or the payment network was not responding.",
+    "METHOD_NOT_AVAILABLE": " That payment method is not available for this booking."
   },
   "EVENT_REMINDER": {
     "subject": "Reminder: your event is coming up",
@@ -99,6 +110,9 @@
     "seats": " Seats {seats}.",
     "startingAt": " starting at {startsAt}",
     "reason": " Reason: {reason}.",
+    "amountOf": " of {amount}",
+    "heldUntil": " Your seats are held until {time}. Go back to the payment page before then to try again with another card or payment method.",
+    "retryLater": " You can start a new booking at any time.",
     "ref": " ({ref})",
     "yourBooking": "your booking",
     "yourEvent": "your event",

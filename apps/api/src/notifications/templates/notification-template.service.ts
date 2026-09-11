@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { NotificationType, money as formatMoney } from '@eticketsgo/shared-types';
+import {
+  NotificationType,
+  isPaymentFailureReason,
+  money as formatMoney,
+} from '@eticketsgo/shared-types';
 import { DEFAULT_LOCALE, isLocale, t, type Locale } from '@eticketsgo/i18n';
 
 /** The rendered pieces of a notification message. */
@@ -58,10 +62,35 @@ function str(p: Payload, key: string, fallback = ''): string {
  * Prefers the public reference (`ETG-IND-2026-000123`) — the string printed on the receipt
  * and the one somebody can read down a phone to support. Falls back to the database id only
  * when no reference exists, which is a booking that was never confirmed.
+ *
+ * A booking has no reference until it is PAID, so a notification about an unpaid one must not
+ * come through here — that is how "booking cmtwoqn9g000aediehsf66ngg" reached a customer whose
+ * payment had failed. PAYMENT_FAILED names the event, time and amount instead.
  */
 function bookingName(locale: Locale, p: Payload): string {
   const reference = str(p, 'reference').trim();
   return reference || str(p, 'bookingId', t(locale, 'emails.fragments.yourBooking'));
+}
+
+/**
+ * "2:35 am (IST)" — a clock time at the venue, named. Empty when the payload has none.
+ * The same venue-clock rule as {@link whenClause}; see there for why it is not the reader's.
+ */
+function clockClause(locale: Locale, iso: string, timeZoneRaw: string): string {
+  const at = new Date(iso);
+  if (!iso || Number.isNaN(at.getTime())) return '';
+  const timeZone = timeZoneRaw.trim() || 'UTC';
+  const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', timeZone };
+  try {
+    const time = at.toLocaleTimeString(FORMAT_LOCALE[locale], opts);
+    const zone =
+      new Intl.DateTimeFormat(FORMAT_LOCALE[locale], { timeZone, timeZoneName: 'short' })
+        .formatToParts(at)
+        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+    return `${time} (${zone})`;
+  } catch {
+    return `${at.toLocaleTimeString(FORMAT_LOCALE[locale], { ...opts, timeZone: 'UTC' })} (UTC)`;
+  }
 }
 
 /**
@@ -195,10 +224,39 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     body: t(l, 'emails.PASSWORD_CHANGED.body'),
   }),
 
-  [NotificationType.PAYMENT_FAILED]: (l, p) => ({
-    subject: t(l, 'emails.PAYMENT_FAILED.subject'),
-    body: t(l, 'emails.PAYMENT_FAILED.body', { reference: bookingName(l, p) }),
-  }),
+  /*
+    A payment that did not go through: which booking, how much, why, and what to do.
+
+    Every piece is optional so a notification queued before these fields existed still reads
+    as a sentence. The reason is one of our own codes, never the provider's prose. There is no
+    booking reference in it: an unpaid booking does not have one, and the fallback was the
+    database id.
+  */
+  [NotificationType.PAYMENT_FAILED]: (l, p) => {
+    const event = str(p, 'eventTitle').trim();
+    const reason = str(p, 'reason').trim();
+    const hasAmount = str(p, 'amountMinor').trim() !== '';
+    const heldUntil = clockClause(l, str(p, 'heldUntil'), str(p, 'timeZone'));
+    return {
+      subject: event
+        ? t(l, 'emails.PAYMENT_FAILED.subjectWithEvent', { event })
+        : t(l, 'emails.PAYMENT_FAILED.subject'),
+      body: t(l, 'emails.PAYMENT_FAILED.body', {
+        amount: hasAmount
+          ? t(l, 'emails.fragments.amountOf', { amount: money(l, p, 'amountMinor') })
+          : '',
+        forEvent: optional(l, 'forEvent', { event }),
+        when: whenClause(l, p),
+        reason:
+          isPaymentFailureReason(reason) && reason !== 'UNKNOWN'
+            ? t(l, `emails.paymentFailureReason.${reason}`)
+            : '',
+        retry: heldUntil
+          ? t(l, 'emails.fragments.heldUntil', { time: heldUntil })
+          : t(l, 'emails.fragments.retryLater'),
+      }),
+    };
+  },
 
   [NotificationType.EVENT_REMINDER]: (l, p) => ({
     subject: t(l, 'emails.EVENT_REMINDER.subject'),

@@ -5,6 +5,7 @@
  * required and unchanged; the richer operations are OPTIONAL so existing adapters
  * remain valid and new capabilities are added incrementally (backward compatible).
  */
+import type { PaymentFailureReason } from '@eticketsgo/shared-types';
 import type { PaymentProviderCapabilities } from '../domain/payment-capabilities';
 
 export interface CreatePaymentInput {
@@ -55,6 +56,12 @@ export interface PaymentEvent {
   providerRef: string;
   bookingId: string;
   amountMinor: number;
+  /**
+   * Why a `payment.failed` failed, when the provider said. `reason` is ours and is what the
+   * buyer is told; `providerCode` is the provider's own token (e.g.
+   * `international_transaction_not_allowed`), kept on the attempt for support — never its prose.
+   */
+  failure?: { reason: PaymentFailureReason; providerCode: string | null };
 }
 
 /**

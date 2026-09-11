@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import Razorpay from 'razorpay';
+import { razorpayFailureReason } from '@eticketsgo/shared-types';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type {
   CheckoutVerifyInput,
@@ -33,6 +34,10 @@ interface RazorpayWebhookBody {
         order_id?: string;
         amount?: number;
         notes?: Record<string, string | number> | null;
+        error_code?: string | null;
+        error_reason?: string | null;
+        error_source?: string | null;
+        error_step?: string | null;
       };
     };
     order?: {
@@ -163,6 +168,19 @@ export class RazorpayPaymentProvider implements PaymentProvider {
       providerRef: entity?.id ?? body.payload?.order?.entity?.id ?? bookingId,
       bookingId,
       amountMinor,
+      ...(type === 'payment.failed'
+        ? {
+            failure: {
+              reason: razorpayFailureReason({
+                code: entity?.error_code,
+                reason: entity?.error_reason,
+                source: entity?.error_source,
+                step: entity?.error_step,
+              }),
+              providerCode: entity?.error_reason ?? entity?.error_code ?? null,
+            },
+          }
+        : {}),
     };
   }
 

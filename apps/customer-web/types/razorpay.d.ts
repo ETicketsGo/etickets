@@ -23,9 +23,24 @@ interface RazorpayOptions {
   modal?: { ondismiss?: () => void };
 }
 
+/**
+ * What Checkout hands a `payment.failed` listener. Checkout stays open so the buyer can retry;
+ * the `reason` is what says WHY (e.g. `international_transaction_not_allowed`).
+ */
+interface RazorpayFailureResponse {
+  error?: {
+    code?: string;
+    description?: string;
+    source?: string;
+    step?: string;
+    reason?: string;
+  };
+}
+
 interface RazorpayInstance {
   open(): void;
   close(): void;
+  on(event: 'payment.failed', handler: (response: RazorpayFailureResponse) => void): void;
 }
 
 interface RazorpayConstructor {

@@ -96,7 +96,19 @@
     "extendFailed": "We could not extend the hold. Please continue to payment.",
     "noMoreExtensions": "This hold cannot be extended again. Complete the payment, or start over to pick your seats afresh.",
     "expiringSoon": "Your seats are about to be released.",
-    "availableOffers": "Available offers…"
+    "availableOffers": "Available offers…",
+    "verifyFailed": "We couldn’t verify your payment. If you were charged, it will be confirmed shortly — check “My bookings”.",
+    "failure": {
+      "INTERNATIONAL_CARD_NOT_ACCEPTED": "This card was issued outside India and isn’t accepted for this payment. Try a card issued in India, or pick net banking or a wallet in the payment window.",
+      "CARD_DECLINED": "Your bank declined this card. Try another card or payment method.",
+      "INSUFFICIENT_FUNDS": "There weren’t enough funds for this payment. Try another card or payment method.",
+      "AUTHENTICATION_FAILED": "The OTP or card verification wasn’t completed. Try again and finish the step your bank shows.",
+      "CANCELLED": "The payment was cancelled. Your seats are still held — you can try again.",
+      "TIMED_OUT": "The payment timed out before your bank confirmed it. Try again.",
+      "BANK_UNAVAILABLE": "Your bank isn’t responding right now. Try again shortly, or use another payment method.",
+      "METHOD_NOT_AVAILABLE": "That payment method isn’t available for this booking. Choose another one.",
+      "UNKNOWN": "The payment didn’t go through. Try again, or use another payment method."
+    }
   },
   "confirmation": {
     "steps": {
@@ -116,6 +128,13 @@
     "view": "View",
     "showAtDoor": "Show this at the door. It is also saved in your tickets, and a copy is on its way to {email}.",
     "allMyTickets": "All my tickets",
+    "viewTickets": "View tickets",
+    "openTicket": "Open ticket",
+    "yourOrder": "Your order",
+    "itemLine": "{name} × {quantity}",
+    "seats": "Seats",
+    "seat": "Seat",
+    "ticketQrAlt": "Entry QR code for ticket {serial}",
     "howWasBooking": "How was booking?",
     "followOrganizer": "Follow organizer",
     "followingOrganizer": "Following organizer"

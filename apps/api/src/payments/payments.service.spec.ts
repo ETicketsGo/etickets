@@ -63,6 +63,9 @@ function setup(opts: {
   const tx = makeTx(opts.claimCount ?? 1);
   const prisma = {
     booking: { findUnique: jest.fn().mockResolvedValue(opts.booking) },
+    // Written outside a transaction by fail(), which confirms nothing.
+    payment: { update: jest.fn().mockResolvedValue({}) },
+    paymentAttempt: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const strategy = {
@@ -151,6 +154,83 @@ const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
 });
 
 const webhook = { rawBody: '{}', signature: 'sig' };
+
+describe('PaymentsService.fail (via handleWebhook)', () => {
+  const FAILED_EVENT: PaymentEvent = {
+    type: 'payment.failed',
+    providerRef: 'pay_f1',
+    bookingId: 'b1',
+    amountMinor: 52_282,
+    failure: {
+      reason: 'INTERNATIONAL_CARD_NOT_ACCEPTED',
+      providerCode: 'international_transaction_not_allowed',
+    },
+  };
+  const unpaid = () =>
+    ({
+      ...pendingBooking({ totalMinor: 52_282 }),
+      reference: null,
+      currency: 'INR',
+      holdExpiresAt: new Date('2026-09-11T21:05:00.000Z'),
+      event: {
+        experienceType: ExperienceType.MOVIE,
+        title: 'Kantara Chapter 1',
+        venue: { country: 'India', timezone: 'Asia/Kolkata' },
+      },
+      eventSession: { startsAt: new Date('2026-09-12T14:30:00.000Z'), screen: null },
+    }) as unknown as BookingShape;
+
+  it('tells the buyer what failed, how much, why and until when — never the database id', async () => {
+    const { service, provider, prisma, notifications } = setup({ booking: unpaid() });
+    provider.verifyWebhook.mockResolvedValue(FAILED_EVENT);
+
+    await service.handleWebhook(webhook);
+
+    expect(prisma.payment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: PaymentStatus.FAILED } }),
+    );
+    expect(notifications.send).toHaveBeenCalledTimes(1);
+    const sent = notifications.send.mock.calls[0][0];
+    expect(sent.payload).toMatchObject({
+      eventTitle: 'Kantara Chapter 1',
+      startsAt: '2026-09-12T14:30:00.000Z',
+      timeZone: 'Asia/Kolkata',
+      amountMinor: 52_282,
+      currency: 'INR',
+      reason: 'INTERNATIONAL_CARD_NOT_ACCEPTED',
+      heldUntil: '2026-09-11T21:05:00.000Z',
+    });
+  });
+
+  it('is ONE notification per booking, however many attempts fail', async () => {
+    /*
+      QA received two identical "Payment failed" messages for two attempts on one booking. The
+      intent key is per booking, so the notification layer collapses the second.
+    */
+    const { service, provider, notifications } = setup({ booking: unpaid() });
+    provider.verifyWebhook.mockResolvedValue(FAILED_EVENT);
+    await service.handleWebhook(webhook);
+    await service.handleWebhook(webhook);
+    const keys = notifications.send.mock.calls.map(([input]) => input.intentKey);
+    expect(new Set(keys)).toEqual(new Set(['payment-failed:b1']));
+  });
+
+  it('does not tell somebody holding tickets that their payment failed', async () => {
+    /*
+      A refused card, then net banking that succeeded: the refusal's webhook can arrive after
+      the booking is confirmed. The attempt is recorded; the payment and the buyer are left alone.
+    */
+    const confirmed = { ...unpaid(), status: BookingStatus.CONFIRMED } as BookingShape;
+    const { service, provider, prisma, notifications } = setup({ booking: confirmed });
+    provider.verifyWebhook.mockResolvedValue(FAILED_EVENT);
+
+    await service.handleWebhook(webhook);
+
+    expect(prisma.paymentAttempt.create).toHaveBeenCalledTimes(1);
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+    expect(notifications.send).not.toHaveBeenCalled();
+  });
+});
 
 describe('PaymentsService.confirm (via handleWebhook)', () => {
   it('confirms a pending booking: issues N tickets, marks SUCCEEDED, records attempt', async () => {

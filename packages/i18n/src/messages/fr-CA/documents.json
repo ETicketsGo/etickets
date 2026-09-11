@@ -22,6 +22,10 @@
     "taxRegistration": "Numéro de taxe",
     "noTaxInvoice": "Ceci n'est pas une facture de taxe.",
     "taxIncluded": "Comprend {label} @ {rate} sur {base}",
+    "taxIncludedInTickets": "Compris dans le prix des billets : {label} @ {rate} sur {base}",
+    "taxAdded": "{label} @ {rate} sur {base}",
+    "taxAddedOnFees": "{label} @ {rate} sur des frais de {base}",
+    "taxTotal": "Total des taxes de cette commande",
     "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus.",
     "paymentFee": "Traitement du paiement"
   },

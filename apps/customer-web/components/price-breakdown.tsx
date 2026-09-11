@@ -176,6 +176,13 @@ export function PriceBreakdown({
    * map itself. It just had no way to say so.
    */
   fallbackCurrency,
+  /**
+   * Replaces "this is the final price" once a quote exists; `null` shows nothing.
+   *
+   * That sentence is a promise about money not yet taken. On a confirmation, where the money
+   * HAS been taken, it answers a question nobody is asking.
+   */
+  note,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -184,6 +191,7 @@ export function PriceBreakdown({
   emptyNote?: string;
   free?: boolean;
   fallbackCurrency?: string;
+  note?: string | null;
 }) {
   const t = useTranslations('storefront.event');
   // The quote still wins whenever there is one: it is what the buyer will be charged in.
@@ -335,14 +343,20 @@ export function PriceBreakdown({
           <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
         </div>
       )}
-      <p className="mt-1 text-caption text-text-muted">
-        {/*
-          Three different states, three different sentences. The old copy said the same
-          apologetic thing in all of them, which meant it was wrong in the one case that
-          matters — when we DO know the full amount and could simply say so.
-        */}
-        {quote ? t('priceIsFinal') : loading ? t('priceWorking') : (emptyNote ?? t('priceAddOne'))}
-      </p>
+      {quote && note === null ? null : (
+        <p className="mt-1 text-caption text-text-muted">
+          {/*
+            Three different states, three different sentences. The old copy said the same
+            apologetic thing in all of them, which meant it was wrong in the one case that
+            matters — when we DO know the full amount and could simply say so.
+          */}
+          {quote
+            ? (note ?? t('priceIsFinal'))
+            : loading
+              ? t('priceWorking')
+              : (emptyNote ?? t('priceAddOne'))}
+        </p>
+      )}
     </div>
   );
 }

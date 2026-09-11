@@ -22,6 +22,10 @@
     "taxRegistration": "Tax registration",
     "noTaxInvoice": "This is not a tax invoice.",
     "taxIncluded": "Includes {label} @ {rate} on {base}",
+    "taxIncludedInTickets": "Included in ticket price: {label} @ {rate} on {base}",
+    "taxAdded": "{label} @ {rate} on {base}",
+    "taxAddedOnFees": "{label} @ {rate} on fees of {base}",
+    "taxTotal": "Total tax in this order",
     "taxIncludedNote": "Tax shown is already included in the total above.",
     "paymentFee": "Payment processing"
   },

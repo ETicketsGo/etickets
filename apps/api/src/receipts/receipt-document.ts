@@ -48,6 +48,17 @@ export interface ReceiptTaxLine {
   rateBasisPoints: number;
   baseMinor: number;
   amountMinor: number;
+  /**
+   * What the line was levied on, and whether it sat inside the price or was added to it.
+   *
+   * Recorded per LINE because one Indian order is both: GST on the ticket is inside the ticket
+   * price, GST on the platform fee is added to the fee. A receipt deciding for the whole
+   * document at once printed all four GST rows above the total, where none of them footed.
+   * Optional because every document issued before this carries neither; the renderer works
+   * those out from the arithmetic.
+   */
+  basis?: 'TICKETS' | 'FEES' | 'TICKETS_AND_FEES' | null;
+  inclusive?: boolean | null;
 }
 
 export interface ReceiptTotals {

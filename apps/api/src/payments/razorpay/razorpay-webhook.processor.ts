@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PaymentStatus, WebhookProcessingStatus } from '@eticketsgo/shared-types';
+import {
+  PaymentStatus,
+  WebhookProcessingStatus,
+  razorpayFailureReason,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { PaymentsService } from '../payments.service';
@@ -18,6 +22,11 @@ interface RzpPayment {
   amount?: number;
   currency?: string;
   notes?: Record<string, string | number> | null;
+  /** Present on a failed payment. `error_description` is merchant prose and is never kept. */
+  error_code?: string | null;
+  error_reason?: string | null;
+  error_source?: string | null;
+  error_step?: string | null;
 }
 interface RzpOrder {
   id?: string;
@@ -205,7 +214,29 @@ export class RazorpayWebhookProcessor {
       strOrNull(order?.receipt);
     const amountMinor = payment?.amount ?? order?.amount;
     if (!bookingId || typeof amountMinor !== 'number') return null;
-    return { type, providerRef: payment?.id ?? order?.id ?? bookingId, bookingId, amountMinor };
+    return {
+      type,
+      providerRef: payment?.id ?? order?.id ?? bookingId,
+      bookingId,
+      amountMinor,
+      /*
+        Why it failed, reduced to our own reason. Razorpay said "this business accepts domestic
+        (Indian) card payments only" and the buyer was told to "try again" with the same card.
+      */
+      ...(type === 'payment.failed'
+        ? {
+            failure: {
+              reason: razorpayFailureReason({
+                code: payment?.error_code,
+                reason: payment?.error_reason,
+                source: payment?.error_source,
+                step: payment?.error_step,
+              }),
+              providerCode: payment?.error_reason ?? payment?.error_code ?? null,
+            },
+          }
+        : {}),
+    };
   }
 
   private async handleRefund(p: RazorpayPayload): Promise<DispatchResult> {

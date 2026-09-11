@@ -68,6 +68,52 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     expect(updates.at(-1)).toMatchObject({ processingStatus: 'PROCESSED' });
   });
 
+  it('payment.failed carries WHY it failed, as our reason and Razorpay’s token', async () => {
+    /*
+      The QA refusal, verbatim from the Razorpay API. It used to be reduced to "failed" and the
+      buyer was told to try the same card again.
+    */
+    const { processor, payments } = makeProcessor({
+      record: rec({
+        eventType: 'payment.failed',
+        payload: {
+          object: {
+            payment: {
+              entity: {
+                id: 'pay_f1',
+                amount: 52282,
+                notes: { bookingId: 'b1' },
+                error_code: 'BAD_REQUEST_ERROR',
+                error_reason: 'international_transaction_not_allowed',
+                error_description: 'This business accepts domestic (Indian) card payments only.',
+                error_source: 'business',
+                error_step: 'payment_initiation',
+              },
+            },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    const event = payments.processVerifiedEvent.mock.calls[0][0];
+    expect(event).toMatchObject({
+      type: 'payment.failed',
+      bookingId: 'b1',
+      failure: {
+        reason: 'INTERNATIONAL_CARD_NOT_ACCEPTED',
+        providerCode: 'international_transaction_not_allowed',
+      },
+    });
+    // The provider's prose is for merchants and changes without notice; it is not kept.
+    expect(JSON.stringify(event)).not.toContain('domestic (Indian)');
+  });
+
+  it('a successful payment carries no failure', async () => {
+    const { processor, payments } = makeProcessor({ record: rec() });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent.mock.calls[0][0]).not.toHaveProperty('failure');
+  });
+
   it('order.paid resolves the booking from order receipt/notes', async () => {
     const { processor, payments } = makeProcessor({
       record: rec({

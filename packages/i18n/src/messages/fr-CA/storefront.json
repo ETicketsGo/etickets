@@ -96,7 +96,19 @@
     "extendFailed": "Nous n'avons pas pu prolonger la retenue. Veuillez passer au paiement.",
     "noMoreExtensions": "Cette retenue ne peut plus être prolongée. Complétez le paiement, ou recommencez pour choisir vos sièges de nouveau.",
     "expiringSoon": "Vos sièges seront bientôt libérés.",
-    "availableOffers": "Offres disponibles…"
+    "availableOffers": "Offres disponibles…",
+    "verifyFailed": "Nous n’avons pas pu vérifier votre paiement. Si vous avez été débité, il sera confirmé sous peu — consultez « Mes réservations ».",
+    "failure": {
+      "INTERNATIONAL_CARD_NOT_ACCEPTED": "Cette carte a été émise hors de l’Inde et n’est pas acceptée pour ce paiement. Essayez une carte émise en Inde, ou choisissez les services bancaires en ligne ou un portefeuille dans la fenêtre de paiement.",
+      "CARD_DECLINED": "Votre banque a refusé cette carte. Essayez une autre carte ou un autre mode de paiement.",
+      "INSUFFICIENT_FUNDS": "Les fonds étaient insuffisants pour ce paiement. Essayez une autre carte ou un autre mode de paiement.",
+      "AUTHENTICATION_FAILED": "La vérification (code à usage unique ou carte) n’a pas été complétée. Réessayez et terminez l’étape affichée par votre banque.",
+      "CANCELLED": "Le paiement a été annulé. Vos sièges sont toujours retenus — vous pouvez réessayer.",
+      "TIMED_OUT": "Le délai a expiré avant que votre banque ne confirme le paiement. Réessayez.",
+      "BANK_UNAVAILABLE": "Votre banque ne répond pas pour le moment. Réessayez sous peu ou utilisez un autre mode de paiement.",
+      "METHOD_NOT_AVAILABLE": "Ce mode de paiement n’est pas offert pour cette réservation. Choisissez-en un autre.",
+      "UNKNOWN": "Le paiement n’a pas abouti. Réessayez ou utilisez un autre mode de paiement."
+    }
   },
   "confirmation": {
     "steps": {
@@ -116,6 +128,13 @@
     "view": "Voir",
     "showAtDoor": "Présentez ceci à l'entrée. C'est aussi enregistré dans vos billets, et une copie est en route vers {email}.",
     "allMyTickets": "Tous mes billets",
+    "viewTickets": "Voir les billets",
+    "openTicket": "Ouvrir le billet",
+    "yourOrder": "Votre commande",
+    "itemLine": "{name} × {quantity}",
+    "seats": "Sièges",
+    "seat": "Siège",
+    "ticketQrAlt": "Code QR d’entrée du billet {serial}",
     "howWasBooking": "Comment s'est passée la réservation?",
     "followOrganizer": "Suivre l'organisateur",
     "followingOrganizer": "Organisateur suivi"

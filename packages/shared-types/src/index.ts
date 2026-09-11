@@ -31,3 +31,4 @@ export * from './admin-permissions';
 export * from './venue-templates';
 export * from './password-policy';
 export * from './account-identity';
+export * from './payment-failure';
