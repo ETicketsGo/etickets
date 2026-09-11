@@ -15,7 +15,8 @@
     "amount": "Montant",
     "subtotal": "Sous-total",
     "discount": "Rabais",
-    "bookingFee": "Frais de réservation",
+    "bookingFee": "Frais de service",
+    "fees": "Frais de réservation et de paiement",
     "total": "Total",
     "totalRefunded": "Total remboursé",
     "reverses": "Annule {reference}",
@@ -27,7 +28,7 @@
     "taxAddedOnFees": "{label} @ {rate} sur des frais de {base}",
     "taxTotal": "Total des taxes de cette commande",
     "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus.",
-    "paymentFee": "Traitement du paiement"
+    "paymentFee": "Frais de traitement du paiement"
   },
   "ticket": {
     "title": "Billet",

@@ -46,14 +46,32 @@ export default function BoxOfficePrintPage() {
 
   return (
     <>
-      <div className="no-print mx-auto flex max-w-2xl items-center justify-between gap-3 p-6">
-        <p className="text-sm text-text-muted">
-          {tickets.length} ticket{tickets.length === 1 ? '' : 's'} · printing is recorded against
-          your account.
-        </p>
+      {/*
+        A way back, because this page has no console chrome. And a button that can be seen: its
+        colour class was `bg-brand-primary`, which the design tokens do not define, so it
+        rendered white text on a white page — the same defect the customer's print page had.
+      */}
+      <div className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) window.history.back();
+              else window.location.assign('/organizer/bookings');
+            }}
+            className="text-sm font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            ← Back
+          </button>
+          <p className="text-sm text-text-muted">
+            {tickets.length} ticket{tickets.length === 1 ? '' : 's'} · printing is recorded against
+            your account.
+          </p>
+        </div>
         <button
+          type="button"
           onClick={() => window.print()}
-          className="rounded-md bg-brand-primary px-4 py-2 text-sm font-medium text-white"
+          className="rounded-md bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-foreground hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           Print
         </button>

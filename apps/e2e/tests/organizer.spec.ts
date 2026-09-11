@@ -14,6 +14,19 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   // A dropdown now, not a text box: browse builds its category list with `distinct`
   // over this column, so every typo an organizer typed became its own row on the front page.
   await page.getByLabel('Category').selectOption('Music');
+  /*
+    An image, as an organizer adds one. The picker resizes it in the browser before it is ever
+    sent, so a one-pixel PNG goes up as a JPEG — which is what the API is asserted to store.
+  */
+  await page.getByLabel('Event image').setInputFiles({
+    name: 'poster.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  });
+  await expect(page.getByRole('img', { name: 'Event image preview' })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 2 — venue (pick the first existing venue)
@@ -66,8 +79,31 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   // Redirected to the event overview, now under review
   await expect(page).toHaveURL(/\/organizer\/events\/.+/, { timeout: 20_000 });
   await expect(page.getByText('Under Review').first()).toBeVisible({ timeout: 20_000 });
+  const eventId = new URL(page.url()).pathname.split('/').filter(Boolean).pop()!;
 
   // It shows up in the events list
   await page.goto(`${ORGANIZER}/organizer/events`);
   await expect(page.getByText(title)).toBeVisible();
+
+  /*
+    The image went up with the event, and the API serves it as an image anyone's page can load.
+  */
+  await page.goto(`${ORGANIZER}/organizer/events/${eventId}/edit`);
+  const preview = page.getByRole('img', { name: 'Event image preview' });
+  await expect(preview).toBeVisible({ timeout: 20_000 });
+  const src = await preview.getAttribute('src');
+  expect(src).toMatch(/\/public\/events\/[^/]+\/image\?v=[0-9a-f]{16}$/);
+  const served = await page.request.get(src!);
+  expect(served.status()).toBe(200);
+  expect(served.headers()['content-type']).toBe('image/jpeg');
+  expect(served.headers()['cross-origin-resource-policy']).toBe('cross-origin');
+
+  /*
+    Reported from QA: "I created an event and published it; creating a new event still shows
+    the previous event's review page". The draft was cleared and then written straight back.
+    A new wizard after a submitted one starts empty.
+  */
+  await page.goto(`${ORGANIZER}/organizer/events/new`);
+  await expect(page.getByLabel('Event title')).toHaveValue('');
+  await expect(page.getByText(/Picked up where you left off/)).toHaveCount(0);
 });

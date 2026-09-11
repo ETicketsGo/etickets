@@ -48,41 +48,23 @@ test('customer books a movie seat and pays', async ({ page }) => {
   const breakdown = page.getByTestId('price-breakdown');
   await expect(breakdown).toBeVisible({ timeout: 20_000 });
   /*
-    Exact, because the platform-fee line reads "Booking fee — ETicketsGo" and the brand name
-    contains the word. A substring match resolves to two elements and fails strict mode --
-    which is what it did the first time this suite ran after the fee breakdown was itemised.
+    Exact, because a label can carry the word inside a longer sentence. A substring match
+    resolves to two elements and fails strict mode.
   */
   await expect(breakdown.getByText('Tickets', { exact: true })).toBeVisible();
   /*
-    ONE row for what the platform charges, not three.
+    The fees, each on its own line.
 
-    This asserted 'Booking fee', which was one of three rows — booking fee, payment fee, and
-    the tax charged on them. None of those three answers the question the buyer is asking,
-    and adding them up was work being handed to the customer. The row is now "Platform fee",
-    with the tax rate named in the label when there is one.
+    They were one "Platform fee (incl. 18% GST)" row that opened to show a booking fee and a
+    payment fee inside it. Reported from QA: folding the payment fee into a row named after the
+    platform reads as money the platform keeps, when it is what the card or UPI network
+    charges. Payment processing, the platform fee and the tax on them are now rows of their own.
   */
-  await expect(breakdown.getByText(/Platform fee/)).toBeVisible();
-  /*
-    The booking and payment fees still exist, and are now WHAT THE ONE ROW IS MADE OF rather
-    than rows of their own. They live inside the platform fee's own disclosure, so the check
-    is that they appear nowhere else: three sibling rows would put them outside it.
-
-    This asserted a flat count of zero, which was right when the parts were not rendered at
-    all and became wrong when the fee was made explainable in place. A buyer asking "what is
-    this fee" should not have to open a link to find out; the assertion had to learn the
-    difference between a row and a detail.
-  */
-  const feeParts = breakdown.getByTestId('platform-fee-parts');
-  await expect(feeParts.getByText(/Booking fee/)).toBeVisible();
-  /*
-    And nowhere else. Counting inside the disclosure against counting across the whole
-    breakdown says "these appear only as parts" without asserting anything about how the
-    markup is nested — a selector describing the DOM shape would fail the next time somebody
-    changed a wrapper for reasons that have nothing to do with this guarantee.
-  */
-  expect(await breakdown.getByText(/Booking fee/).count()).toBe(
-    await feeParts.getByText(/Booking fee/).count(),
-  );
+  await expect(breakdown.getByText('Payment processing fee', { exact: true })).toBeVisible();
+  await expect(breakdown.getByText('Platform fee', { exact: true })).toBeVisible();
+  // Tax already inside the ticket price is folded under the tickets, closed until asked for.
+  const includedTax = breakdown.getByTestId('included-tax');
+  if (await includedTax.count()) await expect(includedTax).toBeHidden();
 
   /*
     And the rows FOOT. This is the guarantee worth pinning: whatever the breakdown chooses
@@ -103,27 +85,12 @@ test('customer books a movie seat and pays', async ({ page }) => {
   };
 
   /*
-    The fee's own parts are excluded, because they are a DECOMPOSITION of a row, not rows.
-
-    "Platform fee" is followed, inside its disclosure, by the booking fee and payment fee it
-    is made of. Summing the breakdown's text wholesale therefore counts that money twice and
-    the footing check fails by exactly the fee -- which is what it did here: off by 14.20
-    against a total that was entirely correct.
-
-    Removing the disclosure's own lines leaves the rows a buyer reads as rows, which is what
-    this guarantee has always been about.
+    Every visible line is a row now — the fees are rows, not the parts of one — so the text is
+    summed wholesale. The included tax under the tickets is hidden unless opened, and hidden
+    text is not in `innerText`, so it cannot be counted as a charge.
   */
-  const partLines = new Set(
-    (await feeParts.count())
-      ? (await feeParts.innerText())
-          .split('\n')
-          .map((l) => l.trim())
-          .filter(Boolean)
-      : [],
-  );
   const visible = (await breakdown.innerText())
     .split('\n')
-    .filter((line) => !partLines.has(line.trim()))
     .map(trailingAmount)
     .filter((n): n is number => n !== null);
   const total = trailingAmount(await page.getByTestId('price-total').innerText());

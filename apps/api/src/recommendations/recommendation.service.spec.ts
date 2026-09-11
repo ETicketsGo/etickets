@@ -17,6 +17,7 @@ const card = (id: string): PublicEventCardLike => ({
   nextSessionAt: NOW,
   fromPriceMinor: 10000,
   currency: 'INR',
+  imagePath: null,
 });
 
 const ids = (cards: PublicEventCardLike[]) => cards.map((c) => c.id);

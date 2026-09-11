@@ -193,13 +193,14 @@ export default function BookingTicketsViewer() {
     Paper, for a door that reads rather than scans — and for anyone who would rather not hold
     up a phone with a dying battery in a queue.
   */
+  const printHref = `/account/bookings/${bookingId}/tickets/print`;
   const printLink = (
-    <a
-      href={`/account/bookings/${bookingId}/tickets/print`}
+    <Link
+      href={printHref}
       className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       <Printer className="h-4 w-4" aria-hidden /> Print
-    </a>
+    </Link>
   );
 
   const backLink = (
@@ -460,7 +461,12 @@ export default function BookingTicketsViewer() {
                   )
             }
           />
-          <QuickAction icon={Download} label="PDF" onClick={() => window.print()} />
+          {/*
+            The PDF is the print sheet, saved. It called `window.print()` on THIS page, which
+            printed the site header and bottom navigation over the QR and named the file after
+            the site's tagline. The sheet has no chrome, one ticket per page, and a real name.
+          */}
+          <QuickAction icon={Download} label="PDF" onClick={() => router.push(printHref)} />
           <QuickAction
             icon={Wallet}
             label="Wallet"

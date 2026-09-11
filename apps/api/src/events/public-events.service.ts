@@ -7,6 +7,7 @@ import { AdvertisedPriceService } from '../pricing/advertised-price.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
 import { countryAliases } from '../common/country';
+import { eventImagePath } from './event-image';
 
 export interface PublicEventFilters {
   q?: string;
@@ -104,6 +105,8 @@ export class PublicEventsService {
         include: {
           venue: { select: { name: true, city: true, country: true } },
           organization: { select: { name: true } },
+          // The hash only. A listing must never drag an image's bytes out of the database.
+          image: { select: { sha256: true } },
           sessions: {
             /*
               The NEXT session, not the first one ever scheduled.
@@ -134,6 +137,7 @@ export class PublicEventsService {
           category: e.category,
           venue: e.venue,
           organizer: e.organization.name,
+          imagePath: e.image ? eventImagePath(e.id, e.image.sha256) : null,
           nextSessionAt: e.sessions[0]?.startsAt ?? null,
           fromPriceMinor: await this.advertised.forTicket(
             e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
@@ -177,6 +181,7 @@ export class PublicEventsService {
       where: { slug },
       include: {
         venue: true,
+        image: { select: { sha256: true } },
         organization: {
           select: {
             id: true,
@@ -209,6 +214,7 @@ export class PublicEventsService {
       id: event.id,
       title: event.title,
       slug: event.slug,
+      imagePath: event.image ? eventImagePath(event.id, event.image.sha256) : null,
       experienceType: event.experienceType,
       category: event.category,
       description: event.description,
@@ -284,6 +290,7 @@ export class PublicEventsService {
       take: 24,
       include: {
         venue: { select: { name: true, city: true, country: true } },
+        image: { select: { sha256: true } },
         sessions: {
           orderBy: { startsAt: 'asc' },
           take: 1,
@@ -332,6 +339,7 @@ export class PublicEventsService {
         category: e.category,
         venue: e.venue,
         organizer: org.name,
+        imagePath: e.image ? eventImagePath(e.id, e.image.sha256) : null,
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertisedByEvent.get(e.id) ?? null,
         currency: e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',

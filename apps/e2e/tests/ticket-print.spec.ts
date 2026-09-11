@@ -104,6 +104,73 @@ test.describe('printing tickets', () => {
     await context.close();
   });
 
+  /*
+    Reported from QA: after the print dialog there was no way back to the tickets, and a saved
+    PDF was named after the site's tagline. The PDF button printed the whole page, header and
+    bottom navigation over the QR.
+  */
+  test('the print sheet has a way back, a real file name, and is what PDF opens', async ({
+    browser,
+    request,
+  }) => {
+    const tokens = await apiLogin(request, 'customer1@eticketsgo.test');
+    const wallet = await (
+      await request.get(`${API}/tickets`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      })
+    ).json();
+    test.skip(!Array.isArray(wallet) || wallet.length === 0, 'no tickets in this environment');
+    const bookingId = wallet[0].bookingId;
+
+    const context = await browser.newContext();
+    await seedBrowserAuth(context, tokens);
+    const page = await context.newPage();
+    /*
+      The print dialog cannot be driven from a test. Stubbed so autoPrint does not block — and
+      so it records the title at the moment printing starts, which is the name "Save as PDF"
+      gives the file. A title that becomes right a moment later names nothing.
+    */
+    await page.addInitScript(() => {
+      const w = window as unknown as { __printTitles: string[] };
+      w.__printTitles = [];
+      window.print = () => {
+        w.__printTitles.push(document.title);
+      };
+    });
+    const printTitles = () =>
+      page.evaluate(() => (window as unknown as { __printTitles: string[] }).__printTitles);
+
+    await page.goto(`${CUSTOMER}/account/bookings/${bookingId}/tickets`);
+    await page.getByRole('button', { name: 'PDF' }).click();
+    await expect(page).toHaveURL(new RegExp(`/account/bookings/${bookingId}/tickets/print$`));
+    await expect(page.getByText(/Ticket 1 of/)).toBeVisible({ timeout: 20_000 });
+
+    // Named for the event and booking, which is what "Save as PDF" calls the file.
+    await expect(page).toHaveTitle(/ - ETicketsGo tickets?$/);
+    expect(await page.title()).not.toMatch(/Sell tickets, check in guests/);
+
+    // A visible button, and a way back.
+    await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible();
+    await page.getByRole('link', { name: 'Back to tickets' }).click();
+    await expect(page).toHaveURL(new RegExp(`/account/bookings/${bookingId}/tickets$`));
+
+    /*
+      And on a direct load — a refresh or a bookmark — where Next.js writes the page's own
+      title after the sheet has rendered. Setting the title once passed the check above and
+      still opened the dialog with the site's tagline here.
+    */
+    await page.goto(`${CUSTOMER}/account/bookings/${bookingId}/tickets/print`);
+    await expect(page.getByRole('link', { name: 'Back to tickets' })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect
+      .poll(async () => (await printTitles()).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    expect((await printTitles()).at(-1)).toMatch(/ - ETicketsGo tickets?$/);
+
+    await context.close();
+  });
+
   test('box office staff print a booking they do not own', async ({ browser, request }) => {
     const staff = await apiLogin(request, 'owner@eticketsgo.test');
 

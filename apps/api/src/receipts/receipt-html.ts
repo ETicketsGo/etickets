@@ -386,13 +386,18 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
         d.feeParts &&
         d.feeParts.bookingFeeMinor + d.feeParts.paymentFeeMinor === d.totals.feeMinor &&
         d.totals.feeMinor !== 0
-          ? `${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}${
+          ? /*
+              Payment processing first, then the platform's own fee — the order the checkout
+              shows them in, so the receipt reads line for line against what was agreed to.
+            */
+            `${
               d.feeParts.paymentFeeMinor !== 0
                 ? totalRow(label('paymentFee'), d.feeParts.paymentFeeMinor)
                 : ''
-            }`
+            }${d.feeParts.bookingFeeMinor !== 0 ? totalRow(label('bookingFee'), d.feeParts.bookingFeeMinor) : ''}`
           : d.totals.feeMinor !== 0
-            ? totalRow(label('bookingFee'), d.totals.feeMinor)
+            ? // Parts unknown or not footing: the two together, named as the two together.
+              totalRow(label('fees'), d.totals.feeMinor)
             : ''
       }
       ${exclusiveTaxRows}

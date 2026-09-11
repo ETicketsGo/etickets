@@ -212,7 +212,12 @@ describe('receipt footing — GST inside the ticket AND added to the fee (one In
   it('FOOTS: ticket + booking fee + processing + GST on the fees = ₹522.82', () => {
     const { rows, totalAt, above } = split(renderReceiptHtml(mixed(true), 'en'));
     expect(rows[totalAt].amount).toBe(52_282);
-    expect(above.map((r) => r.amount)).toEqual([49_900, 1_000, 1_018, 182, 182]);
+    // Payment processing, then the platform fee — the order the checkout shows.
+    expect(above.map((r) => r.amount)).toEqual([49_900, 1_018, 1_000, 182, 182]);
+    expect(above.map((r) => r.label).slice(1, 3)).toEqual([
+      'Payment processing fee',
+      'Platform fee',
+    ]);
     expect(above.reduce((sum, r) => sum + r.amount, 0)).toBe(52_282);
   });
 

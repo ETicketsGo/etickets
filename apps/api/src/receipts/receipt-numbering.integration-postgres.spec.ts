@@ -340,6 +340,101 @@ describe('integration-real-postgres: receipt numbering', () => {
   );
 
   maybe(
+    'reverses Indian GST per line: inside the ticket price, and none of the fee GST',
+    async () => {
+      guard();
+      /*
+        The QA booking whose refund was refused: one ₹499 ticket with its GST inside the price,
+        and ₹20.18 of fees with GST added. Refunded, ₹499 goes back — the ticket GST inside it,
+        disclosed as included; the fee GST stays with the fee. A credit note that apportioned
+        the booking's whole tax would have reversed fee GST that never moved.
+      */
+      const bookingId = await makeBooking({ totalMinor: 52_282, taxMinor: 7_976 });
+      await db!.booking.update({
+        where: { id: bookingId },
+        data: {
+          subtotalMinor: 49_900,
+          bookingFeeMinor: 1_000,
+          paymentFeeMinor: 1_018,
+          customerFeeMinor: 2_018,
+        },
+      });
+      const ticketType = await db!.ticketType.create({
+        data: { eventSessionId: sessionId, name: 'Gold', priceMinor: 49_900, quantityTotal: 10 },
+      });
+      await db!.bookingItem.create({
+        data: {
+          bookingId,
+          ticketTypeId: ticketType.id,
+          quantity: 1,
+          unitPriceMinor: 49_900,
+          lineTotalMinor: 49_900,
+        },
+      });
+      const ticket = await db!.ticket.create({
+        data: {
+          bookingId,
+          ticketTypeId: ticketType.id,
+          eventSessionId: sessionId,
+          organizationId: orgId,
+          serial: `TKT-${suffix}-GST`,
+          nonce: 'integration',
+        },
+      });
+      const gst = (basis: 'TICKETS' | 'FEES', label: string) => ({
+        bookingId,
+        label,
+        rateBasisPoints: 900,
+        baseMinor: basis === 'TICKETS' ? 42_288 : 2_018,
+        amountMinor: basis === 'TICKETS' ? 3_806 : 182,
+        basis,
+        inclusive: basis === 'TICKETS',
+      });
+      await db!.bookingTaxLine.createMany({
+        data: [
+          gst('TICKETS', 'CGST'),
+          gst('TICKETS', 'SGST'),
+          gst('FEES', 'CGST'),
+          gst('FEES', 'SGST'),
+        ],
+      });
+      await db!.$transaction((tx: never) => receipts.issueForBooking(tx, bookingId));
+
+      const refund = await db!.refund.create({
+        data: {
+          bookingId,
+          organizationId: orgId,
+          amountMinor: 49_900,
+          taxMinor: 7_612,
+          status: 'COMPLETED',
+          reason: 'Plans changed',
+          ticketIds: [ticket.id],
+        },
+      });
+      await db!.$transaction((tx: never) => receipts.issueCreditNote(tx, refund.id));
+      const note = await db!.receipt.findUnique({ where: { refundId: refund.id } });
+
+      expect(note!.totalMinor).toBe(-49_900);
+      // The ticket price, not the price less its GST: the GST was inside it, not added to it.
+      expect(note!.subtotalMinor).toBe(-49_900);
+      expect(note!.taxMinor).toBe(-7_612);
+      expect(note!.feeMinor).toBe(0);
+      const lines = (
+        note!.documentJson as {
+          taxLines: { label: string; amountMinor: number; inclusive: boolean; basis: string }[];
+        }
+      ).taxLines;
+      expect(lines.map((l) => [l.label, l.basis, l.amountMinor, l.inclusive])).toEqual([
+        ['CGST', 'TICKETS', -3_806, true],
+        ['SGST', 'TICKETS', -3_806, true],
+      ]);
+
+      await db!.refund.deleteMany({ where: { id: refund.id } });
+    },
+    60_000,
+  );
+
+  maybe(
     'states the exact tax the refund returned, not an apportionment of it',
     async () => {
       guard();

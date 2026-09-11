@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   api,
+  apiAssetUrl,
   Button,
   Card,
   Input,
@@ -16,6 +17,7 @@ import {
   errorMessage,
 } from '@eticketsgo/web-kit';
 import { EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
+import { EventImagePicker, prepareEventImage } from '@/components/event-image-picker';
 
 const EDITABLE = ['DRAFT', 'UNDER_REVIEW', 'PAUSED'];
 const FEE_MODES = ['CUSTOMER_PAYS', 'ORGANIZER_PAYS', 'SHARED'];
@@ -73,6 +75,27 @@ export default function EditEvent() {
       qc.invalidateQueries({ queryKey: ['event', id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
+
+  /* The image saves on its own, the moment it is chosen — it is not part of "Save changes". */
+  const [imageError, setImageError] = useState<string | null>(null);
+  const uploadImage = useMutation({
+    mutationFn: async (file: File) => api.events.uploadImage(id, await prepareEventImage(file)),
+    onSuccess: () => {
+      setImageError(null);
+      toast.push('Image updated.', 'success');
+      qc.invalidateQueries({ queryKey: ['event', id] });
+    },
+    onError: (e) => setImageError(errorMessage(e)),
+  });
+  const removeImage = useMutation({
+    mutationFn: () => api.events.removeImage(id),
+    onSuccess: () => {
+      setImageError(null);
+      toast.push('Image removed.', 'success');
+      qc.invalidateQueries({ queryKey: ['event', id] });
+    },
+    onError: (e) => setImageError(errorMessage(e)),
   });
 
   if (isError)
@@ -140,6 +163,14 @@ export default function EditEvent() {
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           disabled={!editable}
+        />
+        <EventImagePicker
+          previewUrl={apiAssetUrl(event.imagePath)}
+          disabled={!editable}
+          busy={uploadImage.isPending || removeImage.isPending}
+          error={imageError}
+          onPick={(file) => uploadImage.mutate(file)}
+          onClear={event.imagePath ? () => removeImage.mutate() : undefined}
         />
         <Textarea
           id="refund"

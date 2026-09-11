@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AdvertisedPriceService } from '../../pricing/advertised-price.service';
+import { eventImagePath } from '../../events/event-image';
 import type {
   PublicEventCardLike,
   RecommendationContext,
@@ -71,6 +72,7 @@ export async function fetchEventCards(
     include: {
       venue: { select: { name: true, city: true, country: true } },
       organization: { select: { name: true } },
+      image: { select: { sha256: true } },
       sessions: {
         orderBy: { startsAt: 'asc' },
         take: 1,
@@ -89,6 +91,7 @@ export async function fetchEventCards(
         category: e.category,
         venue: e.venue,
         organizer: e.organization.name,
+        imagePath: e.image ? eventImagePath(e.id, e.image.sha256) : null,
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertised
           ? await advertised.forTicket(base, e.feeMode as FeeMode, currency)

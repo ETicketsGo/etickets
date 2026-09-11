@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import {
   api,
+  apiAssetUrl,
   Button,
   Card,
   Textarea,
@@ -77,6 +78,15 @@ export default function AdminEventDetail() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card title="Details" className="lg:col-span-2">
+          {/* The image is content too, and it is what buyers see first — so it is reviewed. */}
+          {event.imagePath && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={apiAssetUrl(event.imagePath) ?? undefined}
+              alt={`Image for ${event.title}`}
+              className="mb-4 aspect-video w-full rounded-md border border-border object-cover"
+            />
+          )}
           <dl className="grid grid-cols-2 gap-y-3 text-sm">
             <dt className="text-text-muted">Status</dt>
             <dd>

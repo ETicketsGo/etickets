@@ -44,8 +44,15 @@ export interface EventDraftEnvelope<T> {
   data: T;
 }
 
-/** Raised whenever the wizard's state shape changes in a way an old draft cannot satisfy. */
-export const EVENT_DRAFT_VERSION = 1;
+/**
+ * Raised whenever the wizard's state shape changes in a way an old draft cannot satisfy.
+ *
+ * 2: until then a created event's draft was written back after it was cleared (see
+ * `committed` in the wizard), so browsers that created an event are holding a draft of an
+ * event that already exists. Raising the version discards those once, rather than offering
+ * each organizer a finished event back at the Review step.
+ */
+export const EVENT_DRAFT_VERSION = 2;
 
 export function saveEventDraft<T>(organizationId: string, data: T): void {
   try {

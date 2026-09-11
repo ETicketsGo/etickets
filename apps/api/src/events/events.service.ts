@@ -20,6 +20,7 @@ import { currencyForCountry } from '../common/country';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
+import { eventImagePath } from './event-image';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -151,8 +152,8 @@ export class EventsService {
    * Duplicate an event into a fresh DRAFT: copies the event's settings, its sessions,
    * and each session's ticket types (with brand-new, empty inventory). Deliberately
    * excludes orders, attendees, payments, and audit history (those belong to the
-   * original). Coupons are organization-scoped (not event-bound) and images are not
-   * modelled on events, so neither needs copying.
+   * original). Coupons are organization-scoped (not event-bound), so they are not copied;
+   * the event's image is, because a copy is almost always the same show on new dates.
    */
   async duplicate(user: RequestUser, eventId: string) {
     const original = await this.loadOwnedEvent(user, eventId);
@@ -182,6 +183,19 @@ export class EventsService {
           status: EventStatus.DRAFT,
         },
       });
+      const image = await tx.eventImage.findUnique({ where: { eventId } });
+      if (image) {
+        await tx.eventImage.create({
+          data: {
+            eventId: copy.id,
+            contentType: image.contentType,
+            bytes: image.bytes,
+            sizeBytes: image.sizeBytes,
+            sha256: image.sha256,
+            uploadedByUserId: user.id,
+          },
+        });
+      }
       for (const s of sessions) {
         const newSession = await tx.eventSession.create({
           data: {
@@ -308,10 +322,12 @@ export class EventsService {
 
   async getForOrg(user: RequestUser, id: string) {
     const event = await this.loadOwnedEvent(user, id);
-    return this.prisma.event.findUnique({
+    const row = await this.prisma.event.findUnique({
       where: { id: event.id },
       include: {
         venue: true,
+        // The hash, to name the image's URL. The bytes are only ever read by the image route.
+        image: { select: { sha256: true } },
         sessions: {
           orderBy: { startsAt: 'asc' },
           include: {
@@ -324,6 +340,9 @@ export class EventsService {
         },
       },
     });
+    if (!row) return row;
+    const { image, ...rest } = row;
+    return { ...rest, imagePath: image ? eventImagePath(row.id, image.sha256) : null };
   }
 
   /** Organizer view of bookings (orders) for an event. */

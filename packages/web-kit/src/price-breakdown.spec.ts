@@ -116,11 +116,98 @@ describe('what goes where', () => {
     expect(b.includedTax.some((t) => t.label === 'IGST')).toBe(false);
   });
 
-  it('shows ONE platform-fee row, all-in, and names the rate inside it', () => {
-    const fee = b.rows.filter((r) => r.kind === 'platformFee');
-    expect(fee).toHaveLength(1);
-    expect(fee[0].amountMinor).toBe(5_522);
-    expect(b.platformFeeRateBasisPoints).toBe(1_800);
+  /*
+    Reported from QA: one "Platform fee (incl. 18% GST)" row that contained the payment fee
+    read as money the platform keeps. Payment processing is the card or UPI network's charge.
+  */
+  it('lists payment processing, the platform fee and the tax on them as separate rows', () => {
+    expect(b.rows.map((r) => [r.kind, r.amountMinor])).toEqual([
+      ['tickets', 30_000],
+      ['paymentFee', 680],
+      ['platformFee', 4_000],
+      ['feeTax', 842],
+    ]);
+    expect(b.rows.find((r) => r.kind === 'feeTax')?.rateBasisPoints).toBe(1_800);
+  });
+});
+
+describe('the fees, divided', () => {
+  it('reproduces the QA cart line for line: ₹499 + ₹10.18 + ₹10 + ₹3.64 = ₹522.82', () => {
+    const q: BreakdownQuote = {
+      subtotalMinor: 49_900,
+      discountMinor: 0,
+      bookingFeeMinor: 1_000,
+      paymentFeeMinor: 1_018,
+      customerFeeMinor: 2_018,
+      customerFeeInclusiveMinor: 2_382,
+      feeTaxRateBasisPoints: 1_800,
+      taxLines: [
+        {
+          label: 'CGST',
+          rateBasisPoints: 900,
+          amountMinor: 3_806,
+          basis: 'TICKETS',
+          inclusive: true,
+        },
+        {
+          label: 'SGST',
+          rateBasisPoints: 900,
+          amountMinor: 3_806,
+          basis: 'TICKETS',
+          inclusive: true,
+        },
+        { label: 'CGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+        { label: 'SGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+      ],
+      totalMinor: 52_282,
+    };
+    const b = priceBreakdown(q);
+    expect(b.rows.map((r) => [r.kind, r.amountMinor])).toEqual([
+      ['tickets', 49_900],
+      ['paymentFee', 1_018],
+      ['platformFee', 1_000],
+      ['feeTax', 364],
+    ]);
+    expect(foots(q)).toBe(true);
+    // The ticket GST is disclosed with the tickets — inside their price, never a row.
+    expect(b.includedTax.map((t) => [t.label, t.amountMinor])).toEqual([
+      ['CGST', 3_806],
+      ['SGST', 3_806],
+    ]);
+  });
+
+  it('divides the customer’s SHARE of the fees when the organizer covers the rest', () => {
+    // The booking carries the full ₹31.28 of fees; the customer pays ₹15.64 of it plus tax.
+    const q = quote({
+      bookingFeeMinor: 1_500,
+      paymentFeeMinor: 1_628,
+      customerFeeMinor: 1_564,
+      customerFeeInclusiveMinor: 1_846,
+      totalMinor: 30_000 + 1_846,
+    });
+    const b = priceBreakdown(q);
+    const fees = b.rows.filter((r) => r.kind !== 'tickets');
+    expect(fees.map((r) => r.kind)).toEqual(['paymentFee', 'platformFee', 'feeTax']);
+    expect(fees.reduce((s, r) => s + r.amountMinor, 0)).toBe(1_846);
+    expect(foots(q)).toBe(true);
+  });
+
+  it('keeps the fees as ONE row rather than guessing, when only the all-in figure is known', () => {
+    const q = quote({ customerFeeMinor: undefined, customerFeeInclusiveMinor: 5_522 });
+    const b = priceBreakdown(q);
+    expect(b.rows.map((r) => r.kind)).toEqual(['tickets', 'fees']);
+    expect(foots(q)).toBe(true);
+  });
+
+  it('shows no fee rows at all when the customer is charged none', () => {
+    const q = quote({
+      customerFeeMinor: 0,
+      customerFeeInclusiveMinor: 0,
+      feeTaxRateBasisPoints: 0,
+      totalMinor: 30_000,
+    });
+    expect(priceBreakdown(q).rows.map((r) => r.kind)).toEqual(['tickets']);
+    expect(foots(q)).toBe(true);
   });
 });
 
@@ -134,7 +221,9 @@ describe('an older API that does not send the new fields', () => {
         totalMinor: 34_680,
       }),
     );
-    expect(b.rows.find((r) => r.kind === 'platformFee')?.amountMinor).toBe(4_680);
+    expect(b.rows.find((r) => r.kind === 'paymentFee')?.amountMinor).toBe(680);
+    expect(b.rows.find((r) => r.kind === 'platformFee')?.amountMinor).toBe(4_000);
+    expect(b.rows.some((r) => r.kind === 'feeTax')).toBe(false);
     expect(b.platformFeeRateBasisPoints).toBe(0);
   });
 
@@ -202,8 +291,8 @@ describe('an older API that does not send the new fields', () => {
     };
     const b = priceBreakdown(q);
 
-    // Two rows: the tickets and one all-in platform fee. Not six.
-    expect(b.rows.map((r) => r.kind)).toEqual(['tickets', 'platformFee']);
+    // The tickets and the three fee rows. Not the four GST lines as well.
+    expect(b.rows.map((r) => r.kind)).toEqual(['tickets', 'paymentFee', 'platformFee', 'feeTax']);
     expect(foots(q)).toBe(true);
     /*
       And the tax is still stated — below the total, worded as already included, and merged to
