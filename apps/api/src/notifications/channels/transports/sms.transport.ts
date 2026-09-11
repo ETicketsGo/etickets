@@ -1,11 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import twilio, { Twilio } from 'twilio';
-import { FailureClass, failureClassForStatus } from '@eticketsgo/shared-types';
+import { FailureClass, SuppressionReason, failureClassForStatus } from '@eticketsgo/shared-types';
 import type { TemplateBindingService } from '../../templates/template-binding.service';
 import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 import { maskPhone, resolveDestination } from './recipient.util';
 import { TransportError, transportJson } from './transport-http';
+import { messageContentLoggable } from './content-logging';
+import { redactProviderText } from './provider-text';
 
 /** DI token for the SMS transport bound in notifications.module.ts. */
 export const SMS_TRANSPORT = Symbol('SMS_TRANSPORT');
@@ -16,6 +18,13 @@ export type SmsProviderName = 'log' | 'twilio' | 'msg91';
 /** A single SMS-send transport. */
 export interface SmsTransport {
   readonly name: SmsProviderName;
+  /**
+   * The provider itself refuses to text a number that has opted out, and stops refusing when
+   * the person opts back in. When that is true, a message this transport got ACCEPTED is proof
+   * the recipient is currently opted in -- which is the only way this platform learns about a
+   * START, because inbound replies go to the provider, not to us.
+   */
+  readonly enforcesOptOut?: boolean;
   send(msg: RenderedNotification): Promise<DeliveryOutcome>;
 }
 
@@ -28,33 +37,64 @@ function noRecipient(msg: RenderedNotification, logger: Logger, provider: string
 }
 
 /**
- * Default transport — logs locally, reproducing the original SmsChannel log so
- * existing tests/e2e are unaffected.
+ * Sends nothing; says so in the log.
+ *
+ * ── WHY THE BODY IS WITHHELD OUTSIDE LOCAL/DEV ─────────────────────────────────────
+ * This transport printed every body unconditionally, and QA and UAT run it -- so every phone
+ * sign-in code requested there was written, in the clear, to a log that is retained and
+ * readable by anyone with access to the project. On a developer's laptop that is the point of
+ * the transport; anywhere else it is a credential in a log. See `messageContentLoggable`.
  */
 export class SmsLogTransport implements SmsTransport {
   readonly name = 'log' as const;
   private readonly logger = new Logger('Notification');
+  private readonly printBodies: boolean;
+
+  constructor(config?: Pick<ConfigService, 'get'>) {
+    this.printBodies = messageContentLoggable(config);
+  }
 
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
-    this.logger.log(`[sms:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.body}`);
+    if (this.printBodies) {
+      this.logger.log(`[sms:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.body}`);
+    } else {
+      this.logger.log(
+        `[sms:${msg.type}] not sent (SMS is in log mode); content withheld -> ` +
+          `${maskPhone(resolveDestination(msg))}`,
+      );
+    }
     return { provider: 'log' };
   }
 }
 
 /**
- * Twilio transport (North America). Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and
- * TWILIO_FROM_NUMBER.
+ * Twilio transport (United States and Canada). Requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
+ * and TWILIO_MESSAGING_SERVICE_SID.
+ *
+ * ── WHY A MESSAGING SERVICE AND NEVER A FROM NUMBER ────────────────────────────────
+ * This sent `{ to, from, body }`, and a message sent that way asks Twilio for no delivery
+ * callbacks at all: Twilio reports status for a message only to a StatusCallback passed with
+ * it, or to the Delivery Status Callback of the Messaging Service it was sent through. With
+ * neither, every SMS would have stayed ACCEPTED forever, no STOP would ever have suppressed
+ * anything, and readiness would have been green.
+ *
+ * The Messaging Service is also where the sender pool, the carrier registration (toll-free
+ * verification or A2P 10DLC) and Twilio's opt-out handling live, so it is the one place a
+ * change of number is made without a deploy. `from` and `messagingServiceSid` are never both
+ * sent: Twilio would choose between them, and the answer to "which sender carried this" must
+ * be the configuration, not Twilio's precedence rules.
  */
 export class TwilioSmsTransport implements SmsTransport {
   readonly name = 'twilio' as const;
+  readonly enforcesOptOut = true;
   private readonly logger = new Logger('Notification');
   private readonly client: Twilio;
-  private readonly from: string;
+  private readonly messagingServiceSid: string;
 
   constructor(config: ConfigService) {
     const accountSid = requireKey(config, 'twilio', 'TWILIO_ACCOUNT_SID');
     const authToken = requireKey(config, 'twilio', 'TWILIO_AUTH_TOKEN');
-    this.from = requireKey(config, 'twilio', 'TWILIO_FROM_NUMBER');
+    this.messagingServiceSid = requireKey(config, 'twilio', 'TWILIO_MESSAGING_SERVICE_SID');
     this.client = twilio(accountSid, authToken);
   }
 
@@ -62,7 +102,11 @@ export class TwilioSmsTransport implements SmsTransport {
     const to = resolveDestination(msg);
     if (!to) return noRecipient(msg, this.logger, this.name);
     try {
-      const created = await this.client.messages.create({ to, from: this.from, body: msg.body });
+      const created = await this.client.messages.create({
+        to,
+        messagingServiceSid: this.messagingServiceSid,
+        body: msg.body,
+      });
       return { provider: this.name, providerMessageId: created.sid };
     } catch (err) {
       /*
@@ -77,13 +121,23 @@ export class TwilioSmsTransport implements SmsTransport {
   }
 }
 
-/** Twilio's published error codes, narrowed to the distinctions that change what we do. */
+/**
+ * Twilio's published error codes, narrowed to the distinctions that change what we do.
+ *
+ * ── WHY THE MESSAGE IS SANITIZED HERE ──────────────────────────────────────────────
+ * Twilio's error prose names the number it refused. This error becomes `failureReason`,
+ * `Notification.lastError`, a log line and possibly a Sentry event, so the number is removed
+ * at the one place the text enters the platform, and the CODE travels separately where it is
+ * safe to keep.
+ */
 export function classifyTwilioError(err: unknown, provider: string): TransportError {
   if (err instanceof TransportError) return err;
-  const e = err as { code?: number; status?: number; message?: string };
-  const message = e?.message ?? String(err);
+  const e = err as { code?: number | string; status?: number; message?: string } | null;
+  const numeric = Number(e?.code);
+  const providerCode = Number.isFinite(numeric) ? String(numeric) : undefined;
+  const detail = redactProviderText(e?.message ?? String(err)).slice(0, 300);
   const cls = (() => {
-    switch (e?.code) {
+    switch (numeric) {
       // 21211/21614: not a valid or SMS-capable number. 21610: the recipient sent STOP.
       case 21211:
       case 21214:
@@ -97,17 +151,38 @@ export function classifyTwilioError(err: unknown, provider: string): TransportEr
         return FailureClass.AUTHENTICATION_ERROR;
       case 20429:
         return FailureClass.RATE_LIMIT;
-      // 30034/30032: US A2P 10DLC registration missing or the number is not permitted.
+      // 30032 unverified toll-free, 30034 unregistered 10DLC: the sender is not permitted.
       case 30032:
       case 30034:
         return FailureClass.COMPLIANCE_BLOCKED;
+      /*
+        Our own setup, and nothing a retry fixes: 20404 a Messaging Service or account that
+        does not exist, 21212/21606 a sender that is not ours to use, 21408 a destination
+        region not enabled in Geographic Permissions, 21608 a trial account texting a number
+        it has not verified.
+      */
+      case 20404:
+      case 21212:
+      case 21408:
+      case 21606:
+      case 21608:
+        return FailureClass.CONFIGURATION_ERROR;
       default:
         return typeof e?.status === 'number'
           ? failureClassForStatus(e.status)
           : FailureClass.UNKNOWN_PROVIDER_ERROR;
     }
   })();
-  return new TransportError(`twilio: ${message}`, provider, cls, e?.status);
+  return new TransportError(
+    `twilio${providerCode ? ` error ${providerCode}` : ''}: ${detail}`,
+    provider,
+    cls,
+    typeof e?.status === 'number' ? e.status : undefined,
+    {
+      providerCode,
+      suppression: numeric === 21610 ? SuppressionReason.UNSUBSCRIBED : undefined,
+    },
+  );
 }
 
 /**
@@ -282,7 +357,7 @@ export function buildSmsTransport(
       return new Msg91SmsTransport(config, bindings);
     case 'log':
     default:
-      return new SmsLogTransport();
+      return new SmsLogTransport(config);
   }
 }
 

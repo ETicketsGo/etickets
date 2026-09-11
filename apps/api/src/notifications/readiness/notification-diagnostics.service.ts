@@ -143,7 +143,8 @@ export class NotificationDiagnosticsService {
         return [
           'TWILIO_ACCOUNT_SID',
           'TWILIO_AUTH_TOKEN',
-          'TWILIO_FROM_NUMBER',
+          // Sends go through the Messaging Service, whose callback URL is what reports delivery.
+          'TWILIO_MESSAGING_SERVICE_SID',
           // Twilio signs the callback URL, so this is a credential in everything but name:
           // wrong, and every callback fails verification indistinguishably from an attack.
           'PUBLIC_API_URL',

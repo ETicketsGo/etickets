@@ -2,8 +2,10 @@ import {
   DeliveryState,
   metaFailureState,
   normalizeProviderStatus,
+  providerOptOut,
   sesBounceState,
   twilioFailureState,
+  type SuppressionReason,
 } from '@eticketsgo/shared-types';
 
 /**
@@ -31,6 +33,11 @@ export interface DeliveryEvent {
    * Hashed the moment it is used; never stored in the clear.
    */
   destination?: string | null;
+  /**
+   * Why the destination must stop receiving traffic, when the event says more than its state
+   * does. A STOP arrives as an ordinary REJECTED; this is what records it as the opt-out it is.
+   */
+  suppressionReason?: SuppressionReason | null;
   occurredAt?: Date;
   /** A provider-unique id for this EVENT, for replay protection. */
   eventId: string;
@@ -77,7 +84,43 @@ export function parseTwilio(body: Record<string, unknown>): DeliveryEvent | null
     failureCode: errorCode,
     // `To` is on the callback and is exactly the destination that would be suppressed.
     destination: str(body.To),
+    suppressionReason: providerOptOut('twilio', errorCode),
   };
+}
+
+/** Twilio Advanced Opt-Out's three classifications of an inbound message. */
+export type OptOutKeyword = 'STOP' | 'START' | 'HELP';
+
+/** An inbound message Twilio classified as an opt-out keyword. */
+export interface InboundOptOutEvent {
+  /** The inbound message's own SID. One inbound message is one event. */
+  messageSid: string;
+  optOutType: OptOutKeyword;
+  /** Who sent the keyword. Reduced to a hash before anything is stored or acted on. */
+  from: string;
+}
+
+/**
+ * An inbound SMS to the Messaging Service, reduced to the one fact this platform acts on.
+ *
+ * ── WHY ONLY `OptOutType`, AND NEVER THE BODY ──────────────────────────────────────
+ * With Advanced Opt-Out enabled, Twilio classifies the message itself -- against its default
+ * keywords, the account's custom keywords, and their per-language variants -- replies to the
+ * sender, and blocks or unblocks the number at the Messaging Service. It then tells the webhook
+ * what it decided in `OptOutType`: STOP, START or HELP.
+ *
+ * Twilio is the authority on that decision, because Twilio is what enforces it. Matching the
+ * body here would be a second keyword list that disagrees with Twilio's the first time a
+ * keyword is customised, and it would mean reading what a customer wrote to us. A message
+ * without `OptOutType` is not an opt-out as far as Twilio is concerned, so it is not one here.
+ */
+export function parseTwilioInbound(body: Record<string, unknown>): InboundOptOutEvent | null {
+  const messageSid = str(body.MessageSid) ?? str(body.SmsMessageSid) ?? str(body.SmsSid);
+  const from = str(body.From);
+  const type = str(body.OptOutType)?.trim().toUpperCase();
+  if (!messageSid || !from) return null;
+  if (type !== 'STOP' && type !== 'START' && type !== 'HELP') return null;
+  return { messageSid, optOutType: type, from };
 }
 
 /**
@@ -147,6 +190,7 @@ export function parseMsg91(body: Record<string, unknown>): DeliveryEvent | null 
     failureCode: str(body.errCode) ?? str(body.errorCode),
     failureReason: str(body.description) ?? str(body.desc),
     destination: str(body.number) ?? str(body.mobile) ?? str(body.recipient),
+    suppressionReason: providerOptOut('msg91', status),
   };
 }
 

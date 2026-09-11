@@ -1,6 +1,12 @@
 import { createHmac } from 'node:crypto';
 import { DeliveryState } from '@eticketsgo/shared-types';
-import { parseMetaCloud, parseMsg91, parseSesEvent, parseTwilio } from './delivery-webhook.parsers';
+import {
+  parseMetaCloud,
+  parseMsg91,
+  parseSesEvent,
+  parseTwilio,
+  parseTwilioInbound,
+} from './delivery-webhook.parsers';
 import {
   verifyMetaSignature,
   verifySharedSecret,
@@ -59,6 +65,15 @@ describe('Twilio status callbacks', () => {
     expect(event?.destination).toBe('+919876543210');
   });
 
+  it('marks a STOP as an unsubscribe, and nothing else as one', () => {
+    const stop = parseTwilio({ MessageSid: 'SM7', MessageStatus: 'failed', ErrorCode: '21610' });
+    const dead = parseTwilio({ MessageSid: 'SM8', MessageStatus: 'failed', ErrorCode: '21211' });
+    const delivered = parseTwilio({ MessageSid: 'SM9', MessageStatus: 'delivered' });
+    expect(stop?.suppressionReason).toBe('UNSUBSCRIBED');
+    expect(dead?.suppressionReason).toBeNull();
+    expect(delivered?.suppressionReason).toBeNull();
+  });
+
   it('gives the same status on the same message the same event id, so a replay is caught', () => {
     const a = parseTwilio({ MessageSid: 'SM5', MessageStatus: 'delivered' });
     const b = parseTwilio({ MessageSid: 'SM5', MessageStatus: 'delivered' });
@@ -71,6 +86,36 @@ describe('Twilio status callbacks', () => {
     expect(parseTwilio({})).toBeNull();
     expect(parseTwilio({ MessageSid: 'SM6' })).toBeNull();
     expect(parseTwilio({ MessageStatus: 'delivered' })).toBeNull();
+  });
+});
+
+describe('Twilio inbound messages (Advanced Opt-Out)', () => {
+  const base = { MessageSid: 'SMin1', From: '+14155550123', Body: 'whatever they wrote' };
+
+  it.each(['STOP', 'START', 'HELP'])('reads OptOutType=%s', (type) => {
+    expect(parseTwilioInbound({ ...base, OptOutType: type })).toEqual({
+      messageSid: 'SMin1',
+      optOutType: type,
+      from: '+14155550123',
+    });
+  });
+
+  it('never classifies a message itself, however much it reads like a keyword', () => {
+    // Twilio is the authority: custom and per-language keywords live in its configuration.
+    expect(parseTwilioInbound({ ...base, Body: 'STOP' })).toBeNull();
+    expect(parseTwilioInbound({ ...base, Body: 'UNSUBSCRIBE' })).toBeNull();
+  });
+
+  it('refuses a classification it does not know, and a message with no sender or SID', () => {
+    expect(parseTwilioInbound({ ...base, OptOutType: 'PAUSE' })).toBeNull();
+    expect(parseTwilioInbound({ OptOutType: 'STOP', From: '+14155550123' })).toBeNull();
+    expect(parseTwilioInbound({ OptOutType: 'STOP', MessageSid: 'SMin2' })).toBeNull();
+  });
+
+  it('never carries the body into the event', () => {
+    expect(JSON.stringify(parseTwilioInbound({ ...base, OptOutType: 'STOP' }))).not.toContain(
+      'whatever they wrote',
+    );
   });
 });
 

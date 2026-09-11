@@ -290,6 +290,8 @@ const NOTIFICATION_DOCUMENTED = [
   'WHATSAPP_VERIFY_TOKEN',
   'DLT_PRINCIPAL_ENTITY_ID',
   'PUBLIC_API_URL',
+  // Without it Twilio sends ask for no delivery callbacks, so nothing is ever marked delivered.
+  'TWILIO_MESSAGING_SERVICE_SID',
 ];
 
 const ENV_TEMPLATES = [

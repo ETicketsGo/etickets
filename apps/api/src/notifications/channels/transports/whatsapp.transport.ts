@@ -5,6 +5,7 @@ import type { TemplateBindingService } from '../../templates/template-binding.se
 import { DeliveryOutcome, RenderedNotification } from '../notification-channel.interface';
 import { maskPhone, resolveDestination } from './recipient.util';
 import { TransportError, transportJson } from './transport-http';
+import { messageContentLoggable } from './content-logging';
 
 /** DI token for the WhatsApp transport bound in notifications.module.ts. */
 export const WHATSAPP_TRANSPORT = Symbol('WHATSAPP_TRANSPORT');
@@ -26,15 +27,28 @@ function noRecipient(msg: RenderedNotification, logger: Logger, provider: string
 }
 
 /**
- * Default transport — logs locally, reproducing the original WhatsAppChannel log
- * so existing tests/e2e are unaffected.
+ * Sends nothing; says so in the log. The body is printed only in LOCAL/DEV, for the same
+ * reason as `SmsLogTransport`: a message body is the customer's booking, and outside a
+ * developer's laptop it does not belong in a retained log.
  */
 export class WhatsAppLogTransport implements WhatsAppTransport {
   readonly name = 'log' as const;
   private readonly logger = new Logger('Notification');
+  private readonly printBodies: boolean;
+
+  constructor(config?: Pick<ConfigService, 'get'>) {
+    this.printBodies = messageContentLoggable(config);
+  }
 
   async send(msg: RenderedNotification): Promise<DeliveryOutcome> {
-    this.logger.log(`[whatsapp:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.body}`);
+    if (this.printBodies) {
+      this.logger.log(`[whatsapp:${msg.type}] -> user ${msg.userId ?? 'n/a'} :: ${msg.body}`);
+    } else {
+      this.logger.log(
+        `[whatsapp:${msg.type}] not sent (WhatsApp is in log mode); content withheld -> ` +
+          `${maskPhone(resolveDestination(msg))}`,
+      );
+    }
     return { provider: 'log' };
   }
 }
@@ -296,7 +310,7 @@ export function buildWhatsAppTransport(
       return new Msg91WhatsAppTransport(config, bindings);
     case 'log':
     default:
-      return new WhatsAppLogTransport();
+      return new WhatsAppLogTransport(config);
   }
 }
 

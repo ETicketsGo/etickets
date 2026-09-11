@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
+  HttpCode,
   HttpStatus,
   Param,
   Post,
@@ -17,6 +19,9 @@ import { Public } from '../../../common/decorators';
 import { AppException, ErrorCodes } from '../../../common/errors';
 import { safeEqual } from './delivery-webhook.signatures';
 import { DeliveryWebhookService } from './delivery-webhook.service';
+
+/** A TwiML response that does nothing: no reply, no redirect. */
+export const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
 /**
  * Where providers tell us what happened to a message.
@@ -56,6 +61,30 @@ export class DeliveryWebhookController {
       body,
       signature: req.header('x-twilio-signature') ?? '',
     });
+  }
+
+  /**
+   * The Messaging Service's incoming-message webhook: Advanced Opt-Out keywords only.
+   *
+   * Answers with EMPTY TwiML. Twilio has already replied to the sender in their own language;
+   * a `<Message>` here would text them a second time, and anything that is not TwiML is logged
+   * by Twilio as an application error. Signed exactly like the status callback.
+   */
+  @Public()
+  @Post('twilio/inbound')
+  @HttpCode(HttpStatus.OK)
+  @Header('Content-Type', 'text/xml')
+  @ApiOperation({
+    summary: 'Twilio inbound SMS: Advanced Opt-Out STOP/START/HELP only (HMAC-SHA1 signed).',
+  })
+  async twilioInbound(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    const base = (this.config.get<string>('PUBLIC_API_URL') ?? '').replace(/\/+$/, '');
+    await this.webhooks.twilioInbound({
+      url: `${base}${req.originalUrl}`,
+      body,
+      signature: req.header('x-twilio-signature') ?? '',
+    });
+    return EMPTY_TWIML;
   }
 
   /**

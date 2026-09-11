@@ -28,6 +28,8 @@ import { TransportError } from './channels/transports/transport-http';
 import { DeliveryRecorderService } from './delivery/delivery-recorder.service';
 import { SuppressionService } from './delivery/suppression.service';
 import { resolvePhoneDestination } from './channels/phone-destination';
+import { redactProviderText } from './channels/transports/provider-text';
+import { ProviderEventReplayService } from './delivery/webhook/provider-event-replay.service';
 
 /**
  * Input to {@link NotificationService.send}. `channels` and `locale` are
@@ -120,6 +122,11 @@ export class NotificationService {
       plus marketing consent -- which is what those suites were written against.
     */
     private readonly policy?: NotificationPolicyResolver,
+    /*
+      Optional for the same reason. Without it a callback that beat its SID here still lands,
+      one sweep later; with it, it lands the moment the SID is written.
+    */
+    private readonly replay?: ProviderEventReplayService,
   ) {}
 
   /**
@@ -565,6 +572,16 @@ export class NotificationService {
               outcome.provider,
               OutcomeClass.PROVIDER_ACCEPTED,
             );
+            /*
+              A callback can beat this write: the provider may report on a message before
+              the SID above reached the database. Such an event is held, not lost, and is
+              applied here the moment its message becomes findable.
+            */
+            if (outcome.providerMessageId) {
+              await this.replay
+                ?.reapplyFor(outcome.provider, outcome.providerMessageId)
+                .catch(() => 0);
+            }
           }
         }
         await this.prisma.notification.update({
@@ -603,14 +620,17 @@ export class NotificationService {
         */
         const attributedTo =
           err instanceof TransportError && err.provider !== 'router' ? err.provider : 'none';
+        /*
+          Provider prose about a text or WhatsApp message can name the recipient's number, and
+          both places this is written are long-lived and widely read. Removed before either
+          write, whichever adapter produced it. Email is left exactly as it was.
+        */
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        const failureText =
+          key === 'sms' || key === 'whatsapp' ? redactProviderText(rawMessage) : rawMessage;
         if (deliveryId) {
           await this.deliveries
-            ?.failed(
-              deliveryId,
-              attributedTo,
-              err instanceof Error ? err.message : String(err),
-              failureClass,
-            )
+            ?.failed(deliveryId, attributedTo, failureText, failureClass)
             .catch(() => undefined);
           this.metrics?.recordNotificationAttempt(key, attributedTo, outcome);
         }
@@ -630,7 +650,7 @@ export class NotificationService {
           where: { id: row.id },
           data: {
             attempts,
-            lastError: err instanceof Error ? err.message : String(err),
+            lastError: failureText,
             status: failed ? 'FAILED' : row.status,
           },
         });

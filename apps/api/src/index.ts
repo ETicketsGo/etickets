@@ -9,6 +9,8 @@ export { EventSellabilitySweepService } from './events/event-sellability-sweep.s
 export { PrismaService } from './prisma/prisma.service';
 export { NotificationService } from './notifications/notification.service';
 export { NotificationFallbackService } from './notifications/policy/fallback.service';
+// The worker applies delivery callbacks that arrived before their message was recorded.
+export { ProviderEventReplayService } from './notifications/delivery/webhook/provider-event-replay.service';
 export { ShowCancellationFanoutService } from './notifications/producers/show-cancellation-fanout.service';
 export { ShowReminderService } from './notifications/producers/show-reminder.service';
 export { AuthService } from './auth/auth.service';

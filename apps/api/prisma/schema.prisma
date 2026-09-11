@@ -274,6 +274,7 @@ enum WebhookProcessingStatus {
   FAILED // handler errored, will retry
   DEAD_LETTER // exceeded retries; flagged for ops review
   IGNORED // event type we deliberately do not act on
+  AWAITING_CORRELATION // verified notification callback for a message not yet correlated; replayed, not consumed
 }
 
 // Chargeback/dispute lifecycle mirrored from Stripe (platform is merchant of record).

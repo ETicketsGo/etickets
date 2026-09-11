@@ -55,17 +55,18 @@ have to invent a name; it is documented as required everywhere it matters.
 
 ## SMS
 
-| Variable                 | Required market  | Secret  | Validation                                                  | Local   | QA           | Prod         |
-| ------------------------ | ---------------- | ------- | ----------------------------------------------------------- | ------- | ------------ | ------------ |
-| `SMS_PROVIDER`           | fallback for all | no      | enum `log\|twilio\|msg91`, default `log`                    | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `SMS_PROVIDER_BY_MARKET` | IN, US, CA       | no      | `IN=msg91,US=twilio,CA=twilio`; unparseable entries ignored | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `MSG91_AUTH_KEY`         | **IN**           | **yes** | none at boot; the transport refuses at send                 | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `MSG91_SENDER_ID`        | **IN**           | no      | must be the **DLT-registered header**                       | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `MSG91_SMS_TEMPLATE_IDS` | **IN**           | no      | `TYPE=id,…`; a missing type is a **permanent** refusal      | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `MSG91_WEBHOOK_SECRET`   | **IN**           | **yes** | optional                                                    | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `TWILIO_ACCOUNT_SID`     | **US, CA**       | no      | none at boot                                                | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `TWILIO_AUTH_TOKEN`      | **US, CA**       | **yes** | also the HMAC key for callbacks                             | MISSING | NOT VERIFIED | NOT VERIFIED |
-| `TWILIO_FROM_NUMBER`     | **US, CA**       | no      | none at boot                                                | MISSING | NOT VERIFIED | NOT VERIFIED |
+| Variable                       | Required market  | Secret  | Validation                                                  | Local   | QA           | Prod         |
+| ------------------------------ | ---------------- | ------- | ----------------------------------------------------------- | ------- | ------------ | ------------ |
+| `SMS_PROVIDER`                 | fallback for all | no      | enum `log\|twilio\|msg91`, default `log`                    | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `SMS_PROVIDER_BY_MARKET`       | IN, US, CA       | no      | `IN=msg91,US=twilio,CA=twilio`; unparseable entries ignored | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `MSG91_AUTH_KEY`               | **IN**           | **yes** | none at boot; the transport refuses at send                 | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `MSG91_SENDER_ID`              | **IN**           | no      | must be the **DLT-registered header**                       | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `MSG91_SMS_TEMPLATE_IDS`       | **IN**           | no      | `TYPE=id,…`; a missing type is a **permanent** refusal      | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `MSG91_WEBHOOK_SECRET`         | **IN**           | **yes** | optional                                                    | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `TWILIO_ACCOUNT_SID`           | **US, CA**       | no      | none at boot                                                | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `TWILIO_AUTH_TOKEN`            | **US, CA**       | **yes** | also the HMAC key for callbacks                             | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `TWILIO_MESSAGING_SERVICE_SID` | **US, CA**       | no      | `MG` + 32 hex at boot; the only sender setting              | MISSING | NOT VERIFIED | NOT VERIFIED |
+| `PUBLIC_API_URL`               | **US, CA**       | no      | origin only (no path) at boot; api only                     | MISSING | SET          | NOT VERIFIED |
 
 Only `SHOW_CANCELLED` uses SMS, and only as a fallback — so **one** approved DLT template
 launches India. With no template for a type, the transport fails that send permanently and
@@ -167,7 +168,7 @@ thing this whole phase exists to make visible.
 `DLT_SENDER_HEADER`.
 
 **US / Canada** — the same email block, plus `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
-`TWILIO_FROM_NUMBER`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`,
+`TWILIO_MESSAGING_SERVICE_SID`, `PUBLIC_API_URL`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`,
 `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `PUSH_PROVIDER=expo`, and
 `NOTIFICATION_MARKETS` / `NOTIFICATION_TEMPLATE_BINDINGS` extended to cover them.
 

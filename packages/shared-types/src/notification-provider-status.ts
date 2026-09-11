@@ -1,4 +1,4 @@
-import { DeliveryState } from './notification-delivery';
+import { DeliveryState, SuppressionReason } from './notification-delivery';
 
 /**
  * Each provider's own vocabulary, translated into the one lifecycle.
@@ -182,4 +182,32 @@ export function twilioFailureState(
  */
 export function isTwilioOptOut(errorCode: string | number | null | undefined): boolean {
   return String(errorCode) === '21610';
+}
+
+/**
+ * The suppression reason when a provider's failure IS the recipient opting out.
+ *
+ * ── WHY THIS IS NOT JUST ANOTHER REJECTION ─────────────────────────────────────────
+ * A recipient replying STOP is a legal instruction about that person, and it has to be
+ * recorded as one. Filed under BLOCKED_BY_PROVIDER it is indistinguishable from a carrier
+ * refusing a dead number: an operator lifting "provider blocks" after a carrier incident
+ * would quietly resume texting somebody who asked us to stop, and nothing on the row would
+ * have said otherwise.
+ *
+ * Returns null for everything else, so the state's own suppression (if any) stands.
+ */
+export function providerOptOut(
+  provider: string,
+  codeOrStatus: string | number | null | undefined,
+): SuppressionReason | null {
+  if (codeOrStatus === null || codeOrStatus === undefined) return null;
+  const value = String(codeOrStatus).trim().toLowerCase();
+  switch (provider.toLowerCase()) {
+    case 'twilio':
+      return isTwilioOptOut(value) ? SuppressionReason.UNSUBSCRIBED : null;
+    case 'msg91':
+      return value === 'unsubscribed' ? SuppressionReason.UNSUBSCRIBED : null;
+    default:
+      return null;
+  }
 }

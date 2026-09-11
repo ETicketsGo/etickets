@@ -15,6 +15,7 @@ import { Test } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { DeliveryRecorderService } from '../delivery-recorder.service';
+import { SuppressionService } from '../suppression.service';
 import { DeliveryWebhookController } from './delivery-webhook.controller';
 import { DeliveryWebhookService } from './delivery-webhook.service';
 import { SnsVerifier, SNS_FETCH, type SnsEnvelope } from './sns-verifier';
@@ -192,6 +193,8 @@ const state: {
     },
     { provide: PrismaService, useValue: {} },
     { provide: DeliveryRecorderService, useValue: {} },
+    // The same service answers Twilio's inbound opt-out keywords; SES never touches it.
+    { provide: SuppressionService, useValue: {} },
     { provide: MetricsService, useValue: { recordNotificationWebhook: jest.fn() } },
     {
       provide: SnsConfirmationService,

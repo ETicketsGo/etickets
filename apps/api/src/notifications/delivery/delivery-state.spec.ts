@@ -4,6 +4,7 @@ import {
   advancesDelivery,
   isTerminalDelivery,
   isTwilioOptOut,
+  providerOptOut,
   mayAutomaticallyRetry,
   metaFailureState,
   normalizeProviderStatus,
@@ -177,13 +178,22 @@ describe('the failure codes that decide permanence', () => {
     expect(twilioFailureState('undelivered', null)).toBe(DeliveryState.UNDELIVERED);
   });
 
-  it('recognises a STOP reply as an opt-out', () => {
+  it('recognises a STOP reply as an opt-out, and records it as one', () => {
     // A legal instruction, not a delivery outcome.
     expect(isTwilioOptOut('21610')).toBe(true);
     expect(isTwilioOptOut('30003')).toBe(false);
+    // The state alone still reads as a provider block...
     expect(suppressionFor(twilioFailureState('failed', '21610'))).toBe(
       SuppressionReason.BLOCKED_BY_PROVIDER,
     );
+    // ...which is why the opt-out is recorded explicitly. Filed as a block, an operator lifting
+    // carrier blocks after an incident would resume texting somebody who asked us to stop.
+    expect(providerOptOut('twilio', '21610')).toBe(SuppressionReason.UNSUBSCRIBED);
+    expect(providerOptOut('twilio', 21610)).toBe(SuppressionReason.UNSUBSCRIBED);
+    expect(providerOptOut('msg91', 'unsubscribed')).toBe(SuppressionReason.UNSUBSCRIBED);
+    expect(providerOptOut('twilio', '21211')).toBeNull();
+    expect(providerOptOut('twilio', null)).toBeNull();
+    expect(providerOptOut('ses', '21610')).toBeNull();
   });
 
   it('splits a Meta failure on its error code', () => {

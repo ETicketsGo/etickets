@@ -520,7 +520,24 @@ const envSchema = z.object({
   SMS_PROVIDER: z.enum(['log', 'twilio', 'msg91']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
-  TWILIO_FROM_NUMBER: z.string().optional(),
+  /*
+    The Messaging Service every Twilio send goes through. There is no from-number setting: a
+    message sent from a bare number asks Twilio for no delivery callbacks, and the Messaging
+    Service is where the sender, its carrier registration and the callback URL are configured.
+    Checked for shape at boot, because a mistyped SID otherwise surfaces as every SMS failing
+    with a provider 404 long after the deploy looked healthy.
+  */
+  TWILIO_MESSAGING_SERVICE_SID: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z
+      .string()
+      .trim()
+      .regex(
+        /^MG[0-9a-fA-F]{32}$/,
+        'must be a Twilio Messaging Service SID: "MG" followed by 32 hexadecimal characters',
+      )
+      .optional(),
+  ),
   /*
     Which provider carries an SMS, by the market it is going INTO -- `IN=msg91,US=twilio,CA=twilio`.
     An Indian operator will not deliver a transactional message that was not sent under a
@@ -818,11 +835,40 @@ function assertDeliverabilityHardening(cfg: AppConfig): void {
   } else if (!cfg.EMAIL_FROM) {
     errors.push(`  - EMAIL_FROM is required when EMAIL_PROVIDER=${cfg.EMAIL_PROVIDER}.`);
   }
+
+  /*
+    SMS in log mode sends nothing, and phone sign-in rests on it: every code requested would
+    vanish, and nobody signing in by phone could get in. The log transport no longer prints a
+    body anywhere but LOCAL/DEV, so a production in log mode would not leak the codes -- it
+    would silently lock people out, which is the same failure as the mail rule above wearing a
+    different channel. Checked per ENABLED market, because a market routed to log is exactly as
+    undeliverable as a whole platform in log mode.
+  */
+  const smsRoutes = parseMarketProviderMap(cfg.SMS_PROVIDER_BY_MARKET);
+  if (Object.keys(smsRoutes).length === 0) {
+    if (cfg.SMS_PROVIDER === 'log') {
+      errors.push(
+        '  - SMS_PROVIDER=log SENDS NO TEXT MESSAGES: phone sign-in codes would never arrive. ' +
+          'Route SMS to a real provider, e.g. SMS_PROVIDER_BY_MARKET=IN=msg91,US=twilio,CA=twilio.',
+      );
+    }
+  } else {
+    const logged = parseEnabledMarkets(cfg.NOTIFICATION_MARKETS).filter(
+      (m) => smsRoutes[m] === 'log',
+    );
+    if (logged.length > 0) {
+      errors.push(
+        `  - SMS_PROVIDER_BY_MARKET routes ${logged.join(', ')} to log, which SENDS NO TEXT ` +
+          'MESSAGES: phone sign-in codes for those numbers would never arrive.',
+      );
+    }
+  }
+
   if (errors.length) {
     throw new Error(
       `Notifications cannot be delivered in this environment:\n${errors.join('\n')}\n` +
         `  Set ALLOW_UNDELIVERABLE_NOTIFICATIONS=true only to boot deliberately without ` +
-        `mail (migrations, smoke checks) — never to serve customers.`,
+        `mail or text messages (migrations, smoke checks) — never to serve customers.`,
     );
   }
 }
@@ -1174,6 +1220,49 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
       errors.push(
         `  - ${key} routes ${label} for ${stray.join(', ')}, which NOTIFICATION_MARKETS does ` +
           `not enable. Add the market or remove the route -- do not leave both.`,
+      );
+    }
+  }
+
+  /*
+    A provider name the transports do not know. The SMS and WhatsApp builders fall through to
+    the LOG transport for anything unrecognised, so `US=twillio` booted clean and sent every
+    North American message nowhere -- a typo presented as a working route.
+  */
+  for (const [key, label, known] of [
+    ['SMS_PROVIDER_BY_MARKET', 'SMS', ['log', 'twilio', 'msg91']],
+    ['WHATSAPP_PROVIDER_BY_MARKET', 'WhatsApp', ['log', 'cloud', 'msg91']],
+  ] as const) {
+    for (const [market, provider] of Object.entries(parseMarketProviderMap(cfg[key]))) {
+      if (!(known as readonly string[]).includes(provider)) {
+        errors.push(
+          `  - ${key} routes ${market} to "${provider}", which is not a ${label} provider ` +
+            `(${known.join(' | ')}).`,
+        );
+      }
+    }
+  }
+
+  /*
+    PUBLIC_API_URL is an ORIGIN. The callback route is appended to it and Twilio signs the
+    whole URL, so a path here (`https://api.example.com/api`) doubles the prefix and every
+    callback fails verification with a 401 that looks exactly like an attack.
+  */
+  if (cfg.PUBLIC_API_URL) {
+    let problem: string | null = null;
+    try {
+      const url = new URL(cfg.PUBLIC_API_URL);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') problem = 'is not an http(s) URL';
+      else if (url.pathname !== '/' || url.search || url.hash) {
+        problem = `has a path or query (${url.pathname}${url.search}${url.hash})`;
+      }
+    } catch {
+      problem = 'is not a URL';
+    }
+    if (problem) {
+      errors.push(
+        `  - PUBLIC_API_URL ${problem}. It must be the public origin only, e.g. ` +
+          'https://api.eticketsgo.com — the webhook path is appended to it.',
       );
     }
   }

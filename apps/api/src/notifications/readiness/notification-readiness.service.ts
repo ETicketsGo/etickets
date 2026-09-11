@@ -8,7 +8,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { TemplateBindingService } from '../templates/template-binding.service';
 import { fallbackChannelFor, immediateChannels } from '../policy/notification-policy';
-import { NotificationType } from '@eticketsgo/shared-types';
+import { NotificationType, WebhookProcessingStatus } from '@eticketsgo/shared-types';
+import { messageContentLoggable } from '../channels/transports/content-logging';
 
 export type ReadinessState =
   | 'CONFIGURED'
@@ -154,7 +155,7 @@ export class NotificationReadinessService {
       case 'twilio':
         return {
           label: 'Twilio SMS',
-          keys: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER'],
+          keys: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID'],
         };
       case 'msg91':
         return { label: 'MSG91', keys: ['MSG91_AUTH_KEY'] };
@@ -264,7 +265,27 @@ export class NotificationReadinessService {
     for (const channel of ['sms', 'whatsapp'] as const) {
       const provider = this.providerFor(channel, market);
       const label = channel === 'sms' ? 'SMS' : 'WhatsApp';
-      if (!provider || provider === 'log') {
+      if (provider === 'log') {
+        /*
+          Log mode sends nothing. In QA or UAT that is a deliberate choice for a market not
+          being tested; where customers are served it means phone sign-in cannot work, and the
+          boot guard refuses it -- said again here so it is seen before the deploy.
+        */
+        const customerFacing = ['STAGING', 'PRODUCTION'].includes(
+          this.config.get<string>('APP_ENV') ?? 'LOCAL',
+        );
+        components.push({
+          key: channel,
+          label,
+          state: customerFacing ? 'MISSING' : 'DISABLED',
+          detail:
+            `${label} for ${market} is in log mode: nothing is sent, and message content is ` +
+            `withheld from the log outside LOCAL/DEV.` +
+            (customerFacing ? ' Production refuses to boot this way.' : ''),
+        });
+        continue;
+      }
+      if (!provider) {
         components.push({
           key: channel,
           label,
@@ -372,12 +393,50 @@ export class NotificationReadinessService {
 
     const check = this.require('delivery-callbacks', 'Delivery callbacks', [...new Set(expected)]);
     /*
+      The exact URL to paste into the Messaging Service. Not a secret -- Twilio authenticates
+      with a signature, not with the URL -- and getting it byte-for-byte right is the whole
+      difficulty, so it is computed from the same values the controller uses to verify.
+    */
+    const twilioCallback = this.twilioWebhookUrl('twilio');
+    const twilioInbound = this.twilioWebhookUrl('twilio/inbound');
+    const where =
+      this.providerFor('sms', market) === 'twilio' && twilioCallback && twilioInbound
+        ? `Twilio: on the Messaging Service set the Delivery Status Callback to ` +
+          `${twilioCallback}, set Incoming Messages to send a webhook to ${twilioInbound}, and ` +
+          `enable Advanced Opt-Out — without it STOP/START never reach this platform and ` +
+          `opt-out state cannot follow Twilio. `
+        : '';
+    /*
       Whether the provider is actually POSTING to us is a fact about their dashboard, which
       nothing here can observe. Saying so explicitly is the difference between a readiness
       report and a false assurance.
     */
-    check.detail = `${check.detail ? `${check.detail} ` : ''}Configuration only — this does not prove the provider is delivering callbacks.`;
+    check.detail = `${check.detail ? `${check.detail} ` : ''}${where}Configuration only — this does not prove the provider is delivering callbacks.`;
     return check;
+  }
+
+  /** `${PUBLIC_API_URL}/${prefix}/notifications/webhooks/${route}`, or null when unset. */
+  private twilioWebhookUrl(route: string): string | null {
+    const base = (this.config.get<string>('PUBLIC_API_URL') ?? '').trim().replace(/\/+$/, '');
+    if (!base) return null;
+    const prefix = (this.config.get<string>('API_GLOBAL_PREFIX') ?? 'api').replace(
+      /^\/+|\/+$/g,
+      '',
+    );
+    return `${base}${prefix ? `/${prefix}` : ''}/notifications/webhooks/${route}`;
+  }
+
+  private async awaitingCorrelation(): Promise<number | null> {
+    const ledger = (this.prisma as { webhookEvent?: PrismaService['webhookEvent'] }).webhookEvent;
+    if (!ledger) return null;
+    return ledger
+      .count({
+        where: {
+          provider: { startsWith: 'notification:' },
+          processingStatus: WebhookProcessingStatus.AWAITING_CORRELATION,
+        },
+      })
+      .catch(() => null);
   }
 
   /** Every ENABLED market, plus the platform-wide switches an operator needs to see. */
@@ -403,6 +462,18 @@ export class NotificationReadinessService {
           approved in English. Worth migrating deliberately rather than discovering.
         */
         legacyTemplateBindings: this.bindings.legacyCount(),
+        /*
+          Whether this process would print a message body -- a sign-in code included -- when a
+          channel is in log mode. False everywhere but LOCAL/DEV; shown so nobody has to read
+          the code to find out.
+        */
+        messageContentLogged: messageContentLoggable(this.config),
+        /*
+          Verified callbacks still waiting for their message to be recorded. A handful is the
+          normal race; a growing number means sends are crashing before their provider
+          reference is written, or another environment shares this provider account.
+        */
+        callbacksAwaitingCorrelation: await this.awaitingCorrelation(),
       },
       ok: perMarket.every((m) => m.ok),
     };

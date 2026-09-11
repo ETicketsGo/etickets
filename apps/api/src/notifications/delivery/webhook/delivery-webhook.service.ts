@@ -6,11 +6,22 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MetricsService } from '../../../metrics/metrics.service';
 import { AppException, ErrorCodes } from '../../../common/errors';
 import { DeliveryRecorderService } from '../delivery-recorder.service';
+import { SuppressionService } from '../suppression.service';
+import { redactProviderText } from '../../channels/transports/provider-text';
+import {
+  TWILIO_INBOUND,
+  applyOptOut,
+  ledgerKey,
+  settleWebhookEvent,
+  type StoredOptOutEvent,
+  type StoredProviderEvent,
+} from './provider-event-ledger';
 import {
   parseMetaCloud,
   parseMsg91,
   parseSesEvent,
   parseTwilio,
+  parseTwilioInbound,
   type DeliveryEvent,
 } from './delivery-webhook.parsers';
 import {
@@ -27,6 +38,17 @@ export interface WebhookResult {
   applied: number;
   duplicate: boolean;
 }
+
+/**
+ * Which channels a provider's callbacks can be about, so a destination can be kept as a hash
+ * per channel (see DestinationRef). The hash includes the channel, and MSG91 carries two.
+ */
+const CALLBACK_CHANNELS: Record<string, readonly string[]> = {
+  twilio: ['sms'],
+  msg91: ['sms', 'whatsapp'],
+  cloud: ['whatsapp'],
+  ses: ['email'],
+};
 
 /**
  * Delivery callbacks, from every provider that sends them.
@@ -70,6 +92,12 @@ export class DeliveryWebhookService {
       rather than a broken webhook.
     */
     private readonly confirmations?: SnsConfirmationService,
+    /*
+      Required by the inbound opt-out webhook, which writes suppression directly. Optional in
+      the signature only so the suites that build this service by hand for other providers
+      keep working; the module always provides it.
+    */
+    private readonly suppression?: SuppressionService,
   ) {}
 
   /** Twilio SMS status callbacks (form-encoded, HMAC-SHA1 over URL + sorted fields). */
@@ -84,6 +112,70 @@ export class DeliveryWebhookService {
     }
     const event = parseTwilio(input.body);
     return this.ingest('twilio', event ? [event] : [], input.body);
+  }
+
+  /**
+   * Inbound SMS to the Messaging Service -- used for Advanced Opt-Out keywords and nothing else.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * A STOP is recorded locally as UNSUBSCRIBED, and scheduled messages then refuse to text the
+   * number. The only other way this platform learned about a START was Twilio ACCEPTING a later
+   * send -- but the local suppression is exactly what stops that send being attempted. A
+   * customer who texted START could stay suppressed here indefinitely while Twilio would have
+   * delivered to them. Twilio publishes no API to read its opt-out list, so the keyword itself,
+   * as Twilio reports it to this webhook, is the synchronisation.
+   *
+   * ── WHAT IT DOES NOT DO ────────────────────────────────────────────────────────────
+   * It does not reply (Twilio already has, in the sender's language), does not read the message
+   * body, does not store the number, and does not act on anything Twilio did not classify as an
+   * opt-out keyword. It is not a conversation endpoint.
+   *
+   * Recorded in the same ledger as delivery callbacks, keyed on the inbound message SID, so a
+   * redelivered STOP cannot re-suppress somebody who has since texted START.
+   */
+  async twilioInbound(input: {
+    url: string;
+    body: Record<string, unknown>;
+    signature: string;
+  }): Promise<{ applied: boolean; duplicate: boolean }> {
+    const token = this.config.get<string>('TWILIO_AUTH_TOKEN');
+    if (!token || !verifyTwilioSignature(token, input.url, input.body, input.signature)) {
+      this.reject(TWILIO_INBOUND);
+    }
+    const event = parseTwilioInbound(input.body);
+    if (!event) {
+      // An ordinary reply, or Advanced Opt-Out is off. Acknowledged; nothing is kept.
+      this.metrics.recordNotificationWebhook(TWILIO_INBOUND, 'no_actionable_event');
+      return { applied: false, duplicate: false };
+    }
+    if (!this.suppression) {
+      throw new Error('Inbound opt-out webhook requires SuppressionService');
+    }
+
+    const stored: StoredOptOutEvent = {
+      kind: 'opt_out',
+      optOutType: event.optOutType,
+      destinationRef: SuppressionService.reference(event.from, ['sms']),
+    };
+    const claimedId = await this.claimRow(
+      ledgerKey(TWILIO_INBOUND),
+      event.messageSid,
+      event.optOutType,
+      stored,
+      input.body,
+    );
+    if (!claimedId) {
+      this.metrics.recordNotificationWebhook(TWILIO_INBOUND, 'duplicate');
+      return { applied: false, duplicate: true };
+    }
+
+    const outcome = await applyOptOut(this.suppression, stored);
+    await settleWebhookEvent(this.prisma, claimedId, outcome).catch(() => undefined);
+    this.metrics.recordNotificationWebhook(
+      TWILIO_INBOUND,
+      outcome === 'applied' ? `opt_out_${event.optOutType.toLowerCase()}` : 'no_change',
+    );
+    return { applied: outcome === 'applied', duplicate: false };
   }
 
   /** Meta WhatsApp Cloud status callbacks (HMAC-SHA256 over the RAW body). */
@@ -245,8 +337,8 @@ export class DeliveryWebhookService {
     let applied = 0;
     let duplicate = false;
     for (const event of events) {
-      const claimed = await this.claim(provider, event, rawPayload);
-      if (!claimed) {
+      const claimedId = await this.claim(provider, event, rawPayload);
+      if (!claimedId) {
         duplicate = true;
         this.metrics.recordNotificationWebhook(provider, 'duplicate');
         continue;
@@ -259,25 +351,22 @@ export class DeliveryWebhookService {
         failureCode: event.failureCode,
         failureReason: event.failureReason,
         destination: event.destination,
+        suppressionReason: event.suppressionReason,
         occurredAt: event.occurredAt,
       });
       if (outcome === 'applied') {
         applied += 1;
         this.metrics.recordNotificationWebhook(provider, 'applied');
       }
-      await this.prisma.webhookEvent
-        .updateMany({
-          where: { provider, providerEventId: event.eventId },
-          data: {
-            processingStatus:
-              outcome === 'unknown'
-                ? WebhookProcessingStatus.DEAD_LETTER
-                : WebhookProcessingStatus.PROCESSED,
-            processedAt: new Date(),
-            errorMessage: outcome === 'unknown' ? 'no matching delivery attempt' : null,
-          },
-        })
-        .catch(() => undefined);
+      /*
+        An event for a message not yet correlated is HELD, not consumed. Its unique key is
+        already written, so a redelivery would be refused as a duplicate: dropping it here
+        would lose it permanently. See ProviderEventReplayService.
+      */
+      if (outcome === 'unknown') {
+        this.metrics.recordNotificationWebhook(provider, 'awaiting_correlation');
+      }
+      await settleWebhookEvent(this.prisma, claimedId, outcome).catch(() => undefined);
     }
     return { received: true, applied, duplicate };
   }
@@ -293,34 +382,65 @@ export class DeliveryWebhookService {
     provider: string,
     event: DeliveryEvent,
     rawPayload: unknown,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
+    const key = ledgerKey(provider);
+    /*
+      The parsed event, not the provider's body. A raw Twilio callback carries the
+      recipient's phone number and a raw SES bounce carries their email address, and this
+      table is long-lived, widely readable and included in backups. What is kept is what is
+      needed to apply the event later: which message, what happened, and -- for a destination
+      that may need suppressing -- a hash and a mask, never the number or the address.
+    */
+    const stored: StoredProviderEvent = {
+      providerMessageId: event.providerMessageId,
+      state: event.state,
+      providerStatus: event.providerStatus ?? null,
+      failureCode: event.failureCode ?? null,
+      failureReason: event.failureReason ? redactProviderText(event.failureReason) : null,
+      suppressionReason: event.suppressionReason ?? null,
+      destinationRef: event.destination
+        ? SuppressionService.reference(event.destination, CALLBACK_CHANNELS[provider] ?? [])
+        : null,
+      occurredAt: event.occurredAt ? event.occurredAt.toISOString() : null,
+    };
+    return this.claimRow(
+      key,
+      event.eventId,
+      event.providerStatus ?? event.state,
+      stored,
+      rawPayload,
+    );
+  }
+
+  /** Write one ledger row, or return null when its (provider, eventId) already exists. */
+  private async claimRow(
+    key: string,
+    providerEventId: string,
+    eventType: string,
+    stored: object,
+    rawPayload: unknown,
+  ): Promise<string | null> {
     const created = await this.prisma.webhookEvent.createMany({
       data: [
         {
-          provider: `notification:${provider}`,
-          providerEventId: event.eventId,
-          eventType: event.providerStatus ?? event.state,
+          provider: key,
+          providerEventId,
+          eventType,
           payloadHash: createHash('sha256')
             .update(JSON.stringify(rawPayload ?? {}))
             .digest('hex'),
-          /*
-            The parsed event, not the provider's body. A raw Twilio callback carries the
-            recipient's phone number and a raw SES bounce carries their email address, and
-            this table is long-lived, widely readable and included in backups. What is kept
-            is what an operator needs: which message, what happened, and why.
-          */
-          payload: {
-            providerMessageId: event.providerMessageId,
-            state: event.state,
-            providerStatus: event.providerStatus ?? null,
-            failureCode: event.failureCode ?? null,
-          } as object,
+          payload: stored,
           processingStatus: WebhookProcessingStatus.RECEIVED,
         },
       ],
       skipDuplicates: true,
     });
-    return created.count === 1;
+    if (created.count !== 1) return null;
+    const row = await this.prisma.webhookEvent.findUnique({
+      where: { provider_providerEventId: { provider: key, providerEventId } },
+      select: { id: true },
+    });
+    return row?.id ?? null;
   }
 }
 

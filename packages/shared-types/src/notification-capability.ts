@@ -138,8 +138,12 @@ export const PROVIDER_CAPABILITIES: readonly ProviderCapability[] = [
     deliveryMeasurable: true,
     webhookAuth: 'signature',
     notes:
-      'The signature covers the callback URL, so PUBLIC_API_URL must match byte for byte ' +
-      'what Twilio calls. US traffic additionally requires A2P 10DLC registration.',
+      'Sends through TWILIO_MESSAGING_SERVICE_SID; delivery callbacks come from that ' +
+      'Messaging Service, so its Delivery Status Callback must be set. Opt-out state is kept ' +
+      'in step through its incoming-message webhook, which needs Advanced Opt-Out enabled so ' +
+      'Twilio reports STOP/START/HELP as OptOutType. The signature covers ' +
+      'the callback URL, so PUBLIC_API_URL must match byte for byte what Twilio calls. US and ' +
+      'Canada traffic requires toll-free verification or A2P 10DLC registration.',
   },
   {
     provider: 'msg91',

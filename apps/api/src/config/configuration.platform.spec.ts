@@ -26,6 +26,8 @@ const PROD_BASE: Record<string, string> = {
   // not start. Every production fixture therefore names a real transport.
   EMAIL_PROVIDER: 'sendgrid',
   EMAIL_FROM: 'tickets@eticketsgo.example',
+  // The same rule for text messages: phone sign-in cannot work in SMS log mode.
+  SMS_PROVIDER_BY_MARKET: 'IN=msg91,US=twilio,CA=twilio',
 };
 
 function withEnv(base: Record<string, string>, extra: Record<string, string> = {}) {

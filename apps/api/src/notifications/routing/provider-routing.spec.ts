@@ -33,7 +33,7 @@ function config(over: Record<string, string> = {}) {
     // Credentials for every provider the launch matrix can pick, so construction succeeds.
     TWILIO_ACCOUNT_SID: 'ACtest',
     TWILIO_AUTH_TOKEN: 'secret-token',
-    TWILIO_FROM_NUMBER: '+15550000000',
+    TWILIO_MESSAGING_SERVICE_SID: `MG${'0'.repeat(32)}`,
     MSG91_AUTH_KEY: 'msg91-secret',
     MSG91_WHATSAPP_NUMBER: '919999999999',
     WHATSAPP_PHONE_NUMBER_ID: '123456',

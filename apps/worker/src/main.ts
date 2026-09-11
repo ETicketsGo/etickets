@@ -14,6 +14,7 @@ import {
   FinanceReconciliationService,
   NotificationService,
   NotificationFallbackService,
+  ProviderEventReplayService,
   ShowCancellationFanoutService,
   ShowReminderService,
   PrismaService,
@@ -163,6 +164,15 @@ async function main(): Promise<void> {
   const prisma = app.get(PrismaService);
   const notifications = app.get(NotificationService);
   const fallbacks = app.get(NotificationFallbackService);
+  const callbackReplay = app.get(ProviderEventReplayService);
+  /*
+    How often verified delivery callbacks that beat their message's provider reference are
+    retried. The fast path applies them the moment the reference is written; this is the net
+    under it, so a minute is plenty and cheap -- the query only reads rows that are waiting.
+  */
+  const RAW_REPLAY_MS = Number(process.env.NOTIFICATION_CALLBACK_REPLAY_INTERVAL_MS ?? 60_000);
+  const CALLBACK_REPLAY_MS =
+    Number.isFinite(RAW_REPLAY_MS) && RAW_REPLAY_MS > 0 ? RAW_REPLAY_MS : 60_000;
   const cancellationFanout = app.get(ShowCancellationFanoutService);
   const reminders = app.get(ShowReminderService);
   const sellability = app.get(EventSellabilitySweepService);
@@ -234,6 +244,22 @@ async function main(): Promise<void> {
     {
       repeat: { every: FALLBACK_SWEEP_MS },
       jobId: 'notification-fallbacks',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  // Delivery callbacks that arrived before their message was recorded: applied, or
+  // dead-lettered once the correlation window has passed. Idempotent -- each row is claimed
+  // with a conditional update and delivery state only ever moves forward.
+  await queue.add(
+    'notification-callback-replay',
+    {},
+    {
+      repeat: { every: CALLBACK_REPLAY_MS },
+      jobId: 'notification-callback-replay',
       removeOnComplete: 50,
       removeOnFail: 50,
       attempts: 3,
@@ -446,6 +472,13 @@ async function main(): Promise<void> {
         */
         const summary = await fallbacks.runDue();
         if (summary.opened > 0) log('info', 'opened notification fallbacks', { ...summary });
+        return summary;
+      }
+      if (job.name === 'notification-callback-replay') {
+        const summary = await callbackReplay.sweep();
+        if (summary.applied + summary.deadLettered > 0) {
+          log('info', 'replayed delivery callbacks', { ...summary });
+        }
         return summary;
       }
       if (job.name === 'outbox-dispatch') {

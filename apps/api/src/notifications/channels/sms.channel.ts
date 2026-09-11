@@ -11,6 +11,7 @@ import { resolvePhoneDestination } from './phone-destination';
 import { FailureClass } from '@eticketsgo/shared-types';
 import { validateTemplatePayload } from '../templates/template-contract';
 import { TransportError } from './transports/transport-http';
+import { SuppressionService } from '../delivery/suppression.service';
 
 /**
  * SMS channel.
@@ -36,6 +37,11 @@ export class SmsChannel implements NotificationChannel {
   constructor(
     private readonly providers: NotificationProviderResolver,
     private readonly prisma?: PrismaService,
+    /*
+      Optional so the suites that build this channel by hand keep working. Absent, an opt-out
+      refusal still fails the send correctly -- it simply is not remembered for the next one.
+    */
+    private readonly suppression?: SuppressionService,
   ) {}
 
   async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
@@ -83,6 +89,41 @@ export class SmsChannel implements NotificationChannel {
         FailureClass.CONFIGURATION_ERROR,
       );
     }
-    return routed.transport.send(addressed);
+    const destination = addressed.destination as string;
+    try {
+      const outcome = await routed.transport.send(addressed);
+      /*
+        ── AN ACCEPTED SEND IS SECONDARY NEWS ABOUT AN OPT-OUT ────────────────────────
+        START reaches us through the provider's inbound keyword webhook, which is the primary
+        way an opt-out is lifted (scheduled sends are refused while a number is suppressed, so
+        they can never produce this signal). This is the repair path for a keyword webhook
+        that was missed: a provider that enforces opt-out would have refused this send had the
+        recipient still been opted out -- typically a sign-in code, which is not gated locally.
+        Only the opt-out reason; a dead number or a carrier block is not disproved by a send.
+      */
+      if (!outcome.skipped && routed.transport.enforcesOptOut) {
+        await this.suppression
+          ?.liftProviderOptOut('sms', destination, routed.provider, 'accepted')
+          .catch(() => undefined);
+      }
+      return outcome;
+    } catch (err) {
+      /*
+        The provider refused because the recipient opted out. That is recorded here, where
+        the destination is known, so it applies to every path that texts this number --
+        the notification sweep checks suppression before it tries again.
+      */
+      if (err instanceof TransportError && err.suppression) {
+        await this.suppression
+          ?.suppress({
+            channel: 'sms',
+            destination,
+            reason: err.suppression,
+            provider: err.provider,
+          })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
   }
 }
