@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CUSTOMER, SEED_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
 
 /** Registers a fresh customer and books `qty` tickets, landing on confirmation. */
@@ -7,7 +7,7 @@ async function registerAndBook(page: Page, name: string, email: string, qty: str
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill(name);
   await page.getByLabel('Email').fill(email);
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
@@ -95,7 +95,7 @@ test('offline privacy: logout clears cache and a second user cannot see it', asy
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('User B');
   await page.getByLabel('Email').fill(uniqueEmail('userB'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 

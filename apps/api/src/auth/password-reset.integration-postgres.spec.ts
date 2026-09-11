@@ -287,7 +287,11 @@ describe('integration-real-postgres: password reset', () => {
       });
 
       await auth.requestPasswordReset(addr, {});
-      await auth.resetPassword(tokenFromLink(String(sent[0].payload.link)), 'Claimed1!', {});
+      await auth.resetPassword(
+        tokenFromLink(String(sent[0].payload.link)),
+        'Blue-Lantern-Harbour-47',
+        {},
+      );
 
       const after = await db!.organizationMember.findUnique({ where: { id: member.id } });
       expect(after.status).toBe('ACTIVE');

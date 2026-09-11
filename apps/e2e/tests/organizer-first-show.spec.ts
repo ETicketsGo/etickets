@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { API, ORGANIZER } from './helpers';
+import { API, ORGANIZER, NEW_ACCOUNT_PASSWORD } from './helpers';
 
 /**
  * The first show a brand-new organizer ever tries to schedule.
@@ -17,7 +17,7 @@ import { API, ORGANIZER } from './helpers';
  * So these tests assert the GUIDANCE, not the endpoints: the state a new organizer is
  * actually in, and whether the screen in front of them offers a way out of it.
  */
-const PASSWORD = 'Password123!';
+const PASSWORD = NEW_ACCOUNT_PASSWORD;
 
 async function freshOrganizer(page: Page) {
   const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`;

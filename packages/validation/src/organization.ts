@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
-import { emailSchema, passwordSchema } from './common';
+import { emailSchema, passwordSchema, registrableEmailSchema } from './common';
 
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -90,7 +90,7 @@ export type UpdateOrganizationLegalIdentityInput = z.infer<
 >;
 
 export const inviteMemberSchema = z.object({
-  email: emailSchema,
+  email: registrableEmailSchema,
   role: z.enum([Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF, Role.ORGANIZER_OWNER]),
 });
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;

@@ -7,15 +7,29 @@ export const API = process.env.API_URL ?? 'http://localhost:4000/api';
 
 export const SEED_PASSWORD = 'Password123!';
 
+/**
+ * The password for accounts a spec REGISTERS during the run.
+ *
+ * `SEED_PASSWORD` is on every common-password list. That is harmless for seeded rows, which are
+ * written straight to the database, and correctly refused for anything that goes through
+ * registration — so a spec creating an account needs a password the policy accepts.
+ */
+export const NEW_ACCOUNT_PASSWORD = 'Blue-Lantern-Harbour-47';
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
 /** Logs in via the API and returns the token pair (no browser interaction). */
-export async function apiLogin(request: APIRequestContext, email: string): Promise<AuthTokens> {
+export async function apiLogin(
+  request: APIRequestContext,
+  email: string,
+  /** Seeded accounts use the seed password; accounts a spec registers use their own. */
+  password: string = SEED_PASSWORD,
+): Promise<AuthTokens> {
   const res = await request.post(`${API}/auth/login`, {
-    data: { email, password: SEED_PASSWORD },
+    data: { email, password },
   });
   const body = await res.json();
   return { accessToken: body.accessToken, refreshToken: body.refreshToken };

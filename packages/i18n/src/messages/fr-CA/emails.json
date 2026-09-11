@@ -61,8 +61,8 @@
     "body": "L'accès au billet {ticketId} a été révoqué."
   },
   "ORGANIZATION_REGISTERED": {
-    "subject": "Nouvel organisateur en attente d'approbation : {organization}",
-    "body": "{organization} s'est inscrit et attend une révision. Contact : {contact}. L'organisateur ne peut pas vendre de billets tant qu'un administrateur ne l'a pas approuvé."
+    "subject": "Nouveaux organisateurs en attente d'approbation",
+    "body": "{organization} s'est inscrit et attend une révision. Contact : {contact}. D'autres se sont peut-être inscrits au cours de la même heure : vous recevez au plus un de ces courriels par heure, alors ouvrez la file de révision pour voir tous ceux qui attendent. Aucun organisateur ne peut vendre de billets tant qu'un administrateur ne l'a pas approuvé."
   },
   "ORGANIZATION_APPROVED": {
     "subject": "{organization} est approuvé",

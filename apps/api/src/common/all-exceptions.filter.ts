@@ -42,7 +42,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = exception.getStatus();
       const response = exception.getResponse();
       if (typeof response === 'string') {
-        body = { ...body, code: mapStatusToCode(status), message: response };
+        body = {
+          ...body,
+          code: mapStatusToCode(status),
+          /*
+            The rate limiter throws with the text "ThrottlerException: Too Many Requests",
+            which named a class to somebody who had only pressed a button too often.
+          */
+          message:
+            status === HttpStatus.TOO_MANY_REQUESTS
+              ? 'Too many attempts. Wait a little while and try again.'
+              : response,
+        };
       } else if (typeof response === 'object' && response !== null) {
         const r = response as Record<string, unknown>;
         body = {
@@ -153,6 +164,10 @@ function mapStatusToCode(status: number): string {
       return ErrorCodes.CONFLICT;
     case HttpStatus.BAD_REQUEST:
       return ErrorCodes.VALIDATION_FAILED;
+    // Was unmapped, so a throttled request reported INTERNAL — a server fault, to a client that
+    // had merely been told to slow down.
+    case HttpStatus.TOO_MANY_REQUESTS:
+      return ErrorCodes.RATE_LIMITED;
     default:
       return ErrorCodes.INTERNAL;
   }

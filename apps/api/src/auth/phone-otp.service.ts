@@ -1,3 +1,4 @@
+import { phoneOnlyEmail } from '@eticketsgo/shared-types';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
@@ -220,16 +221,38 @@ export class PhoneOtpService {
       the invite flow uses: an account nobody can log into with a password, only with a code,
       until the person sets one.
     */
-    const created = await this.prisma.user.create({
-      data: {
-        email: `phone+${phone.replace(/\D/g, '')}@users.eticketsgo.internal`,
-        phone,
-        phoneVerifiedAt: new Date(),
-        passwordHash: `phone-only$${await bcrypt.hash(`${phone}:${Date.now()}`, 10)}`,
-        fullName: '',
-        roles: ['CUSTOMER'],
-      },
-    });
+    let created: { id: string };
+    try {
+      created = await this.prisma.user.create({
+        data: {
+          email: phoneOnlyEmail(phone),
+          phone,
+          phoneVerifiedAt: new Date(),
+          passwordHash: `phone-only$${await bcrypt.hash(`${phone}:${Date.now()}`, 10)}`,
+          fullName: '',
+          roles: ['CUSTOMER'],
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code !== 'P2002') throw err;
+      /*
+        ── ONE NUMBER, ONE ACCOUNT, EVEN WHEN TWO REQUESTS ARRIVE TOGETHER ─────────────
+        Two verifications for the same brand-new number — a double tap, two devices — both
+        find no account and both try to make one. The unique index stops the second, which
+        used to surface as a 500 to a person who had just typed a correct code. The winner's
+        account is theirs too: they proved the same number.
+      */
+      const winner = await this.prisma.user.findUnique({ where: { phone }, select: { id: true } });
+      if (winner) return { id: winner.id, isNewAccount: false };
+      // The collision was on the placeholder address, not the number: a row nobody should have
+      // been able to create. Said plainly rather than as a server error.
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This number cannot be used to sign in right now. Contact support.',
+        HttpStatus.CONFLICT,
+      );
+    }
     return { id: created.id, isNewAccount: true };
   }
 }

@@ -2,10 +2,12 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, ApiRequestError } from '@/lib/api';
 import { useRouter, Link } from '@/i18n/navigation';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card } from '@/components/ui';
 import { useTranslations } from 'next-intl';
+import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
+import { usePasswordCopy } from '@/lib/use-password-copy';
 
 /**
  * Setting a new password from a reset link.
@@ -21,6 +23,8 @@ function ResetForm() {
   const token = params.get('token') ?? '';
 
   const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const passwordCopy = usePasswordCopy();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -36,10 +40,23 @@ function ResetForm() {
         password they just chose, and every previous session has just been destroyed.
       */
       router.push('/login?reset=1');
-    } catch {
-      // One message for every refusal, matching the server: telling an expired link apart
-      // from a spent one tells somebody holding a stolen link whether to chase a fresher one.
-      setError(a('resetLinkBad'));
+    } catch (err) {
+      const reason =
+        err instanceof ApiRequestError
+          ? (err.details?.fields as Record<string, string[]> | undefined)?.password?.[0]
+          : undefined;
+      if (reason) {
+        /*
+          A refused PASSWORD is not a bad link. Saying "this link is no longer valid" for it
+          would send somebody to request a new email for a link that still works.
+        */
+        setPasswordError(reason);
+      } else {
+        // One message for every refusal of the LINK, matching the server: telling an expired
+        // link apart from a spent one tells somebody holding a stolen link whether to chase a
+        // fresher one.
+        setError(a('resetLinkBad'));
+      }
       setLoading(false);
     }
   };
@@ -60,13 +77,15 @@ function ResetForm() {
     <Card className="mx-auto mt-10 max-w-md space-y-4">
       <h1 className="text-title font-semibold text-text-primary">{a('newPasswordTitle')}</h1>
       <form onSubmit={submit} className="space-y-4">
-        <Input
+        <PasswordField
           id="password"
-          label={a('newPassword')}
-          type="password"
-          autoComplete="new-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(next) => {
+            setPassword(next);
+            if (passwordError) setPasswordError(null);
+          }}
+          copy={{ ...passwordCopy, label: a('newPassword') }}
+          serverError={passwordError ?? undefined}
           required
         />
         {error && (
@@ -74,7 +93,12 @@ function ResetForm() {
             {error}
           </p>
         )}
-        <Button type="submit" className="w-full" loading={loading}>
+        <Button
+          type="submit"
+          className="w-full"
+          loading={loading}
+          disabled={!passwordAcceptable(password)}
+        >
           {a('newPasswordSave')}
         </Button>
       </form>

@@ -5,7 +5,7 @@ describe('auth schemas', () => {
   it('accepts a valid registration and lowercases the email', () => {
     const parsed = registerSchema.parse({
       email: 'User@Example.com',
-      password: 'Password123!',
+      password: 'Blue-Lantern-Harbour-47',
       fullName: 'Jo',
     });
     expect(parsed.email).toBe('user@example.com');

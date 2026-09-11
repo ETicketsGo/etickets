@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { API, ORGANIZER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  ORGANIZER,
+  apiLogin,
+  seedBrowserAuth,
+  NEW_ACCOUNT_PASSWORD,
+  uniqueEmail,
+} from './helpers';
 
 /**
  * Adding a staff member, and that staff member actually getting in.
@@ -72,7 +79,7 @@ test.describe('adding a staff member', () => {
       exists but was never claimed must not be usable.
     */
     const res = await request.post(`${API}/auth/login`, {
-      data: { email: staffEmail, password: SEED_PASSWORD },
+      data: { email: staffEmail, password: NEW_ACCOUNT_PASSWORD },
     });
     expect(res.ok()).toBe(false);
   });
@@ -85,7 +92,7 @@ test.describe('adding a staff member', () => {
     await expect(page.getByText(staffEmail)).toBeVisible();
 
     await page.getByLabel('Your name').fill('New Staffer');
-    await page.getByLabel('Choose a password').fill(SEED_PASSWORD);
+    await page.getByLabel('Choose a password').fill(NEW_ACCOUNT_PASSWORD);
     await page.getByRole('button', { name: 'Create account and join' }).click();
 
     await expect(page).toHaveURL(/\/login/, { timeout: 30_000 });
@@ -97,7 +104,7 @@ test.describe('adding a staff member', () => {
       nothing used to set it. Asserted against the API rather than the UI, because a console
       that renders a team list proves nothing about whether the server would let them act.
     */
-    const staff = await apiLogin(request, staffEmail);
+    const staff = await apiLogin(request, staffEmail, NEW_ACCOUNT_PASSWORD);
     expect(staff.accessToken).toBeTruthy();
 
     const res = await request.get(`${API}/organizations`, {

@@ -162,17 +162,17 @@ describe('integration-real-postgres: team invitations', () => {
 
       // And the account cannot be signed into: the placeholder hash matches nothing.
       const before = await db!.user.findUnique({ where: { id: invited.user.id } });
-      expect(await bcrypt.compare('Password123!', before.passwordHash)).toBe(false);
+      expect(await bcrypt.compare('Blue-Lantern-Harbour-47', before.passwordHash)).toBe(false);
 
       await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
         fullName: 'New Bie',
-        password: 'Password123!',
+        password: 'Blue-Lantern-Harbour-47',
       } as never);
 
       // Now all three things that were broken are true at once.
       const after = await db!.user.findUnique({ where: { id: invited.user.id } });
       expect(after.fullName).toBe('New Bie');
-      expect(await bcrypt.compare('Password123!', after.passwordHash)).toBe(true);
+      expect(await bcrypt.compare('Blue-Lantern-Harbour-47', after.passwordHash)).toBe(true);
       const member = await db!.organizationMember.findUnique({ where: { id: invited.id } });
       expect(member.status).toBe('ACTIVE');
       await expect(access.assertMember(asInvitee as never, orgId)).resolves.toBeUndefined();
@@ -244,10 +244,10 @@ describe('integration-real-postgres: team invitations', () => {
 
       await orgs.acceptInvitation(second, {
         fullName: 'Once Only',
-        password: 'Password123!',
+        password: 'Blue-Lantern-Harbour-47',
       } as never);
       await expect(
-        orgs.acceptInvitation(second, { password: 'Password123!' } as never),
+        orgs.acceptInvitation(second, { password: 'Blue-Lantern-Harbour-47' } as never),
       ).rejects.toThrow(/not valid/i);
 
       // And there is nothing left to re-send.
@@ -345,7 +345,7 @@ describe('integration-real-postgres: team invitations', () => {
         AdminPermission.EVENT_REVIEW,
       ]);
       // Holds the duties, cannot sign in to use them.
-      expect(await bcrypt.compare('Password123!', account.passwordHash)).toBe(false);
+      expect(await bcrypt.compare('Blue-Lantern-Harbour-47', account.passwordHash)).toBe(false);
 
       // No organization membership involved — this invitation activates the account alone.
       const summary = await orgs.describeInvitation(tokenFrom(invited.inviteUrl));
@@ -353,11 +353,11 @@ describe('integration-real-postgres: team invitations', () => {
 
       await orgs.acceptInvitation(tokenFrom(invited.inviteUrl), {
         fullName: 'Back Officer',
-        password: 'Password123!',
+        password: 'Blue-Lantern-Harbour-47',
       } as never);
 
       const after = await db!.user.findUnique({ where: { id: invited.id } });
-      expect(await bcrypt.compare('Password123!', after.passwordHash)).toBe(true);
+      expect(await bcrypt.compare('Blue-Lantern-Harbour-47', after.passwordHash)).toBe(true);
       expect(after.fullName).toBe('Back Officer');
     },
     120_000,

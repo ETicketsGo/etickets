@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * The WCAG criteria a rule engine cannot decide, checked the only way they can be.
@@ -89,9 +96,9 @@ test.describe('WCAG 2.2.1 — the booking hold can be extended', () => {
     fx = await paidEvent(request);
     buyerEmail = uniqueEmail('a11y_hold');
     await request.post(`${API}/auth/register`, {
-      data: { email: buyerEmail, password: SEED_PASSWORD, fullName: 'Hold Tester' },
+      data: { email: buyerEmail, password: NEW_ACCOUNT_PASSWORD, fullName: 'Hold Tester' },
     });
-    tokens = await apiLogin(request, buyerEmail);
+    tokens = await apiLogin(request, buyerEmail, NEW_ACCOUNT_PASSWORD);
   });
 
   test('the API grants more time, and says how much is left', async ({ request }) => {
@@ -204,9 +211,9 @@ test.describe('WCAG 2.1.1 — a booking can be completed from the keyboard', () 
     fx = await paidEvent(request);
     const email = uniqueEmail('a11y_kbd');
     await request.post(`${API}/auth/register`, {
-      data: { email, password: SEED_PASSWORD, fullName: 'Keyboard Buyer' },
+      data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: 'Keyboard Buyer' },
     });
-    tokens = await apiLogin(request, email);
+    tokens = await apiLogin(request, email, NEW_ACCOUNT_PASSWORD);
   });
 
   test('choose a ticket and reach the checkout without a mouse', async ({ page, context }) => {

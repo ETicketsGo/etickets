@@ -14,6 +14,12 @@ import type {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { checkLegalIdentity, findNameCollisions } from './organization-identity';
+import {
+  MAX_PENDING_ORGANIZATIONS_PER_ACCOUNT,
+  registrationDigestIntent,
+  registrationLockKey,
+} from './organization-limits';
+import { assertAcceptablePassword } from '../auth/password-acceptance';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -60,14 +66,42 @@ export class OrganizationsService {
   ) {}
 
   async register(user: RequestUser, input: CreateOrganizationInput) {
-    const org = await this.prisma.organization.create({
-      data: {
-        name: input.name,
-        slug: slugify(input.name),
-        contactEmail: input.contactEmail,
-        status: OrganizationStatus.PENDING,
-        members: { create: { userId: user.id, role: Role.ORGANIZER_OWNER } },
-      },
+    /*
+      ── AT MOST A FEW WAITING AT ONCE, PER ACCOUNT ──────────────────────────────────
+      Nothing an unapproved organization does can take money, so this is not a fraud control.
+      It stops one account filling the approval queue, which buries the genuine theatre
+      waiting in it. See `organization-limits.ts` for why PENDING is what counts.
+
+      The lock is what makes the count true. Checking then inserting is a race: two
+      registrations at once would both count one pending and both proceed. A transaction-
+      scoped advisory lock on this account serialises them and releases itself at commit.
+    */
+    const org = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${registrationLockKey(user.id)}))`;
+      const pending = await tx.organization.count({
+        where: {
+          status: OrganizationStatus.PENDING,
+          members: { some: { userId: user.id, role: Role.ORGANIZER_OWNER } },
+        },
+      });
+      if (pending >= MAX_PENDING_ORGANIZATIONS_PER_ACCOUNT) {
+        throw new AppException(
+          ErrorCodes.ORGANIZATION_LIMIT_REACHED,
+          `You already have ${pending} organizations waiting for review. We will email you ` +
+            'when they are decided, and you can register another once one of them has been.',
+          HttpStatus.CONFLICT,
+          { pending, limit: MAX_PENDING_ORGANIZATIONS_PER_ACCOUNT },
+        );
+      }
+      return tx.organization.create({
+        data: {
+          name: input.name,
+          slug: slugify(input.name),
+          contactEmail: input.contactEmail,
+          status: OrganizationStatus.PENDING,
+          members: { create: { userId: user.id, role: Role.ORGANIZER_OWNER } },
+        },
+      });
     });
 
     // Grant the platform organizer role if the user does not have it yet.
@@ -97,12 +131,24 @@ export class OrganizationsService {
       Never throws — see AdminAudienceService. The organization is committed by this point
       and losing it to a mail outage would be far worse than a missed email.
     */
-    await this.audience.notifyAdmins(NotificationType.ORGANIZATION_REGISTERED, {
-      organizationId: org.id,
-      organizationName: org.name,
-      contactEmail: org.contactEmail ?? user.email,
-      registeredByUserId: user.id,
-    });
+    await this.audience.notifyAdmins(
+      NotificationType.ORGANIZATION_REGISTERED,
+      {
+        organizationId: org.id,
+        organizationName: org.name,
+        contactEmail: org.contactEmail ?? user.email,
+        registeredByUserId: user.id,
+      },
+      {
+        /*
+        One email per admin per hour, however many register. Each registration used to email
+        every admin, so a burst of junk could spend the sending allowance — 200 a day on a
+        sandboxed account — and the booking confirmations after it would not go out. The
+        email says others may be waiting and points at the queue, which is the source of truth.
+      */
+        intentKey: registrationDigestIntent(),
+      },
+    );
 
     return org;
   }
@@ -568,6 +614,11 @@ export class OrganizationsService {
 
     const userUpdate: { passwordHash?: string; fullName?: string } = {};
     if (!invitation.hasUsablePassword && input.password) {
+      // The same rule as registration, with this invitee's own address and name as context.
+      assertAcceptablePassword(input.password, {
+        email: account.email,
+        name: input.fullName ?? account.fullName,
+      });
       userUpdate.passwordHash = await bcrypt.hash(input.password, 10);
       // The placeholder name is the email's local part, set when the invite created the
       // account. Replace it only if they gave us something real.

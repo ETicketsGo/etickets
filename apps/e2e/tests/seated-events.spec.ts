@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * A concert with assigned seats, from the seat map to the ticket.
@@ -116,9 +123,9 @@ test.describe('a concert with assigned seats', () => {
     fx = await seatedConcert(request);
     buyerEmail = uniqueEmail('seated_buyer');
     await request.post(`${API}/auth/register`, {
-      data: { email: buyerEmail, password: SEED_PASSWORD, fullName: 'Seat Buyer' },
+      data: { email: buyerEmail, password: NEW_ACCOUNT_PASSWORD, fullName: 'Seat Buyer' },
     });
-    tokens = await apiLogin(request, buyerEmail);
+    tokens = await apiLogin(request, buyerEmail, NEW_ACCOUNT_PASSWORD);
   });
 
   test('1: the room gives the session its seats and its prices', async ({ request }) => {
@@ -179,9 +186,9 @@ test.describe('a concert with assigned seats', () => {
     // Somebody else asking for the same seat is refused, not queued behind it.
     const rival = uniqueEmail('seated_rival');
     await request.post(`${API}/auth/register`, {
-      data: { email: rival, password: SEED_PASSWORD, fullName: 'Rival' },
+      data: { email: rival, password: NEW_ACCOUNT_PASSWORD, fullName: 'Rival' },
     });
-    const rivalTokens = await apiLogin(request, rival);
+    const rivalTokens = await apiLogin(request, rival, NEW_ACCOUNT_PASSWORD);
     const clash = await request.post(`${API}/bookings`, {
       headers: { Authorization: `Bearer ${rivalTokens.accessToken}` },
       data: {

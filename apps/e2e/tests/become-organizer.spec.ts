@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { API, CUSTOMER, ORGANIZER } from './helpers';
+import { API, CUSTOMER, ORGANIZER, NEW_ACCOUNT_PASSWORD } from './helpers';
 
 /**
  * Becoming an organizer, from a standing start.
@@ -19,7 +19,7 @@ import { API, CUSTOMER, ORGANIZER } from './helpers';
  *
  * No unit test could have caught that: each piece was doing its job. Only walking it does.
  */
-const PASSWORD = 'Password123!';
+const PASSWORD = NEW_ACCOUNT_PASSWORD;
 
 const disposable = (tag: string) => ({
   email: `becomeorg_${tag}_${Date.now()}_${Math.floor(Math.random() * 1000)}@e2e.test`,

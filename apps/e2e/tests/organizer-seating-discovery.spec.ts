@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { API, ORGANIZER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  ORGANIZER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * Can an organizer who has never seen this product find their way to reserved seating?
@@ -26,9 +33,9 @@ test.describe('finding reserved seating from a standing start', () => {
   test.beforeAll(async ({ request }) => {
     const email = uniqueEmail('discovery');
     await request.post(`${API}/auth/register`, {
-      data: { email, password: SEED_PASSWORD, fullName: 'Discovery Organizer' },
+      data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: 'Discovery Organizer' },
     });
-    const first = await apiLogin(request, email);
+    const first = await apiLogin(request, email, NEW_ACCOUNT_PASSWORD);
     const org = await (
       await request.post(`${API}/organizations`, {
         headers: { Authorization: `Bearer ${first.accessToken}` },
@@ -37,7 +44,7 @@ test.describe('finding reserved seating from a standing start', () => {
     ).json();
     organizationId = org.id;
     // Re-issued: the first token predates the organizer role the organization grants.
-    tokens = await apiLogin(request, email);
+    tokens = await apiLogin(request, email, NEW_ACCOUNT_PASSWORD);
   });
 
   test.beforeEach(async ({ context }) => {

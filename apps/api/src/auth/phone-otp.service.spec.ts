@@ -260,3 +260,86 @@ describe('PhoneOtpService.verifyCode', () => {
     });
   });
 });
+
+/**
+ * One mobile number, one account.
+ *
+ * Phone sign-in is registration and login at once: a known number signs into its account and
+ * an unknown one creates one. So "the same mobile cannot create a second account" means two
+ * things here — every way of typing a number must reach the same account, and two
+ * verifications racing for a brand-new number must not produce two accounts or a server error.
+ */
+describe('one mobile number, one account', () => {
+  const liveCode = async (code: string) => ({
+    id: 'otp-1',
+    phone: '+919704464007',
+    codeHash: await bcrypt.hash(code, 10),
+    expiresAt: new Date(Date.now() + 60_000),
+    consumedAt: null,
+    attempts: 0,
+  });
+
+  it.each(['9704464007', '97044 64007', '+91 97044 64007', '09704464007', '0091 9704464007'])(
+    'reaches the same account when the number is typed as %s',
+    async (typed) => {
+      const { service, prisma } = setup({
+        otpRow: await liveCode('123456'),
+        existingUser: { id: 'user-1' },
+      });
+      await expect(service.verifyCode(typed, '123456')).resolves.toEqual({
+        id: 'user-1',
+        isNewAccount: false,
+      });
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { phone: '+919704464007' } });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('signs the loser of a race for a new number into the winner’s account', async () => {
+    /*
+      Both requests found no account and both tried to create one. The unique index refused
+      the second; that used to be a 500 for somebody who had just typed a correct code.
+    */
+    const { service, prisma } = setup({ otpRow: await liveCode('123456') });
+    prisma.user.findUnique.mockReset();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'user-winner' });
+    prisma.user.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed on the fields: (`phone`)'), {
+        code: 'P2002',
+      }),
+    );
+
+    await expect(service.verifyCode('9704464007', '123456')).resolves.toEqual({
+      id: 'user-winner',
+      isNewAccount: false,
+    });
+  });
+
+  it('says so plainly when the collision is not on the number', async () => {
+    const { service, prisma } = setup({ otpRow: await liveCode('123456') });
+    prisma.user.findUnique.mockReset();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockRejectedValueOnce(Object.assign(new Error('Unique'), { code: 'P2002' }));
+
+    await expect(service.verifyCode('9704464007', '123456')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+  });
+
+  it('does not disguise an unrelated database failure as a duplicate', async () => {
+    const { service, prisma } = setup({ otpRow: await liveCode('123456') });
+    prisma.user.create.mockRejectedValueOnce(Object.assign(new Error('down'), { code: 'P1001' }));
+    await expect(service.verifyCode('9704464007', '123456')).rejects.toMatchObject({
+      code: 'P1001',
+    });
+  });
+
+  it('keeps the placeholder address in exactly the shape existing accounts already have', async () => {
+    // Changing it would orphan every phone-only account created before this change.
+    const { service, prisma } = setup({ otpRow: await liveCode('123456') });
+    await service.verifyCode('9704464007', '123456');
+    expect(prisma.user.create.mock.calls[0][0].data.email).toBe(
+      'phone+919704464007@users.eticketsgo.internal',
+    );
+  });
+});

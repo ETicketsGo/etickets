@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, ORGANIZER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  ORGANIZER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * Paying cash at the counter.
@@ -104,9 +111,9 @@ test.describe('cash at the counter', () => {
 
     buyerEmail = uniqueEmail('cashbuyer');
     await request.post(`${API}/auth/register`, {
-      data: { email: buyerEmail, password: SEED_PASSWORD, fullName: buyerName },
+      data: { email: buyerEmail, password: NEW_ACCOUNT_PASSWORD, fullName: buyerName },
     });
-    buyer = await apiLogin(request, buyerEmail);
+    buyer = await apiLogin(request, buyerEmail, NEW_ACCOUNT_PASSWORD);
 
     /*
       Start from cash OFF, explicitly.

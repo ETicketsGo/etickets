@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * Buying a ticket in French, from the storefront to the receipt.
@@ -148,9 +155,9 @@ test.describe('the storefront in French', () => {
     fx = await freeEvent(request);
     buyerEmail = uniqueEmail('fr_buyer');
     await request.post(`${API}/auth/register`, {
-      data: { email: buyerEmail, password: SEED_PASSWORD, fullName: 'Marie Tremblay' },
+      data: { email: buyerEmail, password: NEW_ACCOUNT_PASSWORD, fullName: 'Marie Tremblay' },
     });
-    tokens = await apiLogin(request, buyerEmail);
+    tokens = await apiLogin(request, buyerEmail, NEW_ACCOUNT_PASSWORD);
   });
 
   test.beforeEach(async ({ context }) => {

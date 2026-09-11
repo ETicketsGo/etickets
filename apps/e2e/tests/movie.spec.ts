@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { CUSTOMER, SEED_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
 
 test('customer books a movie seat and pays', async ({ page }) => {
   // Register
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('E2E Movie Fan');
   await page.getByLabel('Email').fill(uniqueEmail('movie'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
