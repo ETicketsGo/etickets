@@ -4,10 +4,11 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthTokens } from '@eticketsgo/shared-types';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, isReservedEmail } from '@eticketsgo/shared-types';
 import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { assertAcceptablePassword } from './password-acceptance';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { NotificationType } from '@eticketsgo/shared-types';
@@ -37,24 +38,51 @@ export class AuthService {
     private readonly notifications: NotificationService,
   ) {}
 
+  /**
+   * One email address, one account.
+   *
+   * ── WHY THE UNIQUE INDEX WAS NOT ENOUGH ON ITS OWN ─────────────────────────────────
+   * `email` is unique, but Postgres compares bytes: `Asha@Example.com` and `asha@example.com`
+   * are two values to the index and one mailbox to a person. The schema lowercases what
+   * arrives now, but a row written before it did would still let a second account through,
+   * so the lookup ignores case rather than trusting the stored data.
+   *
+   * And check-then-insert is a race. Two submissions of one form — a double click, a retry on
+   * a slow connection — both find nothing and both insert; the index stops the second, which
+   * used to surface as a 500. It now reads as what it is.
+   */
   async register(input: RegisterInput, meta: RequestMeta): Promise<AuthTokens> {
-    const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
-    if (existing) {
+    if (isReservedEmail(input.email)) {
       throw new AppException(
-        ErrorCodes.EMAIL_ALREADY_REGISTERED,
-        'An account with this email already exists.',
-        HttpStatus.CONFLICT,
+        ErrorCodes.VALIDATION_FAILED,
+        'This email address cannot be used to create an account.',
+        HttpStatus.BAD_REQUEST,
       );
     }
-    const passwordHash = await bcrypt.hash(input.password, 12);
-    const user = await this.prisma.user.create({
-      data: {
-        email: input.email,
-        passwordHash,
-        fullName: input.fullName,
-        roles: [Role.CUSTOMER],
-      },
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: input.email, mode: 'insensitive' } },
+      select: { id: true },
     });
+    if (existing) throw emailAlreadyRegistered();
+
+    // Enforced here as well as in the schema, so no caller reaches account creation with a
+    // password the policy refuses.
+    assertAcceptablePassword(input.password, { email: input.email, name: input.fullName });
+
+    const passwordHash = await bcrypt.hash(input.password, 12);
+    const user = await this.prisma.user
+      .create({
+        data: {
+          email: input.email,
+          passwordHash,
+          fullName: input.fullName,
+          roles: [Role.CUSTOMER],
+        },
+      })
+      .catch((err: unknown) => {
+        if (isUniqueViolation(err)) throw emailAlreadyRegistered();
+        throw err;
+      });
     return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
   }
 
@@ -306,7 +334,7 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
     const row = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash: this.hashToken(token) },
-      include: { user: { select: { id: true, email: true, status: true } } },
+      include: { user: { select: { id: true, email: true, status: true, fullName: true } } },
     });
 
     /*
@@ -327,6 +355,12 @@ export class AuthService {
         HttpStatus.FORBIDDEN,
       );
     }
+
+    /*
+      Checked after the link is proven good and before it is spent, so a refused password
+      leaves the link usable: the person tries a better one instead of requesting a new email.
+    */
+    assertAcceptablePassword(newPassword, { email: row.user.email, name: row.user.fullName });
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
 
@@ -432,4 +466,17 @@ export class AuthService {
 function parseTtlDays(ttl: string): number {
   const match = /^(\d+)\s*d$/.exec(ttl.trim());
   return match ? Number(match[1]) : 30;
+}
+
+function emailAlreadyRegistered(): AppException {
+  return new AppException(
+    ErrorCodes.EMAIL_ALREADY_REGISTERED,
+    'An account with this email already exists.',
+    HttpStatus.CONFLICT,
+  );
+}
+
+/** Prisma's unique-constraint violation, recognised structurally as elsewhere in this API. */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002';
 }

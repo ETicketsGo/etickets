@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isReservedEmail, passwordProblems } from '@eticketsgo/shared-types';
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -14,10 +15,34 @@ export const idParamSchema = z.object({
 
 export const emailSchema = z.string().trim().toLowerCase().email('A valid email is required.');
 
-export const passwordSchema = z
-  .string()
-  .min(8, 'Password must be at least 8 characters.')
-  .max(128, 'Password is too long.');
+/**
+ * An address somebody may create an account with, or be invited with.
+ *
+ * Phone sign-in gives password-less accounts a placeholder address in a domain this platform
+ * owns. Registering an address in that domain would block the matching phone number from ever
+ * signing in, so it is refused before any account exists. See `account-identity.ts`.
+ */
+export const registrableEmailSchema = emailSchema.refine(
+  (email) => !isReservedEmail(email),
+  'This email address cannot be used to create an account.',
+);
+
+/**
+ * The context-free password rules: length, commonness, predictability.
+ *
+ * The rule lives in `@eticketsgo/shared-types` so the server and the strength meter read ONE
+ * definition — a meter that approved what the server refused would be worse than none. The
+ * rule that needs the person's own name and email is added where those are known.
+ */
+export const passwordSchema = z.string().superRefine((value, ctx) => {
+  for (const problem of passwordProblems(value)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: problem.message,
+      params: { passwordProblem: problem.code },
+    });
+  }
+});
 
 /**
  * The launch market's zone.

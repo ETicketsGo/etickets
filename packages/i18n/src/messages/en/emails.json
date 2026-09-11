@@ -61,8 +61,8 @@
     "body": "Access to ticket {ticketId} has been revoked."
   },
   "ORGANIZATION_REGISTERED": {
-    "subject": "New organizer awaiting approval: {organization}",
-    "body": "{organization} has registered and is waiting for review. Contact: {contact}. They cannot sell tickets until an admin approves them."
+    "subject": "New organizers awaiting approval",
+    "body": "{organization} has registered and is waiting for review. Contact: {contact}. Others may have registered this hour too: you receive at most one of these emails an hour, so open the review queue to see everyone waiting. No organizer can sell tickets until an admin approves them."
   },
   "ORGANIZATION_APPROVED": {
     "subject": "{organization} is approved",

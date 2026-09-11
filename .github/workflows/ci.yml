@@ -201,6 +201,9 @@ jobs:
         # throttle for this test run only (production leaves it unset → 10/min per IP).
         env:
           AUTH_THROTTLE_LIMIT: '1000'
+          # Registering organizations is limited to a handful an hour per IP. The suite is one IP
+          # standing in for many organizers, for the same reason as the auth limit above.
+          ORG_REGISTRATION_THROTTLE_LIMIT: '1000'
         run: |
           node apps/api/dist/main.js & echo $! > /tmp/api.pid
           npx --workspace @eticketsgo/customer-web next start -p 3000 & echo $! > /tmp/cust.pid

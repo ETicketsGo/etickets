@@ -5,6 +5,8 @@ import { useRouter } from '@/i18n/navigation';
 import { Suspense, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
+import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
+import { usePasswordCopy } from '@/lib/use-password-copy';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
@@ -23,12 +25,15 @@ function RegisterForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [emailTaken, setEmailTaken] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const passwordCopy = usePasswordCopy();
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setEmailTaken(false);
+    setPasswordError(null);
     setLoading(true);
     try {
       const tokens = await api.register({ fullName, email, password });
@@ -50,8 +55,18 @@ function RegisterForm() {
     } catch (err) {
       // Match on the CODE, not the message: the copy below is ours to write, and a message
       // comparison would silently stop working if the API reworded its error.
+      const fields =
+        err instanceof ApiRequestError
+          ? (err.details?.fields as Record<string, string[]> | undefined)
+          : undefined;
       if (err instanceof ApiRequestError && err.code === 'EMAIL_ALREADY_REGISTERED') {
         setEmailTaken(true);
+      } else if (fields?.password?.[0]) {
+        // The server's reason, under the field it is about, rather than "the request failed
+        // validation" at the bottom of the form.
+        setPasswordError(fields.password[0]);
+      } else if (fields?.email?.[0]) {
+        setError(fields.email[0]);
       } else {
         setError(
           err instanceof ApiRequestError
@@ -111,13 +126,16 @@ function RegisterForm() {
           }}
           required
         />
-        <Input
+        <PasswordField
           id="password"
-          label={a('passwordMin')}
-          type="password"
-          minLength={8}
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(next) => {
+            setPassword(next);
+            if (passwordError) setPasswordError(null);
+          }}
+          context={{ email, name: fullName }}
+          copy={passwordCopy}
+          serverError={passwordError ?? undefined}
           required
         />
 
@@ -147,7 +165,12 @@ function RegisterForm() {
           </p>
         )}
 
-        <Button type="submit" className="w-full" loading={loading}>
+        <Button
+          type="submit"
+          className="w-full"
+          loading={loading}
+          disabled={!passwordAcceptable(password, { email, name: fullName })}
+        >
           {organizerIntent ? a('createOrganizerAccount') : a('createAccount')}
         </Button>
       </form>

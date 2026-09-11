@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { CUSTOMER, SEED_PASSWORD, uniqueEmail } from './helpers';
+import { CUSTOMER, NEW_ACCOUNT_PASSWORD, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
 
 test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ page }) => {
@@ -7,7 +7,7 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('E2E Customer');
   await page.getByLabel('Email').fill(uniqueEmail('cust'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
@@ -92,7 +92,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('Owner Olive');
   await page.getByLabel('Email').fill(uniqueEmail('owner'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
@@ -124,7 +124,7 @@ test('attendee identity: owner invites, recipient claims, ticket moves to their 
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('Rita Recipient');
   await page.getByLabel('Email').fill(attendeeEmail);
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
@@ -145,7 +145,7 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('Share Owner');
   await page.getByLabel('Email').fill(uniqueEmail('sharer'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 
@@ -191,7 +191,7 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
   await page.goto(`${CUSTOMER}/register`);
   await page.getByLabel('Full name').fill('Wallet User');
   await page.getByLabel('Email').fill(uniqueEmail('wallet'));
-  await page.getByLabel(/Password/).fill(SEED_PASSWORD);
+  await page.getByLabel(/Password/).fill(NEW_ACCOUNT_PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/account\/tickets/, { timeout: 20_000 });
 

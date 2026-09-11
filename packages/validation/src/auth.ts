@@ -1,11 +1,32 @@
 import { z } from 'zod';
-import { emailSchema, passwordSchema } from './common';
+import { passwordProblems } from '@eticketsgo/shared-types';
+import { emailSchema, passwordSchema, registrableEmailSchema } from './common';
 
-export const registerSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  fullName: z.string().trim().min(2, 'Please enter your name.').max(120),
-});
+export const registerSchema = z
+  .object({
+    email: registrableEmailSchema,
+    password: passwordSchema,
+    fullName: z.string().trim().min(2, 'Please enter your name.').max(120),
+  })
+  .superRefine((value, ctx) => {
+    /*
+      The one password rule that needs the rest of the form. `passwordSchema` has already
+      raised the context-free problems, and repeating them here would list each one twice.
+    */
+    if (typeof value.password !== 'string') return;
+    for (const problem of passwordProblems(value.password, {
+      email: value.email,
+      name: value.fullName,
+    })) {
+      if (problem.code !== 'CONTAINS_PERSONAL_INFO') continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['password'],
+        message: problem.message,
+        params: { passwordProblem: problem.code },
+      });
+    }
+  });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({

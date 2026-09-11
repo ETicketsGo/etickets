@@ -1,6 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
-import { API, CUSTOMER, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  ORGANIZER,
+  apiLogin,
+  seedBrowserAuth,
+  type AuthTokens,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * Show pricing, end to end.
@@ -429,7 +437,7 @@ test.describe('show pricing', () => {
     const email = `pricing_outsider_${Date.now()}@e2e.test`;
     const reg = await (
       await request.post(`${API}/auth/register`, {
-        data: { email, password: 'Password123!', fullName: 'Out Sider' },
+        data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: 'Out Sider' },
       })
     ).json();
     const outsider = { Authorization: `Bearer ${reg.accessToken}` };

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
@@ -18,6 +19,7 @@ import {
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
+import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -27,6 +29,11 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 export class OrganizationsController {
   constructor(private readonly orgs: OrganizationsService) {}
 
+  /*
+    A handful an hour from one source. The per-account cap stops one account flooding the
+    approval queue slowly; this stops a burst. Accounts themselves are throttled at sign-up.
+  */
+  @Throttle(ORG_REGISTRATION_THROTTLE)
   @Post()
   @ApiOperation({ summary: 'Register a new organization (organizer onboarding).' })
   register(

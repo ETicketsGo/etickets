@@ -52,7 +52,15 @@ export class AdminAudienceService {
    * Returns how many were notified so a caller can log it; zero is worth noticing, because
    * an approval queue with no reviewers is a queue nothing ever leaves.
    */
-  async notifyAdmins(type: NotificationType, payload: Record<string, unknown>): Promise<number> {
+  async notifyAdmins(
+    type: NotificationType,
+    payload: Record<string, unknown>,
+    /**
+     * `intentKey` collapses repeats: notifications sharing one are sent once per admin. Used to
+     * turn a per-event email into at most one per window.
+     */
+    options: { intentKey?: string } = {},
+  ): Promise<number> {
     try {
       const admins = await this.admins();
       if (admins.length === 0) {
@@ -64,7 +72,13 @@ export class AdminAudienceService {
       await Promise.all(
         admins.map((a) =>
           this.notifications
-            .send({ type, userId: a.id, toEmail: a.email, payload })
+            .send({
+              type,
+              userId: a.id,
+              toEmail: a.email,
+              payload,
+              ...(options.intentKey ? { intentKey: options.intentKey } : {}),
+            })
             .catch((err) => this.logger.warn(`${type}: could not notify admin ${a.id}: ${err}`)),
         ),
       );

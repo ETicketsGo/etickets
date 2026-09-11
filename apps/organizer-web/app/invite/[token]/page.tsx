@@ -12,6 +12,9 @@ import {
   Spinner,
   errorMessage,
   useToast,
+  PasswordField,
+  passwordAcceptable,
+  DEFAULT_PASSWORD_FIELD_COPY,
 } from '@eticketsgo/web-kit';
 
 /**
@@ -95,7 +98,10 @@ export default function AcceptInvitePage() {
 
   const invite = summary.data!;
   const roleLabel = invite.role.replaceAll('_', ' ').toLowerCase();
-  const canSubmit = !invite.needsPassword || (fullName.trim().length > 0 && password.length > 0);
+  const canSubmit =
+    !invite.needsPassword ||
+    (fullName.trim().length > 0 &&
+      passwordAcceptable(password, { email: invite.email, name: fullName }));
 
   return (
     <main className="grid min-h-screen place-items-center p-6">
@@ -122,13 +128,12 @@ export default function AcceptInvitePage() {
                 autoComplete="name"
                 onChange={(e) => setFullName(e.target.value)}
               />
-              <Input
+              <PasswordField
                 id="password"
-                label="Choose a password"
-                type="password"
                 value={password}
-                autoComplete="new-password"
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
+                context={{ email: invite.email, name: fullName }}
+                copy={{ ...DEFAULT_PASSWORD_FIELD_COPY, label: 'Choose a password' }}
               />
             </>
           ) : (

@@ -69,6 +69,7 @@ export const ErrorCodes = {
   /** Deletion refused for a reason the user can act on (e.g. sole organization owner). */
   ACCOUNT_DELETION_BLOCKED: 'ACCOUNT_DELETION_BLOCKED',
   /** The caller is asking too often — used where the cost of a request is somebody else's. */
+  ORGANIZATION_LIMIT_REACHED: 'ORGANIZATION_LIMIT_REACHED',
   RATE_LIMITED: 'RATE_LIMITED',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   INTERNAL: 'INTERNAL',

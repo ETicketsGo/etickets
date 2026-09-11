@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER, apiLogin, seedBrowserAuth, SEED_PASSWORD, uniqueEmail } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * A free event, end to end, with the payment system never involved.
@@ -108,9 +115,9 @@ test.describe('a free event', () => {
     fx = await freeEvent(request);
     buyerEmail = uniqueEmail('free_buyer');
     await request.post(`${API}/auth/register`, {
-      data: { email: buyerEmail, password: SEED_PASSWORD, fullName: 'Free Buyer' },
+      data: { email: buyerEmail, password: NEW_ACCOUNT_PASSWORD, fullName: 'Free Buyer' },
     });
-    const tokens = await apiLogin(request, buyerEmail);
+    const tokens = await apiLogin(request, buyerEmail, NEW_ACCOUNT_PASSWORD);
     buyerAuth = { Authorization: `Bearer ${tokens.accessToken}` };
     buyerTokens = tokens;
   });

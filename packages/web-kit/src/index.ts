@@ -13,6 +13,7 @@ export * from './shell';
 export * from './toggle';
 export * from './providers';
 export * from './login';
+export * from './password-field';
 export * from './city';
 /*
   Country + currency, re-exported from shared-types.

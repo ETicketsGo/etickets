@@ -69,9 +69,11 @@ export default function BecomeOrganizerPage() {
     onSuccess: () => setCreated(true),
     onError: (e) =>
       setError(
-        e instanceof ApiRequestError
-          ? e.message
-          : 'We could not set up your organization. Check your connection and try again.',
+        e instanceof ApiRequestError && e.code === 'RATE_LIMITED'
+          ? 'Several organizations have been set up from here recently. Try again in an hour.'
+          : e instanceof ApiRequestError
+            ? e.message
+            : 'We could not set up your organization. Check your connection and try again.',
       ),
   });
 
