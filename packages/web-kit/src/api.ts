@@ -939,14 +939,23 @@ export const api = {
       request<OrgEventDetail>('/events', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CreateEventBody>) =>
       request<OrgEventDetail>(`/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    /** Replace the event's image. JPG, PNG or WebP, at most 2 MB — resize before sending. */
-    uploadImage: (id: string, image: Blob, filename = 'event-image.jpg') => {
+    /**
+     * Add one image after the event's existing ones (the first image is the cover). JPG, PNG or
+     * WebP, at most 2 MB — resize before sending. Up to ten per event.
+     */
+    addImage: (id: string, image: Blob, filename = 'event-image.jpg') => {
       const form = new FormData();
       form.append('file', image, filename);
-      return request<{ imagePath: string }>(`/events/${id}/image`, { method: 'PUT', body: form });
+      return request<EventGallery>(`/events/${id}/images`, { method: 'POST', body: form });
     },
-    removeImage: (id: string) =>
-      request<{ ok: boolean }>(`/events/${id}/image`, { method: 'DELETE' }),
+    removeImage: (id: string, imageId: string) =>
+      request<EventGallery>(`/events/${id}/images/${imageId}`, { method: 'DELETE' }),
+    /** Every image id on the event, exactly once, in the new order; the first is the cover. */
+    reorderImages: (id: string, imageIds: string[]) =>
+      request<EventGallery>(`/events/${id}/images/order`, {
+        method: 'PUT',
+        body: JSON.stringify({ imageIds }),
+      }),
     /** Rooms with a published seat map that an event could be seated in. */
     seatingRooms: (organizationId: string) =>
       request<SeatingRoom[]>(`/events/seating-rooms${qs({ organizationId })}`),
@@ -1811,6 +1820,21 @@ export interface AdminUser {
   createdAt: string;
 }
 
+/** One of an event's images, as a path for `apiAssetUrl`. */
+export interface EventImageView {
+  id: string;
+  path: string;
+}
+export interface OrgEventImage extends EventImageView {
+  contentType: string;
+  sizeBytes: number;
+}
+/** An event's images in order — the first is the cover, also given as `imagePath`. */
+export interface EventGallery {
+  imagePath: string | null;
+  images: OrgEventImage[];
+}
+
 export interface PublicEventCard {
   id: string;
   title: string;
@@ -1829,8 +1853,10 @@ export interface PublicEvent {
   title: string;
   slug: string;
   category: string;
-  /** The organizer's image, as a path for `apiAssetUrl`. Null when none was uploaded. */
+  /** The cover image, as a path for `apiAssetUrl`. Null when none was uploaded. */
   imagePath?: string | null;
+  /** Every image, cover first. Absent on an older API. */
+  images?: EventImageView[];
   description: string | null;
   refundPolicy: string | null;
   feeMode: string;
@@ -2941,8 +2967,10 @@ export interface OrgEventDetail {
   venue: Venue;
   organizationId: string;
   sessions: EventSession[];
-  /** The event's image, as a path for `apiAssetUrl`. Null when none was uploaded. */
+  /** The cover image, as a path for `apiAssetUrl`. Null when none was uploaded. */
   imagePath?: string | null;
+  /** Every image, cover first. */
+  images?: OrgEventImage[];
 }
 export interface CreateEventBody {
   organizationId: string;

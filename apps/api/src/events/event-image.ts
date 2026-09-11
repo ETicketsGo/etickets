@@ -1,5 +1,6 @@
 /**
- * The pure half of event images: what a file IS, and where its public copy lives.
+ * The pure half of event images: what a file IS, where each public copy lives, and which one is
+ * the cover.
  *
  * Kept free of Nest so the card builders (browse, recommendations, organizer profile) can
  * name an image's URL without pulling the upload service into their module.
@@ -7,6 +8,14 @@
 
 /** After the browser has resized it. A poster at 1600px as JPEG is a few hundred KB. */
 export const EVENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * How many images one event may hold.
+ *
+ * Enough for a poster, the venue, the performers and a few from last year; few enough that an
+ * event page stays a page and the database is not quietly turned into a photo library.
+ */
+export const EVENT_IMAGE_MAX_COUNT = 10;
 
 export type EventImageType = 'image/jpeg' | 'image/png' | 'image/webp';
 
@@ -30,17 +39,58 @@ export function sniffImageType(bytes: Uint8Array): EventImageType | null {
   return null;
 }
 
+export function eventImageVersion(sha256: string): string {
+  return sha256.slice(0, 16);
+}
+
 /**
- * The image's public path, relative to the API base.
+ * One image's public path, relative to the API base.
  *
  * Versioned by a prefix of the bytes' hash, so the URL can be cached forever and a replaced
  * image is a new URL rather than a stale cache. A path rather than a URL because the API
  * cannot know which host each client reaches it on.
  */
-export function eventImagePath(eventId: string, sha256: string): string {
-  return `/public/events/${eventId}/image?v=${eventImageVersion(sha256)}`;
+export function eventImagePath(eventId: string, imageId: string, sha256: string): string {
+  return `/public/events/${eventId}/images/${imageId}?v=${eventImageVersion(sha256)}`;
 }
 
-export function eventImageVersion(sha256: string): string {
-  return sha256.slice(0, 16);
+/**
+ * The one order every reader uses: the organizer's arrangement, then upload order.
+ *
+ * The first image is the COVER — the card on browse, the top of the event page. Tie-breakers
+ * keep it stable for images that share a position (every image uploaded before ordering
+ * existed is position 0), so the cover never flips between two page loads.
+ */
+export function eventImageOrder() {
+  return [{ position: 'asc' as const }, { createdAt: 'asc' as const }, { id: 'asc' as const }];
+}
+
+export interface EventImageRow {
+  id: string;
+  sha256: string;
+}
+
+export interface EventImageView {
+  id: string;
+  path: string;
+}
+
+/*
+  Both helpers accept a missing list as "no images". A query that did not select the relation —
+  a fixture, or a caller added later that forgets to — then shows the placeholder instead of
+  crashing the listing it is part of.
+*/
+
+/** Rows already in `eventImageOrder`, as what a client needs to show them. */
+export function eventImagesView(eventId: string, rows?: EventImageRow[] | null): EventImageView[] {
+  return (rows ?? []).map((row) => ({
+    id: row.id,
+    path: eventImagePath(eventId, row.id, row.sha256),
+  }));
+}
+
+/** The cover's path — the first row in `eventImageOrder` — or null when there are none. */
+export function coverImagePath(eventId: string, rows?: EventImageRow[] | null): string | null {
+  const cover = rows?.[0];
+  return cover ? eventImagePath(eventId, cover.id, cover.sha256) : null;
 }

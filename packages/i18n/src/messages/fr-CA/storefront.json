@@ -50,6 +50,8 @@
     "paymentFeeHint": "Facturés par le réseau de paiement, pas par ETicketsGo",
     "taxDetailsShow": "Détail des taxes",
     "taxDetailsHide": "Masquer le détail des taxes",
+    "galleryLabel": "Images de l’événement",
+    "galleryShow": "Afficher l’image {index} sur {total}",
     "feeBreakdownNote": "Les frais de réservation nous reviennent. Le traitement du paiement correspond aux frais du réseau de carte ou UPI pour transférer l'argent."
   },
   "seats": {

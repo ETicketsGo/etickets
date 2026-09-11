@@ -78,14 +78,28 @@ export default function AdminEventDetail() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card title="Details" className="lg:col-span-2">
-          {/* The image is content too, and it is what buyers see first — so it is reviewed. */}
-          {event.imagePath && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={apiAssetUrl(event.imagePath) ?? undefined}
-              alt={`Image for ${event.title}`}
-              className="mb-4 aspect-video w-full rounded-md border border-border object-cover"
-            />
+          {/*
+            The images are content too, and the cover is what buyers see first — so all of them
+            are in front of the reviewer, cover first and labelled.
+          */}
+          {(event.images?.length ?? 0) > 0 && (
+            <ul className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {event.images!.map((image, index) => (
+                <li key={image.id} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={apiAssetUrl(image.path) ?? undefined}
+                    alt={`Image ${index + 1} of ${event.images!.length} for ${event.title}`}
+                    className="aspect-video w-full rounded-md border border-border object-cover"
+                  />
+                  {index === 0 && (
+                    <span className="absolute left-2 top-2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium text-white">
+                      Cover
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
           <dl className="grid grid-cols-2 gap-y-3 text-sm">
             <dt className="text-text-muted">Status</dt>

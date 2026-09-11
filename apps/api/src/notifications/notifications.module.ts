@@ -53,14 +53,24 @@ import { PUSH_TRANSPORT, selectPushTransport } from './channels/transports/push.
 
 @Global()
 @Module({
+  /*
+    ── ORDER MATTERS HERE ─────────────────────────────────────────────────────────────
+    Express matches routes in the order they are registered, and Nest registers controllers in
+    the order listed. `NotificationOpsController` owns `GET admin/notifications/:id`, so any
+    controller mounted UNDER that prefix must come first — otherwise its bare route is a
+    notification id to the ops controller. That is exactly how
+    `GET admin/notifications/readiness` answered 404: "readiness" was looked up as a
+    notification. The readiness and analytics controllers are therefore listed before ops, and
+    `admin-notification-routes.spec.ts` fails if they are ever moved back.
+  */
   controllers: [
     NotificationsController,
     WebPushController,
     MarketingConsentController,
-    NotificationOpsController,
-    NotificationAnalyticsController,
-    NotificationPreferencesController,
     NotificationReadinessController,
+    NotificationAnalyticsController,
+    NotificationOpsController,
+    NotificationPreferencesController,
     DeliveryWebhookController,
   ],
   providers: [

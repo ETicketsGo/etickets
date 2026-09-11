@@ -20,7 +20,7 @@ import { currencyForCountry } from '../common/country';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
-import { eventImagePath } from './event-image';
+import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -153,7 +153,8 @@ export class EventsService {
    * and each session's ticket types (with brand-new, empty inventory). Deliberately
    * excludes orders, attendees, payments, and audit history (those belong to the
    * original). Coupons are organization-scoped (not event-bound), so they are not copied;
-   * the event's image is, because a copy is almost always the same show on new dates.
+   * the event's images are, in order, because a copy is almost always the same show on new
+   * dates.
    */
   async duplicate(user: RequestUser, eventId: string) {
     const original = await this.loadOwnedEvent(user, eventId);
@@ -183,17 +184,21 @@ export class EventsService {
           status: EventStatus.DRAFT,
         },
       });
-      const image = await tx.eventImage.findUnique({ where: { eventId } });
-      if (image) {
-        await tx.eventImage.create({
-          data: {
+      const images = await tx.eventImage.findMany({
+        where: { eventId },
+        orderBy: eventImageOrder(),
+      });
+      if (images.length > 0) {
+        await tx.eventImage.createMany({
+          data: images.map((image, position) => ({
             eventId: copy.id,
+            position,
             contentType: image.contentType,
             bytes: image.bytes,
             sizeBytes: image.sizeBytes,
             sha256: image.sha256,
             uploadedByUserId: user.id,
-          },
+          })),
         });
       }
       for (const s of sessions) {
@@ -326,8 +331,11 @@ export class EventsService {
       where: { id: event.id },
       include: {
         venue: true,
-        // The hash, to name the image's URL. The bytes are only ever read by the image route.
-        image: { select: { sha256: true } },
+        // Ids and hashes, to name each image's URL. The bytes are only ever read by the image route.
+        images: {
+          select: { id: true, sha256: true, contentType: true, sizeBytes: true },
+          orderBy: eventImageOrder(),
+        },
         sessions: {
           orderBy: { startsAt: 'asc' },
           include: {
@@ -341,8 +349,17 @@ export class EventsService {
       },
     });
     if (!row) return row;
-    const { image, ...rest } = row;
-    return { ...rest, imagePath: image ? eventImagePath(row.id, image.sha256) : null };
+    const { images, ...rest } = row;
+    return {
+      ...rest,
+      imagePath: coverImagePath(row.id, images),
+      images: images.map((image) => ({
+        id: image.id,
+        path: eventImagePath(row.id, image.id, image.sha256),
+        contentType: image.contentType,
+        sizeBytes: image.sizeBytes,
+      })),
+    };
   }
 
   /** Organizer view of bookings (orders) for an event. */

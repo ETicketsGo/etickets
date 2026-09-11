@@ -50,6 +50,8 @@
     "paymentFeeHint": "Charged by the payment network, not ETicketsGo",
     "taxDetailsShow": "Tax details",
     "taxDetailsHide": "Hide tax details",
+    "galleryLabel": "Event images",
+    "galleryShow": "Show image {index} of {total}",
     "feeBreakdownNote": "The booking fee is ours. Payment processing is what the card or UPI network charges to move the money."
   },
   "seats": {

@@ -1287,8 +1287,8 @@ model Event {
   addOns      AddOn[]
   bundles     Bundle[]
   settlements Settlement[]
-  /// The event's poster or banner, if the organizer gave one.
-  image       EventImage?
+  /// The event's images, cover first by `position`. Up to ten.
+  images      EventImage[]
 
   @@index([organizationId])
   @@index([status])
@@ -1303,8 +1303,8 @@ model Event {
 ///
 /// ── WHY THE BYTES LIVE IN POSTGRES ────────────────────────────────────────────────
 /// There is no object storage on this platform, and the app servers' disks are wiped on every
-/// deploy, so a file written there would vanish at the next release. An image is one row per
-/// event, capped at 2 MB and resized in the browser before upload, which Postgres holds without
+/// deploy, so a file written there would vanish at the next release. An event holds up to ten
+/// images, each capped at 2 MB and resized in the browser before upload, which Postgres holds without
 /// strain and backs up with everything else. When the catalogue outgrows that, this table is
 /// the one place to point at S3 — the public URL is served by the API either way.
 ///
@@ -1313,8 +1313,10 @@ model Event {
 /// never the bytes; only the image endpoint reads them.
 model EventImage {
   id               String   @id @default(cuid())
-  eventId          String   @unique
+  eventId          String
   event            Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// The organizer's order; the lowest is the cover. Ties fall back to upload order.
+  position         Int      @default(0)
   /// Detected from the file's own bytes, never taken from the upload's claim.
   contentType      String
   bytes            Bytes
@@ -1324,6 +1326,8 @@ model EventImage {
   uploadedByUserId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([eventId, position])
 }
 
 model Review {
