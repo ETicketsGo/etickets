@@ -70,6 +70,13 @@ export interface TaxQuoteRequest {
   /** Ticket subtotal after discount. */
   netSubtotalMinor: number;
   /**
+   * The same subtotal BEFORE the discount, when there is one.
+   *
+   * Lets a provider that rates per ticket (`admissionLines`, at list price, for price bands)
+   * tax only the share of each ticket the buyer actually paid. Optional: absent, nothing changes.
+   */
+  grossSubtotalMinor?: number;
+  /**
    * The order broken into ticket kinds — unit price and quantity, not a total.
    *
    * Required by any rule with a price band, because a band is written per ticket. Ten

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
 import { apiAssetUrl, gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
-import { money, dateTime } from '@/lib/format';
+import { money, dateTime, zoneAbbrev } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 import { Link } from '@/i18n/navigation';
@@ -89,7 +89,15 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
         <div className="space-y-1 text-[0.9375rem] text-text-muted">
           <p className="flex items-center gap-1.5">
             <CalendarDays className="h-4 w-4 shrink-0" />
-            {dateTime(event.nextSessionAt)}
+            {/*
+              The venue's clock, named, as on the event page. The card used the reader's browser
+              zone (found on QA in "You might also like"), so it could disagree with the page it
+              links to. A card saved before the API sent a zone falls back to the browser's.
+            */}
+            {dateTime(event.nextSessionAt, undefined, event.venue.timezone ?? undefined)}
+            {event.nextSessionAt && event.venue.timezone
+              ? ` (${zoneAbbrev(event.nextSessionAt, event.venue.timezone)})`
+              : ''}
           </p>
           <p className="flex items-center gap-1.5">
             <MapPin className="h-4 w-4 shrink-0" />

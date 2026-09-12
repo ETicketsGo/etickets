@@ -328,6 +328,12 @@ export interface TaxCalcInput {
   /** Ticket subtotal after any discount — a discount reduces the taxable amount. */
   netSubtotalMinor: number;
   /**
+   * The subtotal BEFORE the discount. When it is larger than `netSubtotalMinor`, per-ticket
+   * amounts from `admissionLines` (which are at list price) are scaled down by the same
+   * proportion, so the discount reduces each ticket's taxable value. Absent: unchanged.
+   */
+  grossSubtotalMinor?: number;
+  /**
    * The order broken into ticket kinds, when the caller knows it.
    *
    * Required for any SCOPED rule — one with a price band or a category — because such a rule
@@ -418,6 +424,25 @@ export function computeTax(input: TaxCalcInput): TaxCalcResult {
           taken.add(group);
         }
         addGross(rule, lineTotal);
+      }
+    }
+    /*
+      ── A DISCOUNT REDUCES WHAT EACH TICKET IS TAXED ON ─────────────────────────────
+      The lines above are at LIST price, because a price band is decided by what the ticket
+      costs. The taxable amount is what the buyer pays for it. Found by QA: a ₹100 coupon on a
+      ₹799 seat lowered the total but left the GST base at the full ₹799, so every discounted
+      booking's invoice overstated its tax.
+
+      The discount is apportioned across the order in proportion to value (net ÷ gross), which
+      is how it was applied to the subtotal. Band selection above is untouched. Only the
+      admission portion is scaled — fee amounts for TICKETS_AND_FEES rules are added below.
+    */
+    const gross = input.grossSubtotalMinor ?? 0;
+    if (gross > 0 && net < gross) {
+      const paidShare = net / gross;
+      for (const rule of ticketRules) {
+        const atList = grossByRule.get(rule);
+        if (atList !== undefined) grossByRule.set(rule, Math.round(atList * paidShare));
       }
     }
   } else {

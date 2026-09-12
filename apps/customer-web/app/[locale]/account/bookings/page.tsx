@@ -22,6 +22,8 @@ import { money, dateTime, zoneAbbrev } from '@/lib/format';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ButtonLink } from '@/components/ui';
 import { useTranslations } from 'next-intl';
+import { useMounted } from '@/lib/use-mounted';
+import { useStatusLabel } from '@/lib/status-label';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
@@ -39,6 +41,8 @@ export default function BookingsPage() {
   const a = useTranslations('storefront.account');
   const c = useTranslations('storefront.confirmation');
   const w = useTranslations('storefront.wallet');
+  const statusLabel = useStatusLabel();
+  const mounted = useMounted();
   const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
@@ -52,7 +56,9 @@ export default function BookingsPage() {
   const list = useQuery({
     queryKey: ['bookings'],
     queryFn: () => api.listBookings(),
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`: that differs between the server and the first client render, which
+    // is the React #418 QA saw on every load. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
 
   const detail = useQuery({
@@ -107,7 +113,7 @@ export default function BookingsPage() {
 
       {list.isError ? (
         <ErrorState message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
-      ) : list.isLoading ? (
+      ) : !mounted || list.isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-20 w-full" />
@@ -141,7 +147,12 @@ export default function BookingsPage() {
                 </p>
                 <p className="mt-1 flex items-center gap-1.5 text-caption text-text-muted">
                   <CalendarDays className="h-3.5 w-3.5" aria-hidden />
-                  {dateTime(row.eventSession.startsAt)}
+                  {/*
+                    The venue's clock, named, as in the drawer. This row used the reader's browser
+                    zone, so on QA it printed a different time from the drawer it opens.
+                  */}
+                  {dateTime(row.eventSession.startsAt, undefined, row.timeZone ?? undefined)}
+                  {row.timeZone ? ` (${zoneAbbrev(row.eventSession.startsAt, row.timeZone)})` : ''}
                   {ticketCount(row) && ` · ${ticketCount(row)}`}
                 </p>
                 {row.reference && (
@@ -150,7 +161,7 @@ export default function BookingsPage() {
                   </p>
                 )}
               </div>
-              <StatusBadge status={row.status} />
+              <StatusBadge status={row.status} label={statusLabel('booking', row.status)} />
             </div>
           ))}
         </div>
@@ -173,7 +184,7 @@ export default function BookingsPage() {
             <div>
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-text-primary">{b.event.title}</p>
-                <StatusBadge status={b.status} />
+                <StatusBadge status={b.status} label={statusLabel('booking', b.status)} />
               </div>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
                 {/* The cinema's clock, named — see the API comment on `timeZone`. */}
@@ -252,7 +263,7 @@ export default function BookingsPage() {
                         <span className="text-text-muted"> · {t.ticketTypeName}</span>
                       ) : null}
                     </span>
-                    <StatusBadge status={t.status} />
+                    <StatusBadge status={t.status} label={statusLabel('ticket', t.status)} />
                   </li>
                 ))}
               </ul>
@@ -271,7 +282,7 @@ export default function BookingsPage() {
                       className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-[0.9375rem]"
                     >
                       <span className="text-text-primary">{money(r.amountMinor, b.currency)}</span>
-                      <StatusBadge status={r.status} />
+                      <StatusBadge status={r.status} label={statusLabel('refund', r.status)} />
                     </li>
                   ))}
                 </ul>

@@ -1845,7 +1845,16 @@ export interface PublicEventCard {
   title: string;
   slug: string;
   category: string;
-  venue: { name: string; city: string; country: string };
+  venue: {
+    name: string;
+    city: string;
+    country: string;
+    /**
+     * The venue's IANA zone, so the card's date is the time at the venue rather than in the
+     * reader's browser. Optional: an older API and cards saved before it do not carry one.
+     */
+    timezone?: string | null;
+  };
   organizer: string;
   nextSessionAt: string | null;
   fromPriceMinor: number | null;
@@ -2041,6 +2050,11 @@ export interface BookingSummary {
   event: { title: string; slug: string };
   eventSession: { startsAt: string };
   _count: { tickets: number };
+  /**
+   * The zone the show time is displayed in — the same value `BookingDetail.timeZone` carries,
+   * so a row in the list and the detail it opens print the same time. Optional for an older API.
+   */
+  timeZone?: string | null;
 }
 export interface WalletTicket {
   id: string;

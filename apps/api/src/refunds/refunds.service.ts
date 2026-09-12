@@ -59,6 +59,25 @@ export class RefundsService {
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     if (booking.userId !== user.id && !this.access.isPlatformAdmin(user)) {
+      /*
+        The holder of a transferred ticket, told why rather than refused as a stranger.
+
+        Found by QA: a recipient asking to refund a ticket they were given got "You cannot refund
+        this booking." — true, but it reads as a fault. A refund returns money to the card that
+        paid, which is the buyer's, so letting the recipient trigger it would void their ticket
+        and pay somebody else. Refunds of transferred tickets therefore stay with the organizer,
+        and the recipient is told so plainly.
+      */
+      const holdsATicket = booking.tickets.some(
+        (t) => currentHolderUserId({ booking, invites: t.invites }) === user.id,
+      );
+      if (holdsATicket) {
+        throw new AppException(
+          ErrorCodes.REFUND_NOT_ELIGIBLE,
+          'This ticket was transferred to you. Refunds for transferred tickets are handled by the organizer — please contact them.',
+          HttpStatus.CONFLICT,
+        );
+      }
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot refund this booking.',

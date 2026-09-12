@@ -1985,8 +1985,7 @@ export class BookingsService {
       ...feeTaxSummary(booking.taxLines, booking.customerFeeMinor),
       seatLabels,
       // Cinema first (a screen's own zone is the most specific fact), then the venue.
-      timeZone:
-        booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? null,
+      timeZone: bookingTimeZone(booking),
       tickets: booking.tickets.map((t) => ({
         ...t,
         seatLabel: t.seatLabel ?? (t.seat ? `${t.seat.row.label}${t.seat.label}` : null),
@@ -1997,7 +1996,7 @@ export class BookingsService {
 
   async listForUser(user: RequestUser, page: number, pageSize: number) {
     const where = { userId: user.id };
-    const [total, data] = await this.prisma.$transaction([
+    const [total, rows] = await this.prisma.$transaction([
       this.prisma.booking.count({ where }),
       this.prisma.booking.findMany({
         where,
@@ -2005,12 +2004,37 @@ export class BookingsService {
         take: pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          event: { select: { title: true, slug: true } },
-          eventSession: { select: { startsAt: true } },
+          // Both zones, so each row can be given the same clock as the booking detail.
+          event: { select: { title: true, slug: true, venue: { select: { timezone: true } } } },
+          eventSession: {
+            select: {
+              startsAt: true,
+              screen: { select: { cinema: { select: { timezone: true } } } },
+            },
+          },
           _count: { select: { tickets: true } },
         },
       }),
     ]);
+    /*
+      Which clock each row's date is in, by the same rule as `getForUser`. The list sent no
+      zone, so "My bookings" printed every date in the reader's browser while the drawer beside
+      it used the venue's — on QA one booking showed two different start times on one screen.
+    */
+    const data = rows.map((booking) => ({ ...booking, timeZone: bookingTimeZone(booking) }));
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
   }
+}
+
+/**
+ * The zone a booking's show time is displayed in: the screen's cinema first, because a
+ * screen's own zone is the most specific fact about where it plays, then the event's venue.
+ * Null rather than a guess when neither is known — the caller can fall back visibly, but it
+ * cannot tell that a confidently returned zone was invented.
+ */
+function bookingTimeZone(booking: {
+  event?: { venue?: { timezone: string | null } | null } | null;
+  eventSession?: { screen?: { cinema?: { timezone: string | null } | null } | null } | null;
+}): string | null {
+  return booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? null;
 }

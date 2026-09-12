@@ -127,10 +127,22 @@ export default function EventDetailPage() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  /*
+    The chosen session, or else the first one still to come.
+
+    This fell back to `sessions[0]` while the API sent every session the event ever had, so on
+    QA the page opened on a date already past, priced it, and let the buyer press "Continue to
+    payment" into a 409. The API now sends only dates that are still on; this also skips any
+    that have started since, for a page left open or served from cache.
+  */
   const session = useMemo(
-    () => event?.sessions.find((s) => s.id === sessionId) ?? event?.sessions[0],
+    () =>
+      event?.sessions.find((s) => s.id === sessionId) ??
+      event?.sessions.find((s) => new Date(s.startsAt).getTime() > Date.now()),
     [event, sessionId],
   );
+  // Whichever way a session came to be selected, one that has started is not for sale.
+  const sessionStarted = session ? new Date(session.startsAt).getTime() <= Date.now() : false;
 
   // Experience Commerce (v1.3): add-ons + bundles for this event.
   const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
@@ -219,6 +231,7 @@ export default function EventDetailPage() {
     // A free event has no fees to quote, and a seated one is priced on the seat map.
     enabled:
       Boolean(session) &&
+      !sessionStarted &&
       !session?.seatBased &&
       !event?.isFree &&
       quoteItems.length + quoteAddOns.length + quoteBundles.length > 0,
@@ -238,6 +251,8 @@ export default function EventDetailPage() {
         name: event.venue.name,
         city: event.venue.city,
         country: event.venue.country,
+        // So the "Recently viewed" card shows the date at the venue, like every other card.
+        timezone: event.venue.timezone ?? null,
       },
       organizer: event.organizer.name,
       nextSessionAt: event.sessions[0]?.startsAt ?? null,
@@ -250,7 +265,13 @@ export default function EventDetailPage() {
         sessionId: string;
         qty: Record<string, number>;
       } | null;
-      if (saved && event.sessions.some((s) => s.id === saved.sessionId)) {
+      // Never restores a selection whose session has started since it was saved.
+      if (
+        saved &&
+        event.sessions.some(
+          (s) => s.id === saved.sessionId && new Date(s.startsAt).getTime() > Date.now(),
+        )
+      ) {
         setSessionId(saved.sessionId);
         setQty(saved.qty);
       }
@@ -272,7 +293,7 @@ export default function EventDetailPage() {
 
   const book = useMutation({
     mutationFn: async () => {
-      if (!session) throw new Error('No session selected');
+      if (!session || sessionStarted) throw new Error('No session selected');
       if (!tokenStore.access) {
         router.push('/login?next=/events/' + slug);
         throw new Error('login');
@@ -538,16 +559,22 @@ export default function EventDetailPage() {
 
           <Card title={sf('event.sessionsHeading')}>
             <div className="space-y-2">
+              {!event.sessions.some((s) => new Date(s.startsAt).getTime() > Date.now()) && (
+                <p className="text-[0.9375rem] text-text-muted">{sf('event.noUpcomingSessions')}</p>
+              )}
               {event.sessions.map((s) => {
                 const active = session?.id === s.id;
+                // Only from a page left open past the start: the API no longer sends these.
+                const started = new Date(s.startsAt).getTime() <= Date.now();
                 return (
                   <button
                     key={s.id}
+                    disabled={started}
                     onClick={() => {
                       setSessionId(s.id);
                       setQty({});
                     }}
-                    className={`flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left transition-all ${
+                    className={`flex w-full items-center gap-3 rounded-md border px-4 py-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                       active
                         ? 'border-action-primary bg-action-primary/5 ring-1 ring-action-primary/30'
                         : 'border-border hover:border-border-strong hover:bg-background-subtle'
@@ -774,12 +801,14 @@ export default function EventDetailPage() {
               can differ, one in a seated theatre and one in a standing room.
             */}
             {session?.seatBased ? (
-              <div className="space-y-4">
-                <p className="text-[0.9375rem] text-text-secondary">{sf('event.seatedLead')}</p>
-                <ButtonLink href={`/shows/${session.id}`} className="w-full">
-                  {sf('event.chooseSeats')}
-                </ButtonLink>
-              </div>
+              sessionStarted ? null : (
+                <div className="space-y-4">
+                  <p className="text-[0.9375rem] text-text-secondary">{sf('event.seatedLead')}</p>
+                  <ButtonLink href={`/shows/${session.id}`} className="w-full">
+                    {sf('event.chooseSeats')}
+                  </ButtonLink>
+                </div>
+              )
             ) : (
               <>
                 <div className="space-y-3">
@@ -945,6 +974,11 @@ export default function EventDetailPage() {
                       }}
                       prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
                       country={event.venue?.country}
+                      // Translated: the field's English defaults showed on French Indian pages (QA).
+                      label={sf('checkout.buyerRegionLabel')}
+                      hint={sf('checkout.buyerRegionHint')}
+                      noneLabel={sf('checkout.buyerRegionNone')}
+                      prefilledNote={sf('checkout.buyerRegionPrefilled')}
                     />
                   </div>
                 )}
@@ -975,7 +1009,7 @@ export default function EventDetailPage() {
                 <Button
                   className="mt-4 w-full"
                   loading={book.isPending && !payWithCash}
-                  disabled={totalQty === 0 || book.isPending}
+                  disabled={totalQty === 0 || book.isPending || sessionStarted}
                   onClick={() => {
                     setError(null);
                     setPayWithCash(false);
@@ -1001,7 +1035,7 @@ export default function EventDetailPage() {
                       variant="outline"
                       className="mt-2 w-full"
                       loading={book.isPending && payWithCash}
-                      disabled={totalQty === 0 || book.isPending}
+                      disabled={totalQty === 0 || book.isPending || sessionStarted}
                       onClick={() => {
                         setError(null);
                         setPayWithCash(true);

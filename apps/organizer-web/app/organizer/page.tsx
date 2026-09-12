@@ -131,69 +131,76 @@ export default function OrganizerDashboard() {
         </div>
       ) : (
         <div className="space-y-5">
-          <div>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
-                Revenue
-                {marketCountries.length > 0 && (
-                  <span className="ml-2 font-normal normal-case tracking-normal text-text-secondary">
-                    {marketCountries.map((c) => c.country).join(', ')}
-                  </span>
-                )}
-              </h2>
-              {/*
+          {/*
+            Revenue only for members who may see money. The API leaves revenue out for check-in
+            staff, and these cards then printed ₹0 for gross, net, fees and refunds — figures that
+            were not zero, found by QA. The block is hidden, the same way the payouts card is.
+          */}
+          {can.financials && (
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+                  Revenue
+                  {marketCountries.length > 0 && (
+                    <span className="ml-2 font-normal normal-case tracking-normal text-text-secondary">
+                      {marketCountries.map((c) => c.country).join(', ')}
+                    </span>
+                  )}
+                </h2>
+                {/*
                 Shown only when there IS a choice. A single-market organizer is not asked to
                 make a decision that has one answer.
               */}
-              {revenues.length > 1 && (
-                <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Market">
-                  {revenues.map((r) => {
-                    const label =
-                      countries.find((c) => c.currency === r.currency)?.country ?? r.currency;
-                    const on = r.currency === activeCurrency;
-                    return (
-                      <button
-                        key={r.currency}
-                        type="button"
-                        role="tab"
-                        aria-selected={on}
-                        onClick={() => setMarket(r.currency)}
-                        className={`rounded-md border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-                          on
-                            ? 'border-action-primary bg-tint-primary text-action-primary'
-                            : 'border-border text-text-secondary hover:bg-background-subtle'
-                        }`}
-                      >
-                        {label} · {r.currency}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                {revenues.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Market">
+                    {revenues.map((r) => {
+                      const label =
+                        countries.find((c) => c.currency === r.currency)?.country ?? r.currency;
+                      const on = r.currency === activeCurrency;
+                      return (
+                        <button
+                          key={r.currency}
+                          type="button"
+                          role="tab"
+                          aria-selected={on}
+                          onClick={() => setMarket(r.currency)}
+                          className={`rounded-md border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                            on
+                              ? 'border-action-primary bg-tint-primary text-action-primary'
+                              : 'border-border text-text-secondary hover:bg-background-subtle'
+                          }`}
+                        >
+                          {label} · {r.currency}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <MetricCard
+                  label="Gross sales"
+                  value={money(sum.gross, activeCurrency ?? undefined)}
+                  tone="success"
+                />
+                <MetricCard
+                  label="Net revenue"
+                  value={money(sum.net, activeCurrency ?? undefined)}
+                  tone="info"
+                />
+                <MetricCard
+                  label="Booking fees"
+                  value={money(sum.fees, activeCurrency ?? undefined)}
+                />
+                <MetricCard
+                  label="Refunds"
+                  value={money(sum.refunds, activeCurrency ?? undefined)}
+                  hint={`${refundRate}% of gross`}
+                  tone={sum.refunds > 0 ? 'warning' : 'neutral'}
+                />
+              </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard
-                label="Gross sales"
-                value={money(sum.gross, activeCurrency ?? undefined)}
-                tone="success"
-              />
-              <MetricCard
-                label="Net revenue"
-                value={money(sum.net, activeCurrency ?? undefined)}
-                tone="info"
-              />
-              <MetricCard
-                label="Booking fees"
-                value={money(sum.fees, activeCurrency ?? undefined)}
-              />
-              <MetricCard
-                label="Refunds"
-                value={money(sum.refunds, activeCurrency ?? undefined)}
-                hint={`${refundRate}% of gross`}
-                tone={sum.refunds > 0 ? 'warning' : 'neutral'}
-              />
-            </div>
-          </div>
+          )}
           <div>
             <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
               Sales &amp; attendance

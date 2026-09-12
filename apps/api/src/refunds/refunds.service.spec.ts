@@ -716,6 +716,30 @@ describe('RefundsService.request hardening', () => {
         }),
       );
     });
+
+    it('tells the recipient refunds are handled by the organizer, instead of refusing them as a stranger', async () => {
+      /*
+        Found by QA: the recipient got "You cannot refund this booking." A refund pays the card
+        that paid — the buyer's — so the recipient cannot trigger it, and is told why.
+      */
+      const { service, prisma } = transferredBooking();
+      const FRIEND = { id: 'friend-1', email: 'f@example.test', fullName: 'Friend', roles: [] };
+      await expect(
+        service.request(FRIEND as never, { bookingId: 'b1', ticketIds: ['tk1'] } as never),
+      ).rejects.toMatchObject({
+        code: ErrorCodes.REFUND_NOT_ELIGIBLE,
+        message: expect.stringMatching(/handled by the organizer/i),
+      });
+      expect(prisma.refund.create).not.toHaveBeenCalled();
+    });
+
+    it('still refuses someone who holds no ticket on the booking', async () => {
+      const { service } = transferredBooking();
+      const STRANGER = { id: 'someone-else', email: 's@example.test', fullName: 'S', roles: [] };
+      await expect(
+        service.request(STRANGER as never, { bookingId: 'b1' } as never),
+      ).rejects.toMatchObject({ code: ErrorCodes.FORBIDDEN });
+    });
   });
 
   it('refuses an online refund of a cash booking — that money is in the venue till', async () => {

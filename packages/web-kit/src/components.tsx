@@ -359,13 +359,20 @@ const TONE_DOT: Record<BadgeTone, string> = {
   neutral: 'bg-text-muted',
 };
 
-/** Status pill with a colour dot AND text label (never colour alone). */
-export function StatusBadge({ status }: { status: string }) {
+/**
+ * Status pill with a colour dot AND text label (never colour alone).
+ *
+ * `label` is the status in the reader's language. Without one the pill spells out the enum in
+ * English, which is what French storefront pages showed on QA ("PENDING PAYMENT", "REFUNDED").
+ * Optional, so the English-only organizer and admin consoles render exactly as before; the
+ * colour still follows `status`, never the label.
+ */
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
   const tone = STATUS_TONES[status] ?? 'neutral';
   return (
     <Badge tone={tone}>
       <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} aria-hidden />
-      {titleCase(status)}
+      {label ?? titleCase(status)}
     </Badge>
   );
 }

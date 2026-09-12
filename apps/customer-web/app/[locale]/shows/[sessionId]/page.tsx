@@ -748,6 +748,11 @@ export default function SeatSelectionPage() {
                 value={buyerRegion}
                 onChange={setBuyerRegion}
                 country={layout?.country}
+                // Translated: the field's English defaults showed on French Indian pages (QA).
+                label={k('buyerRegionLabel')}
+                hint={k('buyerRegionHint')}
+                noneLabel={k('buyerRegionNone')}
+                prefilledNote={k('buyerRegionPrefilled')}
               />
             </div>
 

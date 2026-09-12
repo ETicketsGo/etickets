@@ -30,14 +30,25 @@ export function BuyerRegionField({
   country,
   label = 'Your state',
   hint = 'Optional. Used only to state the place of supply on your invoice — it does not change what you pay.',
+  noneLabel = 'Prefer not to say',
+  prefilledNote = 'Filled in from your last booking.',
   id = 'buyer-region',
   prefilled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   country: string | null | undefined;
+  /*
+    Every word the field shows can be passed in. The English defaults stayed on French Indian
+    event pages on QA ("Your state", "Prefer not to say"), because only the label and hint
+    were props and no caller passed even those. Defaults kept for callers that are English-only.
+  */
   label?: string;
   hint?: string;
+  /** The blank choice. */
+  noneLabel?: string;
+  /** Put before the hint when the value came from the last booking. */
+  prefilledNote?: string;
   id?: string;
   /** True when the value came from the customer's last purchase rather than from them now. */
   prefilled?: boolean;
@@ -58,7 +69,7 @@ export function BuyerRegionField({
         aria-describedby={`${id}-hint`}
         className="rounded-md border border-border bg-background px-3 py-2 text-[0.9375rem] text-text-primary"
       >
-        <option value="">Prefer not to say</option>
+        <option value="">{noneLabel}</option>
         {/*
           Alphabetical, from the shared market list. `INDIA_STATES` is ordered by GST code —
           right for the reference file, wrong for a buyer scanning a dropdown at checkout, who
@@ -76,7 +87,7 @@ export function BuyerRegionField({
           people submit an answer they never gave — and this one ends up on an invoice. Saying
           where it came from turns the question into something to glance at and correct.
         */}
-        {prefilled ? `${'Filled in from your last booking. '}${hint}` : hint}
+        {prefilled ? `${prefilledNote} ${hint}` : hint}
       </p>
     </div>
   );

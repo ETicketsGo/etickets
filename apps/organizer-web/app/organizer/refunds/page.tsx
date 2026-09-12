@@ -21,6 +21,7 @@ import {
   type OrganizationRefundRow,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { isForbidden } from '@/lib/org-permissions';
 
 const FILTERS = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED'] as const;
 
@@ -36,10 +37,18 @@ export default function RefundsPage() {
     decision: 'APPROVE' | 'REJECT';
   } | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  /*
+    Refund rows carry buyer names, emails and amounts, so the API gives them to owners and
+    managers only. Check-in staff were sent the request anyway and shown "We couldn't load
+    refunds. Please try again." — a retry that can never work (found by QA). The list is not
+    requested for them, and the page says why.
+  */
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['org-refunds', activeOrg.id, status, page],
     queryFn: () => api.organizations.refunds(activeOrg.id, { status, page, pageSize: 20 }),
+    enabled: can.financials,
   });
+  const refusedForRole = !can.financials || isForbidden(error);
 
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: string; decision: 'APPROVE' | 'REJECT' }) =>
@@ -58,6 +67,11 @@ export default function RefundsPage() {
     onError: (e) => {
       toast.push(errorMessage(e), 'error');
       setPending(null);
+      /*
+        Refreshed on failure too. The server has already moved a failed refund on (to FAILED), and
+        the row used to stay REQUESTED with live Refund/Decline buttons until a reload — found by QA.
+      */
+      qc.invalidateQueries({ queryKey: ['org-refunds', activeOrg.id] });
     },
   });
 
@@ -175,7 +189,13 @@ export default function RefundsPage() {
         ))}
       </div>
 
-      {isError ? (
+      {refusedForRole ? (
+        <Card>
+          <p className="text-sm text-text-secondary">
+            Refunds show buyers’ details and amounts, so only owners and managers can see them.
+          </p>
+        </Card>
+      ) : isError ? (
         <ErrorState
           message="We couldn't load refunds. Please try again."
           onRetry={() => refetch()}

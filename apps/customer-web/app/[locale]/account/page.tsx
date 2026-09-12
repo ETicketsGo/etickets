@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { FileText, Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
+import { useMounted } from '@/lib/use-mounted';
 
 const LINKS = [
   {
@@ -35,6 +36,7 @@ const LINKS = [
 
 export default function AccountPage() {
   const router = useRouter();
+  const mounted = useMounted();
   useEffect(() => {
     if (!tokenStore.access) router.push('/login?next=/account');
   }, [router]);
@@ -42,7 +44,8 @@ export default function AccountPage() {
   const analyticsQ = useQuery({
     queryKey: ['account', 'analytics'],
     queryFn: () => api.analytics(),
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`, which differs between server and first client render. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
   const bookings = analyticsQ.data?.bookings;
 
