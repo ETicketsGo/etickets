@@ -655,6 +655,13 @@ export class BookingsService {
                     provider: 'mock',
                     status: PaymentStatus.REQUIRES_PAYMENT,
                     amountMinor: fees.totalMinor,
+                    /*
+                      The booking's currency, stated. Left out, the column default wrote "INR"
+                      on every payment — found on QA as twelve payments for US-dollar bookings
+                      recorded in rupees, shown with ₹ on the admin payments page and set to
+                      read as a currency mismatch against the provider in reconciliation.
+                    */
+                    currency,
                   },
                 },
               }),

@@ -41,6 +41,9 @@ interface Options {
   isFree?: boolean;
   /** Swap in a confirmation seam that fails, or is missing entirely. */
   payments?: unknown;
+  /** What the ticket type is priced in, and where the venue is. */
+  currency?: string;
+  venueCountry?: string;
 }
 
 function setup(over: Options = {}) {
@@ -87,7 +90,7 @@ function setup(over: Options = {}) {
           experienceType: ExperienceType.EVENT,
           feeMode: FeeMode.CUSTOMER_PAYS,
           isFree,
-          venue: { country: 'India' },
+          venue: { country: over.venueCountry ?? 'India' },
           organization: { registeredCountry: 'India', registeredRegion: null },
         },
       }),
@@ -100,6 +103,7 @@ function setup(over: Options = {}) {
           eventSessionId: 'sess-1',
           name: 'Entry',
           priceMinor,
+          currency: over.currency ?? 'INR',
           maxPerOrder: 10,
           seatCategoryId: null,
           salesStartAt: null,
@@ -238,5 +242,31 @@ describe('booking a paid event is unchanged', () => {
     expect(written.totalMinor).toBeGreaterThan(0);
     expect(result.status).toBe(BookingStatus.PENDING_PAYMENT);
     expect(confirmFreeBooking).not.toHaveBeenCalled();
+  });
+
+  it('records the Payment in the booking’s own currency, not the column default', async () => {
+    /*
+      Found on QA: every Payment row for a US-dollar booking said INR, because the row was
+      written without a currency and the column defaults to rupees. The admin payments page
+      then printed dollar amounts with ₹, and reconciliation would read each one as a currency
+      mismatch against the provider.
+    */
+    const { book, bookingCreate } = setup({
+      isFree: false,
+      priceMinor: 2_500,
+      currency: 'USD',
+      venueCountry: 'United States',
+    });
+    await book();
+
+    const written = bookingCreate.mock.calls[0][0].data;
+    expect(written.currency).toBe('USD');
+    expect(written.payment.create.currency).toBe('USD');
+  });
+
+  it('still records rupees for an Indian booking', async () => {
+    const { book, bookingCreate } = setup({ isFree: false, priceMinor: 50_000 });
+    await book();
+    expect(bookingCreate.mock.calls[0][0].data.payment.create.currency).toBe('INR');
   });
 });
