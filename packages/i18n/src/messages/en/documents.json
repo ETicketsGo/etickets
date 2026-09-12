@@ -28,7 +28,13 @@
     "taxAddedOnFees": "{label} @ {rate} on fees of {base}",
     "taxTotal": "Total tax in this order",
     "taxIncludedNote": "Tax shown is already included in the total above.",
-    "paymentFee": "Payment processing fee"
+    "paymentFee": "Payment processing fee",
+    "taxName": {
+      "IGST": "Integrated GST (IGST)",
+      "CGST": "Central GST (CGST)",
+      "SGST": "State GST (SGST)",
+      "UTGST": "Union Territory GST (UTGST)"
+    }
   },
   "ticket": {
     "title": "Ticket",

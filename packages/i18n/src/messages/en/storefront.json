@@ -61,6 +61,12 @@
     "galleryImageAlt": "{title} — image {index} of {total}",
     "gstIncludedSummary": "Includes {amount} GST",
     "taxIncludedSummary": "Includes {amount} tax",
+    "convenienceFees": "Convenience fees",
+    "feeTaxLine": "{name} @ {rate}",
+    "taxNameIGST": "Integrated GST (IGST)",
+    "taxNameCGST": "Central GST (CGST)",
+    "taxNameSGST": "State GST (SGST)",
+    "taxNameUTGST": "Union Territory GST (UTGST)",
     "feeBreakdownNote": "The booking fee is ours. Payment processing is what the card or UPI network charges to move the money."
   },
   "seats": {
@@ -114,6 +120,7 @@
     "expiringSoon": "Your seats are about to be released.",
     "availableOffers": "Available offers…",
     "verifyFailed": "We couldn’t verify your payment. If you were charged, it will be confirmed shortly — check “My bookings”.",
+    "upiBlockName": "Pay by any UPI App",
     "failure": {
       "INTERNATIONAL_CARD_NOT_ACCEPTED": "This card was issued outside India and isn’t accepted for this payment. Try a card issued in India, or pick net banking or a wallet in the payment window.",
       "CARD_DECLINED": "Your bank declined this card. Try another card or payment method.",

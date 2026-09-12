@@ -3608,6 +3608,11 @@ export interface RazorpayCheckout {
   description: string;
   prefill: { name: string; email: string };
   callbackUrl: string;
+  /**
+   * The Razorpay account currently offers UPI, so Checkout may lead with "Pay by any UPI
+   * App" (QR / intent). Optional: an older API omits it, which means "do not add the block".
+   */
+  upiEnabled?: boolean;
 }
 export interface PayResult {
   providerRef: string;
@@ -3987,6 +3992,12 @@ export interface CurrencyMoney {
   platformRevenueMinor: number;
   refundVolumeMinor: number;
   paidBookings: number;
+  /** Bookings of any status in this currency, paid or not. */
+  totalBookings: number;
+  /** Failed payments on bookings in this currency. */
+  paymentFailures: number;
+  /** ISO alpha-2 of the country this currency is sold from, or null when unknown. */
+  country: string | null;
 }
 export interface AdminEventRow {
   id: string;

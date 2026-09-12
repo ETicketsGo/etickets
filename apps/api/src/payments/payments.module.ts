@@ -35,6 +35,7 @@ import { SettlementService } from './settlement/settlement.service';
 import { DisputeService } from './dispute/dispute.service';
 import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
+import { RazorpayMethodsService } from './razorpay/razorpay-methods.service';
 import { RazorpayPaymentController } from './razorpay/razorpay-payment.controller';
 import { RazorpayWebhookService } from './razorpay/razorpay-webhook.service';
 import { RazorpayWebhookProcessor } from './razorpay/razorpay-webhook.processor';
@@ -118,6 +119,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     PaymentProviderResolver,
     // India (Razorpay) order/verify flow + durable webhook pipeline.
     RazorpayOrderService,
+    // Asks the account whether UPI is on, so Checkout only leads with UPI QR when it is.
+    RazorpayMethodsService,
     RazorpayWebhookService,
     RazorpayWebhookProcessor,
     // Organizer India (Razorpay Route) payout account onboarding.

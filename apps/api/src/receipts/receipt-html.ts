@@ -24,6 +24,9 @@ import type { ReceiptDocument } from './receipt-document';
  * product decision about the Indian market — not something to slip in as a side effect of
  * adding French. Adding `fr-CA` is additive and affects nobody who is not reading French.
  */
+/** GST components printed by their full name; the catalogue holds one entry for each. */
+const GST_CODES: ReadonlySet<string> = new Set(['IGST', 'CGST', 'SGST', 'UTGST']);
+
 const FORMAT_LOCALE: Record<Locale, string> = {
   en: 'en',
   'fr-CA': 'fr-CA',
@@ -216,6 +219,16 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
 
     Now each line says which it is, and only the added ones stand in the column that is added.
   */
+  /*
+    The GST component by its full name — "Integrated GST (IGST)" — as the checkout now shows it,
+    so the receipt reads line for line against the screen the buyer agreed to. Any other tax keeps
+    the label its rule was given.
+  */
+  const taxName = (code: string) => {
+    const upper = code.trim().toUpperCase();
+    return GST_CODES.has(upper) ? t(locale, `documents.receipt.taxName.${upper}`) : code;
+  };
+
   const included = resolveInclusiveLines(d);
   const addedLines = d.taxLines.filter((_, i) => !included[i]);
   const includedLines = d.taxLines.filter((_, i) => included[i]);
@@ -231,7 +244,7 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
               ? 'documents.receipt.taxAddedOnFees'
               : 'documents.receipt.taxAdded',
             {
-              label: line.label,
+              label: taxName(line.label),
               rate: formatRate(line.rateBasisPoints),
               base: money(line.baseMinor),
             },
@@ -257,7 +270,7 @@ export function renderReceiptHtml(d: ReceiptDocument, localeInput?: string): str
               ? 'documents.receipt.taxIncludedInTickets'
               : 'documents.receipt.taxIncluded',
             {
-              label: line.label,
+              label: taxName(line.label),
               rate: formatRate(line.rateBasisPoints),
               base: money(line.baseMinor),
             },

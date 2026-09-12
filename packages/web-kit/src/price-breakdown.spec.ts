@@ -186,6 +186,89 @@ describe('a booking read back without the all-in fee', () => {
   });
 });
 
+/*
+  Requested by the owner, pointing at BookMyShow: "Convenience fees" opening to the base amount
+  and "Integrated GST (IGST) @ 18%". The GST inside the fees is listed by its own name — but only
+  when those lines add up to the fee-tax row exactly, so the detail can never disagree with it.
+*/
+describe('the GST on the fees, by name', () => {
+  const qaCart = (feeTax: BreakdownQuote['taxLines']): BreakdownQuote => ({
+    subtotalMinor: 49_900,
+    discountMinor: 0,
+    bookingFeeMinor: 1_000,
+    paymentFeeMinor: 1_018,
+    customerFeeMinor: 2_018,
+    customerFeeInclusiveMinor: 2_382,
+    feeTaxRateBasisPoints: 1_800,
+    taxLines: [
+      {
+        label: 'CGST',
+        rateBasisPoints: 900,
+        amountMinor: 3_806,
+        basis: 'TICKETS',
+        inclusive: true,
+      },
+      {
+        label: 'SGST',
+        rateBasisPoints: 900,
+        amountMinor: 3_806,
+        basis: 'TICKETS',
+        inclusive: true,
+      },
+      ...(feeTax ?? []),
+    ],
+    totalMinor: 52_282,
+  });
+  const feeTaxRow = (q: BreakdownQuote) =>
+    priceBreakdown(q).rows.find((r) => r.kind === 'feeTax')?.amountMinor;
+
+  it('names CGST and SGST separately when the seller and buyer are in the same state', () => {
+    const q = qaCart([
+      { label: 'CGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+      { label: 'SGST', rateBasisPoints: 900, amountMinor: 182, basis: 'FEES', inclusive: false },
+    ]);
+    const b = priceBreakdown(q);
+    expect(b.feeTaxLines).toEqual([
+      { label: 'CGST', rateBasisPoints: 900, amountMinor: 182 },
+      { label: 'SGST', rateBasisPoints: 900, amountMinor: 182 },
+    ]);
+    expect(b.feeTaxLines.reduce((sum, t) => sum + t.amountMinor, 0)).toBe(feeTaxRow(q));
+    expect(foots(q)).toBe(true);
+  });
+
+  it('names IGST when the buyer is in another state', () => {
+    const q = qaCart([
+      { label: 'IGST', rateBasisPoints: 1_800, amountMinor: 364, basis: 'FEES', inclusive: false },
+    ]);
+    expect(priceBreakdown(q).feeTaxLines).toEqual([
+      { label: 'IGST', rateBasisPoints: 1_800, amountMinor: 364 },
+    ]);
+  });
+
+  it('shows one line at the combined rate when the named lines do not add up to the fee tax', () => {
+    const q = qaCart([
+      { label: 'IGST', rateBasisPoints: 1_800, amountMinor: 360, basis: 'FEES', inclusive: false },
+    ]);
+    // The customer is charged 364 in fee tax; a detail line of 360 would not foot.
+    expect(priceBreakdown({ ...q, totalMinor: 52_282 }).feeTaxLines).toEqual([
+      { label: null, rateBasisPoints: 1_800, amountMinor: 364 },
+    ]);
+  });
+
+  it('shows one line at the combined rate when no stored line says it was levied on the fees', () => {
+    expect(priceBreakdown(qaCart([])).feeTaxLines).toEqual([
+      { label: null, rateBasisPoints: 1_800, amountMinor: 364 },
+    ]);
+  });
+
+  it('lists nothing when the fees are untaxed', () => {
+    const b = priceBreakdown(
+      quote({ customerFeeInclusiveMinor: 4_680, feeTaxRateBasisPoints: 0, totalMinor: 34_680 }),
+    );
+    expect(b.feeTaxLines).toEqual([]);
+  });
+});
+
 describe('the fees, divided', () => {
   it('reproduces the QA cart line for line: ₹499 + ₹10.18 + ₹10 + ₹3.64 = ₹522.82', () => {
     const q: BreakdownQuote = {

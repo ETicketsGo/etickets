@@ -60,6 +60,14 @@ test('customer books a movie seat and pays', async ({ page }) => {
     platform reads as money the platform keeps, when it is what the card or UPI network
     charges. Payment processing, the platform fee and the tax on them are now rows of their own.
   */
+  /*
+    Now one "Convenience fees" line, open, with its parts named beneath it — the way the owner
+    asked for it, after BookMyShow. The parts keep their names inside it.
+  */
+  await expect(breakdown.getByRole('button', { name: 'Convenience fees' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
   await expect(breakdown.getByText('Payment processing fee', { exact: true })).toBeVisible();
   await expect(breakdown.getByText('Platform fee', { exact: true })).toBeVisible();
   // Tax already inside the ticket price is folded under the tickets, closed until asked for.
@@ -85,13 +93,13 @@ test('customer books a movie seat and pays', async ({ page }) => {
   };
 
   /*
-    Every visible line is a row now — the fees are rows, not the parts of one — so the text is
-    summed wholesale. The included tax under the tickets is hidden unless opened, and hidden
-    text is not in `innerText`, so it cannot be counted as a charge.
+    Only the ROWS are summed, not every line of text. "Convenience fees" is one row whose parts —
+    payment processing, the platform fee and each GST line — are listed open beneath it, and
+    adding those too would count the fees twice. Each row carries `price-row`; its amount is the
+    last line of its text, after any label, hint or toggle.
   */
-  const visible = (await breakdown.innerText())
-    .split('\n')
-    .map(trailingAmount)
+  const visible = (await breakdown.getByTestId('price-row').allInnerTexts())
+    .map((text) => trailingAmount(text.trim().split('\n').pop() ?? ''))
     .filter((n): n is number => n !== null);
   const total = trailingAmount(await page.getByTestId('price-total').innerText());
 

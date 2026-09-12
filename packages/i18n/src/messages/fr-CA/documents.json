@@ -28,7 +28,13 @@
     "taxAddedOnFees": "{label} @ {rate} sur des frais de {base}",
     "taxTotal": "Total des taxes de cette commande",
     "taxIncludedNote": "La taxe indiquée est déjà comprise dans le total ci-dessus.",
-    "paymentFee": "Frais de traitement du paiement"
+    "paymentFee": "Frais de traitement du paiement",
+    "taxName": {
+      "IGST": "GST intégrée (IGST)",
+      "CGST": "GST centrale (CGST)",
+      "SGST": "GST d’État (SGST)",
+      "UTGST": "GST de territoire de l’Union (UTGST)"
+    }
   },
   "ticket": {
     "title": "Billet",
