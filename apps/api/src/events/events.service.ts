@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
-import { EventStatus, Role, NotificationType } from '@eticketsgo/shared-types';
+import { BookingStatus, EventStatus, Role, NotificationType } from '@eticketsgo/shared-types';
 import type {
   CreateEventInput,
   CreateSessionInput,
@@ -164,6 +164,21 @@ export class EventsService {
       include: { ticketTypes: true },
     });
 
+    /*
+      A seated session is copied WITH its seats, the way `addSession` creates one.
+
+      This copied `screenId` and nothing else about the room: no pinned layout and no ShowSeat
+      rows. The copy looked seated, published, and then refused every booking, because a
+      seated sale holds ShowSeat rows and there were none. Layouts are resolved before the
+      transaction, as `addSession` does, so a multi-query read is not held inside it.
+    */
+    const layouts = new Map<string, Awaited<ReturnType<ShowsService['resolveLayoutForShow']>>>();
+    for (const s of sessions) {
+      if (s.screenId) {
+        layouts.set(s.id, await this.shows.resolveLayoutForShow(s.screenId, s.startsAt));
+      }
+    }
+
     const created = await this.prisma.$transaction(async (tx) => {
       const copy = await tx.event.create({
         data: {
@@ -202,15 +217,50 @@ export class EventsService {
         });
       }
       for (const s of sessions) {
+        const seatMap = layouts.get(s.id);
         const newSession = await tx.eventSession.create({
           data: {
             eventId: copy.id,
             screenId: s.screenId,
+            seatMapId: seatMap?.id ?? null,
             startsAt: s.startsAt,
             endsAt: s.endsAt,
           },
         });
+        if (seatMap) {
+          /*
+            `seatSession` makes one ticket type per seat category, counted from the layout, and
+            the seats themselves. The original's prices are passed in, and its per-category
+            settings laid back over the new rows afterwards, so the copy sells as the original
+            did — including a category the organizer had taken off sale.
+          */
+          await this.shows.seatSession(
+            tx,
+            newSession.id,
+            seatMap,
+            s.ticketTypes.flatMap((t) =>
+              t.seatCategoryId
+                ? [{ seatCategoryId: t.seatCategoryId, priceMinor: t.priceMinor }]
+                : [],
+            ),
+          );
+          for (const t of s.ticketTypes) {
+            if (!t.seatCategoryId) continue;
+            await tx.ticketType.updateMany({
+              where: { eventSessionId: newSession.id, seatCategoryId: t.seatCategoryId },
+              data: {
+                name: t.name,
+                maxPerOrder: t.maxPerOrder,
+                salesStartAt: t.salesStartAt,
+                salesEndAt: t.salesEndAt,
+                status: t.status,
+              },
+            });
+          }
+        }
         for (const t of s.ticketTypes) {
+          // Already created, with the right seat count, by `seatSession` above.
+          if (seatMap && t.seatCategoryId) continue;
           await tx.ticketType.create({
             data: {
               eventSessionId: newSession.id,
@@ -308,6 +358,40 @@ export class EventsService {
             { pricedTicketTypes: priced },
           );
         }
+      }
+    }
+    /*
+      Moving the event to another venue is checked the way creating it is, plus one rule.
+
+      `create` refuses a venue from another organization; this accepted any venue id at all,
+      so an organizer could file their event under somebody else's venue and have it listed
+      there. And the venue is not just an address: it decides the currency new ticket types
+      are priced in and the place of supply the tax is charged for. Changing it under
+      bookings that are still live would restate the sale those buyers agreed to, so the move
+      is refused while any booking other than an expired or cancelled one exists.
+    */
+    if (patch.venueId !== undefined && patch.venueId !== event.venueId) {
+      const venue = await this.prisma.venue.findUnique({ where: { id: patch.venueId } });
+      if (!venue || venue.organizationId !== event.organizationId) {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'Venue not found for this organization.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      const liveBookings = await this.prisma.booking.count({
+        where: {
+          eventId: id,
+          status: { notIn: [BookingStatus.EXPIRED, BookingStatus.CANCELLED] },
+        },
+      });
+      if (liveBookings > 0) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This event already has bookings, so it cannot be moved to another venue.',
+          HttpStatus.CONFLICT,
+          { bookings: liveBookings },
+        );
       }
     }
     return this.prisma.event.update({ where: { id }, data: patch });

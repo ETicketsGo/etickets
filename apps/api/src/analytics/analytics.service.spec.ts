@@ -267,7 +267,34 @@ describe('AnalyticsService.venue', () => {
     expect(r.occupancy.sold).toBe(80);
     expect(r.occupancy.capacity).toBe(300);
     expect(r.occupancy.occupancyRate).toBe(27);
-    expect(r.revenue.grossMinor).toBe(100000);
+    expect(r.revenue?.grossMinor).toBe(100000);
+  });
+
+  it('withholds revenue from a member who may not see money, and never runs the query', async () => {
+    /*
+      The organization dashboard already withheld money from check-in staff; this endpoint
+      handed them the same venue's gross and net on membership alone.
+    */
+    const { service, prisma } = makeService({ membershipRole: 'CHECKIN_STAFF' });
+    const r = await service.venue(owner, 'v1');
+
+    // Operational figures are still theirs to see.
+    expect(r.occupancy.sold).toBe(80);
+    expect(r).not.toHaveProperty('revenue');
+    expect(prisma.booking.aggregate).not.toHaveBeenCalled();
+  });
+
+  it('shows revenue to a manager and to a platform admin', async () => {
+    const manager = await makeService({ membershipRole: 'ORGANIZER_MANAGER' }).service.venue(
+      owner,
+      'v1',
+    );
+    expect(manager.revenue?.grossMinor).toBe(100000);
+    const admin = await makeService({ isAdmin: true, membershipRole: null }).service.venue(
+      owner,
+      'v1',
+    );
+    expect(admin.revenue?.grossMinor).toBe(100000);
   });
 });
 

@@ -25,7 +25,7 @@ import { useOrg } from '@/components/org-context';
 const FILTERS = ['REQUESTED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED'] as const;
 
 export default function RefundsPage() {
-  const { activeOrg } = useOrg();
+  const { activeOrg, can } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
   const [status, setStatus] = useState<string>('REQUESTED');
@@ -122,7 +122,13 @@ export default function RefundsPage() {
       key: 'actions',
       header: '',
       render: (r) =>
-        r.status === 'REQUESTED' ? (
+        r.status !== 'REQUESTED' ? null : !can.ownerActions ? (
+          /*
+            Said rather than left blank. The API lets only the owner send money back or close a
+            request, and a manager looking at a waiting one should know who can act on it.
+          */
+          <span className="text-caption text-text-muted">Only the owner can refund or decline</span>
+        ) : (
           <div className="flex gap-2">
             <Button size="sm" onClick={() => setPending({ row: r, decision: 'APPROVE' })}>
               <CheckCircle2 className="mr-1 h-4 w-4" />
@@ -137,7 +143,7 @@ export default function RefundsPage() {
               Decline
             </Button>
           </div>
-        ) : null,
+        ),
     },
   ];
 

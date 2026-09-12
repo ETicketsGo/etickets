@@ -135,6 +135,12 @@ export class ExpoPushTransport implements PushTransport {
   private readonly logger = new Logger('Notification');
   private static readonly ENDPOINT = 'https://exp.host/--/api/v2/push/send';
   private static readonly CHUNK = 100;
+  /*
+    Global fetch has no timeout of its own. The worker delivers every notification at a
+    concurrency of one, so a single Expo request that never answers would stall every message
+    queued behind it. An abort throws, and the dispatcher retries it on its schedule.
+  */
+  private static readonly TIMEOUT_MS = 10_000;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -151,6 +157,7 @@ export class ExpoPushTransport implements PushTransport {
       const chunk = tokens.slice(i, i + ExpoPushTransport.CHUNK);
       const res = await fetch(ExpoPushTransport.ENDPOINT, {
         method: 'POST',
+        signal: AbortSignal.timeout(ExpoPushTransport.TIMEOUT_MS),
         headers: {
           'content-type': 'application/json',
           accept: 'application/json',

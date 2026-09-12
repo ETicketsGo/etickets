@@ -46,7 +46,18 @@ function statefulPrisma(
     ticket: {
       findUnique: ({ where }: { where: { id: string } }) => {
         const t = tickets.get(where.id);
-        return Promise.resolve(t ? { id: where.id, ...t, checkIns: t.checkIns.slice(0, 1) } : null);
+        // The ticket's organization is read too: reconciliation refuses another organization's
+        // ticket, so the double states it — the same organization as the drill's devices.
+        return Promise.resolve(
+          t
+            ? {
+                id: where.id,
+                ...t,
+                checkIns: t.checkIns.slice(0, 1),
+                eventSession: { event: { organizationId: 'org1' } },
+              }
+            : null,
+        );
       },
       updateMany: ({
         where,

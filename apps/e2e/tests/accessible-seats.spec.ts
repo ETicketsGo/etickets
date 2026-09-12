@@ -121,8 +121,13 @@ test.describe('a room with an aisle and a wheelchair bay', () => {
       else. `kind` never reached the client at all, so a wheelchair bay rendered as an
       ordinary seat and the customer who needed it could not find it.
     */
-    await expect(page.locator('button[aria-label*="wheelchair space"]')).toHaveCount(2);
-    await expect(page.locator('button[aria-label*="companion seat"]')).toHaveCount(1);
+    /*
+      Matched case-insensitively. The label is translated now ("Seat A5, Wheelchair space" in
+      English, the same key the visible legend uses), and a screen reader speaks it the same
+      way whatever the capitalisation — the assertion is that the seat is NAMED, not how.
+    */
+    await expect(page.locator('button[aria-label*="wheelchair space" i]')).toHaveCount(2);
+    await expect(page.locator('button[aria-label*="companion seat" i]')).toHaveCount(1);
     await expect(page.getByText('Wheelchair space or companion seat')).toBeVisible();
   });
 
@@ -131,7 +136,7 @@ test.describe('a room with an aisle and a wheelchair bay', () => {
   }) => {
     // It is a seat somebody sits in — marking it must not take it off sale.
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
-    const bay = page.locator('button[aria-label*="wheelchair space"]').first();
+    const bay = page.locator('button[aria-label*="wheelchair space" i]').first();
     const name = /Seat\s+([A-Z]+\d+)/i.exec((await bay.getAttribute('aria-label')) ?? '')?.[1];
     expect(name).toBeTruthy();
 

@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import type { PricingComplianceStatus } from '@eticketsgo/shared-types';
+import { Role, type PricingComplianceStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -248,7 +248,16 @@ export class CinemaComplianceService {
     if (!cinema) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
     }
-    await this.access.assertMember(user as never, cinema.organizationId);
+    /*
+      Owners and managers only. This is the field that decides which legal price ceiling a seat
+      sells under, and membership alone let check-in staff rewrite it — moving a recliner onto
+      the regular rate, or clearing a mapping so the seat stops selling. Reading the mapping
+      stays open to every member; changing it is a pricing decision.
+    */
+    await this.access.assertMember(user as never, cinema.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
 
     // Scoped through the cinema, so an id from another operator's seat map cannot be edited by
     // guessing it. The lookup is the authorisation, not a separate check that can drift.

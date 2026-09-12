@@ -1,5 +1,8 @@
+import { ErrorCodes } from '../common/errors';
+import { Role } from '@eticketsgo/shared-types';
 import { RefundsService } from './refunds.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { OrgAccessService } from '../tenancy/org-access.service';
 
 /**
  * Tenant scoping for the organizer refund list.
@@ -51,7 +54,10 @@ describe('RefundsService.listForOrganization', () => {
     await expect(service.listForOrganization(USER, 'org-b', {})).rejects.toThrow(
       'TENANT_FORBIDDEN',
     );
-    expect(assertMember).toHaveBeenCalledWith(USER, 'org-b');
+    expect(assertMember).toHaveBeenCalledWith(USER, 'org-b', [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
     // Nothing was read. An authorization check that runs after the query has already
     // loaded the other tenant's rows into memory.
     expect(findMany).not.toHaveBeenCalled();
@@ -64,6 +70,40 @@ describe('RefundsService.listForOrganization', () => {
       organizationId: 'org-a',
       status: 'REQUESTED',
     });
+  });
+
+  /*
+    A refund row names the buyer and the money returned to them. Check-in staff are members
+    of the organization and scan tickets at the door; they have no reason to read either.
+  */
+  it.each([
+    [Role.CHECKIN_STAFF, false],
+    [Role.ORGANIZER_MANAGER, true],
+    [Role.ORGANIZER_OWNER, true],
+  ])('with the real access check, %s may read the list: %s', async (role, allowed) => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = {
+      organizationMember: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', role }) },
+      refund: { count: jest.fn().mockResolvedValue(0), findMany },
+      $transaction: (ops: Promise<unknown>[]) => Promise.all(ops),
+    };
+    const service = new RefundsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      new OrgAccessService(prisma as never),
+      { record: jest.fn() } as never,
+      { send: jest.fn() } as never,
+      new MetricsService(),
+      { issueCreditNote: jest.fn() } as never,
+    );
+    const call = service.listForOrganization(USER, 'org-a', {});
+    if (allowed) {
+      await expect(call).resolves.toBeDefined();
+    } else {
+      await expect(call).rejects.toMatchObject({ code: ErrorCodes.TENANT_FORBIDDEN });
+      expect(findMany).not.toHaveBeenCalled();
+    }
   });
 
   it('caps page size so a caller cannot request the whole table', async () => {

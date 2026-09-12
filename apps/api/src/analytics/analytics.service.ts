@@ -521,11 +521,19 @@ export class AnalyticsService {
     if (!venue)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, venue.organizationId);
+    /*
+      Money only for those who may see money — the same gate `organizer()` applies.
+
+      Membership alone let check-in staff read a venue's gross and net revenue here, while the
+      organization dashboard withheld exactly those figures from them. Occupancy is operational
+      and stays; the revenue block is omitted and its query never runs.
+    */
+    const showFinancials = await this.canViewFinancials(user, venue.organizationId);
 
     const [eventCount, sessionCount, revenue, seatOcc, gaOcc] = await Promise.all([
       this.prisma.event.count({ where: { venueId } }),
       this.prisma.eventSession.count({ where: { event: { venueId } } }),
-      this.revenue({ event: { venueId } }),
+      showFinancials ? this.revenue({ event: { venueId } }) : Promise.resolve(null),
       // Movie (seat-based) occupancy from ShowSeat: one status groupBy.
       this.prisma.showSeat.groupBy({
         by: ['status'],
@@ -562,7 +570,8 @@ export class AnalyticsService {
         capacity,
         occupancyRate: capacity > 0 ? Math.round((sold / capacity) * 100) : 0,
       },
-      revenue,
+      // Omitted, not zeroed: a zero would tell a check-in steward the venue took nothing.
+      ...(showFinancials && revenue ? { revenue } : {}),
     };
   }
 

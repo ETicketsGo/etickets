@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { XCircle } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { ButtonLink, Card } from '@/components/ui';
 
 /**
@@ -11,6 +12,8 @@ import { ButtonLink, Card } from '@/components/ui';
  * page (the hold may still be live) or to browse other events.
  */
 function CheckoutCancel() {
+  const r = useTranslations('storefront.checkoutReturn');
+  const n = useTranslations('common.nav');
   const params = useSearchParams();
   const bookingId = params.get('booking');
 
@@ -23,20 +26,19 @@ function CheckoutCancel() {
         <XCircle className="h-8 w-8" />
       </div>
       <div className="space-y-1.5">
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Payment cancelled</h1>
-        <p className="text-[0.9375rem] text-text-secondary">
-          You haven’t been charged. If your ticket hold is still active you can pick up right where
-          you left off.
-        </p>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
+          {r('cancelledTitle')}
+        </h1>
+        <p className="text-[0.9375rem] text-text-secondary">{r('cancelledBody')}</p>
       </div>
       <div className="flex flex-col gap-3">
         {bookingId && (
           <ButtonLink href={`/booking/${bookingId}/payment`} className="w-full">
-            Return to payment
+            {r('returnToPayment')}
           </ButtonLink>
         )}
         <ButtonLink href="/events" variant={bookingId ? 'outline' : 'primary'} className="w-full">
-          Browse events
+          {n('browseEvents')}
         </ButtonLink>
       </div>
     </Card>

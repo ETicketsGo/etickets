@@ -38,7 +38,15 @@ export default function AdminEventDetail() {
     queryFn: () => api.events.get(id),
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['event', id] });
+  /*
+    The events list and the dashboard's counts show this status too. Refreshing only the detail
+    left an approved event sitting "under review" on the list the reviewer goes back to.
+  */
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['event', id] });
+    qc.invalidateQueries({ queryKey: ['admin', 'events'] });
+    qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+  };
   const onErr = (e: unknown) => toast.push(errorMessage(e), 'error');
 
   const review = useMutation({

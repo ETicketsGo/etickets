@@ -2,11 +2,11 @@ import { Body, Controller, Delete, Get, Patch, Query, Req } from '@nestjs/common
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { UsersService } from './users.service';
 import { AccountDeletionService } from './account-deletion.service';
-import { CurrentUser, Roles } from '../common/decorators';
+import { CurrentUser, RequiresAdmin, Roles } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 const updateProfileSchema = z.object({ fullName: z.string().trim().min(2).max(120) });
@@ -73,8 +73,19 @@ export class UsersController {
     });
   }
 
+  /*
+    Every account's name, email, roles and status — the platform's whole customer directory.
+
+    It carried `@Roles(ADMIN)` and no capability, and the permission guard lets a route that
+    declares no capability through. So an admin account granted nothing at all, or only
+    moderation, could page through every customer's email address — the "every admin can do
+    everything" behaviour the capability model replaced, surviving in the one admin route that
+    does not live under `/admin`. BOOKING_READ is the support desk's floor for reading customer
+    records, which is what this is.
+  */
   @Get()
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequiresAdmin(AdminPermission.BOOKING_READ)
   @ApiOperation({ summary: 'List users (admin).' })
   list(
     @Query(new ZodValidationPipe(paginationSchema.extend({ q: z.string().optional() })))

@@ -311,7 +311,8 @@ export default function BookingTicketsViewer() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 key={current.id}
-                src={current.qrDataUrl}
+                // A vendor barcode the server cannot draw arrives as null: show the fallback.
+                src={current.qrDataUrl ?? QR_FALLBACK}
                 alt={`QR code for ticket ${current.serial}`}
                 onError={(e) => {
                   const img = e.currentTarget;

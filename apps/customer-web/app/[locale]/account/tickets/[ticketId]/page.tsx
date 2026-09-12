@@ -24,7 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { fetchTicketWithOffline } from '@/lib/offline/sync';
-import { dateTime } from '@/lib/format';
+import { dateTime, zoneAbbrev } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
@@ -118,6 +118,7 @@ export default function TicketDetailPage() {
     );
   if (ticketQ.isLoading || !ticket) return <Skeleton className="h-96 w-full" />;
 
+  const zone = ticket.timezone ?? event?.venue.timezone ?? undefined;
   const venueName = event?.venue.name ?? '';
   const venueLine = event
     ? `${event.venue.address ? `${event.venue.address}, ` : ''}${event.venue.city}, ${event.venue.country}`
@@ -212,7 +213,8 @@ export default function TicketDetailPage() {
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={ticket.qrDataUrl}
+              // A vendor barcode the server cannot draw arrives as null: show the fallback.
+              src={ticket.qrDataUrl ?? QR_FALLBACK}
               alt={`QR code for ticket ${ticket.serial}`}
               onError={(e) => {
                 const img = e.currentTarget;
@@ -226,7 +228,17 @@ export default function TicketDetailPage() {
           <StatusBadge status={ticket.status} />
           <span className="font-mono text-caption text-text-muted">{ticket.serial}</span>
         </div>
-        <p className="mt-1 text-[0.9375rem] text-text-secondary">{dateTime(ticket.startsAt)}</p>
+        {/*
+          The venue's clock, named. A phone set to another zone showed a different time from the
+          one printed at the venue; the ticket's own zone first, the event's venue if the ticket
+          does not carry one.
+        */}
+        <p className="mt-1 text-[0.9375rem] text-text-secondary">
+          {dateTime(ticket.startsAt, undefined, zone)}
+          {zone ? (
+            <span className="text-text-muted"> ({zoneAbbrev(ticket.startsAt, zone)})</span>
+          ) : null}
+        </p>
         {ticket.holderName && (
           <p className="text-caption text-text-muted">Holder: {ticket.holderName}</p>
         )}

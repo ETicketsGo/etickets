@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   PaymentStatus,
+  RefundStatus,
   WebhookProcessingStatus,
   razorpayFailureReason,
 } from '@eticketsgo/shared-types';
@@ -102,6 +103,7 @@ export class RazorpayWebhookProcessor {
 
     try {
       const result = await this.dispatch(
+        record.id,
         record.eventType,
         record.payload as unknown as StoredPayload,
       );
@@ -164,7 +166,11 @@ export class RazorpayWebhookProcessor {
     return { processed: due.length };
   }
 
-  private async dispatch(eventType: string, payload: StoredPayload): Promise<DispatchResult> {
+  private async dispatch(
+    webhookEventId: string,
+    eventType: string,
+    payload: StoredPayload,
+  ): Promise<DispatchResult> {
     const p = payload.object;
     switch (eventType) {
       case 'order.paid':
@@ -172,9 +178,20 @@ export class RazorpayWebhookProcessor {
         return this.handlePayment(this.toPaymentEvent(p, 'payment.succeeded'));
       case 'payment.failed':
         return this.handlePayment(this.toPaymentEvent(p, 'payment.failed'));
-      case 'refund.created':
+      /*
+        Only `refund.processed` moves the ledger.
+
+        `refund.created` and `refund.processed` both carry the same refund entity, and both
+        used to add its amount to `refundedMinor` and deduct it from the settlement — every
+        Razorpay refund was counted twice. `created` means "accepted, not paid"; nothing about
+        the money has happened yet, so it is acknowledged and nothing else.
+      */
       case 'refund.processed':
-        return this.handleRefund(p);
+        return this.handleRefund(webhookEventId, p);
+      case 'refund.created':
+        return 'ignored';
+      case 'refund.failed':
+        return this.handleRefundFailed(p);
       case 'payment.dispute.created':
       case 'payment.dispute.won':
       case 'payment.dispute.lost':
@@ -189,10 +206,8 @@ export class RazorpayWebhookProcessor {
       case 'settlement.processed':
       case 'settlement.failed':
       case 'payment.authorized':
-      case 'refund.failed':
         // Acknowledged, no state change (settlement.* are Razorpay's own bank settlements
-        // to the platform; authorized precedes captured; refund.failed is surfaced via
-        // the refund record). Recorded as IGNORED, never dropped.
+        // to the platform; authorized precedes captured). Recorded as IGNORED, never dropped.
         return 'ignored';
       default:
         return 'ignored';
@@ -239,13 +254,14 @@ export class RazorpayWebhookProcessor {
     };
   }
 
-  private async handleRefund(p: RazorpayPayload): Promise<DispatchResult> {
+  private async handleRefund(webhookEventId: string, p: RazorpayPayload): Promise<DispatchResult> {
     const refund = p.refund?.entity;
     if (!refund?.payment_id) return 'ignored';
     const payment = await this.prisma.payment.findFirst({
       where: { providerPaymentIntentId: refund.payment_id },
       select: {
         id: true,
+        bookingId: true,
         amountMinor: true,
         organizerNetMinor: true,
         refundedMinor: true,
@@ -254,6 +270,37 @@ export class RazorpayWebhookProcessor {
       },
     });
     if (!payment?.booking?.eventId) return 'ignored';
+
+    // Our own refund row first: if it is still being written, this throws and the event is
+    // retried BEFORE the ledger below is touched, so the retry cannot add the amount twice.
+    if (refund.id) {
+      await this.settleRefundRow(refund.id, payment.bookingId, RefundStatus.COMPLETED);
+    }
+
+    /*
+      Once per Razorpay refund, not once per delivery.
+
+      Deliveries are deduplicated on the event id at ingestion, but a refund can still reach
+      here twice under two ids. There is no column for the provider refund id on the payment,
+      so the durable webhook store is asked instead: has another `refund.processed` for this
+      same refund already been handled (or is being handled right now)?
+    */
+    if (refund.id) {
+      const sibling = await this.prisma.webhookEvent.findFirst({
+        where: {
+          provider: PROVIDER,
+          eventType: 'refund.processed',
+          id: { not: webhookEventId },
+          processingStatus: {
+            in: [WebhookProcessingStatus.PROCESSED, WebhookProcessingStatus.PROCESSING],
+          },
+          payload: { path: ['object', 'refund', 'entity', 'id'], equals: refund.id },
+        },
+        select: { id: true },
+      });
+      if (sibling) return 'processed';
+    }
+
     const refundAmount = refund.amount ?? 0;
     const newTotal = payment.refundedMinor + refundAmount;
     // Idempotency: refund entity amount is per-refund; accumulate but never exceed capture.
@@ -280,6 +327,94 @@ export class RazorpayWebhookProcessor {
       organizerShare,
     );
     return 'processed';
+  }
+
+  /**
+   * Razorpay could not pay a refund it had accepted.
+   *
+   * The refund row was left PROCESSING when Razorpay answered `pending`, and the tickets were
+   * already returned, because at that point the refund was committed at the provider. Nothing
+   * can be undone automatically — the seats may have been resold — so the row is marked FAILED,
+   * which takes it out of the open-refund set, and the failure is audited and logged at error
+   * level for somebody to pay the customer by hand.
+   */
+  private async handleRefundFailed(p: RazorpayPayload): Promise<DispatchResult> {
+    const refund = p.refund?.entity;
+    if (!refund?.id) return 'ignored';
+    const payment = refund.payment_id
+      ? await this.prisma.payment.findFirst({
+          where: { providerPaymentIntentId: refund.payment_id },
+          select: { bookingId: true },
+        })
+      : null;
+    const row = await this.settleRefundRow(refund.id, payment?.bookingId, RefundStatus.FAILED);
+    if (!row) return 'ignored';
+    this.logger.error(
+      `Razorpay refund ${refund.id} FAILED at the provider (refund ${row.id}, booking ${row.bookingId}). ` +
+        'Its tickets were already cancelled; the customer must be refunded manually.',
+    );
+    await this.audit.record({
+      organizationId: row.organizationId,
+      action: 'REFUND_FAILED_AT_PROVIDER',
+      entityType: 'Refund',
+      entityId: row.id,
+      metadata: {
+        provider: PROVIDER,
+        providerRefundId: refund.id,
+        amountMinor: refund.amount ?? row.amountMinor,
+        bookingId: row.bookingId,
+      },
+    });
+    return 'processed';
+  }
+
+  /**
+   * Move our Refund row for a Razorpay refund to its final state.
+   *
+   * Returns the row when it was changed, or null when there is no row (a refund issued from
+   * the Razorpay dashboard) or it was already final. Throws — so the event is retried — when a
+   * refund of ours on this booking is still between the provider call and its commit: the row
+   * exists but does not carry the provider id yet, and finalising nothing would leave it
+   * PROCESSING for ever.
+   */
+  private async settleRefundRow(
+    providerRefundId: string,
+    bookingId: string | undefined,
+    to: typeof RefundStatus.COMPLETED | typeof RefundStatus.FAILED,
+  ): Promise<{
+    id: string;
+    bookingId: string;
+    organizationId: string;
+    amountMinor: number;
+  } | null> {
+    const row = await this.prisma.refund.findFirst({
+      where: { providerRef: providerRefundId },
+      select: { id: true, bookingId: true, organizationId: true, amountMinor: true, status: true },
+    });
+    if (!row) {
+      const inFlight = bookingId
+        ? await this.prisma.refund.findFirst({
+            where: { bookingId, status: RefundStatus.PROCESSING, providerRef: null },
+            select: { id: true },
+          })
+        : null;
+      if (inFlight) {
+        throw new Error(
+          `Refund ${inFlight.id} is still being recorded; retrying Razorpay refund ${providerRefundId}.`,
+        );
+      }
+      return null;
+    }
+    // COMPLETED only from PROCESSING; FAILED from anything not already FAILED.
+    const from =
+      to === RefundStatus.COMPLETED
+        ? [RefundStatus.PROCESSING]
+        : [RefundStatus.PROCESSING, RefundStatus.COMPLETED, RefundStatus.REQUESTED];
+    const moved = await this.prisma.refund.updateMany({
+      where: { id: row.id, status: { in: from } },
+      data: { status: to },
+    });
+    return moved.count === 1 ? row : null;
   }
 
   private async handleDispute(eventType: string, p: RazorpayPayload): Promise<DispatchResult> {

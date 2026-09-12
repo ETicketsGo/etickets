@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type JSXElementConstructor,
   type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -78,23 +79,49 @@ export function Button({
   );
 }
 
+/**
+ * Whatever renders ButtonLink's anchor, given the props ButtonLink hands it.
+ *
+ * `JSXElementConstructor` rather than `ComponentType`: the latter also compares `propTypes`,
+ * so a Link whose `href` accepts a URL object as well as a string was refused for accepting
+ * MORE than ButtonLink passes — which is backwards for a prop that is only ever called.
+ */
+export type ButtonLinkComponent = JSXElementConstructor<{
+  href: string;
+  className?: string;
+  children?: ReactNode;
+}>;
+
 export function ButtonLink({
   href,
   variant = 'primary',
   size = 'md',
   className = '',
   children,
+  linkComponent: LinkComponent = Link,
 }: {
   href: string;
   variant?: ButtonVariant;
   size?: keyof typeof sizes;
   className?: string;
   children: ReactNode;
+  /*
+    The link that renders the anchor. `next/link` unless the app says otherwise.
+
+    The customer storefront is translated and its URLs carry the locale, so a plain
+    `next/link` there sent a French reader to the English page every time they pressed a
+    button — "Choose seats", "Back to event", "View tickets". The storefront passes its
+    locale-aware Link; organizer and admin have no locale in the URL and keep the default.
+  */
+  linkComponent?: ButtonLinkComponent;
 }) {
   return (
-    <Link href={href} className={`${btnBase} ${sizes[size]} ${variants[variant]} ${className}`}>
+    <LinkComponent
+      href={href}
+      className={`${btnBase} ${sizes[size]} ${variants[variant]} ${className}`}
+    >
       {children}
-    </Link>
+    </LinkComponent>
   );
 }
 

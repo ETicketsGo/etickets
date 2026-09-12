@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role } from '@eticketsgo/shared-types';
+import { EventStatus, Role } from '@eticketsgo/shared-types';
 import type { CreateAddOnInput, UpdateAddOnInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -151,7 +151,16 @@ export class AddOnsService {
   /** Public: add-ons a buyer can currently purchase for an event, with remaining stock. */
   async publicListForEvent(eventId: string, now = new Date()) {
     const rows = await this.prisma.addOn.findMany({
-      where: { eventId, enabled: true },
+      /*
+        Only for a PUBLISHED event — the same rule the public event page applies.
+
+        This is an unauthenticated route and it answered for any event id: a draft, one under
+        review, one paused or cancelled. That published an organizer's unreleased catalogue and
+        prices to anybody holding the id, and confirmed the event existed. Filtered in the query
+        rather than checked beforehand, so an unpublished event reads as having no add-ons at
+        all and says nothing about whether the event is real.
+      */
+      where: { eventId, enabled: true, event: { status: EventStatus.PUBLISHED } },
       orderBy: { priceMinor: 'asc' },
       include: { inventory: true },
     });

@@ -108,6 +108,8 @@ function setup(over: Options = {}) {
           seatCategoryId: null,
           salesStartAt: null,
           salesEndAt: null,
+          // On sale. The column is NOT NULL with this default, and booking now reads it.
+          status: 'ACTIVE',
         },
       ]),
     },

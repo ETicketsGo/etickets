@@ -110,7 +110,8 @@ describe('integration-real-postgres: aisles are not seats', () => {
     );
 
     const org = await db.organization.create({
-      data: { name: `Aisle ${suffix}`, slug: `aisle-${suffix}` },
+      // Approved: an unapproved organization cannot put shows on sale.
+      data: { name: `Aisle ${suffix}`, slug: `aisle-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     const venue = await db.venue.create({

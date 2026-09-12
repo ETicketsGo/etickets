@@ -7,7 +7,6 @@ import { useRouter } from '@/i18n/navigation';
 import { CalendarDays, Receipt } from 'lucide-react';
 import {
   Button,
-  ButtonLink,
   Card,
   Drawer,
   EmptyState,
@@ -21,31 +20,25 @@ import {
 import { api, tokenStore } from '@/lib/api';
 import { money, dateTime, zoneAbbrev } from '@/lib/format';
 import { PriceBreakdown } from '@/components/price-breakdown';
+import { ButtonLink } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 
 const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 
-/**
- * How many tickets to claim this booking has.
- *
- * ── WHY NOT JUST `_count.tickets` ──────────────────────────────────────────────────
- * Tickets are issued on confirmation, so an order still being paid for has none — and the
- * list said "0 ticket(s)" next to PENDING PAYMENT. To the person who has just typed their
- * card in, that reads as "your money went somewhere and you got nothing", which is the worst
- * possible reading of a screen that is simply waiting. Observed on QA and reported as
- * "after payment it is still showing pending payment".
- *
- * A count is only meaningful once there is something to count. Before that the status badge
- * beside it already says what is happening, so this says nothing rather than something wrong.
- */
-function ticketCount(row: { status: string; _count: { tickets: number } }): string {
-  const n = row._count.tickets;
-  if (n === 0) return '';
-  return `${n} ticket${n === 1 ? '' : 's'}`;
-}
+/*
+  A refund still being worked on, so the buyer is not offered a second one.
+
+  APPROVED belongs here: the organizer has said yes and the money has not moved yet. Without
+  it the request form came back the moment a refund was approved, inviting a duplicate
+  request against a refund that was already on its way.
+*/
+const OPEN_REFUND_STATUSES = ['REQUESTED', 'APPROVED', 'PROCESSING'];
 
 export default function BookingsPage() {
   const n = useTranslations('common.nav');
+  const a = useTranslations('storefront.account');
+  const c = useTranslations('storefront.confirmation');
+  const w = useTranslations('storefront.wallet');
   const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
@@ -76,7 +69,7 @@ export default function BookingsPage() {
   const requestRefund = useMutation({
     mutationFn: () => api.requestRefund({ bookingId: selectedId!, reason }),
     onSuccess: () => {
-      toast.push('Refund requested. We’ll review it shortly.', 'success');
+      toast.push(a('refundRequestedToast'), 'success');
       setReason('');
       qc.invalidateQueries({ queryKey: ['refunds', selectedId] });
       qc.invalidateQueries({ queryKey: ['booking', selectedId] });
@@ -85,22 +78,35 @@ export default function BookingsPage() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
+  /**
+   * How many tickets to claim this booking has.
+   *
+   * ── WHY NOT JUST `_count.tickets` ──────────────────────────────────────────────────
+   * Tickets are issued on confirmation, so an order still being paid for has none — and the
+   * list said "0 ticket(s)" next to PENDING PAYMENT. To the person who has just typed their
+   * card in, that reads as "your money went somewhere and you got nothing", which is the worst
+   * possible reading of a screen that is simply waiting. Observed on QA and reported as
+   * "after payment it is still showing pending payment".
+   *
+   * A count is only meaningful once there is something to count. Before that the status badge
+   * beside it already says what is happening, so this says nothing rather than something wrong.
+   */
+  const ticketCount = (row: { _count: { tickets: number } }): string =>
+    row._count.tickets === 0 ? '' : a('ticketCount', { count: row._count.tickets });
+
   const b = detail.data;
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">My bookings</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Your order history — view details or request a refund.
-        </p>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
+          {a('bookingsHeading')}
+        </h1>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{a('bookingsLead')}</p>
       </div>
 
       {list.isError ? (
-        <ErrorState
-          message="We couldn't load your bookings. Please try again."
-          onRetry={() => list.refetch()}
-        />
+        <ErrorState message={a('bookingsLoadError')} onRetry={() => list.refetch()} />
       ) : list.isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -140,7 +146,7 @@ export default function BookingsPage() {
                 </p>
                 {row.reference && (
                   <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
-                    <ReferenceCode value={row.reference} label="Booking reference" />
+                    <ReferenceCode value={row.reference} label={c('bookingReference')} />
                   </p>
                 )}
               </div>
@@ -150,19 +156,16 @@ export default function BookingsPage() {
         </div>
       ) : (
         <EmptyState
-          title="No bookings yet"
-          hint="When you book an event it will show up here."
+          title={a('noBookingsTitle')}
+          hint={a('noBookingsHint')}
           icon={Receipt}
           action={<ButtonLink href="/events">{n('browseEvents')}</ButtonLink>}
         />
       )}
 
-      <Drawer open={!!selectedId} onClose={() => setSelectedId(null)} title="Booking details">
+      <Drawer open={!!selectedId} onClose={() => setSelectedId(null)} title={a('bookingDetails')}>
         {detail.isError ? (
-          <ErrorState
-            message="We couldn't load these booking details. Please try again."
-            onRetry={() => detail.refetch()}
-          />
+          <ErrorState message={a('detailsLoadError')} onRetry={() => detail.refetch()} />
         ) : detail.isLoading || !b ? (
           <Skeleton className="h-64 w-full" />
         ) : (
@@ -183,7 +186,9 @@ export default function BookingsPage() {
                 ) : null}
               </p>
               {b.reference && (
-                <p className="mt-1 font-mono text-caption text-text-muted">Ref {b.reference}</p>
+                <p className="mt-1 font-mono text-caption text-text-muted">
+                  {a('reference', { reference: b.reference })}
+                </p>
               )}
             </div>
 
@@ -212,14 +217,14 @@ export default function BookingsPage() {
                   totalMinor: b.totalMinor,
                 }}
                 free={b.totalMinor === 0 && !b.payment}
-                totalLabel="Total paid"
+                totalLabel={c('totalPaid')}
                 note={null}
               />
             </Card>
 
             <div>
               <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                Tickets ({b.tickets.length})
+                {a('ticketsList', { count: b.tickets.length })}
               </p>
               <ul className="space-y-1.5">
                 {/*
@@ -238,10 +243,10 @@ export default function BookingsPage() {
                     <span className="min-w-0 text-text-primary">
                       {t.seatLabel ? (
                         <>
-                          Seat <strong>{t.seatLabel}</strong>
+                          {w('seat')} <strong>{t.seatLabel}</strong>
                         </>
                       ) : (
-                        (t.ticketTypeName ?? 'General admission')
+                        (t.ticketTypeName ?? w('generalAdmission'))
                       )}
                       {t.seatLabel && t.ticketTypeName ? (
                         <span className="text-text-muted"> · {t.ticketTypeName}</span>
@@ -257,7 +262,7 @@ export default function BookingsPage() {
             {refunds.data && refunds.data.length > 0 && (
               <div>
                 <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                  Refunds
+                  {a('refundsHeading')}
                 </p>
                 <ul className="space-y-1.5">
                   {refunds.data.map((r) => (
@@ -288,7 +293,7 @@ export default function BookingsPage() {
             */}
             {(() => {
               const openRefund = (refunds.data ?? []).find((r) =>
-                ['REQUESTED', 'PROCESSING'].includes(r.status),
+                OPEN_REFUND_STATUSES.includes(r.status),
               );
               const free = b.totalMinor <= 0;
               const offered = b.event.refundsEnabled !== false;
@@ -299,10 +304,11 @@ export default function BookingsPage() {
               if (openRefund) {
                 return (
                   <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                    <p className="font-medium text-text-primary">Refund requested</p>
+                    <p className="font-medium text-text-primary">{a('refundRequestedTitle')}</p>
                     <p className="mt-1 text-caption text-text-muted">
-                      {money(openRefund.amountMinor, b.currency)} is with the organizer to review.
-                      We will email you when they decide — there is nothing else to do.
+                      {a('refundRequestedBody', {
+                        amount: money(openRefund.amountMinor, b.currency),
+                      })}
                     </p>
                   </div>
                 );
@@ -310,10 +316,10 @@ export default function BookingsPage() {
               if (!offered && REFUNDABLE.includes(b.status) && hasActive) {
                 return (
                   <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                    <p className="font-medium text-text-primary">Refunds not offered</p>
+                    <p className="font-medium text-text-primary">{a('refundsNotOffered')}</p>
                     <p className="mt-1 text-caption text-text-muted">
-                      The organizer does not offer refunds for this event.
-                      {b.event.title ? ' Contact them directly if something has gone wrong.' : ''}
+                      {a('refundsNotOfferedBody')}
+                      {b.event.title ? ` ${a('contactOrganizer')}` : ''}
                     </p>
                   </div>
                 );
@@ -321,15 +327,13 @@ export default function BookingsPage() {
               if (!canAsk) return null;
               return (
                 <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                  <p className="font-medium text-text-primary">Request a refund</p>
-                  <p className="mt-1 text-caption text-text-muted">
-                    Eligibility follows the event’s refund policy. We’ll review your request.
-                  </p>
+                  <p className="font-medium text-text-primary">{a('requestRefund')}</p>
+                  <p className="mt-1 text-caption text-text-muted">{a('refundEligibility')}</p>
                   <Textarea
                     id="reason"
                     className="mt-3"
                     rows={3}
-                    placeholder="Reason for the refund…"
+                    placeholder={a('refundReasonPlaceholder')}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -340,7 +344,7 @@ export default function BookingsPage() {
                     disabled={reason.trim().length < 3}
                     onClick={() => requestRefund.mutate()}
                   >
-                    Request refund
+                    {a('requestRefundButton')}
                   </Button>
                 </div>
               );

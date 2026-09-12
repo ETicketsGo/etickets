@@ -22,6 +22,14 @@ export const sessionSchema = z.object({
   startsAt: z.string(),
   endsAt: z.string(),
   status: z.string(),
+  /**
+   * This session sells named seats, and the API refuses a booking line without seatIds.
+   *
+   * A fact about the SESSION, not the event: a theatre tour can play a seated hall on one
+   * date and a standing room on the next. Optional because an older API did not send it;
+   * absent means "not known", never "not seated" — see requiresSeatSelection.
+   */
+  seatBased: z.boolean().optional(),
   ticketTypes: z.array(ticketTypeSchema),
 });
 

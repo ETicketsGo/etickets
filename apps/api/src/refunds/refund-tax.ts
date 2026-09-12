@@ -92,13 +92,72 @@ export function refundTax(
   return { addedMinor, includedMinor, taxMinor: addedMinor + includedMinor, lines: out };
 }
 
-/** Each ticket's sale price, by ticket type, from the booking's own item snapshot. */
-export function ticketPrices(
-  items: readonly { ticketTypeId: string | null; unitPriceMinor: number; quantity?: number }[],
-): { priceByType: Map<string | null, number>; bookingTicketsMinor: number } {
-  const ticketItems = items.filter((i) => i.ticketTypeId);
-  return {
-    priceByType: new Map(ticketItems.map((i) => [i.ticketTypeId, i.unitPriceMinor])),
-    bookingTicketsMinor: ticketItems.reduce((s, i) => s + i.unitPriceMinor * (i.quantity ?? 1), 0),
-  };
+/**
+ * What each ticket on a booking actually cost the customer, after the booking's discount.
+ *
+ * ── THE REPORT ─────────────────────────────────────────────────────────────────────
+ * Tickets were refunded at `unitPriceMinor`, the price BEFORE the coupon. A 50% coupon on two
+ * ₹500 tickets took ₹500; refunding one ticket returned the whole ₹500, and the second was
+ * then refused as exceeding the balance. The discount is carried by the tickets it was taken
+ * from, so it has to come back off them.
+ *
+ * ── HOW IT IS SHARED OUT ───────────────────────────────────────────────────────────
+ * The discount is applied to the whole subtotal, so each ticket keeps the same fraction of its
+ * price: (subtotal − discount) / subtotal. Rounding is cumulative over the booking's tickets in
+ * a fixed order (by id), so however the tickets are split across partial refunds, returning all
+ * of them adds up to exactly the discounted ticket total — never a paisa more or less.
+ *
+ * ── TWO LINES OF ONE TYPE ──────────────────────────────────────────────────────────
+ * Prices were keyed by ticket type, so a second line of the same type at a different price was
+ * overwritten and every ticket of that type took the last line's price. A ticket does not
+ * record which line it came from, so the type's units are dealt out to its tickets in a fixed
+ * order: individual tickets may swap prices, but the type's total is always its lines' total.
+ */
+export function ticketNetPrices(
+  items: readonly {
+    id?: string;
+    ticketTypeId: string | null;
+    unitPriceMinor: number;
+    quantity?: number;
+  }[],
+  tickets: readonly { id: string; ticketTypeId: string }[],
+  booking: { subtotalMinor?: number | null; discountMinor?: number | null },
+): { netByTicket: Map<string, number>; bookingTicketsMinor: number } {
+  const byId = (a: { id?: string }, b: { id?: string }) => (a.id ?? '').localeCompare(b.id ?? '');
+  const ticketItems = items.filter((i) => i.ticketTypeId).sort(byId);
+
+  // Every unit each type was sold at, in line order.
+  const unitsByType = new Map<string, number[]>();
+  for (const item of ticketItems) {
+    const units = unitsByType.get(item.ticketTypeId as string) ?? [];
+    for (let n = 0; n < (item.quantity ?? 1); n += 1) units.push(item.unitPriceMinor);
+    unitsByType.set(item.ticketTypeId as string, units);
+  }
+  const itemsGrossMinor = ticketItems.reduce((s, i) => s + i.unitPriceMinor * (i.quantity ?? 1), 0);
+
+  const subtotal = booking.subtotalMinor ?? 0;
+  const discount = Math.min(Math.max(0, booking.discountMinor ?? 0), Math.max(0, subtotal));
+  const scale = (grossMinor: number) =>
+    subtotal > 0 && discount > 0
+      ? Math.round((grossMinor * (subtotal - discount)) / subtotal)
+      : grossMinor;
+
+  const netByTicket = new Map<string, number>();
+  const dealt = new Map<string, number>();
+  let cumulativeGross = 0;
+  let cumulativeNet = 0;
+  for (const ticket of [...tickets].sort(byId)) {
+    const units = unitsByType.get(ticket.ticketTypeId) ?? [];
+    const index = dealt.get(ticket.ticketTypeId) ?? 0;
+    dealt.set(ticket.ticketTypeId, index + 1);
+    // More tickets than sold units cannot happen for a confirmed booking; if it ever does, the
+    // type's last price is used, which is what the lookup by type always returned.
+    const gross = units[Math.min(index, units.length - 1)] ?? 0;
+    cumulativeGross += gross;
+    const next = scale(cumulativeGross);
+    netByTicket.set(ticket.id, next - cumulativeNet);
+    cumulativeNet = next;
+  }
+
+  return { netByTicket, bookingTicketsMinor: scale(itemsGrossMinor) };
 }

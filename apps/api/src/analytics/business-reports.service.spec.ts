@@ -285,18 +285,21 @@ describe('BusinessReportsService.settlement', () => {
           {
             organizationId: 'o1',
             organization: { name: 'Alpha' },
+            currency: 'INR',
             netMinor: 50000,
             status: 'PAID',
           },
           {
             organizationId: 'o1',
             organization: { name: 'Alpha' },
+            currency: 'INR',
             netMinor: 20000,
             status: 'PENDING',
           },
           {
             organizationId: 'o2',
             organization: { name: 'Beta' },
+            currency: 'INR',
             netMinor: 10000,
             status: 'SCHEDULED',
           },
@@ -306,39 +309,82 @@ describe('BusinessReportsService.settlement', () => {
 
     const r = await service.settlement();
     expect(payouts.adminList).toHaveBeenCalledTimes(1);
-    expect(r.totals).toEqual({ outstandingMinor: 30000, paidMinor: 50000, payoutCount: 3 });
+    expect(r.byCurrency).toHaveLength(1);
+    const inr = r.byCurrency[0];
+    expect(inr.totals).toEqual({ outstandingMinor: 30000, paidMinor: 50000, payoutCount: 3 });
     // Sorted by outstanding desc → o1 (20000) before o2 (10000).
-    expect(r.byOrg[0]).toEqual({
+    expect(inr.byOrg[0]).toEqual({
       organizationId: 'o1',
       organizationName: 'Alpha',
+      currency: 'INR',
       outstandingMinor: 20000,
       paidMinor: 50000,
       outstandingCount: 1,
       paidCount: 1,
     });
   });
+
+  /*
+    Payouts are one per currency, but this report added every payout into one outstanding
+    figure and the page printed it as rupees: a $200 payout was owed as ₹2.
+  */
+  it('never adds a dollar payout to a rupee one', async () => {
+    const { service } = makeService({
+      payouts: {
+        adminList: jest.fn().mockResolvedValue([
+          {
+            organizationId: 'o1',
+            organization: { name: 'Alpha' },
+            currency: 'INR',
+            netMinor: 50_000,
+            status: 'PENDING',
+          },
+          {
+            organizationId: 'o1',
+            organization: { name: 'Alpha' },
+            currency: 'USD',
+            netMinor: 20_000,
+            status: 'PENDING',
+          },
+        ]),
+      },
+    });
+    const r = await service.settlement();
+    expect(r.byCurrency.map((c) => [c.currency, c.totals.outstandingMinor])).toEqual([
+      ['INR', 50_000],
+      ['USD', 20_000],
+    ]);
+  });
 });
 
 describe('BusinessReportsService.refunds', () => {
-  it('returns totals (reused), by-status groups and a by-day series', async () => {
+  it('returns totals (reused), by-status groups and a by-day series, per currency', async () => {
     const { service, analytics } = makeService({
       prisma: {
-        refund: {
-          groupBy: jest.fn().mockResolvedValue([
-            { status: 'COMPLETED', _sum: { amountMinor: 8000 }, _count: { _all: 2 } },
-            { status: 'REQUESTED', _sum: { amountMinor: 5000 }, _count: { _all: 1 } },
-          ]),
-        },
         $queryRaw: jest
           .fn()
-          .mockResolvedValue([{ day: new Date('2026-07-02'), count: 2n, amount: 8000n }]),
+          // by status, per currency
+          .mockResolvedValueOnce([
+            { currency: 'INR', status: 'COMPLETED', count: 2n, amount: 8000n },
+            { currency: 'INR', status: 'REQUESTED', count: 1n, amount: 5000n },
+            { currency: 'USD', status: 'REQUESTED', count: 1n, amount: 700n },
+          ])
+          // completed by day, per currency
+          .mockResolvedValueOnce([
+            { day: new Date('2026-07-02'), currency: 'INR', count: 2n, amount: 8000n },
+          ]),
       },
     });
     const r = await service.refunds(FROM, TO);
-    expect(analytics.refundStats).toHaveBeenCalledTimes(1);
-    expect(r.totals).toEqual({ count: 2, amountMinor: 8000 });
-    expect(r.byStatus).toHaveLength(2);
-    expect(r.byDay).toEqual([{ day: '2026-07-02', count: 2, amountMinor: 8000 }]);
+    expect(analytics.refundStatsByCurrency).toHaveBeenCalledTimes(1);
+    const inr = r.byCurrency.find((c) => c.currency === 'INR')!;
+    expect(inr.totals).toEqual({ count: 2, amountMinor: 8000 });
+    expect(inr.byStatus).toHaveLength(2);
+    expect(inr.byDay).toEqual([{ day: '2026-07-02', count: 2, amountMinor: 8000 }]);
+    // The dollar request is its own block — not 5700 of something under REQUESTED.
+    const usd = r.byCurrency.find((c) => c.currency === 'USD')!;
+    expect(usd.totals).toEqual({ count: 0, amountMinor: 0 });
+    expect(usd.byStatus).toEqual([{ status: 'REQUESTED', count: 1, amountMinor: 700 }]);
   });
 });
 
@@ -376,10 +422,23 @@ describe('BusinessReportsService.tax', () => {
     platform that never asked.
   */
   const taxPrisma = (
-    lines: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[],
+    lines: {
+      label: string;
+      rateBasisPoints: number;
+      baseMinor: number;
+      amountMinor: number;
+      currency?: string;
+    }[],
     activeRules: number,
   ) => ({
-    bookingTaxLine: { findMany: jest.fn().mockResolvedValue(lines) },
+    bookingTaxLine: {
+      findMany: jest.fn().mockResolvedValue(
+        lines.map(({ currency, ...line }) => ({
+          ...line,
+          booking: { currency: currency ?? 'INR' },
+        })),
+      ),
+    },
     taxRule: { count: jest.fn().mockResolvedValue(activeRules) },
   });
 
@@ -387,11 +446,36 @@ describe('BusinessReportsService.tax', () => {
     const { service } = makeService({ prisma: taxPrisma([], 0) });
     const r = await service.tax(FROM, TO);
     expect(r.taxModelled).toBe(false);
-    expect(r.taxCollectedMinor).toBe(0);
-    expect(r.breakdown).toEqual([]);
+    expect(r.byCurrency[0].taxCollectedMinor).toBe(0);
+    expect(r.byCurrency[0].breakdown).toEqual([]);
     expect(r.note).toMatch(/no tax rule is active/i);
     // The taxable base is still reported, which is what it was always for.
-    expect(r.taxableBaseMinor).toBe(107000);
+    expect(r.byCurrency[0].taxableBaseMinor).toBe(107000);
+  });
+
+  it('keeps tax charged in rupees apart from tax charged in dollars', async () => {
+    const { service } = makeService({
+      prisma: taxPrisma(
+        [
+          { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
+          {
+            label: 'Sales tax',
+            rateBasisPoints: 800,
+            baseMinor: 5000,
+            amountMinor: 400,
+            currency: 'USD',
+          },
+        ],
+        2,
+      ),
+    });
+    const r = await service.tax(FROM, TO);
+    const byCurrency = Object.fromEntries(r.byCurrency.map((c) => [c.currency, c]));
+    expect(byCurrency.INR.taxCollectedMinor).toBe(900);
+    expect(byCurrency.USD.taxCollectedMinor).toBe(400);
+    expect(byCurrency.USD.breakdown).toEqual([
+      { label: 'Sales tax', rateBasisPoints: 800, baseMinor: 5000, amountMinor: 400 },
+    ]);
   });
 
   it('reports what was charged, grouped by label AND rate', async () => {
@@ -413,8 +497,8 @@ describe('BusinessReportsService.tax', () => {
     const r = await service.tax(FROM, TO);
 
     expect(r.taxModelled).toBe(true);
-    expect(r.taxCollectedMinor).toBe(1875);
-    expect(r.breakdown).toEqual([
+    expect(r.byCurrency[0].taxCollectedMinor).toBe(1875);
+    expect(r.byCurrency[0].breakdown).toEqual([
       { label: 'CGST', rateBasisPoints: 250, baseMinor: 3000, amountMinor: 75 },
       { label: 'CGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
       { label: 'SGST', rateBasisPoints: 900, baseMinor: 10000, amountMinor: 900 },
@@ -432,14 +516,17 @@ describe('BusinessReportsService.tax', () => {
 
 describe('BusinessReportsService.topExperiences', () => {
   it('ranks events by bookings and joins the title', async () => {
-    const { service } = makeService({
+    const { service, prisma } = makeService({
       prisma: {
         booking: {
-          groupBy: jest
-            .fn()
-            .mockResolvedValue([
-              { eventId: 'e1', _sum: { subtotalMinor: 60000 }, _count: { _all: 6 } },
-            ]),
+          groupBy: jest.fn().mockResolvedValue([
+            {
+              eventId: 'e1',
+              currency: 'INR',
+              _sum: { subtotalMinor: 60000 },
+              _count: { _all: 6 },
+            },
+          ]),
         },
         event: {
           findMany: jest
@@ -451,8 +538,13 @@ describe('BusinessReportsService.topExperiences', () => {
       },
     });
     const r = await service.topExperiences(FROM, TO, 5);
+    // Gross is grouped per currency, never summed across them.
+    expect(prisma.booking.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ by: ['eventId', 'currency'] }),
+    );
     expect(r.experiences[0]).toEqual({
       eventId: 'e1',
+      currency: 'INR',
       title: 'Concert',
       experienceType: 'EVENT',
       movieTitle: null,

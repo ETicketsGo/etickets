@@ -181,6 +181,8 @@ describe('OfflineReconciliationService', () => {
       qrVersion: 1,
       eventSessionId: 'se1',
       checkIns: [],
+      // The device's own organization, so the ticket is one this device may admit.
+      eventSession: { event: { organizationId: 'org1' } },
     };
     const prisma = {
       checkInDevice: {
@@ -229,6 +231,7 @@ describe('OfflineReconciliationService', () => {
           qrVersion: 2,
           eventSessionId: 'se1',
           checkIns: [],
+          eventSession: { event: { organizationId: 'org1' } },
         }),
         updateMany: jest.fn(),
       },
@@ -249,5 +252,56 @@ describe('OfflineReconciliationService', () => {
     ]);
     expect(res[0].outcome).toBe('TRANSFERRED_AFTER_DOWNLOAD');
     expect(prisma.ticket.updateMany as jest.Mock).not.toHaveBeenCalled();
+  });
+});
+
+describe('OfflineReconciliationService organization boundary', () => {
+  it("will not check in another organization's ticket", async () => {
+    /*
+      The caller is authorized for the DEVICE's organization and the queued ticket id was
+      trusted as-is, so staff of one organization could spend another's admission. A foreign
+      ticket is treated as one that does not exist: nothing claimed, sent to review.
+    */
+    const updateMany = jest.fn();
+    const checkInCreate = jest.fn();
+    const prisma = {
+      checkInDevice: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'dev1', organizationId: 'org1', status: 'ACTIVE' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      ticket: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'tk-foreign',
+          status: 'ACTIVE',
+          nonce: 'n1',
+          qrVersion: 1,
+          eventSessionId: 'se1',
+          checkIns: [],
+          eventSession: { event: { organizationId: 'org2' } },
+        }),
+        updateMany,
+      },
+      checkIn: { create: checkInCreate },
+      offlineReconciliationRecord: { create: jest.fn().mockResolvedValue({ id: 'rec1' }) },
+    } as unknown as PrismaService;
+    const svc = new OfflineReconciliationService(prisma, access, audit);
+
+    const res = await svc.reconcile(USER, 'dev1', [
+      {
+        ticketId: 'tk-foreign',
+        deviceId: 'dev1',
+        nonce: 'n1',
+        version: 1,
+        eventSessionId: 'se1',
+        checkedInAt: Date.now(),
+        wasOverride: false,
+      },
+    ]);
+
+    expect(res).toEqual([{ ticketId: 'tk-foreign', outcome: 'SUPERVISOR_REVIEW_REQUIRED' }]);
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(checkInCreate).not.toHaveBeenCalled();
   });
 });

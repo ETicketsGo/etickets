@@ -106,7 +106,9 @@ describe('integration-real-postgres: show pricing', () => {
     service = new ShowsService(db as never, allowAll, noAudit, cfg);
 
     const org = await db.organization.create({
-      data: { name: `Pricing ${suffix}`, slug: `pricing-${suffix}` },
+      // Approved, so scheduling is allowed; it is still new in the sense this suite needs —
+      // no venue yet.
+      data: { name: `Pricing ${suffix}`, slug: `pricing-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     // Deliberately NO venue: this organization is as new as a real one, and that is the
@@ -514,7 +516,7 @@ describe('integration-real-postgres: show pricing', () => {
   maybe('a seated show is priced in the venue’s currency, not always rupees', async () => {
     const client = db as Client;
     const usOrg = await client.organization.create({
-      data: { name: `USD ${suffix}`, slug: `usd-${suffix}` },
+      data: { name: `USD ${suffix}`, slug: `usd-${suffix}`, status: 'APPROVED' },
     });
     const usVenue = await client.venue.create({
       data: {

@@ -235,25 +235,43 @@ export class PhoneOtpService {
       );
     if (!otp) throw rejected();
 
-    if (otp.attempts >= MAX_ATTEMPTS) {
-      await this.prisma.phoneOtp.update({
-        where: { id: otp.id },
+    /*
+      ── THE GUESS IS PAID FOR BEFORE IT IS CHECKED ─────────────────────────────────────
+      This used to read `attempts`, compare the code, and only then increment. Every request
+      that arrived before the first increment landed saw the same count, so twenty guesses
+      fired at once were all compared against a limit of five: the limit was a property of how
+      fast somebody sent requests, not of the code.
+
+      So the attempt is claimed FIRST, by a conditional update the database applies atomically —
+      it increments only while the count is still under the limit, and reports how many rows it
+      changed. Zero means the budget was already spent, by this caller or a concurrent one, and
+      the code is compared against nothing. A correct code costs an attempt too, which changes
+      nothing anybody sees: a success spends the row anyway.
+    */
+    const claimed = await this.prisma.phoneOtp.updateMany({
+      where: { id: otp.id, consumedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count === 0) {
+      // Out of guesses, or spent meanwhile. Burned rather than left to be ground down further.
+      await this.prisma.phoneOtp.updateMany({
+        where: { id: otp.id, consumedAt: null },
         data: { consumedAt: new Date() },
       });
       throw rejected();
     }
 
-    if (!(await bcrypt.compare(code, otp.codeHash))) {
-      // Counted before the answer is returned, so a guess costs an attempt whatever the
-      // caller does next.
-      await this.prisma.phoneOtp.update({
-        where: { id: otp.id },
-        data: { attempts: { increment: 1 } },
-      });
-      throw rejected();
-    }
+    if (!(await bcrypt.compare(code, otp.codeHash))) throw rejected();
 
-    await this.prisma.phoneOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
+    /*
+      Spent conditionally for the same reason: two correct submissions racing each other must
+      not both sign in on one single-use code. The loser is told what everybody else is told.
+    */
+    const spent = await this.prisma.phoneOtp.updateMany({
+      where: { id: otp.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    if (spent.count === 0) throw rejected();
 
     const existing = await this.prisma.user.findUnique({ where: { phone } });
     if (existing) {

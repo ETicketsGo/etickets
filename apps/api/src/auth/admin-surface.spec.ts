@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import * as ts from 'typescript';
 import { ALL_ADMIN_PERMISSIONS } from '@eticketsgo/shared-types';
 
 /**
@@ -56,6 +57,75 @@ describe('the admin surface is fully gated', () => {
         }
       }
     }
+    expect(ungated).toEqual([]);
+  });
+
+  it('gives every staff-only ROUTE a capability, wherever its @Roles is declared', () => {
+    /*
+      The check above only looks at `@Controller('admin…')`. `GET /users` lives under `/users`,
+      carried a method-level `@Roles(ADMIN)` and no capability — and the guard lets through a route
+      that declares none — so an admin granted nothing at all could list every customer's email.
+      Neither the path nor the class is a reliable signal, so this reads the decorators the way
+      Nest resolves them: the handler's own, falling back to its class's.
+
+      Only routes restricted to platform staff ALONE are held to it. A route shared with
+      organizers (`@Roles(ORGANIZER_OWNER, ADMIN)`) cannot carry `@RequiresAdmin` without locking
+      the organizers out, because the guard would demand a grant they can never hold.
+    */
+    const STAFF_ROLES = new Set(['Role.ADMIN', 'Role.SUPER_ADMIN']);
+    const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'All']);
+    const ungated: string[] = [];
+    let staffOnlyRoutes = 0;
+
+    for (const file of files) {
+      const sf = ts.createSourceFile(
+        file,
+        readFileSync(file, 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const decoratorsOf = (node: ts.Node) =>
+        (ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : []).flatMap((d) =>
+          ts.isCallExpression(d.expression) && ts.isIdentifier(d.expression.expression)
+            ? [
+                {
+                  name: d.expression.expression.text,
+                  args: d.expression.arguments.map((a) => a.getText(sf)),
+                },
+              ]
+            : [],
+        );
+
+      const visit = (node: ts.Node): void => {
+        if (ts.isClassDeclaration(node)) {
+          const onClass = decoratorsOf(node);
+          for (const member of node.members) {
+            if (!ts.isMethodDeclaration(member)) continue;
+            const onMethod = decoratorsOf(member);
+            if (!onMethod.some((d) => ROUTE_DECORATORS.has(d.name))) continue;
+            const roles =
+              (onMethod.find((d) => d.name === 'Roles') ?? onClass.find((d) => d.name === 'Roles'))
+                ?.args ?? [];
+            if (roles.length === 0 || !roles.every((r) => STAFF_ROLES.has(r))) continue;
+            staffOnlyRoutes++;
+            const gated = [...onMethod, ...onClass].some(
+              (d) => d.name === 'RequiresAdmin' && d.args.length > 0,
+            );
+            if (!gated) {
+              ungated.push(
+                `${file.split(/[\\/]/).slice(-1)[0]} ${node.name?.text}.${member.name.getText(sf)}`,
+              );
+            }
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+    }
+
+    // Finding almost none would mean the parser stopped seeing decorators, not that the code
+    // became safe — which would make the assertion below vacuous.
+    expect(staffOnlyRoutes).toBeGreaterThan(20);
     expect(ungated).toEqual([]);
   });
 

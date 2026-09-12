@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Input } from '@/components/ui';
+import { safeNextPath } from '@eticketsgo/web-kit';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -54,7 +55,8 @@ export function PhoneSignIn({ next }: { next: string }) {
         are sent to their account rather than interrogated at the door; the name is asked for
         at checkout, where it is actually needed and where they are already typing.
       */
-      router.push(next);
+      // Checked again here, so the component is safe whoever renders it.
+      router.push(safeNextPath(next, '/account/tickets'));
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : a('codeFailed'));
     } finally {

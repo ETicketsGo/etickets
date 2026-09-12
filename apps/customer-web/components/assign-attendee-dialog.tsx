@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Mail, UserPlus } from 'lucide-react';
+import { useLocale } from 'next-intl';
 import { errorMessage, useToast, type WalletTicket } from '@eticketsgo/web-kit';
+import type { Locale } from '@eticketsgo/i18n';
 import { api } from '@/lib/api';
+import { getPathname } from '@/i18n/navigation';
 import { Button, Dialog, Input } from '@/components/ui';
 
 type Mode = 'invite' | 'assign';
@@ -24,6 +27,7 @@ export function AssignAttendeeDialog({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const locale = useLocale() as Locale;
   const [mode, setMode] = useState<Mode>('invite');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -48,7 +52,10 @@ export function AssignAttendeeDialog({
   const invite = useMutation({
     mutationFn: () => api.inviteAttendee(ticket.id, { email, name: name || undefined }),
     onSuccess: (res) => {
-      setInviteLink(`${window.location.origin}/invite/${res.token}`);
+      // The invite page in the sender's language; the default locale has no prefix to add.
+      setInviteLink(
+        `${window.location.origin}${getPathname({ href: `/invite/${res.token}`, locale })}`,
+      );
       invalidate();
       toast.push('Invitation sent.', 'success');
     },

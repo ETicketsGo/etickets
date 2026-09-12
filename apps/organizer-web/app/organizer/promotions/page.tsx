@@ -14,6 +14,8 @@ import {
   PageHeader,
   Pagination,
   money,
+  currencyForCountry,
+  currencySymbol,
   dateOnly,
   useToast,
   errorMessage,
@@ -21,6 +23,12 @@ import {
   type Coupon,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import {
+  couponCurrency,
+  couponValueError,
+  couponValueToApi,
+  couponValueToInput,
+} from '@/lib/coupon-value';
 
 interface FormState {
   code: string;
@@ -62,6 +70,17 @@ export default function PromotionsPage() {
     queryKey: ['coupons', activeOrg.id, page],
     queryFn: () => api.coupons.list(activeOrg.id, { page, pageSize: 20 }),
   });
+  /*
+    The currency a fixed amount is typed and shown in. A code has no currency column — it comes
+    off whatever booking it is applied to — so this is the one the organization's venues sell in.
+  */
+  const venuesQ = useQuery({
+    queryKey: ['venues', activeOrg.id],
+    queryFn: () => api.venues.list(activeOrg.id),
+  });
+  const { currency, mixed: sellsInSeveralCurrencies } = couponCurrency(
+    (venuesQ.data ?? []).map((v) => currencyForCountry(v.country)),
+  );
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
@@ -69,9 +88,8 @@ export default function PromotionsPage() {
       if (!/^[A-Za-z0-9_-]{3,40}$/.test(form.code.trim()))
         e.code = '3–40 letters, numbers, hyphen or underscore.';
     }
-    const v = Number(form.value);
-    if (form.value === '' || !Number.isInteger(v) || v <= 0) e.value = 'Enter a whole number > 0.';
-    else if (form.type === 'PERCENT' && v > 100) e.value = 'Percentage must be 1–100.';
+    const valueError = couponValueError(form.type, form.value);
+    if (valueError) e.value = valueError;
     if (form.maxRedemptions && Number(form.maxRedemptions) <= 0)
       e.maxRedemptions = 'Must be greater than 0.';
     if (form.startsAt && form.endsAt && new Date(form.endsAt) < new Date(form.startsAt))
@@ -88,7 +106,8 @@ export default function PromotionsPage() {
           organizationId: activeOrg.id,
           code: form.code.trim(),
           type: form.type,
-          value: Number(form.value),
+          // Minor units for a fixed amount — see `couponValueToApi`.
+          value: couponValueToApi(form.type, form.value),
           maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : undefined,
           startsAt: iso(form.startsAt),
           endsAt: iso(form.endsAt),
@@ -97,7 +116,7 @@ export default function PromotionsPage() {
         });
       }
       return api.coupons.update(editing!.id, {
-        value: Number(form.value),
+        value: couponValueToApi(form.type, form.value),
         maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
         startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
         endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
@@ -147,7 +166,7 @@ export default function PromotionsPage() {
     setForm({
       code: c.code,
       type: c.type,
-      value: String(c.value),
+      value: couponValueToInput(c.type, c.value),
       maxRedemptions: c.maxRedemptions != null ? String(c.maxRedemptions) : '',
       isPublic: Boolean(c.isPublic),
       publicLabel: c.publicLabel ?? '',
@@ -170,7 +189,7 @@ export default function PromotionsPage() {
     {
       key: 'discount',
       header: 'Discount',
-      render: (c) => (c.type === 'PERCENT' ? `${c.value}%` : money(c.value)),
+      render: (c) => (c.type === 'PERCENT' ? `${c.value}%` : money(c.value, currency)),
     },
     {
       key: 'used',
@@ -292,13 +311,23 @@ export default function PromotionsPage() {
             </Select>
             <Input
               id="value"
-              label={form.type === 'PERCENT' ? 'Percent (1–100)' : 'Amount (₹)'}
+              label={
+                form.type === 'PERCENT' ? 'Percent (1–100)' : `Amount (${currencySymbol(currency)})`
+              }
               type="number"
+              min={0}
+              step={form.type === 'PERCENT' ? 1 : 0.01}
               value={form.value}
               error={errors.value}
               onChange={(e) => setForm({ ...form, value: e.target.value })}
             />
           </div>
+          {form.type === 'FIXED' && sellsInSeveralCurrencies && (
+            <p className="text-caption text-text-muted">
+              Your venues sell in more than one currency. The amount comes off each booking in that
+              booking&rsquo;s own currency.
+            </p>
+          )}
           <Input
             id="max"
             label="Max redemptions (optional)"

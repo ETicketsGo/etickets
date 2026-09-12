@@ -153,13 +153,32 @@ export class OrganizationsService {
     return org;
   }
 
+  /**
+   * The organizations the caller can work in, each carrying the caller's own role in it.
+   *
+   * `myRole` exists so the organizer console can stop offering actions this API will refuse:
+   * without it a manager was shown Refund and check-in staff were shown Invite, and each
+   * learned the rule from the error. It grants nothing — every write still checks the
+   * membership itself.
+   *
+   * A platform administrator gets `null`. Their access comes from the platform role and
+   * bypasses every organization role check, so no membership role describes what they may do.
+   */
   async listMine(user: RequestUser) {
     const ids = await this.access.managedOrganizationIds(user);
-    return this.prisma.organization.findMany({
+    const orgs = await this.prisma.organization.findMany({
       where: ids ? { id: { in: ids } } : {},
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { members: true, events: true, venues: true } } },
     });
+    if (ids === null) return orgs.map((org) => ({ ...org, myRole: null }));
+
+    const memberships = await this.prisma.organizationMember.findMany({
+      where: { userId: user.id, status: 'ACTIVE' },
+      select: { organizationId: true, role: true },
+    });
+    const roles = new Map(memberships.map((m) => [m.organizationId, m.role]));
+    return orgs.map((org) => ({ ...org, myRole: roles.get(org.id) ?? null }));
   }
 
   async get(user: RequestUser, id: string) {
@@ -353,14 +372,26 @@ export class OrganizationsService {
     await this.access.assertMember(user, id);
     const org = await this.prisma.organization.findUnique({
       where: { id },
+      /*
+        Every field the owner can edit, not only the ones `missing` checks. This read seeds the
+        settings form, and it used to return seven of the twelve: state, postal code, address
+        line 2 and the finance contact's name and phone came back blank after a save, so the
+        form showed details the owner had entered as never entered. Same shape as
+        `adminLegalIdentityStatus`.
+      */
       select: {
         legalName: true,
         taxRegistrationKind: true,
         taxRegistrationNumber: true,
         registeredAddressLine1: true,
+        registeredAddressLine2: true,
         registeredCity: true,
+        registeredRegion: true,
+        registeredPostalCode: true,
         registeredCountry: true,
+        financeContactName: true,
         financeContactEmail: true,
+        financeContactPhone: true,
       },
     });
     if (!org) {

@@ -110,6 +110,21 @@ describe('SesEmailTransport', () => {
   });
 });
 
+describe('SesEmailTransport: a hung connection', () => {
+  it('bounds both the connection and the request, so one stalled socket cannot block the worker', () => {
+    /*
+      The SDK's default handler waits forever. Every notification runs through one worker at a
+      concurrency of one, so without these a single unanswered SES socket stops every later
+      email, SMS and hold expiry behind it.
+    */
+    const { SESv2Client } = jest.requireMock('@aws-sdk/client-sesv2') as { SESv2Client: jest.Mock };
+    new SesEmailTransport(configFor({ AWS_REGION: 'ap-south-1', EMAIL_FROM: 'x@y.test' }));
+    expect(SESv2Client.mock.calls.at(-1)?.[0]).toMatchObject({
+      requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
+    });
+  });
+});
+
 describe('selectEmailTransport', () => {
   it('defaults to the log transport when EMAIL_PROVIDER is unset', () => {
     expect(selectEmailTransport(configFor({}))).toBeInstanceOf(EmailLogTransport);

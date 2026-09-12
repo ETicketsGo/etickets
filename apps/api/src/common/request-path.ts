@@ -32,24 +32,42 @@
  * Deliberately a short, explicit list rather than a pattern like "redact anything that looks
  * like a token". A heuristic over every URL would quietly mangle booking references, event
  * slugs and ticket ids in exactly the logs somebody is reading to debug them — and would
- * still miss a secret that happened to look ordinary. These two routes are the ones where a
- * path segment is known to be a secret, and they are the only ones touched.
+ * still miss a secret that happened to look ordinary. These are the routes where a path
+ * segment is known to be a secret, and they are the only ones touched.
  *
  * Written without a leading prefix so the match is independent of `API_GLOBAL_PREFIX`: the
  * deployed path is `/api/notifications/webhooks/ses/…`, but the prefix is configuration and a
  * redaction that assumed `/api` would silently stop working the day somebody changed it.
+ *
+ * ── THE LINK TOKENS ────────────────────────────────────────────────────────────────
+ * Invitation, share-link and attendee-invite tokens travel in the path too, and they are worse
+ * than the webhook secrets because each one IS an account or a ticket. A back-office invite
+ * account already holds its grants before it is accepted, so anybody who could read a 4xx log
+ * line for `/public/invitations/<token>` could set that account's password and walk in with
+ * them. A share token opens a guest QR; an attendee-invite token claims a ticket.
+ *
+ * `onlyBefore` exists because `attendee-invites/<x>` is not always a token: `/resend` takes an
+ * invite ID, which is an ordinary identifier somebody may need to grep for. Only the two
+ * routes that take the raw token are redacted there.
  */
-const CREDENTIAL_BEARING_ROUTES = [
-  'notifications/webhooks/ses',
-  'notifications/webhooks/msg91',
-] as const;
+const CREDENTIAL_BEARING_ROUTES: readonly { route: string; onlyBefore?: readonly string[] }[] = [
+  { route: 'notifications/webhooks/ses' },
+  { route: 'notifications/webhooks/msg91' },
+  { route: 'public/invitations' },
+  { route: 'public/share' },
+  { route: 'attendee-invites', onlyBefore: ['accept', 'decline'] },
+];
 
 /** What replaces the secret. Readable, obviously deliberate, and not mistakable for a value. */
 export const REDACTED = '[REDACTED]';
 
-const PATTERNS = CREDENTIAL_BEARING_ROUTES.map(
-  (route) => new RegExp(`(^|/)(${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})/[^/?#]+`, 'gi'),
-);
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const PATTERNS = CREDENTIAL_BEARING_ROUTES.map(({ route, onlyBefore }) => {
+  // A lookahead, so the trailing `/accept` is required for the match but kept in the output.
+  const suffix = onlyBefore ? `(?=/(?:${onlyBefore.map(escapeRegExp).join('|')})(?:[/?#]|$))` : '';
+  return new RegExp(`(^|/)(${escapeRegExp(route)})/[^/?#]+${suffix}`, 'gi');
+});
 
 /**
  * Replace the credential segment of a known secret-bearing route.

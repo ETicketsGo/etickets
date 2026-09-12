@@ -72,6 +72,31 @@ export class DisputeService {
     const booking = payment?.booking ?? null;
     const currency = dispute.currency.toLowerCase();
 
+    /*
+      Whether THIS delivery is the one that lost the dispute.
+
+      Providers repeat a closed dispute's webhook, and every "lost" used to deduct the amount
+      from the settlement again. The flip to LOST is claimed atomically on an existing row; a
+      dispute first seen already lost has no row yet, and the unique key on the upsert below
+      stops a second one being created alongside it.
+    */
+    let firstLoss = false;
+    if (lost) {
+      const prior = await this.prisma.dispute.findUnique({
+        where: { provider_providerDisputeId: { provider, providerDisputeId: dispute.id } },
+        select: { id: true },
+      });
+      if (!prior) {
+        firstLoss = true;
+      } else {
+        const claimed = await this.prisma.dispute.updateMany({
+          where: { id: prior.id, status: { not: 'LOST' } },
+          data: { status: 'LOST' },
+        });
+        firstLoss = claimed.count === 1;
+      }
+    }
+
     await this.prisma.dispute.upsert({
       where: { provider_providerDisputeId: { provider, providerDisputeId: dispute.id } },
       create: {
@@ -110,7 +135,7 @@ export class DisputeService {
       await this.settlements.applyDispute(booking.eventId, currency, {
         amountMinor: dispute.amount,
         open,
-        lost,
+        lost: firstLoss,
       });
     }
 

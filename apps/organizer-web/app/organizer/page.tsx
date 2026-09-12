@@ -18,18 +18,27 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { WelcomeCard } from '@/components/onboarding-checklist';
+import { isForbidden } from '@/lib/org-permissions';
 
 export default function OrganizerDashboard() {
-  const { activeOrg } = useOrg();
+  const { activeOrg, can } = useOrg();
 
   const eventsQ = useQuery({
     queryKey: ['events', activeOrg.id],
     queryFn: () => api.events.list(activeOrg.id),
   });
+  /*
+    Payouts are financial data and the API refuses them to check-in staff — but this is
+    everybody's landing page, and a refused payouts read used to replace the whole dashboard
+    with "We couldn't load this". So the read is skipped for a role that cannot make it, a
+    refusal hides the card, and payouts never decide whether the rest of the page renders.
+  */
   const payoutsQ = useQuery({
     queryKey: ['payouts', activeOrg.id],
     queryFn: () => api.payouts.forOrg(activeOrg.id),
+    enabled: can.financials,
   });
+  const showPayouts = can.financials && !isForbidden(payoutsQ.error);
   // Single aggregate call for the whole organization — replaces the previous
   // per-event `useQueries` fan-out over `GET /reports/event/:id` (N+1).
   const analyticsQ = useQuery({
@@ -40,10 +49,9 @@ export default function OrganizerDashboard() {
   const events = eventsQ.data ?? [];
   const analytics = analyticsQ.data;
   const loading = eventsQ.isLoading || analyticsQ.isLoading;
-  const isError = eventsQ.isError || payoutsQ.isError || analyticsQ.isError;
+  const isError = eventsQ.isError || analyticsQ.isError;
   const refetchAll = () => {
     eventsQ.refetch();
-    payoutsQ.refetch();
     analyticsQ.refetch();
   };
 
@@ -317,45 +325,54 @@ export default function OrganizerDashboard() {
               <ButtonLink href="/organizer/events" variant="outline" className="w-full">
                 Manage events
               </ButtonLink>
-              <ButtonLink href="/organizer/payouts" variant="outline" className="w-full">
-                View payouts
-              </ButtonLink>
+              {showPayouts && (
+                <ButtonLink href="/organizer/payouts" variant="outline" className="w-full">
+                  View payouts
+                </ButtonLink>
+              )}
               <p className="pt-1 text-center text-caption text-text-muted">
                 Export &amp; message attendees from an event’s Attendees tab.
               </p>
             </div>
           </Card>
 
-          <Card title="Latest payout">
-            {payoutsQ.isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : latestPayout ? (
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-text-muted">Status</span>
-                  <StatusBadge status={latestPayout.status} />
+          {showPayouts && (
+            <Card title="Latest payout">
+              {payoutsQ.isLoading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : payoutsQ.isError ? (
+                <ErrorState
+                  message="We couldn't load payouts. Please try again."
+                  onRetry={() => payoutsQ.refetch()}
+                />
+              ) : latestPayout ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-muted">Status</span>
+                    <StatusBadge status={latestPayout.status} />
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-text-muted">Net amount</span>
+                    <span className="font-semibold text-text-primary">
+                      {money(latestPayout.netMinor, latestPayout.currency)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-text-muted">Created</span>
+                    <span className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</span>
+                  </div>
+                  <ButtonLink href="/organizer/payouts" variant="outline" className="mt-2 w-full">
+                    View payouts
+                  </ButtonLink>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Net amount</span>
-                  <span className="font-semibold text-text-primary">
-                    {money(latestPayout.netMinor, latestPayout.currency)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-text-muted">Created</span>
-                  <span className="text-text-secondary">{dateOnly(latestPayout.createdAt)}</span>
-                </div>
-                <ButtonLink href="/organizer/payouts" variant="outline" className="mt-2 w-full">
-                  View payouts
-                </ButtonLink>
-              </div>
-            ) : (
-              <EmptyState
-                title="No payouts yet"
-                hint="Generate a settlement from the Payouts page."
-              />
-            )}
-          </Card>
+              ) : (
+                <EmptyState
+                  title="No payouts yet"
+                  hint="Generate a settlement from the Payouts page."
+                />
+              )}
+            </Card>
+          )}
         </div>
       </div>
     </div>

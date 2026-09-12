@@ -2,14 +2,21 @@ import { Controller, Post, Req } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { RazorpayWebhookService } from './razorpay-webhook.service';
 import { Public } from '../../common/decorators';
 
 /**
  * Dedicated Razorpay webhook endpoint. Public (Razorpay is unauthenticated) but every
  * event is HMAC-verified against the raw body (X-Razorpay-Signature) before acceptance.
+ *
+ * Not throttled. Razorpay delivers from a small set of addresses, so during a sale spike the
+ * global per-IP limit answered its deliveries with 429 — and a delivery that is refused is a
+ * payment confirmation that is late. The signature is what authenticates this route, not a
+ * request rate.
  */
 @ApiTags('payments')
+@SkipThrottle()
 @Controller('payments/webhooks')
 export class RazorpayWebhookController {
   constructor(private readonly webhooks: RazorpayWebhookService) {}

@@ -83,7 +83,9 @@ const LEGAL_FIELDS: {
 ];
 
 export default function SettingsPage() {
-  const { activeOrg } = useOrg();
+  const { activeOrg, can } = useOrg();
+  const qc = useQueryClient();
+  const toast = useToast();
 
   /*
     Mirrored into local state so the checkbox responds immediately. The org context is
@@ -91,11 +93,21 @@ export default function SettingsPage() {
     toggle feel broken.
   */
   const [cashEnabled, setCashEnabled] = useState(activeOrg.cashPaymentsEnabled ?? false);
+  /*
+    Re-read when the organization changes. Seeded once, the box kept the first organization's
+    setting after switching to another, so it could show cash as on for one that has it off.
+  */
+  useEffect(() => {
+    setCashEnabled(activeOrg.cashPaymentsEnabled ?? false);
+  }, [activeOrg.id, activeOrg.cashPaymentsEnabled]);
   const cashToggle = useMutation({
     mutationFn: (enabled: boolean) => api.organizations.setCashPayments(activeOrg.id, enabled),
     onMutate: (enabled) => setCashEnabled(enabled),
     onSuccess: (r) => {
       setCashEnabled(r.cashPaymentsEnabled);
+      // The org context holds this flag too. Left stale, switching away and back would put the
+      // value from before this change back in the box.
+      qc.invalidateQueries({ queryKey: ['organizations', 'mine'] });
       toast.push(
         r.cashPaymentsEnabled
           ? 'Cash accepted. Reservations now appear under Counter.'
@@ -109,8 +121,6 @@ export default function SettingsPage() {
       toast.push(errorMessage(e), 'error');
     },
   });
-  const qc = useQueryClient();
-  const toast = useToast();
   const {
     data: profile,
     isLoading,
@@ -167,9 +177,14 @@ export default function SettingsPage() {
       taxRegistrationKind: d.taxRegistrationKind ?? '',
       taxRegistrationNumber: d.taxRegistrationNumber ?? '',
       registeredAddressLine1: d.registeredAddressLine1 ?? '',
+      registeredAddressLine2: d.registeredAddressLine2 ?? '',
       registeredCity: d.registeredCity ?? '',
+      registeredRegion: d.registeredRegion ?? '',
+      registeredPostalCode: d.registeredPostalCode ?? '',
       registeredCountry: d.registeredCountry ?? '',
+      financeContactName: d.financeContactName ?? '',
       financeContactEmail: d.financeContactEmail ?? '',
+      financeContactPhone: d.financeContactPhone ?? '',
     });
   }, [legalQuery.data, legalTouched]);
   const setLegalField = (key: keyof OrganizationLegalIdentityInput, value: string) => {
@@ -243,11 +258,15 @@ export default function SettingsPage() {
                 type="checkbox"
                 className="h-4 w-4 rounded border-border"
                 checked={cashEnabled}
-                disabled={cashToggle.isPending}
+                disabled={cashToggle.isPending || !can.ownerActions}
                 onChange={(e) => cashToggle.mutate(e.target.checked)}
               />
               <span className="text-[0.9375rem] text-text-primary">Accept cash at the venue</span>
             </label>
+            {!can.ownerActions && (
+              // The API lets only the owner change this; the current setting stays readable.
+              <p className="text-caption text-text-muted">Only the owner can change this.</p>
+            )}
           </div>
         </Card>
 
@@ -491,9 +510,23 @@ export default function SettingsPage() {
           not validate its format — that varies by country and is set by your tax authority, not by
           us. Documents already issued keep the details they were issued with.
         </p>
-        <Button className="mt-4" loading={saveLegal.isPending} onClick={() => saveLegal.mutate()}>
+        <Button
+          className="mt-4"
+          loading={saveLegal.isPending}
+          disabled={!can.ownerActions}
+          onClick={() => saveLegal.mutate()}
+        >
           Save legal and tax details
         </Button>
+        {!can.ownerActions && (
+          /*
+            Owner only at the API: these details are printed on tax invoices, and changing a
+            registration number is a different act from editing a bio.
+          */
+          <p className="mt-2 text-caption text-text-muted">
+            Only the owner can change legal and tax details.
+          </p>
+        )}
       </Card>
     </div>
   );

@@ -196,3 +196,73 @@ describe('PublicEventsService.list only offers what can still be attended', () =
     expect(count.mock.calls[0][0].where.isFree).toBeUndefined();
   });
 });
+
+describe('PublicEventsService only lists dates that are still on', () => {
+  function makeService() {
+    const count = jest.fn().mockReturnValue(0);
+    const findMany = jest.fn().mockReturnValue([]);
+    const prisma = {
+      event: { count, findMany },
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+    };
+    return { service: new PublicEventsService(prisma as never, advertised), count, findMany };
+  }
+
+  it('does not list an event whose only future dates are cancelled', async () => {
+    const { service, count } = makeService();
+    await service.list({ page: 1, pageSize: 10 });
+    expect(count.mock.calls[0][0].where.sessions.some.status).toEqual({
+      in: ['SCHEDULED', 'PAUSED'],
+    });
+  });
+
+  it('takes the next date from a session that is on, and the price from a ticket on sale', async () => {
+    const { service, findMany } = makeService();
+    await service.list({ page: 1, pageSize: 10 });
+    const sessions = findMany.mock.calls[0][0].include.sessions;
+    expect(sessions.where.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
+    expect(sessions.include.ticketTypes.where).toEqual({ status: 'ACTIVE' });
+  });
+
+  it('applies the same rule on an organizer’s public page', async () => {
+    // Found by the review: the organizer page took each event's first session ever, past or
+    // cancelled, and its cheapest ticket type whatever its status.
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = {
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'o1', name: 'Org', createdAt: new Date() }),
+      },
+      event: { findMany },
+    };
+    const service = new PublicEventsService(prisma as never, advertised);
+    await service.organizer('o1');
+    const sessions = findMany.mock.calls[0][0].include.sessions;
+    expect(sessions.where.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
+    expect(sessions.where.startsAt.gte).toBeInstanceOf(Date);
+    expect(sessions.include.ticketTypes.where).toEqual({ status: 'ACTIVE' });
+  });
+});
+
+describe('PublicEventsService.getBySlug', () => {
+  it('offers only ticket types that are on sale', async () => {
+    // The organizer's off-sale switch was stored and never read: the page kept offering it.
+    const findUnique = jest.fn().mockResolvedValue({
+      id: 'e1',
+      slug: 'e1',
+      title: 'Gig',
+      status: 'PUBLISHED',
+      isFree: false,
+      images: [],
+      venue: null,
+      organization: { id: 'o1', name: 'Org', cashPaymentsEnabled: false },
+      sessions: [],
+    });
+    const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+
+    await service.getBySlug('e1');
+
+    expect(findUnique.mock.calls[0][0].include.sessions.include.ticketTypes.where).toEqual({
+      status: 'ACTIVE',
+    });
+  });
+});

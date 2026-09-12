@@ -21,6 +21,8 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
 
   DATABASE_URL: z.string().min(1),
+  // The default is for local development only. Outside LOCAL/DEV, RedisService (and the worker)
+  // refuse to start when this is unset or points at localhost — see config/redis-url.ts.
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
   // ─── Observability (all optional; unset ⇒ feature is a complete no-op) ───────
@@ -694,6 +696,15 @@ const envSchema = z.object({
    * what actually authenticates an event. This is the cheap first filter in front of it.
    */
   SES_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * The SNS topic ARN(s) SES events may arrive from, comma-separated.
+   *
+   * A valid SNS signature proves Amazon sent a message, not that it came from THIS environment's
+   * topic; anybody can publish signed messages from a topic of their own. When set, a message
+   * from any other topic is refused. Optional so an environment whose ARN has not been looked up
+   * yet still boots — a deployed environment that receives SES events logs a warning instead.
+   */
+  SES_SNS_TOPIC_ARNS: z.string().optional(),
   /*
     The PUBLIC base URL of this API, which is part of what Twilio signs.
 

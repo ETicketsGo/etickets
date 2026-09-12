@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
+import { SeatRegulatoryClass } from '@prisma/client';
 import {
   createCinemaSchema,
   createScreenSchema,
@@ -17,6 +18,22 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CinemaComplianceService } from './cinema-compliance.service';
 
 const createCinemaBody = createCinemaSchema.extend({ organizationId: z.string().cuid() });
+
+/**
+ * The body of a regulatory seat-class mapping.
+ *
+ * Validated because the value goes straight into an enum column that decides which price
+ * ceiling a seat sells under. The route took `@Body()` unvalidated, so anything the client sent
+ * reached the database — a typo surfaced as a 500, and an omitted field silently CLEARED the
+ * mapping via `?? null`. The key is therefore required: clearing is still allowed, but only by
+ * saying `null` on purpose.
+ *
+ * The enum comes from the schema itself, so a class added there cannot be refused here.
+ */
+export const setSeatClassBody = z.object({
+  regulatoryClass: z.nativeEnum(SeatRegulatoryClass).nullable(),
+});
+type SetSeatClassBody = z.infer<typeof setSeatClassBody>;
 
 @ApiTags('cinemas')
 @ApiBearerAuth()
@@ -44,7 +61,7 @@ export class CinemasController {
     @CurrentUser() user: RequestUser,
     @Param('id') id: string,
     @Param('seatCategoryId') seatCategoryId: string,
-    @Body() body: { regulatoryClass: string | null },
+    @Body(new ZodValidationPipe(setSeatClassBody)) body: SetSeatClassBody,
   ) {
     /*
       The operator states the mapping; the platform never infers it from the category's name.
@@ -52,7 +69,7 @@ export class CinemasController {
       possible, and in a regulated jurisdiction the seat then stops selling until it is mapped
       again, which is the correct consequence of not knowing.
     */
-    return this.compliance.setSeatClass(user, id, seatCategoryId, body?.regulatoryClass ?? null);
+    return this.compliance.setSeatClass(user, id, seatCategoryId, body.regulatoryClass);
   }
 
   @Get(':id/pricing-compliance')

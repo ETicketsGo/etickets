@@ -138,7 +138,18 @@ export class PaymentRefundExecutor {
         reason: comp.reasonCode,
         currency: booking.currency,
       });
-      if (res.status === 'COMPLETED') {
+      /*
+        PROCESSING is an accepted refund the provider has not finished moving — Razorpay's
+        `pending`, now reported as such rather than as COMPLETED. It is not a refusal: sending it
+        to `rejected()` would record a refund the provider is actually executing as declined.
+        It takes the asynchronous path, the same as an initial COMPLETED ack from an async provider.
+      */
+      if (res.status === 'PROCESSING') {
+        await this.emit(
+          bookingPaymentRefundPendingEvent(this.base(comp, amount, booking.currency, 'PENDING')),
+        );
+        outcome = await this.recoverRefund(comp, providerRef, res.providerRef, booking, amount);
+      } else if (res.status === 'COMPLETED') {
         if (caps.refundMayBeAsynchronous) {
           // Async provider: the initial 'COMPLETED' ack is only PENDING until confirmed.
           await this.emit(

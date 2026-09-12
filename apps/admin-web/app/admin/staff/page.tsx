@@ -53,6 +53,8 @@ export default function StaffPage() {
   const [note, setNote] = useState('');
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState('');
+  /** Whose access is about to be removed. Revoking takes the role and every duty at once. */
+  const [revoking, setRevoking] = useState<AdminStaffMember | null>(null);
 
   const staffQ = useQuery({ queryKey: ['admin', 'staff'], queryFn: () => api.admin.staff.list() });
   const catalogueQ = useQuery({
@@ -115,6 +117,7 @@ export default function StaffPage() {
     onSuccess: () => {
       toast.push('Back-office access removed.', 'success');
       qc.invalidateQueries({ queryKey: ['admin', 'staff'] });
+      setRevoking(null);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -201,8 +204,7 @@ export default function StaffPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      loading={revoke.isPending && revoke.variables === person.id}
-                      onClick={() => revoke.mutate(person.id)}
+                      onClick={() => setRevoking(person)}
                       className="text-status-error"
                     >
                       <UserMinus className="mr-1.5 h-4 w-4" /> Remove access
@@ -235,6 +237,38 @@ export default function StaffPage() {
           ))}
         </div>
       )}
+
+      {/*
+        Confirmed, with the person named. One click used to take away somebody's back-office
+        role and every duty they held, and putting it back means choosing each duty again.
+      */}
+      <Dialog
+        open={revoking !== null}
+        onClose={() => setRevoking(null)}
+        title={revoking ? `Remove access for ${revoking.fullName}?` : 'Remove access?'}
+      >
+        {revoking ? (
+          <div className="space-y-4">
+            <p className="text-[0.9375rem] text-text-secondary">
+              <strong className="text-text-primary">{revoking.fullName}</strong> ({revoking.email})
+              loses the back-office role and every duty they hold, and can no longer use this
+              console. Giving access back means choosing their duties again.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRevoking(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={revoke.isPending}
+                onClick={() => revoke.mutate(revoking.id)}
+              >
+                Remove access
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
 
       <Dialog
         open={editing !== null}

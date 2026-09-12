@@ -31,6 +31,7 @@ function setup(
     userId?: string | null;
     maxExtensions?: number;
     missing?: boolean;
+    paymentMethod?: string;
   } = {},
 ) {
   const booking = over.missing
@@ -42,15 +43,19 @@ function setup(
         holdExpiresAt: over.holdExpiresAt ?? IN_FIVE_MINUTES(),
         holdExtensions: over.holdExtensions ?? 0,
         organizationId: 'org-1',
+        paymentMethod: over.paymentMethod ?? 'ONLINE',
       };
 
   const update = jest.fn().mockImplementation(async ({ data }) => ({
     holdExpiresAt: data.holdExpiresAt,
     holdExtensions: (booking?.holdExtensions ?? 0) + 1,
   }));
+  const showSeatUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
 
   const prisma = {
     booking: { findUnique: jest.fn().mockResolvedValue(booking), update },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ booking: { update }, showSeat: { updateMany: showSeatUpdateMany } }),
   };
   const config = {
     get: (key: string) =>
@@ -74,7 +79,7 @@ function setup(
     stub, // bookingShadow
     config as never,
   );
-  return { service, prisma, update };
+  return { service, prisma, update, showSeatUpdateMany };
 }
 
 describe('extending a booking hold', () => {
@@ -159,6 +164,37 @@ describe('extending a booking hold', () => {
     // payment path already applies, so checkout works the same way with or without an account.
     const { service } = setup({ userId: null });
     await expect(service.extendHold(null, 'bk-1')).resolves.toMatchObject({ holdExtensions: 1 });
+  });
+
+  it("moves the held seats' deadline with the booking's", async () => {
+    /*
+      Only the booking's deadline used to move. The ShowSeat rows kept the old one, and an
+      operator blocking seats treats a HELD seat past its expiry as free — so it took the
+      seats this buyer was still paying for, and their payment failed at seat confirmation.
+    */
+    const { service, update, showSeatUpdateMany } = setup();
+    await service.extendHold(OWNER, 'bk-1');
+
+    const granted = update.mock.calls[0][0].data.holdExpiresAt as Date;
+    expect(showSeatUpdateMany).toHaveBeenCalledWith({
+      where: { holdBookingId: 'bk-1', status: 'HELD' },
+      data: { holdExpiresAt: granted },
+    });
+  });
+
+  it('leaves a pay-at-the-venue hold alone, because extending it would shorten it', async () => {
+    // A cash reservation is held until the show starts. A fresh ten minutes from now is less.
+    const showtime = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    const { service, update, showSeatUpdateMany } = setup({
+      paymentMethod: 'CASH',
+      holdExpiresAt: showtime,
+    });
+    const result = await service.extendHold(OWNER, 'bk-1');
+
+    expect(result.holdExpiresAt).toEqual(showtime);
+    expect(result.extensionsRemaining).toBe(0);
+    expect(update).not.toHaveBeenCalled();
+    expect(showSeatUpdateMany).not.toHaveBeenCalled();
   });
 
   it('does not invent a booking that is not there', async () => {

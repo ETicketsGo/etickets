@@ -52,6 +52,46 @@ class WebhookProbeController {
   }
 }
 
+/**
+ * The link-token routes, shaped like the real invitation, share and attendee-invite routes.
+ *
+ * Mostly refusals, because that is where these tokens were seen: an expired or spent link is
+ * the common case, and the exception filter's 4xx line carried the whole path.
+ */
+@Controller()
+class LinkTokenProbeController {
+  @Get('public/invitations/:token')
+  describeInvitation(): never {
+    throw new AppException(ErrorCodes.NOT_FOUND, 'No longer valid.', HttpStatus.NOT_FOUND);
+  }
+
+  @Post('public/invitations/:token/accept')
+  acceptInvitation() {
+    return { ok: true };
+  }
+
+  @Post('public/share/:token')
+  resolveShare(): never {
+    throw new AppException(ErrorCodes.CONFLICT, 'This share has expired.', HttpStatus.CONFLICT);
+  }
+
+  @Post('attendee-invites/:token/accept')
+  acceptAttendeeInvite(): never {
+    throw new AppException(ErrorCodes.UNAUTHORIZED, 'Sign in first.', HttpStatus.UNAUTHORIZED);
+  }
+
+  @Post('attendee-invites/:token/decline')
+  declineAttendeeInvite() {
+    return { ok: true };
+  }
+
+  /** Takes an invite ID, not a token — the negative control for this controller. */
+  @Post('attendee-invites/:id/resend')
+  resend() {
+    return { ok: true };
+  }
+}
+
 /** The negative control: an ordinary route that must keep logging its full path. */
 @Controller('bookings')
 class OrdinaryController {
@@ -62,7 +102,7 @@ class OrdinaryController {
 }
 
 @Module({
-  controllers: [WebhookProbeController, OrdinaryController],
+  controllers: [WebhookProbeController, LinkTokenProbeController, OrdinaryController],
   providers: [
     {
       provide: MetricsService,
@@ -145,6 +185,36 @@ describe('no request log line ever carries a webhook secret', () => {
     });
     expect(all()).not.toContain(SECRET);
     expect(all()).not.toContain('super-secret-query');
+  });
+
+  describe('link tokens, which are accounts and tickets rather than webhook secrets', () => {
+    /*
+      A back-office invite account holds its grants before it is accepted, so an invitation
+      token in a log line is a takeover. The refusals matter most: an expired or already-used
+      link is the ordinary case, and the exception filter's 4xx line is where the path was.
+    */
+    const TOKEN = 'Zk3pL9qR2sT5vW8xY1bC4dF7gH0jK6mN';
+
+    it.each([
+      ['GET', `public/invitations/${TOKEN}`, 404],
+      ['POST', `public/invitations/${TOKEN}/accept`, 201],
+      ['POST', `public/share/${TOKEN}`, 409],
+      ['POST', `attendee-invites/${TOKEN}/accept`, 401],
+      ['POST', `attendee-invites/${TOKEN}/decline`, 201],
+    ])('%s /%s is logged without its token', async (method, path, status) => {
+      const res = await fetch(`${base}/${path}`, { method });
+      expect(res.status).toBe(status);
+      expect(emitted.length).toBeGreaterThan(0); // else the assertion below is vacuous
+      expect(all()).not.toContain(TOKEN);
+      expect(all()).toContain('[REDACTED]');
+    });
+
+    it('keeps the invite ID on resend, which is an identifier and not a credential', async () => {
+      const id = 'cmtut10xc000jt06sn5knpcf7';
+      await fetch(`${base}/attendee-invites/${id}/resend`, { method: 'POST' });
+      expect(all()).toContain(`/api/attendee-invites/${id}/resend`);
+      expect(all()).not.toContain('[REDACTED]');
+    });
   });
 
   /*

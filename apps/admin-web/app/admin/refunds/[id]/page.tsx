@@ -26,12 +26,18 @@ export default function RefundDetail() {
   const toast = useToast();
   const [confirmApprove, setConfirmApprove] = useState(false);
 
-  // No get-by-id endpoint; locate the refund within the admin list.
-  const listQ = useQuery({
-    queryKey: ['admin', 'refunds', 'all'],
-    queryFn: () => api.admin.refunds({ page: 1, pageSize: 100 }),
+  /*
+    Read by id. This used to look for the refund inside the newest hundred rows of the list,
+    so an older request — the kind most likely to need chasing — showed "not found".
+  */
+  const isNotFound = (e: unknown) => (e as { code?: string } | null)?.code === 'NOT_FOUND';
+  const refundQ = useQuery({
+    queryKey: ['admin', 'refunds', 'detail', id],
+    queryFn: () => api.admin.refund(id),
+    // A refund that does not exist will not start existing on a retry.
+    retry: (count, e) => !isNotFound(e) && count < 2,
   });
-  const refund = listQ.data?.data.find((r) => r.id === id);
+  const refund = refundQ.data;
 
   const process = useMutation({
     mutationFn: (decision: 'APPROVE' | 'REJECT') => api.refunds.process(id, decision),
@@ -43,19 +49,19 @@ export default function RefundDetail() {
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
 
-  if (listQ.isError)
+  if (refundQ.isError && !isNotFound(refundQ.error))
     return (
       <ErrorState
         message="We couldn't load this. Please try again."
-        onRetry={() => listQ.refetch()}
+        onRetry={() => refundQ.refetch()}
       />
     );
-  if (listQ.isLoading) return <Skeleton className="h-64 w-full" />;
+  if (refundQ.isLoading) return <Skeleton className="h-64 w-full" />;
   if (!refund)
     return (
       <EmptyState
         title="Refund not found"
-        hint="It may be on another page."
+        hint="Check the link, or find it in the refunds list."
         action={<ButtonLink href="/admin/refunds">Back to refunds</ButtonLink>}
       />
     );

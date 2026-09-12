@@ -5,7 +5,13 @@ import {
   selectionTotalMinor,
   toBookingItems,
 } from '../api';
-import { isSelectable, seatMapSchema, seatVisualState, type SeatMap } from '../schema';
+import {
+  isSelectable,
+  seatMapResponseSchema,
+  seatMapSchema,
+  seatVisualState,
+  type SeatMap,
+} from '../schema';
 
 /**
  * Fixture modelled on the real QA response for session cmsdp3od100758jznrl6atlru
@@ -13,6 +19,7 @@ import { isSelectable, seatMapSchema, seatVisualState, type SeatMap } from '../s
  */
 function makeMap(overrides: Partial<SeatMap> = {}): SeatMap {
   return seatMapSchema.parse({
+    view: 'seats',
     sessionId: 'sess_1',
     categories: [
       {
@@ -221,6 +228,7 @@ describe('seat map contract', () => {
   it('rejects a response missing seat status', () => {
     expect(() =>
       seatMapSchema.parse({
+        view: 'seats',
         sessionId: 'x',
         categories: [],
         sections: [
@@ -231,5 +239,37 @@ describe('seat map contract', () => {
         ],
       }),
     ).toThrow();
+  });
+});
+
+describe('sectioned venue overview', () => {
+  const overview = {
+    view: 'overview',
+    sessionId: 'sess_arena',
+    categories: [
+      { id: 'cat_a', ticketTypeId: 'tt_a', name: 'Lower', colorHex: null, priceMinor: 150000 },
+    ],
+    // What the API sends for a SECTIONED layout with no block chosen: blocks, no rows.
+    sections: [
+      { id: 'sec_101', name: 'Block 101', availableCount: 40, totalCount: 60 },
+      { id: 'sec_102', name: 'Block 102', availableCount: 0, totalCount: 60 },
+    ],
+  };
+
+  it('parses an overview whose sections have no rows', () => {
+    // REGRESSION: the seats schema required `rows`, so this threw ApiContractError and the
+    // buyer was told to update an app that was already current.
+    const parsed = seatMapResponseSchema.parse(overview);
+    expect(parsed.view).toBe('overview');
+  });
+
+  it('still parses a cinema grid through the same response schema', () => {
+    const parsed = seatMapResponseSchema.parse(makeMap());
+    expect(parsed.view).toBe('seats');
+    if (parsed.view === 'seats') expect(parsed.sections[0].rows).toHaveLength(1);
+  });
+
+  it('refuses an overview dressed up as a seat grid', () => {
+    expect(() => seatMapResponseSchema.parse({ ...overview, view: 'seats' })).toThrow();
   });
 });

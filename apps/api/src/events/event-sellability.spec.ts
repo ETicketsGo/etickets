@@ -158,6 +158,37 @@ describe('what an organizer is told before publishing', () => {
     expect(report.blockers.map((b) => b.code)).toContain('SEATED_SESSION_HAS_NO_SEATS');
   });
 
+  it('blocks a show in a room with no seats even when no layout was pinned', async () => {
+    /*
+      Checkout decides seating by the ROOM. Duplicating an event produced exactly this — a
+      room, no pinned layout, no seats — and the check looked only at the pin, so the copy
+      published and then refused every booking.
+    */
+    const service = new EventSellabilityService(
+      prismaWith(
+        eventWith({
+          sessions: [session({ seatMapId: null, screenId: 'room-1', _count: { showSeats: 0 } })],
+        }),
+      ),
+      openPolicies,
+    );
+    const report = await service.check('e1');
+    expect(report.blockers.map((b) => b.code)).toContain('SEATED_SESSION_HAS_NO_SEATS');
+  });
+
+  it('does not call a general-admission show seatless', async () => {
+    const service = new EventSellabilityService(
+      prismaWith(
+        eventWith({
+          sessions: [session({ seatMapId: null, screenId: null, _count: { showSeats: 0 } })],
+        }),
+      ),
+      openPolicies,
+    );
+    const report = await service.check('e1');
+    expect(report.blockers.map((b) => b.code)).not.toContain('SEATED_SESSION_HAS_NO_SEATS');
+  });
+
   it('blocks a free event whose tickets still carry a price, and names them', async () => {
     const service = new EventSellabilityService(
       prismaWith(eventWith({ isFree: true })),

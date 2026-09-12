@@ -171,7 +171,17 @@ export class OrganizerAiService {
         : 'Coupon figures are restricted to owners and managers.';
       sources.push('analytics.coupons');
     } else if (/today/.test(q)) {
-      answer = await this.todaysSales(organizationId);
+      /*
+        Behind the same financial gate as the refund and coupon answers.
+
+        `todaysSales` queries bookings directly rather than reading the analytics, so it did not
+        inherit the gate those answers get for free — and a check-in staff member who asked
+        "how much did we sell today?" was told the organization's takings. `revenue` is present
+        on the analytics exactly when the caller may see money, so it is the gate here too.
+      */
+      answer = analytics.revenue
+        ? await this.todaysSales(organizationId)
+        : 'Sales figures are restricted to owners and managers.';
       sources.push('bookings.today');
     } else if (/review|before|prepare|checklist/.test(q)) {
       const util = Math.round(analytics.capacity.utilization * 100);

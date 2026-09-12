@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getParsed } from '@/services/http';
-import { seatMapSchema, type Seat, type SeatMap } from './schema';
+import { SeatSelectionUnavailableError } from '@/features/events/seating';
+import { seatMapResponseSchema, type Seat, type SeatMap } from './schema';
 
 export const cinemaKeys = {
   all: ['cinema'] as const,
@@ -14,11 +15,26 @@ export const cinemaKeys = {
  * every other person looking at the same screening. A cached seat map is a picture of
  * who had booked what a minute ago, and a minute is long enough for the seat someone is
  * about to tap to have gone.
+ *
+ * A sectioned venue answers with an overview of blocks rather than seats. The app picks seats
+ * only on a grid, so that is reported as SeatSelectionUnavailableError — which says where the
+ * seats CAN be chosen — rather than as a contract failure, and it is not retried: asking again
+ * returns the same overview.
  */
 export function useSeatMap(sessionId: string, enabled = true) {
-  return useQuery({
+  return useQuery<SeatMap>({
     queryKey: cinemaKeys.seats(sessionId),
-    queryFn: () => getParsed(`/public/shows/${encodeURIComponent(sessionId)}/seats`, seatMapSchema),
+    queryFn: async () => {
+      const response = await getParsed(
+        `/public/shows/${encodeURIComponent(sessionId)}/seats`,
+        seatMapResponseSchema,
+      );
+      if (response.view === 'overview') throw new SeatSelectionUnavailableError();
+      return response;
+    },
+    // The app-wide default is two retries; kept for everything except the overview.
+    retry: (failureCount, error) =>
+      !(error instanceof SeatSelectionUnavailableError) && failureCount < 2,
     enabled: enabled && Boolean(sessionId),
     staleTime: 0,
     refetchOnMount: 'always',

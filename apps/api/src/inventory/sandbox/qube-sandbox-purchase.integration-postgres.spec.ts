@@ -192,7 +192,9 @@ describe('integration-real-postgres: a real purchase from the Qube sandbox', () 
     await wipeProviderData();
 
     const org = await prisma.organization.create({
-      data: { name: `Qube ${suffix}`, slug: `qube-${suffix}` },
+      // Approved: the materializer publishes films into the public catalogue, which an
+      // unapproved organization may not do.
+      data: { name: `Qube ${suffix}`, slug: `qube-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     operator = await makeUser('op', 'ORGANIZER_OWNER');

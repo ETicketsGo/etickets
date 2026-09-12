@@ -19,6 +19,8 @@ export interface ShareView {
   cinemaName: string | null;
   startsAt: string | null;
   endsAt: string | null;
+  /** The place's IANA zone, so a shared ticket reads the time the ticket itself prints. */
+  timeZone?: string | null;
 }
 
 /**

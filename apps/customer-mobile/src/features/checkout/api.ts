@@ -5,6 +5,13 @@ import * as Crypto from 'expo-crypto';
 import { apiClient } from '@/services/api-client';
 import { postParsed } from '@/services/http';
 import { bookingKeys } from '@/features/bookings/api';
+import { eventKeys } from '@/features/events/api';
+import type { EventDetail } from '@/features/events/schema';
+import {
+  SeatSelectionUnavailableError,
+  findSessionInEvents,
+  isQuantityOnlyForSeatedSession,
+} from '@/features/events/seating';
 import {
   createBookingResponseSchema,
   paymentIntentSchema,
@@ -50,6 +57,22 @@ export function useCreateBooking() {
     CreateBookingArgs & { idempotencyKey: string }
   >({
     mutationFn: async ({ idempotencyKey, ...body }) => {
+      /*
+        A seated show booked by quantity is refused before anything is held.
+
+        The event screen offers a quantity stepper to any session it does not treat as a
+        cinema, so a seated theatre show reached checkout as "2 × Stalls" and the API refused
+        it after the buyer had filled in their details. The session was loaded to get here,
+        so its `seatBased` is in the cache; when it is not, the API still decides.
+      */
+      const cachedEvents = queryClient
+        .getQueriesData<EventDetail>({ queryKey: eventKeys.all })
+        .map(([, event]) => event);
+      const session = findSessionInEvents(cachedEvents, body.eventSessionId);
+      if (isQuantityOnlyForSeatedSession(session, body.items)) {
+        throw new SeatSelectionUnavailableError();
+      }
+
       const { data } = await apiClient.post('/bookings', body, {
         headers: { 'idempotency-key': idempotencyKey },
       });

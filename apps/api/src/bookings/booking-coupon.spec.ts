@@ -24,6 +24,7 @@ function setup(
 ) {
   const booking = {
     id: 'bk-1',
+    organizationId: 'org-1',
     userId: over.userId === undefined ? 'u-1' : over.userId,
     status: over.status ?? BookingStatus.PENDING_PAYMENT,
     subtotalMinor: 100_000,
@@ -48,6 +49,8 @@ function setup(
         over.coupon === undefined
           ? {
               id: 'cp-1',
+              // The selling organization's own code.
+              organizationId: 'org-1',
               code: 'FIRST10',
               status: 'ACTIVE',
               type: 'PERCENT',
@@ -180,6 +183,69 @@ describe('BookingsService.applyCoupon', () => {
     // A box that accepts anything and changes nothing is worse than one that says no.
     const { service } = setup({ coupon: null });
     await expect(service.applyCoupon(USER, 'bk-1', 'NOPE')).rejects.toThrow(/not valid/i);
+  });
+
+  it("will not spend another organization's code on this organization's tickets", async () => {
+    /*
+      Codes are globally unique and were looked up by code alone, so any organizer could
+      create a 100% code and discount somebody else's tickets with it — out of the other
+      organizer's takings. Refused in the same words as an unknown code, so the checkout
+      does not confirm that the code exists elsewhere.
+    */
+    const { service, bookingUpdate } = setup({
+      coupon: {
+        id: 'cp-other',
+        organizationId: 'org-2',
+        code: 'FREE100',
+        status: 'ACTIVE',
+        type: 'PERCENT',
+        value: 100,
+        startsAt: null,
+        endsAt: null,
+        maxRedemptions: null,
+        redemptions: 0,
+      },
+    });
+    await expect(service.applyCoupon(USER, 'bk-1', 'FREE100')).rejects.toThrow(/not valid/i);
+    expect(bookingUpdate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a platform-wide code on any organization’s booking', async () => {
+    const { service } = setup({
+      coupon: {
+        id: 'cp-platform',
+        organizationId: null,
+        code: 'WELCOME',
+        status: 'ACTIVE',
+        type: 'PERCENT',
+        value: 10,
+        startsAt: null,
+        endsAt: null,
+        maxRedemptions: null,
+        redemptions: 0,
+      },
+    });
+    await expect(service.applyCoupon(USER, 'bk-1', 'WELCOME')).resolves.toMatchObject({
+      applied: true,
+    });
+  });
+
+  it('refuses a code that has used up its redemptions', async () => {
+    const { service } = setup({
+      coupon: {
+        id: 'cp-1',
+        organizationId: 'org-1',
+        code: 'FIRST10',
+        status: 'ACTIVE',
+        type: 'PERCENT',
+        value: 10,
+        startsAt: null,
+        endsAt: null,
+        maxRedemptions: 5,
+        redemptions: 5,
+      },
+    });
+    await expect(service.applyCoupon(USER, 'bk-1', 'FIRST10')).rejects.toThrow(/not valid/i);
   });
 
   it('refuses once payment has started at the provider', async () => {

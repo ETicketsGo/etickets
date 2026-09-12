@@ -123,7 +123,12 @@ export class FinanceReconciliationService {
     return this.detect(from, to);
   }
 
-  private async fileDiscrepancy(c: DiscrepancyCandidate): Promise<boolean> {
+  /**
+   * File one discrepancy into the triage queue, unless an open one already exists for the same
+   * (env, type, entityRef). Public so a payment path that meets money it cannot apply — a
+   * capture on an expired booking — files it the same way the daily detection would.
+   */
+  async fileDiscrepancy(c: DiscrepancyCandidate): Promise<boolean> {
     // Dedupe: never file a second open discrepancy for the same (env,type,entityRef).
     const existing = await this.prisma.reconciliationDiscrepancy.findFirst({
       where: {

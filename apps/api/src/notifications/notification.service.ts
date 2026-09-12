@@ -94,6 +94,50 @@ export interface DispatchSummary {
 const DEFAULT_LOCALE = 'en';
 
 /**
+ * How long to wait before the next attempt, indexed by the number of attempts already made.
+ *
+ * ── WHY A SCHEDULE AND NOT "THE NEXT SWEEP" ────────────────────────────────────────
+ * A retryable failure used to leave the row due with its original `scheduledFor`, and the
+ * sweep runs every five seconds. Three attempts were therefore spent inside about ten seconds,
+ * and a provider blip of any realistic length -- an SES throttle, a Twilio 503 -- turned into a
+ * permanently FAILED ticket email. The conditions this retries are the ones that clear on their
+ * own, and they clear in minutes, not seconds.
+ *
+ * So each retry waits longer than the last, and the whole ladder spans a little over four
+ * hours: long enough to ride out a real outage, short enough that a reminder is not delivered
+ * after the show it was about.
+ */
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000, 3 * 60 * 60_000];
+
+/** One first attempt plus one retry per step of {@link RETRY_DELAYS_MS}. */
+export const DEFAULT_DISPATCH_MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+
+/** The wait before the attempt that follows `attemptsMade` failed ones. */
+export function retryDelayMs(attemptsMade: number): number {
+  const index = Math.min(Math.max(attemptsMade, 1), RETRY_DELAYS_MS.length) - 1;
+  return RETRY_DELAYS_MS[index];
+}
+
+/**
+ * The advisory-lock name that makes the dispatch sweep single-flight across processes.
+ *
+ * Deliberately NOT the key the integration suites serialise on (test-support/sweep-lock.ts):
+ * those suites hold their lock while calling this method, and sharing a key would make every
+ * one of their sweeps skip itself.
+ */
+const DISPATCH_LOCK_NAME = 'notifications:dispatch-due';
+
+/**
+ * How long the transaction that holds the sweep lock may stay open.
+ *
+ * A sweep is bounded at 500 rows, and each provider call is bounded by its transport's own
+ * timeout, so ten minutes is far past any sweep that is working. If one ever exceeds it the
+ * lock is released while that sweep is still finishing, which is the pre-lock behaviour and
+ * not a new failure.
+ */
+const DISPATCH_LOCK_TIMEOUT_MS = 10 * 60_000;
+
+/**
  * Notification abstraction. MVP persists a Notification row per resolved channel
  * and delegates delivery to log-only channel stubs; real providers
  * (SendGrid/Twilio/FCM) plug in behind each NotificationChannel.
@@ -477,8 +521,40 @@ export class NotificationService {
    * nothing to deliver to, and retrying that twelve times cannot change it. A permanent
    * refusal (no DLT template, no route for the destination) goes straight to FAILED without
    * burning retries, because the next attempt would be refused for the same reason.
+   *
+   * -- WHY ONLY ONE SWEEP RUNS AT A TIME ---------------------------------------------
+   * The rows are read with a plain query and nothing claims them, so two workers sweeping at
+   * once -- which is exactly what a deploy does for the seconds the old and new containers
+   * overlap -- both read the same PENDING row and both send it. A transaction-scoped advisory
+   * lock makes the sweep single-flight without a schema change: the process that does not get
+   * it skips this tick, and the next tick five seconds later tries again. Transaction-scoped
+   * rather than session-scoped because Prisma pools connections, and a session lock taken on one
+   * pooled connection could be "released" through another and stay held for good.
    */
-  async dispatchDue(now: Date = new Date(), maxAttempts = 3): Promise<DispatchSummary> {
+  async dispatchDue(
+    now: Date = new Date(),
+    maxAttempts = DEFAULT_DISPATCH_MAX_ATTEMPTS,
+  ): Promise<DispatchSummary> {
+    let summary: DispatchSummary = { sent: 0, failed: 0, retried: 0 };
+    await this.prisma.$transaction(
+      async (tx) => {
+        const [lock] = await tx.$queryRaw<{ locked: boolean }[]>`
+          SELECT pg_try_advisory_xact_lock(hashtext(${DISPATCH_LOCK_NAME})) AS locked`;
+        if (lock?.locked !== true) {
+          this.logger.debug('another process is sweeping notifications; skipping this tick');
+          return;
+        }
+        // Provider I/O and row updates run through the ordinary client, NOT `tx`: a rollback
+        // must never be able to un-record a message a provider has already accepted.
+        summary = await this.sweepDue(now, maxAttempts);
+      },
+      { maxWait: 5_000, timeout: DISPATCH_LOCK_TIMEOUT_MS },
+    );
+    return summary;
+  }
+
+  /** The sweep itself; only ever called while holding the dispatch lock. */
+  private async sweepDue(now: Date, maxAttempts: number): Promise<DispatchSummary> {
     // Bounded per tick so a large scheduled blast (e.g. a 50k-attendee reminder) can't
     // pull the whole backlog into memory; the remainder waits for the next run.
     const due = await this.prisma.notification.findMany({
@@ -652,6 +728,12 @@ export class NotificationService {
             attempts,
             lastError: failureText,
             status: failed ? 'FAILED' : row.status,
+            /*
+              A retry is pushed into the future rather than left due. The sweep only picks rows
+              whose `scheduledFor` has passed, so this is what spaces the attempts out; measured
+              from the failure itself, not from the start of a sweep that may have run a while.
+            */
+            ...(failed ? {} : { scheduledFor: new Date(Date.now() + retryDelayMs(attempts)) }),
           },
         });
         if (failed) {

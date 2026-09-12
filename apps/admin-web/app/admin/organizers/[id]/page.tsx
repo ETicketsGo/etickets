@@ -39,6 +39,12 @@ export default function OrganizerDetail() {
     onSuccess: (_res, decision) => {
       toast.push(`Organizer ${decision === 'APPROVE' ? 'approved' : 'rejected'}.`, 'success');
       qc.invalidateQueries({ queryKey: ['org', id] });
+      /*
+        The organizers list and the dashboard's counts show this status too. Refreshing only
+        this page left the organizer listed as pending on the screen the reviewer goes back to.
+      */
+      qc.invalidateQueries({ queryKey: ['admin', 'organizers'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });

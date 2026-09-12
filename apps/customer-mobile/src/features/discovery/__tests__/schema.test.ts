@@ -177,6 +177,7 @@ describe('ticket contract', () => {
 
     // The display path is the data URI. The token is present on the type but is never
     // what gets rendered — see the comment in ticket-qr.tsx.
-    expect(parsed.qrDataUrl.startsWith('data:image')).toBe(true);
+    // Nullable on the contract (a vendor barcode has no image); this ticket carries one.
+    expect(parsed.qrDataUrl?.startsWith('data:image')).toBe(true);
   });
 });

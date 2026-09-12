@@ -35,6 +35,9 @@ import {
   type ShowWindow,
 } from './show-scheduling';
 import { AuditService } from '../audit/audit.service';
+import { InventoryService } from '../inventory/inventory.service';
+import { AddOnInventoryService } from '../commerce/addon-inventory.service';
+import { expirePendingBooking } from '../inventory/expire-pending-booking';
 import { resolveEffectiveLayout, type LayoutStatus } from './seat-layout-versioning';
 import {
   evaluateOperation,
@@ -351,6 +354,14 @@ export class ShowsService {
       within a minute.
     */
     @Optional() private readonly events?: TransactionalEventPublisher,
+    /*
+      Releasing the holds of bookings still waiting to pay when a show is cancelled — the same
+      strategies the booking sweep releases with. Optional, and last, for the positional test
+      harnesses above; a cancellation that finds such bookings asserts they are present
+      rather than silently leaving the bookings payable.
+    */
+    @Optional() private readonly inventory?: InventoryService,
+    @Optional() private readonly addOnInventory?: AddOnInventoryService,
   ) {}
 
   /** Minimum gap between two shows on one screen. See SHOW_TURNAROUND_MINUTES. */
@@ -368,6 +379,29 @@ export class ShowsService {
    * are deliberately left alone — see updateScreen — because cancelling something people
    * have paid for must never be a side effect of a status change.
    */
+  /**
+   * A show goes on sale the moment it is scheduled, so the organization must be approved.
+   *
+   * The film's event is created PUBLISHED (`ensureMovieEvent`) and every session on it is
+   * bookable at once. Membership was the only check, so an organization the platform had not
+   * approved — or had suspended — could sell tickets straight away, skipping the review an
+   * ordinary event goes through. APPROVED is the active state; there is no ACTIVE.
+   */
+  private async assertOrganizationApproved(organizationId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { status: true },
+    });
+    if (org?.status !== 'APPROVED') {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'Your organization has not been approved yet, so its shows cannot go on sale.',
+        HttpStatus.FORBIDDEN,
+        { organizationStatus: org?.status ?? null },
+      );
+    }
+  }
+
   private assertScreenUsable(screen: { status: string; name: string }) {
     if (screen.status === 'ACTIVE') return;
     throw new AppException(
@@ -710,6 +744,7 @@ export class ShowsService {
     if (!movie)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Movie not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, movie.organizationId, ORGANIZER_ROLES);
+    await this.assertOrganizationApproved(movie.organizationId);
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
@@ -966,6 +1001,10 @@ export class ShowsService {
         rejected,
       };
     }
+
+    // After the dry run, not before it: a preview writes nothing and sells nothing, and an
+    // organization awaiting approval can still plan the schedule it will open with.
+    await this.assertOrganizationApproved(movie.organizationId);
 
     const priceByCategory = new Map(
       (input.pricing ?? []).map((p) => [p.seatCategoryId, p.priceMinor]),
@@ -1626,6 +1665,36 @@ export class ShowsService {
         where: { id: sessionId },
         data: { status: SessionStatus.CANCELLED },
       });
+      /*
+        Nobody may go on to pay for a show that is not happening.
+
+        The HELD seats below were marked UNAVAILABLE, but the bookings holding them were left
+        PENDING_PAYMENT — so a buyer on the payment page could still pay and be issued tickets
+        for a cancelled show. Those bookings are expired here, in the cancellation's own
+        transaction, by the same guarded claim the hold sweep uses: one a webhook confirmed a
+        moment earlier is not touched (it is a paid booking, and is reported for refund with
+        the rest), and the stock of the ones expired is released exactly once. Released
+        before the seats are closed, so the seat rows end UNAVAILABLE like every other.
+      */
+      const pending = await tx.booking.findMany({
+        where: { eventSessionId: sessionId, status: BookingStatus.PENDING_PAYMENT },
+        include: { items: true },
+      });
+      if (pending.length > 0) {
+        if (!this.inventory || !this.addOnInventory) {
+          throw new AppException(
+            ErrorCodes.INTERNAL,
+            'Cancelling a show with unpaid bookings is not available in this configuration.',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+        for (const booking of pending) {
+          await expirePendingBooking(tx, booking, {
+            inventory: this.inventory,
+            addOnInventory: this.addOnInventory,
+          });
+        }
+      }
       // Release only what nobody owns. SOLD seats stay SOLD: the booking behind them is
       // still real until a refund says otherwise, and releasing them would let the same
       // seat be sold twice for a show that may yet be reinstated as a new session.
@@ -2086,9 +2155,15 @@ export class ShowsService {
     */
     const exists = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
-      select: { id: true },
+      select: { id: true, event: { select: { status: true } } },
     });
-    if (!exists) {
+    /*
+      Only a published event's seats are public — the rule the public event page applies.
+      This read never asked, so a draft or rejected event's room, prices and sales could be
+      read by anyone holding a session id. Answered as "not found", as the event page does,
+      so it does not confirm that an unpublished show exists.
+    */
+    if (!exists || exists.event.status !== EventStatus.PUBLISHED) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
         'Show not found or has no seat layout.',

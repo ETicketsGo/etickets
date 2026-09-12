@@ -82,6 +82,7 @@ function setup(
       findUnique: jest.fn().mockResolvedValue(opts.invite ?? null),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     user: { findUnique: jest.fn().mockResolvedValue(opts.account ?? null) },
     booking: {
@@ -210,6 +211,103 @@ describe('AttendeesService', () => {
         qrVersion: { increment: 1 },
       });
       expect(state.ticketUpdate!.nonce).not.toBe('old-nonce');
+    });
+  });
+
+  /*
+    A transfer the giver can undo is not a transfer. Before this, the buyer could unassign a
+    ticket they had given away — rotating the QR and cutting the recipient out — reassign it,
+    or transfer it a second time, because every check read `booking.userId`.
+  */
+  describe('after a transfer is accepted', () => {
+    const transferredTicket = (over: Record<string, unknown> = {}) =>
+      ticketRow({
+        attendeeUserId: 'rec-1',
+        assignmentStatus: 'ACCEPTED',
+        holderEmail: 'rec@e.test',
+        invites: [{ acceptedByUserId: 'rec-1' }],
+        ...over,
+      });
+
+    type Act = (svc: AttendeesService) => Promise<unknown>;
+    const acts: [string, Act][] = [
+      ['unassign', (svc) => svc.unassign(OWNER, 'tk1')],
+      ['assign', (svc) => svc.assign(OWNER, 'tk1', { name: 'x', email: 'x@e.test' })],
+      ['invite', (svc) => svc.invite(OWNER, 'tk1', { email: 'x@e.test' })],
+      ['transfer', (svc) => svc.transfer(OWNER, 'tk1', { email: 'x@e.test' } as never)],
+    ];
+
+    it.each(acts)('the buyer who gave it away can no longer %s it', async (_name, act) => {
+      const { svc, prisma, tx } = setup({ ticket: transferredTicket() });
+      await expect(act(svc)).rejects.toThrow(/transferred/i);
+      // Nothing written — in particular the QR was not rotated out from under the recipient.
+      expect(tx.ticket.update).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('is managed by its new holder instead', async () => {
+      const { svc, state } = setup({ ticket: transferredTicket() });
+      await svc.unassign(RECIPIENT, 'tk1');
+      expect(state.ticketUpdate).toMatchObject({ assignmentStatus: 'UNASSIGNED' });
+    });
+
+    const acceptedInvite = (kind: string) => ({
+      id: 'inv1',
+      ticketId: 'tk1',
+      organizationId: 'org1',
+      kind,
+      permission: 'TRANSFER',
+      status: 'PENDING',
+      email: 'rec@e.test',
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+
+    it('revokes every other live link to the ticket when the transfer is accepted', async () => {
+      /*
+        A guest share the buyer made earlier renders the LIVE QR — which, after the rotation on
+        accept, is the recipient's. Left pending, it would hand the buyer the new code anyway.
+      */
+      const { svc, prisma, tx } = setup();
+      (prisma.ticketInvite.findUnique as jest.Mock).mockResolvedValue(acceptedInvite('TRANSFER'));
+      await svc.accept(RECIPIENT, 'raw-token');
+      expect(tx.ticketInvite.updateMany).toHaveBeenCalledWith({
+        where: { ticketId: 'tk1', status: 'PENDING', id: { not: 'inv1' } },
+        data: { status: 'REVOKED', resolvedAt: expect.any(Date) },
+      });
+    });
+
+    it('leaves the owner’s other links alone when an ATTENDEE invite is accepted', async () => {
+      // Assigning a seat to a guest is not giving the ticket away.
+      const { svc, prisma, tx } = setup();
+      (prisma.ticketInvite.findUnique as jest.Mock).mockResolvedValue(acceptedInvite('INVITE'));
+      await svc.accept(RECIPIENT, 'raw-token');
+      expect(tx.ticketInvite.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('keeps the new holder’s onward assignments out of the buyer’s booking summary', async () => {
+      const { svc, prisma } = setup();
+      prisma.booking.findUnique.mockResolvedValue({ userId: 'owner-1', reference: 'ETG-1' });
+      (prisma.ticket.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'tk1',
+          serial: 'S-1',
+          seatLabel: null,
+          status: 'ACTIVE',
+          assignmentStatus: 'INVITED',
+          holderName: 'Fran Friend',
+          holderEmail: 'friend@e.test',
+          ticketType: { name: 'VIP' },
+          invites: [{ id: 'inv9', email: 'friend@e.test', kind: 'INVITE', expiresAt: new Date() }],
+        },
+      ]);
+      (prisma.ticketInvite.findMany as jest.Mock).mockResolvedValue([
+        { ticketId: 'tk1', acceptedByUserId: 'rec-1' },
+      ]);
+
+      const res = await svc.summaryForBooking(OWNER, 'bk1');
+      expect(res.tickets[0].transferred).toBe(true);
+      expect(JSON.stringify(res)).not.toContain('friend@e.test');
+      expect(JSON.stringify(res)).not.toContain('Fran Friend');
     });
   });
 });

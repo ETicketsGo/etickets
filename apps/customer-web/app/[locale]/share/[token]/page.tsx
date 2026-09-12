@@ -128,7 +128,8 @@ export default function SharePage() {
           {r.startsAt && (
             <Row label="When">
               <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="h-3.5 w-3.5 text-text-muted" /> {dateTime(r.startsAt)}
+                <CalendarDays className="h-3.5 w-3.5 text-text-muted" />{' '}
+                {dateTime(r.startsAt, undefined, r.timeZone ?? undefined)}
               </span>
             </Row>
           )}

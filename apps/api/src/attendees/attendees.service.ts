@@ -17,6 +17,12 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import {
+  ACCEPTED_TRANSFERS,
+  currentHolderUserId,
+  isTransferred,
+  type TicketHolderFacts,
+} from '../tickets/ticket-holder';
 
 const INVITE_TTL_DAYS = 7;
 
@@ -53,18 +59,31 @@ export class AttendeesService {
     return user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
   }
 
-  /** Loads a ticket the caller may manage (booking owner or admin). */
+  /**
+   * Loads a ticket the caller may manage: its CURRENT holder, or a platform admin.
+   *
+   * The holder is the buyer until a transfer is accepted and the transfer's recipient after it
+   * (see `tickets/ticket-holder.ts`). This checked `booking.userId`, so a buyer who had given a
+   * ticket away could still unassign it — rotating the QR out from under the recipient —
+   * reassign it, or transfer it a second time.
+   */
   private async loadManageableTicket(user: RequestUser, ticketId: string) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
-      include: { booking: { select: { userId: true, reference: true } } },
+      include: {
+        booking: { select: { userId: true, reference: true } },
+        invites: ACCEPTED_TRANSFERS,
+      },
     });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
-    if (ticket.booking.userId !== user.id && !this.isAdmin(user)) {
+    if (currentHolderUserId(ticket) !== user.id && !this.isAdmin(user)) {
+      const gaveItAway = isTransferred(ticket) && ticket.booking.userId === user.id;
       throw new AppException(
         ErrorCodes.FORBIDDEN,
-        'Only the booking owner can manage attendees.',
+        gaveItAway
+          ? 'This ticket has been transferred. Only its new holder can manage it.'
+          : 'Only the booking owner can manage attendees.',
         HttpStatus.FORBIDDEN,
       );
     }
@@ -271,6 +290,24 @@ export class AttendeesService {
           resolvedAt: new Date(),
         },
       });
+      /*
+        A TRANSFER ends every other live link to the ticket.
+
+        Links the previous holder created otherwise survive it — and a GUEST share renders the
+        ticket's LIVE QR, which from the rotation below onward is the recipient's. The rotation
+        would protect nothing while such a link stayed open. An attendee invite is not a
+        transfer, so it leaves the holder's other links alone.
+      */
+      if (invite.kind === TicketInviteKind.TRANSFER) {
+        await tx.ticketInvite.updateMany({
+          where: {
+            ticketId: ticket.id,
+            status: TicketInviteStatus.PENDING,
+            id: { not: invite.id },
+          },
+          data: { status: TicketInviteStatus.REVOKED, resolvedAt: new Date() },
+        });
+      }
       // Ownership changes → rotate the QR nonce so the previous QR is dead.
       return tx.ticket.update({
         where: { id: ticket.id },
@@ -417,6 +454,26 @@ export class AttendeesService {
       },
     });
 
+    /*
+      Tickets the buyer has since TRANSFERRED are still counted and listed — they are part of the
+      booking — but who their new holder assigns them to, and the invites that holder sends, are
+      the new holder's business and nobody else's. Without this the buyer's dashboard went on
+      showing the recipient's friends' names and email addresses.
+
+      A separate query because `invites` above is already the pending-invite relation.
+    */
+    const transfers = tickets.length
+      ? await this.prisma.ticketInvite.findMany({
+          where: { ticketId: { in: tickets.map((t) => t.id) }, ...ACCEPTED_TRANSFERS.where },
+          orderBy: ACCEPTED_TRANSFERS.orderBy,
+          select: { ticketId: true, acceptedByUserId: true },
+        })
+      : [];
+    const holderFacts = (ticketId: string): TicketHolderFacts => ({
+      booking: { userId: booking.userId },
+      invites: transfers.filter((tr) => tr.ticketId === ticketId),
+    });
+
     const counts = {
       total: tickets.length,
       unassigned: 0,
@@ -451,17 +508,24 @@ export class AttendeesService {
       bookingId,
       reference: booking.reference,
       counts,
-      tickets: tickets.map((t) => ({
-        id: t.id,
-        serial: t.serial,
-        seatLabel: t.seatLabel,
-        ticketType: t.ticketType.name,
-        status: t.status,
-        assignmentStatus: t.assignmentStatus,
-        attendeeName: t.holderName,
-        attendeeEmail: t.holderEmail,
-        pendingInvite: t.invites[0] ?? null,
-      })),
+      tickets: tickets.map((t) => {
+        const facts = holderFacts(t.id);
+        const transferred = isTransferred(facts);
+        // The holder (a buyer the ticket came back to) and platform admins still see it all.
+        const hidden = transferred && currentHolderUserId(facts) !== user.id && !this.isAdmin(user);
+        return {
+          id: t.id,
+          serial: t.serial,
+          seatLabel: t.seatLabel,
+          ticketType: t.ticketType.name,
+          status: t.status,
+          assignmentStatus: t.assignmentStatus,
+          attendeeName: hidden ? null : t.holderName,
+          attendeeEmail: hidden ? null : t.holderEmail,
+          pendingInvite: hidden ? null : (t.invites[0] ?? null),
+          transferred,
+        };
+      }),
     };
   }
 

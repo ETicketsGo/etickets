@@ -8,12 +8,18 @@ import { Button, Card, Input } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { PhoneSignIn } from '@/components/phone-sign-in';
+import { safeNextPath } from '@eticketsgo/web-kit';
 
 function LoginForm() {
   const a = useTranslations('storefront.auth');
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get('next') ?? '/account/tickets';
+  // Only a path on this site: an unchecked `next` made sign-in a redirect to any host.
+  const next = safeNextPath(params.get('next'), '/account/tickets');
+  // Carried to sign-up, so creating an account on the way to a purchase ends at the purchase.
+  const registerHref = params.get('next')
+    ? `/register?next=${encodeURIComponent(next)}`
+    : '/register';
   // Prefilled when arriving from the "that email is already registered" path on sign-up, so
   // the address does not have to be typed twice.
   /*
@@ -113,7 +119,7 @@ function LoginForm() {
       )}
       <p className="text-caption text-text-muted">
         {a('noAccount')}{' '}
-        <Link href="/register" className="text-action-primary underline">
+        <Link href={registerHref} className="text-action-primary underline">
           {a('createOne')}
         </Link>
       </p>

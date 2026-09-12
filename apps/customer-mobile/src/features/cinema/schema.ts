@@ -53,17 +53,55 @@ export const seatCategorySchema = z.object({
   priceMinor: z.number().int(),
 });
 
+/** Seats to pick from: a whole cinema, or one block of a large venue. */
 export const seatMapSchema = z.object({
+  view: z.literal('seats'),
   sessionId: z.string(),
   categories: z.array(seatCategorySchema),
   sections: z.array(seatSectionSchema),
 });
+
+/**
+ * One block on a large venue's overview. No rows — that is the point of the overview.
+ *
+ * Only what identifies the block is required. The app does not draw venue maps, so pinning
+ * outline and count fields it never reads would only add ways for a valid response to fail.
+ */
+export const venueSectionSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+/**
+ * The map of a sectioned venue (theatre, arena, stadium) with no seats in it.
+ *
+ * The API sends this for a SECTIONED layout when no block was asked for, and the seats of one
+ * block only on a second request. Parsing it with the seats schema required `rows` and threw
+ * ApiContractError — telling the buyer to update an app that was already current.
+ */
+export const venueOverviewSchema = z.object({
+  view: z.literal('overview'),
+  sessionId: z.string(),
+  categories: z.array(seatCategorySchema),
+  sections: z.array(venueSectionSummarySchema),
+});
+
+/**
+ * Either shape, discriminated by `view`, exactly as GET /public/shows/:sessionId/seats sends
+ * it. A union rather than optional rows, so nothing can reach for seats on an overview.
+ */
+export const seatMapResponseSchema = z.discriminatedUnion('view', [
+  seatMapSchema,
+  venueOverviewSchema,
+]);
 
 export type Seat = z.infer<typeof seatSchema>;
 export type SeatRow = z.infer<typeof seatRowSchema>;
 export type SeatSection = z.infer<typeof seatSectionSchema>;
 export type SeatCategory = z.infer<typeof seatCategorySchema>;
 export type SeatMap = z.infer<typeof seatMapSchema>;
+export type VenueOverview = z.infer<typeof venueOverviewSchema>;
+export type SeatMapResponse = z.infer<typeof seatMapResponseSchema>;
 
 /**
  * Whether a seat can be picked, from the SERVER's status alone.

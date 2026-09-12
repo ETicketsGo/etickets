@@ -136,7 +136,15 @@ export class OrganizationReceiptsController {
     @Query(new ZodValidationPipe(listQuerySchema))
     query: z.infer<typeof listQuerySchema>,
   ) {
-    await this.access.assertMember(user, organizationId);
+    /*
+      Owners and managers, as the route's @Roles says — which only checks a GLOBAL role, so the
+      membership check has to say it again for this organization. Every document names a buyer
+      and an amount, and check-in staff are members too.
+    */
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
     return this.receipts.listForOrganization(organizationId, query);
   }
 }

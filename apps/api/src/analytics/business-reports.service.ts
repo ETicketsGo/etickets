@@ -94,17 +94,35 @@ export interface OrganizerRevenueRow {
   bookings: number;
 }
 
-export interface SettlementReport {
+export interface SettlementOrgRow {
+  organizationId: string;
+  organizationName: string;
+  currency: string;
+  outstandingMinor: number;
+  paidMinor: number;
+  outstandingCount: number;
+  paidCount: number;
+}
+
+/** One currency's payouts — an organizer paid in two currencies appears in both. */
+export interface CurrencySettlementReport {
+  currency: string;
   totals: { outstandingMinor: number; paidMinor: number; payoutCount: number };
-  byOrg: {
-    organizationId: string;
-    organizationName: string;
-    outstandingMinor: number;
-    paidMinor: number;
-    outstandingCount: number;
-    paidCount: number;
-  }[];
+  byOrg: SettlementOrgRow[];
+}
+
+export interface SettlementReport {
+  byCurrency: CurrencySettlementReport[];
   payouts: Awaited<ReturnType<PayoutsService['adminList']>>;
+}
+
+/** Every report below that carries money is folded per currency by this. */
+function blockFor<T>(blocks: Map<string, T>, currency: string, create: () => T): T {
+  const existing = blocks.get(currency);
+  if (existing) return existing;
+  const created = create();
+  blocks.set(currency, created);
+  return created;
 }
 
 /**
@@ -340,33 +358,53 @@ export class BusinessReportsService {
     // and snapshotted on each row; we only fold them per org / status here.
     const payouts = await this.payouts.adminList();
 
-    const byOrg = new Map<string, SettlementReport['byOrg'][number]>();
-    let outstandingMinor = 0;
-    let paidMinor = 0;
+    /*
+      Folded per currency before per organization.
+
+      Payouts have been one per currency since the payout fix, but this report added every
+      payout's `netMinor` into one outstanding figure and the page printed it in rupees — a
+      dollar payout was owed as that many paise. Each currency is its own block, as in the
+      revenue and platform-fee reports.
+    */
+    const blocks = new Map<
+      string,
+      { totals: CurrencySettlementReport['totals']; byOrg: Map<string, SettlementOrgRow> }
+    >();
     for (const p of payouts) {
-      const entry = byOrg.get(p.organizationId) ?? {
+      const currency = p.currency.toUpperCase();
+      const block = blockFor(blocks, currency, () => ({
+        totals: { outstandingMinor: 0, paidMinor: 0, payoutCount: 0 },
+        byOrg: new Map<string, SettlementOrgRow>(),
+      }));
+      block.totals.payoutCount += 1;
+      const entry = blockFor(block.byOrg, p.organizationId, () => ({
         organizationId: p.organizationId,
         organizationName: p.organization?.name ?? p.organizationId,
+        currency,
         outstandingMinor: 0,
         paidMinor: 0,
         outstandingCount: 0,
         paidCount: 0,
-      };
+      }));
       if (p.status === PayoutStatus.PAID) {
         entry.paidMinor += p.netMinor;
         entry.paidCount += 1;
-        paidMinor += p.netMinor;
+        block.totals.paidMinor += p.netMinor;
       } else if (p.status === PayoutStatus.PENDING || p.status === PayoutStatus.SCHEDULED) {
         entry.outstandingMinor += p.netMinor;
         entry.outstandingCount += 1;
-        outstandingMinor += p.netMinor;
+        block.totals.outstandingMinor += p.netMinor;
       }
-      byOrg.set(p.organizationId, entry);
     }
 
     return {
-      totals: { outstandingMinor, paidMinor, payoutCount: payouts.length },
-      byOrg: [...byOrg.values()].sort((a, b) => b.outstandingMinor - a.outstandingMinor),
+      byCurrency: [...blocks.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([currency, block]) => ({
+          currency,
+          totals: block.totals,
+          byOrg: [...block.byOrg.values()].sort((a, b) => b.outstandingMinor - a.outstandingMinor),
+        })),
       payouts,
     };
   }
@@ -374,38 +412,74 @@ export class BusinessReportsService {
   // ─────────────────────── 4. Refund report ───────────────────────
 
   async refunds(from: Date, to: Date) {
-    const [totals, byStatusGroups, byDayRaw] = await Promise.all([
-      // Reuse: completed-refund aggregate block.
-      this.analytics.refundStats({ createdAt: { gte: from, lte: to } }),
-      this.prisma.refund.groupBy({
-        by: ['status'],
-        where: { createdAt: { gte: from, lte: to } },
-        _sum: { amountMinor: true },
-        _count: { _all: true },
-      }),
-      this.prisma.$queryRaw<{ day: Date; count: bigint; amount: bigint }[]>`
-        SELECT date_trunc('day', "createdAt") AS day,
+    /*
+      Per currency, like every other money figure here. A refund has no currency column; it is
+      returned in its booking's, so each grouping joins the booking for it — the same join the
+      daily revenue report already makes.
+    */
+    const [totals, byStatusRaw, byDayRaw] = await Promise.all([
+      // Reuse: completed-refund aggregate block, split by currency.
+      this.analytics.refundStatsByCurrency({ from, to }),
+      this.prisma.$queryRaw<{ currency: string; status: string; count: bigint; amount: bigint }[]>`
+        SELECT b."currency" AS currency,
+               r."status"::text AS status,
                COUNT(*)::bigint AS count,
-               SUM("amountMinor")::bigint AS amount
-        FROM "Refund"
-        WHERE "status" = 'COMPLETED' AND "createdAt" >= ${from} AND "createdAt" <= ${to}
-        GROUP BY 1 ORDER BY 1 ASC
+               COALESCE(SUM(r."amountMinor"), 0)::bigint AS amount
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."createdAt" >= ${from} AND r."createdAt" <= ${to}
+        GROUP BY 1, 2
+      `,
+      this.prisma.$queryRaw<{ day: Date; currency: string; count: bigint; amount: bigint }[]>`
+        SELECT date_trunc('day', r."createdAt") AS day,
+               b."currency" AS currency,
+               COUNT(*)::bigint AS count,
+               SUM(r."amountMinor")::bigint AS amount
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        WHERE r."status" = 'COMPLETED' AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
+        GROUP BY 1, 2 ORDER BY 1 ASC
       `,
     ]);
-    return {
-      from,
-      to,
-      totals,
-      byStatus: byStatusGroups.map((g) => ({
-        status: g.status,
-        count: g._count._all,
-        amountMinor: g._sum.amountMinor ?? 0,
-      })),
-      byDay: byDayRaw.map((r) => ({
+
+    type Block = {
+      currency: string;
+      totals: { count: number; amountMinor: number };
+      byStatus: { status: string; count: number; amountMinor: number }[];
+      byDay: { day: string; count: number; amountMinor: number }[];
+    };
+    const blocks = new Map<string, Block>();
+    const block = (currency: string) =>
+      blockFor(blocks, currency, () => ({
+        currency,
+        totals: { count: 0, amountMinor: 0 },
+        byStatus: [],
+        byDay: [],
+      }));
+    for (const t of totals)
+      block(t.currency).totals = { count: t.count, amountMinor: t.amountMinor };
+    for (const r of byStatusRaw) {
+      block(r.currency).byStatus.push({
+        status: r.status,
+        count: Number(r.count),
+        amountMinor: Number(r.amount),
+      });
+    }
+    for (const r of byDayRaw) {
+      block(r.currency).byDay.push({
         day: dayKey(r.day),
         count: Number(r.count),
         amountMinor: Number(r.amount),
-      })),
+      });
+    }
+
+    return {
+      from,
+      to,
+      byCurrency: [...blocks.values()].sort(
+        (a, b) =>
+          b.totals.amountMinor - a.totals.amountMinor || a.currency.localeCompare(b.currency),
+      ),
     };
   }
 
@@ -446,24 +520,50 @@ export class BusinessReportsService {
    * period after tax became real.
    */
   async tax(from: Date, to: Date) {
-    const rev = await this.analytics.revenue(this.confirmedRange(from, to));
-    const platformFeesMinor = rev.bookingFeesMinor + rev.paymentFeesMinor;
+    const revenue = await this.analytics.revenueByCurrency(this.confirmedRange(from, to));
 
     const lines = await this.prisma.bookingTaxLine.findMany({
       where: { booking: this.confirmedRange(from, to) },
-      select: { label: true, rateBasisPoints: true, baseMinor: true, amountMinor: true },
+      select: {
+        label: true,
+        rateBasisPoints: true,
+        baseMinor: true,
+        amountMinor: true,
+        // A tax line is in its booking's currency; GST in rupees and sales tax in dollars are
+        // two figures, never one.
+        booking: { select: { currency: true } },
+      },
     });
+
+    type TaxRow = {
+      label: string;
+      rateBasisPoints: number;
+      baseMinor: number;
+      amountMinor: number;
+    };
+    const blocks = new Map<
+      string,
+      { byRate: Map<string, TaxRow>; grossMinor: number; platformFeesMinor: number }
+    >();
+    const block = (currency: string) =>
+      blockFor(blocks, currency, () => ({
+        byRate: new Map<string, TaxRow>(),
+        grossMinor: 0,
+        platformFeesMinor: 0,
+      }));
+    for (const rev of revenue) {
+      const b = block(rev.currency);
+      b.grossMinor = rev.grossMinor;
+      b.platformFeesMinor = rev.bookingFeesMinor + rev.paymentFeesMinor;
+    }
 
     /*
       Grouped by label AND rate, because those are different taxes even under one name.
       Cinema at 5% and a concert at 18% are both "CGST"; summing them into one line would
       hide the split a filing has to state.
     */
-    const byRate = new Map<
-      string,
-      { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }
-    >();
     for (const line of lines) {
+      const { byRate } = block(line.booking.currency);
       const key = `${line.label}|${line.rateBasisPoints}`;
       const entry = byRate.get(key) ?? {
         label: line.label,
@@ -476,10 +576,22 @@ export class BusinessReportsService {
       byRate.set(key, entry);
     }
 
-    const breakdown = [...byRate.values()].sort(
-      (a, b) => a.label.localeCompare(b.label) || a.rateBasisPoints - b.rateBasisPoints,
-    );
-    const taxCollectedMinor = breakdown.reduce((sum, b) => sum + b.amountMinor, 0);
+    const byCurrency = [...blocks.entries()]
+      .map(([currency, b]) => {
+        const breakdown = [...b.byRate.values()].sort(
+          (x, y) => x.label.localeCompare(y.label) || x.rateBasisPoints - y.rateBasisPoints,
+        );
+        return {
+          currency,
+          taxCollectedMinor: breakdown.reduce((sum, row) => sum + row.amountMinor, 0),
+          /** One row per label+rate, which is the granularity a filing needs. */
+          breakdown,
+          taxableBaseMinor: b.grossMinor + b.platformFeesMinor,
+          grossMinor: b.grossMinor,
+          platformFeesMinor: b.platformFeesMinor,
+        };
+      })
+      .sort((x, y) => y.grossMinor - x.grossMinor || x.currency.localeCompare(y.currency));
     const activeRules = await this.prisma.taxRule.count({ where: { active: true } });
 
     return {
@@ -487,9 +599,7 @@ export class BusinessReportsService {
       to,
       /** Whether any tax rule is configured at all — not whether this period collected any. */
       taxModelled: activeRules > 0,
-      taxCollectedMinor,
-      /** One row per label+rate, which is the granularity a filing needs. */
-      breakdown,
+      byCurrency,
       note:
         activeRules > 0
           ? 'Tax as CHARGED, read from each booking’s snapshot rather than recomputed at ' +
@@ -497,9 +607,6 @@ export class BusinessReportsService {
             'GSTR filing, and not reconciled against a ledger.'
           : 'No tax rule is active, so no tax is being charged. The figures below are the ' +
             'taxable base for reference only.',
-      taxableBaseMinor: rev.grossMinor + platformFeesMinor,
-      grossMinor: rev.grossMinor,
-      platformFeesMinor,
     };
   }
 
@@ -507,9 +614,11 @@ export class BusinessReportsService {
 
   async topExperiences(from: Date, to: Date, limit = 10) {
     // Ranked in SQL (group + order + take), then one title lookup — mirrors the
-    // topTicketType pattern; no per-event fan-out.
+    // topTicketType pattern; no per-event fan-out. Grouped by currency too, so a row's gross is
+    // one currency and says which: it was summed across currencies and printed as rupees.
+    // The ranking is by booking count, which has no unit.
     const grouped = await this.prisma.booking.groupBy({
-      by: ['eventId'],
+      by: ['eventId', 'currency'],
       where: { confirmedAt: { gte: from, lte: to } },
       _sum: { subtotalMinor: true },
       _count: { _all: true },
@@ -528,6 +637,7 @@ export class BusinessReportsService {
         const e = eventById.get(g.eventId);
         return {
           eventId: g.eventId,
+          currency: g.currency,
           title: e?.title ?? g.eventId,
           experienceType: e?.experienceType ?? ExperienceType.EVENT,
           movieTitle: e?.movie?.title ?? null,
@@ -654,8 +764,11 @@ export class BusinessReportsService {
 
   async organizerRevenueCsv(from: Date, to: Date, limit?: number): Promise<string> {
     const r = await this.organizerRevenue(from, to, limit);
+    // `currency` leads, as in the daily revenue export: a column of mixed units is summed in a
+    // spreadsheet the moment it is opened.
     return toCsv(
       [
+        'currency',
         'organizationId',
         'organizationName',
         'grossMinor',
@@ -665,6 +778,7 @@ export class BusinessReportsService {
         'bookings',
       ],
       r.organizers.map((o) => [
+        o.currency,
         o.organizationId,
         o.organizationName,
         o.grossMinor,
@@ -679,8 +793,8 @@ export class BusinessReportsService {
   async refundsCsv(from: Date, to: Date): Promise<string> {
     const r = await this.refunds(from, to);
     return toCsv(
-      ['day', 'count', 'amountMinor'],
-      r.byDay.map((d) => [d.day, d.count, d.amountMinor]),
+      ['currency', 'day', 'count', 'amountMinor'],
+      r.byCurrency.flatMap((c) => c.byDay.map((d) => [c.currency, d.day, d.count, d.amountMinor])),
     );
   }
 
@@ -688,6 +802,7 @@ export class BusinessReportsService {
     const r = await this.settlement();
     return toCsv(
       [
+        'currency',
         'organizationId',
         'organizationName',
         'outstandingMinor',
@@ -695,14 +810,17 @@ export class BusinessReportsService {
         'paidMinor',
         'paidCount',
       ],
-      r.byOrg.map((o) => [
-        o.organizationId,
-        o.organizationName,
-        o.outstandingMinor,
-        o.outstandingCount,
-        o.paidMinor,
-        o.paidCount,
-      ]),
+      r.byCurrency.flatMap((c) =>
+        c.byOrg.map((o) => [
+          c.currency,
+          o.organizationId,
+          o.organizationName,
+          o.outstandingMinor,
+          o.outstandingCount,
+          o.paidMinor,
+          o.paidCount,
+        ]),
+      ),
     );
   }
 }

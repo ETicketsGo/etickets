@@ -24,17 +24,45 @@ function setup(
   const updates: Record<string, unknown>[] = [];
   const sent: { body: string; payload: Record<string, unknown> }[] = [];
 
+  /*
+    The code's row as the database holds it. A read returns a SNAPSHOT, and each write is applied
+    to the live row one at a time, honouring its conditions — which is what makes a race between
+    verifications observable here at all. A mock that answered every read from one unchanging
+    fixture could never show the guess limit being overrun, so it could never show it holding.
+  */
+  const row = over.otpRow ? { ...(over.otpRow as Record<string, unknown>) } : null;
+  type Write = { where: Record<string, unknown>; data: Record<string, unknown> };
+  const apply = (data: Record<string, unknown>) => {
+    const increment = (data.attempts as { increment?: number } | undefined)?.increment;
+    if (row && increment) row.attempts = (row.attempts as number) + increment;
+    if (row && data.consumedAt) row.consumedAt = data.consumedAt;
+  };
+
   const prisma = {
     phoneOtp: {
       count: jest.fn().mockResolvedValue(over.recentSends ?? 0),
-      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn(async (args: Write) => {
+        updates.push(args);
+        const { where } = args;
+        // Only a write aimed at this row by id can touch it; the per-number sweep in
+        // `requestCode` has no row to match in these tests.
+        if (!row || where.id !== row.id) return { count: 0 };
+        if (where.consumedAt === null && row.consumedAt != null) return { count: 0 };
+        const lt = (where.attempts as { lt?: number } | undefined)?.lt;
+        if (lt !== undefined && !((row.attempts as number) < lt)) return { count: 0 };
+        apply(args.data);
+        return { count: 1 };
+      }),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         created.push(data);
         return { id: 'otp-1', ...data };
       }),
-      findFirst: jest.fn().mockResolvedValue(over.otpRow ?? null),
-      update: jest.fn(async (args: Record<string, unknown>) => {
+      findFirst: jest.fn(async (_args: { where: Record<string, unknown> }) =>
+        row && row.consumedAt == null ? { ...row } : null,
+      ),
+      update: jest.fn(async (args: Write) => {
         updates.push(args);
+        apply(args.data);
         return {};
       }),
     },
@@ -56,7 +84,7 @@ function setup(
     get: (key: string) => (key === 'APP_ENV' ? 'PRODUCTION' : (over.template ?? undefined)),
   };
   const service = new PhoneOtpService(prisma as never, sms as never, config as never);
-  return { service, prisma, sms, sent, created, updates };
+  return { service, prisma, sms, sent, created, updates, row };
 }
 
 describe('normalisePhone', () => {
@@ -223,9 +251,53 @@ describe('PhoneOtpService.verifyCode', () => {
   it('counts a wrong guess against the code itself', async () => {
     // A request throttle counts requests; this counts wrong answers against ONE code, so it
     // dies after a handful however the guesses arrive — several IPs, several sessions.
-    const { service, updates } = setup({ otpRow: await liveOtp('123456') });
+    const { service, updates, row } = setup({ otpRow: await liveOtp('123456') });
     await expect(service.verifyCode('9704464007', '000000')).rejects.toThrow(/not valid/i);
     expect(updates[0].data).toEqual({ attempts: { increment: 1 } });
+    expect(row!.attempts).toBe(1);
+  });
+
+  // A cheap hash: the tests below fire several verifications at once, and cost 10 is slow.
+  const burstOtp = async (code: string) => ({
+    id: 'otp-1',
+    phone: '+919704464007',
+    codeHash: await bcrypt.hash(code, 4),
+    expiresAt: new Date(Date.now() + 60_000),
+    consumedAt: null,
+    attempts: 0,
+  });
+
+  it('holds the guess limit when the guesses arrive all at once', async () => {
+    /*
+      The attack the old read-compare-increment order allowed. Every request that arrived before
+      the first increment landed read `attempts: 0`, so a burst was compared in full against a
+      limit of five. Here the RIGHT code is the twelfth guess in one burst — past the budget —
+      and must not sign anybody in.
+    */
+    const { service, row } = setup({
+      otpRow: await burstOtp('123456'),
+      existingUser: { id: 'user-1' },
+    });
+    const guesses = [...Array.from({ length: 11 }, (_, i) => String(100000 + i)), '123456'];
+
+    const results = await Promise.allSettled(
+      guesses.map((guess) => service.verifyCode('9704464007', guess)),
+    );
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(0);
+    // Exactly the budget was spent, and the code is dead.
+    expect(row!.attempts).toBe(5);
+    expect(row!.consumedAt).toBeInstanceOf(Date);
+  });
+
+  it('signs in once when the right code is submitted twice at the same moment', async () => {
+    // A double tap. The code is single-use, so the second must not mint a second session.
+    const { service } = setup({ otpRow: await burstOtp('123456'), existingUser: { id: 'user-1' } });
+    const results = await Promise.allSettled([
+      service.verifyCode('9704464007', '123456'),
+      service.verifyCode('9704464007', '123456'),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   });
 
   it('burns a code that has been guessed at too many times', async () => {

@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { refundTax, ticketPrices } from '../refunds/refund-tax';
+import { refundTax, ticketNetPrices } from '../refunds/refund-tax';
 import {
   buildReceiptDocument,
   negateTotals,
@@ -242,17 +242,24 @@ export class ReceiptsService {
       A refund that names no tickets predates this and recorded its tax as added; it keeps
       the arithmetic it was issued with.
     */
-    const refundedTickets = refund.ticketIds.length
+    /*
+      Every ticket on the booking is read, not only the refunded ones, because a ticket's price
+      after the discount is dealt out across the whole booking (see `ticketNetPrices`). Pricing
+      the refunded tickets at their pre-coupon price split the tax as if more money had gone
+      back than did, on the same refund the refund service had priced correctly.
+    */
+    const bookingTickets = refund.ticketIds.length
       ? await tx.ticket.findMany({
-          where: { id: { in: refund.ticketIds } },
-          select: { ticketTypeId: true },
+          where: { bookingId: booking.id },
+          select: { id: true, ticketTypeId: true },
         })
       : [];
-    const { priceByType, bookingTicketsMinor } = ticketPrices(booking.items);
-    const ticketsMinor = refundedTickets.reduce(
-      (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
-      0,
+    const { netByTicket, bookingTicketsMinor } = ticketNetPrices(
+      booking.items,
+      bookingTickets,
+      booking,
     );
+    const ticketsMinor = refund.ticketIds.reduce((s, id) => s + (netByTicket.get(id) ?? 0), 0);
     const perLine =
       ticketsMinor > 0 ? refundTax(booking.taxLines, ticketsMinor, bookingTicketsMinor) : null;
     const addedTaxMinor = perLine ? perLine.addedMinor : taxMinor;

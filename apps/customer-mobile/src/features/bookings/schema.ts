@@ -59,8 +59,15 @@ export const ticketSchema = z.object({
    * to, and the first anyone would know is a queue that will not move.
    */
   qrToken: z.string(),
-  /** Server-rendered QR as a data: URI. This is what gets displayed and cached. */
-  qrDataUrl: z.string(),
+  /**
+   * Server-rendered QR as a data: URI. This is what gets displayed and cached.
+   *
+   * NULL for a ticket whose barcode is a vendor code the server cannot draw as a QR. Not
+   * optional-by-accident: a non-nullable string here failed the parse of the WHOLE wallet
+   * array, so one such ticket emptied every ticket on the device. TicketQr already renders
+   * its "code isn't available" state for it.
+   */
+  qrDataUrl: z.string().nullable(),
   bookingId: z.string(),
   bookingRef: z.string().nullable(),
   experienceType: z.string(),

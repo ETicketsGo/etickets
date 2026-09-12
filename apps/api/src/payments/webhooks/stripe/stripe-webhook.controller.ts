@@ -2,14 +2,20 @@ import { Controller, Post, Req } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { StripeWebhookService } from './stripe-webhook.service';
 import { Public } from '../../../common/decorators';
 
 /**
  * Dedicated Stripe webhook endpoint. Public (Stripe is unauthenticated) but every
  * event is signature-verified against the raw body before acceptance.
+ *
+ * Not throttled, for the same reason as the Razorpay endpoint: provider deliveries come from
+ * few addresses and a 429 during a sale spike delays confirmations. The signature, not a
+ * request rate, is what authenticates this route.
  */
 @ApiTags('payments')
+@SkipThrottle()
 @Controller('payments/webhooks')
 export class StripeWebhookController {
   constructor(private readonly webhooks: StripeWebhookService) {}

@@ -11,6 +11,8 @@ import type { RequestUser } from '../common/decorators';
 export interface CurrencySettlement {
   currency: string;
   gross: number;
+  /** Coupon discounts, which come out of the organizer's ticket revenue. */
+  discount: number;
   bookingFee: number;
   paymentFee: number;
   organizerFee: number;
@@ -34,14 +36,26 @@ export class PayoutsService {
    * payout it produced was stored in the schema's default currency. An organizer selling in
    * India and the US was shown — and would have been paid — rupees plus dollars as one number
    * of rupees. Money in different currencies cannot be added; each is settled on its own.
+   *
+   * ── WHY ONLINE ONLY, AND WHY THE DISCOUNT ─────────────────────────────────────────
+   * A cash booking was paid across the venue's counter: the organizer already holds that money,
+   * and paying it out again would pay them twice. And `subtotalMinor` is the price BEFORE any
+   * coupon — the customer paid subtotal − discount for the tickets, so the discount has to come
+   * off, exactly as `computeMarketplaceSplit` takes it off the organizer's net on each payment.
    */
   private async settle(organizationId: string, eventId?: string): Promise<CurrencySettlement[]> {
     const [paid, refunds] = await Promise.all([
       this.prisma.booking.groupBy({
         by: ['currency'],
-        where: { organizationId, confirmedAt: { not: null }, ...(eventId ? { eventId } : {}) },
+        where: {
+          organizationId,
+          confirmedAt: { not: null },
+          paymentMethod: 'ONLINE',
+          ...(eventId ? { eventId } : {}),
+        },
         _sum: {
           subtotalMinor: true,
+          discountMinor: true,
           bookingFeeMinor: true,
           paymentFeeMinor: true,
           organizerFeeMinor: true,
@@ -54,6 +68,7 @@ export class PayoutsService {
         JOIN "Booking" b ON b."id" = r."bookingId"
         WHERE r."organizationId" = ${organizationId}
           AND r."status" = 'COMPLETED'
+          AND b."paymentMethod" = 'ONLINE'
           ${eventId ? Prisma.sql`AND b."eventId" = ${eventId}` : Prisma.empty}
         GROUP BY b."currency"`,
     ]);
@@ -70,16 +85,18 @@ export class PayoutsService {
       const sum = (key: keyof (typeof rows)[number]['_sum']) =>
         rows.reduce((total, row) => total + (row._sum[key] ?? 0), 0);
       const gross = sum('subtotalMinor');
+      const discount = sum('discountMinor');
       const organizerFee = sum('organizerFeeMinor');
       const refund = refundByCurrency.get(currency) ?? 0;
       return {
         currency,
         gross,
+        discount,
         bookingFee: sum('bookingFeeMinor'),
         paymentFee: sum('paymentFeeMinor'),
         organizerFee,
         refund,
-        net: gross - organizerFee - refund,
+        net: gross - discount - organizerFee - refund,
       };
     });
   }
@@ -92,7 +109,13 @@ export class PayoutsService {
    * open rupee payout does not stop the dollar revenue from being settled.
    */
   async generate(user: RequestUser, organizationId: string, eventId?: string) {
-    await this.access.assertMember(user, organizationId);
+    // The same people who may read payouts (see listForOrg). The route's @Roles only checks a
+    // global role, so without this any member of the organization — check-in staff included —
+    // could raise a payout and read the revenue figures it returns.
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
 
     const settlements = await this.settle(organizationId, eventId);
     if (settlements.length === 0) {

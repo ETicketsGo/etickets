@@ -151,7 +151,29 @@ export class MoviesService {
   }
 
   async setStatus(user: RequestUser, id: string, status: MovieStatus) {
-    await this.loadOwnedMovie(user, id);
+    const movie = await this.loadOwnedMovie(user, id);
+    /*
+      Publishing puts a film in the public catalogue, so it waits for the organization to be
+      approved — the same gate an ordinary event passes through review for.
+
+      Membership was the only check, so the owner of an organization the platform had not yet
+      approved (or had suspended) could put its films live the moment it signed up.
+      Drafting and archiving stay open: neither shows anybody anything.
+    */
+    if (status === MovieStatus.PUBLISHED) {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: movie.organizationId },
+        select: { status: true },
+      });
+      if (org?.status !== 'APPROVED') {
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          'Your organization has not been approved yet, so its films cannot be published.',
+          HttpStatus.FORBIDDEN,
+          { organizationStatus: org?.status ?? null },
+        );
+      }
+    }
     return this.prisma.movie.update({ where: { id }, data: { status } });
   }
 

@@ -8,6 +8,7 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { AuditService } from '../../audit/audit.service';
 import { BookingsService } from '../bookings.service';
 import { PaymentsService } from '../../payments/payments.service';
+import { feeTaxSummary } from '../../pricing/fee-tax';
 import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { AnonymousSessionService, BookingOwnerResolver, type ResolvedOwner } from './booking-owner';
 import { toPublicBookingStatus } from './booking-status.mapping';
@@ -281,7 +282,7 @@ export class BookingExecutionRouter {
   private async shapeBookingResponse(bookingId: string): Promise<Record<string, unknown>> {
     const b = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { payment: true },
+      include: { payment: true, taxLines: true },
     });
     if (!b) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
@@ -291,12 +292,36 @@ export class BookingExecutionRouter {
       status: b.status,
       currency: b.currency,
       holdExpiresAt: b.holdExpiresAt,
+      /*
+        The whole fee breakdown the legacy path returns, rebuilt from the booking's snapshot.
+
+        This used to send six of the fields, and not `currency`, `subtotalMinor` or
+        `netSubtotalMinor` — which the clients' price breakdown requires — so switching
+        orchestration on would have broken the checkout summary without changing a price.
+        Everything here is read from what the booking stored, so it is the price the order
+        was actually taken at.
+      */
       fees: {
+        currency: b.currency,
+        subtotalMinor: b.subtotalMinor,
+        discountMinor: b.discountMinor,
+        netSubtotalMinor: b.subtotalMinor - b.discountMinor,
         bookingFeeMinor: b.bookingFeeMinor,
         paymentFeeMinor: b.paymentFeeMinor,
-        discountMinor: b.discountMinor,
         customerFeeMinor: b.customerFeeMinor,
         organizerFeeMinor: b.organizerFeeMinor,
+        taxLines: b.taxLines.map((t) => ({
+          label: t.label,
+          rateBasisPoints: t.rateBasisPoints,
+          baseMinor: t.baseMinor,
+          amountMinor: t.amountMinor,
+          basis: t.basis,
+          inclusive: t.inclusive,
+        })),
+        ...feeTaxSummary(b.taxLines, b.customerFeeMinor),
+        taxMinor: b.taxMinor,
+        maintenanceMinor: b.maintenanceMinor,
+        maintenanceTreatment: b.maintenanceTreatment,
         totalMinor: b.totalMinor,
       },
       payment: { id: b.payment?.id, status: b.payment?.status },

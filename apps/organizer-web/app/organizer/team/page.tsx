@@ -28,7 +28,7 @@ const ROLE_HELP: Record<string, string> = {
 };
 
 export default function TeamPage() {
-  const { activeOrg } = useOrg();
+  const { activeOrg, can } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
   const [email, setEmail] = useState('');
@@ -87,14 +87,17 @@ export default function TeamPage() {
           {m.status === 'INVITED' && (
             <>
               <p className="text-caption text-text-muted">Hasn&rsquo;t joined yet</p>
-              <button
-                type="button"
-                disabled={resend.isPending}
-                onClick={() => resend.mutate(m.id)}
-                className="rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-              >
-                Get invite link
-              </button>
+              {/* Owner only at the API: re-issuing mints a fresh credential for this person. */}
+              {can.ownerActions && (
+                <button
+                  type="button"
+                  disabled={resend.isPending}
+                  onClick={() => resend.mutate(m.id)}
+                  className="rounded text-caption text-action-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+                >
+                  Get invite link
+                </button>
+              )}
             </>
           )}
         </div>
@@ -161,15 +164,31 @@ export default function TeamPage() {
 
       <Card title="Add someone">
         <div className="space-y-3">
+          {!can.ownerActions && (
+            /*
+              Disabled with the reason rather than removed. The API lets only the owner change
+              the team, and a manager who came here to add somebody needs to know who can.
+            */
+            <p className="text-caption text-text-muted">
+              Only the organization&rsquo;s owner can add people to the team.
+            </p>
+          )}
           <Input
             id="email"
             label="Email"
             type="email"
             value={email}
+            disabled={!can.ownerActions}
             onChange={(e) => setEmail(e.target.value)}
           />
           <div>
-            <Select id="role" label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select
+              id="role"
+              label="Role"
+              value={role}
+              disabled={!can.ownerActions}
+              onChange={(e) => setRole(e.target.value)}
+            >
               {ROLES.map((r) => (
                 <option key={r} value={r}>
                   {r.replaceAll('_', ' ')}
@@ -182,7 +201,7 @@ export default function TeamPage() {
           <Button
             className="w-full"
             loading={invite.isPending}
-            disabled={!email}
+            disabled={!email || !can.ownerActions}
             onClick={() => invite.mutate()}
           >
             Create invitation

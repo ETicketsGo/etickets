@@ -244,7 +244,7 @@ export default function ScreenSeatMapPage() {
                     backgroundColor: c.colorHex ? `${c.colorHex}22` : undefined,
                   }}
                 />
-                {c.name} · {money(c.basePriceMinor)}
+                {c.name} · {money(c.basePriceMinor, roomCurrency)}
               </span>
             ))}
           </div>

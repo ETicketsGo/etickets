@@ -1,5 +1,6 @@
 import { Body, Controller, Inject, Param, Post, RawBodyRequest, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { PaymentsService } from './payments.service';
@@ -69,7 +70,10 @@ export class PaymentsController {
     return this.payments.mockPay(bookingId, body.outcome);
   }
 
+  // Signature-authenticated provider deliveries are not rate limited; see the dedicated
+  // Razorpay/Stripe webhook controllers. The other routes here stay throttled.
   @Public()
+  @SkipThrottle()
   @Post('webhook')
   @ApiOperation({ summary: 'Signed payment webhook (provider → platform).' })
   webhook(@Req() req: RawBodyRequest<Request>, @Body() body: unknown) {
@@ -83,6 +87,7 @@ export class PaymentsController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('webhook/:provider')
   @ApiOperation({
     summary: 'Signed payment webhook routed to a named provider (multi-provider).',

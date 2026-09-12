@@ -87,6 +87,24 @@ export class WalletPassService {
       };
     }
 
+    /*
+      Nothing to open the gate with: the ticket was transferred away, so its QR now belongs to
+      the new holder and is withheld from this caller. A pass without it would be a pass for a
+      ticket the caller gave away — refused, and said plainly.
+    */
+    const gateCode = ticket.vendorBarcode ?? ticket.qrToken;
+    if (!gateCode) {
+      await audit({ status: cfg.status, eligible: false, reason: 'NO_GATE_CODE' });
+      return {
+        available: true,
+        eligible: false,
+        provider,
+        status: cfg.status,
+        reason:
+          'This ticket was transferred to someone else, so a wallet pass cannot be created for it here.',
+      };
+    }
+
     const projection: WalletPassProjection = {
       ticketId: ticket.id,
       serial: ticket.serial,
@@ -102,7 +120,7 @@ export class WalletPassService {
         cinema's system that is their barcode, not our signed token — a pass showing our QR
         is a pass that does not work, discovered at the door.
       */
-      qrToken: ticket.vendorBarcode ?? ticket.qrToken,
+      qrToken: gateCode,
     };
     const adapter = provider === 'apple' ? this.apple : this.google;
     const result = adapter.build(cfg, projection);

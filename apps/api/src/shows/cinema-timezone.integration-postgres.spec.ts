@@ -148,7 +148,8 @@ describe('integration-real-postgres: cinema timezone is authoritative', () => {
     shows = new ShowsService(db as never, allowAll, undefined as never, cfg);
 
     const org = await db!.organization.create({
-      data: { name: `TZ ${suffix}`, slug: `tz-${suffix}` },
+      // Approved: an unapproved organization cannot put shows on sale.
+      data: { name: `TZ ${suffix}`, slug: `tz-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     const venue = await db!.venue.create({

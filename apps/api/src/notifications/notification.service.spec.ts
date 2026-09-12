@@ -1,5 +1,10 @@
-import { NotificationType } from '@eticketsgo/shared-types';
-import { NotificationService } from './notification.service';
+import { FailureClass, NotificationType } from '@eticketsgo/shared-types';
+import {
+  DEFAULT_DISPATCH_MAX_ATTEMPTS,
+  NotificationService,
+  retryDelayMs,
+} from './notification.service';
+import { TransportError } from './channels/transports/transport-http';
 
 const KNOWN = new Set(['email', 'sms', 'whatsapp', 'push', 'in_app']);
 
@@ -40,13 +45,20 @@ function setup(
     updateManyCount?: number;
     /** What the recipient has stored as their language; null means "never chose". */
     userLocale?: string | null;
+    /** Another process already holds the dispatch sweep lock. */
+    sweepLockTaken?: boolean;
   } = {},
 ) {
   // A channel now reports WHICH provider accepted the message, so a delivery stub must too.
   const deliver = opts.deliver ?? jest.fn().mockResolvedValue({ provider: 'log' });
 
   let seq = 0;
+  // The advisory-lock query the sweep runs inside its transaction.
+  const lockQuery = jest.fn().mockResolvedValue([{ locked: !opts.sweepLockTaken }]);
   const prisma = {
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ $queryRaw: lockQuery }),
+    ),
     /*
       The recipient's stored language. Every send reads it now — a notification goes out in
       the language the PERSON chose, not the one the calling code happened to pass, because
@@ -97,7 +109,7 @@ function setup(
     channels as never,
     consent as never,
   );
-  return { service, prisma, templates, preferences, channels, deliver, consent };
+  return { service, prisma, templates, preferences, channels, deliver, consent, lockQuery };
 }
 
 /**
@@ -280,5 +292,139 @@ describe('NotificationService.dispatchDue', () => {
         data: expect.objectContaining({ attempts: 3, status: 'FAILED' }),
       }),
     );
+  });
+});
+
+/**
+ * Retries that outlast the outage they are retrying.
+ *
+ * The sweep runs every five seconds, and a retryable failure used to stay due with its original
+ * `scheduledFor` -- so every attempt was spent inside about ten seconds and any provider blip
+ * longer than that permanently failed the message.
+ */
+describe('NotificationService.dispatchDue: retry schedule', () => {
+  const updateData = (prisma: { notification: { update: jest.Mock } }) =>
+    prisma.notification.update.mock.calls.at(-1)?.[0].data as Record<string, unknown>;
+
+  it('pushes a retryable failure into the future instead of leaving it due for the next sweep', async () => {
+    const deliver = jest.fn().mockRejectedValue(new Error('socket hang up'));
+    const { service, prisma } = setup({ dueRows: [row({ attempts: 0 })], deliver });
+
+    const before = Date.now();
+    await service.dispatchDue(new Date());
+    const after = Date.now();
+
+    const scheduledFor = (updateData(prisma).scheduledFor as Date).getTime();
+    expect(scheduledFor).toBeGreaterThanOrEqual(before + 60_000);
+    expect(scheduledFor).toBeLessThanOrEqual(after + 60_000);
+  });
+
+  it('waits longer after each failed attempt', async () => {
+    const deliver = jest
+      .fn()
+      .mockRejectedValue(
+        new TransportError('HTTP 503', 'ses', FailureClass.TEMPORARY_PROVIDER_ERROR, 503),
+      );
+    const { service, prisma } = setup({ dueRows: [row({ attempts: 3 })], deliver });
+
+    const before = Date.now();
+    await service.dispatchDue(new Date());
+
+    // The fourth failure waits an hour, not the minute the first one did.
+    const delay = (updateData(prisma).scheduledFor as Date).getTime() - before;
+    expect(delay).toBeGreaterThanOrEqual(60 * 60_000);
+    expect(delay).toBeLessThan(60 * 60_000 + 5_000);
+    expect(retryDelayMs(1)).toBeLessThan(retryDelayMs(2));
+    expect(retryDelayMs(4)).toBeLessThan(retryDelayMs(5));
+  });
+
+  it('by default keeps retrying a transient failure well past a third attempt, spread over hours', async () => {
+    const deliver = jest.fn().mockRejectedValue(new Error('rate limited'));
+    const { service, prisma } = setup({ dueRows: [row({ attempts: 2 })], deliver });
+
+    await expect(service.dispatchDue(new Date())).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+      retried: 1,
+    });
+    expect(updateData(prisma)).toMatchObject({ attempts: 3, status: 'SCHEDULED' });
+
+    const total = Array.from({ length: DEFAULT_DISPATCH_MAX_ATTEMPTS - 1 }, (_, i) =>
+      retryDelayMs(i + 1),
+    ).reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThanOrEqual(3 * 60 * 60_000);
+  });
+
+  it('marks FAILED once the default attempt limit is reached, and schedules nothing further', async () => {
+    const deliver = jest.fn().mockRejectedValue(new Error('still down'));
+    const { service, prisma } = setup({
+      dueRows: [row({ attempts: DEFAULT_DISPATCH_MAX_ATTEMPTS - 1 })],
+      deliver,
+    });
+
+    await expect(service.dispatchDue(new Date())).resolves.toMatchObject({ failed: 1 });
+    expect(updateData(prisma)).toMatchObject({
+      attempts: DEFAULT_DISPATCH_MAX_ATTEMPTS,
+      status: 'FAILED',
+    });
+    expect(updateData(prisma)).not.toHaveProperty('scheduledFor');
+  });
+
+  it('fails a permanent refusal immediately, with no retry scheduled', async () => {
+    const deliver = jest
+      .fn()
+      .mockRejectedValue(
+        new TransportError('no template', 'msg91', FailureClass.TEMPLATE_NOT_FOUND),
+      );
+    const { service, prisma } = setup({ dueRows: [row({ channel: 'sms' })], deliver });
+
+    await expect(service.dispatchDue(new Date())).resolves.toMatchObject({
+      failed: 1,
+      retried: 0,
+    });
+    expect(updateData(prisma)).toMatchObject({ attempts: 1, status: 'FAILED' });
+    expect(updateData(prisma)).not.toHaveProperty('scheduledFor');
+  });
+
+  it('only ever selects rows that are already due', async () => {
+    const { service, prisma } = setup({ dueRows: [] });
+    const now = new Date('2026-05-05T00:00:00Z');
+    await service.dispatchDue(now);
+    expect(prisma.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ scheduledFor: { lte: now } }),
+      }),
+    );
+  });
+});
+
+/**
+ * One sweep at a time, across processes.
+ *
+ * Nothing claims a row before it is sent, so two workers overlapping during a deploy both read
+ * the same PENDING row and both deliver it. The sweep is single-flight on an advisory lock.
+ */
+describe('NotificationService.dispatchDue: single-flight sweep', () => {
+  it('skips the tick entirely when another process holds the sweep lock', async () => {
+    const { service, prisma, deliver } = setup({ dueRows: [row()], sweepLockTaken: true });
+
+    await expect(service.dispatchDue(new Date())).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+      retried: 0,
+    });
+    expect(prisma.notification.findMany).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(prisma.notification.update).not.toHaveBeenCalled();
+  });
+
+  it('takes a TRANSACTION-scoped lock, so a pooled connection can never leave it held', async () => {
+    const { service, lockQuery, deliver } = setup({ dueRows: [row()] });
+
+    await service.dispatchDue(new Date());
+
+    const sql = (lockQuery.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('pg_try_advisory_xact_lock');
+    expect(deliver).toHaveBeenCalledTimes(1);
   });
 });

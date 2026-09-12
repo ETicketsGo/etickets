@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType, SessionStatus } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -84,9 +84,15 @@ export class PublicEventsService {
 
         A requested date range narrows this further but can never widen it back into the
         past: `gte` takes whichever of "now" and the requested start is later.
+
+        And still on. A date in the future counts only while it is SCHEDULED or PAUSED — an
+        event whose remaining dates were all cancelled stayed listed, with a cancelled date as
+        its next show. PAUSED stays in, as the movie catalogue keeps it: "sales are paused" is
+        something a customer can act on, and a show that vanished looks like a fault.
       */
       sessions: {
         some: {
+          status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
           startsAt: {
             gte: filters.dateFrom && filters.dateFrom > now ? filters.dateFrom : now,
             ...(filters.dateTo ? { lte: filters.dateTo } : {}),
@@ -118,10 +124,18 @@ export class PublicEventsService {
               which is why it survived: the bug only appears on exactly the multi-date runs
               that theatres and cinemas exist to sell.
             */
-            where: { startsAt: { gte: now } },
+            // The same "still on" rule as the filter above, so the date on the card is one
+            // that is actually happening.
+            where: {
+              startsAt: { gte: now },
+              status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+            },
             orderBy: { startsAt: 'asc' },
             take: 1,
-            include: { ticketTypes: { orderBy: { priceMinor: 'asc' }, take: 1 } },
+            // A ticket type taken off sale is not the price a customer can buy at.
+            include: {
+              ticketTypes: { where: { status: 'ACTIVE' }, orderBy: { priceMinor: 'asc' }, take: 1 },
+            },
           },
         },
       }),
@@ -197,7 +211,15 @@ export class PublicEventsService {
         sessions: {
           orderBy: { startsAt: 'asc' },
           include: {
-            ticketTypes: { orderBy: { priceMinor: 'asc' }, include: { inventory: true } },
+            /*
+              ACTIVE only. The organizer's switch for taking a ticket type off sale was stored
+              and never read: the page kept offering it, and checkout kept selling it.
+            */
+            ticketTypes: {
+              where: { status: 'ACTIVE' },
+              orderBy: { priceMinor: 'asc' },
+              include: { inventory: true },
+            },
           },
         },
       },
@@ -286,6 +308,7 @@ export class PublicEventsService {
     if (!org) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organizer not found.', HttpStatus.NOT_FOUND);
     }
+    const now = new Date();
     const events = await this.prisma.event.findMany({
       where: { organizationId: id, status: EventStatus.PUBLISHED },
       orderBy: { publishedAt: 'desc' },
@@ -293,10 +316,21 @@ export class PublicEventsService {
       include: {
         venue: { select: { name: true, city: true, country: true } },
         images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
+        /*
+          The same "still on" rule as the browse listing. This took each event's FIRST session
+          ever and its cheapest ticket type of any status, so an organizer's page could show a
+          date already past or cancelled, and a price taken off sale — found by the review.
+        */
         sessions: {
+          where: {
+            startsAt: { gte: now },
+            status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+          },
           orderBy: { startsAt: 'asc' },
           take: 1,
-          include: { ticketTypes: { orderBy: { priceMinor: 'asc' }, take: 1 } },
+          include: {
+            ticketTypes: { where: { status: 'ACTIVE' }, orderBy: { priceMinor: 'asc' }, take: 1 },
+          },
         },
       },
     });

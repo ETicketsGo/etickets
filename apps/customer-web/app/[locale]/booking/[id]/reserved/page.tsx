@@ -3,9 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { Card, Spinner } from '@/components/ui';
+import { Card, ErrorState, Spinner } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
-import { money, dateTime } from '@/lib/format';
+import { money, dateTime, zoneAbbrev } from '@/lib/format';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -22,8 +22,9 @@ import { useTranslations } from 'next-intl';
 export default function ReservedPage() {
   const { id } = useParams<{ id: string }>();
   const b = useTranslations('storefront.booking');
+  const a = useTranslations('storefront.account');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['booking', id],
     queryFn: () => api.getBooking(id),
   });
@@ -35,7 +36,16 @@ export default function ReservedPage() {
       </main>
     );
   }
-  if (!data) return null;
+  /*
+    A failed load says so and offers a retry.
+
+    This returned null, so a dropped connection left a blank page on the one screen that
+    holds the reference somebody has to read out at the counter — with nothing to say the
+    reservation still exists or how to get it back.
+  */
+  if (isError || !data) {
+    return <ErrorState message={b('loadError')} onRetry={() => refetch()} />;
+  }
 
   return (
     <Card className="mx-auto mt-8 max-w-lg space-y-4">
@@ -59,7 +69,16 @@ export default function ReservedPage() {
       <dl className="space-y-1 text-[0.9375rem]">
         <div className="flex justify-between">
           <dt className="text-text-muted">{data.event.title}</dt>
-          <dd className="text-text-primary">{dateTime(data.eventSession.startsAt)}</dd>
+          {/* The venue's clock, named — the time the counter will be open, not the phone's. */}
+          <dd className="text-text-primary">
+            {dateTime(data.eventSession.startsAt, undefined, data.timeZone ?? undefined)}
+            {data.timeZone ? (
+              <span className="text-text-muted">
+                {' '}
+                ({zoneAbbrev(data.eventSession.startsAt, data.timeZone)})
+              </span>
+            ) : null}
+          </dd>
         </div>
       </dl>
 
@@ -67,7 +86,7 @@ export default function ReservedPage() {
       <p className="text-caption text-text-muted">{b('cashNote')}</p>
 
       <Link href="/account/bookings" className="text-caption text-action-primary underline">
-        My bookings
+        {a('bookingsHeading')}
       </Link>
     </Card>
   );

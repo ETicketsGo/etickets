@@ -189,9 +189,20 @@ export class RazorpayPaymentProvider implements PaymentProvider {
       amount: input.amountMinor,
       notes: input.reason ? { reason: input.reason } : {},
     });
+    /*
+      Only `processed` means the money went back. A Razorpay refund is normally `pending` when
+      created and is settled later — reported by `refund.processed` or `refund.failed` — so
+      calling a pending refund COMPLETED told the customer, the credit note and the books that
+      money had moved when Razorpay could still fail it.
+    */
     return {
       providerRef: refund.id,
-      status: refund.status === 'failed' ? 'FAILED' : 'COMPLETED',
+      status:
+        refund.status === 'processed'
+          ? 'COMPLETED'
+          : refund.status === 'failed'
+            ? 'FAILED'
+            : 'PROCESSING',
     };
   }
 

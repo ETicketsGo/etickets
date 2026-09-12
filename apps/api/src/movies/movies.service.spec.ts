@@ -21,8 +21,14 @@ describe('slugify', () => {
 });
 
 describe('MoviesService.setStatus', () => {
-  function makeService(movie: { id: string; organizationId: string } | null) {
+  function makeService(
+    movie: { id: string; organizationId: string } | null,
+    organizationStatus = 'APPROVED',
+  ) {
     const prisma = {
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ status: organizationStatus }),
+      },
       movie: {
         findUnique: jest.fn().mockResolvedValue(movie),
         update: jest
@@ -58,5 +64,32 @@ describe('MoviesService.setStatus', () => {
       code: 'NOT_FOUND',
     });
     expect(prisma.movie.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['PENDING', 'SUSPENDED', 'REJECTED'])(
+    'will not publish a film while the organization is %s',
+    async (organizationStatus) => {
+      /*
+        Membership was the only check, so an organization the platform had not approved could
+        put its films in the public catalogue the moment it signed up — the review every
+        ordinary event goes through, skipped.
+      */
+      const { service, prisma } = makeService(
+        { id: 'm1', organizationId: 'org1' },
+        organizationStatus,
+      );
+      await expect(service.setStatus(user, 'm1', MovieStatus.PUBLISHED)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(prisma.movie.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still lets an organization awaiting approval draft or archive a film', async () => {
+    // Neither shows anybody anything.
+    const { service, prisma } = makeService({ id: 'm1', organizationId: 'org1' }, 'PENDING');
+    await service.setStatus(user, 'm1', MovieStatus.ARCHIVED);
+    expect(prisma.movie.update).toHaveBeenCalled();
+    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
   });
 });
