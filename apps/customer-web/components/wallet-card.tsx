@@ -19,7 +19,8 @@ import {
   type WalletItem,
   type WalletItemType,
 } from '@eticketsgo/web-kit';
-import { dateTime } from '@/lib/format';
+import { useTranslations } from 'next-intl';
+import { useFormat } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 
 const TYPE_ICON: Record<WalletItemType, LucideIcon> = {
@@ -50,6 +51,8 @@ export function WalletCard({
   item: WalletItem;
   onPreview?: (item: WalletItem) => void;
 }) {
+  const wc = useTranslations('storefront.walletCard');
+  const { dateTime } = useFormat();
   const Icon = TYPE_ICON[item.icon] ?? TicketIcon;
   const tone = TONE[item.statusTone];
   const pct = item.progress ? Math.round((item.progress.done / item.progress.total) * 100) : 0;
@@ -95,7 +98,7 @@ export function WalletCard({
           )}
           {item.expiresAt && !item.startsAt && (
             <span className="text-caption text-text-muted">
-              · expires {dateTime(item.expiresAt)}
+              · {wc('expires', { when: dateTime(item.expiresAt) })}
             </span>
           )}
         </div>

@@ -24,7 +24,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { fetchTicketWithOffline } from '@/lib/offline/sync';
-import { dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
@@ -39,14 +39,23 @@ const WalletPasses = dynamic(
   { ssr: false, loading: () => null },
 );
 
-const QR_FALLBACK =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#f1f5f9"/><text x="60" y="64" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">QR unavailable</text></svg>',
+/** The placeholder drawn when a QR image fails, in the reader's language. */
+function qrFallback(text: string): string {
+  const safe = text.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" fill="#f1f5f9"/><text x="60" y="64" font-family="sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">${safe}</text></svg>`,
+    )
   );
+}
 
 export default function TicketDetailPage() {
   const w = useTranslations('storefront.wallet');
+  const td = useTranslations('storefront.ticketDetail');
+  const b = useTranslations('storefront.bookingTickets');
+  const tx = useTranslations('common');
+  const { dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
   const mounted = useMounted();
   const { ticketId } = useParams<{ ticketId: string }>();
@@ -100,7 +109,7 @@ export default function TicketDetailPage() {
       currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
     });
     setSaved(nowSaved);
-    toast.push(nowSaved ? 'Saved to wishlist' : 'Removed from wishlist', 'success');
+    toast.push(nowSaved ? td('savedToWishlist') : td('removedFromWishlist'), 'success');
   };
 
   const share = async () => {
@@ -115,12 +124,7 @@ export default function TicketDetailPage() {
   };
 
   if (ticketQ.isError)
-    return (
-      <ErrorState
-        message="We couldn't load this ticket. Please try again."
-        onRetry={() => ticketQ.refetch()}
-      />
-    );
+    return <ErrorState message={td('loadError')} onRetry={() => ticketQ.refetch()} />;
   if (ticketQ.isLoading || !ticket) return <Skeleton className="h-96 w-full" />;
 
   const zone = ticket.timezone ?? event?.venue.timezone ?? undefined;
@@ -129,11 +133,12 @@ export default function TicketDetailPage() {
     ? `${event.venue.address ? `${event.venue.address}, ` : ''}${event.venue.city}, ${event.venue.country}`
     : '';
   const mapsQuery = event ? `${event.venue.name}, ${event.venue.city}` : ticket.event.title;
+  const fallback = qrFallback(w('qrUnavailable'));
 
   const ics = buildIcsDataUrl({
     title: ticket.event.title,
     location: venueName ? `${venueName}, ${event?.venue.city}` : undefined,
-    description: `Your ETicketsGo ticket ${ticket.serial}`,
+    description: td('calendarDescription', { serial: ticket.serial }),
     start: ticket.startsAt,
   });
 
@@ -143,7 +148,7 @@ export default function TicketDetailPage() {
         onClick={() => router.push('/account/tickets')}
         className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
       >
-        <ArrowLeft className="h-4 w-4" /> All tickets
+        <ArrowLeft className="h-4 w-4" /> {b('allTickets')}
       </button>
 
       {/* Artwork + countdown */}
@@ -152,18 +157,18 @@ export default function TicketDetailPage() {
           className={`relative flex h-44 items-end bg-gradient-to-br p-6 ${gradientFor(ticket.id)}`}
         >
           <div>
-            <Badge tone="info">{event?.category ?? 'Event'}</Badge>
+            <Badge tone="info">{event?.category ?? td('categoryFallback')}</Badge>
             <h1 className="mt-2 text-h3 font-bold tracking-tight text-text-primary">
               {ticket.event.title}
             </h1>
             <p className="mt-1 flex items-center gap-1.5 text-[0.9375rem] text-text-secondary">
-              <MapPin className="h-4 w-4" /> {venueName || 'Venue TBA'}
+              <MapPin className="h-4 w-4" /> {venueName || td('venueTba')}
             </p>
           </div>
           <div className="absolute right-4 top-4 flex gap-2">
             <button
               onClick={toggleSave}
-              aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
+              aria-label={saved ? td('removeFromWishlist') : td('saveToWishlist')}
               aria-pressed={saved}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-background-surface/90 text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
@@ -171,31 +176,29 @@ export default function TicketDetailPage() {
             </button>
             <button
               onClick={share}
-              aria-label="Share"
+              aria-label={tx('action.share')}
               className="flex h-9 items-center gap-1.5 rounded-full bg-background-surface/90 px-3 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
-              <Share2 className="h-3.5 w-3.5" /> {shared ? 'Copied!' : 'Share'}
+              <Share2 className="h-3.5 w-3.5" /> {shared ? td('copied') : tx('action.share')}
             </button>
           </div>
         </div>
         <div className="border-t border-border bg-background-surface px-6 py-4">
           {countdown.isPast ? (
-            <p className="text-[0.9375rem] font-medium text-text-muted">
-              This event has taken place.
-            </p>
+            <p className="text-[0.9375rem] font-medium text-text-muted">{td('pastEvent')}</p>
           ) : (
             <div className="flex items-center gap-4">
               <span className="text-caption uppercase tracking-wide text-text-muted">
-                Starts in
+                {td('startsIn')}
               </span>
               <div className="flex gap-3 tabular-nums">
                 {[
-                  { v: countdown.days, l: 'days' },
-                  { v: countdown.hours, l: 'hrs' },
-                  { v: countdown.minutes, l: 'min' },
-                  { v: countdown.seconds, l: 'sec' },
+                  { k: 'd', v: countdown.days, l: td('unitDays') },
+                  { k: 'h', v: countdown.hours, l: td('unitHours') },
+                  { k: 'm', v: countdown.minutes, l: td('unitMinutes') },
+                  { k: 's', v: countdown.seconds, l: td('unitSeconds') },
                 ].map((u) => (
-                  <div key={u.l} className="text-center">
+                  <div key={u.k} className="text-center">
                     <span className="block text-title font-bold text-text-primary">
                       {String(u.v).padStart(2, '0')}
                     </span>
@@ -219,11 +222,11 @@ export default function TicketDetailPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               // A vendor barcode the server cannot draw arrives as null: show the fallback.
-              src={ticket.qrDataUrl ?? QR_FALLBACK}
-              alt={`QR code for ticket ${ticket.serial}`}
+              src={ticket.qrDataUrl ?? fallback}
+              alt={b('qrAlt', { serial: ticket.serial })}
               onError={(e) => {
                 const img = e.currentTarget;
-                if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+                if (img.src !== fallback) img.src = fallback;
               }}
               className="relative h-52 w-52 rounded-2xl bg-white p-2"
             />
@@ -245,7 +248,9 @@ export default function TicketDetailPage() {
           ) : null}
         </p>
         {ticket.holderName && (
-          <p className="text-caption text-text-muted">Holder: {ticket.holderName}</p>
+          <p className="text-caption text-text-muted">
+            {td('holder', { name: ticket.holderName })}
+          </p>
         )}
       </div>
 
@@ -256,7 +261,7 @@ export default function TicketDetailPage() {
           download={`${ticket.event.slug}.ics`}
           className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
-          <CalendarPlus className="h-4 w-4" /> Add to calendar
+          <CalendarPlus className="h-4 w-4" /> {tx('action.addToCalendar')}
         </a>
         <a
           href={googleDirectionsUrl(mapsQuery)}
@@ -264,7 +269,7 @@ export default function TicketDetailPage() {
           rel="noreferrer"
           className="flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
         >
-          <Navigation className="h-4 w-4" /> Directions
+          <Navigation className="h-4 w-4" /> {td('directions')}
         </a>
         <a
           href={googleMapsUrl(mapsQuery)}
@@ -272,7 +277,7 @@ export default function TicketDetailPage() {
           rel="noreferrer"
           className="col-span-2 flex items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-3 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas sm:col-span-1"
         >
-          <MapPin className="h-4 w-4" /> View venue
+          <MapPin className="h-4 w-4" /> {td('viewVenue')}
         </a>
       </div>
 
@@ -282,18 +287,14 @@ export default function TicketDetailPage() {
       {/* Venue + placeholders */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:col-span-3">
-          <p className="font-semibold text-text-primary">{venueName || 'Venue'}</p>
+          <p className="font-semibold text-text-primary">{venueName || td('venue')}</p>
           <p className="mt-1 text-[0.9375rem] text-text-muted">
-            {venueLine || 'Details to follow.'}
+            {venueLine || td('detailsToFollow')}
           </p>
         </div>
-        <Placeholder icon={CloudSun} title="Weather" note="Forecast appears closer to the event." />
-        <Placeholder
-          icon={ParkingCircle}
-          title="Parking"
-          note="Check with the venue for parking."
-        />
-        <Placeholder icon={Navigation} title="Getting there" note="Directions available above." />
+        <Placeholder icon={CloudSun} title={td('weather')} note={td('weatherNote')} />
+        <Placeholder icon={ParkingCircle} title={td('parking')} note={td('parkingNote')} />
+        <Placeholder icon={Navigation} title={td('gettingThere')} note={td('gettingThereNote')} />
       </div>
 
       {/* Status timeline */}
@@ -326,18 +327,19 @@ function Placeholder({
 }
 
 function Timeline({ status }: { status: string }) {
+  const td = useTranslations('storefront.ticketDetail');
   const refunded = status === 'REFUNDED' || status === 'CANCELLED' || status === 'VOID';
   const steps = [
-    { key: 'ISSUED', label: 'Ticket issued', done: true },
+    { key: 'ISSUED', label: td('timeline.issued'), done: true },
     {
       key: 'ACTIVE',
-      label: refunded ? 'Cancelled' : 'Ready to use',
+      label: refunded ? td('timeline.cancelled') : td('timeline.ready'),
       done: status === 'ACTIVE' || status === 'CHECKED_IN' || refunded,
       tone: refunded ? ('error' as const) : ('success' as const),
     },
     {
       key: 'CHECKED_IN',
-      label: 'Checked in',
+      label: td('timeline.checkedIn'),
       done: status === 'CHECKED_IN',
       tone: 'info' as const,
     },

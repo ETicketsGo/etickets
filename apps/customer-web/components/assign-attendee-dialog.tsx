@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Mail, UserPlus } from 'lucide-react';
-import { useLocale } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { errorMessage, useToast, type WalletTicket } from '@eticketsgo/web-kit';
 import type { Locale } from '@eticketsgo/i18n';
 import { api } from '@/lib/api';
@@ -25,6 +25,9 @@ export function AssignAttendeeDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations('storefront.assignAttendee');
+  const sc = useTranslations('storefront.common');
+  const tx = useTranslations('common');
   const qc = useQueryClient();
   const toast = useToast();
   const locale = useLocale() as Locale;
@@ -57,7 +60,7 @@ export function AssignAttendeeDialog({
         `${window.location.origin}${getPathname({ href: `/invite/${res.token}`, locale })}`,
       );
       invalidate();
-      toast.push('Invitation sent.', 'success');
+      toast.push(t('invitedToast'), 'success');
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -66,7 +69,7 @@ export function AssignAttendeeDialog({
     mutationFn: () => api.assignAttendee(ticket.id, { name, email, phone: phone || undefined }),
     onSuccess: () => {
       invalidate();
-      toast.push('Attendee assigned.', 'success');
+      toast.push(t('assignedToast'), 'success');
       close();
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -83,31 +86,30 @@ export function AssignAttendeeDialog({
   const pending = invite.isPending || assign.isPending;
 
   return (
-    <Dialog open={open} onClose={close} title="Assign this ticket">
+    <Dialog open={open} onClose={close} title={t('title')}>
       {inviteLink ? (
         <div className="space-y-4">
           <p className="text-[0.9375rem] text-text-secondary">
-            We’ve emailed <span className="font-medium text-text-primary">{email}</span> a claim
-            link. You can also share it directly:
+            {t.rich('emailedLink', {
+              email,
+              strong: (chunks) => <span className="font-medium text-text-primary">{chunks}</span>,
+            })}
           </p>
           <div className="flex items-center gap-2">
             <input
               readOnly
               value={inviteLink}
-              aria-label="Invitation link"
+              aria-label={t('inviteLinkLabel')}
               className="min-w-0 flex-1 rounded-md border border-border bg-background-subtle px-3 py-2 font-mono text-caption text-text-secondary"
             />
             <Button variant="outline" size="sm" onClick={copyLink}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? sc('copied') : sc('copy')}
             </Button>
           </div>
-          <p className="text-caption text-text-muted">
-            When they accept, the ticket moves to their wallet and its QR is refreshed — the old
-            code stops working.
-          </p>
+          <p className="text-caption text-text-muted">{t('acceptNote')}</p>
           <div className="flex justify-end">
-            <Button onClick={close}>Done</Button>
+            <Button onClick={close}>{tx('action.done')}</Button>
           </div>
         </div>
       ) : (
@@ -115,7 +117,7 @@ export function AssignAttendeeDialog({
           {/* Mode switch */}
           <div
             role="tablist"
-            aria-label="Assignment method"
+            aria-label={t('methodLabel')}
             className="grid grid-cols-2 gap-1 rounded-lg bg-background-subtle p-1"
           >
             {(['invite', 'assign'] as Mode[]).map((m) => (
@@ -135,50 +137,48 @@ export function AssignAttendeeDialog({
                 ) : (
                   <UserPlus className="h-3.5 w-3.5" />
                 )}
-                {m === 'invite' ? 'Invite by email' : 'Assign directly'}
+                {m === 'invite' ? t('inviteTab') : t('assignTab')}
               </button>
             ))}
           </div>
 
           <Input
             id="attendee-email"
-            label="Attendee email"
+            label={t('email')}
             type="email"
-            placeholder="friend@example.com"
+            placeholder={t('emailPlaceholder')}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
           <Input
             id="attendee-name"
-            label={mode === 'assign' ? 'Attendee name' : 'Attendee name (optional)'}
+            label={mode === 'assign' ? t('name') : t('nameOptional')}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
           {mode === 'assign' && (
             <Input
               id="attendee-phone"
-              label="Phone (optional)"
+              label={t('phoneOptional')}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
           )}
 
           <p className="text-caption text-text-muted">
-            {mode === 'invite'
-              ? 'They’ll get a link to claim the ticket into their own wallet.'
-              : 'Sets the attendee on this ticket without an invitation.'}
+            {mode === 'invite' ? t('inviteHint') : t('assignHint')}
           </p>
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={close}>
-              Cancel
+              {tx('action.cancel')}
             </Button>
             <Button
               loading={pending}
               disabled={!emailValid || (mode === 'assign' && name.trim().length < 1)}
               onClick={() => (mode === 'invite' ? invite.mutate() : assign.mutate())}
             >
-              {mode === 'invite' ? 'Send invitation' : 'Assign attendee'}
+              {mode === 'invite' ? t('send') : t('assign')}
             </Button>
           </div>
         </div>

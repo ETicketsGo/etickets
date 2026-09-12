@@ -28,12 +28,16 @@ import {
   couponValueError,
   couponValueToApi,
   couponValueToInput,
+  sellingCurrencies,
+  storedCouponCurrency,
 } from '@/lib/coupon-value';
 
 interface FormState {
   code: string;
   type: 'PERCENT' | 'FIXED';
   value: string;
+  /** Empty until chosen: a new code is in the currency most of the venues sell in. */
+  currency: string;
   maxRedemptions: string;
   startsAt: string;
   endsAt: string;
@@ -44,6 +48,7 @@ const EMPTY: FormState = {
   code: '',
   type: 'PERCENT',
   value: '',
+  currency: '',
   maxRedemptions: '',
   startsAt: '',
   endsAt: '',
@@ -71,16 +76,20 @@ export default function PromotionsPage() {
     queryFn: () => api.coupons.list(activeOrg.id, { page, pageSize: 20 }),
   });
   /*
-    The currency a fixed amount is typed and shown in. A code has no currency column — it comes
-    off whatever booking it is applied to — so this is the one the organization's venues sell in.
+    The currencies a fixed amount can be written in: the ones the organization's venues sell in,
+    most venues first. A fixed code comes off only bookings in its own currency, so a code in any
+    other would be accepted and then refused at every checkout — the API refuses it too.
   */
   const venuesQ = useQuery({
     queryKey: ['venues', activeOrg.id],
     queryFn: () => api.venues.list(activeOrg.id),
   });
-  const { currency, mixed: sellsInSeveralCurrencies } = couponCurrency(
-    (venuesQ.data ?? []).map((v) => currencyForCountry(v.country)),
-  );
+  const venueCurrencies = (venuesQ.data ?? []).map((v) => currencyForCountry(v.country));
+  const { currency: mainCurrency } = couponCurrency(venueCurrencies);
+  // The currency the form is in: the one chosen, or the main one for a new code.
+  const formCurrency = form.currency || mainCurrency;
+  // A code being edited keeps its own currency on the list even if no venue sells in it now.
+  const currencyOptions = [...new Set([...sellingCurrencies(venueCurrencies), formCurrency])];
 
   const validate = (): boolean => {
     const e: Record<string, string> = {};
@@ -101,6 +110,8 @@ export default function PromotionsPage() {
   const save = useMutation({
     mutationFn: async () => {
       const iso = (s: string) => (s ? new Date(s).toISOString() : undefined);
+      // Only a fixed amount is money; a percentage means the same in every currency.
+      const currency = form.type === 'FIXED' ? { currency: formCurrency } : {};
       if (dialog === 'create') {
         return api.coupons.create({
           organizationId: activeOrg.id,
@@ -108,6 +119,7 @@ export default function PromotionsPage() {
           type: form.type,
           // Minor units for a fixed amount — see `couponValueToApi`.
           value: couponValueToApi(form.type, form.value),
+          ...currency,
           maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : undefined,
           startsAt: iso(form.startsAt),
           endsAt: iso(form.endsAt),
@@ -117,6 +129,7 @@ export default function PromotionsPage() {
       }
       return api.coupons.update(editing!.id, {
         value: couponValueToApi(form.type, form.value),
+        ...currency,
         maxRedemptions: form.maxRedemptions ? Number(form.maxRedemptions) : null,
         startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
         endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
@@ -167,6 +180,7 @@ export default function PromotionsPage() {
       code: c.code,
       type: c.type,
       value: couponValueToInput(c.type, c.value),
+      currency: c.type === 'FIXED' ? storedCouponCurrency(c.currency) : '',
       maxRedemptions: c.maxRedemptions != null ? String(c.maxRedemptions) : '',
       isPublic: Boolean(c.isPublic),
       publicLabel: c.publicLabel ?? '',
@@ -189,7 +203,9 @@ export default function PromotionsPage() {
     {
       key: 'discount',
       header: 'Discount',
-      render: (c) => (c.type === 'PERCENT' ? `${c.value}%` : money(c.value, currency)),
+      // Each code in its own currency: a rupee code and a dollar code can sit side by side.
+      render: (c) =>
+        c.type === 'PERCENT' ? `${c.value}%` : money(c.value, storedCouponCurrency(c.currency)),
     },
     {
       key: 'used',
@@ -312,7 +328,9 @@ export default function PromotionsPage() {
             <Input
               id="value"
               label={
-                form.type === 'PERCENT' ? 'Percent (1–100)' : `Amount (${currencySymbol(currency)})`
+                form.type === 'PERCENT'
+                  ? 'Percent (1–100)'
+                  : `Amount (${currencySymbol(formCurrency)})`
               }
               type="number"
               min={0}
@@ -322,11 +340,26 @@ export default function PromotionsPage() {
               onChange={(e) => setForm({ ...form, value: e.target.value })}
             />
           </div>
-          {form.type === 'FIXED' && sellsInSeveralCurrencies && (
-            <p className="text-caption text-text-muted">
-              Your venues sell in more than one currency. The amount comes off each booking in that
-              booking&rsquo;s own currency.
-            </p>
+          {form.type === 'FIXED' && currencyOptions.length > 1 && (
+            <>
+              <Select
+                id="currency"
+                label="Currency"
+                value={formCurrency}
+                onChange={(e) => setForm({ ...form, currency: e.target.value })}
+              >
+                {currencyOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-caption text-text-muted">
+                Your venues sell in more than one currency. A fixed amount comes off bookings in
+                this currency only &mdash; create a separate code for each currency you want to
+                discount.
+              </p>
+            </>
           )}
           <Input
             id="max"

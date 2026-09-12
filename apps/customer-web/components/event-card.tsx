@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
 import { apiAssetUrl, gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
-import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
 import { Badge } from './ui';
 import { Link } from '@/i18n/navigation';
@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 
 export function EventCard({ event }: { event: PaginatedEvents['data'][number] }) {
   const t = useTranslations('common.state');
+  const { money, dateTime, zoneAbbrev } = useFormat();
   const toast = useToast();
   const [saved, setSaved] = useState(false);
   useEffect(() => setSaved(isSaved(event.id)), [event.id]);

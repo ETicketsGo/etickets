@@ -413,6 +413,16 @@ export const api = {
     list: () => request<Paged<BookingSummary>>('/bookings?pageSize=50'),
     get: (id: string) => request<BookingDetail>(`/bookings/${id}`),
     pay: (id: string) => request<PayResult>(`/bookings/${id}/pay`, { method: 'POST' }),
+    /**
+     * Cancel the signed-in buyer's own unpaid booking, releasing what it holds at once.
+     *
+     * Only a booking still awaiting payment: a paid one is refused, and its tickets go back
+     * through a refund request instead.
+     */
+    cancel: (id: string) =>
+      request<{ id: string; status: string; refundPending: boolean }>(`/bookings/${id}/cancel`, {
+        method: 'POST',
+      }),
   },
 
   payments: {
@@ -997,7 +1007,8 @@ export const api = {
     duplicate: (id: string) => request<OrgEventRow>(`/events/${id}/duplicate`, { method: 'POST' }),
     promotion: (id: string) => request<EventPromotion>(`/events/${id}/promotion`),
     pause: (id: string) => request<OrgEventDetail>(`/events/${id}/pause`, { method: 'POST' }),
-    resume: (id: string) => request<OrgEventDetail>(`/events/${id}/resume`, { method: 'POST' }),
+    /** Refused (403) for an event the platform team paused. May land UNDER_REVIEW, not live. */
+    resume: (id: string) => request<EventResumeResult>(`/events/${id}/resume`, { method: 'POST' }),
     orders: (id: string, params: PageParams & { status?: string; q?: string }) =>
       request<Paged<OrderRow>>(`/events/${id}/orders${qs(params)}`),
     attendees: (
@@ -1153,7 +1164,10 @@ export const api = {
 
   refunds: {
     request: (body: { bookingId: string; reason: string; ticketIds?: string[] }) =>
-      request<RefundRow>('/refunds', { method: 'POST', body: JSON.stringify(body) }),
+      request<RefundRow | FreeCancellationResult>('/refunds', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
     forBooking: (bookingId: string) => request<RefundRow[]>(`/refunds/booking/${bookingId}`),
     process: (id: string, decision: 'APPROVE' | 'REJECT') =>
       request<RefundRow>(`/refunds/${id}/process`, {
@@ -2484,6 +2498,12 @@ export interface Coupon {
   code: string;
   type: CouponType;
   value: number;
+  /**
+   * What a FIXED `value` is in minor units of; it applies only to bookings in this currency.
+   * Null for PERCENT, and for a FIXED code from before coupons carried one — the checkout
+   * applies that to INR bookings only.
+   */
+  currency: string | null;
   maxRedemptions: number | null;
   redemptions: number;
   startsAt: string | null;
@@ -2500,6 +2520,8 @@ export interface CreateCouponBody {
   code: string;
   type: CouponType;
   value: number;
+  /** For FIXED only. Omitted, the API uses the currency the organization's venues sell in. */
+  currency?: string;
   maxRedemptions?: number;
   /** Show this code to every buyer at checkout. Off unless deliberately set. */
   isPublic?: boolean;
@@ -2509,6 +2531,8 @@ export interface CreateCouponBody {
 }
 export interface UpdateCouponBody {
   value?: number;
+  /** For FIXED only; ignored for PERCENT. */
+  currency?: string;
   maxRedemptions?: number | null;
   isPublic?: boolean;
   publicLabel?: string | null;
@@ -3019,7 +3043,13 @@ export interface OrgEventDetail {
   images?: OrgEventImage[];
   /** Bookings of any status. An event with none can be deleted. */
   _count?: { bookings: number };
+  /** Reviewed details changed while paused: resuming sends it to review unless the org is trusted. */
+  needsReviewOnResume?: boolean;
+  /** Paused by the platform team, so only they can resume it. */
+  pausedByAdmin?: boolean;
 }
+/** What resuming did: `sentForReview` when edits made while paused sent it to the review queue. */
+export type EventResumeResult = OrgEventDetail & { sentForReview: boolean };
 export interface CreateEventBody {
   organizationId: string;
   venueId: string;
@@ -3375,6 +3405,18 @@ export interface CheckInOutcome {
     reference: string | null;
     seatLabel: string | null;
   };
+}
+
+/**
+ * What a refund request on a FREE booking answers with: its tickets are cancelled at once and
+ * no refund row exists, so there is no refund `id` to read — narrow on `outcome` first.
+ */
+export interface FreeCancellationResult {
+  outcome: 'CANCELLED';
+  bookingId: string;
+  bookingStatus: string;
+  ticketIds: string[];
+  amountMinor: 0;
 }
 
 export interface RefundRow {

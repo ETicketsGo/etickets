@@ -2,20 +2,17 @@
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { FileText, Heart, Receipt, Ticket, UserRound, Users, ChevronRight } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
 import { useMounted } from '@/lib/use-mounted';
 
+/** Each entry's words live at `storefront.accountHome.links.<key>`. */
 const LINKS = [
-  {
-    href: '/account/bookings',
-    label: 'My bookings',
-    hint: 'Order history & refunds',
-    icon: Receipt,
-  },
-  { href: '/account/tickets', label: 'My tickets', hint: 'Your QR passes', icon: Ticket },
+  { key: 'bookings', href: '/account/bookings', icon: Receipt },
+  { key: 'tickets', href: '/account/tickets', icon: Ticket },
   /*
     Its own entry rather than something inside a booking.
 
@@ -23,18 +20,14 @@ const LINKS = [
     thinking about which booking it belonged to — they are thinking "where are my receipts".
     Filed under the booking it is only findable by somebody who already remembers the trip.
   */
-  {
-    href: '/account/receipts',
-    label: 'Receipts',
-    hint: 'Invoices for your bookings',
-    icon: FileText,
-  },
-  { href: '/account/saved', label: 'Saved events', hint: 'Your wishlist', icon: Heart },
-  { href: '/account/following', label: 'Following', hint: 'Organizers you follow', icon: Users },
-  { href: '/account/profile', label: 'Profile', hint: 'Name & account details', icon: UserRound },
-];
+  { key: 'receipts', href: '/account/receipts', icon: FileText },
+  { key: 'saved', href: '/account/saved', icon: Heart },
+  { key: 'following', href: '/account/following', icon: Users },
+  { key: 'profile', href: '/account/profile', icon: UserRound },
+] as const;
 
 export default function AccountPage() {
+  const t = useTranslations('storefront.accountHome');
   const router = useRouter();
   const mounted = useMounted();
   useEffect(() => {
@@ -52,19 +45,17 @@ export default function AccountPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Account</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Manage your bookings, tickets, and details.
-        </p>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{t('lead')}</p>
       </div>
       {bookings && (bookings.upcoming > 0 || bookings.past > 0) && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
-            <p className="text-caption text-text-muted">Upcoming bookings</p>
+            <p className="text-caption text-text-muted">{t('upcomingBookings')}</p>
             <p className="mt-1 text-h3 font-bold text-text-primary">{bookings.upcoming}</p>
           </div>
           <div className="rounded-lg border border-border bg-background-surface p-5 shadow-sm">
-            <p className="text-caption text-text-muted">Past bookings</p>
+            <p className="text-caption text-text-muted">{t('pastBookings')}</p>
             <p className="mt-1 text-h3 font-bold text-text-primary">{bookings.past}</p>
           </div>
         </div>
@@ -84,8 +75,8 @@ export default function AccountPage() {
                 </span>
                 <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
               </div>
-              <p className="mt-4 font-semibold text-text-primary">{l.label}</p>
-              <p className="mt-0.5 text-caption text-text-muted">{l.hint}</p>
+              <p className="mt-4 font-semibold text-text-primary">{t(`links.${l.key}.label`)}</p>
+              <p className="mt-0.5 text-caption text-text-muted">{t(`links.${l.key}.hint`)}</p>
             </Link>
           );
         })}

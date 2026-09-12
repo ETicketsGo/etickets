@@ -13,6 +13,8 @@ export interface PendingBookingToExpire {
   items: { ticketTypeId: string | null; addOnId: string | null; quantity: number }[];
 }
 
+type ReleaseDeps = { inventory: InventoryService; addOnInventory: AddOnInventoryService };
+
 /**
  * Expire one unpaid booking and return what it held — exactly once.
  *
@@ -40,7 +42,35 @@ export interface PendingBookingToExpire {
 export async function expirePendingBooking(
   tx: Prisma.TransactionClient,
   booking: PendingBookingToExpire,
-  deps: { inventory: InventoryService; addOnInventory: AddOnInventoryService },
+  deps: ReleaseDeps,
+  lapsedBefore?: Date,
+): Promise<boolean> {
+  return releasePendingBooking(tx, booking, deps, BookingStatus.EXPIRED, lapsedBefore);
+}
+
+/**
+ * Cancel one unpaid booking at its buyer's request and return what it held — exactly once.
+ *
+ * The same claim-first release as expiry, ending CANCELLED rather than EXPIRED so the buyer's
+ * history says they let it go rather than that it ran out. There is no `lapsedBefore`: the
+ * buyer may cancel at any point while the booking still awaits payment, and a double-click, a
+ * sweep or a confirmation that got there first leaves this call claiming nothing.
+ *
+ * Returns whether this call cancelled the booking.
+ */
+export async function cancelPendingBooking(
+  tx: Prisma.TransactionClient,
+  booking: PendingBookingToExpire,
+  deps: ReleaseDeps,
+): Promise<boolean> {
+  return releasePendingBooking(tx, booking, deps, BookingStatus.CANCELLED);
+}
+
+async function releasePendingBooking(
+  tx: Prisma.TransactionClient,
+  booking: PendingBookingToExpire,
+  deps: ReleaseDeps,
+  outcome: typeof BookingStatus.EXPIRED | typeof BookingStatus.CANCELLED,
   lapsedBefore?: Date,
 ): Promise<boolean> {
   const claimed = await tx.booking.updateMany({
@@ -49,7 +79,7 @@ export async function expirePendingBooking(
       status: BookingStatus.PENDING_PAYMENT,
       ...(lapsedBefore ? { holdExpiresAt: { lt: lapsedBefore } } : {}),
     },
-    data: { status: BookingStatus.EXPIRED, cancelledAt: new Date() },
+    data: { status: outcome, cancelledAt: new Date() },
   });
   if (claimed.count !== 1) return false;
 

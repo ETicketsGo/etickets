@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MonitorPlay, Armchair, X, Clock, ChevronLeft, Accessibility } from 'lucide-react';
 import { currencyForCountry, useToast, VenueMap } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
-import { money } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { PriceBreakdown } from '@/components/price-breakdown';
@@ -80,6 +80,7 @@ export default function SeatSelectionPage() {
   const sf = useTranslations('storefront');
   const s = useTranslations('storefront.seats');
   const k = useTranslations('storefront.checkout');
+  const { money } = useFormat();
   const { sessionId } = useParams<{ sessionId: string }>();
 
   /** A seat's state in words, for its accessible name. Anything unrecognised is unavailable. */

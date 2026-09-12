@@ -190,6 +190,13 @@
     "buyerRegionHint": "Facultatif. Sert uniquement à indiquer le lieu de fourniture sur votre facture — le montant à payer ne change pas.",
     "buyerRegionNone": "Je préfère ne pas répondre",
     "buyerRegionPrefilled": "Rempli à partir de votre dernière réservation.",
+    "cancelBooking": "Annuler la réservation",
+    "cancelBookingTitle": "Annuler cette réservation?",
+    "cancelBookingBody": "Les billets retenus pour vous seront libérés et aucun montant ne vous sera facturé. Si vous venez de payer, attendez plutôt votre confirmation.",
+    "keepBooking": "Garder ma réservation",
+    "confirmCancelBooking": "Oui, l’annuler",
+    "bookingCancelled": "Réservation annulée. Les billets retenus pour vous ont été libérés.",
+    "cancelFailed": "Nous n’avons pas pu annuler cette réservation. Veuillez réessayer.",
     "failure": {
       "INTERNATIONAL_CARD_NOT_ACCEPTED": "Cette carte a été émise hors de l’Inde et n’est pas acceptée pour ce paiement. Essayez une carte émise en Inde, ou choisissez les services bancaires en ligne ou un portefeuille dans la fenêtre de paiement.",
       "CARD_DECLINED": "Votre banque a refusé cette carte. Essayez une autre carte ou un autre mode de paiement.",
@@ -274,7 +281,17 @@
     "refundEligibility": "L’admissibilité suit la politique de remboursement de l’événement. Nous examinerons votre demande.",
     "refundReasonPlaceholder": "Raison du remboursement…",
     "requestRefundButton": "Demander le remboursement",
-    "refundRequestedToast": "Remboursement demandé. Nous l’examinerons sous peu."
+    "refundRequestedToast": "Remboursement demandé. Nous l’examinerons sous peu.",
+    "unpaidTitle": "Paiement non complété",
+    "unpaidBody": "Ces billets sont retenus pour vous jusqu’à la fin de la retenue. Annulez maintenant pour les libérer pour quelqu’un d’autre.",
+    "confirmCancelBookingTitle": "Annuler cette réservation? Cette action est irréversible.",
+    "confirmCancelBooking": "Oui, l’annuler",
+    "keepBooking": "Garder ma réservation",
+    "bookingCancelledToast": "Réservation annulée. Les billets retenus pour vous ont été libérés.",
+    "cancelTickets": "Annuler les billets",
+    "cancelTicketsBody": "Cette réservation était gratuite; il n’y a donc rien à rembourser. L’annulation libère vos billets pour quelqu’un d’autre et est irréversible.",
+    "cancelReasonPlaceholder": "Pourquoi annulez-vous? (facultatif)",
+    "ticketsCancelledToast": "Billets annulés."
   },
   "language": {
     "switchTo": "Passer à {language}",
@@ -488,5 +505,271 @@
   "common": {
     "copy": "Copier",
     "copied": "Copié"
+  },
+  "ticketDetail": {
+    "loadError": "Nous n’avons pas pu charger ce billet. Veuillez réessayer.",
+    "savedToWishlist": "Ajouté à vos favoris",
+    "removedFromWishlist": "Retiré de vos favoris",
+    "saveToWishlist": "Ajouter aux favoris",
+    "removeFromWishlist": "Retirer des favoris",
+    "copied": "Lien copié!",
+    "categoryFallback": "Événement",
+    "venueTba": "Lieu à confirmer",
+    "pastEvent": "Cet événement a eu lieu.",
+    "startsIn": "Commence dans",
+    "unitDays": "jours",
+    "unitHours": "h",
+    "unitMinutes": "min",
+    "unitSeconds": "s",
+    "holder": "Titulaire : {name}",
+    "directions": "Itinéraire",
+    "viewVenue": "Voir le lieu",
+    "venue": "Lieu",
+    "detailsToFollow": "Détails à venir.",
+    "weather": "Météo",
+    "weatherNote": "Les prévisions s’afficheront à l’approche de l’événement.",
+    "parking": "Stationnement",
+    "parkingNote": "Renseignez-vous auprès du lieu pour le stationnement.",
+    "gettingThere": "S’y rendre",
+    "gettingThereNote": "L’itinéraire est offert ci-dessus.",
+    "calendarDescription": "Votre billet ETicketsGo {serial}",
+    "timeline": {
+      "issued": "Billet émis",
+      "ready": "Prêt à utiliser",
+      "cancelled": "Annulé",
+      "checkedIn": "Validé à l’entrée"
+    }
+  },
+  "eventDay": {
+    "dialogLabel": "Mode Jour de l’événement — {title}, billet {index} sur {total}",
+    "exit": "Quitter le mode Jour de l’événement",
+    "offlineVerified": "Hors ligne — dernière vérification : {when}",
+    "offlineEarlier": "plus tôt",
+    "offlineNote": "Ceci est votre laissez-passer enregistré; l’entrée est confirmée par le lecteur à l’entrée.",
+    "brightnessTip": "Augmentez la luminosité de votre écran pour une lecture plus rapide.",
+    "gotIt": "Compris",
+    "ended": "L’événement est terminé",
+    "live": "En cours",
+    "phase": {
+      "upcoming": "Commence dans",
+      "gateOpen": "Ouverture des portes bientôt — commence dans",
+      "doorsOpen": "Portes ouvertes — commence dans"
+    },
+    "days": "{count} j",
+    "type": "Type",
+    "cinema": "Cinéma",
+    "venue": "Lieu",
+    "when": "Date et heure",
+    "screenOn": "L’écran reste allumé",
+    "keepScreenOn": "Gardez votre écran allumé"
+  },
+  "assignAttendee": {
+    "title": "Attribuer ce billet",
+    "emailedLink": "Nous avons envoyé un lien de réclamation à <strong>{email}</strong>. Vous pouvez aussi le partager directement :",
+    "inviteLinkLabel": "Lien d’invitation",
+    "acceptNote": "Dès que la personne accepte, le billet passe dans son portefeuille et son code QR est renouvelé — l’ancien code ne fonctionne plus.",
+    "methodLabel": "Mode d’attribution",
+    "inviteTab": "Inviter par courriel",
+    "assignTab": "Attribuer directement",
+    "email": "Courriel du participant",
+    "emailPlaceholder": "ami@exemple.com",
+    "name": "Nom du participant",
+    "nameOptional": "Nom du participant (facultatif)",
+    "phoneOptional": "Téléphone (facultatif)",
+    "inviteHint": "La personne recevra un lien pour réclamer le billet dans son propre portefeuille.",
+    "assignHint": "Inscrit le participant sur ce billet sans envoyer d’invitation.",
+    "send": "Envoyer l’invitation",
+    "assign": "Attribuer le billet",
+    "invitedToast": "Invitation envoyée.",
+    "assignedToast": "Participant attribué."
+  },
+  "shareDialog": {
+    "title": "Partager cette expérience",
+    "permission": {
+      "VIEW": {
+        "label": "Consultation seulement",
+        "hint": "Voir le billet. Pas de code QR, pas de validation à l’entrée."
+      },
+      "GUEST": {
+        "label": "Accès invité",
+        "hint": "Accès temporaire avec un code QR actif pour entrer."
+      },
+      "TRANSFER": {
+        "label": "Transférer la propriété",
+        "hint": "Donnez le billet; son code QR remplace le vôtre."
+      }
+    },
+    "expiry": {
+      "oneHour": "1 heure",
+      "sixHours": "6 heures",
+      "dayHours": "24 heures",
+      "eventEnd": "Jusqu’à la fin de l’événement",
+      "never": "Jamais"
+    },
+    "createdToast": "Lien de partage créé.",
+    "revokedToast": "Partage révoqué.",
+    "message": "Voici votre billet pour {title} : {link}",
+    "emailSubject": "Billet : {title}",
+    "linkLabel": "Lien de partage",
+    "channelEmail": "Courriel",
+    "scanHint": "Ou faites-leur balayer ce code",
+    "qrAlt": "Code QR du lien de partage",
+    "note": {
+      "TRANSFER": "Dès que la personne accepte, votre code QR est remplacé — l’ancien ne fonctionne plus.",
+      "GUEST": "La personne peut voir le code QR actif et entrer jusqu’à l’expiration du lien. Vous pouvez le révoquer en tout temps.",
+      "VIEW": "Consultation seulement — pas de code QR ni de validation à l’entrée. Vous pouvez le révoquer en tout temps."
+    },
+    "newLink": "Nouveau lien",
+    "whatCan": "Que pourra faire la personne?",
+    "expires": "Expiration du lien",
+    "activeLinks": "Liens actifs",
+    "activeLine": "{permission} · {count, plural, one {# ouverture} other {# ouvertures}}",
+    "revoke": "Révoquer",
+    "create": "Créer le lien"
+  },
+  "sharedTicket": {
+    "unavailableTitle": "Ce lien n’est pas disponible",
+    "sharedWithYou": "Partagé avec vous",
+    "permission": {
+      "GUEST": "Accès invité",
+      "TRANSFER": "Transfert",
+      "VIEW": "Consultation seulement"
+    },
+    "qrAlt": "Code QR du billet",
+    "showAtGate": "Présentez ce code à l’entrée.",
+    "qrHidden": "Le code QR est masqué sur les liens en consultation seulement.",
+    "seat": "Siège",
+    "where": "Lieu",
+    "when": "Date et heure",
+    "reference": "Référence",
+    "takeOwnership": "Devenir propriétaire du billet",
+    "acceptHint": "Acceptez pour placer ce billet dans votre portefeuille avec un nouveau code QR.",
+    "accept": "Accepter le billet",
+    "signInToAccept": "Se connecter pour accepter"
+  },
+  "accountHome": {
+    "heading": "Compte",
+    "lead": "Gérez vos réservations, vos billets et vos renseignements.",
+    "upcomingBookings": "Réservations à venir",
+    "pastBookings": "Réservations passées",
+    "links": {
+      "bookings": {
+        "label": "Mes réservations",
+        "hint": "Historique des commandes et remboursements"
+      },
+      "tickets": { "label": "Mes billets", "hint": "Vos laissez-passer QR" },
+      "receipts": { "label": "Reçus", "hint": "Les factures de vos réservations" },
+      "saved": { "label": "Événements enregistrés", "hint": "Vos favoris" },
+      "following": { "label": "Organisateurs suivis", "hint": "Les organisateurs que vous suivez" },
+      "profile": { "label": "Profil", "hint": "Nom et renseignements du compte" }
+    }
+  },
+  "profile": {
+    "heading": "Profil",
+    "lead": "Gérez les renseignements de votre compte.",
+    "loadError": "Nous n’avons pas pu charger votre profil. Veuillez réessayer.",
+    "fullName": "Nom complet",
+    "email": "Courriel",
+    "save": "Enregistrer les modifications",
+    "updated": "Profil mis à jour."
+  },
+  "becomeOrganizer": {
+    "rateLimited": "Plusieurs organisations ont été créées d’ici récemment. Réessayez dans une heure.",
+    "failed": "Nous n’avons pas pu créer votre organisation. Vérifiez votre connexion et réessayez.",
+    "readyTitle": "Votre organisation est prête",
+    "alreadyTitle": "Vous êtes déjà organisateur",
+    "separateSignIn": "La console des organisateurs demande une connexion distincte : votre mot de passe vous sera redemandé une fois. C’est le même compte — celui-ci.",
+    "openConsole": "Ouvrir la console des organisateurs",
+    "reviewNote": "ETicketsGo examine les nouvelles organisations avant qu’elles puissent vendre. Vous pouvez configurer votre lieu, vos salles et vos représentations pendant ce temps.",
+    "heading": "Devenir organisateur",
+    "lead": "Vendez vos propres billets avec ce même compte. Indiquez-nous le nom de l’entreprise qui les vend — la clientèle le verra sur ses reçus.",
+    "orgName": "Nom de l’organisation",
+    "supportEmail": "Courriel du soutien (facultatif)",
+    "create": "Créer mon organisation",
+    "changedMind": "Vous avez changé d’avis?",
+    "backToAccount": "Retour à votre compte"
+  },
+  "notificationSettings": {
+    "loadError": "Nous n’avons pas pu charger vos paramètres de notification.",
+    "saveError": "Impossible d’enregistrer ce choix. Veuillez réessayer.",
+    "saved": "Enregistré.",
+    "heading": "Paramètres de notification",
+    "lead": "Choisissez comment nous vous joignons. Les avis importants sur vos réservations et vos représentations sont toujours envoyés sur au moins un canal obligatoire, pour que vous ne manquiez jamais une annulation.",
+    "whatsappHeading": "Recevoir les mises à jour de réservation sur WhatsApp",
+    "whatsappLead": "Confirmations de réservation, mises à jour de billets, changements de représentation et suivis de remboursement — envoyés sur WhatsApp. Distinct du marketing : jamais d’offres ni de recommandations.",
+    "whatsappToggleText": "Mises à jour de réservation sur WhatsApp",
+    "whatsappToggleLabel": "Recevoir les mises à jour de réservation sur WhatsApp",
+    "addPhone": "<link>Ajoutez un numéro de téléphone</link> pour recevoir les mises à jour sur WhatsApp.",
+    "whatWeSend": "Ce que nous vous envoyons",
+    "types": {
+      "BOOKING_CONFIRMED": {
+        "title": "Confirmations de réservation",
+        "description": "Vos billets et le détail de ce que vous avez réservé."
+      },
+      "SHOW_CANCELLED": {
+        "title": "Représentations annulées",
+        "description": "Si une représentation pour laquelle vous avez des billets est annulée."
+      },
+      "SHOW_CHANGED": {
+        "title": "Changements d’horaire",
+        "description": "Si l’heure d’une représentation que vous avez réservée change."
+      },
+      "BOOKING_CANCELLED": {
+        "title": "Annulations de réservation",
+        "description": "Une confirmation quand l’une de vos réservations prend fin."
+      },
+      "REFUND_COMPLETED": {
+        "title": "Remboursements",
+        "description": "Quand votre argent est en route vers vous."
+      },
+      "EVENT_REMINDER": {
+        "title": "Rappels",
+        "description": "Un rappel avant une représentation pour laquelle vous avez des billets."
+      }
+    },
+    "channels": {
+      "email": "Courriel",
+      "push": "Notifications",
+      "whatsapp": "WhatsApp",
+      "sms": "SMS"
+    },
+    "emergencyOnly": "SMS — urgences seulement",
+    "emergencyTitle": "Envoyé seulement si rien d’autre ne vous a joint",
+    "channelFor": "{channel} pour {type}",
+    "required": "(obligatoire)",
+    "requiredNote": "Les canaux obligatoires ne peuvent pas être désactivés. Ils transmettent vos billets et tout avis urgent sur une représentation que vous avez réservée.",
+    "offersHeading": "Offres et recommandations",
+    "offersLead": "Entièrement distinct de ce qui précède. Les désactiver n’a aucun effet sur vos billets, vos mises à jour de réservation ni sur une représentation que vous avez payée.",
+    "marketingOn": "Offres par {channel}"
+  },
+  "following": {
+    "heading": "Organisateurs suivis",
+    "lead": "Les organisateurs que vous suivez — ne manquez jamais leur prochaine annonce.",
+    "emptyTitle": "Vous ne suivez encore personne",
+    "emptyHint": "Suivez des organisateurs pour les voir ici.",
+    "loadError": "Nous n’avons pas pu charger les organisateurs que vous suivez. Veuillez réessayer.",
+    "verified": "Vérifié",
+    "since": "Depuis le {date} · {count, plural, one {# événement en vente} other {# événements en vente}}"
+  },
+  "walletCard": {
+    "badgeMovie": "Film",
+    "badgeEvent": "Événement",
+    "viewTicket": "Voir le billet",
+    "viewTickets": "Voir les billets",
+    "where": "Lieu",
+    "reference": "Référence",
+    "expires": "expire le {when}",
+    "allCheckedIn": "Tous validés à l’entrée",
+    "bookingCancelled": "Réservation annulée",
+    "segment": {
+      "refunded": "{count, plural, one {# remboursé} other {# remboursés}}",
+      "cancelled": "{count, plural, one {# annulé} other {# annulés}}",
+      "transferred": "{count, plural, one {# transféré} other {# transférés}}",
+      "checkedIn": "{count, plural, one {# validé à l’entrée} other {# validés à l’entrée}}",
+      "remaining": "{count, plural, one {# restant} other {# restants}}",
+      "active": "{count, plural, one {# actif} other {# actifs}}",
+      "other": "{count, plural, one {# autre} other {# autres}}",
+      "tickets": "{count, plural, one {# billet} other {# billets}}"
+    }
   }
 }

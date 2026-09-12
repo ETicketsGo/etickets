@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, Lock, Sun, WifiOff, X } from 'lucide-react';
 import {
   eventTiming,
@@ -9,15 +10,21 @@ import {
   type BookingGroup,
   type WalletTicket,
 } from '@eticketsgo/web-kit';
-import { dateTime } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { StatusBadge } from '@/components/ui';
 import { useStatusLabel } from '@/lib/status-label';
 
-const QR_FALLBACK =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="#f8fafc"/><text x="120" y="122" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">QR unavailable</text><text x="120" y="144" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Show the ticket ID at the gate</text></svg>',
+/** The placeholder drawn when a QR image fails, in the reader's language. */
+function qrFallback(title: string, hint: string): string {
+  const esc = (s: string) =>
+    s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240"><rect width="240" height="240" fill="#f8fafc"/><text x="120" y="122" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">${esc(title)}</text><text x="120" y="144" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">${esc(hint)}</text></svg>`,
+    )
   );
+}
 
 const BRIGHTNESS_KEY = 'etg_brightness_tip_dismissed';
 const SWIPE = 48;
@@ -45,6 +52,9 @@ export function EventDayMode({
   syncedAt?: number | null;
 }) {
   const current = tickets[index];
+  const e = useTranslations('storefront.eventDay');
+  const b = useTranslations('storefront.bookingTickets');
+  const { dateTime } = useFormat();
   const statusLabel = useStatusLabel();
   const wake = useWakeLock(true);
   const countdown = useCountdown(current?.startsAt);
@@ -92,16 +102,17 @@ export function EventDayMode({
   const place = group.isMovie
     ? [group.cinemaName, group.screenName].filter(Boolean).join(' · ')
     : group.venueName;
+  const fallback = qrFallback(b('qrUnavailable'), b('qrUseTicketId'));
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
+  const onTouchStart = (ev: React.TouchEvent) => {
+    const t = ev.touches[0];
     touchStart.current = { x: t.clientX, y: t.clientY };
   };
-  const onTouchEnd = (e: React.TouchEvent) => {
+  const onTouchEnd = (ev: React.TouchEvent) => {
     const s = touchStart.current;
     touchStart.current = null;
     if (!s) return;
-    const t = e.changedTouches[0];
+    const t = ev.changedTouches[0];
     const dx = t.clientX - s.x;
     if (Math.abs(dx) > SWIPE && Math.abs(dx) > Math.abs(t.clientY - s.y)) {
       onNavigate(dx < 0 ? index + 1 : index - 1);
@@ -113,7 +124,11 @@ export function EventDayMode({
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Event day mode — ${group.title}, ticket ${index + 1} of ${tickets.length}`}
+      aria-label={e('dialogLabel', {
+        title: group.title,
+        index: index + 1,
+        total: tickets.length,
+      })}
       tabIndex={-1}
       className="fixed inset-0 z-[60] flex flex-col bg-background-canvas focus:outline-none"
       style={{ touchAction: 'pan-y' }}
@@ -128,7 +143,7 @@ export function EventDayMode({
         </div>
         <button
           onClick={onExit}
-          aria-label="Exit event day mode"
+          aria-label={e('exit')}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <X className="h-5 w-5" />
@@ -144,25 +159,25 @@ export function EventDayMode({
             className="flex flex-col items-center gap-0.5 bg-tint-warning px-4 py-1.5 text-center text-caption font-medium text-status-warning"
           >
             <span className="flex items-center gap-2">
-              <WifiOff className="h-3.5 w-3.5" /> Offline — last verified{' '}
-              {syncedAt ? dateTime(new Date(syncedAt)) : 'earlier'}
+              <WifiOff className="h-3.5 w-3.5" />{' '}
+              {e('offlineVerified', {
+                when: syncedAt ? dateTime(new Date(syncedAt)) : e('offlineEarlier'),
+              })}
             </span>
-            <span className="font-normal text-status-warning/80">
-              This is your saved pass; entry is confirmed by the scanner at the gate.
-            </span>
+            <span className="font-normal text-status-warning/80">{e('offlineNote')}</span>
           </div>
         )}
         {showBrightnessTip && (
           <div className="flex items-center justify-between gap-3 bg-background-subtle px-4 py-2 text-caption text-text-secondary">
             <span className="flex items-center gap-2">
               <Sun className="h-4 w-4 shrink-0 text-status-warning" />
-              Increase your screen brightness for faster scanning.
+              {e('brightnessTip')}
             </span>
             <button
               onClick={dismissBrightnessTip}
               className="shrink-0 rounded-md px-2 py-1 font-semibold text-action-primary hover:bg-background-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Got it
+              {e('gotIt')}
             </button>
           </div>
         )}
@@ -176,11 +191,11 @@ export function EventDayMode({
           <img
             key={current.id}
             // A vendor barcode the server cannot draw arrives as null: show the fallback.
-            src={current.qrDataUrl ?? QR_FALLBACK}
-            alt={`QR code for ticket ${current.serial}`}
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+            src={current.qrDataUrl ?? fallback}
+            alt={b('qrAlt', { serial: current.serial })}
+            onError={(ev) => {
+              const img = ev.currentTarget;
+              if (img.src !== fallback) img.src = fallback;
             }}
             className="rounded-3xl bg-white p-3 shadow-md"
             style={{ width: 'min(78vw, 58vh)', height: 'min(78vw, 58vh)' }}
@@ -191,22 +206,22 @@ export function EventDayMode({
         {/* Details */}
         <div className="w-full max-w-sm text-center landscape:text-left">
           <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-            Ticket {index + 1} of {tickets.length}
+            {b('ticketOf', { index: index + 1, total: tickets.length })}
           </p>
 
           {/* Countdown */}
           <div className="mt-2">
             {timing.phase === 'ended' ? (
-              <p className="text-title font-semibold text-text-muted">Event has ended</p>
+              <p className="text-title font-semibold text-text-muted">{e('ended')}</p>
             ) : timing.phase === 'live' ? (
-              <p className="text-title font-semibold text-status-success">Happening now</p>
+              <p className="text-title font-semibold text-status-success">{e('live')}</p>
             ) : (
               <div>
                 <p className="text-caption uppercase tracking-wide text-text-muted">
-                  {timing.label}
+                  {e(`phase.${timing.phase}`)}
                 </p>
                 <p className="mt-0.5 text-h3 font-bold tabular-nums text-text-primary">
-                  {countdown.days > 0 && `${countdown.days}d `}
+                  {countdown.days > 0 && `${e('days', { count: countdown.days })} `}
                   {String(countdown.hours).padStart(2, '0')}:
                   {String(countdown.minutes).padStart(2, '0')}:
                   {String(countdown.seconds).padStart(2, '0')}
@@ -216,22 +231,22 @@ export function EventDayMode({
           </div>
 
           <dl className="mt-4 space-y-1.5 text-[0.9375rem]">
-            {current.holderName && <Row label="Attendee" value={current.holderName} />}
-            {seat && <Row label="Seat" value={seat} />}
-            <Row label={group.isMovie ? 'Ticket' : 'Type'} value={current.ticketType} />
-            {place && <Row label={group.isMovie ? 'Cinema' : 'Venue'} value={place} />}
-            <Row label="When" value={dateTime(current.startsAt)} />
+            {current.holderName && <Row label={b('attendee')} value={current.holderName} />}
+            {seat && <Row label={b('seat')} value={seat} />}
+            <Row label={group.isMovie ? b('ticket') : e('type')} value={current.ticketType} />
+            {place && <Row label={group.isMovie ? e('cinema') : e('venue')} value={place} />}
+            <Row label={e('when')} value={dateTime(current.startsAt)} />
           </dl>
 
           <div className="mt-4 flex items-center justify-center gap-2 landscape:justify-start">
             <StatusBadge status={current.status} label={statusLabel('ticket', current.status)} />
             {wake.engaged ? (
               <span className="inline-flex items-center gap-1 text-caption text-text-muted">
-                <Lock className="h-3 w-3" /> Screen stays on
+                <Lock className="h-3 w-3" /> {e('screenOn')}
               </span>
             ) : (
               !wake.supported && (
-                <span className="text-caption text-text-muted">Keep your screen on</span>
+                <span className="text-caption text-text-muted">{e('keepScreenOn')}</span>
               )
             )}
           </div>
@@ -255,10 +270,10 @@ export function EventDayMode({
             <button
               onClick={() => onNavigate(index - 1)}
               disabled={index === 0}
-              aria-label="Previous ticket"
+              aria-label={b('previousTicket')}
               className="flex h-12 items-center gap-1 rounded-md px-5 font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              <ChevronLeft className="h-5 w-5" /> Prev
+              <ChevronLeft className="h-5 w-5" /> {b('prev')}
             </button>
             <span className="text-caption text-text-muted">
               {index + 1} / {tickets.length}
@@ -266,10 +281,10 @@ export function EventDayMode({
             <button
               onClick={() => onNavigate(index + 1)}
               disabled={index === tickets.length - 1}
-              aria-label="Next ticket"
+              aria-label={b('nextTicket')}
               className="flex h-12 items-center gap-1 rounded-md px-5 font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Next <ChevronRight className="h-5 w-5" />
+              {b('next')} <ChevronRight className="h-5 w-5" />
             </button>
           </div>
         </footer>

@@ -4,6 +4,8 @@ import {
   couponValueError,
   couponValueToApi,
   couponValueToInput,
+  sellingCurrencies,
+  storedCouponCurrency,
 } from './coupon-value';
 
 /**
@@ -69,5 +71,34 @@ describe('the currency a fixed amount is labelled in', () => {
 
   it('falls back to INR before there is a venue', () => {
     expect(couponCurrency([])).toEqual({ currency: 'INR', mixed: false });
+  });
+});
+
+/*
+  A fixed code now carries its own currency and applies only to bookings in it, so the form
+  offers the currencies the organization actually sells in, and each code is shown in its own.
+*/
+describe('the currencies a fixed amount can be written in', () => {
+  it('lists each once, most venues first, ignoring venues with no known currency', () => {
+    expect(sellingCurrencies(['CAD', 'USD', null, 'USD', undefined])).toEqual(['USD', 'CAD']);
+  });
+
+  it('keeps the order they were first met in when the counts are equal', () => {
+    expect(sellingCurrencies(['INR', 'USD'])).toEqual(['INR', 'USD']);
+  });
+
+  it('is empty before there is a venue', () => {
+    expect(sellingCurrencies([])).toEqual([]);
+  });
+});
+
+describe('the currency a stored fixed amount is shown in', () => {
+  it('is the code’s own', () => {
+    expect(storedCouponCurrency('USD')).toBe('USD');
+  });
+
+  it('is INR for a code from before coupons carried one, which is how checkout applies it', () => {
+    expect(storedCouponCurrency(null)).toBe('INR');
+    expect(storedCouponCurrency(undefined)).toBe('INR');
   });
 });

@@ -12,20 +12,14 @@ import {
   Ticket,
   XCircle,
 } from 'lucide-react';
-import {
-  Stepper,
-  buildIcsDataUrl,
-  moneyFractionDigits,
-  useToast,
-  type BookingDetail,
-} from '@eticketsgo/web-kit';
+import { buildIcsDataUrl, useToast, type BookingDetail } from '@eticketsgo/web-kit';
 import type { Locale } from '@eticketsgo/i18n';
 import { api } from '@/lib/api';
-import { money, dateTime } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
-import { ButtonLink, Card, ErrorState, StatusBadge } from '@/components/ui';
+import { ButtonLink, Card, ErrorState, StatusBadge, Stepper } from '@/components/ui';
 import { useStatusLabel } from '@/lib/status-label';
 import { useLocale, useTranslations } from 'next-intl';
 
@@ -76,6 +70,7 @@ export default function ConfirmationPage() {
   // The badge in the reader's language: French showed "PENDING PAYMENT" here on QA.
   const statusLabel = useStatusLabel();
   const locale = useLocale() as Locale;
+  const { money, dateTime, moneyFractionDigits } = useFormat();
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
 

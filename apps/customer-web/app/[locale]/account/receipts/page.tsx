@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { FileText } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { dateOnly, money } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
 
 /**
@@ -27,6 +27,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ReceiptsPage() {
+  const { dateOnly, money } = useFormat();
   const toast = useToast();
   const [opening, setOpening] = useState<string | null>(null);
 

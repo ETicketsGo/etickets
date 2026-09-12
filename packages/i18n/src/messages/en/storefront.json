@@ -190,6 +190,13 @@
     "buyerRegionHint": "Optional. Used only to state the place of supply on your invoice — it does not change what you pay.",
     "buyerRegionNone": "Prefer not to say",
     "buyerRegionPrefilled": "Filled in from your last booking.",
+    "cancelBooking": "Cancel booking",
+    "cancelBookingTitle": "Cancel this booking?",
+    "cancelBookingBody": "The tickets held for you will be released and you won’t be charged. If you have just paid, wait for your confirmation instead.",
+    "keepBooking": "Keep my booking",
+    "confirmCancelBooking": "Yes, cancel it",
+    "bookingCancelled": "Booking cancelled. The tickets held for you have been released.",
+    "cancelFailed": "We couldn’t cancel this booking. Please try again.",
     "failure": {
       "INTERNATIONAL_CARD_NOT_ACCEPTED": "This card was issued outside India and isn’t accepted for this payment. Try a card issued in India, or pick net banking or a wallet in the payment window.",
       "CARD_DECLINED": "Your bank declined this card. Try another card or payment method.",
@@ -274,7 +281,17 @@
     "refundEligibility": "Eligibility follows the event’s refund policy. We’ll review your request.",
     "refundReasonPlaceholder": "Reason for the refund…",
     "requestRefundButton": "Request refund",
-    "refundRequestedToast": "Refund requested. We’ll review it shortly."
+    "refundRequestedToast": "Refund requested. We’ll review it shortly.",
+    "unpaidTitle": "Payment not completed",
+    "unpaidBody": "These tickets are held for you until the hold runs out. Cancel now to release them for someone else.",
+    "confirmCancelBookingTitle": "Cancel this booking? This can’t be undone.",
+    "confirmCancelBooking": "Yes, cancel it",
+    "keepBooking": "Keep my booking",
+    "bookingCancelledToast": "Booking cancelled. The tickets held for you have been released.",
+    "cancelTickets": "Cancel tickets",
+    "cancelTicketsBody": "This booking was free, so there is nothing to refund. Cancelling releases your tickets for someone else and can’t be undone.",
+    "cancelReasonPlaceholder": "Why are you cancelling? (optional)",
+    "ticketsCancelledToast": "Tickets cancelled."
   },
   "language": {
     "switchTo": "Switch to {language}",
@@ -488,5 +505,262 @@
   "common": {
     "copy": "Copy",
     "copied": "Copied"
+  },
+  "ticketDetail": {
+    "loadError": "We couldn't load this ticket. Please try again.",
+    "savedToWishlist": "Saved to wishlist",
+    "removedFromWishlist": "Removed from wishlist",
+    "saveToWishlist": "Save to wishlist",
+    "removeFromWishlist": "Remove from wishlist",
+    "copied": "Copied!",
+    "categoryFallback": "Event",
+    "venueTba": "Venue TBA",
+    "pastEvent": "This event has taken place.",
+    "startsIn": "Starts in",
+    "unitDays": "days",
+    "unitHours": "hrs",
+    "unitMinutes": "min",
+    "unitSeconds": "sec",
+    "holder": "Holder: {name}",
+    "directions": "Directions",
+    "viewVenue": "View venue",
+    "venue": "Venue",
+    "detailsToFollow": "Details to follow.",
+    "weather": "Weather",
+    "weatherNote": "Forecast appears closer to the event.",
+    "parking": "Parking",
+    "parkingNote": "Check with the venue for parking.",
+    "gettingThere": "Getting there",
+    "gettingThereNote": "Directions available above.",
+    "calendarDescription": "Your ETicketsGo ticket {serial}",
+    "timeline": {
+      "issued": "Ticket issued",
+      "ready": "Ready to use",
+      "cancelled": "Cancelled",
+      "checkedIn": "Checked in"
+    }
+  },
+  "eventDay": {
+    "dialogLabel": "Event day mode — {title}, ticket {index} of {total}",
+    "exit": "Exit event day mode",
+    "offlineVerified": "Offline — last verified {when}",
+    "offlineEarlier": "earlier",
+    "offlineNote": "This is your saved pass; entry is confirmed by the scanner at the gate.",
+    "brightnessTip": "Increase your screen brightness for faster scanning.",
+    "gotIt": "Got it",
+    "ended": "Event has ended",
+    "live": "Happening now",
+    "phase": {
+      "upcoming": "Starts in",
+      "gateOpen": "Gate opens soon — starts in",
+      "doorsOpen": "Doors open — starts in"
+    },
+    "days": "{count}d",
+    "type": "Type",
+    "cinema": "Cinema",
+    "venue": "Venue",
+    "when": "When",
+    "screenOn": "Screen stays on",
+    "keepScreenOn": "Keep your screen on"
+  },
+  "assignAttendee": {
+    "title": "Assign this ticket",
+    "emailedLink": "We’ve emailed <strong>{email}</strong> a claim link. You can also share it directly:",
+    "inviteLinkLabel": "Invitation link",
+    "acceptNote": "When they accept, the ticket moves to their wallet and its QR is refreshed — the old code stops working.",
+    "methodLabel": "Assignment method",
+    "inviteTab": "Invite by email",
+    "assignTab": "Assign directly",
+    "email": "Attendee email",
+    "emailPlaceholder": "friend@example.com",
+    "name": "Attendee name",
+    "nameOptional": "Attendee name (optional)",
+    "phoneOptional": "Phone (optional)",
+    "inviteHint": "They’ll get a link to claim the ticket into their own wallet.",
+    "assignHint": "Sets the attendee on this ticket without an invitation.",
+    "send": "Send invitation",
+    "assign": "Assign attendee",
+    "invitedToast": "Invitation sent.",
+    "assignedToast": "Attendee assigned."
+  },
+  "shareDialog": {
+    "title": "Share this experience",
+    "permission": {
+      "VIEW": { "label": "View only", "hint": "See the ticket. No QR, no check-in." },
+      "GUEST": { "label": "Guest access", "hint": "Temporary access with a live QR to check in." },
+      "TRANSFER": {
+        "label": "Transfer ownership",
+        "hint": "Give the ticket away; their QR replaces yours."
+      }
+    },
+    "expiry": {
+      "oneHour": "1 hour",
+      "sixHours": "6 hours",
+      "dayHours": "24 hours",
+      "eventEnd": "Until the event ends",
+      "never": "Never"
+    },
+    "createdToast": "Share link created.",
+    "revokedToast": "Share revoked.",
+    "message": "Here's your ticket for {title}: {link}",
+    "emailSubject": "Ticket: {title}",
+    "linkLabel": "Share link",
+    "channelEmail": "Email",
+    "scanHint": "Or let them scan this link",
+    "qrAlt": "QR code for the share link",
+    "note": {
+      "TRANSFER": "When they accept, your QR is replaced — the old one stops working.",
+      "GUEST": "They can view the live QR and check in until the link expires. Revoke it anytime.",
+      "VIEW": "View-only — no QR and no check-in. Revoke it anytime."
+    },
+    "newLink": "New link",
+    "whatCan": "What can they do?",
+    "expires": "Link expires",
+    "activeLinks": "Active links",
+    "activeLine": "{permission} · {count, plural, one {# open} other {# opens}}",
+    "revoke": "Revoke",
+    "create": "Create link"
+  },
+  "sharedTicket": {
+    "unavailableTitle": "This link isn’t available",
+    "sharedWithYou": "Shared with you",
+    "permission": {
+      "GUEST": "Guest access",
+      "TRANSFER": "Transfer",
+      "VIEW": "View only"
+    },
+    "qrAlt": "Ticket QR code",
+    "showAtGate": "Show this at the gate to check in.",
+    "qrHidden": "The QR code is hidden on view-only links.",
+    "seat": "Seat",
+    "where": "Where",
+    "when": "When",
+    "reference": "Reference",
+    "takeOwnership": "Take ownership",
+    "acceptHint": "Accept to move this ticket into your wallet with a fresh QR.",
+    "accept": "Accept ownership",
+    "signInToAccept": "Sign in to accept"
+  },
+  "accountHome": {
+    "heading": "Account",
+    "lead": "Manage your bookings, tickets, and details.",
+    "upcomingBookings": "Upcoming bookings",
+    "pastBookings": "Past bookings",
+    "links": {
+      "bookings": { "label": "My bookings", "hint": "Order history & refunds" },
+      "tickets": { "label": "My tickets", "hint": "Your QR passes" },
+      "receipts": { "label": "Receipts", "hint": "Invoices for your bookings" },
+      "saved": { "label": "Saved events", "hint": "Your wishlist" },
+      "following": { "label": "Following", "hint": "Organizers you follow" },
+      "profile": { "label": "Profile", "hint": "Name & account details" }
+    }
+  },
+  "profile": {
+    "heading": "Profile",
+    "lead": "Manage your account details.",
+    "loadError": "We couldn't load your profile. Please try again.",
+    "fullName": "Full name",
+    "email": "Email",
+    "save": "Save changes",
+    "updated": "Profile updated."
+  },
+  "becomeOrganizer": {
+    "rateLimited": "Several organizations have been set up from here recently. Try again in an hour.",
+    "failed": "We could not set up your organization. Check your connection and try again.",
+    "readyTitle": "Your organization is ready",
+    "alreadyTitle": "You are already an organizer",
+    "separateSignIn": "The organizer console is a separate sign-in, so you will be asked for your password once more. Same account — this one.",
+    "openConsole": "Open the organizer console",
+    "reviewNote": "ETicketsGo reviews new organizations before they can sell. You can set up your venue, screens and shows while that happens.",
+    "heading": "Become an organizer",
+    "lead": "Sell your own tickets using this same account. Tell us the name of the business that sells them — customers see it on their receipts.",
+    "orgName": "Organization name",
+    "supportEmail": "Support email (optional)",
+    "create": "Create my organization",
+    "changedMind": "Changed your mind?",
+    "backToAccount": "Back to your account"
+  },
+  "notificationSettings": {
+    "loadError": "We couldn't load your notification settings.",
+    "saveError": "Could not save that. Please try again.",
+    "saved": "Saved.",
+    "heading": "Notification settings",
+    "lead": "Choose how we reach you. Critical booking and show updates are always sent on at least one required channel, so you never miss a cancellation.",
+    "whatsappHeading": "Get booking updates on WhatsApp",
+    "whatsappLead": "Booking confirmations, ticket updates, show changes and refund updates — sent to WhatsApp. Separate from marketing: this never includes offers or recommendations.",
+    "whatsappToggleText": "Booking updates on WhatsApp",
+    "whatsappToggleLabel": "Receive booking updates on WhatsApp",
+    "addPhone": "<link>Add a phone number</link> to receive WhatsApp updates.",
+    "whatWeSend": "What we send you",
+    "types": {
+      "BOOKING_CONFIRMED": {
+        "title": "Booking confirmations",
+        "description": "Your tickets, and the details of what you booked."
+      },
+      "SHOW_CANCELLED": {
+        "title": "Cancelled shows",
+        "description": "If a show you have tickets for is called off."
+      },
+      "SHOW_CHANGED": {
+        "title": "Schedule changes",
+        "description": "If the time of a show you booked moves."
+      },
+      "BOOKING_CANCELLED": {
+        "title": "Booking cancellations",
+        "description": "Confirmation when a booking of yours ends."
+      },
+      "REFUND_COMPLETED": {
+        "title": "Refunds",
+        "description": "When money is on its way back to you."
+      },
+      "EVENT_REMINDER": {
+        "title": "Reminders",
+        "description": "A nudge before a show you have tickets for."
+      }
+    },
+    "channels": {
+      "email": "Email",
+      "push": "Push",
+      "whatsapp": "WhatsApp",
+      "sms": "SMS"
+    },
+    "emergencyOnly": "SMS — emergency only",
+    "emergencyTitle": "Sent only if nothing else reached you",
+    "channelFor": "{channel} for {type}",
+    "required": "(required)",
+    "requiredNote": "Required channels can’t be switched off. They carry your tickets and anything urgent about a show you’ve booked.",
+    "offersHeading": "Offers and recommendations",
+    "offersLead": "Entirely separate from the above. Turning these off never affects your tickets, booking updates or anything about a show you’ve paid for.",
+    "marketingOn": "Marketing on {channel}"
+  },
+  "following": {
+    "heading": "Following",
+    "lead": "Organizers you follow — never miss their next drop.",
+    "emptyTitle": "You’re not following anyone yet",
+    "emptyHint": "Follow organizers to see them here.",
+    "loadError": "We couldn't load the organizers you follow. Please try again.",
+    "verified": "Verified",
+    "since": "Since {date} · {count, plural, one {# live event} other {# live events}}"
+  },
+  "walletCard": {
+    "badgeMovie": "Movie",
+    "badgeEvent": "Event",
+    "viewTicket": "View ticket",
+    "viewTickets": "View tickets",
+    "where": "Where",
+    "reference": "Reference",
+    "expires": "expires {when}",
+    "allCheckedIn": "All checked in",
+    "bookingCancelled": "Booking cancelled",
+    "segment": {
+      "refunded": "{count} refunded",
+      "cancelled": "{count} cancelled",
+      "transferred": "{count} transferred",
+      "checkedIn": "{count} checked in",
+      "remaining": "{count} remaining",
+      "active": "{count} active",
+      "other": "{count} other",
+      "tickets": "{count, plural, one {# ticket} other {# tickets}}"
+    }
   }
 }

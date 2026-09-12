@@ -9,7 +9,13 @@
 // memberships, parking, coupons, merchandise, collectibles — plugs in the same way.
 
 import type { WalletTicket } from './api';
-import { groupWalletTickets, type BookingGroup, type GroupStatusTone } from './tickets';
+import {
+  groupWalletTickets,
+  summarizeBookingGroup,
+  type BookingGroup,
+  type GroupCounts,
+  type GroupStatusTone,
+} from './tickets';
 import { eventTiming } from './event-timing';
 
 export type WalletItemType =
@@ -134,9 +140,38 @@ export const DEFAULT_WALLET_FLAGS: WalletFlags = {
   rewards: false,
 };
 
+/**
+ * The words a ticket wallet item is built with.
+ *
+ * Optional, with English defaults (`ENGLISH_WALLET_LABELS`), so the storefront can hand in its
+ * translations. Without this the French wallet showed "2 tickets", "Event", "View tickets" and
+ * "1 of 2 checked in" on every card.
+ */
+export interface WalletLabels {
+  ticketCount: (count: number) => string;
+  badge: (isMovie: boolean) => string;
+  viewTickets: (count: number) => string;
+  summary: (counts: GroupCounts) => string;
+  checkInProgress: (checkedIn: number, total: number) => string;
+  where: string;
+  reference: string;
+}
+
+export const ENGLISH_WALLET_LABELS: WalletLabels = {
+  ticketCount: (n) => `${n} ${n === 1 ? 'ticket' : 'tickets'}`,
+  badge: (isMovie) => (isMovie ? 'Movie' : 'Event'),
+  viewTickets: (n) => (n === 1 ? 'View ticket' : 'View tickets'),
+  summary: (counts) => summarizeBookingGroup(counts).summary,
+  checkInProgress: (done, total) => `${done} of ${total} checked in`,
+  where: 'Where',
+  reference: 'Reference',
+};
+
 /** Everything a provider might read to build its items. */
 export interface WalletSources {
   tickets: WalletTicket[];
+  /** Words for the items; any left out are English. */
+  labels?: Partial<WalletLabels>;
 }
 
 /**
@@ -152,7 +187,10 @@ export interface WalletProvider {
 
 // ─────────────────────────── Ticket provider ───────────────────────────
 
-function ticketGroupToItem(group: BookingGroup): WalletItem {
+function ticketGroupToItem(
+  group: BookingGroup,
+  labels: WalletLabels = ENGLISH_WALLET_LABELS,
+): WalletItem {
   const t = eventTiming(group.startsAt, Date.now());
   const active = group.counts.active > 0;
   const allDone = group.counts.total > 0 && group.counts.checkedIn === group.counts.total;
@@ -171,8 +209,7 @@ function ticketGroupToItem(group: BookingGroup): WalletItem {
   if (active) filters.push('active');
   if (group.counts.transferred > 0) filters.push('transferred' as WalletFilter);
 
-  const single = group.counts.total === 1;
-  const countLabel = `${group.counts.total} ${single ? 'ticket' : 'tickets'}`;
+  const countLabel = labels.ticketCount(group.counts.total);
   const place = group.isMovie
     ? [group.cinemaName, group.screenName].filter(Boolean).join(' · ')
     : group.venueName;
@@ -182,9 +219,9 @@ function ticketGroupToItem(group: BookingGroup): WalletItem {
     type: 'TICKET',
     title: group.title,
     subtitle: `${countLabel} · ${group.bookingRef}`,
-    status: group.summary,
+    status: labels.summary(group.counts),
     statusTone: group.statusTone,
-    badge: group.isMovie ? 'Movie' : 'Event',
+    badge: labels.badge(group.isMovie),
     icon: 'TICKET',
     artworkSeed: group.bookingId,
     startsAt: group.startsAt,
@@ -225,17 +262,21 @@ function ticketGroupToItem(group: BookingGroup): WalletItem {
       ...(active ? (['checkIn'] as WalletCapability[]) : []),
     ],
     primaryAction: {
-      label: single ? 'View ticket' : 'View tickets',
+      label: labels.viewTickets(group.counts.total),
       href: `/account/bookings/${encodeURIComponent(group.bookingId)}/tickets`,
     },
     secondaryActions: [],
     progress:
       group.counts.total > 1
-        ? { done: group.counts.checkedIn, total: group.counts.total, label: group.checkInProgress }
+        ? {
+            done: group.counts.checkedIn,
+            total: group.counts.total,
+            label: labels.checkInProgress(group.counts.checkedIn, group.counts.total),
+          }
         : null,
     metadata: [
-      ...(place ? [{ label: 'Where', value: place }] : []),
-      { label: 'Reference', value: group.bookingRef },
+      ...(place ? [{ label: labels.where, value: place }] : []),
+      { label: labels.reference, value: group.bookingRef },
     ],
   };
 }
@@ -243,7 +284,10 @@ function ticketGroupToItem(group: BookingGroup): WalletItem {
 export const ticketWalletProvider: WalletProvider = {
   type: 'TICKET',
   enabled: () => true,
-  build: (sources) => groupWalletTickets(sources.tickets).map(ticketGroupToItem),
+  build: (sources) => {
+    const labels: WalletLabels = { ...ENGLISH_WALLET_LABELS, ...sources.labels };
+    return groupWalletTickets(sources.tickets).map((group) => ticketGroupToItem(group, labels));
+  },
 };
 
 // ─────────────────── Placeholder providers (mock, flag-gated) ───────────────────

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { Check, Copy, Eye, Mail, MessageCircle, Repeat, Shield, Smartphone } from 'lucide-react';
 import {
   errorMessage,
@@ -13,33 +14,20 @@ import {
 import { api } from '@/lib/api';
 import { Button, Dialog, Select } from '@/components/ui';
 
-const PERMISSIONS: {
-  value: SharePermissionValue;
-  label: string;
-  hint: string;
-  icon: typeof Eye;
-}[] = [
-  { value: 'VIEW', label: 'View only', hint: 'See the ticket. No QR, no check-in.', icon: Eye },
-  {
-    value: 'GUEST',
-    label: 'Guest access',
-    hint: 'Temporary access with a live QR to check in.',
-    icon: Shield,
-  },
-  {
-    value: 'TRANSFER',
-    label: 'Transfer ownership',
-    hint: 'Give the ticket away; their QR replaces yours.',
-    icon: Repeat,
-  },
+/** Each permission's words live at `storefront.shareDialog.permission.<VALUE>`. */
+const PERMISSIONS: { value: SharePermissionValue; icon: typeof Eye }[] = [
+  { value: 'VIEW', icon: Eye },
+  { value: 'GUEST', icon: Shield },
+  { value: 'TRANSFER', icon: Repeat },
 ];
 
-const EXPIRIES: { value: ShareExpiryValue; label: string }[] = [
-  { value: '1h', label: '1 hour' },
-  { value: '6h', label: '6 hours' },
-  { value: '24h', label: '24 hours' },
-  { value: 'event_end', label: 'Until the event ends' },
-  { value: 'never', label: 'Never' },
+/** Catalogue keys for the expiry options (the API's values are not valid message keys). */
+const EXPIRIES: { value: ShareExpiryValue; key: string }[] = [
+  { value: '1h', key: 'oneHour' },
+  { value: '6h', key: 'sixHours' },
+  { value: '24h', key: 'dayHours' },
+  { value: 'event_end', key: 'eventEnd' },
+  { value: 'never', key: 'never' },
 ];
 
 /** Secure Experience Sharing dialog: create a scoped, expiring, revocable link. */
@@ -52,6 +40,9 @@ export function ShareDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations('storefront.shareDialog');
+  const sc = useTranslations('storefront.common');
+  const tx = useTranslations('common');
   const qc = useQueryClient();
   const toast = useToast();
   const [permission, setPermission] = useState<SharePermissionValue>('VIEW');
@@ -72,7 +63,7 @@ export function ShareDialog({
       setLink(res.shareUrl);
       setQr(res.qrDataUrl);
       qc.invalidateQueries({ queryKey: ['shares', ticket.id] });
-      toast.push('Share link created.', 'success');
+      toast.push(t('createdToast'), 'success');
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -81,7 +72,7 @@ export function ShareDialog({
     mutationFn: (id: string) => api.revokeShare(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['shares', ticket.id] });
-      toast.push('Share revoked.', 'success');
+      toast.push(t('revokedToast'), 'success');
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
@@ -103,44 +94,55 @@ export function ShareDialog({
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const msg = link ? `Here's your ticket for ${ticket.event.title}: ${link}` : '';
+  /** A permission's name, or the API's spelling for one the catalogue does not know. */
+  const permissionLabel = (value: string) =>
+    t.has(`permission.${value}.label`) ? t(`permission.${value}.label`) : value;
+
+  const msg = link ? t('message', { title: ticket.event.title, link }) : '';
   const channels = link
     ? [
         {
+          key: 'whatsapp',
           label: 'WhatsApp',
           icon: MessageCircle,
           href: `https://wa.me/?text=${encodeURIComponent(msg)}`,
         },
-        { label: 'SMS', icon: Smartphone, href: `sms:?&body=${encodeURIComponent(msg)}` },
         {
-          label: 'Email',
+          key: 'sms',
+          label: 'SMS',
+          icon: Smartphone,
+          href: `sms:?&body=${encodeURIComponent(msg)}`,
+        },
+        {
+          key: 'email',
+          label: t('channelEmail'),
           icon: Mail,
-          href: `mailto:?subject=${encodeURIComponent(`Ticket: ${ticket.event.title}`)}&body=${encodeURIComponent(msg)}`,
+          href: `mailto:?subject=${encodeURIComponent(t('emailSubject', { title: ticket.event.title }))}&body=${encodeURIComponent(msg)}`,
         },
       ]
     : [];
 
   return (
-    <Dialog open={open} onClose={close} title="Share this experience">
+    <Dialog open={open} onClose={close} title={t('title')}>
       {link ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <input
               readOnly
               value={link}
-              aria-label="Share link"
+              aria-label={t('linkLabel')}
               className="min-w-0 flex-1 rounded-md border border-border bg-background-subtle px-3 py-2 font-mono text-caption text-text-secondary"
             />
             <Button variant="outline" size="sm" onClick={copy}>
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? 'Copied' : 'Copy'}
+              {copied ? sc('copied') : sc('copy')}
             </Button>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             {channels.map((c) => (
               <a
-                key={c.label}
+                key={c.key}
                 href={c.href}
                 target="_blank"
                 rel="noreferrer"
@@ -154,36 +156,26 @@ export function ShareDialog({
 
           {qr && (
             <div className="flex flex-col items-center">
-              <p className="mb-1.5 text-caption text-text-muted">Or let them scan this link</p>
+              <p className="mb-1.5 text-caption text-text-muted">{t('scanHint')}</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={qr}
-                alt="QR code for the share link"
-                className="h-40 w-40 rounded-lg bg-white p-2"
-              />
+              <img src={qr} alt={t('qrAlt')} className="h-40 w-40 rounded-lg bg-white p-2" />
             </div>
           )}
 
-          <p className="text-caption text-text-muted">
-            {permission === 'TRANSFER'
-              ? 'When they accept, your QR is replaced — the old one stops working.'
-              : permission === 'GUEST'
-                ? 'They can view the live QR and check in until the link expires. Revoke it anytime.'
-                : 'View-only — no QR and no check-in. Revoke it anytime.'}
-          </p>
+          <p className="text-caption text-text-muted">{t(`note.${permission}`)}</p>
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={reset}>
-              New link
+              {t('newLink')}
             </Button>
-            <Button onClick={close}>Done</Button>
+            <Button onClick={close}>{tx('action.done')}</Button>
           </div>
         </div>
       ) : (
         <div className="space-y-4">
           <fieldset>
             <legend className="mb-2 text-caption font-medium text-text-secondary">
-              What can they do?
+              {t('whatCan')}
             </legend>
             <div className="space-y-2">
               {PERMISSIONS.map((p) => (
@@ -205,9 +197,11 @@ export function ShareDialog({
                   />
                   <span>
                     <span className="flex items-center gap-1.5 text-[0.9375rem] font-medium text-text-primary">
-                      <p.icon className="h-3.5 w-3.5" /> {p.label}
+                      <p.icon className="h-3.5 w-3.5" /> {t(`permission.${p.value}.label`)}
                     </span>
-                    <span className="text-caption text-text-muted">{p.hint}</span>
+                    <span className="text-caption text-text-muted">
+                      {t(`permission.${p.value}.hint`)}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -216,13 +210,13 @@ export function ShareDialog({
 
           <Select
             id="share-expiry"
-            label="Link expires"
+            label={t('expires')}
             value={expiry}
             onChange={(e) => setExpiry(e.target.value as ShareExpiryValue)}
           >
             {EXPIRIES.map((x) => (
               <option key={x.value} value={x.value}>
-                {x.label}
+                {t(`expiry.${x.key}`)}
               </option>
             ))}
           </Select>
@@ -230,7 +224,9 @@ export function ShareDialog({
           {/* Existing shares */}
           {shares.data && shares.data.shares.length > 0 && (
             <div>
-              <p className="mb-1.5 text-caption font-medium text-text-secondary">Active links</p>
+              <p className="mb-1.5 text-caption font-medium text-text-secondary">
+                {t('activeLinks')}
+              </p>
               <ul className="space-y-1.5">
                 {shares.data.shares
                   .filter((s) => s.status === 'PENDING')
@@ -240,13 +236,16 @@ export function ShareDialog({
                       className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-caption"
                     >
                       <span className="text-text-secondary">
-                        {s.permission} · {s.openCount} open{s.openCount === 1 ? '' : 's'}
+                        {t('activeLine', {
+                          permission: permissionLabel(s.permission),
+                          count: s.openCount,
+                        })}
                       </span>
                       <button
                         onClick={() => revoke.mutate(s.id)}
                         className="font-medium text-status-error hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                       >
-                        Revoke
+                        {t('revoke')}
                       </button>
                     </li>
                   ))}
@@ -256,10 +255,10 @@ export function ShareDialog({
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={close}>
-              Cancel
+              {tx('action.cancel')}
             </Button>
             <Button loading={create.isPending} onClick={() => create.mutate()}>
-              Create link
+              {t('create')}
             </Button>
           </div>
         </div>

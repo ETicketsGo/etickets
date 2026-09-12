@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { money } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
 import {
   priceBreakdown,
@@ -145,6 +145,7 @@ function TicketsLine({
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
+  const { money } = useFormat();
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const hasDetail = included.length > 0 || includedMaintenanceMinor > 0;
@@ -244,6 +245,7 @@ function FeesLine({
   digits?: number;
 }) {
   const t = useTranslations('storefront.event');
+  const { money } = useFormat();
   const [open, setOpen] = useState(true);
   const panelId = useId();
   const format = (minor: number) => money(minor, currency, undefined, digits);
@@ -353,6 +355,7 @@ export function PriceBreakdown({
   note?: string | null;
 }) {
   const t = useTranslations('storefront.event');
+  const { money } = useFormat();
   // The quote still wins whenever there is one: it is what the buyer will be charged in.
   const currency = quote?.currency ?? fallbackCurrency;
 

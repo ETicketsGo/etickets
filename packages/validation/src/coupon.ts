@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+/**
+ * The currency a FIXED coupon's amount is in, as an ISO 4217 code.
+ *
+ * Optional on the wire: the API defaults a FIXED coupon to the currency its organization sells
+ * in, and ignores it for a PERCENT coupon, whose value is a percentage and means the same thing
+ * in every currency.
+ */
+const couponCurrencySchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/, 'Use a three-letter currency code, such as INR.');
+
 /** Discount code creation (organizer-scoped). Value is a percent (1–100) for
  *  PERCENT coupons or a fixed amount in minor units for FIXED coupons. */
 export const createCouponSchema = z
@@ -13,6 +26,8 @@ export const createCouponSchema = z
       .regex(/^[A-Za-z0-9_-]+$/, 'Use letters, numbers, hyphen or underscore only.'),
     type: z.enum(['PERCENT', 'FIXED']),
     value: z.number().int().positive(),
+    /** What a FIXED `value` is in minor units of. A FIXED coupon applies only in this currency. */
+    currency: couponCurrencySchema.optional(),
     maxRedemptions: z.number().int().positive().optional(),
     startsAt: z.coerce.date().optional(),
     endsAt: z.coerce.date().optional(),
@@ -42,6 +57,8 @@ export const createCouponSchema = z
 export const updateCouponSchema = z
   .object({
     value: z.number().int().positive().optional(),
+    /** Ignored for a PERCENT coupon, as on create. */
+    currency: couponCurrencySchema.optional(),
     maxRedemptions: z.number().int().positive().nullable().optional(),
     startsAt: z.coerce.date().nullable().optional(),
     endsAt: z.coerce.date().nullable().optional(),

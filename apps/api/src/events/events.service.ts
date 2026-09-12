@@ -64,6 +64,46 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
  */
 const DEFAULT_CURRENCY = 'INR';
 
+/**
+ * The details a reviewer approves, taken from `createEventSchema`: every field an organizer
+ * sets on the event itself. What it is, where, what it costs a buyer and what they can get back.
+ *
+ * Images are deliberately absent — the owner decided a picture changes without review — and
+ * they are not written through `update` anyway. There are no age or content-rating fields on
+ * an event yet; one added to the schema belongs in this list.
+ */
+const REVIEWED_EVENT_FIELDS = [
+  'title',
+  'category',
+  'description',
+  'venueId',
+  'refundPolicy',
+  'refundsEnabled',
+  'refundCutoffHours',
+  'feeMode',
+  'isFree',
+] as const satisfies readonly (keyof CreateEventInput)[];
+
+/**
+ * Which reviewed details this patch actually changes.
+ *
+ * Compared value by value because the edit form sends every field on every save: counting a
+ * field as changed merely for being present would send an event to review for pressing Save
+ * twice. A blank text box and a field never filled in are the same content.
+ */
+function changedReviewedFields(
+  event: Record<(typeof REVIEWED_EVENT_FIELDS)[number], unknown>,
+  patch: Partial<CreateEventInput>,
+): string[] {
+  const normalise = (value: unknown) => (value === '' || value === undefined ? null : value);
+  return REVIEWED_EVENT_FIELDS.filter(
+    (field) => patch[field] !== undefined && normalise(patch[field]) !== normalise(event[field]),
+  );
+}
+
+const PAUSED_BY_ADMIN_MESSAGE =
+  'This event was paused by the platform team. Contact support to resume it.';
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -394,7 +434,32 @@ export class EventsService {
         );
       }
     }
-    return this.prisma.event.update({ where: { id }, data: patch });
+    /*
+      A paused event is one that was live, and its reviewed details are what a reviewer
+      approved. Pause, rewrite, resume used to put the rewrite straight back on sale; now the
+      change is remembered here so `setPaused` can send the event to review instead. Only a
+      PAUSED event is marked — a draft or an event already under review goes through the queue
+      anyway — and only when a reviewed value actually differs.
+    */
+    const reviewedChanges =
+      event.status === EventStatus.PAUSED ? changedReviewedFields(event, patch) : [];
+    if (reviewedChanges.length === 0) {
+      return this.prisma.event.update({ where: { id }, data: patch });
+    }
+    const updated = await this.prisma.event.update({
+      where: { id },
+      data: { ...patch, needsReviewOnResume: true },
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: event.organizationId,
+      // Named fields, so the reviewer who picks it up knows what to look at.
+      action: 'EVENT_EDITED_WHILE_PAUSED',
+      entityType: 'Event',
+      entityId: id,
+      metadata: { fields: reviewedChanges },
+    });
+    return updated;
   }
 
   async listForOrg(user: RequestUser, organizationId: string) {
@@ -438,6 +503,9 @@ export class EventsService {
     const { images, ...rest } = row;
     return {
       ...rest,
+      // So the console shows why there is no Resume button, rather than one that can only fail.
+      // A stale marker on an event that has since completed says nothing about resuming.
+      pausedByAdmin: row.status === EventStatus.PAUSED && row.pausedByAdminAt !== null,
       imagePath: coverImagePath(row.id, images),
       images: images.map((image) => ({
         id: image.id,
@@ -969,6 +1037,30 @@ export class EventsService {
     return this.sellabilityService.check(id);
   }
 
+  /**
+   * Whether this organizer's events go live without a reviewer.
+   *
+   * "It is hard to approve each and every event — let's have a toggle on the orgs, auto
+   * approve if we are getting an event from trusted orgs." Review exists because a new
+   * organizer can list anything, and by the time somebody notices a ticket has been sold.
+   * That cost is worth paying once; paying it on the two-hundredth event from a cinema chain
+   * that has never had one rejected is just a delay.
+   *
+   * A SUSPENDED organization never auto-approves whatever the flag says. Suspension is the
+   * platform withdrawing trust, and a stale flag must not outrank a live decision.
+   *
+   * One definition for submitting and for resuming after an edit, so the two routes to
+   * PUBLISHED cannot drift apart on a rule like that one.
+   */
+  private async organizationTrust(organizationId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, status: true, autoApproveEvents: true },
+    });
+    const autoApprove = Boolean(org?.autoApproveEvents) && org?.status !== 'SUSPENDED';
+    return { org, autoApprove };
+  }
+
   async submitForReview(user: RequestUser, id: string) {
     const event = await this.loadOwnedEvent(user, id);
     const submittable: EventStatus[] = [EventStatus.DRAFT, EventStatus.PAUSED];
@@ -978,6 +1070,14 @@ export class EventsService {
         `Only draft events can be submitted for review (current: ${event.status}).`,
         HttpStatus.CONFLICT,
       );
+    }
+    /*
+      Submitting is the other way out of PAUSED, and for a trusted organizer it publishes on
+      the spot. Refusing only Resume would leave an admin's pause one differently-labelled
+      button away from being undone.
+    */
+    if (event.status === EventStatus.PAUSED && event.pausedByAdminAt) {
+      throw new AppException(ErrorCodes.FORBIDDEN, PAUSED_BY_ADMIN_MESSAGE, HttpStatus.FORBIDDEN);
     }
     const sessionCount = await this.prisma.eventSession.count({ where: { eventId: id } });
     const ticketCount = await this.prisma.ticketType.count({
@@ -1015,30 +1115,20 @@ export class EventsService {
         { blockers: sellability.blockers },
       );
     }
-    const org = await this.prisma.organization.findUnique({
-      where: { id: event.organizationId },
-      select: { name: true, status: true, autoApproveEvents: true },
-    });
+    const { org, autoApprove } = await this.organizationTrust(event.organizationId);
 
-    /*
-      Trusted organizers skip the queue.
-
-      "It is hard to approve each and every event — let's have a toggle on the orgs, auto
-      approve if we are getting an event from trusted orgs." Review exists because a new
-      organizer can list anything, and by the time somebody notices a ticket has been sold.
-      That cost is worth paying once; paying it on the two-hundredth event from a cinema
-      chain that has never had one rejected is just a delay.
-
-      A SUSPENDED organization never auto-approves whatever the flag says. Suspension is the
-      platform withdrawing trust, and a stale flag must not outrank a live decision.
-    */
-    const autoApprove = Boolean(org?.autoApproveEvents) && org?.status !== 'SUSPENDED';
-
+    // Either outcome settles any edits made while paused: a reviewer will see them, or the
+    // organizer is trusted to publish them.
     const updated = await this.prisma.event.update({
       where: { id },
       data: autoApprove
-        ? { status: EventStatus.PUBLISHED, publishedAt: new Date(), reviewNote: null }
-        : { status: EventStatus.UNDER_REVIEW },
+        ? {
+            status: EventStatus.PUBLISHED,
+            publishedAt: new Date(),
+            reviewNote: null,
+            needsReviewOnResume: false,
+          }
+        : { status: EventStatus.UNDER_REVIEW, needsReviewOnResume: false },
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -1093,6 +1183,13 @@ export class EventsService {
    */
   async remove(user: RequestUser, id: string) {
     const event = await this.loadOwnedEvent(user, id);
+    /*
+      Not while the platform team has it paused. Deleting would take the event out of moderation
+      by a route the admin pause is meant to close — the same reason resume and submit refuse it.
+    */
+    if (event.status === EventStatus.PAUSED && event.pausedByAdminAt) {
+      throw new AppException(ErrorCodes.FORBIDDEN, PAUSED_BY_ADMIN_MESSAGE, HttpStatus.FORBIDDEN);
+    }
     const refusal = await this.deletionBlocker(id, this.prisma);
     if (refusal) {
       throw new AppException(ErrorCodes.CONFLICT, refusal, HttpStatus.CONFLICT);
@@ -1152,6 +1249,17 @@ export class EventsService {
     return null;
   }
 
+  /**
+   * An organizer pausing or resuming their own event.
+   *
+   * ── RESUMING IS NOT ALWAYS "BACK ON SALE" ──────────────────────────────────────────
+   * It used to be, which left two ways around the platform:
+   *   · pause, rewrite the reviewed details, resume — the rewrite went live with no reviewer
+   *     having seen it. Edits made while paused now send the event to review on resume,
+   *     unless the organizer is trusted to auto-publish, the same rule submitting follows;
+   *   · an admin pauses an event and the organizer resumes it. A pause by the platform team
+   *     is now lifted only by the platform team.
+   */
   async setPaused(user: RequestUser, id: string, paused: boolean) {
     const event = await this.loadOwnedEvent(user, id);
     const target = paused ? EventStatus.PAUSED : EventStatus.PUBLISHED;
@@ -1163,7 +1271,81 @@ export class EventsService {
         HttpStatus.CONFLICT,
       );
     }
-    return this.prisma.event.update({ where: { id }, data: { status: target } });
+    if (paused) {
+      // Never marked as an admin pause: an organizer may always lift a pause they imposed.
+      return this.prisma.event.update({ where: { id }, data: { status: target } });
+    }
+    if (event.pausedByAdminAt) {
+      throw new AppException(ErrorCodes.FORBIDDEN, PAUSED_BY_ADMIN_MESSAGE, HttpStatus.FORBIDDEN);
+    }
+
+    const trust = event.needsReviewOnResume
+      ? await this.organizationTrust(event.organizationId)
+      : null;
+    const sendToReview = trust !== null && !trust.autoApprove;
+
+    let updated;
+    try {
+      updated = await this.prisma.event.update({
+        /*
+          Conditional on exactly what was read. An admin pausing it, or an edit marking it,
+          between that read and this write would otherwise be overwritten by a decision made
+          without knowing about either.
+        */
+        where: {
+          id,
+          status: EventStatus.PAUSED,
+          pausedByAdminAt: null,
+          needsReviewOnResume: event.needsReviewOnResume,
+        },
+        data: {
+          status: sendToReview ? EventStatus.UNDER_REVIEW : EventStatus.PUBLISHED,
+          needsReviewOnResume: false,
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2025') {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This event changed while it was being resumed. Reload it and try again.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw err;
+    }
+
+    if (sendToReview) {
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: event.organizationId,
+        action: 'EVENT_RESUME_SENT_FOR_REVIEW',
+        entityType: 'Event',
+        entityId: id,
+        metadata: { reason: 'EDITED_WHILE_PAUSED' },
+      });
+      // Paged exactly as a submission is: to a reviewer it is one, and it cannot sell until seen.
+      await this.audience.notifyAdmins(NotificationType.EVENT_SUBMITTED, {
+        eventId: id,
+        eventTitle: updated.title,
+        organizationId: event.organizationId,
+        organizationName: trust?.org?.name ?? 'An organizer',
+        submittedByUserId: user.id,
+      });
+      // Said outright, so the console never has to infer from the status why it is not live.
+      return { ...updated, sentForReview: true };
+    }
+    if (trust) {
+      // Edited content went live without a reviewer; searchable under the same term as submit.
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: event.organizationId,
+        action: 'EVENT_AUTO_APPROVED',
+        entityType: 'Event',
+        entityId: id,
+        metadata: { via: 'RESUME_AFTER_EDIT' },
+      });
+    }
+    return { ...updated, sentForReview: false };
   }
 
   // ─── Admin ───
@@ -1234,7 +1416,18 @@ export class EventsService {
     const event = await this.prisma.event.findUnique({ where: { id } });
     if (!event)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Event not found.', HttpStatus.NOT_FOUND);
-    const updated = await this.prisma.event.update({ where: { id }, data: { status } });
+    /*
+      Who paused it decides who may resume it, so an admin pause is recorded. Moving the event
+      anywhere else lifts the marker — and settles any edits made while paused, because an
+      admin putting it back on sale has looked at it, which is what review was for.
+    */
+    const updated = await this.prisma.event.update({
+      where: { id },
+      data:
+        status === EventStatus.PAUSED
+          ? { status, pausedByAdminAt: new Date() }
+          : { status, pausedByAdminAt: null, needsReviewOnResume: false },
+    });
     await this.audit.record({
       actorUserId: admin.id,
       organizationId: event.organizationId,

@@ -3,11 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell } from 'lucide-react';
 import { api } from '@/lib/api';
-import { dateTime } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
 import { PushToggle } from '@/components/push-toggle';
 
 export default function NotificationsPage() {
+  const { dateTime } = useFormat();
   const qc = useQueryClient();
   const toast = useToast();
 

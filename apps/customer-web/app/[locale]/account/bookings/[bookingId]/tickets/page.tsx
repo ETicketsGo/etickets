@@ -37,7 +37,7 @@ import {
   type WalletTicket,
 } from '@eticketsgo/web-kit';
 import { tokenStore } from '@/lib/api';
-import { dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { ReferenceCode } from '@/components/reference-code';
 import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/components/ui';
 import { EventDayMode } from '@/components/event-day-mode';
@@ -74,6 +74,7 @@ export default function BookingTicketsViewer() {
     "View tickets" lands, so a French buyer went from a French page to an English one (QA).
   */
   const b = useTranslations('storefront.bookingTickets');
+  const { dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
   const mounted = useMounted();
   const { bookingId } = useParams<{ bookingId: string }>();

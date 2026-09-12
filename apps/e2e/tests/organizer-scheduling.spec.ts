@@ -1048,7 +1048,10 @@ test.describe('organizer cinema scheduling', () => {
   });
 
   test('55: the week view shows the same window states as the day', async ({ page, request }) => {
-    const monday = mondayOf(dateLabel(119));
+    // A week no other test seeds. This used 119 days out, and whether its Tuesday landed on one
+    // of the day-112–114 tests' own 10:00 Screen A shows depended on today's weekday — on the
+    // days it did, the clash refused the seed and the test failed on an empty `created`.
+    const monday = mondayOf(dateLabel(161));
     const day = shiftLabel(monday, 1);
     const closed = await seedShows(request, token, fixture, fixture.screenAId, day, ['10:00']);
     const notOpen = await seedShows(request, token, fixture, fixture.screenAId, day, ['15:00']);

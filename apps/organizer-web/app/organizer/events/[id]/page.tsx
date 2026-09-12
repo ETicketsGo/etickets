@@ -51,7 +51,15 @@ export default function EventOverview() {
   });
   const resume = useMutation({
     mutationFn: () => api.events.resume(id),
-    onSuccess: onSuccess('Resume'),
+    onSuccess: (result) => {
+      // "Resume succeeded" for an event that is now in the review queue would read as live.
+      if (result.sentForReview) {
+        toast.push('Sent for review because it was edited while paused.', 'info');
+        qc.invalidateQueries({ queryKey: ['event', id] });
+      } else {
+        onSuccess('Resume')();
+      }
+    },
     onError,
   });
   const router = useRouter();
@@ -118,7 +126,17 @@ export default function EventOverview() {
           <StatusBadge status={event.status} />
         </div>
         <div className="space-y-2">
-          {(event.status === 'DRAFT' || event.status === 'PAUSED') && (
+          {/*
+            A pause by the platform team is theirs to lift, and the API refuses both ways back
+            to sale. The reason replaces the buttons, so the organizer is not offered two
+            controls that can only fail.
+          */}
+          {event.status === 'PAUSED' && event.pausedByAdmin && (
+            <p className="rounded-md border border-status-warning/40 bg-tint-warning p-3 text-sm text-status-warning">
+              This event was paused by the platform team. Contact support to resume it.
+            </p>
+          )}
+          {(event.status === 'DRAFT' || (event.status === 'PAUSED' && !event.pausedByAdmin)) && (
             <Button className="w-full" loading={submit.isPending} onClick={() => submit.mutate()}>
               Submit for approval
             </Button>
@@ -133,15 +151,22 @@ export default function EventOverview() {
               Pause event
             </Button>
           )}
-          {event.status === 'PAUSED' && (
-            <Button
-              variant="outline"
-              className="w-full"
-              loading={resume.isPending}
-              onClick={() => resume.mutate()}
-            >
-              Resume event
-            </Button>
+          {event.status === 'PAUSED' && !event.pausedByAdmin && (
+            <>
+              <Button
+                variant="outline"
+                className="w-full"
+                loading={resume.isPending}
+                onClick={() => resume.mutate()}
+              >
+                Resume event
+              </Button>
+              {event.needsReviewOnResume && (
+                <p className="text-caption text-text-muted">
+                  Details were edited while paused, so resuming may send it for review first.
+                </p>
+              )}
+            </>
           )}
           <ButtonLink href={`/organizer/events/${id}/edit`} variant="ghost" className="w-full">
             Edit details

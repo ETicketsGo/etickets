@@ -3,21 +3,27 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { Clock, Film, MapPin, Clapperboard, Users, Play } from 'lucide-react';
-import { gradientFor } from '@eticketsgo/web-kit';
+import { useLocale } from 'next-intl';
+import { formatFor, gradientFor } from '@eticketsgo/web-kit';
 import { api, ApiRequestError } from '@/lib/api';
 import { Badge, Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 
-function showtime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+/*
+  `locale` is `formatFor(uiLocale).locale`: undefined for English, which keeps the en-IN
+  12-hour format exactly as before; French gets its own 24-hour clock ("18 h 30").
+*/
+function showtime(iso: string, locale?: string): string {
+  return new Date(iso).toLocaleTimeString(
+    locale ?? 'en-IN',
+    locale
+      ? { hour: 'numeric', minute: '2-digit' }
+      : { hour: 'numeric', minute: '2-digit', hour12: true },
+  );
 }
 
-function showDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', {
+function showDay(iso: string, locale?: string): string {
+  return new Date(iso).toLocaleDateString(locale ?? 'en-IN', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -25,6 +31,7 @@ function showDay(iso: string): string {
 }
 
 export default function MovieDetailPage() {
+  const fmtLocale = formatFor(useLocale()).locale;
   const { slug } = useParams<{ slug: string }>();
   const {
     data: movie,
@@ -163,13 +170,13 @@ export default function MovieDetailPage() {
                       key={s.id}
                       href={`/shows/${s.id}`}
                       className="flex flex-col items-center rounded-md border border-border px-4 py-2 text-center transition-all hover:border-action-primary hover:bg-action-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      aria-label={`Book ${showtime(s.startsAt)} on ${showDay(s.startsAt)}${s.screenName ? `, ${s.screenName}` : ''}`}
+                      aria-label={`Book ${showtime(s.startsAt, fmtLocale)} on ${showDay(s.startsAt, fmtLocale)}${s.screenName ? `, ${s.screenName}` : ''}`}
                     >
                       <span className="text-[0.9375rem] font-medium text-text-primary">
-                        {showtime(s.startsAt)}
+                        {showtime(s.startsAt, fmtLocale)}
                       </span>
                       <span className="text-caption text-text-muted">
-                        {showDay(s.startsAt)}
+                        {showDay(s.startsAt, fmtLocale)}
                         {s.screenName ? ` · ${s.screenName}` : ''}
                       </span>
                     </Link>

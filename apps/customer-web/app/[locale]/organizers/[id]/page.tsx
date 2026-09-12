@@ -6,13 +6,14 @@ import { useEffect, useState } from 'react';
 import { BadgeCheck, CalendarDays, Globe, Mail, Phone } from 'lucide-react';
 import { useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
-import { dateOnly } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Skeleton } from '@/components/ui';
 
 const FOLLOW_KEY = 'etg_following';
 
 export default function OrganizerProfilePage() {
+  const { dateOnly } = useFormat();
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
   const [following, setFollowing] = useState(false);

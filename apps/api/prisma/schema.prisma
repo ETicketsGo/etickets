@@ -1281,6 +1281,23 @@ model Event {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  /// Reviewed details were changed while the event was paused, so resuming it is not simply
+  /// switching sales back on.
+  ///
+  /// ── WHY A FLAG AND NOT A STATUS ────────────────────────────────────────────────────
+  /// Pause, rewrite the title and venue, resume: the event came back PUBLISHED with content
+  /// no reviewer had seen. The edit and the resume are separate requests, sometimes days
+  /// apart, so the fact that the content moved has to be remembered between them. The event
+  /// stays PAUSED while it is edited — it is still not selling — and resuming reads this to
+  /// decide between going live and going to the review queue. Images do not set it: the
+  /// owner decided a picture changes without review.
+  needsReviewOnResume Boolean   @default(false)
+  /// Set when a platform admin paused the event; only an admin may resume it.
+  ///
+  /// Without it an organizer could undo a moderation decision with the same Resume button
+  /// they use for their own pauses. Cleared whenever an admin moves the event out of PAUSED.
+  pausedByAdminAt     DateTime?
+
   sessions    EventSession[]
   bookings    Booking[]
   reviews     Review[]
@@ -1437,6 +1454,15 @@ model Coupon {
   startsAt       DateTime?
   endsAt         DateTime?
   status         String     @default("ACTIVE")
+
+  /// The currency a FIXED coupon's `value` is in. NULL for PERCENT coupons: a percentage
+  /// applies in any currency.
+  ///
+  /// ── WHY A FIXED AMOUNT NEEDS ONE ─────────────────────────────────────────────────────
+  /// `value` is minor units, and nothing recorded minor units OF WHAT — so a ₹500-off code
+  /// took $500 off a US-dollar booking. A FIXED coupon now applies only to bookings in its
+  /// own currency. A FIXED row still without one is treated as INR, the historic default.
+  currency String?
 
   /// Whether buyers are SHOWN this code, as opposed to having to know it.
   ///

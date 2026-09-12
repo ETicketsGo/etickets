@@ -2,20 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
-import {
-  Button,
-  Card,
-  ErrorState,
-  Input,
-  Skeleton,
-  errorMessage,
-  useToast,
-} from '@eticketsgo/web-kit';
+import { Button, Card, Input, Skeleton, errorMessage, useToast } from '@eticketsgo/web-kit';
+import { ErrorState } from '@/components/ui';
 import { api, tokenStore } from '@/lib/api';
 import { useMounted } from '@/lib/use-mounted';
 
 export default function ProfilePage() {
+  const t = useTranslations('storefront.profile');
   const router = useRouter();
   const mounted = useMounted();
   const qc = useQueryClient();
@@ -41,7 +36,7 @@ export default function ProfilePage() {
   const save = useMutation({
     mutationFn: () => api.updateProfile(fullName),
     onSuccess: () => {
-      toast.push('Profile updated.', 'success');
+      toast.push(t('updated'), 'success');
       qc.invalidateQueries({ queryKey: ['me'] });
       qc.invalidateQueries({ queryKey: ['auth', 'me'] });
     },
@@ -51,14 +46,11 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-lg space-y-8">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Profile</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">Manage your account details.</p>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{t('lead')}</p>
       </div>
       {me.isError ? (
-        <ErrorState
-          message="We couldn't load your profile. Please try again."
-          onRetry={() => me.refetch()}
-        />
+        <ErrorState message={t('loadError')} onRetry={() => me.refetch()} />
       ) : !mounted || me.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
@@ -66,17 +58,17 @@ export default function ProfilePage() {
           <div className="space-y-4">
             <Input
               id="name"
-              label="Full name"
+              label={t('fullName')}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
             />
-            <Input id="email" label="Email" value={me.data?.email ?? ''} disabled />
+            <Input id="email" label={t('email')} value={me.data?.email ?? ''} disabled />
             <Button
               loading={save.isPending}
               disabled={fullName.trim().length < 2}
               onClick={() => save.mutate()}
             >
-              Save changes
+              {t('save')}
             </Button>
           </div>
         </Card>
