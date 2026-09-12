@@ -169,6 +169,30 @@ export default function PaymentPage() {
           name: rzp.name,
           description: rzp.description,
           prefill: rzp.prefill,
+          /*
+            "Pay by any UPI App" first — a scannable QR on desktop, the installed UPI apps on
+            mobile — with cards, netbanking and wallets still listed below it.
+
+            Only when the API says the Razorpay account has UPI switched on. Pinning a UPI
+            block on an account without UPI gives the buyer an empty first option, so without
+            that answer no `config` is passed and Checkout shows its default list, as before.
+          */
+          ...(rzp.upiEnabled
+            ? {
+                config: {
+                  display: {
+                    blocks: {
+                      upi: {
+                        name: k('upiBlockName'),
+                        instruments: [{ method: 'upi', flows: ['qr', 'intent'] }],
+                      },
+                    },
+                    sequence: ['block.upi'],
+                    preferences: { show_default_blocks: true },
+                  },
+                },
+              }
+            : {}),
           handler: (resp) => {
             void (async () => {
               try {

@@ -16,8 +16,25 @@ import {
   dateTime,
   useToast,
   errorMessage,
+  priceBreakdown,
+  moneyFractionDigits,
+  type FeeTaxPart,
   type RefundRow,
 } from '@eticketsgo/web-kit';
+
+/** GST components named in full, as the buyer's checkout and receipt name them. */
+const GST_NAMES: Record<string, string> = {
+  IGST: 'Integrated GST (IGST)',
+  CGST: 'Central GST (CGST)',
+  SGST: 'State GST (SGST)',
+  UTGST: 'Union Territory GST (UTGST)',
+};
+
+function feeTaxLabel(tax: FeeTaxPart): string {
+  const rate = `${(tax.rateBasisPoints / 100).toFixed(tax.rateBasisPoints % 100 === 0 ? 0 : 2)}%`;
+  if (tax.label === null) return tax.rateBasisPoints > 0 ? `GST @ ${rate}` : 'Tax on fees';
+  return `${GST_NAMES[tax.label.trim().toUpperCase()] ?? tax.label} @ ${rate}`;
+}
 
 export default function AdminBookingDetail() {
   const { id } = useParams<{ id: string }>();
@@ -79,16 +96,105 @@ export default function AdminBookingDetail() {
           </dl>
         </Card>
 
+        {/*
+          The same breakdown the buyer was shown, from the same arithmetic.
+
+          This listed the full booking fee and payment fee and the total — no GST on the fees,
+          and, when the organizer covered part of the fees, two figures that were not what the
+          buyer paid. Support reading this page to answer a buyer needs the buyer's numbers:
+          tickets, convenience fees with their parts and each GST line named, and the total.
+        */}
         <Card title="Amounts">
-          <dl className="space-y-2 text-sm">
-            <Row label="Subtotal" value={money(b.subtotalMinor, b.currency)} />
-            {b.discountMinor > 0 && (
-              <Row label="Discount" value={`- ${money(b.discountMinor, b.currency)}`} />
-            )}
-            <Row label="Booking fee" value={money(b.bookingFeeMinor, b.currency)} />
-            <Row label="Payment fee" value={money(b.paymentFeeMinor, b.currency)} />
-            <Row label="Total" value={money(b.totalMinor, b.currency)} />
-          </dl>
+          {(() => {
+            const breakdown = priceBreakdown({
+              subtotalMinor: b.subtotalMinor,
+              discountMinor: b.discountMinor,
+              bookingFeeMinor: b.bookingFeeMinor,
+              paymentFeeMinor: b.paymentFeeMinor,
+              customerFeeInclusiveMinor: b.customerFeeInclusiveMinor,
+              customerFeeMinor: b.customerFeeMinor,
+              feeTaxRateBasisPoints: b.feeTaxRateBasisPoints,
+              maintenanceMinor: b.maintenanceMinor,
+              maintenanceTreatment: b.maintenanceTreatment,
+              taxLines: b.taxLines,
+              totalMinor: b.totalMinor,
+            });
+            // One number of decimals for the card, so "₹1,598" never sits above "₹32.36".
+            const digits = moneyFractionDigits(
+              [...breakdown.rows.map((r) => r.amountMinor), b.totalMinor],
+              b.currency,
+            );
+            const fmt = (minor: number) => money(minor, b.currency, undefined, digits);
+            const part = (kind: string) => breakdown.rows.find((r) => r.kind === kind);
+            const feeRows = breakdown.rows.filter((r) =>
+              ['paymentFee', 'platformFee', 'feeTax', 'fees'].includes(r.kind),
+            );
+            const feesTotal = feeRows.reduce((sum, r) => sum + r.amountMinor, 0);
+            return (
+              <>
+                <dl className="space-y-2 text-sm">
+                  <Row label="Tickets" value={fmt(b.subtotalMinor)} />
+                  {b.discountMinor > 0 && (
+                    <Row label="Discount" value={`- ${fmt(b.discountMinor)}`} />
+                  )}
+                  {part('maintenance') && (
+                    <Row
+                      label="Maintenance charges"
+                      value={fmt(part('maintenance')!.amountMinor)}
+                    />
+                  )}
+                  {breakdown.rows
+                    .filter((r) => r.kind === 'tax')
+                    .map((r) => (
+                      <Row
+                        key={`tax-${r.label}-${r.rateBasisPoints}`}
+                        label={`${r.label} (${(r.rateBasisPoints ?? 0) / 100}%)`}
+                        value={fmt(r.amountMinor)}
+                      />
+                    ))}
+                  {feesTotal > 0 && (
+                    <>
+                      <Row label="Convenience fees" value={fmt(feesTotal)} />
+                      <div className="space-y-1 border-l-2 border-border pl-3 text-xs">
+                        {part('paymentFee') && (
+                          <SubRow
+                            label="Payment processing fee"
+                            value={fmt(part('paymentFee')!.amountMinor)}
+                          />
+                        )}
+                        {part('platformFee') && (
+                          <SubRow
+                            label="Platform fee"
+                            value={fmt(part('platformFee')!.amountMinor)}
+                          />
+                        )}
+                        {breakdown.feeTaxLines.map((tax) => (
+                          <SubRow
+                            key={`fee-tax-${tax.label ?? 'combined'}-${tax.rateBasisPoints}`}
+                            label={feeTaxLabel(tax)}
+                            value={fmt(tax.amountMinor)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  <Row label="Total" value={fmt(b.totalMinor)} />
+                </dl>
+                {breakdown.includedTax.length > 0 && (
+                  <p className="mt-2 text-xs text-text-muted">
+                    Ticket price includes{' '}
+                    {breakdown.includedTax
+                      .map(
+                        (tax) =>
+                          `${GST_NAMES[tax.label.trim().toUpperCase()] ?? tax.label} ${fmt(tax.amountMinor)}`,
+                      )
+                      .join(', ')}
+                    .
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </Card>
       </div>
 
@@ -193,6 +299,16 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
     <div className="flex justify-between gap-4">
       <dt className="text-text-muted">{label}</dt>
       <dd className={`text-right text-text-primary ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
+    </div>
+  );
+}
+
+/** A part of the row above it — listed beneath, never added to the total a second time. */
+function SubRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-text-muted">{label}</dt>
+      <dd className="text-right tabular-nums text-text-secondary">{value}</dd>
     </div>
   );
 }

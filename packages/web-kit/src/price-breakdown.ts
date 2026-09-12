@@ -33,6 +33,19 @@ export interface BreakdownTaxLine {
   inclusive?: boolean;
 }
 
+/**
+ * One line of the tax charged on the fees, as the buyer is shown it inside "Convenience fees".
+ *
+ * `label` is the tax's own name ("IGST", or "CGST" and "SGST") when the stored lines account
+ * for the fee tax exactly; `null` when they cannot, and the amount is then shown as one line at
+ * the combined rate rather than divided by guesswork.
+ */
+export interface FeeTaxPart {
+  label: string | null;
+  rateBasisPoints: number;
+  amountMinor: number;
+}
+
 export interface BreakdownQuote {
   subtotalMinor: number;
   discountMinor: number;
@@ -94,6 +107,11 @@ export interface Breakdown {
     /** Tax charged on the fees. */
     taxMinor: number;
   };
+  /**
+   * The tax on the fees, line by line — IGST, or CGST and SGST — summing exactly to the
+   * `feeTax` row. Empty when the fees are untaxed.
+   */
+  feeTaxLines: FeeTaxPart[];
   totalMinor: number;
 }
 
@@ -109,12 +127,12 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     lines levied on the fees are on the booking, so the all-in figure is rebuilt from them —
     the same arithmetic the quote does — rather than letting the rows fall short of the total.
   */
-  const feeTaxLines = (quote.taxLines ?? []).filter((t) => t.basis === 'FEES');
-  const addedFeeTaxMinor = feeTaxLines
+  const storedFeeTax = (quote.taxLines ?? []).filter((t) => t.basis === 'FEES');
+  const addedFeeTaxMinor = storedFeeTax
     .filter((t) => t.inclusive === false)
     .reduce((n, t) => n + t.amountMinor, 0);
   const feeTaxRateBasisPoints =
-    quote.feeTaxRateBasisPoints ?? feeTaxLines.reduce((n, t) => n + t.rateBasisPoints, 0);
+    quote.feeTaxRateBasisPoints ?? storedFeeTax.reduce((n, t) => n + t.rateBasisPoints, 0);
   const feesAllInMinor =
     quote.customerFeeInclusiveMinor ??
     (quote.customerFeeMinor ?? quote.bookingFeeMinor + quote.paymentFeeMinor) + addedFeeTaxMinor;
@@ -228,7 +246,32 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
     rows.push({ kind: 'fees', amountMinor: feesAllInMinor });
   }
 
+  /*
+    ── THE GST ON THE FEES, BY NAME ─────────────────────────────────────────────────
+    Requested by the owner, pointing at how BookMyShow shows it: "Convenience fees" opening to
+    the base amount and "Integrated GST (IGST) @ 18%". A row reading "GST on fees (18%)" did not
+    say which GST — and an Indian buyer's invoice names IGST, or CGST and SGST, separately.
+
+    The names come from the stored lines levied on the fees. They are used only when they account
+    for the fee tax to the paisa; otherwise the amount is one line at the combined rate, because a
+    split that does not add up to the row above it would be a second column that fails to foot.
+  */
+  const feeTaxMinor = parts?.taxMinor ?? 0;
+  const namedFeeTax = mergeByRate(resolvedTax.filter((tax) => tax.basis === 'FEES'));
+  const feeTaxLines: FeeTaxPart[] =
+    feeTaxMinor <= 0
+      ? []
+      : namedFeeTax.length > 0 &&
+          namedFeeTax.reduce((sum, tax) => sum + tax.amountMinor, 0) === feeTaxMinor
+        ? namedFeeTax.map((tax) => ({
+            label: tax.label,
+            rateBasisPoints: tax.rateBasisPoints,
+            amountMinor: tax.amountMinor,
+          }))
+        : [{ label: null, rateBasisPoints: feeTaxRateBasisPoints, amountMinor: feeTaxMinor }];
+
   return {
+    feeTaxLines,
     rows,
     includedTax: mergeByRate(ticketTax.filter((tax) => tax.inclusive === true)),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,

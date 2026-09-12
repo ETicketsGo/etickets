@@ -1,9 +1,16 @@
 'use client';
 
 import { useId, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { money } from '@/lib/format';
 import { useTranslations } from 'next-intl';
-import { priceBreakdown, moneyFractionDigits, type BreakdownTaxLine } from '@eticketsgo/web-kit';
+import {
+  priceBreakdown,
+  moneyFractionDigits,
+  type BreakdownRow,
+  type BreakdownTaxLine,
+  type FeeTaxPart,
+} from '@eticketsgo/web-kit';
 
 /**
  * What the buyer will actually be charged, itemised, before they commit to anything.
@@ -62,24 +69,50 @@ function ratePercent(basisPoints: number): string {
   return (basisPoints / 100).toFixed(basisPoints % 100 === 0 ? 0 : 2);
 }
 
+/** The rows that make up "Convenience fees". They are always the last rows, together. */
+const FEE_KINDS: ReadonlySet<BreakdownRow['kind']> = new Set([
+  'paymentFee',
+  'platformFee',
+  'feeTax',
+]);
+
+/** GST components an Indian invoice names in full. Anything else keeps the label it was given. */
+const GST_NAMES = {
+  IGST: 'taxNameIGST',
+  CGST: 'taxNameCGST',
+  SGST: 'taxNameSGST',
+  UTGST: 'taxNameUTGST',
+} as const;
+
 function Line({
   label,
   value,
   muted,
   hint,
+  row,
 }: {
   label: string;
   value: string;
   muted?: boolean;
   hint?: string;
+  /**
+   * A row of the breakdown proper — one of the amounts that add up to the total — rather than a
+   * detail listed under one. Marked, so a check that the rows foot never counts a detail twice.
+   */
+  row?: boolean;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 text-[0.9375rem]">
+    <div
+      data-testid={row ? 'price-row' : undefined}
+      className={`flex items-start justify-between gap-4 ${muted ? 'text-caption' : 'text-[0.9375rem]'}`}
+    >
       <span className={muted ? 'text-text-muted' : 'text-text-secondary'}>
         <span>{label}</span>
         {hint ? <span className="block text-caption text-text-muted">{hint}</span> : null}
       </span>
-      <span className="tabular-nums text-text-primary">{value}</span>
+      <span className={`tabular-nums ${muted ? 'text-text-secondary' : 'text-text-primary'}`}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -128,7 +161,10 @@ function TicketsLine({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 text-[0.9375rem]">
+      <div
+        data-testid="price-row"
+        className="flex items-center justify-between gap-4 text-[0.9375rem]"
+      >
         <span className="flex flex-wrap items-center gap-x-2 text-text-secondary">
           <span>{label}</span>
           {hasDetail && (
@@ -177,6 +213,102 @@ function TicketsLine({
           <p className="text-caption text-text-muted">{t('taxIncludedNote')}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Everything charged on top of the tickets, as one line that opens to what it is made of.
+ *
+ * ── WHY ONE LINE THAT OPENS ────────────────────────────────────────────────────────
+ * Requested by the owner, pointing at BookMyShow: "Convenience fees ₹566.13" over "Base
+ * Amount" and "Integrated GST (IGST) @ 18%". Three sibling rows — processing, platform fee,
+ * "GST on fees (18%)" — gave the buyer arithmetic to do and never said which GST it was.
+ *
+ * The parts keep their own names inside it. Payment processing is still named as what the
+ * payment network charges, because folding it into "Platform fee" was reported as reading like
+ * money the platform keeps; and each GST line is named as the invoice will name it.
+ *
+ * Open by default. Hidden GST was the complaint that started this ("not showing GST details");
+ * a buyer who has seen it can close it.
+ */
+function FeesLine({
+  rows,
+  taxLines,
+  currency,
+  digits,
+}: {
+  rows: BreakdownRow[];
+  taxLines: FeeTaxPart[];
+  currency?: string;
+  digits?: number;
+}) {
+  const t = useTranslations('storefront.event');
+  const [open, setOpen] = useState(true);
+  const panelId = useId();
+  const format = (minor: number) => money(minor, currency, undefined, digits);
+  const totalMinor = rows.reduce((sum, row) => sum + row.amountMinor, 0);
+  const paymentFee = rows.find((row) => row.kind === 'paymentFee');
+  const platformFee = rows.find((row) => row.kind === 'platformFee');
+
+  const taxLabel = (tax: FeeTaxPart) => {
+    const rate = `${ratePercent(tax.rateBasisPoints)}%`;
+    if (tax.label === null) {
+      return tax.rateBasisPoints > 0 ? t('feeTaxPart', { rate }) : t('feeTaxNoRate');
+    }
+    const code = tax.label.trim().toUpperCase();
+    const name = code in GST_NAMES ? t(GST_NAMES[code as keyof typeof GST_NAMES]) : tax.label;
+    return t('feeTaxLine', { name, rate });
+  };
+
+  return (
+    <div>
+      <div
+        data-testid="price-row"
+        className="flex items-center justify-between gap-4 text-[0.9375rem]"
+      >
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className="inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+        >
+          {t('convenienceFees')}
+          {open ? (
+            <ChevronUp className="h-4 w-4" aria-hidden />
+          ) : (
+            <ChevronDown className="h-4 w-4" aria-hidden />
+          )}
+        </button>
+        <span className="tabular-nums text-text-primary">{format(totalMinor)}</span>
+      </div>
+      <div
+        id={panelId}
+        hidden={!open}
+        data-testid="fee-details"
+        className="mt-1 space-y-1 border-l-2 border-border pl-3"
+      >
+        {paymentFee && (
+          <Line
+            muted
+            label={t('feePaymentPart')}
+            hint={t('paymentFeeHint')}
+            value={format(paymentFee.amountMinor)}
+          />
+        )}
+        {platformFee && (
+          <Line muted label={t('platformFee')} value={format(platformFee.amountMinor)} />
+        )}
+        {taxLines.map((tax) => (
+          <Line
+            key={`fee-tax-${tax.label ?? 'combined'}-${tax.rateBasisPoints}`}
+            muted
+            label={taxLabel(tax)}
+            value={format(tax.amountMinor)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -260,7 +392,7 @@ export function PriceBreakdown({
     <div className="border-t border-border pt-4">
       {breakdown ? (
         <div className="space-y-1" data-testid="price-breakdown">
-          {breakdown.rows.map((row) => {
+          {breakdown.rows.map((row, index) => {
             const value =
               row.amountMinor < 0
                 ? `- ${money(-row.amountMinor, currency, undefined, digits)}`
@@ -281,17 +413,18 @@ export function PriceBreakdown({
               );
             }
             /*
-              Payment processing says who charges it. Folded into "Platform fee" it read as
-              money the platform keeps — the reported complaint — when it is what the card or
-              UPI network charges to move the payment.
+              The fee rows arrive together, last. They are drawn once, as "Convenience fees", at
+              the first of them; the rest are inside it.
             */
-            if (row.kind === 'paymentFee') {
+            if (FEE_KINDS.has(row.kind)) {
+              if (index > 0 && FEE_KINDS.has(breakdown.rows[index - 1].kind)) return null;
               return (
-                <Line
-                  key={key}
-                  label={t('feePaymentPart')}
-                  hint={t('paymentFeeHint')}
-                  value={value}
+                <FeesLine
+                  key="fees"
+                  rows={breakdown.rows.filter((r) => FEE_KINDS.has(r.kind))}
+                  taxLines={breakdown.feeTaxLines}
+                  currency={currency}
+                  digits={digits}
                 />
               );
             }
@@ -305,16 +438,12 @@ export function PriceBreakdown({
               // A statutory charge, and its own row only when it is ADDED — an included one is
               // disclosed with the tickets instead, because it is already in the price.
               maintenance: () => t('maintenanceCharge'),
-              platformFee: () => t('platformFee'),
-              feeTax: () =>
-                (row.rateBasisPoints ?? 0) > 0
-                  ? t('feeTaxPart', { rate: `${ratePercent(row.rateBasisPoints ?? 0)}%` })
-                  : t('feeTaxNoRate'),
-              fees: () => t('feesCombined'),
+              // Only when the fees cannot be divided exactly; still the buyer's convenience fees.
+              fees: () => t('convenienceFees'),
             };
             const label =
               LABELS[row.kind]?.() ?? `${row.label} (${ratePercent(row.rateBasisPoints ?? 0)}%)`;
-            return <Line key={key} label={label} value={value} />;
+            return <Line key={key} row label={label} value={value} />;
           })}
         </div>
       ) : null}

@@ -21,6 +21,7 @@ function makeService(opts: {
   payment?: Record<string, unknown> | null;
   bookingRow?: Record<string, unknown> | null;
   verifyResult?: boolean;
+  upiEnabled?: boolean;
 }) {
   const updates: Array<Record<string, unknown>> = [];
   const attempts: Array<Record<string, unknown>> = [];
@@ -55,13 +56,15 @@ function makeService(opts: {
     getOrThrow: () => 'rzp_test_key',
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const methods = { upiEnabled: jest.fn().mockResolvedValue(opts.upiEnabled ?? false) };
   const service = new RazorpayOrderService(
     prisma as never,
     resolver as never,
     config as never,
     audit as never,
+    methods as never,
   );
-  return { service, prisma, provider, createPayment, updates, attempts };
+  return { service, prisma, provider, createPayment, updates, attempts, methods };
 }
 
 describe('RazorpayOrderService.createOrder', () => {
@@ -90,6 +93,43 @@ describe('RazorpayOrderService.createOrder', () => {
     const out = await service.createOrder(booking, split, {});
     expect(createPayment).not.toHaveBeenCalled();
     expect(out.razorpay.orderId).toBe('order_existing');
+  });
+
+  /*
+    Whether Checkout may lead with "Pay by any UPI App". The answer comes from the account
+    (RazorpayMethodsService), asked with the public key id and the booking's currency.
+  */
+  it('tells the storefront UPI is enabled when the account offers it', async () => {
+    const { service, methods } = makeService({
+      payment: { status: 'REQUIRES_PAYMENT' },
+      upiEnabled: true,
+    });
+    const out = await service.createOrder(booking, split, {});
+    expect(out.razorpay.upiEnabled).toBe(true);
+    expect(methods.upiEnabled).toHaveBeenCalledWith('rzp_test_key', 'INR');
+  });
+
+  it('tells the storefront UPI is NOT enabled when the account does not offer it', async () => {
+    const { service } = makeService({ payment: { status: 'REQUIRES_PAYMENT' }, upiEnabled: false });
+    const out = await service.createOrder(booking, split, {});
+    expect(out.razorpay.upiEnabled).toBe(false);
+    // Everything else the Checkout needs is still there.
+    expect(out.razorpay).toMatchObject({
+      keyId: 'rzp_test_key',
+      orderId: 'order_new',
+      amountMinor: 150000,
+      currency: 'INR',
+      callbackUrl: 'http://cb',
+    });
+  });
+
+  it('carries upiEnabled on the retry-safe path too', async () => {
+    const { service } = makeService({
+      payment: { status: 'PROCESSING', providerOrderId: 'order_existing' },
+      upiEnabled: true,
+    });
+    const out = await service.createOrder(booking, split, {});
+    expect(out.razorpay.upiEnabled).toBe(true);
   });
 });
 

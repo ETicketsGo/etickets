@@ -108,8 +108,9 @@ describe('receipt footing — tax inside the price', () => {
   it('says the tax is already in the total, in words', () => {
     // Position alone is subtle. The label has to carry the meaning for somebody scanning.
     const html = renderReceiptHtml(doc(), 'en');
-    expect(html).toMatch(/Includes CGST/);
-    expect(html).toMatch(/Includes SGST/);
+    // By their full names, as the checkout shows them: "Central GST (CGST)".
+    expect(html).toMatch(/Includes Central GST \(CGST\)/);
+    expect(html).toMatch(/Includes State GST \(SGST\)/);
   });
 
   it('keeps stating the rate and the base the tax was charged on', () => {
@@ -233,7 +234,9 @@ describe('receipt footing — GST inside the ticket AND added to the fee (one In
     const ticketTax = below.filter((r) => /GST/.test(r.label));
     expect(ticketTax.map((r) => r.amount)).toEqual([3_806, 3_806]);
     for (const row of ticketTax) {
-      expect(row.label).toMatch(/^Included in ticket price: [CS]GST @ 9% on ₹422\.88$/);
+      expect(row.label).toMatch(
+        /^Included in ticket price: (Central|State) GST \([CS]GST\) @ 9% on ₹422\.88$/,
+      );
     }
   });
 
@@ -256,7 +259,7 @@ describe('receipt footing — GST inside the ticket AND added to the fee (one In
 
   it('reads the same way in French', () => {
     const html = renderReceiptHtml(mixed(true), 'fr-CA');
-    expect(html).toMatch(/Compris dans le prix des billets : CGST/);
+    expect(html).toMatch(/Compris dans le prix des billets : GST centrale \(CGST\)/);
     expect(html).toMatch(/sur des frais de/);
     expect(html).toMatch(/Total des taxes de cette commande/);
   });

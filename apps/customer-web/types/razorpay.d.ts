@@ -9,6 +9,29 @@ interface RazorpayHandlerResponse {
   razorpay_signature: string;
 }
 
+/** One payment instrument inside a Checkout display block, e.g. UPI via QR and intent. */
+interface RazorpayDisplayInstrument {
+  /** 'upi', 'card', 'netbanking', 'wallet', … */
+  method: string;
+  /** For UPI: 'qr', 'intent', 'collect'. */
+  flows?: string[];
+  apps?: string[];
+}
+
+interface RazorpayDisplayBlock {
+  name: string;
+  instruments: RazorpayDisplayInstrument[];
+}
+
+/** `config.display`: custom method blocks, their order, and whether the defaults follow. */
+interface RazorpayDisplayConfig {
+  /** Keyed by block id; referenced from `sequence` as `block.<id>`. */
+  blocks: Record<string, RazorpayDisplayBlock>;
+  sequence: string[];
+  preferences: { show_default_blocks: boolean };
+  hide?: RazorpayDisplayInstrument[];
+}
+
 /** Options passed to `new window.Razorpay(...)`. */
 interface RazorpayOptions {
   key: string;
@@ -21,6 +44,7 @@ interface RazorpayOptions {
   prefill?: { name?: string; email?: string; contact?: string };
   handler?: (response: RazorpayHandlerResponse) => void;
   modal?: { ondismiss?: () => void };
+  config?: { display: RazorpayDisplayConfig };
 }
 
 /**

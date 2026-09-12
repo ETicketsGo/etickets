@@ -10,6 +10,7 @@ import { AuditService } from '../../audit/audit.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
+import { RazorpayMethodsService } from './razorpay-methods.service';
 
 /** Booking shape the order flow needs (loaded by PaymentsService.createIntent). */
 export interface RazorpayBookingContext {
@@ -36,6 +37,11 @@ export interface RazorpayCheckoutPayload {
     description: string;
     prefill: { name: string; email: string };
     callbackUrl: string;
+    /**
+     * The account currently offers UPI, so the storefront may lead Checkout with "Pay by any
+     * UPI App" (QR on desktop, intent on mobile). False whenever that is not KNOWN to be true.
+     */
+    upiEnabled: boolean;
   };
 }
 
@@ -52,6 +58,7 @@ export class RazorpayOrderService {
     private readonly resolver: PaymentProviderResolver,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly methods: RazorpayMethodsService,
   ) {}
 
   /** Create (or return the existing pending) Razorpay Order for an INR booking. */
@@ -185,14 +192,22 @@ export class RazorpayOrderService {
     return { status: 'processing', bookingId };
   }
 
-  private payload(orderId: string, booking: RazorpayBookingContext): RazorpayCheckoutPayload {
+  private async payload(
+    orderId: string,
+    booking: RazorpayBookingContext,
+  ): Promise<RazorpayCheckoutPayload> {
+    const keyId = this.config.getOrThrow<string>('RAZORPAY_KEY_ID');
+    // Resolved first, so a misconfigured environment refuses before any network call.
+    const callbackUrl = this.checkoutCallbackUrl();
+    // Never rejects: any failure answers false, and Checkout opens with its default methods.
+    const upiEnabled = await this.methods.upiEnabled(keyId, booking.currency);
     return {
       providerRef: orderId,
       clientActionUrl: orderId,
       status: 'REQUIRES_PAYMENT',
       provider: 'razorpay',
       razorpay: {
-        keyId: this.config.getOrThrow<string>('RAZORPAY_KEY_ID'),
+        keyId,
         orderId,
         amountMinor: booking.totalMinor,
         currency: booking.currency,
@@ -200,7 +215,8 @@ export class RazorpayOrderService {
         description:
           this.config.get<string>('RAZORPAY_CHECKOUT_DESCRIPTION') ?? 'Event ticket purchase',
         prefill: { name: booking.buyerName, email: booking.buyerEmail },
-        callbackUrl: this.checkoutCallbackUrl(),
+        callbackUrl,
+        upiEnabled,
       },
     };
   }

@@ -61,6 +61,12 @@
     "galleryImageAlt": "{title} — image {index} sur {total}",
     "gstIncludedSummary": "Comprend {amount} de TPS",
     "taxIncludedSummary": "Comprend {amount} de taxes",
+    "convenienceFees": "Frais de commodité",
+    "feeTaxLine": "{name} @ {rate}",
+    "taxNameIGST": "GST intégrée (IGST)",
+    "taxNameCGST": "GST centrale (CGST)",
+    "taxNameSGST": "GST d’État (SGST)",
+    "taxNameUTGST": "GST de territoire de l’Union (UTGST)",
     "feeBreakdownNote": "Les frais de réservation nous reviennent. Le traitement du paiement correspond aux frais du réseau de carte ou UPI pour transférer l'argent."
   },
   "seats": {
@@ -114,6 +120,7 @@
     "expiringSoon": "Vos sièges seront bientôt libérés.",
     "availableOffers": "Offres disponibles…",
     "verifyFailed": "Nous n’avons pas pu vérifier votre paiement. Si vous avez été débité, il sera confirmé sous peu — consultez « Mes réservations ».",
+    "upiBlockName": "Payer avec n’importe quelle app UPI",
     "failure": {
       "INTERNATIONAL_CARD_NOT_ACCEPTED": "Cette carte a été émise hors de l’Inde et n’est pas acceptée pour ce paiement. Essayez une carte émise en Inde, ou choisissez les services bancaires en ligne ou un portefeuille dans la fenêtre de paiement.",
       "CARD_DECLINED": "Votre banque a refusé cette carte. Essayez une autre carte ou un autre mode de paiement.",

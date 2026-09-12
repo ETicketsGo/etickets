@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import {
   BookingStatus,
   EventStatus,
+  MARKETS,
   OrganizationStatus,
   PaymentStatus,
   RefundStatus,
   Role,
   TicketStatus,
+  currencyForCountry,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -299,7 +301,10 @@ export class ReportsService {
   async adminDashboard() {
     const [
       paidByCurrency,
+      bookingsByCurrency,
       refundsByCurrency,
+      failuresByCurrency,
+      venueCountries,
       totalBookings,
       activeOrganizers,
       publishedEvents,
@@ -319,6 +324,13 @@ export class ReportsService {
         _sum: { totalMinor: true, bookingFeeMinor: true, paymentFeeMinor: true },
         _count: { _all: true },
       }),
+      /*
+        Every booking, whatever became of it. Reported from QA: the overview showed India
+        alone, because a market was listed only once it had taken money — and every US
+        checkout had expired, so the United States did not exist on the page. "12 bookings,
+        0 paid" is precisely the thing an admin needs to see.
+      */
+      this.prisma.booking.groupBy({ by: ['currency'], _count: { _all: true } }),
       // A refund carries no currency of its own; it is in the currency of the booking it returns.
       this.prisma.$queryRaw<{ currency: string; amountMinor: bigint | number | null }[]>`
         SELECT b."currency" AS currency, COALESCE(SUM(r."amountMinor"), 0) AS "amountMinor"
@@ -326,6 +338,20 @@ export class ReportsService {
         JOIN "Booking" b ON b."id" = r."bookingId"
         WHERE r."status" = 'COMPLETED'
         GROUP BY b."currency"`,
+      /*
+        Failed payments, by the currency of the booking they were for — the same grouping as
+        every other figure here, so a market's failures sit beside its bookings. The status is
+        a string literal on purpose: Postgres refuses an enum column compared to a bound text
+        parameter.
+      */
+      this.prisma.$queryRaw<{ currency: string | null; count: bigint | number }[]>`
+        SELECT b."currency" AS currency, COUNT(*) AS count
+        FROM "Payment" p
+        JOIN "Booking" b ON b."id" = p."bookingId"
+        WHERE p."status" = 'FAILED'
+        GROUP BY b."currency"`,
+      // Where venues are, so a market being set up is listed before its first booking exists.
+      this.prisma.venue.findMany({ distinct: ['country'], select: { country: true } }),
       this.prisma.booking.count(),
       this.prisma.organization.count({ where: { status: OrganizationStatus.APPROVED } }),
       this.prisma.event.count({ where: { status: EventStatus.PUBLISHED } }),
@@ -333,30 +359,88 @@ export class ReportsService {
       this.prisma.payout.count({ where: { status: { in: ['PENDING', 'SCHEDULED'] } } }),
     ]);
 
-    const refunds = new Map(
-      refundsByCurrency.map((row) => [row.currency.toUpperCase(), Number(row.amountMinor ?? 0)]),
+    // "inr" and "INR" are one market. A blank currency is not a market at all.
+    const normalise = (currency: string | null | undefined) =>
+      currency?.trim().toUpperCase() || null;
+    const tally = <Row>(
+      rows: Row[],
+      currencyOf: (row: Row) => string | null | undefined,
+      // Raw SQL sums and counts arrive as bigint; Prisma's aggregates as number.
+      valueOf: (row: Row) => number | bigint | null | undefined,
+    ) => {
+      const totals = new Map<string, number>();
+      for (const row of rows) {
+        const currency = normalise(currencyOf(row));
+        if (currency) totals.set(currency, (totals.get(currency) ?? 0) + Number(valueOf(row) ?? 0));
+      }
+      return totals;
+    };
+
+    const gmv = tally(
+      paidByCurrency,
+      (row) => row.currency,
+      (row) => row._sum.totalMinor,
     );
-    const currencies = new Set([
-      ...paidByCurrency.map((row) => row.currency.toUpperCase()),
+    const revenue = tally(
+      paidByCurrency,
+      (row) => row.currency,
+      (row) => (row._sum.bookingFeeMinor ?? 0) + (row._sum.paymentFeeMinor ?? 0),
+    );
+    const paid = tally(
+      paidByCurrency,
+      (row) => row.currency,
+      (row) => row._count._all,
+    );
+    const bookings = tally(
+      bookingsByCurrency,
+      (row) => row.currency,
+      (row) => row._count._all,
+    );
+    const refunds = tally(
+      refundsByCurrency,
+      (row) => row.currency,
+      (row) => row.amountMinor,
+    );
+    const failures = tally(
+      failuresByCurrency,
+      (row) => row.currency,
+      (row) => row.count,
+    );
+
+    /*
+      ── EVERY MARKET, INCLUDING THE EMPTY ONES ──────────────────────────────────────────
+      A market is any currency the platform has sold in, been asked to sell in (a booking of
+      any status), refunded in, or has a venue in. A zero is a figure: a market that is
+      missing from the page cannot be told apart from one nobody set up.
+    */
+    const currencies = new Set<string>([
+      ...paid.keys(),
+      ...bookings.keys(),
       ...refunds.keys(),
+      ...venueCountries.flatMap((venue) => normalise(currencyForCountry(venue.country)) ?? []),
     ]);
     const money = [...currencies]
-      .map((currency) => {
-        const paid = paidByCurrency.filter((row) => row.currency.toUpperCase() === currency);
-        const sum = (pick: (row: (typeof paidByCurrency)[number]) => number | null | undefined) =>
-          paid.reduce((total, row) => total + (pick(row) ?? 0), 0);
-        return {
-          currency,
-          gmvMinor: sum((row) => row._sum.totalMinor),
-          platformRevenueMinor: sum(
-            (row) => (row._sum.bookingFeeMinor ?? 0) + (row._sum.paymentFeeMinor ?? 0),
-          ),
-          refundVolumeMinor: refunds.get(currency) ?? 0,
-          paidBookings: sum((row) => row._count._all),
-        };
-      })
-      // The biggest market first, so the page opens on the figures that matter most.
-      .sort((a, b) => b.gmvMinor - a.gmvMinor || a.currency.localeCompare(b.currency));
+      .map((currency) => ({
+        currency,
+        // The country a currency is sold from, so the page can say "United States", not "USD".
+        country: MARKETS.find((market) => market.currency === currency)?.code ?? null,
+        gmvMinor: gmv.get(currency) ?? 0,
+        platformRevenueMinor: revenue.get(currency) ?? 0,
+        refundVolumeMinor: refunds.get(currency) ?? 0,
+        paidBookings: paid.get(currency) ?? 0,
+        totalBookings: bookings.get(currency) ?? 0,
+        paymentFailures: failures.get(currency) ?? 0,
+      }))
+      /*
+        Markets that have sold something first, biggest first, so the page opens on the figures
+        that matter most. The rest follow alphabetically — still listed, never dropped.
+      */
+      .sort(
+        (a, b) =>
+          Number(b.paidBookings > 0) - Number(a.paidBookings > 0) ||
+          b.gmvMinor - a.gmvMinor ||
+          a.currency.localeCompare(b.currency),
+      );
 
     return {
       /** One entry per currency sold in. The only money a screen should show. */
