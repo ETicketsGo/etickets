@@ -9,13 +9,16 @@ import {
   filterWallet,
   searchWallet,
   sectionizeWallet,
+  summarizeBookingGroup,
   useConnectivity,
   useToast,
   DEFAULT_WALLET_FLAGS,
   WALLET_SECTION_LABELS,
+  type GroupSummaryWords,
   type WalletFilter,
   type WalletFlags,
   type WalletItem,
+  type WalletLabels,
 } from '@eticketsgo/web-kit';
 import { tokenStore } from '@/lib/api';
 import { EmptyState, ErrorState, ButtonLink, Input } from '@/components/ui';
@@ -125,8 +128,35 @@ export default function ExperienceWalletPage() {
     toast.push(w('offlineCleared'), 'success');
   };
 
+  /*
+    The card words in the reader's language. web-kit builds the wallet items and used to write
+    "2 tickets", "Event", "View tickets" and "1 of 2 checked in" into them in English; it now
+    takes the words, and decides only which ones apply.
+  */
+  const b = useTranslations('storefront.bookingTickets');
+  const wc = useTranslations('storefront.walletCard');
+  const labels = useMemo<WalletLabels>(() => {
+    const words: GroupSummaryWords = {
+      allCheckedIn: wc('allCheckedIn'),
+      bookingCancelled: wc('bookingCancelled'),
+      segment: (kind, count) => wc(`segment.${kind}`, { count }),
+    };
+    return {
+      ticketCount: (count) => b('ticketCount', { count }),
+      badge: (isMovie) => wc(isMovie ? 'badgeMovie' : 'badgeEvent'),
+      viewTickets: (count) => wc(count === 1 ? 'viewTicket' : 'viewTickets'),
+      summary: (counts) => summarizeBookingGroup(counts, words).summary,
+      checkInProgress: (checkedIn, total) => b('checkInProgress', { checkedIn, total }),
+      where: wc('where'),
+      reference: wc('reference'),
+    };
+  }, [b, wc]);
+
   // Build the generic wallet, then apply search + filters, then sectionize.
-  const items = useMemo(() => (data ? buildWallet({ tickets: data }, flags) : []), [data, flags]);
+  const items = useMemo(
+    () => (data ? buildWallet({ tickets: data, labels }, flags) : []),
+    [data, flags, labels],
+  );
   const availableFilters = useMemo(() => {
     const present = new Set(items.flatMap((i) => i.filters));
     return FILTER_CHIPS.filter((c) => present.has(c));

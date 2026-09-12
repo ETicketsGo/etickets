@@ -54,6 +54,9 @@ function make(mode: 'disabled' | 'shadow' | 'active') {
   const bookings = {
     create: jest.fn().mockResolvedValue({ id: 'legacy-b', status: 'PENDING_PAYMENT' }),
     getForUser: jest.fn().mockResolvedValue({ id: 'b1', status: 'PENDING_PAYMENT' }),
+    cancelUnpaid: jest
+      .fn()
+      .mockResolvedValue({ id: 'b1', status: 'CANCELLED', refundPending: false }),
   } as unknown as BookingsService;
   const payments = {
     createIntent: jest.fn().mockResolvedValue({ provider: 'mock', clientActionUrl: 'x' }),
@@ -174,13 +177,31 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
     expect(arg.requestOwner).toEqual({ ownerType: 'USER', ownerId: 'u1' });
   });
 
-  it('cancel is rejected in disabled/shadow (no legacy cancel endpoint) and coordinated in active', async () => {
-    await expect(make('shadow').router.cancel({ user, bookingId: 'b1' })).rejects.toBeInstanceOf(
-      AppException,
-    );
-    const { router, orchestrator } = make('active');
+  it('cancel in disabled/shadow cancels the signed-in owner’s unpaid booking on the legacy path', async () => {
+    for (const mode of ['disabled', 'shadow'] as const) {
+      const { router, bookings, orchestrator } = make(mode);
+      const res = (await router.cancel({ user, bookingId: 'b1' })) as Record<string, unknown>;
+      expect(bookings.cancelUnpaid).toHaveBeenCalledWith(user, 'b1');
+      expect(orchestrator.cancel).not.toHaveBeenCalled();
+      expect(res.status).toBe('CANCELLED');
+    }
+  });
+
+  it('cancel refuses a guest in disabled/shadow, where nothing proves the booking is theirs', async () => {
+    for (const mode of ['disabled', 'shadow'] as const) {
+      const { router, bookings, anon } = make(mode);
+      await expect(
+        router.cancel({ user: null, bookingId: 'b1', anonymousToken: anon.issueToken() }),
+      ).rejects.toBeInstanceOf(AppException);
+      expect(bookings.cancelUnpaid).not.toHaveBeenCalled();
+    }
+  });
+
+  it('cancel is coordinated by the orchestrator in active mode', async () => {
+    const { router, orchestrator, bookings } = make('active');
     const res = (await router.cancel({ user, bookingId: 'b1' })) as Record<string, unknown>;
     expect(orchestrator.cancel).toHaveBeenCalledTimes(1);
+    expect(bookings.cancelUnpaid).not.toHaveBeenCalled();
     expect(res.status).toBe('CANCELLED');
   });
 

@@ -2,18 +2,24 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { CalendarDays, CheckCircle2, MapPin, ShieldCheck, Ticket } from 'lucide-react';
 import { errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
-import { dateTime } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { Button, ButtonLink, Card, Skeleton } from '@/components/ui';
 
-const SHARE_QR_FALLBACK =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f1f5f9"/><text x="100" y="104" font-family="sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">QR unavailable</text></svg>',
+/** The placeholder drawn when a QR image fails, in the reader's language. */
+function shareQrFallback(text: string): string {
+  const safe = text.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f1f5f9"/><text x="100" y="104" font-family="sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">${safe}</text></svg>`,
+    )
   );
+}
 
 /**
  * Public recipient view for a share link. No login needed for view/guest; the
@@ -21,6 +27,9 @@ const SHARE_QR_FALLBACK =
  * A transfer link offers "Accept ownership", which requires sign-in.
  */
 export default function SharePage() {
+  const t = useTranslations('storefront.sharedTicket');
+  const w = useTranslations('storefront.wallet');
+  const { dateTime } = useFormat();
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
 
@@ -46,11 +55,11 @@ export default function SharePage() {
     return (
       <Wrapper>
         <Card className="text-center">
-          <h1 className="text-h3 font-bold text-text-primary">This link isn’t available</h1>
+          <h1 className="text-h3 font-bold text-text-primary">{t('unavailableTitle')}</h1>
           <p className="mt-1.5 text-[0.9375rem] text-text-secondary">{errorMessage(share.error)}</p>
           <div className="mt-6">
             <ButtonLink href="/events" variant="outline">
-              Browse events
+              {w('browseEvents')}
             </ButtonLink>
           </div>
         </Card>
@@ -63,6 +72,7 @@ export default function SharePage() {
     r.resourceType === 'TICKET' && r.cinemaName
       ? [r.cinemaName, r.screenName].filter(Boolean).join(' · ')
       : r.venueName;
+  const fallback = shareQrFallback(w('qrUnavailable'));
 
   return (
     <Wrapper>
@@ -70,15 +80,15 @@ export default function SharePage() {
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-background-subtle px-2.5 py-1 text-caption font-medium text-text-secondary">
             <Ticket className="h-3.5 w-3.5" />
-            Shared with you
+            {t('sharedWithYou')}
           </span>
           <span className="inline-flex items-center gap-1.5 text-caption font-medium text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             {data.permission === 'GUEST'
-              ? 'Guest access'
+              ? t('permission.GUEST')
               : data.permission === 'TRANSFER'
-                ? 'Transfer'
-                : 'View only'}
+                ? t('permission.TRANSFER')
+                : t('permission.VIEW')}
           </span>
         </div>
 
@@ -95,38 +105,38 @@ export default function SharePage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={data.qrDataUrl}
-              alt="Ticket QR code"
+              alt={t('qrAlt')}
               onError={(e) => {
                 const img = e.currentTarget;
-                if (img.src !== SHARE_QR_FALLBACK) img.src = SHARE_QR_FALLBACK;
+                if (img.src !== fallback) img.src = fallback;
               }}
               className="h-52 w-52 rounded-2xl bg-white p-2 shadow-sm"
             />
-            <p className="mt-2 text-caption text-text-muted">Show this at the gate to check in.</p>
+            <p className="mt-2 text-caption text-text-muted">{t('showAtGate')}</p>
           </div>
         ) : (
           data.permission === 'VIEW' && (
             <div className="rounded-lg border border-dashed border-border p-6 text-center text-caption text-text-muted">
-              The QR code is hidden on view-only links.
+              {t('qrHidden')}
             </div>
           )
         )}
 
         <dl className="space-y-1.5 text-[0.9375rem] text-text-secondary">
           {r.seatLabel && (
-            <Row label="Seat">
+            <Row label={t('seat')}>
               <span className="font-medium text-text-primary">{r.seatLabel}</span>
             </Row>
           )}
           {place && (
-            <Row label="Where">
+            <Row label={t('where')}>
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5 text-text-muted" /> {place}
               </span>
             </Row>
           )}
           {r.startsAt && (
-            <Row label="When">
+            <Row label={t('when')}>
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5 text-text-muted" />{' '}
                 {dateTime(r.startsAt, undefined, r.timeZone ?? undefined)}
@@ -134,7 +144,7 @@ export default function SharePage() {
             </Row>
           )}
           {r.reference && (
-            <Row label="Reference">
+            <Row label={t('reference')}>
               <span className="font-mono text-caption">{r.reference}</span>
             </Row>
           )}
@@ -143,11 +153,9 @@ export default function SharePage() {
         {data.canTransfer && (
           <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
             <p className="flex items-center gap-1.5 font-medium text-text-primary">
-              <CheckCircle2 className="h-4 w-4 text-status-success" /> Take ownership
+              <CheckCircle2 className="h-4 w-4 text-status-success" /> {t('takeOwnership')}
             </p>
-            <p className="mt-1 text-caption text-text-muted">
-              Accept to move this ticket into your wallet with a fresh QR.
-            </p>
+            <p className="mt-1 text-caption text-text-muted">{t('acceptHint')}</p>
             {accept.isError && (
               <p role="alert" className="mt-2 text-caption text-status-error">
                 {errorMessage(accept.error)}
@@ -162,7 +170,7 @@ export default function SharePage() {
                   : router.push(`/login?next=${encodeURIComponent(`/share/${token}`)}`)
               }
             >
-              {tokenStore.access ? 'Accept ownership' : 'Sign in to accept'}
+              {tokenStore.access ? t('accept') : t('signInToAccept')}
             </Button>
           </div>
         )}

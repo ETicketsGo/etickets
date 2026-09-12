@@ -18,7 +18,7 @@ import {
 import { ImageLightbox } from '@/components/image-lightbox';
 import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import {
   Badge,
@@ -42,6 +42,7 @@ export default function EventDetailPage() {
   const tx = useTranslations('common');
   const sf = useTranslations('storefront');
   const b = useTranslations('storefront.booking');
+  const { money, dateTime, zoneAbbrev } = useFormat();
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const {

@@ -211,13 +211,24 @@ export class BookingExecutionRouter {
     const mode = this.mode();
     this.metrics.recordBookingApi('cancel', mode, this.ownerTypeLabel(ctx.user));
     if (mode !== 'active') {
-      // No legacy customer-cancel endpoint exists; disabled/shadow reject rather than
-      // inventing behaviour. Unpaid holds still expire via the durable sweep.
-      throw new AppException(
-        ErrorCodes.CONFLICT,
-        'Booking cancellation is not available.',
-        HttpStatus.CONFLICT,
-      );
+      /*
+        The signed-in buyer's own unpaid booking, cancelled on the legacy path — see
+        `BookingsService.cancelUnpaid` for what that does and refuses.
+
+        A guest is still refused. On this path nothing ties a guest booking to the browser that
+        made it: the anonymous checkout token is bound to a booking only by the orchestration
+        workflow, which the legacy path never creates, so accepting a guest here would let anyone
+        holding a booking id release somebody else's seats. A guest's unpaid hold still expires
+        through the durable sweep.
+      */
+      if (!ctx.user) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'Booking cancellation is not available.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      return this.bookings.cancelUnpaid(ctx.user, ctx.bookingId);
     }
     const owner = this.owners.resolveForRequest({
       user: ctx.user,

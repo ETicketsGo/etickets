@@ -167,3 +167,158 @@ describe('the gateway skip does not leak into paid bookings', () => {
     );
   });
 });
+
+/*
+  ── ASKING TO CANCEL A FREE BOOKING CANCELS IT ─────────────────────────────────────────
+  A request on a free booking created a ₹0 refund, which sat in the organizer's and the
+  platform's queues until somebody approved returning nothing — with the ticket still live and
+  the seat still taken meanwhile. With no money to move there is nothing to decide, so the
+  request now cancels the tickets there and then.
+*/
+describe('asking to cancel a free booking', () => {
+  const BUYER = { id: 'u1', email: 'free@t.test', fullName: 'F', roles: [] } as never;
+  const LIVE = [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN];
+
+  function setupRequest(
+    opts: {
+      totalMinor?: number;
+      claimCount?: number;
+      remaining?: number;
+      ticketIds?: string[];
+    } = {},
+  ) {
+    const tickets = ['tk1', 'tk2'].slice(0, opts.remaining ? 2 : 1).map((id, i) => ({
+      id,
+      status: TicketStatus.ACTIVE,
+      ticketTypeId: 't1',
+      seatId: `seat-${i + 1}`,
+      invites: [],
+    }));
+    const booking = {
+      id: 'b1',
+      userId: 'u1',
+      organizationId: 'org-1',
+      status: BookingStatus.CONFIRMED,
+      paymentMethod: 'ONLINE',
+      totalMinor: opts.totalMinor ?? 0,
+      subtotalMinor: opts.totalMinor ?? 0,
+      discountMinor: 0,
+      eventSessionId: 'sess-1',
+      seatBased: true,
+      eventSession: { startsAt: new Date(Date.now() + 30 * 86_400_000) },
+      event: { refundsEnabled: true, refundCutoffHours: 48 },
+      tickets,
+      taxLines: [],
+    };
+    const calls: string[] = [];
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      refund: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'rf-new',
+          ...data,
+        })),
+      },
+      ticket: {
+        updateMany: jest.fn(async () => {
+          calls.push('claim');
+          return { count: opts.claimCount ?? (opts.ticketIds?.length || tickets.length) };
+        }),
+        count: jest.fn().mockResolvedValue(opts.remaining ?? 0),
+      },
+      booking: { update: jest.fn().mockResolvedValue({}) },
+    };
+    const strategy = {
+      refund: jest.fn(async () => {
+        calls.push('release');
+      }),
+    };
+    const inventory = { forSeating: jest.fn().mockReturnValue(strategy) };
+    const audit = { record: jest.fn().mockResolvedValue(undefined) };
+    const prisma = {
+      booking: { findUnique: jest.fn().mockResolvedValue(booking) },
+      bookingItem: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { ticketTypeId: 't1', unitPriceMinor: opts.totalMinor ?? 0, quantity: tickets.length },
+          ]),
+      },
+      $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    const service = new RefundsService(
+      prisma as never,
+      { refundPayment: jest.fn() } as never,
+      inventory as never,
+      { isPlatformAdmin: () => false, assertMember: async () => undefined } as never,
+      audit as never,
+      { send: jest.fn(), sendCritical: jest.fn() } as never,
+      new MetricsService(),
+      { issueCreditNote: jest.fn() } as never,
+    );
+    return { service, tx, strategy, inventory, audit, calls };
+  }
+
+  it('cancels the ticket at once and puts no ₹0 refund in anybody’s queue', async () => {
+    const { service, tx, strategy, inventory, audit } = setupRequest();
+    const res = await service.request(BUYER, { bookingId: 'b1', reason: 'cannot make it' });
+
+    expect(tx.refund.create).not.toHaveBeenCalled();
+    expect(tx.ticket.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['tk1'] }, status: { in: LIVE } },
+      data: { status: TicketStatus.CANCELLED },
+    });
+    // Back to the seat map it came from, by the booking's own seating.
+    expect(inventory.forSeating).toHaveBeenCalledWith(true);
+    expect(strategy.refund).toHaveBeenCalledWith(tx, {
+      eventSessionId: 'sess-1',
+      tickets: [{ ticketTypeId: 't1', seatId: 'seat-1' }],
+    });
+    expect(tx.booking.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: BookingStatus.CANCELLED }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'FREE_TICKETS_CANCELLED', entityId: 'b1' }),
+    );
+    expect(res).toMatchObject({
+      outcome: 'CANCELLED',
+      bookingStatus: BookingStatus.CANCELLED,
+      amountMinor: 0,
+    });
+  });
+
+  it('keeps the booking confirmed while it still has live tickets', async () => {
+    const { service, tx } = setupRequest({ remaining: 1, ticketIds: ['tk1'] });
+    const res = await service.request(BUYER, {
+      bookingId: 'b1',
+      reason: 'one of us cannot come',
+      ticketIds: ['tk1'],
+    });
+    expect(tx.ticket.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['tk1'] }, status: { in: LIVE } } }),
+    );
+    expect(tx.booking.update).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ bookingStatus: BookingStatus.CONFIRMED });
+  });
+
+  it('returns no stock when another request cancelled the tickets first', async () => {
+    // The claim changed nothing, so this call voided nothing and must release nothing.
+    const { service, tx, strategy, calls } = setupRequest({ claimCount: 0 });
+    await expect(
+      service.request(BUYER, { bookingId: 'b1', reason: 'cannot make it' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(strategy.refund).not.toHaveBeenCalled();
+    expect(tx.booking.update).not.toHaveBeenCalled();
+    expect(calls).toEqual(['claim']);
+  });
+
+  it('still queues a refund for a booking that cost money', async () => {
+    const { service, tx } = setupRequest({ totalMinor: 50_000 });
+    await service.request(BUYER, { bookingId: 'b1', reason: 'cannot make it' });
+    expect(tx.refund.create).toHaveBeenCalled();
+    expect(tx.ticket.updateMany).not.toHaveBeenCalled();
+  });
+});

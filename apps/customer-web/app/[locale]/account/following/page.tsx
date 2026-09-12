@@ -2,9 +2,10 @@
 
 import { useQueries } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { BadgeCheck, ChevronRight, Users } from 'lucide-react';
 import { api, type OrganizerProfile } from '@/lib/api';
-import { dateOnly } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 
@@ -20,6 +21,8 @@ function readFollowing(): string[] {
 }
 
 function OrganizerCard({ org }: { org: OrganizerProfile }) {
+  const t = useTranslations('storefront.following');
+  const { dateOnly } = useFormat();
   return (
     <Link
       href={`/organizers/${org.id}`}
@@ -34,12 +37,11 @@ function OrganizerCard({ org }: { org: OrganizerProfile }) {
             {org.name}
           </p>
           {org.verified && (
-            <BadgeCheck className="h-4 w-4 shrink-0 text-status-info" aria-label="Verified" />
+            <BadgeCheck className="h-4 w-4 shrink-0 text-status-info" aria-label={t('verified')} />
           )}
         </div>
         <p className="mt-0.5 truncate text-caption text-text-muted">
-          Since {dateOnly(org.memberSince)} · {org.eventCount} live event
-          {org.eventCount === 1 ? '' : 's'}
+          {t('since', { date: dateOnly(org.memberSince), count: org.eventCount })}
         </p>
       </div>
       <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
@@ -48,6 +50,8 @@ function OrganizerCard({ org }: { org: OrganizerProfile }) {
 }
 
 export default function FollowingPage() {
+  const t = useTranslations('storefront.following');
+  const w = useTranslations('storefront.wallet');
   const [ids, setIds] = useState<string[] | null>(null);
 
   useEffect(() => setIds(readFollowing()), []);
@@ -63,27 +67,26 @@ export default function FollowingPage() {
   const allErrored = ids !== null && ids.length > 0 && results.every((r) => r.isError);
   const organizers = results.map((r) => r.data).filter((o): o is OrganizerProfile => Boolean(o));
 
+  const empty = (
+    <EmptyState
+      title={t('emptyTitle')}
+      hint={t('emptyHint')}
+      icon={Users}
+      action={<ButtonLink href="/events">{w('browseEvents')}</ButtonLink>}
+    />
+  );
+
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">Following</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Organizers you follow — never miss their next drop.
-        </p>
+        <h1 className="text-h2 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{t('lead')}</p>
       </div>
 
       {ids !== null && ids.length === 0 ? (
-        <EmptyState
-          title="You’re not following anyone yet"
-          hint="Follow organizers to see them here."
-          icon={Users}
-          action={<ButtonLink href="/events">Browse events</ButtonLink>}
-        />
+        empty
       ) : allErrored ? (
-        <ErrorState
-          message="We couldn't load the organizers you follow. Please try again."
-          onRetry={() => results.forEach((r) => r.refetch())}
-        />
+        <ErrorState message={t('loadError')} onRetry={() => results.forEach((r) => r.refetch())} />
       ) : loading ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {Array.from({ length: ids?.length || 4 }).map((_, i) => (
@@ -100,12 +103,7 @@ export default function FollowingPage() {
           ))}
         </div>
       ) : (
-        <EmptyState
-          title="You’re not following anyone yet"
-          hint="Follow organizers to see them here."
-          icon={Users}
-          action={<ButtonLink href="/events">Browse events</ButtonLink>}
-        />
+        empty
       )}
     </div>
   );

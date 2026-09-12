@@ -140,6 +140,21 @@ export class RefundsService {
     }
     const ownTickets = actingAsStaff ? booking.tickets : booking.tickets.filter(heldByCaller);
 
+    /*
+      ── A FREE BOOKING IS CANCELLED, NOT REFUNDED ─────────────────────────────────────────
+      A request on a booking that cost nothing used to create a ₹0 refund: a row in the
+      organizer's queue and the platform's, asking somebody to approve returning no money, with
+      the tickets still live and the seats still taken until they got round to it. There is
+      nothing to decide and nothing to pay back, so the tickets are cancelled here and now.
+
+      After every check above, deliberately. Whose tickets these are, the organizer's refund
+      terms and how close the session is still decide what may be given back — being free
+      changes only that no money moves.
+    */
+    if (booking.totalMinor === 0) {
+      return this.cancelFreeTickets(user, booking, ownTickets, input);
+    }
+
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
     // What each ticket actually cost after the booking's discount — see `ticketNetPrices`.
     // Priced across EVERY ticket on the booking, transferred or not, so the shares still add up.
@@ -236,6 +251,125 @@ export class RefundsService {
       metadata: { amountMinor: refund.amountMinor },
     });
     return refund;
+  }
+
+  /**
+   * Cancel tickets on a booking that cost nothing, at once, with no refund row.
+   *
+   * ── WHAT IT DOES INSTEAD OF A REFUND ──────────────────────────────────────────────
+   * Everything a completed refund does to the tickets and nothing it does to money: the tickets
+   * stop being valid, their seats and counters go back through the booking's own inventory
+   * strategy, and a booking with nothing live left on it becomes CANCELLED. No Refund row, so no
+   * ₹0 line in the organizer's queue, the platform's queue or a settlement report; no gateway;
+   * no credit note against a sale of nothing.
+   *
+   * The tickets end CANCELLED rather than REFUNDED. Check-in refuses both alike, and "refunded"
+   * on a ticket nobody paid for would be the one untrue word on the buyer's screen — and a
+   * refund in every report that counts refunded tickets.
+   *
+   * ── EXACTLY ONCE ──────────────────────────────────────────────────────────────────
+   * Under the same per-booking lock `request` takes, and claim-first: the conditional status
+   * change on the tickets runs before any stock moves, and if it changes fewer tickets than it
+   * was given — a concurrent cancellation, a check-in scan landing in between — the transaction
+   * rolls back with nothing released. Stock only ever goes back for tickets this call voided.
+   */
+  private async cancelFreeTickets(
+    user: RequestUser,
+    booking: {
+      id: string;
+      organizationId: string;
+      eventSessionId: string;
+      seatBased: boolean;
+      status: string;
+    },
+    ownTickets: { id: string; status: string; ticketTypeId: string; seatId: string | null }[],
+    input: RefundRequestInput,
+  ) {
+    const LIVE: string[] = [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN];
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`refund-request:${booking.id}`}))`;
+
+      // A ticket an earlier request still covers — a ₹0 refund queued before this path existed,
+      // say — stays with that request rather than being cancelled out from under it.
+      const priorRefunds = await tx.refund.findMany({
+        where: { bookingId: booking.id, status: { in: [...OPEN_REFUND_STATUSES] } },
+        select: { ticketIds: true },
+      });
+      const alreadyCovered = new Set(priorRefunds.flatMap((r) => r.ticketIds));
+      const targets = (
+        input.ticketIds?.length
+          ? ownTickets.filter((t) => input.ticketIds!.includes(t.id))
+          : ownTickets
+      ).filter((t) => LIVE.includes(t.status) && !alreadyCovered.has(t.id));
+      if (targets.length === 0) {
+        throw new AppException(
+          ErrorCodes.REFUND_NOT_ELIGIBLE,
+          'No tickets in this booking can be cancelled.',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      const claimed = await tx.ticket.updateMany({
+        where: {
+          id: { in: targets.map((t) => t.id) },
+          status: { in: [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN] },
+        },
+        data: { status: TicketStatus.CANCELLED },
+      });
+      if (claimed.count !== targets.length) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'Some of these tickets changed while they were being cancelled. Refresh and try again.',
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      // The booking's own seating, so seats go back to the map they came from — as in `process`.
+      await this.inventory.forSeating(booking.seatBased).refund(tx, {
+        eventSessionId: booking.eventSessionId,
+        tickets: targets.map((t) => ({ ticketTypeId: t.ticketTypeId, seatId: t.seatId })),
+      });
+
+      // Counted after the claim and inside the lock: the tickets read before it may be stale.
+      const remaining = await tx.ticket.count({
+        where: {
+          bookingId: booking.id,
+          status: { in: [TicketStatus.ACTIVE, TicketStatus.CHECKED_IN] },
+        },
+      });
+      if (remaining === 0) {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CANCELLED, cancelledAt: new Date() },
+        });
+      }
+      return {
+        ticketIds: targets.map((t) => t.id),
+        bookingStatus: remaining === 0 ? BookingStatus.CANCELLED : booking.status,
+      };
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: booking.organizationId,
+      action: 'FREE_TICKETS_CANCELLED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: {
+        ticketIds: outcome.ticketIds,
+        bookingStatus: outcome.bookingStatus,
+        reason: input.reason,
+      },
+    });
+    // `amountMinor` is the field a refund answer carries, stated as the zero it is, so a client
+    // reading the result of a refund request sees correctly that nothing is owed.
+    return {
+      outcome: 'CANCELLED' as const,
+      bookingId: booking.id,
+      bookingStatus: outcome.bookingStatus,
+      ticketIds: outcome.ticketIds,
+      amountMinor: 0,
+    };
   }
 
   async listForBookingOwner(user: RequestUser, bookingId: string) {

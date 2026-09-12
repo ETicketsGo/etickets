@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { api as wk, tokenStore, useAuthUser } from '@eticketsgo/web-kit';
 import { Button, Card, Input } from '@/components/ui';
@@ -30,6 +31,7 @@ const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost
  * then the account really is an organizer.
  */
 export default function BecomeOrganizerPage() {
+  const t = useTranslations('storefront.becomeOrganizer');
   const router = useRouter();
   const { user } = useAuthUser();
   const [name, setName] = useState('');
@@ -73,10 +75,10 @@ export default function BecomeOrganizerPage() {
     onError: (e) =>
       setError(
         e instanceof ApiRequestError && e.code === 'RATE_LIMITED'
-          ? 'Several organizations have been set up from here recently. Try again in an hour.'
+          ? t('rateLimited')
           : e instanceof ApiRequestError
             ? e.message
-            : 'We could not set up your organization. Check your connection and try again.',
+            : t('failed'),
       ),
   });
 
@@ -88,12 +90,9 @@ export default function BecomeOrganizerPage() {
     return (
       <Card className="mx-auto max-w-sm space-y-4">
         <h1 className="text-h2 font-bold text-text-primary">
-          {created ? 'Your organization is ready' : 'You are already an organizer'}
+          {created ? t('readyTitle') : t('alreadyTitle')}
         </h1>
-        <p className="text-caption text-text-muted">
-          The organizer console is a separate sign-in, so you will be asked for your password once
-          more. Same account — this one.
-        </p>
+        <p className="text-caption text-text-muted">{t('separateSignIn')}</p>
         {/* A plain anchor, not next/link: this leaves the app for a different origin, and a
             client-side navigation would not carry the session there anyway. */}
         <a
@@ -101,14 +100,9 @@ export default function BecomeOrganizerPage() {
           data-testid="open-organizer-console"
           className="inline-flex w-full items-center justify-center rounded-md bg-action-primary px-4 py-2 font-medium text-action-primary-foreground transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
         >
-          Open the organizer console
+          {t('openConsole')}
         </a>
-        {created ? (
-          <p className="text-caption text-text-muted">
-            ETicketsGo reviews new organizations before they can sell. You can set up your venue,
-            screens and shows while that happens.
-          </p>
-        ) : null}
+        {created ? <p className="text-caption text-text-muted">{t('reviewNote')}</p> : null}
       </Card>
     );
   }
@@ -116,11 +110,8 @@ export default function BecomeOrganizerPage() {
   return (
     <Card className="mx-auto max-w-sm space-y-4">
       <div>
-        <h1 className="text-h2 font-bold text-text-primary">Become an organizer</h1>
-        <p className="mt-1 text-caption text-text-muted">
-          Sell your own tickets using this same account. Tell us the name of the business that sells
-          them — customers see it on their receipts.
-        </p>
+        <h1 className="text-h2 font-bold text-text-primary">{t('heading')}</h1>
+        <p className="mt-1 text-caption text-text-muted">{t('lead')}</p>
       </div>
 
       <form
@@ -133,7 +124,7 @@ export default function BecomeOrganizerPage() {
       >
         <Input
           id="org-name"
-          label="Organization name"
+          label={t('orgName')}
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -142,7 +133,7 @@ export default function BecomeOrganizerPage() {
         />
         <Input
           id="org-contact"
-          label="Support email (optional)"
+          label={t('supportEmail')}
           type="email"
           placeholder={user?.email ?? ''}
           value={contactEmail}
@@ -161,14 +152,14 @@ export default function BecomeOrganizerPage() {
           loading={create.isPending}
           disabled={create.isPending || name.trim().length < 2}
         >
-          Create my organization
+          {t('create')}
         </Button>
       </form>
 
       <p className="text-caption text-text-muted">
-        Changed your mind?{' '}
+        {t('changedMind')}{' '}
         <Link href="/account" className="text-action-primary underline">
-          Back to your account
+          {t('backToAccount')}
         </Link>
       </p>
     </Card>

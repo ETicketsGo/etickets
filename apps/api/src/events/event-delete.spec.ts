@@ -85,6 +85,20 @@ describe('EventsService.remove', () => {
     expect(tx.event.delete).not.toHaveBeenCalled();
   });
 
+  it('refuses to delete an event the platform team has paused', async () => {
+    // Deleting would take it out of moderation — the route resume and submit already close.
+    const { service, prisma, tx } = setup();
+    prisma.event.findUnique.mockResolvedValue({
+      id: 'ev1',
+      organizationId: 'org1',
+      title: 'CMD-Hyd',
+      status: 'PAUSED',
+      pausedByAdminAt: new Date(),
+    });
+    await expect(service.remove(owner, 'ev1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(tx.event.delete).not.toHaveBeenCalled();
+  });
+
   it('refuses rather than 500s when another record still points at the event', async () => {
     const { service, tx } = setup();
     tx.event.delete.mockRejectedValue(Object.assign(new Error('fk'), { code: 'P2003' }));

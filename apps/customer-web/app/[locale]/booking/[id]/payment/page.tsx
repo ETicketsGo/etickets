@@ -5,12 +5,12 @@ import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
-import { Stepper } from '@eticketsgo/web-kit';
+import { api as webKit } from '@eticketsgo/web-kit';
 import { razorpayFailureReason } from '@eticketsgo/shared-types';
 import { api } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
-import { money, dateTime } from '@/lib/format';
-import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
+import { useFormat } from '@/lib/format';
+import { Button, ButtonLink, Card, Dialog, ErrorState, Stepper, useToast } from '@/components/ui';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
 
@@ -68,6 +68,7 @@ export default function PaymentPage() {
   const k = useTranslations('storefront.checkout');
   const c = useTranslations('storefront.confirmation');
   const tx = useTranslations('common');
+  const { money, dateTime } = useFormat();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -115,6 +116,33 @@ export default function PaymentPage() {
       setError(null);
     },
     onError: () => setError(k('extendFailed')),
+  });
+
+  /*
+    Letting go of the seats on purpose.
+
+    Without this the only way out of a hold was to close the tab and wait for the timer —
+    minutes in which nobody else could buy those seats, and in which the buyer's bookings still
+    said "pending payment" for something they had decided against. The server cancels only an
+    unpaid booking and releases its hold exactly once; a booking paid or expired meanwhile is
+    refused, and re-reading it puts the right screen in front of the buyer.
+  */
+  const toast = useToast();
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const cancelBooking = useMutation({
+    mutationFn: () => webKit.bookings.cancel(id),
+    onSuccess: () => {
+      setConfirmingCancel(false);
+      qc.invalidateQueries({ queryKey: ['booking', id] });
+      qc.invalidateQueries({ queryKey: ['bookings'] });
+      toast.push(k('bookingCancelled'), 'success');
+      router.push('/account/bookings');
+    },
+    onError: () => {
+      setConfirmingCancel(false);
+      setError(k('cancelFailed'));
+      qc.invalidateQueries({ queryKey: ['booking', id] });
+    },
   });
 
   /*
@@ -505,6 +533,39 @@ export default function PaymentPage() {
               ? k('processing')
               : k('payAmount', { amount: money(booking.totalMinor, booking.currency) })}
           </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={pay.isPending}
+            onClick={() => setConfirmingCancel(true)}
+          >
+            {k('cancelBooking')}
+          </Button>
+          <Dialog
+            open={confirmingCancel}
+            onClose={() => setConfirmingCancel(false)}
+            title={k('cancelBookingTitle')}
+          >
+            <div className="space-y-4">
+              <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  disabled={cancelBooking.isPending}
+                  onClick={() => setConfirmingCancel(false)}
+                >
+                  {k('keepBooking')}
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={cancelBooking.isPending}
+                  onClick={() => cancelBooking.mutate()}
+                >
+                  {k('confirmCancelBooking')}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
 
           {/* Booking confidence */}
           <div className="grid grid-cols-3 gap-2 text-center">

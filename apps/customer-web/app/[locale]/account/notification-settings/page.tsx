@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslations } from 'next-intl';
 import { MessageCircle, Phone } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { api } from '@/lib/api';
@@ -26,43 +27,26 @@ import { PushToggle } from '@/components/push-toggle';
  * to switch off the one message designed to catch the case where every other message failed.
  */
 
-const TYPE_LABELS: Record<string, { title: string; description: string }> = {
-  BOOKING_CONFIRMED: {
-    title: 'Booking confirmations',
-    description: 'Your tickets, and the details of what you booked.',
-  },
-  SHOW_CANCELLED: {
-    title: 'Cancelled shows',
-    description: 'If a show you have tickets for is called off.',
-  },
-  SHOW_CHANGED: {
-    title: 'Schedule changes',
-    description: 'If the time of a show you booked moves.',
-  },
-  BOOKING_CANCELLED: {
-    title: 'Booking cancellations',
-    description: 'Confirmation when a booking of yours ends.',
-  },
-  REFUND_COMPLETED: {
-    title: 'Refunds',
-    description: 'When money is on its way back to you.',
-  },
-  EVENT_REMINDER: {
-    title: 'Reminders',
-    description: 'A nudge before a show you have tickets for.',
-  },
-};
+/** Types this page describes; their words live at `notificationSettings.types.<TYPE>`. */
+const KNOWN_TYPES = new Set([
+  'BOOKING_CONFIRMED',
+  'SHOW_CANCELLED',
+  'SHOW_CHANGED',
+  'BOOKING_CANCELLED',
+  'REFUND_COMPLETED',
+  'EVENT_REMINDER',
+]);
 
-const CHANNEL_LABELS: Record<string, string> = {
-  email: 'Email',
-  push: 'Push',
-  whatsapp: 'WhatsApp',
-  sms: 'SMS',
-};
+/** Channels with a name in the catalogue; anything else is shown as the API spells it. */
+const KNOWN_CHANNELS = new Set(['email', 'push', 'whatsapp', 'sms']);
 
 export default function NotificationSettingsPage() {
+  const t = useTranslations('storefront.notificationSettings');
   const qc = useQueryClient();
   const toast = useToast();
+
+  const channelLabel = (channel: string) =>
+    KNOWN_CHANNELS.has(channel) ? t(`channels.${channel}`) : channel;
 
   const prefs = useQuery({
     queryKey: ['notification-preferences'],
@@ -77,16 +61,16 @@ export default function NotificationSettingsPage() {
     mutationFn: (body: { type: string; channel: string; enabled: boolean }) =>
       api.setNotificationPreference(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notification-preferences'] }),
-    onError: () => toast.push('Could not save that. Please try again.', 'error'),
+    onError: () => toast.push(t('saveError'), 'error'),
   });
 
   const setConsent = useMutation({
     mutationFn: (body: { channel: string; granted: boolean }) => api.setConsent(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['marketing-consent'] });
-      toast.push('Saved.', 'success');
+      toast.push(t('saved'), 'success');
     },
-    onError: () => toast.push('Could not save that. Please try again.', 'error'),
+    onError: () => toast.push(t('saveError'), 'error'),
   });
 
   const consentFor = (channel: string) =>
@@ -101,24 +85,14 @@ export default function NotificationSettingsPage() {
   const hasPhone = prefs.data?.destinations.hasPhone ?? false;
 
   if (prefs.isError) {
-    return (
-      <ErrorState
-        message="We couldn't load your notification settings."
-        onRetry={() => prefs.refetch()}
-      />
-    );
+    return <ErrorState message={t('loadError')} onRetry={() => prefs.refetch()} />;
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-h3 font-bold tracking-tight text-text-primary">
-          Notification settings
-        </h1>
-        <p className="mt-1 text-body-sm text-text-secondary">
-          Choose how we reach you. Critical booking and show updates are always sent on at least one
-          required channel, so you never miss a cancellation.
-        </p>
+        <h1 className="text-h3 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
+        <p className="mt-1 text-body-sm text-text-secondary">{t('lead')}</p>
       </div>
 
       {/* Browser push registration lives with the existing component; one place asks for the
@@ -126,20 +100,17 @@ export default function NotificationSettingsPage() {
       <PushToggle />
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">Get booking updates on WhatsApp</h2>
-        <p className="mt-1 text-body-sm text-text-secondary">
-          Booking confirmations, ticket updates, show changes and refund updates — sent to WhatsApp.
-          Separate from marketing: this never includes offers or recommendations.
-        </p>
+        <h2 className="text-h5 font-semibold text-text-primary">{t('whatsappHeading')}</h2>
+        <p className="mt-1 text-body-sm text-text-secondary">{t('whatsappLead')}</p>
         <div className="mt-4 flex items-center justify-between gap-4">
           <span className="inline-flex items-center gap-2 text-body-sm text-text-primary">
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
-            Booking updates on WhatsApp
+            {t('whatsappToggleText')}
           </span>
           <Toggle
             checked={consentFor('whatsapp:transactional')}
             disabled={!hasPhone || setConsent.isPending}
-            aria-label="Receive booking updates on WhatsApp"
+            aria-label={t('whatsappToggleLabel')}
             onChange={(granted) =>
               setConsent.mutate({ channel: 'whatsapp:transactional', granted })
             }
@@ -150,16 +121,21 @@ export default function NotificationSettingsPage() {
             <Phone className="h-3.5 w-3.5" aria-hidden="true" />
             {/* The existing profile flow owns phone numbers; this points at it rather than
                 growing a second way to collect one. */}
-            <Link href="/account/profile" className="underline">
-              Add a phone number
-            </Link>{' '}
-            to receive WhatsApp updates.
+            <span>
+              {t.rich('addPhone', {
+                link: (chunks) => (
+                  <Link href="/account/profile" className="underline">
+                    {chunks}
+                  </Link>
+                ),
+              })}
+            </span>
           </p>
         )}
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">What we send you</h2>
+        <h2 className="text-h5 font-semibold text-text-primary">{t('whatWeSend')}</h2>
         {prefs.isLoading ? (
           <div className="mt-4 space-y-4">
             <Skeleton className="h-16" />
@@ -168,12 +144,14 @@ export default function NotificationSettingsPage() {
         ) : (
           <ul className="mt-4 divide-y divide-border">
             {prefs.data?.types.map((entry) => {
-              const label = TYPE_LABELS[entry.type];
-              if (!label) return null;
+              if (!KNOWN_TYPES.has(entry.type)) return null;
+              const title = t(`types.${entry.type}.title`);
               return (
                 <li key={entry.type} className="py-4 first:pt-0 last:pb-0">
-                  <p className="text-body font-medium text-text-primary">{label.title}</p>
-                  <p className="mt-0.5 text-body-sm text-text-secondary">{label.description}</p>
+                  <p className="text-body font-medium text-text-primary">{title}</p>
+                  <p className="mt-0.5 text-body-sm text-text-secondary">
+                    {t(`types.${entry.type}.description`)}
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-3">
                     {entry.channels.map((c) => {
                       /*
@@ -186,9 +164,9 @@ export default function NotificationSettingsPage() {
                           <span
                             key={c.channel}
                             className="text-caption text-text-muted"
-                            title="Sent only if nothing else reached you"
+                            title={t('emergencyTitle')}
                           >
-                            SMS — emergency only
+                            {t('emergencyOnly')}
                           </span>
                         );
                       }
@@ -200,7 +178,10 @@ export default function NotificationSettingsPage() {
                           <Toggle
                             checked={c.enabled}
                             disabled={c.required || setPreference.isPending}
-                            aria-label={`${CHANNEL_LABELS[c.channel] ?? c.channel} for ${label.title}`}
+                            aria-label={t('channelFor', {
+                              channel: channelLabel(c.channel),
+                              type: title,
+                            })}
                             onChange={(enabled) =>
                               setPreference.mutate({
                                 type: entry.type,
@@ -209,9 +190,9 @@ export default function NotificationSettingsPage() {
                               })
                             }
                           />
-                          <span>{CHANNEL_LABELS[c.channel] ?? c.channel}</span>
+                          <span>{channelLabel(c.channel)}</span>
                           {c.required && (
-                            <span className="text-caption text-text-muted">(required)</span>
+                            <span className="text-caption text-text-muted">{t('required')}</span>
                           )}
                         </label>
                       );
@@ -222,29 +203,23 @@ export default function NotificationSettingsPage() {
             })}
           </ul>
         )}
-        <p className="mt-4 text-caption text-text-muted">
-          Required channels can&rsquo;t be switched off. They carry your tickets and anything urgent
-          about a show you&rsquo;ve booked.
-        </p>
+        <p className="mt-4 text-caption text-text-muted">{t('requiredNote')}</p>
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">Offers and recommendations</h2>
-        <p className="mt-1 text-body-sm text-text-secondary">
-          Entirely separate from the above. Turning these off never affects your tickets, booking
-          updates or anything about a show you&rsquo;ve paid for.
-        </p>
+        <h2 className="text-h5 font-semibold text-text-primary">{t('offersHeading')}</h2>
+        <p className="mt-1 text-body-sm text-text-secondary">{t('offersLead')}</p>
         <div className="mt-4 space-y-3">
           {(['email', 'push', 'whatsapp'] as const).map((channel) => (
             <label
               key={channel}
               className="flex items-center justify-between gap-4 text-body-sm text-text-primary"
             >
-              <span>{CHANNEL_LABELS[channel]}</span>
+              <span>{channelLabel(channel)}</span>
               <Toggle
                 checked={consentFor(channel)}
                 disabled={consent.isLoading || setConsent.isPending}
-                aria-label={`Marketing on ${CHANNEL_LABELS[channel]}`}
+                aria-label={t('marketingOn', { channel: channelLabel(channel) })}
                 onChange={(granted) => setConsent.mutate({ channel, granted })}
               />
             </label>

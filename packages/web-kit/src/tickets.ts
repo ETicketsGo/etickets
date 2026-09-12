@@ -120,32 +120,77 @@ export function nextActiveIndex(tickets: WalletTicket[], fromIndex: number): num
   return -1;
 }
 
+/** One counted part of a group summary, e.g. "2 checked in". `tickets` is the fallback count. */
+export type SummarySegment =
+  | 'refunded'
+  | 'cancelled'
+  | 'transferred'
+  | 'checkedIn'
+  | 'remaining'
+  | 'active'
+  | 'other'
+  | 'tickets';
+
+/**
+ * The words a group summary is built from.
+ *
+ * Optional, with English defaults, so the storefront can pass its translations (French agrees
+ * the word with the count: "1 actif", "2 actifs") while the rule for WHICH segments appear stays
+ * here, in one place.
+ */
+export interface GroupSummaryWords {
+  allCheckedIn: string;
+  bookingCancelled: string;
+  segment: (kind: SummarySegment, count: number) => string;
+}
+
+const ENGLISH_SEGMENT: Record<Exclude<SummarySegment, 'tickets'>, string> = {
+  refunded: 'refunded',
+  cancelled: 'cancelled',
+  transferred: 'transferred',
+  checkedIn: 'checked in',
+  remaining: 'remaining',
+  active: 'active',
+  other: 'other',
+};
+
+export const ENGLISH_SUMMARY_WORDS: GroupSummaryWords = {
+  allCheckedIn: 'All checked in',
+  bookingCancelled: 'Booking cancelled',
+  segment: (kind, n) =>
+    kind === 'tickets' ? `${n} ticket${n === 1 ? '' : 's'}` : `${n} ${ENGLISH_SEGMENT[kind]}`,
+};
+
 /**
  * Builds the group-level status summary and tone from ticket counts.
  * Communicates status with words (never colour alone); the tone only tints an
  * accompanying icon/badge.
  */
-export function summarizeBookingGroup(c: GroupCounts): { summary: string; tone: GroupStatusTone } {
+export function summarizeBookingGroup(
+  c: GroupCounts,
+  words: GroupSummaryWords = ENGLISH_SUMMARY_WORDS,
+): { summary: string; tone: GroupStatusTone } {
   const usable = c.active + c.transferred + c.other;
+  const w = words.segment;
 
   let summary: string;
   if (c.total > 0 && c.checkedIn === c.total) {
-    summary = 'All checked in';
+    summary = words.allCheckedIn;
   } else if (c.total > 0 && usable === 0 && c.checkedIn === 0) {
-    summary = 'Booking cancelled';
+    summary = words.bookingCancelled;
   } else {
     const seg: string[] = [];
-    if (c.refunded) seg.push(`${c.refunded} refunded`);
-    if (c.cancelled) seg.push(`${c.cancelled} cancelled`);
-    if (c.transferred) seg.push(`${c.transferred} transferred`);
+    if (c.refunded) seg.push(w('refunded', c.refunded));
+    if (c.cancelled) seg.push(w('cancelled', c.cancelled));
+    if (c.transferred) seg.push(w('transferred', c.transferred));
     if (c.checkedIn && c.active) {
-      seg.push(`${c.checkedIn} checked in`, `${c.active} remaining`);
+      seg.push(w('checkedIn', c.checkedIn), w('remaining', c.active));
     } else {
-      if (c.checkedIn) seg.push(`${c.checkedIn} checked in`);
-      if (c.active) seg.push(`${c.active} active`);
+      if (c.checkedIn) seg.push(w('checkedIn', c.checkedIn));
+      if (c.active) seg.push(w('active', c.active));
     }
-    if (c.other) seg.push(`${c.other} other`);
-    summary = seg.join(' · ') || `${c.total} ticket${c.total === 1 ? '' : 's'}`;
+    if (c.other) seg.push(w('other', c.other));
+    summary = seg.join(' · ') || w('tickets', c.total);
   }
 
   let tone: GroupStatusTone = 'neutral';

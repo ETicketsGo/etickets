@@ -8,19 +8,18 @@ import { CalendarDays, Receipt } from 'lucide-react';
 import {
   Button,
   Card,
-  Drawer,
   EmptyState,
-  ErrorState,
   Skeleton,
   StatusBadge,
   Textarea,
+  api as webKit,
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
-import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { PriceBreakdown } from '@/components/price-breakdown';
-import { ButtonLink } from '@/components/ui';
+import { ButtonLink, Drawer, ErrorState } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
@@ -36,11 +35,21 @@ const REFUNDABLE = ['CONFIRMED', 'PARTIALLY_REFUNDED'];
 */
 const OPEN_REFUND_STATUSES = ['REQUESTED', 'APPROVED', 'PROCESSING'];
 
+/*
+  What a free cancellation records when the buyer gives no reason.
+
+  It goes through the refund request, which requires a reason, and giving back a ticket that
+  cost nothing should not make anybody justify it. This stands in, in the audit log only —
+  nothing shows it to the buyer or the organizer.
+*/
+const FREE_CANCEL_REASON = 'Free tickets cancelled by the buyer';
+
 export default function BookingsPage() {
   const n = useTranslations('common.nav');
   const a = useTranslations('storefront.account');
   const c = useTranslations('storefront.confirmation');
   const w = useTranslations('storefront.wallet');
+  const { money, dateTime, zoneAbbrev } = useFormat();
   const statusLabel = useStatusLabel();
   const mounted = useMounted();
   const router = useRouter();
@@ -48,6 +57,7 @@ export default function BookingsPage() {
   const toast = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   useEffect(() => {
     if (!tokenStore.access) router.push('/login?next=/account/bookings');
@@ -73,9 +83,17 @@ export default function BookingsPage() {
   });
 
   const requestRefund = useMutation({
-    mutationFn: () => api.requestRefund({ bookingId: selectedId!, reason }),
-    onSuccess: () => {
-      toast.push(a('refundRequestedToast'), 'success');
+    /*
+      A free booking goes through the same request, and the API cancels its tickets at once
+      rather than queueing a refund of nothing — so a reason is optional there.
+    */
+    mutationFn: ({ free }: { free: boolean }) =>
+      api.requestRefund({
+        bookingId: selectedId!,
+        reason: free && reason.trim().length < 3 ? FREE_CANCEL_REASON : reason,
+      }),
+    onSuccess: (_result, { free }) => {
+      toast.push(free ? a('ticketsCancelledToast') : a('refundRequestedToast'), 'success');
       setReason('');
       qc.invalidateQueries({ queryKey: ['refunds', selectedId] });
       qc.invalidateQueries({ queryKey: ['booking', selectedId] });
@@ -83,6 +101,32 @@ export default function BookingsPage() {
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
   });
+
+  /*
+    Letting go of an unpaid booking from the list as well as from the payment screen, because
+    this is where somebody who closed that tab finds it again. The server cancels only a booking
+    still awaiting payment; one paid or expired in the meantime is refused, and re-reading it
+    shows the buyer which.
+  */
+  const cancelBooking = useMutation({
+    mutationFn: () => webKit.bookings.cancel(selectedId!),
+    onSuccess: () => {
+      toast.push(a('bookingCancelledToast'), 'success');
+      setConfirmingCancel(false);
+      qc.invalidateQueries({ queryKey: ['booking', selectedId] });
+      qc.invalidateQueries({ queryKey: ['bookings'] });
+    },
+    onError: (e) => {
+      setConfirmingCancel(false);
+      toast.push(errorMessage(e), 'error');
+      qc.invalidateQueries({ queryKey: ['booking', selectedId] });
+    },
+  });
+
+  const closeDrawer = () => {
+    setSelectedId(null);
+    setConfirmingCancel(false);
+  };
 
   /**
    * How many tickets to claim this booking has.
@@ -174,7 +218,7 @@ export default function BookingsPage() {
         />
       )}
 
-      <Drawer open={!!selectedId} onClose={() => setSelectedId(null)} title={a('bookingDetails')}>
+      <Drawer open={!!selectedId} onClose={closeDrawer} title={a('bookingDetails')}>
         {detail.isError ? (
           <ErrorState message={a('detailsLoadError')} onRetry={() => detail.refetch()} />
         ) : detail.isLoading || !b ? (
@@ -290,27 +334,77 @@ export default function BookingsPage() {
             )}
 
             {/*
-              Whether to offer a refund at all.
+              Whether to offer a refund — or, for a booking that cost nothing, a cancellation.
 
-              Three reasons not to, all reported from QA:
+              Two reasons not to, both reported from QA:
 
                 - A request is already open. Asking again does nothing except create a second
                   request for the organizer to work through, and it reads as though the first
                   one failed.
-                - The booking cost nothing. There is no money to return, and offering to
-                  return it is confusing at best.
                 - The organizer does not offer refunds for this event. Showing the button
                   anyway means the platform advertising terms the organizer never agreed to.
+
+              A free booking used to be left out altogether, because there was no money to
+              return — which left no way at all to give a free ticket back. It is offered as
+              "Cancel tickets" now, and the API cancels them at once instead of queueing a refund
+              of nothing for the organizer to approve.
+
+              An unpaid booking gets an offer of its own: cancel it and release what it holds.
             */}
             {(() => {
+              if (b.status === 'PENDING_PAYMENT') {
+                /*
+                  Confirmed in place rather than in a dialog: this is already inside a drawer,
+                  and a modal over a modal fights it for focus and for Escape.
+                */
+                return (
+                  <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
+                    <p className="font-medium text-text-primary">{a('unpaidTitle')}</p>
+                    <p className="mt-1 text-caption text-text-muted">{a('unpaidBody')}</p>
+                    {confirmingCancel ? (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-[0.9375rem] text-text-primary">
+                          {a('confirmCancelBookingTitle')}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            className="flex-1"
+                            disabled={cancelBooking.isPending}
+                            onClick={() => setConfirmingCancel(false)}
+                          >
+                            {a('keepBooking')}
+                          </Button>
+                          <Button
+                            variant="danger"
+                            className="flex-1"
+                            loading={cancelBooking.isPending}
+                            onClick={() => cancelBooking.mutate()}
+                          >
+                            {a('confirmCancelBooking')}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="mt-3 w-full"
+                        onClick={() => setConfirmingCancel(true)}
+                      >
+                        {a('cancelBooking')}
+                      </Button>
+                    )}
+                  </div>
+                );
+              }
+
               const openRefund = (refunds.data ?? []).find((r) =>
                 OPEN_REFUND_STATUSES.includes(r.status),
               );
               const free = b.totalMinor <= 0;
               const offered = b.event.refundsEnabled !== false;
               const hasActive = b.tickets.some((t) => t.status === 'ACTIVE');
-              const canAsk =
-                REFUNDABLE.includes(b.status) && hasActive && !openRefund && !free && offered;
+              const canAsk = REFUNDABLE.includes(b.status) && hasActive && !openRefund && offered;
 
               if (openRefund) {
                 return (
@@ -338,13 +432,17 @@ export default function BookingsPage() {
               if (!canAsk) return null;
               return (
                 <div className="rounded-lg border border-border bg-background-subtle/50 p-4">
-                  <p className="font-medium text-text-primary">{a('requestRefund')}</p>
-                  <p className="mt-1 text-caption text-text-muted">{a('refundEligibility')}</p>
+                  <p className="font-medium text-text-primary">
+                    {free ? a('cancelTickets') : a('requestRefund')}
+                  </p>
+                  <p className="mt-1 text-caption text-text-muted">
+                    {free ? a('cancelTicketsBody') : a('refundEligibility')}
+                  </p>
                   <Textarea
                     id="reason"
                     className="mt-3"
                     rows={3}
-                    placeholder={a('refundReasonPlaceholder')}
+                    placeholder={free ? a('cancelReasonPlaceholder') : a('refundReasonPlaceholder')}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -352,10 +450,10 @@ export default function BookingsPage() {
                     variant="danger"
                     className="mt-3 w-full"
                     loading={requestRefund.isPending}
-                    disabled={reason.trim().length < 3}
-                    onClick={() => requestRefund.mutate()}
+                    disabled={!free && reason.trim().length < 3}
+                    onClick={() => requestRefund.mutate({ free })}
                   >
-                    {a('requestRefundButton')}
+                    {free ? a('cancelTickets') : a('requestRefundButton')}
                   </Button>
                 </div>
               );

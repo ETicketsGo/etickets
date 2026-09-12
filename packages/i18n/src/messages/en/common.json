@@ -71,7 +71,10 @@
     "quantityOf": "Quantity of {name}",
     "loadingWallet": "Loading wallet",
     "openMenu": "Open menu",
-    "accountMenuFor": "Account menu for {name}"
+    "accountMenuFor": "Account menu for {name}",
+    "progress": "Progress",
+    "ratingOutOf5": "{value} out of 5",
+    "stars": "{count, plural, one {# star} other {# stars}}"
   },
   "marketing": {
     "features": "Features",

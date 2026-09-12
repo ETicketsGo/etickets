@@ -8,6 +8,7 @@ import {
   EventStatus,
   FeeMode,
   PaymentStatus,
+  Role,
   SessionStatus,
   priceBundle,
   blocksBooking,
@@ -23,7 +24,7 @@ import { PricingStrategiesService } from '../pricing/pricing-strategies.service'
 import { computeCouponDiscountMinor } from '../pricing/coupon-pricing';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { expirePendingBooking } from '../inventory/expire-pending-booking';
+import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-pending-booking';
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -367,15 +368,17 @@ export class BookingsService {
     const commerce = await this.resolveCommerceLines(session, input, now, isSeatBased);
     const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
+    const feeMode = session.event.feeMode as FeeMode;
+    // Settled before the coupon: a fixed-amount code applies only to bookings in its currency.
+    const currency = this.cartCurrency(
+      input.items.map((i) => byId.get(i.ticketTypeId)!),
+      session.event.venue?.country,
+    );
     const { discountMinor, couponId } = await this.resolveCoupon(
       input.couponCode,
       subtotal,
       session.event.organizationId,
-    );
-    const feeMode = session.event.feeMode as FeeMode;
-    const currency = this.cartCurrency(
-      input.items.map((i) => byId.get(i.ticketTypeId)!),
-      session.event.venue?.country,
+      currency,
     );
     const taxPlace = {
       country:
@@ -1233,16 +1236,18 @@ export class BookingsService {
     );
     const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
+    // The same derivation `create` uses. A quote and the booking that follows it disagreeing
+    // about the currency would be a price shown in one denomination and charged in another.
+    // Settled before the coupon, which as a fixed amount applies only in its own currency.
+    const currency = this.cartCurrency(
+      input.items.map((i) => byId.get(i.ticketTypeId)!),
+      session.event.venue?.country,
+    );
     const { discountMinor, couponId } = await this.resolveCoupon(
       input.couponCode,
       subtotal,
       session.event.organizationId,
-    );
-    // The same derivation `create` uses. A quote and the booking that follows it disagreeing
-    // about the currency would be a price shown in one denomination and charged in another.
-    const currency = this.cartCurrency(
-      input.items.map((i) => byId.get(i.ticketTypeId)!),
-      session.event.venue?.country,
+      currency,
     );
     /*
       The quote resolves the SAME policy the booking will, at the same instant, so the
@@ -1473,17 +1478,18 @@ export class BookingsService {
     }
 
     const trimmed = code?.trim() ? code.trim() : undefined;
-    const { discountMinor, couponId } = await this.resolveCoupon(
+    const { discountMinor, couponId, refusal } = await this.resolveCoupon(
       trimmed,
       booking.subtotalMinor,
       booking.organizationId,
+      booking.currency,
     );
     // An unrecognised code is told to the buyer rather than silently ignored: a discount box
     // that accepts anything and changes nothing is worse than one that says no.
     if (trimmed && !couponId) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
-        'That code is not valid for this booking.',
+        refusal ?? 'That code is not valid for this booking.',
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -1613,8 +1619,9 @@ export class BookingsService {
     code: string | undefined,
     subtotal: number,
     sellingOrganizationId: string,
-  ) {
-    if (!code) return { discountMinor: 0, couponId: null as string | null };
+    currency: string,
+  ): Promise<{ discountMinor: number; couponId: string | null; refusal?: string }> {
+    if (!code) return { discountMinor: 0, couponId: null };
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
     const now = new Date();
     const valid =
@@ -1625,6 +1632,29 @@ export class BookingsService {
       (!coupon.endsAt || coupon.endsAt >= now) &&
       (coupon.maxRedemptions === null || coupon.redemptions < coupon.maxRedemptions);
     if (!valid) return { discountMinor: 0, couponId: null };
+
+    /*
+      ── A FIXED AMOUNT IS MONEY IN ONE CURRENCY ──────────────────────────────────────
+      A FIXED `value` is minor units and was taken off whatever booking it met, so a ₹500-off
+      code took $500 off a dollar booking. It now applies only to bookings in its own currency.
+      A FIXED coupon with no currency predates the column and was written when rupees were all
+      the platform sold, so it applies to INR alone.
+
+      Refused with its own reason rather than as an unknown code. The scope check above has
+      already established that the code is this organization's, so naming its currency tells the
+      buyer nothing about anybody else — and saves them retyping a code that was never mistyped.
+    */
+    if (coupon.type === 'FIXED') {
+      const couponCurrency = (coupon.currency ?? 'INR').toUpperCase();
+      const bookingCurrency = currency.toUpperCase();
+      if (couponCurrency !== bookingCurrency) {
+        return {
+          discountMinor: 0,
+          couponId: null,
+          refusal: `That code takes an amount off bookings in ${couponCurrency}, and this booking is in ${bookingCurrency}.`,
+        };
+      }
+    }
 
     const discountMinor = computeCouponDiscountMinor(coupon.type, coupon.value, subtotal);
     return { discountMinor, couponId: coupon.id };
@@ -1844,6 +1874,102 @@ export class BookingsService {
     }
     if (expired > 0) this.logger.log(`Expired ${expired} stale booking hold(s).`);
     return expired;
+  }
+
+  /**
+   * The buyer cancels their own unpaid booking, and what it holds goes back on sale at once.
+   *
+   * ── WHY THIS EXISTS OUTSIDE ORCHESTRATION ─────────────────────────────────────────
+   * `POST /bookings/:id/cancel` answered "not available" unless booking orchestration was
+   * active, which by default it is not. A buyer who changed their mind at the payment screen
+   * could only walk away, and everybody else waited out the hold for those seats.
+   *
+   * Only PENDING_PAYMENT. A confirmed booking has taken money and issued tickets; undoing that
+   * is a refund, with the organizer's terms and the gateway involved, and it goes through the
+   * refund path rather than being re-implemented here. Platform staff may cancel on a buyer's
+   * behalf; nobody else may cancel somebody else's booking, and a guest booking has no owner
+   * this can check, so it is left to expire.
+   *
+   * ── EXACTLY ONCE ──────────────────────────────────────────────────────────────────
+   * The release is the claim-first helper the expiry sweep uses: a conditional update from
+   * PENDING_PAYMENT to CANCELLED runs first, and only the transaction that won it hands the
+   * stock back. A double-click, a sweep expiring the hold at the same moment, or a webhook
+   * confirming the booking all leave this call claiming nothing, and it says what the booking
+   * became instead.
+   *
+   * ── A PAYMENT ALREADY UNDER WAY ───────────────────────────────────────────────────
+   * An unopened payment (REQUIRES_PAYMENT) is failed with the booking. One already PROCESSING —
+   * a Razorpay order the buyer opened — is left as it is, and the booking is still cancelled:
+   * the buyer has asked to stop. If the gateway captures anyway, the confirm path finds a
+   * booking that can no longer be paid and records the capture as a finance discrepancy for a
+   * person to refund (`recordUnappliedCapture`), rather than issuing tickets for released seats.
+   */
+  async cancelUnpaid(
+    user: RequestUser,
+    bookingId: string,
+  ): Promise<{ id: string; status: string; refundPending: false }> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { items: true, payment: { select: { status: true } } },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    const actingAsStaff = user.roles.includes(Role.ADMIN) || user.roles.includes(Role.SUPER_ADMIN);
+    if (booking.userId !== user.id && !actingAsStaff) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You cannot cancel this booking.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    if (booking.status !== BookingStatus.PENDING_PAYMENT) {
+      throw this.notCancellable(booking.status);
+    }
+
+    const cancelled = await this.prisma.$transaction((tx) =>
+      cancelPendingBooking(tx, booking, {
+        inventory: this.inventory,
+        addOnInventory: this.addOnInventory,
+      }),
+    );
+    if (!cancelled) {
+      // Lost the claim: something moved the booking between the read and the update.
+      const now = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { status: true },
+      });
+      throw this.notCancellable(now?.status ?? booking.status);
+    }
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: booking.organizationId,
+      action: 'BOOKING_CANCELLED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: {
+        cancelledBy: booking.userId === user.id ? 'BUYER' : 'PLATFORM_STAFF',
+        paymentStatus: booking.payment?.status ?? null,
+      },
+    });
+    return { id: booking.id, status: BookingStatus.CANCELLED, refundPending: false };
+  }
+
+  /** Why a booking in `status` cannot be cancelled here, in words the buyer can act on. */
+  private notCancellable(status: string): AppException {
+    if (status === BookingStatus.CONFIRMED || status === BookingStatus.PARTIALLY_REFUNDED) {
+      return new AppException(
+        ErrorCodes.CONFLICT,
+        'This booking is already paid for. To give tickets back, request a refund from My bookings.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    return new AppException(
+      ErrorCodes.CONFLICT,
+      `This booking is ${status.toLowerCase().replace(/_/g, ' ')} and can no longer be cancelled.`,
+      HttpStatus.CONFLICT,
+    );
   }
 
   /**

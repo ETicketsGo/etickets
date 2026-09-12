@@ -326,6 +326,15 @@ export default function EditEvent() {
             ))}
           </Select>
         )}
+        {/*
+          Said before Save rather than after Resume: an organizer fixing a typo on a live event
+          should know the edit costs a trip through review while they can still choose not to.
+        */}
+        {event.status === 'PAUSED' && event.publishedAt && (
+          <p className="text-caption text-text-muted">
+            Changes to these details send the event back for review when you resume.
+          </p>
+        )}
         <Button loading={save.isPending} disabled={!editable} onClick={() => save.mutate()}>
           Save changes
         </Button>

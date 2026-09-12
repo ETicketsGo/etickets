@@ -44,26 +44,40 @@ export function couponValueError(type: CouponValueType, input: string): string |
 }
 
 /**
- * The currency to label a fixed amount in, from the currencies the organization's venues sell in.
+ * The currencies an organization sells in, from its venues' currencies, most venues first.
  *
- * A code has no currency of its own: it comes off whatever booking it is applied to, in that
- * booking's currency. So the honest label is the currency the organizer sells in — the most
- * common among their venues — and `mixed` says when that is not the whole story. Before there
- * is a venue nothing has been sold, and INR is the default everywhere else in this console.
+ * These are the only currencies a fixed discount can usefully be written in: a FIXED code
+ * applies only to bookings in its own currency, and a booking is in its venue's. A venue whose
+ * country has no known currency adds nothing. Equal counts keep the order they were first met
+ * in, because `Array.prototype.sort` is stable.
+ */
+export function sellingCurrencies(venueCurrencies: (string | null | undefined)[]): string[] {
+  const counts = new Map<string, number>();
+  for (const c of venueCurrencies) if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+}
+
+/**
+ * The currency a new fixed amount starts in, from the currencies the organization's venues sell in.
+ *
+ * The most common among their venues, with `mixed` saying there are others to choose from.
+ * Before there is a venue nothing has been sold, and INR is the default everywhere else in this
+ * console.
  */
 export function couponCurrency(venueCurrencies: (string | null | undefined)[]): {
   currency: string;
   mixed: boolean;
 } {
-  const counts = new Map<string, number>();
-  for (const c of venueCurrencies) if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
-  let currency = 'INR';
-  let best = 0;
-  for (const [c, n] of counts) {
-    if (n > best) {
-      currency = c;
-      best = n;
-    }
-  }
-  return { currency, mixed: counts.size > 1 };
+  const currencies = sellingCurrencies(venueCurrencies);
+  return { currency: currencies[0] ?? 'INR', mixed: currencies.length > 1 };
+}
+
+/**
+ * The currency a stored coupon's fixed amount is in.
+ *
+ * A code created before coupons carried a currency has none, and the checkout applies such a
+ * code to rupee bookings only — so that is what it is shown in, rather than a guess from venues.
+ */
+export function storedCouponCurrency(currency: string | null | undefined): string {
+  return currency ?? 'INR';
 }

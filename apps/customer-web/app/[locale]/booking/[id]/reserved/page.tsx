@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Card, ErrorState, Spinner } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
-import { money, dateTime, zoneAbbrev } from '@/lib/format';
+import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -23,6 +23,7 @@ export default function ReservedPage() {
   const { id } = useParams<{ id: string }>();
   const b = useTranslations('storefront.booking');
   const a = useTranslations('storefront.account');
+  const { money, dateTime, zoneAbbrev } = useFormat();
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['booking', id],

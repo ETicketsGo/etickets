@@ -20,6 +20,7 @@ function setup(
     providerRef?: string | null;
     userId?: string | null;
     coupon?: unknown;
+    currency?: string;
   } = {},
 ) {
   const booking = {
@@ -28,7 +29,7 @@ function setup(
     userId: over.userId === undefined ? 'u-1' : over.userId,
     status: over.status ?? BookingStatus.PENDING_PAYMENT,
     subtotalMinor: 100_000,
-    currency: 'INR',
+    currency: over.currency ?? 'INR',
     feeMode: 'CUSTOMER_PAYS',
     event: {
       feeMode: 'CUSTOMER_PAYS',
@@ -272,5 +273,58 @@ describe('BookingsService.applyCoupon', () => {
     const { service, bookingUpdate } = setup({ userId: 'someone-else' });
     await expect(service.applyCoupon(USER, 'bk-1', 'FIRST10')).rejects.toThrow(/forbidden/i);
     expect(bookingUpdate).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  A FIXED code's value is minor units, and it used to come off a booking in any currency: a
+  ₹500-off code took $500 off a dollar booking. It now applies only in its own currency, and a
+  FIXED code from before coupons carried one applies to rupee bookings only.
+*/
+describe('BookingsService.applyCoupon — a fixed amount applies only in its own currency', () => {
+  const fixedCoupon = (currency: string | null) => ({
+    id: 'cp-flat',
+    organizationId: 'org-1',
+    code: 'FLAT500',
+    status: 'ACTIVE',
+    type: 'FIXED',
+    value: 50_000,
+    currency,
+    startsAt: null,
+    endsAt: null,
+    maxRedemptions: null,
+    redemptions: 0,
+  });
+
+  it('applies a rupee code to a rupee booking, at the amount it is worth', async () => {
+    const { service, pricing } = setup({ coupon: fixedCoupon('INR') });
+    await expect(service.applyCoupon(USER, 'bk-1', 'FLAT500')).resolves.toMatchObject({
+      applied: true,
+    });
+    expect(pricing.quote.mock.calls[0][2]).toBe(50_000);
+  });
+
+  it('refuses a rupee code on a dollar booking, and says why', async () => {
+    const { service, bookingUpdate } = setup({ coupon: fixedCoupon('INR'), currency: 'USD' });
+    await expect(service.applyCoupon(USER, 'bk-1', 'FLAT500')).rejects.toThrow(/INR.*USD/);
+    expect(bookingUpdate).not.toHaveBeenCalled();
+  });
+
+  it('applies a code from before coupons carried a currency to rupee bookings only', async () => {
+    const inr = setup({ coupon: fixedCoupon(null) });
+    await expect(inr.service.applyCoupon(USER, 'bk-1', 'FLAT500')).resolves.toMatchObject({
+      applied: true,
+    });
+
+    const usd = setup({ coupon: fixedCoupon(null), currency: 'USD' });
+    await expect(usd.service.applyCoupon(USER, 'bk-1', 'FLAT500')).rejects.toThrow(/INR/);
+    expect(usd.bookingUpdate).not.toHaveBeenCalled();
+  });
+
+  it('applies a percentage code whatever the booking’s currency', async () => {
+    const { service } = setup({ currency: 'CAD' });
+    await expect(service.applyCoupon(USER, 'bk-1', 'FIRST10')).resolves.toMatchObject({
+      applied: true,
+    });
   });
 });

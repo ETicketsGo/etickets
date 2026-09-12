@@ -92,8 +92,13 @@ Movies use a catalog → cinema → screen → seat-map → shows chain:
 3. Once **PUBLISHED**, the event is discoverable on customer-web (`/events`,
    `/events/[slug]`, and — for movies — `/movies`, `/shows/[sessionId]`).
 4. You can **pause** a live event (`POST /api/events/:id/pause`) and **resume** it
-   (`/resume`). Other statuses you may see: `SOLD_OUT`, `CANCELLED`, `COMPLETED`,
-   `ARCHIVED`.
+   (`/resume`). Resuming publishes it again — unless you changed its reviewed details
+   (title, description, category, venue, fee handling or refund terms) while it was paused,
+   in which case it goes back to **UNDER_REVIEW** for the platform team first. Organizations
+   trusted for auto-approval resume straight to published. Images can be changed at any time
+   without review. If the **platform team** paused your event, only they can resume it —
+   resume, submit and delete are refused until they do. Other statuses you may see:
+   `SOLD_OUT`, `CANCELLED`, `COMPLETED`, `ARCHIVED`.
 
 ## 6. Invite your team
 
@@ -131,8 +136,13 @@ Payouts settle your net proceeds (sales minus completed refunds).
 
 1. Go to `/organizer/payouts`.
 2. **Generate** a payout (`POST /api/payouts/generate`) — this collects the
-   settle-able balance into a payout in **PENDING** status. You cannot generate a
-   duplicate while one is PENDING/SCHEDULED.
+   settle-able balance into a payout in **PENDING** status, one per currency. Each
+   payout covers only online sales confirmed since the previous one stopped, and
+   refunds completed in that period (a period where refunds exceed sales produces a
+   negative payout to recover). A payout for the whole organization and a payout for
+   one of its events overlap, so while either is PENDING/SCHEDULED you cannot
+   generate the other in that currency, and revenue one of them settled is never
+   counted again by the other.
 3. A platform **admin marks it paid** once the money is sent out-of-band
    (`POST /api/admin/payouts/:id/pay` → status **PAID**). Marking paid is a
    bookkeeping action; the pilot does not wire a bank rail.

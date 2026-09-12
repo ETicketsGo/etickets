@@ -410,7 +410,16 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorState({
+  message,
+  onRetry,
+  retryLabel = 'Try again',
+}: {
+  message: string;
+  onRetry?: () => void;
+  /** The retry button's words; English unless the app passes its translation. */
+  retryLabel?: string;
+}) {
   return (
     <div
       role="alert"
@@ -420,7 +429,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       <p className="font-medium text-status-error">{message}</p>
       {onRetry && (
         <Button variant="outline" className="mt-4" onClick={onRetry}>
-          Try again
+          {retryLabel}
         </Button>
       )}
     </div>
@@ -690,11 +699,17 @@ export function RatingStars({
   onChange,
   size = 'md',
   label,
+  valueLabel = (v) => `${v} out of 5`,
+  starLabel = (n) => `${n} star${n > 1 ? 's' : ''}`,
 }: {
   value: number;
   onChange?: (value: number) => void;
   size?: 'sm' | 'md' | 'lg';
   label?: string;
+  /** Accessible name when no `label` is given, e.g. "4 out of 5". English by default. */
+  valueLabel?: (value: number) => string;
+  /** Accessible name of each star button, e.g. "3 stars". English by default. */
+  starLabel?: (n: number) => string;
 }) {
   const dim = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-5 w-5';
   const interactive = !!onChange;
@@ -702,7 +717,7 @@ export function RatingStars({
     <div
       className="flex items-center gap-0.5"
       role={interactive ? 'group' : 'img'}
-      aria-label={label ?? `${value} out of 5`}
+      aria-label={label ?? valueLabel(value)}
     >
       {[1, 2, 3, 4, 5].map((n) => {
         const filled = value >= n;
@@ -715,7 +730,7 @@ export function RatingStars({
           <button
             key={n}
             type="button"
-            aria-label={`${n} star${n > 1 ? 's' : ''}`}
+            aria-label={starLabel(n)}
             aria-pressed={value >= n}
             onClick={() => onChange!(n)}
             className="transition-transform hover:scale-110"
@@ -731,9 +746,18 @@ export function RatingStars({
 }
 
 /** Horizontal step indicator for multi-step flows (e.g. booking). */
-export function Stepper({ steps, current }: { steps: string[]; current: number }) {
+export function Stepper({
+  steps,
+  current,
+  label = 'Progress',
+}: {
+  steps: string[];
+  current: number;
+  /** The list's accessible name; English unless the app passes its translation. */
+  label?: string;
+}) {
   return (
-    <ol className="flex items-center" aria-label="Progress">
+    <ol className="flex items-center" aria-label={label}>
       {steps.map((label, i) => {
         const done = i < current;
         const active = i === current;
@@ -933,11 +957,14 @@ export function Drawer({
   onClose,
   title,
   children,
+  closeLabel = 'Close',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** The close button's accessible name; English unless the app passes its translation. */
+  closeLabel?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -972,7 +999,7 @@ export function Drawer({
               <h2 className="text-title font-semibold text-text-primary">{title}</h2>
               <button
                 onClick={onClose}
-                aria-label="Close"
+                aria-label={closeLabel}
                 className={`rounded-full p-1.5 text-text-muted hover:bg-background-subtle hover:text-text-primary ${focus}`}
               >
                 <X className="h-4 w-4" />
