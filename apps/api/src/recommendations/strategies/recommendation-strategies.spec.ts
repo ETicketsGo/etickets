@@ -27,7 +27,7 @@ const card = (id: string): PublicEventCardLike => ({
   title: `Event ${id}`,
   slug: `event-${id}`,
   category: 'Music',
-  venue: { name: 'Hall', city: 'BLR', country: 'IN' },
+  venue: { name: 'Hall', city: 'BLR', country: 'IN', timezone: 'Asia/Kolkata' },
   organizer: 'Org',
   nextSessionAt: NOW,
   fromPriceMinor: 10000,

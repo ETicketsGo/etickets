@@ -11,6 +11,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { dateTime } from '@/lib/format';
 import { StatusBadge } from '@/components/ui';
+import { useStatusLabel } from '@/lib/status-label';
 
 const QR_FALLBACK =
   'data:image/svg+xml;utf8,' +
@@ -44,6 +45,7 @@ export function EventDayMode({
   syncedAt?: number | null;
 }) {
   const current = tickets[index];
+  const statusLabel = useStatusLabel();
   const wake = useWakeLock(true);
   const countdown = useCountdown(current?.startsAt);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -222,7 +224,7 @@ export function EventDayMode({
           </dl>
 
           <div className="mt-4 flex items-center justify-center gap-2 landscape:justify-start">
-            <StatusBadge status={current.status} />
+            <StatusBadge status={current.status} label={statusLabel('ticket', current.status)} />
             {wake.engaged ? (
               <span className="inline-flex items-center gap-1 text-caption text-text-muted">
                 <Lock className="h-3 w-3" /> Screen stays on

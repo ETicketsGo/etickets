@@ -26,6 +26,7 @@ import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ButtonLink, Card, ErrorState, StatusBadge } from '@/components/ui';
+import { useStatusLabel } from '@/lib/status-label';
 import { useLocale, useTranslations } from 'next-intl';
 
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
@@ -72,6 +73,8 @@ export default function ConfirmationPage() {
   const w = useTranslations('storefront.wallet');
   const d = useTranslations('documents');
   const tx = useTranslations('common');
+  // The badge in the reader's language: French showed "PENDING PAYMENT" here on QA.
+  const statusLabel = useStatusLabel();
   const locale = useLocale() as Locale;
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
@@ -243,7 +246,7 @@ export default function ConfirmationPage() {
         <div className="space-y-1">
           <div className="flex items-start justify-between gap-3">
             <p className="font-semibold text-text-primary">{booking.event.title}</p>
-            <StatusBadge status={booking.status} />
+            <StatusBadge status={booking.status} label={statusLabel('booking', booking.status)} />
           </div>
           <p className="text-[0.9375rem] text-text-muted">
             {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}

@@ -264,6 +264,65 @@ const gst = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
+/*
+  Found by QA: a ₹100 coupon on a ₹799 seat lowered the total but left the GST base at the full
+  ₹799. Tickets are rated per line at list price — a band is decided by what a ticket costs — and
+  that list-price amount was also used as what the ticket is taxed on.
+*/
+describe('computeTax — a discount reduces what each ticket is taxed on', () => {
+  const place = { country: 'India', region: 'KA', supplierRegion: 'KA', currency: 'INR' };
+  const seat = [{ unitPriceMinor: 79_900, quantity: 1, category: 'EVENT' }];
+
+  it('keeps an inclusive tax inside the price actually paid', () => {
+    const r = computeTax({
+      netSubtotalMinor: 69_900,
+      grossSubtotalMinor: 79_900,
+      customerFeeMinor: 0,
+      admissionLines: seat,
+      rules: [gst()],
+      place,
+    });
+    // Base plus the GST inside it is the ₹699 paid, not the ₹799 list price.
+    expect(r.taxLines[0].baseMinor + r.taxMinor).toBe(69_900);
+  });
+
+  it('scales an added tax the same way', () => {
+    const r = computeTax({
+      netSubtotalMinor: 69_900,
+      grossSubtotalMinor: 79_900,
+      customerFeeMinor: 0,
+      admissionLines: seat,
+      rules: [rule()],
+      place,
+    });
+    expect(r.taxAddedMinor).toBe(6_990); // 10% of ₹699, not of ₹799
+  });
+
+  it('still decides the band by the list price', () => {
+    // A ₹799 ticket discounted to ₹699 is still a ₹799 ticket for a band ending at ₹750.
+    const r = computeTax({
+      netSubtotalMinor: 69_900,
+      grossSubtotalMinor: 79_900,
+      customerFeeMinor: 0,
+      admissionLines: seat,
+      rules: [gst({ category: 'EVENT', maxUnitMinor: 75_000 })],
+      place,
+    });
+    expect(r.taxMinor).toBe(0);
+  });
+
+  it('changes nothing for a caller that does not send the pre-discount subtotal', () => {
+    const r = computeTax({
+      netSubtotalMinor: 69_900,
+      customerFeeMinor: 0,
+      admissionLines: seat,
+      rules: [rule()],
+      place,
+    });
+    expect(r.taxAddedMinor).toBe(7_990);
+  });
+});
+
 describe('computeTax — Indian GST shapes', () => {
   const place = { country: 'India', region: 'KA', supplierRegion: 'KA', currency: 'INR' };
 

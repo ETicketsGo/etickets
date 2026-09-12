@@ -172,6 +172,13 @@ export class PricingService {
         currency,
       },
       netSubtotalMinor: fees.netSubtotalMinor,
+      /*
+        The pre-discount subtotal, so tax is charged on what the buyer pays. Tickets are rated
+        per line at their list price (a price band is decided by the ticket's price), and
+        without this a coupon lowered the total but not the GST: ₹100 off a ₹799 seat left the
+        tax base at the full price — invoices overstated tax on every discounted booking (QA).
+      */
+      grossSubtotalMinor: subtotalMinor,
       customerFeeMinor: fees.customerFeeMinor,
       /*
         Rated whether the charge is inside the ticket price or added to it. A TaxRule

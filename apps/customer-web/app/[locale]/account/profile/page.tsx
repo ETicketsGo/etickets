@@ -13,9 +13,11 @@ import {
   useToast,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
+import { useMounted } from '@/lib/use-mounted';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const mounted = useMounted();
   const qc = useQueryClient();
   const toast = useToast();
   const [fullName, setFullName] = useState('');
@@ -27,7 +29,9 @@ export default function ProfilePage() {
   const me = useQuery({
     queryKey: ['me'],
     queryFn: () => api.me(),
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`: the server drew the form and the client's first render the skeleton,
+    // a hydration mismatch. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
 
   useEffect(() => {
@@ -55,7 +59,7 @@ export default function ProfilePage() {
           message="We couldn't load your profile. Please try again."
           onRetry={() => me.refetch()}
         />
-      ) : me.isLoading ? (
+      ) : !mounted || me.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
         <Card>

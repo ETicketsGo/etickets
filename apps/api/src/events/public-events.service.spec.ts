@@ -265,4 +265,62 @@ describe('PublicEventsService.getBySlug', () => {
       status: 'ACTIVE',
     });
   });
+
+  it('offers only dates that are still on', async () => {
+    /*
+      Found on QA: every session came back, so the event page preselected one already past,
+      priced it, enabled "Continue to payment" and let the quote fail with a 409. The same
+      "still on" rule as the listing — upcoming, and SCHEDULED or PAUSED.
+    */
+    const findUnique = jest.fn().mockResolvedValue({
+      id: 'e1',
+      slug: 'e1',
+      title: 'Gig',
+      status: 'PUBLISHED',
+      isFree: false,
+      images: [],
+      venue: null,
+      organization: { id: 'o1', name: 'Org', cashPaymentsEnabled: false },
+      sessions: [],
+    });
+    const service = new PublicEventsService({ event: { findUnique } } as never, advertised);
+    const before = new Date();
+
+    await service.getBySlug('e1');
+
+    const where = findUnique.mock.calls[0][0].include.sessions.where;
+    expect(where.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
+    expect((where.startsAt.gte as Date).getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+  });
+});
+
+describe('PublicEventsService cards carry the venue zone', () => {
+  // QA: event cards printed their date in the reader's browser, not at the venue.
+  it('selects the venue timezone for the browse listing', async () => {
+    const findMany = jest.fn().mockReturnValue([]);
+    const prisma = {
+      event: { count: jest.fn().mockReturnValue(0), findMany },
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+    };
+    const service = new PublicEventsService(prisma as never, advertised);
+
+    await service.list({ page: 1, pageSize: 10 });
+
+    expect(findMany.mock.calls[0][0].include.venue.select.timezone).toBe(true);
+  });
+
+  it('selects it for an organizer’s public page too', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = {
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'o1', name: 'Org', createdAt: new Date() }),
+      },
+      event: { findMany },
+    };
+    const service = new PublicEventsService(prisma as never, advertised);
+
+    await service.organizer('o1');
+
+    expect(findMany.mock.calls[0][0].include.venue.select.timezone).toBe(true);
+  });
 });

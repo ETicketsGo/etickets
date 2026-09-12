@@ -29,6 +29,8 @@ import { isSaved, toggleSaved } from '@/lib/saved';
 import dynamic from 'next/dynamic';
 import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
 import { useTranslations } from 'next-intl';
+import { useMounted } from '@/lib/use-mounted';
+import { useStatusLabel } from '@/lib/status-label';
 
 // Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
 // needed when a pass is available, so it's split out of the initial ticket bundle.
@@ -45,6 +47,8 @@ const QR_FALLBACK =
 
 export default function TicketDetailPage() {
   const w = useTranslations('storefront.wallet');
+  const statusLabel = useStatusLabel();
+  const mounted = useMounted();
   const { ticketId } = useParams<{ ticketId: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -59,7 +63,8 @@ export default function TicketDetailPage() {
     queryKey: ['ticket', ticketId],
     // Offline-aware (WS8): falls back to the cached wallet copy when offline.
     queryFn: () => fetchTicketWithOffline(ticketId),
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`, which differs between server and first client render. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
   const ticket = ticketQ.data;
 
@@ -225,7 +230,7 @@ export default function TicketDetailPage() {
           </span>
         </div>
         <div className="mt-4 flex items-center justify-center gap-2">
-          <StatusBadge status={ticket.status} />
+          <StatusBadge status={ticket.status} label={statusLabel('ticket', ticket.status)} />
           <span className="font-mono text-caption text-text-muted">{ticket.serial}</span>
         </div>
         {/*

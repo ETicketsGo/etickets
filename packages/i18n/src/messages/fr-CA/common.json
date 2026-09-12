@@ -33,7 +33,24 @@
     "REFUNDED": "Remboursée",
     "PARTIALLY_REFUNDED": "Partiellement remboursée",
     "ACTIVE": "Actif",
-    "CHECKED_IN": "Validé à l'entrée"
+    "CHECKED_IN": "Validé à l'entrée",
+    "DISPUTED": "Contestée"
+  },
+  "ticketStatus": {
+    "ACTIVE": "Actif",
+    "TRANSFERRED": "Transféré",
+    "CHECKED_IN": "Validé à l’entrée",
+    "CANCELLED": "Annulé",
+    "REFUNDED": "Remboursé",
+    "VOID": "Invalidé"
+  },
+  "refundStatus": {
+    "REQUESTED": "Demandé",
+    "APPROVED": "Approuvé",
+    "REJECTED": "Refusé",
+    "PROCESSING": "En traitement",
+    "COMPLETED": "Effectué",
+    "FAILED": "Échoué"
   },
   "nav": {
     "explore": "Explorer",

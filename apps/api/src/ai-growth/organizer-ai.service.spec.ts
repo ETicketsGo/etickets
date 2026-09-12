@@ -33,10 +33,11 @@ describe('OrganizerAiService.ask — tenant isolation (WS10)', () => {
   it('answers only from the authorized analytics (no fabricated metrics)', async () => {
     const analytics = {
       organizer: jest.fn().mockResolvedValue({
-        conversion: { total: 10, confirmed: 8, rate: 0.8 },
-        revenue: { grossMinor: 500000 },
+        // The analytics service returns these as PERCENTAGES (52 means 52%).
+        conversion: { total: 10, confirmed: 8, rate: 80 },
+        revenue: [{ grossMinor: 500000, currency: 'INR' }],
         topTicketType: { name: 'VIP', quantity: 5 },
-        capacity: { utilization: 0.5 },
+        capacity: { utilization: 50 },
       }),
     };
     const svc = makeService(analytics);
@@ -47,6 +48,32 @@ describe('OrganizerAiService.ask — tenant isolation (WS10)', () => {
   });
 });
 
+/*
+  Found by QA: "12 confirmed of 23 bookings (5200% conversion)". The analytics service already
+  returns the rate as a percentage, and the assistant multiplied it by 100 again — as it did the
+  capacity utilization in the pre-event checklist.
+*/
+describe('OrganizerAiService.ask — percentages are stated once', () => {
+  const analytics = {
+    organizer: jest.fn().mockResolvedValue({
+      conversion: { total: 23, confirmed: 12, rate: 52 },
+      revenue: [],
+      topTicketType: null,
+      capacity: { sold: 50, capacity: 100, utilization: 50 },
+    }),
+  };
+
+  it('reports the conversion rate as given', async () => {
+    const res = await makeService(analytics).ask(user, 'org1', 'How are sales performing?');
+    expect(res.answer).toContain('(52% conversion)');
+  });
+
+  it('reports capacity utilization as given', async () => {
+    const res = await makeService(analytics).ask(user, 'org1', 'what should I review before?');
+    expect(res.answer).toContain('50% of capacity');
+  });
+});
+
 describe('OrganizerAiService.ask — today’s sales sit behind the financial gate', () => {
   /*
     The refund and coupon answers read gated analytics, so check-in staff were told those were
@@ -54,14 +81,14 @@ describe('OrganizerAiService.ask — today’s sales sit behind the financial ga
     `revenue` is absent from the analytics exactly when the caller may not see money.
   */
   const nonFinancial = {
-    conversion: { total: 10, confirmed: 8, rate: 0.8 },
+    conversion: { total: 10, confirmed: 8, rate: 80 },
     topTicketType: null,
-    capacity: { utilization: 0.5 },
+    capacity: { utilization: 50 },
   };
 
-  function withBookings(aggregate: jest.Mock, analytics: unknown) {
+  function withBookings(groupBy: jest.Mock, analytics: unknown) {
     return new OrganizerAiService(
-      { booking: { aggregate } } as never,
+      { booking: { groupBy } } as never,
       {} as never,
       { organizer: jest.fn().mockResolvedValue(analytics) } as never,
       fallbackGateway as never,
@@ -70,26 +97,43 @@ describe('OrganizerAiService.ask — today’s sales sit behind the financial ga
   }
 
   it('does not tell a member who may not see money what the organization took today', async () => {
-    const aggregate = jest.fn();
-    const res = await withBookings(aggregate, nonFinancial).ask(
+    const groupBy = jest.fn();
+    const res = await withBookings(groupBy, nonFinancial).ask(
       user,
       'org1',
       'how much did we sell today?',
     );
     expect(res.answer).toMatch(/restricted to owners and managers/i);
-    expect(aggregate).not.toHaveBeenCalled();
+    expect(groupBy).not.toHaveBeenCalled();
   });
 
   it('still answers an owner or manager', async () => {
-    const aggregate = jest
+    const groupBy = jest
       .fn()
-      .mockResolvedValue({ _sum: { totalMinor: 150000 }, _count: { _all: 3 } });
-    const res = await withBookings(aggregate, { ...nonFinancial, revenue: [] }).ask(
+      .mockResolvedValue([{ currency: 'INR', _sum: { totalMinor: 150000 }, _count: { _all: 3 } }]);
+    const res = await withBookings(groupBy, { ...nonFinancial, revenue: [] }).ask(
       user,
       'org1',
       'how much did we sell today?',
     );
     expect(res.answer).toContain('3 confirmed booking');
-    expect(aggregate).toHaveBeenCalled();
+    expect(groupBy).toHaveBeenCalledWith(expect.objectContaining({ by: ['currency'] }));
+  });
+
+  it('states one figure per currency instead of adding rupees to dollars', async () => {
+    // Found by QA: "totalling INR 57.2" — every booking summed into one unlabelled number.
+    const groupBy = jest.fn().mockResolvedValue([
+      { currency: 'INR', _sum: { totalMinor: 150000 }, _count: { _all: 3 } },
+      { currency: 'USD', _sum: { totalMinor: 2500 }, _count: { _all: 1 } },
+    ]);
+    const res = await withBookings(groupBy, { ...nonFinancial, revenue: [] }).ask(
+      user,
+      'org1',
+      'how much did we sell today?',
+    );
+    expect(res.answer).toContain('4 confirmed booking');
+    expect(res.answer).toMatch(/INR|₹/);
+    expect(res.answer).toMatch(/USD|\$/);
+    expect(res.answer).toContain(' and ');
   });
 });

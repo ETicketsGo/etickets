@@ -13,7 +13,6 @@ import {
   useToast,
   DEFAULT_WALLET_FLAGS,
   WALLET_SECTION_LABELS,
-  type OfflineSyncState,
   type WalletFilter,
   type WalletFlags,
   type WalletItem,
@@ -25,34 +24,33 @@ import { fetchWalletWithOffline, lastSyncedAt, deriveSyncState } from '@/lib/off
 import { clearAllOffline } from '@/lib/offline/wallet-store';
 import { requestWalletSync } from '@/lib/push';
 import { useTranslations } from 'next-intl';
+import { useMounted } from '@/lib/use-mounted';
 
-function formatSynced(ts: number | null): string {
-  if (!ts) return 'not yet';
+/** The wallet messages' translator, in the shape `formatSynced` takes it. */
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+function formatSynced(ts: number | null, w: Translate): string {
+  if (!ts) return w('syncedNever');
   const mins = Math.round((Date.now() - ts) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return w('syncedJustNow');
+  if (mins < 60) return w('syncedMinutes', { count: mins });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} hr ago`;
-  return `${Math.round(hrs / 24)} d ago`;
+  if (hrs < 24) return w('syncedHours', { count: hrs });
+  return w('syncedDays', { count: Math.round(hrs / 24) });
 }
 
-const SYNC_LABEL: Record<OfflineSyncState, string> = {
-  CURRENT: 'Up to date',
-  SYNCING: 'Syncing…',
-  STALE: 'Offline — showing saved passes',
-  OFFLINE: 'Offline',
-  PARTIAL: 'Partially synced',
-  FAILED: 'Sync failed',
-  REQUIRES_SIGN_IN: 'Sign in required',
-};
-
-const FILTER_CHIPS: { value: WalletFilter; label: string }[] = [
-  { value: 'movies', label: 'Movies' },
-  { value: 'events', label: 'Events' },
-  { value: 'active', label: 'Active' },
-  { value: 'memberships', label: 'Memberships' },
-  { value: 'coupons', label: 'Coupons' },
-  { value: 'parking', label: 'Parking' },
+/*
+  The chips offered, in order. Their words come from `storefront.wallet.filter`: they were
+  hardcoded English, so /fr-CA/account/tickets showed "Movies", "Events" and "Active" (QA, and
+  the French no-English e2e sweep), along with the English sync status beside them.
+*/
+const FILTER_CHIPS: WalletFilter[] = [
+  'movies',
+  'events',
+  'active',
+  'memberships',
+  'coupons',
+  'parking',
 ];
 
 /** Reads placeholder wallet feature flags from `?preview=memberships,coupons`. */
@@ -71,6 +69,7 @@ function readFlags(): WalletFlags {
 
 export default function ExperienceWalletPage() {
   const w = useTranslations('storefront.wallet');
+  const mounted = useMounted();
   const router = useRouter();
   const toast = useToast();
   const [flags, setFlags] = useState<WalletFlags>(DEFAULT_WALLET_FLAGS);
@@ -92,7 +91,8 @@ export default function ExperienceWalletPage() {
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['wallet'],
     queryFn: fetchWalletWithOffline,
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`, which differs between server and first client render. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
   // Track the last successful sync time for the "Updated …" label.
   useEffect(() => {
@@ -112,7 +112,8 @@ export default function ExperienceWalletPage() {
   }, [refetch]);
 
   const syncState = deriveSyncState({
-    hasToken: typeof window !== 'undefined' && !!tokenStore.access,
+    // The same mounted gate, so the status line reads the same on the server and at hydration.
+    hasToken: mounted && !!tokenStore.access,
     connectivity: connectivity.state,
     isFetching,
     hasData: !!data && data.length > 0,
@@ -121,14 +122,14 @@ export default function ExperienceWalletPage() {
 
   const clearOffline = async () => {
     await clearAllOffline();
-    toast.push('Offline data cleared from this device.', 'success');
+    toast.push(w('offlineCleared'), 'success');
   };
 
   // Build the generic wallet, then apply search + filters, then sectionize.
   const items = useMemo(() => (data ? buildWallet({ tickets: data }, flags) : []), [data, flags]);
   const availableFilters = useMemo(() => {
     const present = new Set(items.flatMap((i) => i.filters));
-    return FILTER_CHIPS.filter((c) => present.has(c.value));
+    return FILTER_CHIPS.filter((c) => present.has(c));
   }, [items]);
   const sections = useMemo(
     () => sectionizeWallet(filterWallet(searchWallet(items, q), active)),
@@ -139,15 +140,19 @@ export default function ExperienceWalletPage() {
     setActive((cur) => (cur.includes(f) ? cur.filter((x) => x !== f) : [...cur, f]));
 
   const preview = (item: WalletItem) =>
-    toast.push(`${item.title} — preview wallet item (feature flag).`, 'info');
+    toast.push(w('previewToast', { title: item.title }), 'info');
+
+  /** A section heading in the reader's language; web-kit's English label for one it does not name. */
+  const sectionLabel = (key: string) =>
+    w.has(`section.${key}`)
+      ? w(`section.${key}`)
+      : WALLET_SECTION_LABELS[key as keyof typeof WALLET_SECTION_LABELS];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">{w('heading')}</h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Your tickets, passes and more — everything in one wallet.
-        </p>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{w('lead')}</p>
       </div>
 
       {/* Offline / sync status — announced to assistive tech, never colour-only */}
@@ -162,8 +167,10 @@ export default function ExperienceWalletPage() {
       >
         <span className="inline-flex items-center gap-2 font-medium">
           {!online && <WifiOff className="h-3.5 w-3.5" aria-hidden />}
-          {SYNC_LABEL[syncState]}
-          <span className="font-normal text-text-muted">· updated {formatSynced(syncedAt)}</span>
+          {w(`sync.${syncState}`)}
+          <span className="font-normal text-text-muted">
+            {w('updated', { when: formatSynced(syncedAt, w) })}
+          </span>
         </span>
         <span className="flex items-center gap-3">
           <button
@@ -171,23 +178,21 @@ export default function ExperienceWalletPage() {
             disabled={!online || isFetching}
             className="inline-flex items-center gap-1.5 font-medium text-action-primary hover:underline disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} /> Sync now
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />{' '}
+            {w('syncNow')}
           </button>
           <button
             onClick={clearOffline}
             className="inline-flex items-center gap-1.5 font-medium text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            <Trash2 className="h-3.5 w-3.5" /> Clear offline data
+            <Trash2 className="h-3.5 w-3.5" /> {w('clearOffline')}
           </button>
         </span>
       </div>
 
       {isError && !data ? (
-        <ErrorState
-          message="We couldn't load your wallet. Please try again."
-          onRetry={() => refetch()}
-        />
-      ) : isLoading && !data ? (
+        <ErrorState message={w('loadError')} onRetry={() => refetch()} />
+      ) : (!mounted || isLoading) && !data ? (
         <div
           className="grid gap-6 sm:grid-cols-2"
           role="status"
@@ -212,11 +217,11 @@ export default function ExperienceWalletPage() {
             {availableFilters.length > 0 && (
               <div className="flex flex-wrap gap-2" role="group" aria-label={w('filterLabel')}>
                 {availableFilters.map((c) => {
-                  const on = active.includes(c.value);
+                  const on = active.includes(c);
                   return (
                     <button
-                      key={c.value}
-                      onClick={() => toggle(c.value)}
+                      key={c}
+                      onClick={() => toggle(c)}
                       aria-pressed={on}
                       className={`rounded-full border px-3 py-1 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                         on
@@ -224,7 +229,7 @@ export default function ExperienceWalletPage() {
                           : 'border-border text-text-secondary hover:bg-background-subtle'
                       }`}
                     >
-                      {c.label}
+                      {w(`filter.${c}`)}
                     </button>
                   );
                 })}
@@ -235,14 +240,9 @@ export default function ExperienceWalletPage() {
           {sections.length > 0 ? (
             <div className="space-y-8">
               {sections.map((section) => (
-                <section
-                  key={section.key}
-                  aria-label={
-                    WALLET_SECTION_LABELS[section.key as keyof typeof WALLET_SECTION_LABELS]
-                  }
-                >
+                <section key={section.key} aria-label={sectionLabel(section.key)}>
                   <h2 className="mb-3 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                    {WALLET_SECTION_LABELS[section.key as keyof typeof WALLET_SECTION_LABELS]}
+                    {sectionLabel(section.key)}
                   </h2>
                   <ul className="grid list-none gap-6 sm:grid-cols-2">
                     {section.items.map((item) => (
@@ -255,17 +255,13 @@ export default function ExperienceWalletPage() {
               ))}
             </div>
           ) : (
-            <EmptyState
-              title="Nothing matches"
-              hint="Try a different search or clear your filters."
-              icon={Ticket}
-            />
+            <EmptyState title={w('noMatchTitle')} hint={w('noMatchHint')} icon={Ticket} />
           )}
         </>
       ) : (
         <EmptyState
-          title="Your wallet is empty"
-          hint="Book an event to see your tickets and passes here."
+          title={w('emptyTitle')}
+          hint={w('emptyHint')}
           icon={Ticket}
           action={<ButtonLink href="/events">{w('browseEvents')}</ButtonLink>}
         />

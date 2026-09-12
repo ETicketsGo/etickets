@@ -33,7 +33,24 @@
     "REFUNDED": "Refunded",
     "PARTIALLY_REFUNDED": "Partially refunded",
     "ACTIVE": "Active",
-    "CHECKED_IN": "Checked in"
+    "CHECKED_IN": "Checked in",
+    "DISPUTED": "Disputed"
+  },
+  "ticketStatus": {
+    "ACTIVE": "Active",
+    "TRANSFERRED": "Transferred",
+    "CHECKED_IN": "Checked in",
+    "CANCELLED": "Cancelled",
+    "REFUNDED": "Refunded",
+    "VOID": "Void"
+  },
+  "refundStatus": {
+    "REQUESTED": "Requested",
+    "APPROVED": "Approved",
+    "REJECTED": "Rejected",
+    "PROCESSING": "Processing",
+    "COMPLETED": "Completed",
+    "FAILED": "Failed"
   },
   "nav": {
     "explore": "Explore",

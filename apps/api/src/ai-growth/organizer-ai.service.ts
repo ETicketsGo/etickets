@@ -184,7 +184,8 @@ export class OrganizerAiService {
         : 'Sales figures are restricted to owners and managers.';
       sources.push('bookings.today');
     } else if (/review|before|prepare|checklist/.test(q)) {
-      const util = Math.round(analytics.capacity.utilization * 100);
+      // Already a percentage — the same double multiplication as the conversion rate below.
+      const util = Math.round(analytics.capacity.utilization);
       answer =
         `Before your event: ${util}% of capacity is sold. ` +
         'Confirm ticket types are on sale, coupons are valid, and enough check-in devices are ready.';
@@ -197,7 +198,8 @@ export class OrganizerAiService {
           ? rev.map((r) => formatMinor(r.grossMinor, r.currency)).join(' and ')
           : null;
       answer =
-        `${conv.confirmed} confirmed of ${conv.total} bookings (${Math.round(conv.rate * 100)}% conversion)` +
+        // `conversion.rate` is already a percentage; multiplying again printed "5200%" (found by QA).
+        `${conv.confirmed} confirmed of ${conv.total} bookings (${Math.round(conv.rate)}% conversion)` +
         (gross ? `, ${gross} gross.` : '.');
       sources.push('analytics.conversion', 'analytics.revenue');
     } else {
@@ -226,14 +228,22 @@ export class OrganizerAiService {
   private async todaysSales(organizationId: string): Promise<string> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    const agg = await this.prisma.booking.aggregate({
+    /*
+      One figure per currency, like the refund and coupon answers. This summed every booking into
+      one number printed without a currency, so an organizer selling in two markets was told
+      "totalling INR 57.2" — rupees and dollars added together (found by QA).
+    */
+    const byCurrency = await this.prisma.booking.groupBy({
+      by: ['currency'],
       where: { organizationId, confirmedAt: { gte: start } },
       _sum: { totalMinor: true },
       _count: { _all: true },
     });
-    const count = agg._count._all;
+    const count = byCurrency.reduce((n, row) => n + row._count._all, 0);
     return count > 0
-      ? `Today: ${count} confirmed booking(s) totalling ${formatMinor(agg._sum.totalMinor ?? 0)}.`
+      ? `Today: ${count} confirmed booking(s) totalling ${byCurrency
+          .map((row) => formatMinor(row._sum.totalMinor ?? 0, row.currency))
+          .join(' and ')}.`
       : 'No confirmed bookings yet today.';
   }
 }

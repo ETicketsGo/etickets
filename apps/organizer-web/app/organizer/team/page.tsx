@@ -17,6 +17,7 @@ import {
   type OrgMember,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { isForbidden } from '@/lib/org-permissions';
 
 const ROLES = ['ORGANIZER_MANAGER', 'CHECKIN_STAFF', 'ORGANIZER_OWNER'];
 
@@ -44,10 +45,17 @@ export default function TeamPage() {
   */
   const [link, setLink] = useState<{ email: string; url: string } | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  /*
+    The member list is owners and managers only at the API. Check-in staff were sent the
+    request and shown "We couldn't load this. Please try again." — a retry that can never
+    succeed (found by QA). It is not requested for them, and the table says why instead.
+  */
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['members', activeOrg.id],
     queryFn: () => api.organizations.members(activeOrg.id),
+    enabled: can.financials,
   });
+  const teamListRefused = !can.financials || isForbidden(error);
 
   const invite = useMutation({
     mutationFn: () => api.organizations.invite(activeOrg.id, { email, role }),
@@ -157,8 +165,14 @@ export default function TeamPage() {
           rows={data}
           loading={isLoading}
           rowKey={(m) => m.id}
-          error={isError ? "We couldn't load this. Please try again." : undefined}
-          onRetry={() => refetch()}
+          error={
+            teamListRefused
+              ? 'Only owners and managers can see the team list.'
+              : isError
+                ? "We couldn't load this. Please try again."
+                : undefined
+          }
+          onRetry={teamListRefused ? undefined : () => refetch()}
         />
       </div>
 

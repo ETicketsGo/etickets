@@ -43,17 +43,39 @@ import { EmptyState, ErrorState, Skeleton, StatusBadge, ButtonLink } from '@/com
 import { EventDayMode } from '@/components/event-day-mode';
 import { fetchWalletWithOffline, lastSyncedAt } from '@/lib/offline/sync';
 import { Link } from '@/i18n/navigation';
+import { useLocale, useTranslations } from 'next-intl';
+import { useMounted } from '@/lib/use-mounted';
+import { useStatusLabel } from '@/lib/status-label';
 
-const QR_FALLBACK =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"><rect width="220" height="220" fill="#f1f5f9"/><text x="110" y="112" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">QR unavailable</text><text x="110" y="134" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Use the ticket ID at the gate</text></svg>',
+/** This page's translator, in the shape the helpers below take it. */
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+/*
+  The "no QR" placeholder, drawn in the reader's language. It was an English module constant,
+  so a French ticket whose barcode could not be drawn said "QR unavailable" inside the image.
+*/
+function qrFallback(title: string, hint: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220"><rect width="220" height="220" fill="#f1f5f9"/><text x="110" y="112" font-family="sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">${esc(title)}</text><text x="110" y="134" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">${esc(hint)}</text></svg>`,
+    )
   );
+}
 
 const SWIPE_THRESHOLD = 48;
 const AUTO_ADVANCE_KEY = 'etg_auto_advance';
 
 export default function BookingTicketsViewer() {
+  /*
+    Every word on this page comes from the catalogue. It was entirely English — "All tickets",
+    "SHOW TIME", "Assign", "Not yet assigned" — and it is where the French confirmation page's
+    "View tickets" lands, so a French buyer went from a French page to an English one (QA).
+  */
+  const b = useTranslations('storefront.bookingTickets');
+  const statusLabel = useStatusLabel();
+  const mounted = useMounted();
   const { bookingId } = useParams<{ bookingId: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -61,6 +83,7 @@ export default function BookingTicketsViewer() {
   // connectivity model), so it stays correct after an offline reload where navigator.onLine is stale.
   const connectivity = useConnectivity();
   const online = connectivity.state === 'ONLINE' || connectivity.state === 'UNKNOWN';
+  const qrFallbackUrl = useMemo(() => qrFallback(b('qrUnavailable'), b('qrUseTicketId')), [b]);
 
   useEffect(() => {
     if (!tokenStore.access) router.push(`/login?next=/account/bookings/${bookingId}/tickets`);
@@ -69,7 +92,9 @@ export default function BookingTicketsViewer() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['wallet'],
     queryFn: fetchWalletWithOffline,
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`: that differs between the server and the first client render, which
+    // is the React #418 QA saw on every load of this page. See useMounted.
+    enabled: mounted && !!tokenStore.access,
   });
   // Last successful sync time — shown in Event Day Mode as "last verified".
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
@@ -199,7 +224,7 @@ export default function BookingTicketsViewer() {
       href={printHref}
       className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <Printer className="h-4 w-4" aria-hidden /> Print
+      <Printer className="h-4 w-4" aria-hidden /> {b('print')}
     </Link>
   );
 
@@ -208,7 +233,7 @@ export default function BookingTicketsViewer() {
       onClick={() => router.push('/account/tickets')}
       className="flex items-center gap-1.5 rounded-md text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
     >
-      <ArrowLeft className="h-4 w-4" /> All tickets
+      <ArrowLeft className="h-4 w-4" /> {b('allTickets')}
     </button>
   );
 
@@ -216,14 +241,11 @@ export default function BookingTicketsViewer() {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         {backLink}
-        <ErrorState
-          message="We couldn't load these tickets. Please try again."
-          onRetry={() => refetch()}
-        />
+        <ErrorState message={b('loadError')} onRetry={() => refetch()} />
       </div>
     );
 
-  if (isLoading && !data)
+  if ((!mounted || isLoading) && !data)
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         {backLink}
@@ -236,16 +258,16 @@ export default function BookingTicketsViewer() {
       <div className="mx-auto max-w-2xl space-y-6">
         {backLink}
         <EmptyState
-          title="Booking not found"
-          hint="These tickets may have been refunded or belong to another account."
-          action={<ButtonLink href="/account/tickets">Back to my tickets</ButtonLink>}
+          title={b('notFoundTitle')}
+          hint={b('notFoundHint')}
+          action={<ButtonLink href="/account/tickets">{b('backToMyTickets')}</ButtonLink>}
         />
       </div>
     );
 
   const timing = eventTiming(current.startsAt, Date.now());
   const canAssign = current.ownedByViewer !== false && current.status === 'ACTIVE';
-  const assignmentLine = attendeeLine(current);
+  const assignmentLine = attendeeLine(current, b);
   const showNextActive = tickets.some((t) => t.status === 'ACTIVE') && current.status !== 'ACTIVE';
   const inactive = isTicketInactive(current.status);
   const seat = current.seatLabel;
@@ -255,16 +277,20 @@ export default function BookingTicketsViewer() {
     because an unlabelled time is better than one labelled with a zone we guessed.
   */
   const zoneLabel = current.timezone ? zoneAbbrev(current.startsAt, current.timezone) : null;
+  const seatText = seat ? b('seatLabel', { seat }) : null;
   const place = group.isMovie
-    ? [group.cinemaName, group.screenName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ')
-    : [group.venueName, seat ? `Seat ${seat}` : null].filter(Boolean).join(' · ');
+    ? [group.cinemaName, group.screenName, seatText].filter(Boolean).join(' · ')
+    : [group.venueName, seatText].filter(Boolean).join(' · ');
   const mapsQuery = group.isMovie
     ? [group.cinemaName, group.venueName].filter(Boolean).join(', ') || group.title
     : group.venueName || group.title;
 
   return (
     <>
-      <section className="mx-auto max-w-2xl space-y-6" aria-label={`Tickets for ${group.title}`}>
+      <section
+        className="mx-auto max-w-2xl space-y-6"
+        aria-label={b('sectionLabel', { title: group.title })}
+      >
         <div className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-4">
             {backLink}
@@ -272,7 +298,7 @@ export default function BookingTicketsViewer() {
           </span>
           {!online && (
             <span className="inline-flex items-center gap-1.5 text-caption font-medium text-status-warning">
-              <WifiOff className="h-3.5 w-3.5" /> Offline · saved tickets
+              <WifiOff className="h-3.5 w-3.5" /> {b('offlineSaved')}
             </span>
           )}
         </div>
@@ -286,7 +312,7 @@ export default function BookingTicketsViewer() {
             onClick={() => setEventDayOpen(true)}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-action-primary px-5 py-3.5 font-semibold text-action-primary-foreground shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
           >
-            <Maximize2 className="h-4 w-4" /> Enter Event Day Mode
+            <Maximize2 className="h-4 w-4" /> {b('enterEventDayMode')}
           </button>
         )}
 
@@ -299,12 +325,12 @@ export default function BookingTicketsViewer() {
         >
           <div
             role="group"
-            aria-label={`Ticket ${index + 1} of ${tickets.length}`}
+            aria-label={b('ticketOf', { index: index + 1, total: tickets.length })}
             aria-live="polite"
             className="flex flex-col items-center p-6 text-center"
           >
             <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-              Ticket {index + 1} of {tickets.length}
+              {b('ticketOf', { index: index + 1, total: tickets.length })}
             </p>
 
             <div className="mt-4">
@@ -312,18 +338,18 @@ export default function BookingTicketsViewer() {
               <img
                 key={current.id}
                 // A vendor barcode the server cannot draw arrives as null: show the fallback.
-                src={current.qrDataUrl ?? QR_FALLBACK}
-                alt={`QR code for ticket ${current.serial}`}
+                src={current.qrDataUrl ?? qrFallbackUrl}
+                alt={b('qrAlt', { serial: current.serial })}
                 onError={(e) => {
                   const img = e.currentTarget;
-                  if (img.src !== QR_FALLBACK) img.src = QR_FALLBACK;
+                  if (img.src !== qrFallbackUrl) img.src = qrFallbackUrl;
                 }}
                 className={`h-56 w-56 rounded-2xl bg-white p-2 shadow-sm ${inactive ? 'opacity-40 grayscale' : ''}`}
               />
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <StatusBadge status={current.status} />
+              <StatusBadge status={current.status} label={statusLabel('ticket', current.status)} />
               <span className="font-mono text-caption text-text-muted">{current.serial}</span>
             </div>
 
@@ -341,7 +367,9 @@ export default function BookingTicketsViewer() {
             <dl className="mt-4 grid grid-cols-2 gap-3 border-y border-border/70 py-3 text-left">
               {group.screenName && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">Screen</dt>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">
+                    {b('screen')}
+                  </dt>
                   <dd className="text-[1.0625rem] font-semibold text-text-primary">
                     {group.screenName}
                   </dd>
@@ -349,7 +377,9 @@ export default function BookingTicketsViewer() {
               )}
               {seat && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">Seat</dt>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">
+                    {b('seat')}
+                  </dt>
                   <dd className="text-[1.0625rem] font-semibold tabular-nums text-text-primary">
                     {seat}
                   </dd>
@@ -357,7 +387,7 @@ export default function BookingTicketsViewer() {
               )}
               <div className={group.screenName && seat ? 'col-span-2' : ''}>
                 <dt className="text-caption uppercase tracking-wide text-text-muted">
-                  Show time{zoneLabel ? ` (${zoneLabel})` : ''}
+                  {zoneLabel ? b('showTimeWithZone', { zone: zoneLabel }) : b('showTime')}
                 </dt>
                 {/*
                   Rendered in the VENUE's timezone, not the device's. A phone set to another
@@ -369,28 +399,34 @@ export default function BookingTicketsViewer() {
                 </dd>
               </div>
               <div>
-                <dt className="text-caption uppercase tracking-wide text-text-muted">Ticket</dt>
+                <dt className="text-caption uppercase tracking-wide text-text-muted">
+                  {b('ticket')}
+                </dt>
                 <dd className="text-[0.9375rem] text-text-primary">{current.ticketType}</dd>
               </div>
               {current.bookingRef && (
                 <div>
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">Booking</dt>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">
+                    {b('booking')}
+                  </dt>
                   {/* Quoted to staff and to support far more often than the serial is. */}
                   <dd className="text-[0.9375rem]">
-                    <ReferenceCode value={current.bookingRef} label="Booking reference" />
+                    <ReferenceCode value={current.bookingRef} label={b('bookingReference')} />
                   </dd>
                 </div>
               )}
               {current.holderName && (
                 <div className="col-span-2">
-                  <dt className="text-caption uppercase tracking-wide text-text-muted">Attendee</dt>
+                  <dt className="text-caption uppercase tracking-wide text-text-muted">
+                    {b('attendee')}
+                  </dt>
                   <dd className="text-[0.9375rem] text-text-primary">{current.holderName}</dd>
                 </div>
               )}
               {place && (
                 <div className="col-span-2 flex items-center gap-1.5 text-caption text-text-muted">
                   <MapPin className="h-3.5 w-3.5" aria-hidden />
-                  <dt className="sr-only">Location</dt>
+                  <dt className="sr-only">{b('location')}</dt>
                   <dd>{place}</dd>
                 </div>
               )}
@@ -402,8 +438,7 @@ export default function BookingTicketsViewer() {
 
             {inactive && (
               <p className="mt-3 max-w-xs text-caption text-text-muted">
-                This ticket is {current.status.toLowerCase().replace('_', ' ')} and can’t be used at
-                the gate. It stays here as part of your booking history.
+                {b('inactive', { status: statusLabel('ticket', current.status).toLowerCase() })}
               </p>
             )}
 
@@ -411,7 +446,7 @@ export default function BookingTicketsViewer() {
               href={`/account/tickets/${current.id}`}
               className="mt-4 text-caption font-medium text-action-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              Full ticket details
+              {b('fullDetails')}
             </Link>
           </div>
 
@@ -420,26 +455,26 @@ export default function BookingTicketsViewer() {
               <button
                 onClick={() => goTo(index - 1)}
                 disabled={index === 0}
-                aria-label="Previous ticket"
+                aria-label={b('previousTicket')}
                 className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                <ChevronLeft className="h-4 w-4" /> Prev
+                <ChevronLeft className="h-4 w-4" /> {b('prev')}
               </button>
               {showNextActive && (
                 <button
                   onClick={jumpNextActive}
                   className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-caption font-semibold text-action-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 >
-                  <ScanLine className="h-4 w-4" /> Next active QR
+                  <ScanLine className="h-4 w-4" /> {b('nextActiveQr')}
                 </button>
               )}
               <button
                 onClick={() => goTo(index + 1)}
                 disabled={index === tickets.length - 1}
-                aria-label="Next ticket"
+                aria-label={b('nextTicket')}
                 className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[0.9375rem] font-medium text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
-                Next <ChevronRight className="h-4 w-4" />
+                {b('next')} <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           )}
@@ -447,17 +482,15 @@ export default function BookingTicketsViewer() {
 
         {/* Quick actions */}
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          <QuickAction icon={Share2} label="Share" onClick={() => setShareOpen(true)} />
+          <QuickAction icon={Share2} label={b('actionShare')} onClick={() => setShareOpen(true)} />
           <QuickAction
             icon={UserPlus}
-            label="Assign"
+            label={b('actionAssign')}
             onClick={() =>
               canAssign
                 ? setAssignOpen(true)
                 : toast.push(
-                    current.status === 'ACTIVE'
-                      ? 'Only the booking owner can assign this ticket.'
-                      : 'This ticket can no longer be reassigned.',
+                    current.status === 'ACTIVE' ? b('assignOwnerOnly') : b('assignClosed'),
                     'info',
                   )
             }
@@ -467,16 +500,24 @@ export default function BookingTicketsViewer() {
             printed the site header and bottom navigation over the QR and named the file after
             the site's tagline. The sheet has no chrome, one ticket per page, and a real name.
           */}
-          <QuickAction icon={Download} label="PDF" onClick={() => router.push(printHref)} />
+          <QuickAction
+            icon={Download}
+            label={b('actionPdf')}
+            onClick={() => router.push(printHref)}
+          />
           <QuickAction
             icon={Wallet}
-            label="Wallet"
-            onClick={() => toast.push('Wallet passes are coming soon.', 'info')}
+            label={b('actionWallet')}
+            onClick={() => toast.push(b('walletPassesSoon'), 'info')}
           />
-          <QuickAction icon={Navigation} label="Directions" href={googleDirectionsUrl(mapsQuery)} />
+          <QuickAction
+            icon={Navigation}
+            label={b('actionDirections')}
+            href={googleDirectionsUrl(mapsQuery)}
+          />
           <QuickAction
             icon={Car}
-            label="Parking"
+            label={b('actionParking')}
             href={googleMapsUrl(`parking near ${mapsQuery}`)}
           />
         </div>
@@ -485,13 +526,13 @@ export default function BookingTicketsViewer() {
             onClick={() => setEventDayOpen(true)}
             className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            <Maximize2 className="h-3.5 w-3.5" /> Event Day Mode
+            <Maximize2 className="h-3.5 w-3.5" /> {b('eventDayMode')}
           </button>
           <Link
             href="/help"
             className="inline-flex items-center gap-1.5 text-caption font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            <LifeBuoy className="h-3.5 w-3.5" /> Support
+            <LifeBuoy className="h-3.5 w-3.5" /> {b('support')}
           </Link>
         </div>
 
@@ -500,7 +541,7 @@ export default function BookingTicketsViewer() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="text-caption font-medium uppercase tracking-wide text-text-muted">
-                All tickets in this booking
+                {b('allInBooking')}
               </p>
               <label className="flex cursor-pointer items-center gap-1.5 text-caption text-text-secondary">
                 <input
@@ -509,7 +550,7 @@ export default function BookingTicketsViewer() {
                   onChange={toggleAutoAdvance}
                   className="h-3.5 w-3.5 rounded border-border text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 />
-                Auto-advance
+                {b('autoAdvance')}
               </label>
             </div>
             <TicketStrip tickets={tickets} index={index} onSelect={goTo} isMovie={group.isMovie} />
@@ -541,29 +582,40 @@ export default function BookingTicketsViewer() {
 }
 
 /** Human line describing who a ticket is assigned to, from the viewer's angle. */
-function attendeeLine(t: WalletTicket): string | null {
+function attendeeLine(t: WalletTicket, b: Translate): string | null {
   const status = t.assignmentStatus;
   if (!status || status === 'UNASSIGNED')
-    return t.ownedByViewer === false ? null : 'Not yet assigned';
-  if (t.assignedToViewer && !t.ownedByViewer) return 'This ticket is yours';
-  const who = t.attendeeName || 'an attendee';
-  if (status === 'INVITED') return `Invitation sent to ${who}`;
-  if (status === 'ACCEPTED') return `Claimed by ${who}`;
-  if (status === 'ASSIGNED') return `Assigned to ${who}`;
-  if (status === 'DECLINED') return 'Invitation declined — reassign when ready';
+    return t.ownedByViewer === false ? null : b('notAssigned');
+  if (t.assignedToViewer && !t.ownedByViewer) return b('yours');
+  const name = t.attendeeName || b('anAttendee');
+  if (status === 'INVITED') return b('invitationSent', { name });
+  if (status === 'ACCEPTED') return b('claimedBy', { name });
+  if (status === 'ASSIGNED') return b('assignedTo', { name });
+  if (status === 'DECLINED') return b('invitationDeclined');
   return null;
 }
 
 /** Group header: title, count, reference, check-in progress dots + status summary. */
 function GroupHeader({ group }: { group: BookingGroup }) {
+  const b = useTranslations('storefront.bookingTickets');
+  const locale = useLocale();
   const { counts } = group;
-  const segments: { label: string; n: number; tone: string }[] = [
-    { label: 'Active', n: counts.active, tone: 'text-status-success' },
-    { label: 'Checked in', n: counts.checkedIn, tone: 'text-status-info' },
-    { label: 'Transferred', n: counts.transferred, tone: 'text-text-secondary' },
-    { label: 'Refunded', n: counts.refunded, tone: 'text-status-error' },
-    { label: 'Cancelled', n: counts.cancelled, tone: 'text-status-error' },
+  /*
+    Singular or plural by the reader's language, because French agrees the word with the
+    count ("1 actif", "2 actifs") where English does not. Each label is shown beside its number
+    rather than inside a sentence, so the form is chosen here instead of in an ICU message.
+  */
+  const plural = new Intl.PluralRules(locale);
+  const form = (n: number) => (plural.select(n) === 'one' ? 'one' : 'other');
+  const segments: { key: string; n: number; tone: string }[] = [
+    { key: 'active', n: counts.active, tone: 'text-status-success' },
+    { key: 'checkedIn', n: counts.checkedIn, tone: 'text-status-info' },
+    { key: 'transferred', n: counts.transferred, tone: 'text-text-secondary' },
+    { key: 'refunded', n: counts.refunded, tone: 'text-status-error' },
+    { key: 'cancelled', n: counts.cancelled, tone: 'text-status-error' },
   ].filter((s) => s.n > 0);
+  // Composed here: web-kit's `checkInProgress` is an English sentence.
+  const progress = b('checkInProgress', { checkedIn: counts.checkedIn, total: counts.total });
 
   return (
     <header>
@@ -571,9 +623,7 @@ function GroupHeader({ group }: { group: BookingGroup }) {
         {group.title}
       </h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-text-muted">
-        <span>
-          {counts.total} {counts.total === 1 ? 'ticket' : 'tickets'}
-        </span>
+        <span>{b('ticketCount', { count: counts.total })}</span>
         <span aria-hidden>·</span>
         <span className="font-mono">{group.bookingRef}</span>
       </p>
@@ -582,10 +632,10 @@ function GroupHeader({ group }: { group: BookingGroup }) {
       {counts.total > 1 && (
         <div className="mt-3">
           <div className="mb-1.5 flex items-center justify-between text-caption text-text-muted">
-            <span>{group.checkInProgress}</span>
-            <span>{counts.total - counts.checkedIn} remaining</span>
+            <span>{progress}</span>
+            <span>{b('remaining', { count: counts.total - counts.checkedIn })}</span>
           </div>
-          <div className="flex flex-wrap gap-1" role="img" aria-label={group.checkInProgress}>
+          <div className="flex flex-wrap gap-1" role="img" aria-label={progress}>
             {group.tickets.map((t) => (
               <span
                 key={t.id}
@@ -607,11 +657,11 @@ function GroupHeader({ group }: { group: BookingGroup }) {
         <ul className="mt-3 flex flex-wrap gap-2">
           {segments.map((s) => (
             <li
-              key={s.label}
+              key={s.key}
               className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-caption font-medium"
             >
               <span className={s.tone}>{s.n}</span>
-              <span className="text-text-secondary">{s.label}</span>
+              <span className="text-text-secondary">{b(`segment.${s.key}.${form(s.n)}`)}</span>
             </li>
           ))}
         </ul>
@@ -632,8 +682,10 @@ function TicketStrip({
   onSelect: (i: number) => void;
   isMovie: boolean;
 }) {
+  const b = useTranslations('storefront.bookingTickets');
+  const statusLabel = useStatusLabel();
   return (
-    <ul className="flex flex-wrap gap-2" aria-label="Select a ticket">
+    <ul className="flex flex-wrap gap-2" aria-label={b('stripLabel')}>
       {tickets.map((t, i) => {
         const selected = i === index;
         const dim = isTicketInactive(t.status);
@@ -644,9 +696,14 @@ function TicketStrip({
             <button
               onClick={() => onSelect(i)}
               aria-current={selected ? 'true' : undefined}
-              aria-label={`Ticket ${i + 1}${t.seatLabel ? `, seat ${t.seatLabel}` : ''}${
-                isMovie ? '' : `, ${t.ticketType}`
-              }, ${t.status.toLowerCase().replace('_', ' ')}`}
+              aria-label={[
+                b('chipTicket', { index: i + 1 }),
+                t.seatLabel ? b('chipSeat', { seat: t.seatLabel }) : null,
+                isMovie ? null : t.ticketType,
+                statusLabel('ticket', t.status).toLowerCase(),
+              ]
+                .filter(Boolean)
+                .join(', ')}
               className={`flex min-w-[3rem] items-center justify-center gap-1 rounded-md border px-3 py-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                 selected
                   ? 'border-action-primary bg-tint-primary text-action-primary'

@@ -7,6 +7,7 @@ import { api as wk, tokenStore, useAuthUser } from '@eticketsgo/web-kit';
 import { Button, Card, Input } from '@/components/ui';
 import { ApiRequestError } from '@/lib/api';
 import { Link } from '@/i18n/navigation';
+import { useMounted } from '@/lib/use-mounted';
 
 const ORGANIZER_URL = process.env.NEXT_PUBLIC_ORGANIZER_URL ?? 'http://localhost:3001';
 
@@ -35,6 +36,7 @@ export default function BecomeOrganizerPage() {
   const [contactEmail, setContactEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState(false);
+  const mounted = useMounted();
 
   useEffect(() => {
     if (typeof window !== 'undefined' && !tokenStore.access) {
@@ -45,7 +47,8 @@ export default function BecomeOrganizerPage() {
   const mine = useQuery({
     queryKey: ['organizations', 'mine'],
     queryFn: () => wk.organizations.listMine(),
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    // Not `typeof window`, which differs between server and first client render. See useMounted.
+    enabled: mounted && !!tokenStore.access,
     retry: false,
   });
 

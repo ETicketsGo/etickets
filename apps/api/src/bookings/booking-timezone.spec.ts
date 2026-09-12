@@ -62,3 +62,50 @@ describe('booking timezone resolution', () => {
     expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBeNull();
   });
 });
+
+describe('booking list timezone resolution', () => {
+  /*
+    Found on QA: "My bookings" printed each row's date in the reader's browser, because the
+    list sent no zone, while the drawer beside it used the venue's. One booking, two times.
+  */
+  function listServiceWith(rows: unknown[]) {
+    const findMany = jest.fn().mockReturnValue(rows);
+    const prisma = {
+      booking: { count: jest.fn().mockReturnValue(rows.length), findMany },
+      $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+    };
+    const stub = {} as never;
+    const svc = new BookingsService(
+      prisma as never,
+      stub,
+      stub,
+      stub,
+      stub,
+      stub,
+      stub,
+      stub,
+      stub,
+    );
+    return { svc, findMany };
+  }
+
+  it('gives every row the same zone its detail would: cinema, then venue, else null', async () => {
+    const { svc } = listServiceWith([
+      booking({ cinemaTz: 'America/Chicago', venueTz: 'Asia/Kolkata' }),
+      booking({ venueTz: 'America/New_York' }),
+      booking({ venueTz: null }),
+    ]);
+    const { data } = await svc.listForUser(USER, 1, 10);
+    expect(data.map((row) => row.timeZone)).toEqual(['America/Chicago', 'America/New_York', null]);
+  });
+
+  it('reads both zones from the database', async () => {
+    const { svc, findMany } = listServiceWith([]);
+    await svc.listForUser(USER, 1, 10);
+    const include = findMany.mock.calls[0][0].include;
+    expect(include.event.select.venue).toEqual({ select: { timezone: true } });
+    expect(include.eventSession.select.screen).toEqual({
+      select: { cinema: { select: { timezone: true } } },
+    });
+  });
+});

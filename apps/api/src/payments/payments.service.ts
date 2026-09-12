@@ -387,6 +387,19 @@ export class PaymentsService {
     if (!payment)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payment not found.', HttpStatus.NOT_FOUND);
 
+    /*
+      A payment settled by the mock IS a mock payment, whatever gateway the order was opened on.
+
+      Found by QA: a booking routed to Razorpay and then settled here kept `provider: razorpay`
+      with only an unpaid order id. Refunds now go to the provider the payment names — never the
+      default — so Razorpay was asked to refund money it never captured, and every organizer
+      refund on QA failed. Recording the provider that actually settled it routes the refund to
+      the mock, which is what this dev-only path exists to exercise.
+    */
+    if (outcome === 'succeeded' && payment.provider !== 'mock') {
+      await this.prisma.payment.update({ where: { bookingId }, data: { provider: 'mock' } });
+    }
+
     const event: PaymentEvent = {
       type: outcome === 'succeeded' ? 'payment.succeeded' : 'payment.failed',
       providerRef: payment.providerRef ?? `mock_pi_${randomBytes(8).toString('hex')}`,

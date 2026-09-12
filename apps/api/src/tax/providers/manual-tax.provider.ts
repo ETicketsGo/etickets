@@ -48,6 +48,8 @@ export class ManualTaxProvider implements TaxProvider {
 
     const { taxLines, taxMinor, taxAddedMinor } = computeTax({
       netSubtotalMinor: request.netSubtotalMinor,
+      // So a discount reduces the per-ticket taxable amount, not only the order total.
+      grossSubtotalMinor: request.grossSubtotalMinor,
       customerFeeMinor: request.customerFeeMinor,
       // Passed through so a MAINTENANCE rule has a base to work on.
       maintenanceMinor: request.maintenanceMinor,

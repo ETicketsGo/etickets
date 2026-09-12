@@ -70,13 +70,27 @@ export async function fetchEventCards(
     take,
     orderBy: { publishedAt: 'desc' },
     include: {
-      venue: { select: { name: true, city: true, country: true } },
+      // The zone as well, so "You might also like" shows each date at its venue, as the
+      // browse cards do — QA found these cards in the reader's browser time.
+      venue: { select: { name: true, city: true, country: true, timezone: true } },
       organization: { select: { name: true } },
       images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
+      /*
+        The same "still on" rule as the browse listing and the event page: the next session that
+        has not started and is not cancelled, priced from a ticket type that is on sale. This
+        took each event's FIRST session ever, so "You might also like" could advertise a date
+        already past — found in the QA validation round.
+      */
       sessions: {
+        where: {
+          startsAt: { gte: new Date() },
+          status: { in: ['SCHEDULED', 'PAUSED'] as ('SCHEDULED' | 'PAUSED')[] },
+        },
         orderBy: { startsAt: 'asc' },
         take: 1,
-        include: { ticketTypes: { orderBy: { priceMinor: 'asc' }, take: 1 } },
+        include: {
+          ticketTypes: { where: { status: 'ACTIVE' }, orderBy: { priceMinor: 'asc' }, take: 1 },
+        },
       },
     },
   });

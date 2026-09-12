@@ -189,6 +189,64 @@ const pendingBooking = (over: Partial<BookingShape> = {}): BookingShape => ({
 
 const webhook = { rawBody: '{}', signature: 'sig' };
 
+/*
+  Found by QA: a booking whose order was opened on Razorpay and then settled through the dev-only
+  mock-pay path kept `provider: razorpay` with an uncaptured order id. Refunds go to the provider
+  the payment names, so every organizer refund on QA was sent to Razorpay and failed.
+*/
+describe('PaymentsService.mockPay', () => {
+  const ENV_KEYS = ['APP_ENV', 'PAYMENT_PROVIDER_NAME', 'PAYMENTS_MOCK_ENABLED'] as const;
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    // The mock is allowed only locally with the mock provider — read when the service is built.
+    process.env.APP_ENV = 'LOCAL';
+    delete process.env.PAYMENT_PROVIDER_NAME;
+    delete process.env.PAYMENTS_MOCK_ENABLED;
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  const openedOnRazorpay = {
+    ...APPLIED_PAYMENT,
+    status: PaymentStatus.PROCESSING,
+    amountMinor: 5000,
+  };
+
+  it('records a payment the mock settled as a mock payment, before confirming it', async () => {
+    const { service, prisma } = setup({ booking: pendingBooking(), payment: openedOnRazorpay });
+    const handle = jest
+      .spyOn(service, 'handleWebhook')
+      .mockResolvedValue({ status: 'confirmed' } as never);
+
+    await service.mockPay('b1', 'succeeded');
+
+    expect(prisma.payment.update).toHaveBeenCalledWith({
+      where: { bookingId: 'b1' },
+      data: { provider: 'mock' },
+    });
+    // Relabelled first, so everything downstream — the refund route included — reads the mock.
+    expect(prisma.payment.update.mock.invocationCallOrder[0]).toBeLessThan(
+      handle.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('leaves the provider alone when the mock reports a failure', async () => {
+    const { service, prisma } = setup({ booking: pendingBooking(), payment: openedOnRazorpay });
+    jest.spyOn(service, 'handleWebhook').mockResolvedValue({ status: 'failed' } as never);
+
+    await service.mockPay('b1', 'failed');
+
+    expect(prisma.payment.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { provider: 'mock' } }),
+    );
+  });
+});
+
 describe('PaymentsService.fail (via handleWebhook)', () => {
   const FAILED_EVENT: PaymentEvent = {
     type: 'payment.failed',

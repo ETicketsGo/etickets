@@ -109,7 +109,9 @@ export class PublicEventsService {
         take: filters.pageSize,
         orderBy: { publishedAt: 'desc' },
         include: {
-          venue: { select: { name: true, city: true, country: true } },
+          // The zone too, so the card shows the date at the venue rather than in the reader's
+          // browser — on QA the cards and the event page disagreed about the same show.
+          venue: { select: { name: true, city: true, country: true, timezone: true } },
           organization: { select: { name: true } },
           // The cover's id and hash only. A listing must never drag image bytes out of the database.
           images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
@@ -209,6 +211,17 @@ export class PublicEventsService {
           },
         },
         sessions: {
+          /*
+            Only dates that are still on — the same rule as the browse listing and the
+            organizer page. This returned every session the event ever had, so the event page
+            preselected the first one: on QA "Stand-up comedy" opened on a date already past,
+            showed "General ₹450 · 99 left", enabled "Continue to payment", and the quote
+            answered 409. A date you cannot attend is not something to offer.
+          */
+          where: {
+            startsAt: { gte: new Date() },
+            status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+          },
           orderBy: { startsAt: 'asc' },
           include: {
             /*
@@ -314,7 +327,8 @@ export class PublicEventsService {
       orderBy: { publishedAt: 'desc' },
       take: 24,
       include: {
-        venue: { select: { name: true, city: true, country: true } },
+        // With its zone, for the same reason as the browse listing: the card's date is the venue's.
+        venue: { select: { name: true, city: true, country: true, timezone: true } },
         images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
         /*
           The same "still on" rule as the browse listing. This took each event's FIRST session

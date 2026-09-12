@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import { api } from '@eticketsgo/web-kit';
+import { useOrg } from '@/components/org-context';
 
 /** localStorage flag for a manually dismissed / completed onboarding experience. */
 export const ONBOARDING_DONE_KEY = 'etg_onboarding_done';
@@ -71,6 +72,13 @@ export interface OnboardingProgress {
  * which blocks rendering until an organization exists — so the org step is always met).
  */
 export function useOnboardingProgress(orgId: string, orgName: string): OnboardingProgress {
+  /*
+    Three of these reads — the team, the seating rooms and the payment status — are owners and
+    managers only at the API. Every check-in staff member's dashboard fired all three and got
+    three 403s in the console (found by QA). They are not requested for a role the API refuses;
+    those steps are setup work check-in staff are not the ones to do.
+  */
+  const { can } = useOrg();
   const venuesQ = useQuery({
     queryKey: ['venues', orgId],
     queryFn: () => api.venues.list(orgId),
@@ -78,6 +86,7 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
   const membersQ = useQuery({
     queryKey: ['members', orgId],
     queryFn: () => api.organizations.members(orgId),
+    enabled: can.financials,
   });
   const eventsQ = useQuery({
     queryKey: ['events', orgId],
@@ -90,6 +99,7 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
   const roomsQ = useQuery({
     queryKey: ['seating-rooms', orgId],
     queryFn: () => api.events.seatingRooms(orgId),
+    enabled: can.financials,
   });
   /*
     Whether this organization could actually be PAID.
@@ -101,6 +111,7 @@ export function useOnboardingProgress(orgId: string, orgName: string): Onboardin
   const payoutsQ = useQuery({
     queryKey: ['organizer-payments-status', orgId],
     queryFn: () => api.organizerPayments.status(orgId),
+    enabled: can.financials,
   });
 
   const hasVenue = (venuesQ.data?.length ?? 0) > 0;
