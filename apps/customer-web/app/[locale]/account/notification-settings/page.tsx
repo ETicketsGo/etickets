@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageCircle, Phone } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { api } from '@/lib/api';
 import { Card, ErrorState, Skeleton, Toggle, useToast } from '@/components/ui';
 import { PushToggle } from '@/components/push-toggle';

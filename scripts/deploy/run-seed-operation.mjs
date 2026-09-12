@@ -38,6 +38,17 @@ if (!VALID.includes(operation)) {
   throw new Error(`Pass one of: ${VALID.join(', ')}`);
 }
 const destructive = operation === 'full-reset';
+/*
+  How long the destructive authorisation this script writes stays valid.
+
+  The service also runs NIGHTLY on a cron schedule, with whatever variables it holds at the time.
+  If this script is interrupted before its cleanup, a plain `yes` would stay behind and authorise
+  every one of those runs to empty the database. So the value expires: the dispatcher refuses
+  `yes-until-<timestamp>` once the timestamp has passed, and refuses any expiry more than an hour
+  ahead. Forty-five minutes covers the settle wait plus the twenty-five-minute deploy deadline
+  below, with room for clock skew against the cap.
+*/
+const AUTHORISATION_WINDOW_MS = 45 * 60 * 1000;
 if (destructive && !process.argv.includes('--yes-empty-the-database')) {
   throw new Error(
     'full-reset empties every table in the target database. Re-run with --yes-empty-the-database.',
@@ -76,10 +87,9 @@ const { environment } = await gql(`query($id:String!){ environment(id:$id){ name
 console.log(`project ${project.name} · environment ${environment.name} · operation ${operation}`);
 
 const setVar = (name, value) =>
-  gql(
-    `mutation($i:VariableUpsertInput!){ variableUpsert(input:$i) }`,
-    { i: { projectId, environmentId, serviceId, name, value } },
-  );
+  gql(`mutation($i:VariableUpsertInput!){ variableUpsert(input:$i) }`, {
+    i: { projectId, environmentId, serviceId, name, value },
+  });
 const deleteVar = (name) =>
   gql(`mutation($i:VariableDeleteInput!){ variableDelete(input:$i) }`, {
     i: { projectId, environmentId, serviceId, name },
@@ -138,8 +148,13 @@ try {
   console.log('  settling after clearing stale variables...');
   const priorId = await settle();
 
-  // 2. Authorisation first. Anything induced now has no operation to perform.
-  if (destructive) await setVar('SEED_ALLOW_DESTRUCTIVE', 'yes');
+  // 2. Authorisation first. Anything induced now has no operation to perform. It EXPIRES, so a
+  //    run interrupted before step 5 cannot leave the nightly schedule authorised to wipe.
+  if (destructive) {
+    const until = new Date(Date.now() + AUTHORISATION_WINDOW_MS).toISOString();
+    await setVar('SEED_ALLOW_DESTRUCTIVE', `yes-until-${until}`);
+    console.log(`  destructive authorisation expires ${until}`);
+  }
 
   // 3. The operation last. The deployment this induces is the run.
   await setVar('SEED_OPERATION', operation);
@@ -206,7 +221,6 @@ try {
   await deleteVar('SEED_ALLOW_DESTRUCTIVE');
   console.log('  variables cleared (service returns to the read-only default)');
 }
-
 
 /*
   Logs lag the deployment's terminal state, and a one-shot job can finish before any are

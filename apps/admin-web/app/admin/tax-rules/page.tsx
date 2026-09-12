@@ -95,6 +95,8 @@ export default function AdminTaxRules() {
   const [superseding, setSuperseding] = useState<TaxRule | null>(null);
   const [newRate, setNewRate] = useState('');
   const [changeFrom, setChangeFrom] = useState('');
+  /** The switched-off rule awaiting a confirmed delete. */
+  const [deleting, setDeleting] = useState<TaxRule | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'tax-rules'],
@@ -112,6 +114,7 @@ export default function AdminTaxRules() {
     setCreating(false);
     setDraft(null);
     setSuperseding(null);
+    setDeleting(null);
   };
   const failed = (e: unknown) => toast.push(errorMessage(e), 'error');
 
@@ -286,7 +289,7 @@ export default function AdminTaxRules() {
             {r.active ? 'Switch off' : 'Switch on'}
           </Button>
           {!r.active && (
-            <Button size="sm" variant="danger" onClick={() => remove.mutate(r.id)}>
+            <Button size="sm" variant="danger" onClick={() => setDeleting(r)}>
               Delete
             </Button>
           )}
@@ -574,6 +577,38 @@ export default function AdminTaxRules() {
             >
               Schedule the change
             </Button>
+          </div>
+        )}
+      </Dialog>
+
+      {/*
+        Confirmed, because a delete cannot be taken back and the button sat beside Switch on,
+        one slip away. Switching a rule off already stops it charging anybody.
+      */}
+      <Dialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title={`Delete tax rule — ${deleting?.label ?? ''}`}
+      >
+        {deleting && (
+          <div className="space-y-3">
+            <p className="text-sm text-text-secondary">
+              Delete the {asPercent(deleting.rateBasisPoints)}% rule for{' '}
+              {deleting.country === '*' ? 'any country' : deleting.country}? This cannot be undone.
+              It is already switched off, so keeping it costs nothing.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={remove.isPending}
+                onClick={() => remove.mutate(deleting.id)}
+              >
+                Delete rule
+              </Button>
+            </div>
           </div>
         )}
       </Dialog>

@@ -214,6 +214,22 @@ describe('PaymentRefundExecutor — outcome handling', () => {
     expect(emittedTypes(publisher as never)).toContain('booking.payment_refund_pending');
   });
 
+  it('a PROCESSING refund (accepted, not finished) is pending and recovered — never rejected', async () => {
+    /*
+      Razorpay's `pending` is now reported as PROCESSING rather than COMPLETED. It is a refund
+      the provider accepted and is executing, so it must not be recorded as declined.
+    */
+    const { exec, comp, provider, publisher } = make({
+      refund: { status: 'PROCESSING', providerRef: 'rfnd_pending' },
+      getRefund: { status: 'COMPLETED', providerRef: 'rfnd_pending' },
+    });
+    expect(await exec.execute(comp)).toBe('REFUNDED');
+    expect(provider.getRefund).toHaveBeenCalledTimes(1);
+    const types = emittedTypes(publisher as never);
+    expect(types).toContain('booking.payment_refund_pending');
+    expect(types).not.toContain('booking.payment_refund_rejected');
+  });
+
   it('ambiguous (provider throws) recovers via status query — never assumes success', async () => {
     const { exec, comp, provider, publisher } = make({
       refund: new Error('timeout'),

@@ -1,5 +1,6 @@
 import { createVerify } from 'node:crypto';
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * Proving an SNS notification really came from Amazon.
@@ -83,27 +84,35 @@ export type SnsRejection =
   | 'cert_url_untrusted_host'
   | 'cert_url_malformed'
   | 'cert_fetch_failed'
-  | 'signature_invalid';
+  | 'signature_invalid'
+  | 'topic_not_allowed';
 
 /**
- * Amazon's SNS signing hosts.
+ * Amazon's SNS signing hosts: exactly `sns.<region>.amazonaws.com`, or `.amazonaws.com.cn` for
+ * the China partition. GovCloud regions (`us-gov-west-1`) and ISO regions are covered by the
+ * region pattern.
  *
- * Matched as a suffix on a parsed hostname, with the leading dot included. `endsWith` on a
- * bare `amazonaws.com` would accept `notamazonaws.com`; `includes` would accept
- * `sns.us-east-1.amazonaws.com.attacker.test`. Both are the mistake this list exists to
- * avoid, and both look correct at a glance.
+ * ── WHY A WHOLE-HOST PATTERN AND NOT A PREFIX PLUS A SUFFIX ────────────────────────
+ * The previous check was `startsWith('sns.')` and `endsWith('.amazonaws.com')`, which rejects
+ * `sns.us-east-1.amazonaws.com.attacker.test` but accepts `sns.s3.amazonaws.com` — an S3 bucket
+ * named `sns`, which anybody can create and serve their own certificate from. Anchoring the
+ * middle label to the shape of a region name closes that: `s3` is not a region, and neither is
+ * any bucket or service hostname.
  */
-const TRUSTED_SUFFIXES = [
-  '.amazonaws.com',
-  // AWS China and GovCloud publish under their own partitions.
-  '.amazonaws.com.cn',
-];
+const TRUSTED_SIGNING_HOST =
+  /^sns\.[a-z]{2}(?:-gov|-iso[a-z]?)?-[a-z]+-\d+\.amazonaws\.com(?:\.cn)?$/;
 
-/** The host must also start with `sns.` — an S3 or EC2 host is not a signing host. */
 function isTrustedSigningHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (!host.startsWith('sns.')) return false;
-  return TRUSTED_SUFFIXES.some((suffix) => host.endsWith(suffix));
+  return TRUSTED_SIGNING_HOST.test(hostname.toLowerCase());
+}
+
+/** `SES_SNS_TOPIC_ARNS`, comma-separated, as a set; null when unset or blank. */
+function parseTopicArns(raw: string | undefined): Set<string> | null {
+  const arns = (raw ?? '')
+    .split(',')
+    .map((arn) => arn.trim())
+    .filter(Boolean);
+  return arns.length > 0 ? new Set(arns) : null;
 }
 
 /**
@@ -113,8 +122,17 @@ function isTrustedSigningHost(hostname: string): boolean {
 export const SNS_FETCH = Symbol('SNS_FETCH');
 
 @Injectable()
-export class SnsVerifier {
+export class SnsVerifier implements OnModuleInit {
   private readonly logger = new Logger('NotificationWebhook');
+  /**
+   * The SNS topics SES events may come from, when configured.
+   *
+   * A valid signature proves AMAZON sent the message, not that it came from OUR topic: anybody
+   * with an AWS account can create a topic, subscribe this URL to it, and publish correctly
+   * signed bounces. The path secret stands in front of that today; the allowlist removes it as
+   * a way in. Optional because QA does not have its topic ARN configured yet — see onModuleInit.
+   */
+  private readonly allowedTopics: Set<string> | null;
   /**
    * Certificates, by URL.
    *
@@ -141,8 +159,31 @@ export class SnsVerifier {
    * A token nobody provides plus `@Optional()` gives the seam without the demand: Nest
    * passes undefined, and the fallback below is the production path.
    */
-  constructor(@Optional() @Inject(SNS_FETCH) fetchImpl?: typeof fetch) {
+  constructor(
+    @Optional() @Inject(SNS_FETCH) fetchImpl?: typeof fetch,
+    @Optional() private readonly config?: ConfigService,
+  ) {
     this.fetchImpl = fetchImpl ?? fetch;
+    this.allowedTopics = parseTopicArns(config?.get<string>('SES_SNS_TOPIC_ARNS'));
+  }
+
+  /**
+   * Said once, at boot, where it matters: a deployed environment that receives SES events and
+   * accepts them from any correctly signed topic. A warning rather than a refusal, because
+   * requiring it would stop QA booting before anybody has had the chance to look its ARN up.
+   */
+  onModuleInit(): void {
+    if (this.allowedTopics || !this.config) return;
+    const appEnv = (this.config.get<string>('APP_ENV') ?? '').toUpperCase();
+    if (!['QA', 'UAT', 'STAGING', 'PRODUCTION'].includes(appEnv)) return;
+    const receivesSesEvents =
+      Boolean(this.config.get<string>('SES_WEBHOOK_SECRET')) ||
+      this.config.get<string>('EMAIL_PROVIDER') === 'ses';
+    if (!receivesSesEvents) return;
+    this.logger.warn(
+      `SES_SNS_TOPIC_ARNS is not set in ${appEnv}: SES events are accepted from ANY SNS topic ` +
+        'Amazon has signed, not only this environment’s. Set it to the SES event topic ARN(s).',
+    );
   }
 
   /**
@@ -168,6 +209,14 @@ export class SnsVerifier {
     }
     if (!envelope.Signature || !envelope.SigningCertURL) {
       return { ok: false, reason: 'missing_signature' };
+    }
+    /*
+      Checked before the certificate is fetched: it costs nothing, and a message from a topic
+      we never subscribed to is refused whether or not Amazon signed it. `TopicArn` is itself a
+      signed field, so it cannot be swapped for an allowed one after signing.
+    */
+    if (this.allowedTopics && !this.allowedTopics.has(envelope.TopicArn ?? '')) {
+      return { ok: false, reason: 'topic_not_allowed' };
     }
 
     let certUrl: URL;

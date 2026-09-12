@@ -25,6 +25,9 @@ function makeService() {
       }),
     },
     dispute: {
+      // No row yet by default: the first delivery about a dispute creates it.
+      findUnique: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => {
         disputes.push(create);
         return create;
@@ -73,6 +76,49 @@ describe('DisputeService.syncFromWebhook', () => {
 
   it('records a lost dispute for settlement recovery', async () => {
     const { service, settlements } = makeService();
+    await service.syncFromWebhook({
+      id: 'dp_2',
+      payment_intent: 'pi_1',
+      amount: 5000,
+      currency: 'usd',
+      status: 'lost',
+    });
+    expect(settlements.applyDispute).toHaveBeenCalledWith(
+      'e1',
+      'usd',
+      expect.objectContaining({ lost: true }),
+    );
+  });
+
+  /*
+    Providers repeat a closed dispute's webhook, and every "lost" deducted the amount from the
+    settlement again. Only the delivery that flips the dispute to LOST may record the loss.
+  */
+  it('does not record the loss again when the dispute was already lost', async () => {
+    const { service, prisma, settlements } = makeService();
+    prisma.dispute.findUnique.mockResolvedValue({ id: 'd1' });
+    prisma.dispute.updateMany.mockResolvedValue({ count: 0 }); // already LOST
+    await service.syncFromWebhook({
+      id: 'dp_2',
+      payment_intent: 'pi_1',
+      amount: 5000,
+      currency: 'usd',
+      status: 'lost',
+    });
+    expect(prisma.dispute.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: { not: 'LOST' } },
+      data: { status: 'LOST' },
+    });
+    expect(settlements.applyDispute).toHaveBeenCalledWith(
+      'e1',
+      'usd',
+      expect.objectContaining({ lost: false }),
+    );
+  });
+
+  it('records the loss when this delivery is the one that flips an open dispute to LOST', async () => {
+    const { service, prisma, settlements } = makeService();
+    prisma.dispute.findUnique.mockResolvedValue({ id: 'd1' });
     await service.syncFromWebhook({
       id: 'dp_2',
       payment_intent: 'pi_1',

@@ -1,5 +1,9 @@
 /* eslint-disable no-console */
 import { assertDestructiveResetAllowed, destructiveResetVerdict } from './destructive-guard';
+import {
+  destructiveAuthorisationUntil,
+  destructiveAuthorisationVerdict,
+} from './destructive-authorisation';
 import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './backup';
 /**
  * The single entry point the `db-seed` Railway service runs.
@@ -24,8 +28,10 @@ import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './back
  *   SEED_OPERATION=india-cinema              write AP + TG policies, all DRAFT, idempotent
  *   SEED_OPERATION=full-reset                EMPTY EVERY TABLE and reseed demo data
  *
- * `full-reset` additionally requires SEED_ALLOW_DESTRUCTIVE=yes. One variable can be set by
- * accident; two, one of which says what it does, is a decision.
+ * `full-reset` additionally requires SEED_ALLOW_DESTRUCTIVE=yes-until-<ISO timestamp>, no more
+ * than an hour ahead. One variable can be set by accident; two, one of which says what it does,
+ * is a decision — and a decision that expires cannot be replayed by the nightly schedule after
+ * an interrupted run forgot to clear it (see destructive-authorisation.ts).
  */
 /*
   Empty means unset. `??` only defaults on null/undefined, so a variable set to an empty
@@ -181,10 +187,21 @@ switch (operation) {
     */
     assertDestructiveResetAllowed();
 
-    if ((process.env.SEED_ALLOW_DESTRUCTIVE ?? '').toLowerCase() !== 'yes') {
+    /*
+      An authorisation that EXPIRES, checked second so a production refusal still names the
+      environment. This service also runs nightly on a schedule, with whatever variables it
+      holds: a bare `yes` left behind by an interrupted manual run would empty the database on
+      every one of those runs. Refused here, a leftover costs one failed scheduled run that says
+      why, and nothing is touched.
+    */
+    const authorisation = destructiveAuthorisationVerdict(process.env.SEED_ALLOW_DESTRUCTIVE);
+    if (!authorisation.allowed) {
       console.error(
         'Refusing to run full-reset: it empties every table in this database.\n' +
-          'Set SEED_ALLOW_DESTRUCTIVE=yes as well if that is genuinely what you want.',
+          `  ${authorisation.reason}\n` +
+          'If that is genuinely what you want, authorise it for the next half hour, e.g.\n' +
+          `  SEED_ALLOW_DESTRUCTIVE=${destructiveAuthorisationUntil(new Date(), 30 * 60_000)}\n` +
+          '  (scripts/deploy/run-seed-operation.mjs sets this for you).',
       );
       process.exit(1);
     }

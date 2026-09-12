@@ -126,6 +126,29 @@ export class CinemasService {
     const cinema = await this.loadOwnedCinema(user, id);
 
     /*
+      A venue from ANOTHER organization is refused, exactly as `create` refuses one.
+
+      `update` wrote the patch straight through, so a cinema could be re-pointed at any venue id
+      its operator could name. The venue is what shows are filed against and what decides the
+      country, region and currency they sell in — so this let one tenant hang its cinema, and
+      every show scheduled in it, on another tenant's venue record. Answered as "not found"
+      rather than "forbidden" so the check cannot be used to confirm a foreign venue id exists.
+    */
+    if (patch.venueId) {
+      const venue = await this.prisma.venue.findUnique({
+        where: { id: patch.venueId },
+        select: { organizationId: true },
+      });
+      if (!venue || venue.organizationId !== cinema.organizationId) {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'Venue not found for this organization.',
+          HttpStatus.NOT_FOUND,
+        );
+      }
+    }
+
+    /*
       Changing the timezone of a cinema that already has shows is REFUSED.
 
       Show start times are stored as absolute instants, resolved through the venue's zone at

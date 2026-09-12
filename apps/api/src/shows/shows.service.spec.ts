@@ -39,13 +39,26 @@ describe('ShowsService.getPublicSeatLayout', () => {
     ],
   };
 
-  function makeService(session: unknown) {
+  function makeService(session: unknown, eventStatus = 'PUBLISHED') {
+    // A published event unless a case says otherwise: only a published event's seats are public.
+    const withEvent =
+      session === null ? null : { ...(session as object), event: { status: eventStatus } };
     const prisma = {
-      eventSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      eventSession: { findUnique: jest.fn().mockResolvedValue(withEvent) },
     };
     const service = new ShowsService(prisma as never, {} as never);
     return { service, prisma };
   }
+
+  it('does not show the seats of an event that is not published', async () => {
+    // Public, and it never asked: anyone with a session id could read a draft event's room,
+    // prices and sales. "Not found", as the public event page answers.
+    const { service } = makeService(
+      { id: 'sess1', seatMap, ticketTypes: [], showSeats: [] },
+      'DRAFT',
+    );
+    await expect(service.getPublicSeatLayout('sess1')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
 
   it('maps ShowSeat status onto each seat and prices categories from the session ticket type', async () => {
     const { service } = makeService({

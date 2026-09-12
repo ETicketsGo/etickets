@@ -17,6 +17,7 @@ import {
   type RefundResult,
 } from '../provider/payment-provider.interface';
 import { CircuitBreaker } from './circuit-breaker';
+import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { PaymentProviderRegistry } from './provider-registry';
 import { executeWithFailover, type ExecutionCandidate } from './resilient-executor';
 
@@ -55,6 +56,9 @@ export class PaymentOrchestrator {
     private readonly config: PaymentConfigService,
     private readonly registry: PaymentProviderRegistry,
     @Inject(PAYMENT_PROVIDER) private readonly defaultProvider: PaymentProvider,
+    // Builds a named adapter on demand. The registry only holds adapters constructed since
+    // boot, so a refund right after a deploy would otherwise not find Razorpay or Stripe.
+    private readonly resolver: PaymentProviderResolver,
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
@@ -135,10 +139,15 @@ export class PaymentOrchestrator {
    * Refund a captured payment. Refunds have provider affinity — the refund must go
    * to the provider that took the payment — so there is NO cross-provider failover,
    * only retry/timeout/circuit protection on that one provider.
+   *
+   * A NAMED provider is resolved (constructed if this process has not used it yet) and never
+   * replaced by the default. The registry only holds adapters built since boot, so right after
+   * a deploy a Razorpay refund used to fall through to the default provider — the mock on
+   * QA/UAT — which reported COMPLETED while Razorpay never returned a rupee. A provider that
+   * cannot be built is an error the refund must surface, not a reason to ask somebody else.
    */
   async refund(input: RefundInput, opts: { provider?: string } = {}): Promise<RefundResult> {
-    const provider =
-      (opts.provider ? this.registry.get(opts.provider) : undefined) ?? this.defaultProvider;
+    const provider = opts.provider ? this.resolveNamed(opts.provider) : this.defaultProvider;
     const name = provider.name;
     const candidate: ExecutionCandidate<RefundResult> = {
       provider: name,
@@ -153,6 +162,21 @@ export class PaymentOrchestrator {
       run: () => provider.refund(input),
     };
     return executeWithFailover([candidate]);
+  }
+
+  /** The adapter for a provider that owns a payment, or an error — never a substitute. */
+  private resolveNamed(name: string): PaymentProvider {
+    try {
+      return this.resolver.get(name);
+    } catch (err) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        `The payment provider '${name}' that took this payment is not available to refund it. ${
+          err instanceof Error ? err.message : ''
+        }`.trim(),
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
   }
 
   /**

@@ -11,11 +11,17 @@ import {
   Spinner,
   type Organization,
 } from '@eticketsgo/web-kit';
+import { orgPermissions, type OrgPermissions } from '@/lib/org-permissions';
 
 interface OrgCtx {
   orgs: Organization[];
   activeOrg: Organization;
   setActiveOrgId: (id: string) => void;
+  /**
+   * What the signed-in member may do in the active organization, from their role in it. Pages
+   * read it to hide or explain actions the API would refuse; the API still decides.
+   */
+  can: OrgPermissions;
 }
 const Ctx = createContext<OrgCtx | null>(null);
 const KEY = 'etg_active_org';
@@ -107,7 +113,13 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   }
 
   const activeOrg = orgs.find((o) => o.id === activeId) ?? orgs[0];
-  return <Ctx.Provider value={{ orgs, activeOrg, setActiveOrgId }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider
+      value={{ orgs, activeOrg, setActiveOrgId, can: orgPermissions(activeOrg.myRole) }}
+    >
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useOrg(): OrgCtx {

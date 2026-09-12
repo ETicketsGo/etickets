@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ShareableResourceRegistry } from './shareable-resource.registry';
+import { TicketShareableResource } from './resources/ticket-shareable.resource';
 import type { ShareableResource, ShareView } from './shareable-resource';
 import type { RequestUser } from '../common/decorators';
 
@@ -195,6 +196,75 @@ describe('SharingService', () => {
       const res = await svc.revoke(OWNER, 'sh1');
       expect(res.status).toBe('REVOKED');
       await expect(svc.revoke(STRANGER, 'sh1')).rejects.toThrow(/not your share/i);
+    });
+  });
+
+  /*
+    A buyer who has transferred a ticket must not keep a way to its gate credential. A GUEST share
+    renders the LIVE QR, which after the transfer is the recipient's.
+  */
+  describe('a transferred ticket', () => {
+    const RECIPIENT: RequestUser = { ...OWNER, id: 'rec-1', email: 'rec@e.test' };
+    const TRANSFERRED = [{ acceptedByUserId: 'rec-1' }];
+
+    it('belongs, for sharing, to its new holder and not its buyer', () => {
+      const resource = new TicketShareableResource(
+        {
+          id: 'tk1',
+          organizationId: 'org1',
+          status: 'ACTIVE',
+          nonce: 'n',
+          qrVersion: 2,
+          eventSessionId: 'se1',
+          serial: 'S-1',
+          seatLabel: null,
+          holderName: 'Rita',
+          booking: { userId: 'owner-1', reference: 'ETG-1' },
+          invites: TRANSFERRED,
+          ticketType: { name: 'VIP' },
+          eventSession: {
+            startsAt: new Date('2026-09-01T10:00:00.000Z'),
+            endsAt: new Date('2026-09-01T13:00:00.000Z'),
+            screen: null,
+            event: { title: 'DevConf', experienceType: 'EVENT', venue: null },
+          },
+        },
+        { sign: () => 'signed' } as never,
+      );
+      expect(resource.ownerUserId).toBe('rec-1');
+    });
+
+    it('cannot be shared for guest access by the buyer who gave it away', async () => {
+      const { svc, created } = setup({ resource: fakeResource({ owner: 'rec-1' }) });
+      await expect(
+        svc.createShare(OWNER, 'TICKET', 'tk1', { permission: 'GUEST', expiry: '1h' }),
+      ).rejects.toThrow(/owner/i);
+      expect(created).toHaveLength(0);
+      await expect(
+        svc.createShare(RECIPIENT, 'TICKET', 'tk1', { permission: 'GUEST', expiry: '1h' }),
+      ).resolves.toMatchObject({ permission: 'GUEST' });
+    });
+
+    it('does not let the buyer re-open an old link to it', async () => {
+      const { svc, prisma } = setup();
+      prisma.ticketInvite.findUnique.mockResolvedValue({
+        ...activeShare({ permission: 'GUEST', status: 'EXPIRED' }),
+        ticket: { booking: { userId: 'owner-1' }, invites: TRANSFERRED },
+      });
+      await expect(svc.extend(OWNER, 'sh1', { expiry: '24h' })).rejects.toThrow(/not your share/i);
+      expect(prisma.ticketInvite.update).not.toHaveBeenCalled();
+    });
+
+    it('shows its share activity to the new holder, not the buyer', async () => {
+      const { svc, prisma } = setup();
+      prisma.ticket.findUnique.mockResolvedValue({
+        booking: { userId: 'owner-1' },
+        invites: TRANSFERRED,
+      });
+      await expect(svc.activityForTicket(OWNER, 'tk1')).rejects.toThrow(/not your ticket/i);
+      await expect(svc.activityForTicket(RECIPIENT, 'tk1')).resolves.toMatchObject({
+        ticketId: 'tk1',
+      });
     });
   });
 });

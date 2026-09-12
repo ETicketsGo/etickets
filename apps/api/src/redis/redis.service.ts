@@ -1,13 +1,20 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis, { Redis } from 'ioredis';
+import { resolveRedisUrl } from '../config/redis-url';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   readonly client: Redis;
 
   constructor(config: ConfigService) {
-    const url = config.get<string>('REDIS_URL', 'redis://localhost:6379');
+    /*
+      Refuses to construct -- and so refuses to boot the application -- when a deployed
+      environment has no REDIS_URL or points it at localhost. Every consumer of this client is
+      fail-open, so without the refusal a lost variable is a service that looks healthy and
+      quietly does none of its Redis work.
+    */
+    const url = resolveRedisUrl(config.get<string>('REDIS_URL'), config.get<string>('APP_ENV'));
     // commandTimeout + no offline queue so commands REJECT quickly when Redis is
     // unreachable instead of hanging indefinitely — this is what lets the fail-open
     // consumers (cache, maintenance guard) actually degrade gracefully on an outage.

@@ -20,6 +20,8 @@ import {
   useToast,
   errorMessage,
   money,
+  currencyForCountry,
+  currencySymbol,
   type Column,
   type OrgAddOn,
   type AddOnInput,
@@ -48,6 +50,13 @@ const label = (s: string) =>
 
 export default function CommerceTab() {
   const { id } = useParams<{ id: string }>();
+  /*
+    The currency this event sells in, from its venue — the rule the Tickets tab uses. The price
+    boxes said "(₹)" for every event; nothing converted the number, only the label was wrong,
+    so a US organizer typed dollars under a rupee sign.
+  */
+  const eventQ = useQuery({ queryKey: ['event', id], queryFn: () => api.events.get(id) });
+  const currency = currencyForCountry(eventQ.data?.venue?.country) ?? 'INR';
   return (
     <div className="space-y-8">
       <div>
@@ -57,8 +66,8 @@ export default function CommerceTab() {
           donations and more.
         </p>
       </div>
-      <AddOnsSection eventId={id} />
-      <BundlesSection eventId={id} />
+      <AddOnsSection eventId={id} currency={currency} />
+      <BundlesSection eventId={id} currency={currency} />
     </div>
   );
 }
@@ -77,7 +86,7 @@ const emptyAddOn: AddOnInput & { priceRupees: string; quantityText: string } = {
   enabled: true,
 };
 
-function AddOnsSection({ eventId }: { eventId: string }) {
+function AddOnsSection({ eventId, currency }: { eventId: string; currency: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -157,7 +166,8 @@ function AddOnsSection({ eventId }: { eventId: string }) {
         </div>
       ),
     },
-    { key: 'price', header: 'Price', render: (a) => money(a.priceMinor) },
+    // The row's own currency: an add-on keeps the one it was priced in.
+    { key: 'price', header: 'Price', render: (a) => money(a.priceMinor, a.currency) },
     {
       key: 'stock',
       header: 'Stock',
@@ -265,7 +275,7 @@ function AddOnsSection({ eventId }: { eventId: string }) {
           <div className="grid grid-cols-2 gap-3">
             <Input
               id="ao-price"
-              label="Price (₹)"
+              label={`Price (${currencySymbol(editing?.currency ?? currency)})`}
               type="number"
               min={0}
               step="0.01"
@@ -338,7 +348,7 @@ function AddOnsSection({ eventId }: { eventId: string }) {
 
 // ─────────────────────────── Bundles ───────────────────────────
 
-function BundlesSection({ eventId }: { eventId: string }) {
+function BundlesSection({ eventId, currency }: { eventId: string; currency: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -374,6 +384,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
         kind: 'ticket' as const,
         label: t.name,
         priceMinor: t.priceMinor,
+        currency: t.currency,
       })),
     );
     const addOns = (addOnsQ.data ?? []).map((a) => ({
@@ -381,6 +392,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
       kind: 'addon' as const,
       label: a.name,
       priceMinor: a.priceMinor,
+      currency: a.currency,
     }));
     return [...tickets, ...addOns];
   }, [eventQ.data, addOnsQ.data]);
@@ -482,10 +494,12 @@ function BundlesSection({ eventId }: { eventId: string }) {
       header: 'Price',
       render: (b) => (
         <div>
-          <span className="font-medium text-text-primary">{money(b.priceFromMinor)}</span>
+          <span className="font-medium text-text-primary">
+            {money(b.priceFromMinor, b.currency)}
+          </span>
           {b.savingsMinor > 0 && (
             <span className="ml-1 text-caption text-status-success">
-              save {money(b.savingsMinor)}
+              save {money(b.savingsMinor, b.currency)}
             </span>
           )}
         </div>
@@ -604,7 +618,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
             {form.pricingKind === 'FIXED' ? (
               <Input
                 id="b-price"
-                label="Bundle price (₹)"
+                label={`Bundle price (${currencySymbol(editing?.currency ?? currency)})`}
                 type="number"
                 min={0}
                 step="0.01"
@@ -647,7 +661,7 @@ function BundlesSection({ eventId }: { eventId: string }) {
                     <span className="flex-1 text-sm text-text-primary">
                       {o.label}{' '}
                       <span className="text-text-muted">
-                        ({o.kind}, {money(o.priceMinor)})
+                        ({o.kind}, {money(o.priceMinor, o.currency)})
                       </span>
                     </span>
                     <input

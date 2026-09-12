@@ -170,7 +170,8 @@ export async function runCertificationSteps(
         reason: 'certification',
       });
       refundRef = refund.providerRef;
-      refundOk = refund.status === 'COMPLETED';
+      // An accepted refund the provider settles later (PROCESSING) is a working refund call.
+      refundOk = refund.status !== 'FAILED';
       add({
         step: 6,
         key: 'partial-refund',

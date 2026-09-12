@@ -95,6 +95,15 @@ export class SesEmailTransport implements EmailTransport {
     this.client = new SESv2Client({
       region,
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+      /*
+        Bounded, because the SDK's default HTTP handler has no request timeout at all.
+
+        Every notification goes through one worker with a concurrency of one, so a single socket
+        that SES accepts and never answers would stall ticket emails, SMS and hold expiry behind
+        it indefinitely. A timed-out send throws, and the dispatcher retries it on its schedule.
+        The plain options object is the form the installed Smithy handler accepts directly.
+      */
+      requestHandler: { connectionTimeout: 5_000, requestTimeout: 10_000 },
     });
     this.configurationSet = config.get<string>('SES_CONFIGURATION_SET') ?? undefined;
   }

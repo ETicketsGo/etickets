@@ -236,7 +236,13 @@ describe('a destructive run with no recovery point', () => {
       {
         APP_ENV: 'QA',
         SEED_OPERATION: 'full-reset',
-        SEED_ALLOW_DESTRUCTIVE: 'yes',
+        /*
+          A current, time-limited authorisation — the only form the dispatcher accepts now. A
+          bare "yes" is refused before the backup step (so a value left behind by an
+          interrupted run can never empty a database on the nightly cron), which would stop
+          this test from reaching the backup failure it exists to check.
+        */
+        SEED_ALLOW_DESTRUCTIVE: `yes-until-${new Date(Date.now() + 30 * 60_000).toISOString()}`,
         BACKUP_DIR: BLOCKED_BACKUP_DIR,
       },
       /*

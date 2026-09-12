@@ -5,7 +5,7 @@ import { useRouter } from '@/i18n/navigation';
 import { Suspense, useState } from 'react';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { Button, Card, Input } from '@/components/ui';
-import { PasswordField, passwordAcceptable } from '@eticketsgo/web-kit';
+import { PasswordField, passwordAcceptable, safeNextPath } from '@eticketsgo/web-kit';
 import { usePasswordCopy } from '@/lib/use-password-copy';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
@@ -19,6 +19,15 @@ function RegisterForm() {
   // creates a normal account; organizer access is granted when an organization is created,
   // which is the step this page previously left people to discover on their own.
   const organizerIntent = params.get('intent') === 'organizer';
+  /*
+    Where the buyer was going when sign-in sent them here to make an account.
+
+    Sign-up used to end at the tickets page whatever the reason for signing up, so somebody
+    who hit "Continue to payment" signed out, made an account, and was left to find the event
+    again. Validated exactly as sign-in validates it: only a path on this site.
+  */
+  const hasNext = Boolean(params.get('next'));
+  const next = safeNextPath(params.get('next'), '/account/tickets');
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -51,7 +60,7 @@ function RegisterForm() {
         router.push('/account/become-organizer');
         return;
       }
-      router.push('/account/tickets');
+      router.push(next);
     } catch (err) {
       // Match on the CODE, not the message: the copy below is ours to write, and a message
       // comparison would silently stop working if the API reworded its error.
@@ -68,40 +77,37 @@ function RegisterForm() {
       } else if (fields?.email?.[0]) {
         setError(fields.email[0]);
       } else {
-        setError(
-          err instanceof ApiRequestError
-            ? err.message
-            : 'We could not create your account. Check your connection and try again.',
-        );
+        setError(err instanceof ApiRequestError ? err.message : a('registerFailed'));
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const signInHref = `/login${email ? `?email=${encodeURIComponent(email)}` : ''}`;
+  // Both ways back to sign-in keep `next`, so switching forms does not lose the destination.
+  const signInQuery = new URLSearchParams();
+  if (email) signInQuery.set('email', email);
+  if (hasNext) signInQuery.set('next', next);
+  const signInQueryString = signInQuery.toString();
+  const signInHref = `/login${signInQueryString ? `?${signInQueryString}` : ''}`;
+  const plainSignInHref = hasNext ? `/login?next=${encodeURIComponent(next)}` : '/login';
 
   return (
     <Card className="mx-auto max-w-sm space-y-4">
       <div>
         <h1 className="text-h2 font-bold text-text-primary">
-          {organizerIntent ? 'Create your organizer account' : 'Create your account'}
+          {organizerIntent ? a('createYourOrganizerAccount') : a('createYourAccount')}
         </h1>
         <p className="mt-1 text-caption text-text-muted">
-          {organizerIntent ? (
-            <>
-              Two steps: create your account here, then set up your organization in the organizer
-              console. You can also buy tickets with this same account.
-            </>
-          ) : (
-            <>
-              This is a customer account for buying tickets. Running events?{' '}
-              <Link href="/register?intent=organizer" className="text-action-primary underline">
-                Create an organizer account
-              </Link>
-              .
-            </>
-          )}
+          {organizerIntent
+            ? a('organizerLead')
+            : a.rich('customerLead', {
+                link: (chunks) => (
+                  <Link href="/register?intent=organizer" className="text-action-primary underline">
+                    {chunks}
+                  </Link>
+                ),
+              })}
         </p>
       </div>
 
@@ -129,8 +135,8 @@ function RegisterForm() {
         <PasswordField
           id="password"
           value={password}
-          onChange={(next) => {
-            setPassword(next);
+          onChange={(nextPassword) => {
+            setPassword(nextPassword);
             if (passwordError) setPasswordError(null);
           }}
           context={{ email, name: fullName }}
@@ -145,16 +151,14 @@ function RegisterForm() {
             className="space-y-2 rounded-md border border-status-error/30 bg-status-error/5 p-3"
           >
             <p className="text-caption font-medium text-text-primary">
-              An account already exists for {email}.
+              {a('accountExists', { email })}
             </p>
-            <p className="text-caption text-text-muted">
-              Sign in instead, or register with a different email address.
-            </p>
+            <p className="text-caption text-text-muted">{a('signInInstead')}</p>
             <Link
               href={signInHref}
               className="inline-block text-caption font-medium text-action-primary"
             >
-              Sign in as {email} →
+              {a('signInAs', { email })}
             </Link>
           </div>
         )}
@@ -177,7 +181,7 @@ function RegisterForm() {
 
       <p className="text-caption text-text-muted">
         {a('haveAccount')}{' '}
-        <Link href="/login" className="text-action-primary underline">
+        <Link href={plainSignInHref} className="text-action-primary underline">
           {a('signIn')}
         </Link>
       </p>
@@ -185,10 +189,15 @@ function RegisterForm() {
   );
 }
 
+function RegisterFallback() {
+  const a = useTranslations('storefront.auth');
+  return <Card className="mx-auto max-w-sm">{a('loading')}</Card>;
+}
+
 export default function RegisterPage() {
   // useSearchParams needs a Suspense boundary in the app router.
   return (
-    <Suspense fallback={<Card className="mx-auto max-w-sm">Loading…</Card>}>
+    <Suspense fallback={<RegisterFallback />}>
       <RegisterForm />
     </Suspense>
   );

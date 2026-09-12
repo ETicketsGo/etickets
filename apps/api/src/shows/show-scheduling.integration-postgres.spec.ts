@@ -109,7 +109,9 @@ describe('integration-real-postgres: scheduling races cannot double-book a scree
     }
 
     const org = await a.organization.create({
-      data: { name: `Race Cinemas ${suffix}`, slug: `race-cinemas-${suffix}` },
+      // Approved: an unapproved organization cannot put shows on sale, and that is not what
+      // this suite is about.
+      data: { name: `Race Cinemas ${suffix}`, slug: `race-cinemas-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     const venue = await a.venue.create({

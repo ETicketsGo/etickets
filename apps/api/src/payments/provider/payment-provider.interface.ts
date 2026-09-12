@@ -91,7 +91,11 @@ export interface RefundInput {
 
 export interface RefundResult {
   providerRef: string;
-  status: 'COMPLETED' | 'FAILED';
+  /**
+   * PROCESSING: the provider accepted the refund but has not paid it yet (Razorpay `pending`).
+   * Its final state arrives later by webhook, so it must not be recorded as COMPLETED.
+   */
+  status: 'COMPLETED' | 'PROCESSING' | 'FAILED';
 }
 
 /** Normalized lifecycle status for a payment, read back from the provider. */

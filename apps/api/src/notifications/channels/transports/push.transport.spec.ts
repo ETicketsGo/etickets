@@ -1,7 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@eticketsgo/shared-types';
 import { RenderedNotification } from '../notification-channel.interface';
-import { FcmPushTransport, PushLogTransport, selectPushTransport } from './push.transport';
+import {
+  ExpoPushTransport,
+  FcmPushTransport,
+  PushLogTransport,
+  selectPushTransport,
+} from './push.transport';
 
 const mockSend = jest.fn().mockResolvedValue('projects/x/messages/1');
 const mockSendEachForMulticast = jest
@@ -100,6 +105,36 @@ describe('FcmPushTransport', () => {
     expect(() => new FcmPushTransport(configFor({ FCM_CLIENT_EMAIL: 'a@b' }))).toThrow(
       /FCM_PROJECT_ID/,
     );
+  });
+});
+
+describe('ExpoPushTransport: a request that never answers', () => {
+  it('aborts after ten seconds instead of stalling the single-concurrency worker', async () => {
+    const realFetch = global.fetch;
+    const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    // Records the bound the transport asked for, and fires quickly so the test does not wait.
+    const spy = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      requested.push(ms);
+      return originalTimeout(20);
+    });
+    // A server that accepts the request and never replies: only an abort signal can end it.
+    global.fetch = jest.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    ) as unknown as typeof fetch;
+    try {
+      const transport = new ExpoPushTransport(configFor({}));
+      await expect(
+        transport.send(msg({ payload: { pushToken: 'ExponentPushToken[abc]' } })),
+      ).rejects.toThrow('aborted');
+      expect(requested).toEqual([10_000]);
+    } finally {
+      global.fetch = realFetch;
+      spy.mockRestore();
+    }
   });
 });
 

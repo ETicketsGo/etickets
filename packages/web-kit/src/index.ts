@@ -41,3 +41,4 @@ export * from './coordinates';
 export * from './workspace-theme';
 export * from './logo';
 export * from './printable-tickets';
+export * from './safe-next';

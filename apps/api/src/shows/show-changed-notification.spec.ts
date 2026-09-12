@@ -51,7 +51,17 @@ function setup(
         event: { title: 'Kalki', venue: { timezone: 'Asia/Kolkata' } },
       }),
     },
-    booking: { findMany: jest.fn().mockResolvedValue(bookings) },
+    /*
+      The ticket holders. A cancellation also asks for bookings still awaiting payment, to
+      expire them; there are none in these cases, so that query answers empty.
+    */
+    booking: {
+      findMany: jest
+        .fn()
+        .mockImplementation(({ where }) =>
+          Promise.resolve(where?.status === 'PENDING_PAYMENT' ? [] : bookings),
+        ),
+    },
     showSeat: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
 

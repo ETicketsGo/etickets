@@ -184,19 +184,27 @@ describe('corrupt data', () => {
   });
 
   it('tolerates a ticket missing its QR image without losing the rest', async () => {
-    // qrDataUrl is a required string in the contract, so a null one fails the envelope
-    // and the cache is dropped — the screen then falls back to "reconnect to load".
+    /*
+      `qrDataUrl` is nullable in the contract now: the API sends null for a ticket carrying a
+      vendor barcode instead of a QR. This test used to pin the old contract — a null failed
+      the envelope and every cached ticket was dropped, so one such ticket emptied the offline
+      wallet. The ticket is kept, and the screen shows its no-QR fallback.
+    */
     mockStore.set(
       'etg.tickets.v1.user_a',
       JSON.stringify({
         version: 1,
         userId: 'user_a',
         syncedAt: NOW,
-        tickets: [{ ...ticket(), qrDataUrl: null }],
+        tickets: [{ ...ticket({ id: 'no_qr' }), qrDataUrl: null }, ticket({ id: 'with_qr' })],
       }),
     );
 
-    expect(await readTickets('user_a', NOW)).toEqual({ status: 'corrupt' });
+    const result = await readTickets('user_a', NOW);
+    expect(result.status).toBe('ok');
+    const tickets = (result as { tickets: { id: string; qrDataUrl: string | null }[] }).tickets;
+    expect(tickets.map((t) => t.id)).toEqual(['no_qr', 'with_qr']);
+    expect(tickets[0].qrDataUrl).toBeNull();
   });
 });
 

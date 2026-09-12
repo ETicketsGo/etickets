@@ -6,7 +6,7 @@ import {
   TicketStatus,
 } from '@eticketsgo/shared-types';
 import { PaymentsService } from './payments.service';
-import { AppException } from '../common/errors';
+import { AppException, ErrorCodes } from '../common/errors';
 import type { PaymentEvent } from './provider/payment-provider.interface';
 import { MetricsService } from '../metrics/metrics.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
@@ -29,10 +29,21 @@ interface BookingShape {
   userId: string | null;
   holdExpiresAt: Date;
   couponId?: string | null;
+  currency?: string;
   totalMinor: number;
   items: Array<{ ticketTypeId: string; quantity: number }>;
   event: { experienceType: string; venue: { country: string } | null };
 }
+
+/** The booking's payment as confirm() leaves it: captured under the event's reference. */
+const APPLIED_PAYMENT = {
+  id: 'pay-row-1',
+  provider: 'razorpay',
+  status: PaymentStatus.SUCCEEDED,
+  providerRef: 'mock_pi_123',
+  providerPaymentIntentId: 'mock_pi_123',
+  providerOrderId: 'order_1',
+};
 
 /** A tx mock exposing exactly the writes confirm() performs. */
 function makeTx(claimCount: number) {
@@ -47,7 +58,11 @@ function makeTx(claimCount: number) {
     ticket: { create: jest.fn().mockResolvedValue({}) },
     payment: { update: jest.fn().mockResolvedValue({}) },
     paymentAttempt: { create: jest.fn().mockResolvedValue({}) },
-    coupon: { update: jest.fn().mockResolvedValue({}) },
+    coupon: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      // Stands in for Prisma's column reference, so the compare is visible in assertions.
+      fields: { maxRedemptions: 'Coupon.maxRedemptions' },
+    },
   };
 }
 
@@ -59,15 +74,30 @@ function setup(opts: {
   booking: BookingShape | null;
   claimCount?: number;
   specs?: Array<{ ticketTypeId: string; seatId?: string; seatLabel?: string }>;
+  /** The booking's Payment row as read outside the confirm transaction. */
+  payment?: Record<string, unknown> | null;
 }) {
   const tx = makeTx(opts.claimCount ?? 1);
   const prisma = {
-    booking: { findUnique: jest.fn().mockResolvedValue(opts.booking) },
+    booking: {
+      findUnique: jest.fn().mockResolvedValue(opts.booking),
+      // Only ever called if something stamps the booking outside the confirm transaction.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     // Written outside a transaction by fail(), which confirms nothing.
-    payment: { update: jest.fn().mockResolvedValue({}) },
-    paymentAttempt: { create: jest.fn().mockResolvedValue({}) },
+    payment: {
+      update: jest.fn().mockResolvedValue({}),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue(opts.payment === undefined ? APPLIED_PAYMENT : opts.payment),
+    },
+    paymentAttempt: {
+      create: jest.fn().mockResolvedValue({}),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
+  const finance = { fileDiscrepancy: jest.fn().mockResolvedValue(true) };
   const strategy = {
     confirm: jest.fn().mockResolvedValue(opts.specs ?? []),
   };
@@ -123,6 +153,7 @@ function setup(opts: {
     razorpayOrders as never,
     eventPublisher as never,
     { onConfirmed: async () => undefined, preConfirm: async () => ({ handled: false }) } as never,
+    finance as never,
   );
   return {
     service,
@@ -134,6 +165,9 @@ function setup(opts: {
     notifications,
     inventory,
     eventPublisher,
+    finance,
+    orchestrator,
+    razorpayOrders,
   };
 }
 
@@ -278,7 +312,7 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
       }),
     );
     // No coupon on this booking.
-    expect(tx.coupon.update).not.toHaveBeenCalled();
+    expect(tx.coupon.updateMany).not.toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     /*
       Written INSIDE the confirm transaction, on the same client that issued the tickets.
@@ -314,10 +348,32 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
       specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
     });
     await service.handleWebhook(webhook);
-    expect(tx.coupon.update).toHaveBeenCalledWith(
+    expect(tx.coupon.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'cpn-1',
+        OR: [{ maxRedemptions: null }, { redemptions: { lt: 'Coupon.maxRedemptions' } }],
+      },
+      data: { redemptions: { increment: 1 } },
+    });
+  });
+
+  /*
+    Parallel checkouts on one coupon took a 100-use coupon past 100: the limit was checked when
+    each booking was created and the count bumped unconditionally when each was paid.
+  */
+  it('still confirms a paid booking whose coupon ran out meanwhile, and audits it', async () => {
+    const { service, tx, audit } = setup({
+      booking: pendingBooking({ couponId: 'cpn-1' }),
+      claimCount: 1,
+      specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
+    });
+    tx.coupon.updateMany.mockResolvedValue({ count: 0 }); // already at maxRedemptions
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({ status: 'confirmed' });
+    expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'cpn-1' },
-        data: { redemptions: { increment: 1 } },
+        action: 'COUPON_REDEEMED_OVER_LIMIT',
+        entityType: 'Coupon',
+        entityId: 'cpn-1',
       }),
     );
   });
@@ -357,5 +413,264 @@ describe('PaymentsService.confirm (via handleWebhook)', () => {
     });
     await expect(service.handleWebhook(webhook)).rejects.toBeInstanceOf(AppException);
     expect(tx.ticket.create).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  The hold expired while the buyer was still at the gateway, and the capture arrived after. It
+  threw BOOKING_NOT_PAYABLE, retried six times, dead-lettered — and nothing recorded that a
+  customer's money had been taken.
+*/
+describe('PaymentsService.confirm — money captured that cannot be applied', () => {
+  const expired = () =>
+    ({ ...pendingBooking({ status: BookingStatus.EXPIRED }), currency: 'INR' }) as BookingShape;
+  const unapplied = {
+    ...APPLIED_PAYMENT,
+    status: PaymentStatus.PROCESSING,
+    providerRef: 'order_1',
+    providerPaymentIntentId: null,
+  };
+
+  it('records a capture on an expired booking instead of throwing into a dead-letter loop', async () => {
+    const { service, prisma, finance, audit } = setup({ booking: expired(), payment: unapplied });
+
+    const result = await service.handleWebhook(webhook);
+
+    expect(result).toEqual({ status: 'captured_on_unpayable_booking', bookingId: 'b1' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.paymentAttempt.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        paymentId: 'pay-row-1',
+        status: PaymentAttemptStatus.SUCCEEDED,
+        providerRef: 'mock_pi_123',
+      }),
+    });
+    const paymentWrite = prisma.payment.update.mock.calls[0][0].data;
+    expect(paymentWrite).toMatchObject({
+      providerStatus: 'captured',
+      failureCode: 'CAPTURED_ON_UNPAYABLE_BOOKING',
+    });
+    // The status is left alone, so this money never counts towards a settlement or payout.
+    expect(paymentWrite).not.toHaveProperty('status');
+    expect(finance.fileDiscrepancy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'PAYMENT_MISSING_INTERNALLY',
+        provider: 'razorpay',
+        entityRef: 'mock_pi_123',
+        amountMinor: 5000,
+        currency: 'INR',
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'PAYMENT_CAPTURED_ON_UNPAYABLE_BOOKING' }),
+    );
+  });
+
+  it('does not record the same capture again when the webhook is redelivered', async () => {
+    const { service, prisma, finance } = setup({ booking: expired(), payment: unapplied });
+    prisma.paymentAttempt.findFirst.mockResolvedValue({ id: 'att-1' });
+    await expect(service.handleWebhook(webhook)).resolves.toMatchObject({
+      status: 'captured_on_unpayable_booking',
+    });
+    expect(prisma.paymentAttempt.create).not.toHaveBeenCalled();
+    expect(finance.fileDiscrepancy).not.toHaveBeenCalled();
+  });
+
+  it('keeps refusing for the mock gateway, where no money exists', async () => {
+    const { service, finance } = setup({
+      booking: expired(),
+      payment: { ...unapplied, provider: 'mock' },
+    });
+    await expect(service.handleWebhook(webhook)).rejects.toMatchObject({
+      code: ErrorCodes.BOOKING_NOT_PAYABLE,
+    });
+    expect(finance.fileDiscrepancy).not.toHaveBeenCalled();
+  });
+
+  it('files a second charge on an already-paid booking as a duplicate capture', async () => {
+    const { service, prisma, finance } = setup({
+      booking: pendingBooking({ status: BookingStatus.CONFIRMED, currency: 'INR' }),
+      payment: {
+        ...APPLIED_PAYMENT,
+        providerRef: 'pay_first',
+        providerPaymentIntentId: 'pay_first',
+      },
+    });
+    const result = await service.handleWebhook(webhook);
+    expect(result).toEqual({ status: 'already_confirmed', bookingId: 'b1' });
+    expect(finance.fileDiscrepancy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DUPLICATE_CAPTURE', entityRef: 'mock_pi_123' }),
+    );
+    // The applied payment is left describing the capture that was applied.
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+  });
+
+  it('treats a redelivery of the capture already applied as nothing new', async () => {
+    const { service, finance, prisma } = setup({
+      booking: pendingBooking({ status: BookingStatus.CONFIRMED, currency: 'INR' }),
+    });
+    await service.handleWebhook(webhook);
+    expect(finance.fileDiscrepancy).not.toHaveBeenCalled();
+    expect(prisma.paymentAttempt.create).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  A hold outlives a cancellation, and createIntent never looked at the show — so a cancelled
+  show could still open a gateway order and take payment.
+*/
+describe('PaymentsService.createIntent — the show must still be on', () => {
+  const OWNER = { id: 'u1', email: 'u1@example.test', fullName: 'Ada', roles: [] } as never;
+  const future = new Date(Date.now() + 86_400_000);
+  const payable = (eventSession: { status: string; startsAt: Date }) =>
+    ({
+      ...pendingBooking({ currency: 'INR' }),
+      subtotalMinor: 5000,
+      organizerFeeMinor: 0,
+      discountMinor: 0,
+      payment: { id: 'pay-row-1' },
+      event: { organizationId: 'org-1', isFree: false, venue: { country: 'IN' } },
+      eventSession,
+    }) as unknown as BookingShape;
+
+  it.each([
+    ['cancelled', { status: 'CANCELLED', startsAt: future }],
+    ['paused', { status: 'PAUSED', startsAt: future }],
+    ['already started', { status: 'SCHEDULED', startsAt: new Date(Date.now() - 60_000) }],
+  ])('refuses to take payment for a show that is %s', async (_label, session) => {
+    const { service, orchestrator, razorpayOrders } = setup({ booking: payable(session) });
+    await expect(service.createIntent('b1', OWNER)).rejects.toMatchObject({
+      code: ErrorCodes.BOOKING_NOT_PAYABLE,
+    });
+    expect(orchestrator.createPayment).not.toHaveBeenCalled();
+    expect(razorpayOrders.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('still opens a payment for a scheduled show that has not started', async () => {
+    const { service, orchestrator, razorpayOrders } = setup({
+      booking: payable({ status: 'SCHEDULED', startsAt: future }),
+    });
+    await service.createIntent('b1', OWNER);
+    expect(
+      orchestrator.createPayment.mock.calls.length + razorpayOrders.createOrder.mock.calls.length,
+    ).toBe(1);
+  });
+
+  /*
+    The ownership check ran only when a user was passed, and the guest pay route passes none —
+    so a signed-in customer's booking could be paid through the guest path by anybody with its id.
+  */
+  it('refuses a booking that belongs to an account when no account is paying', async () => {
+    const { service, orchestrator, razorpayOrders } = setup({
+      booking: payable({ status: 'SCHEDULED', startsAt: future }),
+    });
+    await expect(service.createIntent('b1')).rejects.toMatchObject({ code: ErrorCodes.NOT_FOUND });
+    expect(orchestrator.createPayment).not.toHaveBeenCalled();
+    expect(razorpayOrders.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('still lets a guest booking be paid with no account', async () => {
+    const guest = {
+      ...(payable({ status: 'SCHEDULED', startsAt: future }) as object),
+      userId: null,
+    } as unknown as BookingShape;
+    const { service, orchestrator, razorpayOrders } = setup({ booking: guest });
+    await service.createIntent('b1');
+    expect(
+      orchestrator.createPayment.mock.calls.length + razorpayOrders.createOrder.mock.calls.length,
+    ).toBe(1);
+  });
+});
+
+/*
+  A show cancelled after the buyer opened the gateway but before the capture arrived still
+  confirmed, and issued tickets to a show that is not happening.
+*/
+describe('PaymentsService.confirm — the show must still be on when the money lands', () => {
+  const onCancelledShow = () =>
+    ({
+      ...pendingBooking({ currency: 'INR' }),
+      eventSession: { status: 'CANCELLED', startsAt: new Date(), screen: null },
+    }) as unknown as BookingShape;
+
+  it('records the capture for a manual refund and issues no tickets', async () => {
+    const { service, prisma, finance } = setup({
+      booking: onCancelledShow(),
+      payment: { ...APPLIED_PAYMENT, status: PaymentStatus.PROCESSING, providerRef: 'order_1' },
+    });
+    await expect(service.handleWebhook(webhook)).resolves.toEqual({
+      status: 'captured_on_unpayable_booking',
+      bookingId: 'b1',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(finance.fileDiscrepancy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'PAYMENT_MISSING_INTERNALLY',
+        detail: expect.stringContaining('CANCELLED'),
+      }),
+    );
+  });
+
+  it('refuses to take cash at the counter for it', async () => {
+    const booking = {
+      ...(onCancelledShow() as object),
+      paymentMethod: 'CASH',
+      cashCollectedAt: null,
+    } as unknown as BookingShape;
+    const { service, prisma } = setup({ booking });
+    await expect(service.collectCash('b1', 'staff-1')).rejects.toMatchObject({
+      code: ErrorCodes.BOOKING_NOT_PAYABLE,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  Cash was stamped as collected BEFORE confirming. When confirming then failed, every retry
+  answered "already collected" and the tickets for money handed over were never issued.
+*/
+describe('PaymentsService.collectCash — the stamp and the confirmation are one fact', () => {
+  const cashBooking = () =>
+    ({
+      ...pendingBooking({ currency: 'INR' }),
+      paymentMethod: 'CASH',
+      cashCollectedAt: null,
+    }) as unknown as BookingShape;
+
+  it('stamps who collected the cash in the same update that confirms the booking', async () => {
+    const { service, prisma, tx } = setup({
+      booking: cashBooking(),
+      specs: [{ ticketTypeId: 't1' }, { ticketTypeId: 't1' }],
+    });
+    await expect(service.collectCash('b1', 'staff-1')).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({
+      where: { id: 'b1', status: BookingStatus.PENDING_PAYMENT },
+      data: expect.objectContaining({
+        status: BookingStatus.CONFIRMED,
+        cashCollectedAt: expect.any(Date),
+        cashCollectedByUserId: 'staff-1',
+      }),
+    });
+  });
+
+  it('leaves no stamp behind when confirming fails, so the collection can be retried', async () => {
+    const { service, prisma } = setup({
+      booking: cashBooking(),
+      specs: [{ ticketTypeId: 't1' }], // one of two units — the confirmation rolls back
+    });
+    await expect(service.collectCash('b1', 'staff-1')).rejects.toBeInstanceOf(AppException);
+    expect(prisma.booking.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('answers already_collected to the second of two simultaneous collections', async () => {
+    const { service, audit } = setup({ booking: cashBooking(), claimCount: 0 });
+    await expect(service.collectCash('b1', 'staff-2')).resolves.toEqual({
+      status: 'already_collected',
+      bookingId: 'b1',
+    });
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

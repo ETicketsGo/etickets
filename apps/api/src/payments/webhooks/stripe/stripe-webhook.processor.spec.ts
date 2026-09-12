@@ -40,9 +40,62 @@ const record = (over: Record<string, unknown> = {}) => ({
   eventType: 'checkout.session.completed',
   attempts: 1,
   payload: {
-    object: { metadata: { bookingId: 'b1' }, amount_total: 5000, payment_intent: 'pi_1' },
+    object: {
+      metadata: { bookingId: 'b1' },
+      amount_total: 5000,
+      payment_intent: 'pi_1',
+      payment_status: 'paid',
+    },
   },
   ...over,
+});
+
+/*
+  A Checkout Session paid by a delayed method completes `unpaid`; the money arrives, or does
+  not, days later. Confirming on `completed` alone issued tickets for money that had not moved.
+*/
+describe('StripeWebhookProcessor — a completed session is not necessarily a paid one', () => {
+  const session = (payment_status: string) => ({
+    metadata: { bookingId: 'b1' },
+    amount_total: 5000,
+    payment_intent: 'pi_1',
+    payment_status,
+  });
+
+  it('does not confirm a session that completed unpaid', async () => {
+    const { processor, payments, updates } = makeProcessor({
+      record: record({ payload: { object: session('unpaid') } }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
+  it('confirms when the delayed payment succeeds', async () => {
+    const { processor, payments } = makeProcessor({
+      record: record({
+        eventType: 'checkout.session.async_payment_succeeded',
+        payload: { object: session('paid') },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'payment.succeeded', bookingId: 'b1' }),
+    );
+  });
+
+  it('fails the booking when the delayed payment fails', async () => {
+    const { processor, payments } = makeProcessor({
+      record: record({
+        eventType: 'checkout.session.async_payment_failed',
+        payload: { object: session('unpaid') },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'payment.failed', bookingId: 'b1' }),
+    );
+  });
 });
 
 describe('StripeWebhookProcessor.process — idempotency', () => {

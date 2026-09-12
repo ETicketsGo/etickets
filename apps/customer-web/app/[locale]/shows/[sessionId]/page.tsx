@@ -44,9 +44,9 @@ const MAX_SEATS = 10;
  * Marked with an icon AND named in the accessible label, because a symbol alone is invisible
  * to a screen reader and a label alone is invisible to everyone else.
  */
-const SEAT_KIND_LABEL: Record<string, string> = {
-  WHEELCHAIR: 'wheelchair space',
-  COMPANION: 'companion seat',
+const SEAT_KIND_KEY: Record<string, 'wheelchair' | 'companion'> = {
+  WHEELCHAIR: 'wheelchair',
+  COMPANION: 'companion',
 };
 
 /** True for the seats that need marking. Ordinary seats are the overwhelming majority. */
@@ -78,7 +78,19 @@ function readableTextOn(hex?: string): string {
 
 export default function SeatSelectionPage() {
   const sf = useTranslations('storefront');
+  const s = useTranslations('storefront.seats');
+  const k = useTranslations('storefront.checkout');
   const { sessionId } = useParams<{ sessionId: string }>();
+
+  /** A seat's state in words, for its accessible name. Anything unrecognised is unavailable. */
+  const seatStatusLabel = (status: string) =>
+    status === 'AVAILABLE'
+      ? s('statusAvailable')
+      : status === 'SOLD'
+        ? s('statusSold')
+        : status === 'HELD'
+          ? s('statusHeld')
+          : s('statusUnavailable');
   const router = useRouter();
   const toast = useToast();
 
@@ -150,7 +162,7 @@ export default function SeatSelectionPage() {
     setSelected((prev) => {
       if (prev.includes(seatId)) return prev.filter((s) => s !== seatId);
       if (prev.length >= MAX_SEATS) {
-        toast.push(`You can select up to ${MAX_SEATS} seats.`, 'warning');
+        toast.push(s('maxSeats', { max: MAX_SEATS }), 'warning');
         return prev;
       }
       return [...prev, seatId];
@@ -305,10 +317,7 @@ export default function SeatSelectionPage() {
         seats still selected.
       */
       const showLevel = e instanceof ApiRequestError && SHOW_LEVEL_ERROR_CODES.includes(e.code);
-      toast.push(
-        e instanceof ApiRequestError ? e.message : 'Some seats were just taken. Please pick again.',
-        'error',
-      );
+      toast.push(e instanceof ApiRequestError ? e.message : s('seatTaken'), 'error');
       /*
         Anything not identifiably about the show keeps the old behaviour: assume a seat went
         and re-read the map. That is the safer default of the two -- leaving a stale selection
@@ -323,16 +332,10 @@ export default function SeatSelectionPage() {
   });
 
   if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
-  if (isError)
-    return (
-      <ErrorState
-        message="We couldn't load the seat map. Please try again."
-        onRetry={() => refetch()}
-      />
-    );
+  if (isError) return <ErrorState message={s('loadError')} onRetry={() => refetch()} />;
   if (!layout)
     return (
-      <EmptyState title="Seat map unavailable" hint="This show has no seat map." icon={Armchair} />
+      <EmptyState title={s('mapUnavailableTitle')} hint={s('mapUnavailableHint')} icon={Armchair} />
     );
 
   /*
@@ -346,10 +349,8 @@ export default function SeatSelectionPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-h2 font-bold tracking-tight text-text-primary">Choose your area</h1>
-          <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-            Pick where you&apos;d like to sit — you&apos;ll choose exact seats next.
-          </p>
+          <h1 className="text-h2 font-bold tracking-tight text-text-primary">{s('chooseArea')}</h1>
+          <p className="mt-1.5 text-[0.9375rem] text-text-muted">{s('chooseAreaLead')}</p>
         </div>
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -372,10 +373,9 @@ export default function SeatSelectionPage() {
               reading of an empty sidebar is that browsing away discarded them.
             */
             <div className="lg:col-span-1">
-              <Card title="Your seats so far">
+              <Card title={s('basketTitle')}>
                 <p className="text-[0.9375rem] text-text-secondary">
-                  {selected.length} seat{selected.length === 1 ? '' : 's'} held in your basket.
-                  Choose an area to add more, or open the area you were in to review them.
+                  {s('basketBody', { count: selected.length })}
                 </p>
               </Card>
             </div>
@@ -409,15 +409,13 @@ export default function SeatSelectionPage() {
             className="mb-2 inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <ChevronLeft className="h-4 w-4" />
-            Back to the venue map
+            {s('backToMap')}
           </button>
         ) : null}
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">
-          {cameFromMap ? (layout.sections[0]?.name ?? 'Select seats') : 'Select seats'}
+          {cameFromMap ? (layout.sections[0]?.name ?? s('selectSeats')) : s('selectSeats')}
         </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Tap available seats to add them to your booking.
-        </p>
+        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{s('tapToAdd')}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -425,11 +423,7 @@ export default function SeatSelectionPage() {
         <div className="lg:col-span-2">
           <Card>
             {!hasSeats ? (
-              <EmptyState
-                title="No seats to show"
-                hint="This show doesn't have a seat layout yet."
-                icon={Armchair}
-              />
+              <EmptyState title={s('noSeatsTitle')} hint={s('noSeatsHint')} icon={Armchair} />
             ) : (
               <div className="overflow-x-auto">
                 {/*
@@ -451,7 +445,7 @@ export default function SeatSelectionPage() {
                     <div className="mx-auto h-2 w-full rounded-t-[100%] bg-gradient-to-b from-action-primary/40 to-transparent" />
                     <p className="mt-1 flex items-center justify-center gap-2 text-caption font-medium uppercase tracking-widest text-text-muted">
                       <MonitorPlay className="h-3.5 w-3.5" />
-                      Screen this way
+                      {s('screenThisWay')}
                     </p>
                   </div>
 
@@ -501,15 +495,20 @@ export default function SeatSelectionPage() {
                                           they were in. The visible grid conveys it by
                                           position, which conveys nothing to a screen reader.
                                         */
-                                          aria-label={`Seat ${row.label}${seat.label}${
-                                            SEAT_KIND_LABEL[seat.kind]
-                                              ? `, ${SEAT_KIND_LABEL[seat.kind]}`
-                                              : ''
-                                          }${priceLabel ? `, ${priceLabel}` : ''}, ${seat.status.toLowerCase()}`}
+                                          aria-label={[
+                                            s('seatName', { name: `${row.label}${seat.label}` }),
+                                            SEAT_KIND_KEY[seat.kind]
+                                              ? s(SEAT_KIND_KEY[seat.kind])
+                                              : null,
+                                            priceLabel || null,
+                                            seatStatusLabel(seat.status),
+                                          ]
+                                            .filter(Boolean)
+                                            .join(', ')}
                                           onClick={() => toggle(seat.id, seat.status)}
                                           title={`${row.label}${seat.label}${cat ? ` · ${cat.name}` : ''}${
-                                            SEAT_KIND_LABEL[seat.kind]
-                                              ? ` · ${SEAT_KIND_LABEL[seat.kind]}`
+                                            SEAT_KIND_KEY[seat.kind]
+                                              ? ` · ${s(SEAT_KIND_KEY[seat.kind])}`
                                               : ''
                                           }`}
                                           style={
@@ -567,7 +566,7 @@ export default function SeatSelectionPage() {
                 <div className="mt-8 space-y-3 border-t border-border pt-4 text-caption text-text-secondary">
                   {/* Available seats, by price tier */}
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <span className="font-medium text-text-muted">Available</span>
+                    <span className="font-medium text-text-muted">{s('available')}</span>
                     {layout.categories.map((c) => (
                       <span key={c.id} className="flex items-center gap-1.5">
                         <span
@@ -585,14 +584,14 @@ export default function SeatSelectionPage() {
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                     <span className="flex items-center gap-1.5">
                       <span className="inline-block h-3.5 w-3.5 rounded bg-action-primary ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface" />
-                      Selected
+                      {s('selected')}
                     </span>
                     {hasSold && (
                       <span className="flex items-center gap-1.5">
                         <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
                           <X className="h-2.5 w-2.5" aria-hidden />
                         </span>
-                        Sold
+                        {s('sold')}
                       </span>
                     )}
                     {hasHeld && (
@@ -600,7 +599,7 @@ export default function SeatSelectionPage() {
                         <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
                           <Clock className="h-2.5 w-2.5" aria-hidden />
                         </span>
-                        Held
+                        {s('held')}
                       </span>
                     )}
                     {/*
@@ -613,7 +612,7 @@ export default function SeatSelectionPage() {
                         <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border">
                           <Accessibility className="h-2.5 w-2.5" aria-hidden />
                         </span>
-                        Wheelchair space or companion seat
+                        {s('accessibleLegend')}
                       </span>
                     )}
                   </div>
@@ -628,13 +627,11 @@ export default function SeatSelectionPage() {
           <Card>
             <div className="mb-4 flex items-center gap-2">
               <Armchair className="h-5 w-5 text-action-primary" />
-              <h2 className="text-title font-semibold text-text-primary">Your seats</h2>
+              <h2 className="text-title font-semibold text-text-primary">{s('yourSeats')}</h2>
             </div>
 
             {selected.length === 0 ? (
-              <p className="text-[0.9375rem] text-text-muted">
-                No seats selected yet. Pick seats from the map.
-              </p>
+              <p className="text-[0.9375rem] text-text-muted">{s('noneSelected')}</p>
             ) : (
               <div className="space-y-3">
                 {Array.from(grouped.entries()).map(([catId, entry]) => {
@@ -642,7 +639,9 @@ export default function SeatSelectionPage() {
                   return (
                     <div key={catId} className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-text-primary">{cat?.name ?? 'Seats'}</p>
+                        <p className="font-medium text-text-primary">
+                          {cat?.name ?? s('seatsFallback')}
+                        </p>
                         <p className="text-caption text-text-muted">
                           {[...entry.labels]
                             .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -670,7 +669,10 @@ export default function SeatSelectionPage() {
                 {appliedCode && !codeRejected ? (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[0.9375rem] text-text-secondary">
-                      Code <strong className="text-text-primary">{appliedCode}</strong> applied
+                      {s.rich('codeApplied', {
+                        code: appliedCode,
+                        strong: (chunks) => <strong className="text-text-primary">{chunks}</strong>,
+                      })}
                     </span>
                     <button
                       type="button"
@@ -680,14 +682,14 @@ export default function SeatSelectionPage() {
                       }}
                       className="text-caption text-text-muted underline hover:text-text-primary"
                     >
-                      Remove
+                      {k('remove')}
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {(offersQ.data?.length ?? 0) > 0 && (
                       <select
-                        aria-label="Available offers"
+                        aria-label={k('availableOffers')}
                         value=""
                         onChange={(e) => {
                           if (!e.target.value) return;
@@ -696,7 +698,7 @@ export default function SeatSelectionPage() {
                         }}
                         className="w-full rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                       >
-                        <option value="">Available offers…</option>
+                        <option value="">{k('availableOffers')}</option>
                         {offersQ.data!.map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.code} — {o.label}
@@ -706,8 +708,8 @@ export default function SeatSelectionPage() {
                     )}
                     <div className="flex items-start gap-2">
                       <input
-                        aria-label="Discount code"
-                        placeholder="Have a code?"
+                        aria-label={k('discountCode')}
+                        placeholder={s('haveCode')}
                         value={code}
                         onChange={(e) => setCode(e.target.value.toUpperCase())}
                         className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -718,12 +720,12 @@ export default function SeatSelectionPage() {
                         onClick={() => setAppliedCode(code.trim())}
                         className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
                       >
-                        Apply
+                        {k('apply')}
                       </button>
                     </div>
                     {codeRejected && (
                       <p role="alert" className="text-caption text-status-error">
-                        That code is not valid for this booking.
+                        {k('couponRejected')}
                       </p>
                     )}
                   </div>
@@ -768,7 +770,7 @@ export default function SeatSelectionPage() {
               disabled={selected.length === 0 || book.isPending || isFetching}
               onClick={() => book.mutate()}
             >
-              {book.isPending ? 'Holding seats…' : 'Proceed to pay'}
+              {book.isPending ? s('holdingSeats') : s('proceedToPay')}
             </Button>
           </Card>
         </div>

@@ -346,9 +346,13 @@ export class LocalBookingOrchestrator implements BookingOrchestrator, OnModuleIn
       );
     }
     // Idempotent: repeated beginPayment returns the same payment (createIntent is retry-safe).
-    const user = workflow.selectedProviderCode
-      ? principalForOwner(request.owner.ownerId)
-      : undefined;
+    /*
+      The owner, always — `principalForOwner` already answers undefined for a guest booking.
+      This passed undefined unless a provider was selected, and `createIntent` now refuses an
+      account-owned booking with no caller (the guest pay route could otherwise pay against any
+      booking id), so local orchestration would have refused every signed-in payment.
+    */
+    const user = principalForOwner(request.owner.ownerId);
     const payment = await this.payments.createIntent(request.bookingId, user);
     const pp = (payment as { provider?: unknown }).provider;
     const paymentProvider = typeof pp === 'string' ? pp : undefined;

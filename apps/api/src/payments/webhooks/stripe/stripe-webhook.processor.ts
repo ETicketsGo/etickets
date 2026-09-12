@@ -16,6 +16,8 @@ const RETRY_BACKOFF_MS = 30_000;
 
 // ─── Minimal shapes of the Stripe objects we read (avoids importing SDK types here) ───
 interface SessionLike {
+  /** 'paid' | 'unpaid' | 'no_payment_required'. A delayed method completes 'unpaid'. */
+  payment_status?: string | null;
   metadata?: Record<string, string> | null;
   client_reference_id?: string | null;
   amount_total?: number | null;
@@ -166,7 +168,19 @@ export class StripeWebhookProcessor {
 
   private async dispatch(eventType: string, payload: StoredPayload): Promise<DispatchResult> {
     switch (eventType) {
-      case 'checkout.session.completed':
+      /*
+        A completed Checkout Session is not necessarily a paid one.
+
+        With a delayed method (a bank debit, a voucher) the session completes with
+        `payment_status: 'unpaid'` and the money arrives — or does not — days later, reported by
+        `async_payment_succeeded` or `async_payment_failed`. Confirming on `completed` alone
+        issued tickets for money that had not moved and might never.
+      */
+      case 'checkout.session.completed': {
+        const session = payload.object as SessionLike;
+        if (session.payment_status !== 'paid') return 'ignored';
+        return this.handlePayment(this.fromSession(session, 'payment.succeeded'));
+      }
       case 'checkout.session.async_payment_succeeded':
         return this.handlePayment(
           this.fromSession(payload.object as SessionLike, 'payment.succeeded'),

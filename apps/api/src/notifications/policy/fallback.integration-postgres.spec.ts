@@ -436,7 +436,20 @@ describe('integration-real-postgres: one channel failing does not recreate the o
 
     expect(deliveredFor(bookingId)).toEqual(['email', 'in_app', 'push', 'whatsapp']);
 
-    // The second sweep. Only the channel that failed is still due.
+    /*
+      An immediate second sweep sends nothing: a retryable failure now waits before it is tried
+      again. It used to stay due at once, so every attempt burned within seconds of an outage
+      and the notification failed for good — found by the architecture review.
+    */
+    deliver.mockClear();
+    await notifications.dispatchDue();
+    expect(deliveredFor(bookingId)).toEqual([]);
+
+    // Once the backoff has elapsed, the second sweep re-sends only the channel that failed.
+    await db.notification.updateMany({
+      where: { status: 'PENDING', payload: { path: ['bookingId'], equals: bookingId } },
+      data: { scheduledFor: new Date(Date.now() - 1_000) },
+    });
     deliver.mockClear();
     await notifications.dispatchDue();
     expect(deliveredFor(bookingId)).toEqual(['whatsapp']);

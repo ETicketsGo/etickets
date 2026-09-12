@@ -1,13 +1,19 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, TicketInviteKind, TicketInviteStatus } from '@eticketsgo/shared-types';
 import * as QRCode from 'qrcode';
 import { BookingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from './qr.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import {
+  ACCEPTED_TRANSFERS,
+  currentHolderUserId,
+  everHeldBy,
+  isTransferred,
+} from './ticket-holder';
 
 /**
  * Shared relations loaded for every wallet/ticket read. Adds the booking-grouping
@@ -26,11 +32,14 @@ const TICKET_INCLUDE = {
           title: true,
           slug: true,
           experienceType: true,
-          venue: { select: { name: true, city: true } },
+          // The venue's zone is the fallback for every event that is not in a cinema.
+          venue: { select: { name: true, city: true, timezone: true } },
         },
       },
     },
   },
+  // Who holds the ticket now. Decides who is handed the QR; see `ticket-holder.ts`.
+  invites: ACCEPTED_TRANSFERS,
 };
 
 const STAFF_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER, Role.CHECKIN_STAFF];
@@ -58,7 +67,24 @@ export class TicketsService {
         booking: { status: { in: [BookingStatus.CONFIRMED, BookingStatus.PARTIALLY_REFUNDED] } },
         // The buyer sees their booking's tickets; an attendee also sees tickets
         // assigned to them (the identity layer — "My Experiences").
-        OR: [{ booking: { userId: user.id } }, { attendeeUserId: user.id }],
+        OR: [
+          { booking: { userId: user.id } },
+          { attendeeUserId: user.id },
+          /*
+            Somebody a ticket was TRANSFERRED to keeps it in their wallet after assigning it
+            onward to a friend, the same way a buyer keeps the tickets they assign. Being listed
+            is history, not a credential: `decorate` decides who is handed the QR.
+          */
+          {
+            invites: {
+              some: {
+                kind: TicketInviteKind.TRANSFER,
+                status: TicketInviteStatus.ACCEPTED,
+                acceptedByUserId: user.id,
+              },
+            },
+          },
+        ],
       },
       orderBy: [{ createdAt: 'desc' }, { serial: 'asc' }],
       include: TICKET_INCLUDE,
@@ -80,6 +106,12 @@ export class TicketsService {
    * one for a customer at the counter is exactly what this is for, and printing one for
    * somebody who never asked is how a seat gets used by the wrong person. That difference is
    * invisible unless the act is recorded, so it is.
+   *
+   * ── WHY A TRANSFERRED TICKET PRINTS WITHOUT ITS QR ─────────────────────────────────
+   * The booking's customer gave that ticket away. Printing its code for them at the counter
+   * would hand the giver the recipient's credential — the exact defect the wallet had — through
+   * a door with a person standing in it who has no way to know. The sheet still lists the
+   * ticket and says it was transferred.
    */
   async ticketsForBookingAsStaff(staff: RequestUser, bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
@@ -126,8 +158,9 @@ export class TicketsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
     const isAdmin =
       user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
-    // Owner OR the assigned attendee may view a single ticket.
-    if (ticket.booking.userId !== user.id && ticket.attendeeUserId !== user.id && !isAdmin) {
+    // The buyer, anybody it was transferred to, or the assigned attendee may VIEW a ticket.
+    // Whether they are handed its QR is a separate question, answered in `decorate`.
+    if (!everHeldBy(ticket, user.id) && ticket.attendeeUserId !== user.id && !isAdmin) {
       throw new AppException(
         ErrorCodes.FORBIDDEN,
         'You cannot view this ticket.',
@@ -155,6 +188,8 @@ export class TicketsService {
       vendorBarcodeFormat?: string | null;
       vendorName?: string | null;
       booking: { reference: string | null; userId: string | null };
+      // Accepted transfers, newest first (ACCEPTED_TRANSFERS).
+      invites?: { acceptedByUserId: string | null }[];
       ticketType: { name: string };
       eventSession: {
         startsAt: Date;
@@ -163,18 +198,40 @@ export class TicketsService {
           title: string;
           slug: string;
           experienceType: string;
-          venue: { name: string; city: string } | null;
+          venue: { name: string; city: string; timezone?: string | null } | null;
         };
       };
     },
     viewerUserId: string,
   ) {
-    const token = this.qr.sign({
-      ticketId: ticket.id,
-      eventSessionId: ticket.eventSessionId,
-      nonce: ticket.nonce,
-      version: ticket.qrVersion,
-    });
+    /*
+      ── A TRANSFERRED TICKET'S CREDENTIAL BELONGS TO ITS NEW HOLDER ─────────────────
+      Accepting a transfer rotated the QR, but this method re-signed the QR from the ticket's
+      CURRENT nonce for every viewer who could see the ticket — so the buyer who had just given
+      it away was handed the new code too, and whichever of the two reached the gate first got
+      in. The rotation invalidated nothing that mattered.
+
+      So once a ticket has been transferred, the credential goes only to its current holder and
+      to the attendee it is assigned to. Everybody else who may still see the ticket — the
+      buyer, a previous holder, staff printing the booking, a platform admin — sees that it
+      exists and that it was transferred, and nothing that opens a gate. That includes a
+      third-party barcode, which IS the gate credential for those tickets.
+
+      A ticket that was never transferred is unchanged for every viewer.
+    */
+    const transferred = isTransferred(ticket);
+    const holderUserId = currentHolderUserId(ticket);
+    const mayPresent =
+      !transferred || viewerUserId === holderUserId || viewerUserId === ticket.attendeeUserId;
+
+    const token = mayPresent
+      ? this.qr.sign({
+          ticketId: ticket.id,
+          eventSessionId: ticket.eventSessionId,
+          nonce: ticket.nonce,
+          version: ticket.qrVersion,
+        })
+      : null;
     /*
       ── WHAT THE CUSTOMER PRESENTS AT THE DOOR ──────────────────────────────────────
       For a seat sourced from another cinema's system, that is THEIR barcode. Their scanner
@@ -189,10 +246,11 @@ export class TicketsService {
       right. The client is told the format and the value and can render it properly.
     */
     const rendersAsQr = !ticket.vendorBarcode || (ticket.vendorBarcodeFormat ?? 'QR') === 'QR';
-    const presented = ticket.vendorBarcode ?? token;
-    const qrDataUrl = rendersAsQr
-      ? await QRCode.toDataURL(presented, { margin: 1, width: 320 })
-      : null;
+    const presented = mayPresent ? (ticket.vendorBarcode ?? token) : null;
+    const qrDataUrl =
+      presented && rendersAsQr
+        ? await QRCode.toDataURL(presented, { margin: 1, width: 320 })
+        : null;
     const { event, screen } = ticket.eventSession;
     return {
       id: ticket.id,
@@ -202,11 +260,13 @@ export class TicketsService {
       ticketType: ticket.ticketType.name,
       event: { title: event.title, slug: event.slug },
       startsAt: ticket.eventSession.startsAt,
+      // Null when this viewer may see the ticket but not present it (see above).
       qrToken: token,
       qrDataUrl,
       // Null on our own tickets. Present means the gate is somebody else's.
-      vendorBarcode: ticket.vendorBarcode ?? null,
-      vendorBarcodeFormat: ticket.vendorBarcode ? (ticket.vendorBarcodeFormat ?? 'QR') : null,
+      vendorBarcode: mayPresent ? (ticket.vendorBarcode ?? null) : null,
+      vendorBarcodeFormat:
+        mayPresent && ticket.vendorBarcode ? (ticket.vendorBarcodeFormat ?? 'QR') : null,
       vendorName: ticket.vendorName ?? null,
       // Additive fields for booking grouping + seat/screen context.
       bookingId: ticket.bookingId,
@@ -228,14 +288,23 @@ export class TicketsService {
 
         The cinema's zone is authoritative and already stored. Sent so the client can render
         the venue's time and SAY which zone it is, rather than silently using its own.
+
+        An event that is not in a cinema has no screen, so this was null for every concert,
+        conference and match, and those tickets went back to the device's zone. The venue has
+        carried its own zone since then; it is the fallback, in the same order the booking
+        confirmation already uses, so a ticket and its confirmation cannot disagree.
       */
-      timezone: screen?.cinema?.timezone ?? null,
+      timezone: screen?.cinema?.timezone ?? event.venue?.timezone ?? null,
       // Attendee identity (ADR-031): assignment lifecycle + whether the viewer is
-      // the booking owner (vs an attendee this ticket was assigned to).
+      // the ticket's owner (vs an attendee this ticket was assigned to).
       assignmentStatus: ticket.assignmentStatus,
       attendeeName: ticket.holderName,
-      ownedByViewer: ticket.booking.userId === viewerUserId,
+      // The CURRENT holder, which after a transfer is no longer the buyer. Clients key
+      // owner-only actions (assign, transfer, share) off this, and the server now refuses
+      // those actions to anybody else.
+      ownedByViewer: holderUserId !== null && holderUserId === viewerUserId,
       assignedToViewer: ticket.attendeeUserId === viewerUserId,
+      transferred,
     };
   }
 }

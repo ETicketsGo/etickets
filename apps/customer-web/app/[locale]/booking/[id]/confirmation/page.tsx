@@ -3,31 +3,30 @@
 import { useQuery } from '@tanstack/react-query';
 import { ReferenceCode } from '@/components/reference-code';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
 import {
-  BellPlus,
   CalendarPlus,
   Check,
   ChevronRight,
   ReceiptText,
   Share2,
   Ticket,
+  XCircle,
 } from 'lucide-react';
 import {
-  RatingStars,
   Stepper,
   buildIcsDataUrl,
   moneyFractionDigits,
   useToast,
   type BookingDetail,
 } from '@eticketsgo/web-kit';
+import type { Locale } from '@eticketsgo/i18n';
 import { api } from '@/lib/api';
 import { money, dateTime } from '@/lib/format';
-import { Link } from '@/i18n/navigation';
+import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ButtonLink, Card, ErrorState, StatusBadge } from '@/components/ui';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
 /*
@@ -39,6 +38,26 @@ const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
 */
 const FREE_BOOKING_STEPS = ['tickets', 'confirmation', 'ticket'] as const;
 
+/** The one status that can still become CONFIRMED, and so the only one worth polling. */
+const AWAITING_PAYMENT = 'PENDING_PAYMENT';
+
+/*
+  What to say about a booking that will never be confirmed.
+
+  Every status other than CONFIRMED used to render "Booking pending — your payment has not
+  completed yet" and poll every four seconds for ever. An expired hold is not pending: the
+  seats are gone, and telling the buyer to wait sends them to wait for nothing. The payment
+  page's "this booking is expired" state links here, so this is where that buyer lands.
+  Anything not listed (a dispute, a status from a newer API) gets the neutral wording.
+*/
+const CLOSED_COPY = {
+  EXPIRED: { title: 'expiredTitle', body: 'expiredBody' },
+  CANCELLED: { title: 'cancelledTitle', body: 'cancelledBody' },
+  REFUNDED: { title: 'refundedTitle', body: 'refundedBody' },
+  PARTIALLY_REFUNDED: { title: 'partiallyRefundedTitle', body: 'partiallyRefundedBody' },
+} as const;
+const CLOSED_FALLBACK = { title: 'closedTitle', body: 'closedBody' } as const;
+
 /** What a line of the order is called: its own label, else whatever it is an instance of. */
 function itemName(item: BookingDetail['items'][number]): string {
   return item.label ?? item.ticketType?.name ?? item.addOn?.name ?? item.bundle?.name ?? '';
@@ -49,12 +68,13 @@ const SECONDARY_ACTION =
 
 export default function ConfirmationPage() {
   const c = useTranslations('storefront.confirmation');
+  const e = useTranslations('storefront.event');
+  const w = useTranslations('storefront.wallet');
   const d = useTranslations('documents');
   const tx = useTranslations('common');
+  const locale = useLocale() as Locale;
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
-  const [rating, setRating] = useState(0);
-  const [following, setFollowing] = useState(false);
 
   const {
     data: booking,
@@ -64,9 +84,14 @@ export default function ConfirmationPage() {
   } = useQuery({
     queryKey: ['booking', id],
     queryFn: () => api.getBooking(id),
-    // Confirmation arrives via an async signed webhook — poll until confirmed so the
-    // buyer isn't stranded on a "pending" screen, then stop.
-    refetchInterval: (query) => (query.state.data?.status === 'CONFIRMED' ? false : 4000),
+    // Confirmation arrives via an async signed webhook — poll while the booking is still
+    // awaiting payment so the buyer isn't stranded on a "pending" screen. Every other status
+    // is final: CONFIRMED is what we were waiting for, and an expired or cancelled booking
+    // will not change however long the page keeps asking.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === undefined || status === AWAITING_PAYMENT ? 4000 : false;
+    },
   });
   const upcoming = useQuery({
     queryKey: ['events', 'upcoming'],
@@ -99,17 +124,22 @@ export default function ConfirmationPage() {
     enabled: booking?.status === 'CONFIRMED',
   });
 
-  if (isError)
-    return (
-      <ErrorState
-        message="We couldn't load your booking. Please try again."
-        onRetry={() => refetch()}
-      />
-    );
+  if (isError) return <ErrorState message={c('loadError')} onRetry={() => refetch()} />;
   if (isLoading || !booking)
     return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
 
   const confirmed = booking.status === 'CONFIRMED';
+  const pending = booking.status === AWAITING_PAYMENT;
+  const closed = !confirmed && !pending;
+  const closedCopy = CLOSED_COPY[booking.status as keyof typeof CLOSED_COPY] ?? CLOSED_FALLBACK;
+  /*
+    Whether the seats are still held, so going back to pay can still work.
+
+    Past the deadline the payment page can only say the tickets were released, so the way
+    forward is the event page instead. The booking keeps polling either way: a payment made
+    just before the deadline may still be confirmed by its webhook.
+  */
+  const holdLive = pending && new Date(booking.holdExpiresAt).getTime() > Date.now();
   /*
     Nothing was owed on this booking.
 
@@ -131,17 +161,22 @@ export default function ConfirmationPage() {
   );
   const ics = buildIcsDataUrl({
     title: booking.event.title,
-    description: 'Your ETicketsGo booking',
+    description: c('icsDescription'),
     start: booking.eventSession.startsAt,
   });
 
   const share = async () => {
-    const url = `${window.location.origin}/events/${booking.event.slug}`;
+    // In the reader's language: a French buyer sharing with a French friend should send the
+    // French page, and the default locale has no prefix to add.
+    const url = `${window.location.origin}${getPathname({
+      href: `/events/${booking.event.slug}`,
+      locale,
+    })}`;
     if (navigator.share)
       await navigator.share({ title: booking.event.title, url }).catch(() => undefined);
     else {
       await navigator.clipboard.writeText(url).catch(() => undefined);
-      toast.push('Event link copied.', 'success');
+      toast.push(c('linkCopied'), 'success');
     }
   };
 
@@ -157,21 +192,52 @@ export default function ConfirmationPage() {
           className={`mx-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full ${
             confirmed
               ? 'bg-tint-success text-status-success'
-              : 'bg-tint-warning text-status-warning'
+              : closed
+                ? 'bg-background-subtle text-text-muted'
+                : 'bg-tint-warning text-status-warning'
           }`}
           aria-hidden
         >
-          {confirmed ? <Check className="h-8 w-8" strokeWidth={2.5} /> : '…'}
+          {confirmed ? (
+            <Check className="h-8 w-8" strokeWidth={2.5} />
+          ) : closed ? (
+            <XCircle className="h-8 w-8" />
+          ) : (
+            '…'
+          )}
         </div>
         <h1 className="mt-4 text-h2 font-bold tracking-tight text-text-primary">
-          {confirmed ? `${c('youreGoing')} 🎉` : c('pending')}
+          {confirmed ? `${c('youreGoing')} 🎉` : closed ? c(closedCopy.title) : c('pending')}
         </h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
           {confirmed
             ? c('sentTo', { count: booking.tickets.length, email: booking.buyerEmail })
-            : c('pendingBody')}
+            : closed
+              ? c(closedCopy.body)
+              : c('pendingBody')}
         </p>
       </div>
+
+      {/* A way forward from every state that is not the one the buyer hoped for. */}
+      {pending && (
+        <ButtonLink
+          href={holdLive ? `/booking/${booking.id}/payment` : `/events/${booking.event.slug}`}
+          variant="outline"
+          className="w-full"
+        >
+          {holdLive ? c('returnToPayment') : c('backToEvent')}
+        </ButtonLink>
+      )}
+      {closed && (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <ButtonLink href={`/events/${booking.event.slug}`} className="w-full sm:flex-1">
+            {c('backToEvent')}
+          </ButtonLink>
+          <ButtonLink href="/account/bookings" variant="outline" className="w-full sm:flex-1">
+            {c('myBookings')}
+          </ButtonLink>
+        </div>
+      )}
 
       <Card className="space-y-4">
         <div className="space-y-1">
@@ -300,11 +366,22 @@ export default function ConfirmationPage() {
             <div className="space-y-3">
               {tickets.map((t) => (
                 <Card key={t.id} className="flex items-center gap-4">
-                  <img
-                    src={t.qrDataUrl}
-                    alt={c('ticketQrAlt', { serial: t.serial })}
-                    className="h-28 w-28 shrink-0 rounded-md bg-white p-1"
-                  />
+                  {/*
+                    A vendor barcode the server cannot draw has no QR image. Say so in the
+                    space the code would take, rather than an image with no source.
+                  */}
+                  {t.qrDataUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={t.qrDataUrl}
+                      alt={c('ticketQrAlt', { serial: t.serial })}
+                      className="h-28 w-28 shrink-0 rounded-md bg-white p-1"
+                    />
+                  ) : (
+                    <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-background-subtle p-2 text-center text-caption text-text-muted">
+                      {w('qrUnavailable')}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="font-semibold text-text-primary">{booking.event.title}</p>
                     <p className="text-[0.9375rem] text-text-muted">
@@ -354,51 +431,33 @@ export default function ConfirmationPage() {
                 {c('allMyTickets')}
               </Link>
               <a href={ics} download={`${booking.event.slug}.ics`} className={SECONDARY_ACTION}>
-                <CalendarPlus className="h-4 w-4" /> Add to calendar
+                <CalendarPlus className="h-4 w-4" /> {tx('action.addToCalendar')}
               </a>
               <button onClick={share} className={SECONDARY_ACTION}>
-                <Share2 className="h-4 w-4" /> Share
+                <Share2 className="h-4 w-4" /> {tx('action.share')}
               </button>
             </div>
           </div>
 
-          {/* Rate + follow */}
-          <Card className="space-y-4">
-            <div>
-              <p className="font-medium text-text-primary">{c('howWasBooking')}</p>
-              <div className="mt-2">
-                <RatingStars
-                  value={rating}
-                  onChange={(n) => {
-                    setRating(n);
-                    toast.push('Thanks for the feedback!', 'success');
-                  }}
-                  size="lg"
-                  label="Rate your booking experience"
-                />
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setFollowing(true);
-                toast.push('You’ll hear about new events from this organizer.', 'info');
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-md border border-border px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
-            >
-              <BellPlus className="h-4 w-4" />
-              {following ? c('followingOrganizer') : c('followOrganizer')}
-            </button>
-          </Card>
+          {/*
+            There used to be a star rating and a "Follow organizer" button here. Neither was
+            connected to anything: the stars thanked the buyer and stored nothing, and the
+            button promised "you'll hear about new events from this organizer" while nothing
+            recorded the follow or would ever send that message. There is no follow API to
+            wire it to, and the reviews API publishes a public review of the EVENT — not an
+            answer to "how was booking?", and not something to post on somebody's behalf before
+            they have attended. Reviews are written on the event page, where that is clear.
+          */}
         </>
       )}
 
       {/* Recommendations */}
       {upcoming.data && upcoming.data.data.length > 0 && (
         <section className="space-y-4">
-          <h2 className="text-title font-semibold text-text-primary">You might also like</h2>
+          <h2 className="text-title font-semibold text-text-primary">{e('recommendations')}</h2>
           <div className="grid gap-4">
-            {upcoming.data.data.slice(0, 2).map((e) => (
-              <EventCard key={e.id} event={e} />
+            {upcoming.data.data.slice(0, 2).map((ev) => (
+              <EventCard key={ev.id} event={ev} />
             ))}
           </div>
         </section>

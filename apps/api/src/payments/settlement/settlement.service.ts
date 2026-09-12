@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Settlement } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import {
   NotificationType,
@@ -18,6 +18,13 @@ import type { PaymentProvider } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 
 const DEFAULT_CURRENCY = 'usd';
+
+/** Payments whose money was captured, whatever has been refunded from them since. */
+const CAPTURED_PAYMENT_STATUSES = [
+  PaymentStatus.SUCCEEDED,
+  PaymentStatus.PARTIALLY_REFUNDED,
+  PaymentStatus.REFUNDED,
+];
 
 /**
  * Settlement lifecycle (Separate Charges & Transfers). Organizer proceeds are HELD until
@@ -60,9 +67,16 @@ export class SettlementService {
     });
     if (!event) return null;
 
-    // Aggregate the organizer's eligible proceeds + platform fees from paid payments.
+    /*
+      Aggregate the organizer's eligible proceeds + platform fees from every CAPTURED payment,
+      including those since refunded in part or in full.
+
+      Gross is what was sold; refunds are deducted separately through `refundsMinor`. Reading
+      SUCCEEDED only dropped a refunded payment out of gross while its refund was still in
+      `refundsMinor`, so the same refund was deducted twice.
+    */
     const paid = await this.prisma.payment.findMany({
-      where: { status: PaymentStatus.SUCCEEDED, booking: { eventId } },
+      where: { status: { in: CAPTURED_PAYMENT_STATUSES }, booking: { eventId } },
       select: {
         id: true,
         organizerNetMinor: true,
@@ -120,9 +134,13 @@ export class SettlementService {
       },
     });
 
-    // Link the event's successful payments to this settlement batch (idempotent).
+    // Link the event's captured payments to this settlement batch (idempotent).
     await this.prisma.payment.updateMany({
-      where: { status: PaymentStatus.SUCCEEDED, booking: { eventId }, settlementId: null },
+      where: {
+        status: { in: CAPTURED_PAYMENT_STATUSES },
+        booking: { eventId },
+        settlementId: null,
+      },
       data: { settlementId: settlement.id },
     });
     return { id: settlement.id };
@@ -459,21 +477,38 @@ export class SettlementService {
       data: { refundsMinor: { increment: organizerShareMinor } },
     });
 
-    // Funds already with the organizer → reverse the proportional amount via the
-    // settlement's own provider (Stripe or Razorpay Route).
+    await this.reverseIfTransferred(
+      settlement,
+      organizerShareMinor,
+      'refund',
+      `reverse_${settlement.id}_${settlement.refundsMinor}`,
+    );
+  }
+
+  /**
+   * Funds already with the organizer → reverse the amount via the settlement's own provider
+   * (Stripe or Razorpay Route). Moves money only; the caller has already recorded WHY in
+   * `refundsMinor` or `disputesMinor`, and recording it in both would deduct it twice.
+   */
+  private async reverseIfTransferred(
+    settlement: Settlement,
+    amountMinor: number,
+    reason: 'refund' | 'dispute',
+    idempotencyKey: string,
+  ): Promise<void> {
     const adapter = this.adapterFor(settlement.provider);
     if (
       settlement.status === 'TRANSFERRED' &&
       settlement.providerTransferId &&
       adapter.reverseTransfer
     ) {
-      const reverseMinor = Math.min(organizerShareMinor, settlement.transferredMinor);
+      const reverseMinor = Math.min(amountMinor, settlement.transferredMinor);
       if (reverseMinor > 0) {
         try {
           await adapter.reverseTransfer({
             transferId: settlement.providerTransferId,
             amountMinor: reverseMinor,
-            idempotencyKey: `reverse_${settlement.id}_${settlement.refundsMinor}`,
+            idempotencyKey,
           });
           const fullyReversed = reverseMinor >= settlement.transferredMinor;
           await this.prisma.settlement.update({
@@ -488,7 +523,7 @@ export class SettlementService {
             action: 'SETTLEMENT_TRANSFER_REVERSED',
             entityType: 'Settlement',
             entityId: settlement.id,
-            metadata: { reverseMinor, reason: 'refund' },
+            metadata: { reverseMinor, reason },
           });
         } catch (err) {
           this.logger.error(
@@ -528,19 +563,26 @@ export class SettlementService {
         metadata: { reason: 'dispute' },
       });
     }
-    // A lost dispute is a real loss: record it and reverse if already transferred.
+    /*
+      A lost dispute is a real loss: record it once, and reverse if already transferred.
+
+      It used to be recorded in `disputesMinor` and then, through `applyRefund`, in
+      `refundsMinor` as well — the payable subtracts both, so the loss came off twice. The
+      reversal is the only thing the refund path added that a dispute also needs. `opts.lost`
+      is set only on the dispute's first transition to LOST (see DisputeService), so a
+      redelivered "lost" webhook does not deduct again either.
+    */
     if (opts.lost) {
       await this.prisma.settlement.update({
         where: { id: settlement.id },
         data: { disputesMinor: { increment: opts.amountMinor } },
       });
-      if (settlement.status === 'TRANSFERRED') {
-        await this.applyRefund(
-          eventId,
-          currency,
-          Math.min(opts.amountMinor, settlement.transferredMinor),
-        );
-      }
+      await this.reverseIfTransferred(
+        settlement,
+        opts.amountMinor,
+        'dispute',
+        `reverse_dispute_${settlement.id}_${settlement.disputesMinor}`,
+      );
     }
   }
 

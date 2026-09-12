@@ -100,6 +100,78 @@ describe('PayoutsService.generate — one payout per currency', () => {
   });
 });
 
+/*
+  A cash booking's money is already in the organizer's till, so paying it out pays them twice.
+  And `subtotalMinor` is the price before any coupon: a half-price booking was settled at full.
+*/
+describe('PayoutsService.generate — only money the platform actually took', () => {
+  const bookings = [
+    {
+      currency: 'INR',
+      paymentMethod: 'ONLINE',
+      subtotalMinor: 100_000,
+      discountMinor: 50_000,
+      bookingFeeMinor: 2_000,
+      paymentFeeMinor: 0,
+      organizerFeeMinor: 1_000,
+    },
+    {
+      currency: 'INR',
+      paymentMethod: 'CASH',
+      subtotalMinor: 40_000,
+      discountMinor: 0,
+      bookingFeeMinor: 0,
+      paymentFeeMinor: 0,
+      organizerFeeMinor: 0,
+    },
+  ];
+  /** A groupBy over the rows above that honours the filter it is given. */
+  const groupBy = jest.fn(
+    async ({ where, _sum }: { where: { paymentMethod?: string }; _sum: Record<string, true> }) => {
+      const rows = bookings.filter(
+        (b) => !where.paymentMethod || b.paymentMethod === where.paymentMethod,
+      );
+      const byCurrency = new Map<string, Record<string, number>>();
+      for (const row of rows) {
+        const sums = byCurrency.get(row.currency) ?? {};
+        for (const key of Object.keys(_sum)) {
+          sums[key] = (sums[key] ?? 0) + (row as unknown as Record<string, number>)[key];
+        }
+        byCurrency.set(row.currency, sums);
+      }
+      return [...byCurrency].map(([currency, sums]) => ({ currency, _sum: sums }));
+    },
+  );
+
+  it('settles online bookings at what the customer paid for the tickets', async () => {
+    const { service, prisma } = makeService();
+    prisma.booking.groupBy = groupBy;
+    await service.generate(user, 'o1');
+    expect(prisma.payout.create.mock.calls[0][0].data).toMatchObject({
+      currency: 'INR',
+      grossMinor: 100_000,
+      // 100 000 − 50 000 coupon − 1 000 organizer fee; the 40 000 in cash is not the platform's.
+      netMinor: 49_000,
+    });
+  });
+
+  it('refuses a check-in staff member, who may not read or raise payouts', async () => {
+    groupBy.mockClear();
+    const { service, prisma } = makeServiceWithAccess({
+      status: 'ACTIVE',
+      role: Role.CHECKIN_STAFF,
+    });
+    Object.assign(prisma, {
+      booking: { groupBy },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    });
+    await expect(service.generate(asUser(), 'org-1')).rejects.toMatchObject({
+      code: ErrorCodes.TENANT_FORBIDDEN,
+    });
+    expect(groupBy).not.toHaveBeenCalled();
+  });
+});
+
 describe('PayoutsService (markPaid)', () => {
   it('markPaid is idempotent: a second finalize is rejected (claim count 0)', async () => {
     const { service } = makeService({

@@ -104,4 +104,14 @@ export class AdminRefundsController {
   ) {
     return this.refunds.adminList(q.status, q.page, q.pageSize);
   }
+
+  /*
+    Declared after the list, and under the same class-level REFUND_REVIEW requirement: reading
+    one refund is the same capability as reading the queue it sits in.
+  */
+  @Get(':id')
+  @ApiOperation({ summary: 'One refund by id (admin).' })
+  get(@Param('id') id: string) {
+    return this.refunds.adminGet(id);
+  }
 }

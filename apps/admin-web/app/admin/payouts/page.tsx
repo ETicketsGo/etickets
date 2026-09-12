@@ -87,13 +87,20 @@ export default function AdminPayouts() {
     {
       key: 'action',
       header: '',
+      /*
+        Only an open payout can be marked paid — the API accepts PENDING and SCHEDULED and
+        nothing else. Offering the button on a FAILED payout invited a click that could only
+        ever come back as an error.
+      */
       render: (p) =>
-        p.status !== 'PAID' ? (
+        p.status === 'PENDING' || p.status === 'SCHEDULED' ? (
           <Button variant="outline" onClick={() => setConfirm(p)}>
             Mark paid
           </Button>
-        ) : (
+        ) : p.status === 'PAID' ? (
           <span className="text-text-muted">{dateOnly(p.paidAt)}</span>
+        ) : (
+          <span className="text-text-muted">—</span>
         ),
     },
   ];

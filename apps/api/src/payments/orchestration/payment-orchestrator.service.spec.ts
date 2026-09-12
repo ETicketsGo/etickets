@@ -1,6 +1,7 @@
 import { PaymentOrchestrator } from './payment-orchestrator.service';
 import { PaymentConfigService } from '../configuration/payment-config.service';
 import { PaymentProviderRegistry } from './provider-registry';
+import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { PaymentErrorCode, PaymentProviderError } from '../domain/payment-errors';
 import type { PaymentProvider } from '../provider/payment-provider.interface';
 
@@ -37,6 +38,8 @@ function make(opts: {
   env?: string;
   resolve?: () => unknown;
   registry?: Record<string, PaymentProvider>;
+  /** Adapters the resolver can construct on demand (not yet in the registry). */
+  buildable?: Record<string, PaymentProvider>;
   fallback?: PaymentProvider;
 }) {
   const config = {
@@ -48,8 +51,21 @@ function make(opts: {
     get: (n: string) => map[n.toLowerCase()],
     has: (n: string) => Boolean(map[n.toLowerCase()]),
   } as unknown as PaymentProviderRegistry;
+  // Mirrors PaymentProviderResolver.get: registry first, else construct, else throw.
+  const resolver = {
+    get: jest.fn((n: string) => {
+      const found = map[n.toLowerCase()] ?? opts.buildable?.[n.toLowerCase()];
+      if (!found) throw new Error(`Razorpay requires RAZORPAY_KEY_ID to be set.`);
+      return found;
+    }),
+  } as unknown as PaymentProviderResolver;
   const fallback = opts.fallback ?? provider('mock');
-  return { orch: new PaymentOrchestrator(config, registry, fallback), config, fallback };
+  return {
+    orch: new PaymentOrchestrator(config, registry, fallback, resolver),
+    config,
+    fallback,
+    resolver,
+  };
 }
 
 const input = {
@@ -118,6 +134,32 @@ describe('PaymentOrchestrator.refund', () => {
     const res = await orch.refund({ providerRef: 'pi', amountMinor: 500 }, { provider: 'stripe' });
     expect(res.status).toBe('COMPLETED');
     expect(stripe.refund).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    Right after a deploy the registry holds only the mock and the env-selected provider;
+    Razorpay is added the first time something asks for it. A refund was the first thing to
+    ask, found nothing, and was handed to the default provider — the mock on QA/UAT — which
+    said COMPLETED while Razorpay never refunded anybody.
+  */
+  it('builds a named provider the registry does not hold yet, instead of using the default', async () => {
+    const razorpay = provider('razorpay');
+    const { orch, fallback } = make({ registry: {}, buildable: { razorpay } });
+    const res = await orch.refund(
+      { providerRef: 'pay_1', amountMinor: 500 },
+      { provider: 'razorpay' },
+    );
+    expect(razorpay.refund).toHaveBeenCalledTimes(1);
+    expect(fallback.refund).not.toHaveBeenCalled();
+    expect(res.providerRef).toBe('razorpay_rf');
+  });
+
+  it('refuses rather than substituting the default when the named provider cannot be built', async () => {
+    const { orch, fallback } = make({ registry: {} });
+    await expect(
+      orch.refund({ providerRef: 'pay_1', amountMinor: 500 }, { provider: 'razorpay' }),
+    ).rejects.toMatchObject({ code: 'PAYMENT_PROVIDER_UNAVAILABLE' });
+    expect(fallback.refund).not.toHaveBeenCalled();
   });
 
   it('refunds on the default provider when no owner is given', async () => {

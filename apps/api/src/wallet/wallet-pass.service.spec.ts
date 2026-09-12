@@ -112,6 +112,28 @@ describe('WalletPassService.generate (fail-closed + audited)', () => {
     );
   });
 
+  it('refuses a pass for a ticket transferred away, whose QR is withheld from this caller', async () => {
+    /*
+      After a transfer the ticket service returns the buyer's copy with no QR and no vendor
+      barcode — the gate code belongs to the new holder. A pass built from nothing would be a
+      pass for a ticket the caller gave away.
+    */
+    const { svc, audit } = build(SANDBOX_ENV, {
+      ...activeTicket,
+      qrToken: null,
+      vendorBarcode: null,
+      transferred: true,
+    });
+    const res = await svc.generate(USER, 'tk1', 'apple');
+    expect(res).toMatchObject({ available: true, eligible: false });
+    expect(JSON.stringify(res)).toMatch(/transferred/i);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ eligible: false, reason: 'NO_GATE_CODE' }),
+      }),
+    );
+  });
+
   it('propagates the ticket-service authorization (never bypasses ticket rules)', async () => {
     const { svc, tickets } = build(SANDBOX_ENV);
     (tickets.getForUser as jest.Mock).mockRejectedValueOnce(new Error('forbidden'));

@@ -292,6 +292,8 @@ const NOTIFICATION_DOCUMENTED = [
   'PUBLIC_API_URL',
   // Without it Twilio sends ask for no delivery callbacks, so nothing is ever marked delivered.
   'TWILIO_MESSAGING_SERVICE_SID',
+  // Without it SES events are accepted from ANY topic Amazon signed, not only this environment's.
+  'SES_SNS_TOPIC_ARNS',
 ];
 
 const ENV_TEMPLATES = [
@@ -591,6 +593,68 @@ function validateDestructiveSurfaces() {
         'full-reset is selectable as the scheduled default — a nightly wipe must be impossible to configure, not merely awkward',
       );
     }
+  }
+
+  /*
+    6. The destructive authorisation must EXPIRE.
+
+    The same service runs nightly on its cronSchedule with whatever variables it holds. A bare
+    `SEED_ALLOW_DESTRUCTIVE=yes` left behind by an interrupted manual reset would authorise every
+    one of those runs to empty the database — and each would prune a real backup in exchange
+    for a recovery point of an empty one. So the dispatcher must judge an expiring value, and the
+    runner must write one.
+  */
+  const authorisationPath = join(ROOT, 'apps/api/prisma/destructive-authorisation.ts');
+  if (
+    check(
+      existsSync(authorisationPath),
+      where,
+      'apps/api/prisma/destructive-authorisation.ts is missing — nothing makes the destructive authorisation expire',
+    )
+  ) {
+    const auth = readFileSync(authorisationPath, 'utf8');
+    const windowMatch = auth.match(/MAX_AUTHORISATION_WINDOW_MS\s*=\s*([\d_\s*]+);/);
+    const windowMs = windowMatch
+      ? windowMatch[1]
+          .split('*')
+          .map((n) => Number(n.replace(/[_\s]/g, '')))
+          .reduce((a, b) => a * b, 1)
+      : NaN;
+    check(
+      Number.isFinite(windowMs) && windowMs > 0 && windowMs <= 60 * 60_000,
+      where,
+      `the destructive authorisation window must be declared and at most 60 minutes (got ${windowMatch?.[1] ?? 'none'})`,
+    );
+  }
+  if (existsSync(dispatcher)) {
+    const src = readFileSync(dispatcher, 'utf8');
+    const resetBlock = src.slice(src.indexOf("case 'full-reset'"));
+    check(
+      /destructiveAuthorisationVerdict\(\s*process\.env\.SEED_ALLOW_DESTRUCTIVE\s*\)/.test(
+        resetBlock,
+      ),
+      where,
+      'full-reset no longer checks SEED_ALLOW_DESTRUCTIVE through destructiveAuthorisationVerdict — an authorisation that never expires lets the nightly schedule empty the database',
+    );
+    check(
+      !/SEED_ALLOW_DESTRUCTIVE[^\n;]*(===|!==)\s*['"`]yes['"`]/.test(src),
+      where,
+      'the dispatcher compares SEED_ALLOW_DESTRUCTIVE to a bare "yes", which never expires',
+    );
+  }
+  const runnerPath = join(ROOT, 'scripts/deploy/run-seed-operation.mjs');
+  if (existsSync(runnerPath)) {
+    const runner = readFileSync(runnerPath, 'utf8');
+    check(
+      /setVar\(\s*'SEED_ALLOW_DESTRUCTIVE',\s*`yes-until-\$\{/.test(runner),
+      'scripts/deploy/run-seed-operation.mjs',
+      'must write SEED_ALLOW_DESTRUCTIVE as an expiring `yes-until-<timestamp>`',
+    );
+    check(
+      !/setVar\(\s*'SEED_ALLOW_DESTRUCTIVE',\s*['"]yes['"]\s*\)/.test(runner),
+      'scripts/deploy/run-seed-operation.mjs',
+      'writes a bare SEED_ALLOW_DESTRUCTIVE=yes, which never expires and survives an interrupted cleanup',
+    );
   }
 
   // 5. No npm script may invoke a raw destructive Prisma command. `--force` exists to skip

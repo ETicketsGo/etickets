@@ -26,12 +26,26 @@ function make(mode: 'disabled' | 'shadow' | 'active') {
         status: 'PENDING_PAYMENT',
         currency: 'USD',
         holdExpiresAt: new Date(),
+        subtotalMinor: 5000,
         bookingFeeMinor: 0,
         paymentFeeMinor: 0,
-        discountMinor: 0,
-        customerFeeMinor: 0,
+        discountMinor: 500,
+        customerFeeMinor: 300,
         organizerFeeMinor: 0,
-        totalMinor: 5000,
+        taxMinor: 54,
+        taxLines: [
+          {
+            label: 'Sales tax on fees',
+            rateBasisPoints: 1800,
+            baseMinor: 300,
+            amountMinor: 54,
+            basis: 'FEES',
+            inclusive: false,
+          },
+        ],
+        maintenanceMinor: 0,
+        maintenanceTreatment: 'NOT_APPLICABLE',
+        totalMinor: 4854,
         payment: { id: 'p1', status: 'REQUIRES_PAYMENT' },
       }),
     },
@@ -110,6 +124,29 @@ describe('BookingExecutionRouter.initiate', () => {
     expect(res.status).toBe('PENDING_PAYMENT');
     expect(res).toHaveProperty('fees');
     expect(res).not.toHaveProperty('workflowState');
+  });
+
+  it('active returns the full fee breakdown the legacy path returns', async () => {
+    /*
+      The rebuilt response carried six fee fields and not `currency`, `subtotalMinor` or
+      `netSubtotalMinor`, which the clients' price breakdown requires — so turning
+      orchestration on would have broken the checkout summary without changing a price.
+    */
+    const { router } = make('active');
+    const res = (await router.initiate({ user, body })) as { fees: Record<string, unknown> };
+    expect(res.fees).toMatchObject({
+      currency: 'USD',
+      subtotalMinor: 5000,
+      discountMinor: 500,
+      netSubtotalMinor: 4500,
+      customerFeeMinor: 300,
+      // The tax on the fees, added to them, exactly as the legacy quote reports it.
+      customerFeeInclusiveMinor: 354,
+      feeTaxMinor: 54,
+      taxMinor: 54,
+      totalMinor: 4854,
+    });
+    expect(res.fees.taxLines).toHaveLength(1);
   });
 
   it('active guest checkout mints and returns a one-time anonymous session token', async () => {

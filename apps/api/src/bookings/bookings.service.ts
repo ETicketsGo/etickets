@@ -23,6 +23,7 @@ import { PricingStrategiesService } from '../pricing/pricing-strategies.service'
 import { computeCouponDiscountMinor } from '../pricing/coupon-pricing';
 import { AuditService } from '../audit/audit.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { expirePendingBooking } from '../inventory/expire-pending-booking';
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -238,6 +239,15 @@ export class BookingsService {
         HttpStatus.CONFLICT,
       );
     }
+    /*
+      A session that has already started is not for sale, whatever its status says.
+
+      Nothing moves a session to COMPLETED at its start time, so a multi-date run keeps its
+      past dates SCHEDULED — and a stale page or a direct POST to /bookings/guest could book
+      last Tuesday's show. A cash reservation would have been held "until the show starts",
+      which is already in the past.
+    */
+    this.assertSessionNotStarted(session.startsAt);
 
     // Release any expired holds for this session so freed stock is bookable.
     await this.releaseExpiredHolds(input.eventSessionId);
@@ -261,6 +271,7 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
+      this.assertTicketTypeActive(tt);
       if (item.quantity > tt.maxPerOrder) {
         throw new AppException(
           ErrorCodes.VALIDATION_FAILED,
@@ -356,7 +367,11 @@ export class BookingsService {
     const commerce = await this.resolveCommerceLines(session, input, now, isSeatBased);
     const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
-    const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
+    const { discountMinor, couponId } = await this.resolveCoupon(
+      input.couponCode,
+      subtotal,
+      session.event.organizationId,
+    );
     const feeMode = session.event.feeMode as FeeMode;
     const currency = this.cartCurrency(
       input.items.map((i) => byId.get(i.ticketTypeId)!),
@@ -1161,6 +1176,9 @@ export class BookingsService {
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
     }
+    // The same refusal `create` makes: a quote for a show that has started prices something
+    // nobody can then buy.
+    this.assertSessionNotStarted(session.startsAt);
 
     const ticketTypes = await this.prisma.ticketType.findMany({
       where: {
@@ -1173,13 +1191,15 @@ export class BookingsService {
     });
     const byId = new Map(ticketTypes.map((t) => [t.id, t]));
     for (const item of input.items) {
-      if (!byId.has(item.ticketTypeId)) {
+      const tt = byId.get(item.ticketTypeId);
+      if (!tt) {
         throw new AppException(
           ErrorCodes.NOT_FOUND,
           'One or more ticket types are invalid for this session.',
           HttpStatus.BAD_REQUEST,
         );
       }
+      this.assertTicketTypeActive(tt);
     }
 
     // Follows the room, exactly as `create` does — a quote and the booking that follows it
@@ -1213,7 +1233,11 @@ export class BookingsService {
     );
     const subtotal = priceQuote.subtotalMinor + commerce.subtotalMinor;
 
-    const { discountMinor, couponId } = await this.resolveCoupon(input.couponCode, subtotal);
+    const { discountMinor, couponId } = await this.resolveCoupon(
+      input.couponCode,
+      subtotal,
+      session.event.organizationId,
+    );
     // The same derivation `create` uses. A quote and the booking that follows it disagreeing
     // about the currency would be a price shown in one denomination and charged in another.
     const currency = this.cartCurrency(
@@ -1310,6 +1334,7 @@ export class BookingsService {
         holdExpiresAt: true,
         holdExtensions: true,
         organizationId: true,
+        paymentMethod: true,
       },
     });
     if (!booking) {
@@ -1350,6 +1375,23 @@ export class BookingsService {
     }
 
     const max = this.maxHoldExtensions;
+
+    /*
+      A pay-at-the-venue reservation is already held until the show starts. "Extending" it
+      would set a fresh ten-minute window measured from now — SHORTENING a hold meant to last
+      until the doors open, so the reservation would lapse while the customer was on their
+      way. Answered with the hold as it stands rather than refused: there is nothing wrong
+      with asking, only nothing to give, and `extensionsRemaining: 0` stops the button.
+    */
+    if (booking.paymentMethod === 'CASH') {
+      return {
+        holdExpiresAt: booking.holdExpiresAt,
+        holdExtensions: booking.holdExtensions,
+        maxHoldExtensions: max,
+        extensionsRemaining: 0,
+      };
+    }
+
     if (booking.holdExtensions >= max) {
       throw new AppException(
         ErrorCodes.CONFLICT,
@@ -1360,10 +1402,25 @@ export class BookingsService {
     }
 
     const holdExpiresAt = new Date(Date.now() + this.holdMinutes * 60 * 1000);
-    const updated = await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: { holdExpiresAt, holdExtensions: { increment: 1 } },
-      select: { holdExpiresAt: true, holdExtensions: true },
+    /*
+      The seats carry their own copy of the deadline, and it moves with the booking's.
+
+      Only `Booking.holdExpiresAt` used to be extended. `ShowSeat.holdExpiresAt` kept the old
+      expiry, and an operator blocking seats treats a HELD seat past its expiry as free — so
+      it took seats this buyer was still paying for, and their payment then failed at seat
+      confirmation. One transaction, so the two deadlines cannot disagree.
+    */
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.booking.update({
+        where: { id: bookingId },
+        data: { holdExpiresAt, holdExtensions: { increment: 1 } },
+        select: { holdExpiresAt: true, holdExtensions: true },
+      });
+      await tx.showSeat.updateMany({
+        where: { holdBookingId: booking.id, status: 'HELD' },
+        data: { holdExpiresAt },
+      });
+      return row;
     });
 
     return {
@@ -1416,7 +1473,11 @@ export class BookingsService {
     }
 
     const trimmed = code?.trim() ? code.trim() : undefined;
-    const { discountMinor, couponId } = await this.resolveCoupon(trimmed, booking.subtotalMinor);
+    const { discountMinor, couponId } = await this.resolveCoupon(
+      trimmed,
+      booking.subtotalMinor,
+      booking.organizationId,
+    );
     // An unrecognised code is told to the buyer rather than silently ignored: a discount box
     // that accepts anything and changes nothing is worse than one that says no.
     if (trimmed && !couponId) {
@@ -1532,13 +1593,34 @@ export class BookingsService {
     return { applied: Boolean(couponId), code: trimmed ?? null, fees };
   }
 
-  private async resolveCoupon(code: string | undefined, subtotal: number) {
+  /**
+   * A discount code, if it is valid for a sale by `sellingOrganizationId`.
+   *
+   * ── WHY THE ORGANIZATION IS PART OF THE QUESTION ────────────────────────────────────
+   * Codes are globally unique, and this looked one up by code alone. Any organizer could
+   * therefore create a 100% code and spend it on ANOTHER organization's tickets — the
+   * discount coming out of the other organizer's takings. A code now applies only to its own
+   * organization's sales, or to any sale when it is platform-wide (no organization).
+   *
+   * An out-of-scope code is answered exactly like an unknown one, so the checkout cannot be
+   * used to learn which other organizations' codes exist.
+   *
+   * The redemption cap is checked against the redemptions already counted. Those are only
+   * counted at confirmation, so concurrent unpaid bookings can each pass this check; making
+   * the cap exact is the confirmation path's job, not this lookup's.
+   */
+  private async resolveCoupon(
+    code: string | undefined,
+    subtotal: number,
+    sellingOrganizationId: string,
+  ) {
     if (!code) return { discountMinor: 0, couponId: null as string | null };
     const coupon = await this.prisma.coupon.findUnique({ where: { code } });
     const now = new Date();
     const valid =
       coupon &&
       coupon.status === 'ACTIVE' &&
+      (coupon.organizationId === null || coupon.organizationId === sellingOrganizationId) &&
       (!coupon.startsAt || coupon.startsAt <= now) &&
       (!coupon.endsAt || coupon.endsAt >= now) &&
       (coupon.maxRedemptions === null || coupon.redemptions < coupon.maxRedemptions);
@@ -1650,7 +1732,9 @@ export class BookingsService {
         const [tts, addOns] = await Promise.all([
           ttIds.length
             ? this.prisma.ticketType.findMany({
-                where: { id: { in: ttIds }, eventSessionId: session.id },
+                // ACTIVE only, for the reason `assertTicketTypeActive` gives: a bundle must
+                // not become the way round a ticket type the organizer took off sale.
+                where: { id: { in: ttIds }, eventSessionId: session.id, status: 'ACTIVE' },
                 select: { id: true, name: true, priceMinor: true },
               })
             : Promise.resolve([]),
@@ -1723,53 +1807,76 @@ export class BookingsService {
 
   /** Expire stale holds for a session (lazy expiry path). */
   async releaseExpiredHolds(eventSessionId?: string): Promise<number> {
+    const now = new Date();
     // Bounded per sweep so a flash on-sale that abandons tens of thousands of holds
     // can't load them all at once; the remainder is released on the next tick.
     const stale = await this.prisma.booking.findMany({
       where: {
         status: BookingStatus.PENDING_PAYMENT,
-        holdExpiresAt: { lt: new Date() },
+        holdExpiresAt: { lt: now },
         ...(eventSessionId ? { eventSessionId } : {}),
       },
-      include: { items: true, event: { select: { experienceType: true } } },
+      include: { items: true },
       orderBy: { holdExpiresAt: 'asc' },
       take: 500,
     });
     if (stale.length === 0) return 0;
 
+    /*
+      The read above is only a list of CANDIDATES. It is taken outside any transaction, and
+      by the time each booking is reached another sweep may have expired it or a late webhook
+      confirmed it. `expirePendingBooking` claims the booking with a conditional update first
+      and releases stock only if that claim succeeded — see there for the double release and
+      the overwritten confirmation this used to allow. The count returned is what THIS sweep
+      actually expired, not what it read.
+    */
+    let expired = 0;
     for (const booking of stale) {
-      const strategy = this.inventory.forExperienceType(booking.event.experienceType);
-      // Ticket holds (direct + bundle ticket components) vs add-on holds (v1.3).
-      const ticketLines = booking.items
-        .filter((i) => i.ticketTypeId)
-        .map((i) => ({ ticketTypeId: i.ticketTypeId as string, quantity: i.quantity }));
-      const addOnLines = booking.items
-        .filter((i) => i.addOnId)
-        .map((i) => ({ addOnId: i.addOnId as string, quantity: i.quantity }));
-      await this.prisma.$transaction(async (tx) => {
-        if (ticketLines.length > 0) {
-          await strategy.release(tx, {
-            eventSessionId: booking.eventSessionId,
-            bookingId: booking.id,
-            holdExpiresAt: booking.holdExpiresAt,
-            lines: ticketLines,
-          });
-        }
-        if (addOnLines.length > 0) {
-          await this.addOnInventory.release(tx, addOnLines);
-        }
-        await tx.booking.update({
-          where: { id: booking.id },
-          data: { status: BookingStatus.EXPIRED, cancelledAt: new Date() },
-        });
-        await tx.payment.updateMany({
-          where: { bookingId: booking.id, status: PaymentStatus.REQUIRES_PAYMENT },
-          data: { status: PaymentStatus.FAILED },
-        });
-      });
+      const claimed = await this.prisma.$transaction((tx) =>
+        expirePendingBooking(
+          tx,
+          booking,
+          { inventory: this.inventory, addOnInventory: this.addOnInventory },
+          now,
+        ),
+      );
+      if (claimed) expired += 1;
     }
-    this.logger.log(`Expired ${stale.length} stale booking hold(s).`);
-    return stale.length;
+    if (expired > 0) this.logger.log(`Expired ${expired} stale booking hold(s).`);
+    return expired;
+  }
+
+  /**
+   * Refuse a sale for a session whose start has passed.
+   *
+   * Status alone cannot answer this: nothing marks a session COMPLETED when it starts, so a
+   * past date of a multi-date run still reads SCHEDULED.
+   */
+  private assertSessionNotStarted(startsAt: Date) {
+    if (startsAt <= new Date()) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This show has already started, so it can no longer be booked.',
+        HttpStatus.CONFLICT,
+        { startsAt: startsAt.toISOString() },
+      );
+    }
+  }
+
+  /**
+   * Refuse a ticket type its organizer has taken off sale.
+   *
+   * `TicketType.status` was written by the console and read by nothing on the booking path,
+   * so setting a ticket type INACTIVE hid nothing and stopped nothing: it kept selling.
+   */
+  private assertTicketTypeActive(tt: { name: string; status: string }) {
+    if (tt.status !== 'ACTIVE') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `${tt.name} is not on sale.`,
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   async getForUser(user: RequestUser, id: string) {

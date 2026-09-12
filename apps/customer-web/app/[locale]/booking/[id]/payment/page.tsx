@@ -14,7 +14,8 @@ import { Button, ButtonLink, Card, ErrorState } from '@/components/ui';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { useTranslations } from 'next-intl';
 
-const BOOKING_STEPS = ['Tickets', 'Payment', 'Confirmation', 'Ticket'];
+// The same step names as the confirmation screen, from the same messages.
+const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -65,6 +66,8 @@ function useCountdown(expiresAt: string | undefined) {
 
 export default function PaymentPage() {
   const k = useTranslations('storefront.checkout');
+  const c = useTranslations('storefront.confirmation');
+  const tx = useTranslations('common');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -248,24 +251,22 @@ export default function PaymentPage() {
     },
   });
 
-  if (isError)
-    return (
-      <ErrorState
-        message="We couldn't load this booking. Please try again."
-        onRetry={() => refetch()}
-      />
-    );
+  if (isError) return <ErrorState message={k('loadError')} onRetry={() => refetch()} />;
   if (isLoading || !booking)
     return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
 
   if (booking.status !== 'PENDING_PAYMENT') {
+    // The status in the reader's language where the catalogue names it; a status it does
+    // not know yet is still shown, spelled out, rather than hidden.
+    const statusKey = `status.${booking.status}`;
+    const statusLabel = tx.has(statusKey)
+      ? tx(statusKey)
+      : booking.status.replaceAll('_', ' ').toLowerCase();
     return (
       <Card className="mx-auto max-w-md text-center">
-        <p className="text-text-primary">
-          This booking is {booking.status.replaceAll('_', ' ').toLowerCase()}.
-        </p>
+        <p className="text-text-primary">{k('bookingStatus', { status: statusLabel })}</p>
         <Button className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
-          View booking
+          {k('viewBooking')}
         </Button>
       </Card>
     );
@@ -275,7 +276,7 @@ export default function PaymentPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
-      <Stepper steps={BOOKING_STEPS} current={1} />
+      <Stepper steps={BOOKING_STEPS.map((s) => c(`steps.${s}`))} current={1} />
       <h1 className="text-h2 font-bold tracking-tight text-text-primary">{k('reviewAndPay')}</h1>
 
       {/* Hold timer */}
@@ -492,17 +493,17 @@ export default function PaymentPage() {
 
       {expired ? (
         <div className="space-y-3 text-center">
-          <p className="text-[0.9375rem] text-text-muted">
-            The reserved tickets have been released. Please start a new booking.
-          </p>
+          <p className="text-[0.9375rem] text-text-muted">{k('ticketsReleased')}</p>
           <ButtonLink href={`/events/${booking.event.slug}`} className="w-full">
-            Back to event
+            {k('backToEvent')}
           </ButtonLink>
         </div>
       ) : (
         <>
           <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
-            {pay.isPending ? k('processing') : `Pay ${money(booking.totalMinor, booking.currency)}`}
+            {pay.isPending
+              ? k('processing')
+              : k('payAmount', { amount: money(booking.totalMinor, booking.currency) })}
           </Button>
 
           {/* Booking confidence */}
@@ -523,8 +524,7 @@ export default function PaymentPage() {
           </div>
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
-            Payments are processed securely — confirmation happens via a signed webhook, not this
-            button.
+            {k('securePaymentNote')}
           </p>
         </>
       )}

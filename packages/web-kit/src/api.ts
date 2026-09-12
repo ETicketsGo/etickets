@@ -1482,6 +1482,8 @@ export const api = {
       request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
     refunds: (params: PageParams & { status?: string }) =>
       request<Paged<RefundRow>>(`/admin/refunds${qs(params)}`),
+    /** One refund by id — the detail page used to search the newest hundred for it. */
+    refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
     payouts: () => request<Payout[]>('/admin/payouts'),
     markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
@@ -1867,7 +1869,18 @@ export interface PublicEvent {
   isFree: boolean;
   /** The organizer takes cash at the venue, so the buyer may reserve and pay on arrival. */
   cashAccepted?: boolean;
-  venue: { name: string; city: string; country: string; address: string | null };
+  venue: {
+    name: string;
+    city: string;
+    country: string;
+    address: string | null;
+    /**
+     * The venue's IANA zone. Session times are rendered in THIS, not the reader's device:
+     * a buyer abroad planning a trip must see the time printed on the ticket. Optional for
+     * an older API that did not send it.
+     */
+    timezone?: string | null;
+  };
   organizer: { id: string; name: string };
   sessions: {
     id: string;
@@ -2037,8 +2050,13 @@ export interface WalletTicket {
   ticketType: string;
   event: { title: string; slug: string };
   startsAt: string;
-  qrDataUrl: string;
-  qrToken?: string;
+  /**
+   * Null when the ticket's barcode is a vendor code the server cannot draw as a QR. Every
+   * view must fall back to its "QR unavailable" rendering rather than an empty image.
+   */
+  qrDataUrl: string | null;
+  /** Withheld (null) from a buyer who has transferred the ticket to someone else. */
+  qrToken?: string | null;
   // Booking-grouping + seat/screen context. Additive — older API responses (and
   // older cached payloads) omit these, so every consumer must treat them as
   // optional and fall back gracefully.
@@ -2055,6 +2073,8 @@ export interface WalletTicket {
   assignmentStatus?: AttendeeAssignmentValue;
   attendeeName?: string | null;
   ownedByViewer?: boolean;
+  /** True when the ticket has been transferred away from the viewer; no QR is returned. */
+  transferred?: boolean;
   assignedToViewer?: boolean;
 }
 
@@ -2147,6 +2167,8 @@ export interface SharedResourceView {
   cinemaName: string | null;
   startsAt: string | null;
   endsAt: string | null;
+  /** The venue's (or cinema's) IANA zone for `startsAt`. */
+  timeZone?: string | null;
 }
 export interface ResolvedShare {
   permission: SharePermissionValue;
@@ -2310,6 +2332,13 @@ export interface Organization {
    * every new organization — see the API's Organization.autoApproveEvents.
    */
   autoApproveEvents?: boolean;
+  /**
+   * The signed-in caller's membership role here (ORGANIZER_OWNER, ORGANIZER_MANAGER or
+   * CHECKIN_STAFF), sent by `listMine` so the console can hide actions the API would refuse.
+   * Null for a platform administrator, whom no organization role check limits. Absent from
+   * the single-organization read. A hint for the UI, never a permission.
+   */
+  myRole?: string | null;
   _count?: { members: number; events: number; venues?: number };
 }
 export interface OrganizationProfileInput {
@@ -3949,7 +3978,8 @@ export interface VenueAnalytics {
     capacity: number;
     occupancyRate: number;
   };
-  revenue: AnalyticsRevenue;
+  /** Omitted for members who may not view the organization's financials. */
+  revenue?: AnalyticsRevenue;
 }
 export interface CustomerAnalytics {
   bookings: { upcoming: number; past: number; total: number };
@@ -4576,22 +4606,31 @@ export interface OrganizerRevenueReport {
 export interface SettlementOrgRow {
   organizationId: string;
   organizationName: string;
+  currency: string;
   outstandingMinor: number;
   paidMinor: number;
   outstandingCount: number;
   paidCount: number;
 }
 export interface SettlementReport {
-  totals: { outstandingMinor: number; paidMinor: number; payoutCount: number };
-  byOrg: SettlementOrgRow[];
+  /** One block per payout currency; a rupee and a dollar payout are never added together. */
+  byCurrency: {
+    currency: string;
+    totals: { outstandingMinor: number; paidMinor: number; payoutCount: number };
+    byOrg: SettlementOrgRow[];
+  }[];
   payouts: Payout[];
 }
 export interface RefundReport {
   from: string;
   to: string;
-  totals: { count: number; amountMinor: number };
-  byStatus: { status: string; count: number; amountMinor: number }[];
-  byDay: { day: string; count: number; amountMinor: number }[];
+  /** One block per currency, the currency of the bookings the refunds returned money from. */
+  byCurrency: {
+    currency: string;
+    totals: { count: number; amountMinor: number };
+    byStatus: { status: string; count: number; amountMinor: number }[];
+    byDay: { day: string; count: number; amountMinor: number }[];
+  }[];
 }
 export interface PlatformFeesReport {
   from: string;
@@ -4605,15 +4644,23 @@ export interface PlatformFeesReport {
 export interface TaxReport {
   from: string;
   to: string;
-  taxModelled: false;
-  taxCollectedMinor: number;
+  /** Whether any tax rule is configured at all — not whether this period collected any. */
+  taxModelled: boolean;
   note: string;
-  taxableBaseMinor: number;
-  grossMinor: number;
-  platformFeesMinor: number;
+  /** Tax as charged, per currency: GST in rupees and sales tax in dollars are two figures. */
+  byCurrency: {
+    currency: string;
+    taxCollectedMinor: number;
+    breakdown: { label: string; rateBasisPoints: number; baseMinor: number; amountMinor: number }[];
+    taxableBaseMinor: number;
+    grossMinor: number;
+    platformFeesMinor: number;
+  }[];
 }
 export interface TopExperienceRow {
   eventId: string;
+  /** An event sold in two currencies appears once per currency. */
+  currency: string;
   title: string;
   experienceType: string;
   movieTitle: string | null;

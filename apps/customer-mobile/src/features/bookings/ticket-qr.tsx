@@ -45,7 +45,8 @@ export function TicketQr({ ticket }: { ticket: CachedTicket }) {
       }. Show this at the door.`}
     >
       <Image
-        source={{ uri: ticket.qrDataUrl }}
+        // Never null here: `usable` returned the fallback above for a missing image.
+        source={{ uri: ticket.qrDataUrl ?? undefined }}
         style={{ width: 216, height: 216 }}
         contentFit="contain"
         // A data: URI carries its own bytes, so this works with no connection at all —

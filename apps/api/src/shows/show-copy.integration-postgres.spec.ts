@@ -95,7 +95,8 @@ describe('integration-real-postgres: copy schedule', () => {
     service = new ShowsService(db as never, allowAll, noAudit, cfg);
 
     const org = await db.organization.create({
-      data: { name: `Copy ${suffix}`, slug: `copy-${suffix}` },
+      // Approved: an unapproved organization cannot put shows on sale.
+      data: { name: `Copy ${suffix}`, slug: `copy-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     const venue = await db.venue.create({

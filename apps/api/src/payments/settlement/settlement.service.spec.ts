@@ -183,3 +183,80 @@ describe('SettlementService.applyRefund', () => {
     expect(prisma.settlement.update).not.toHaveBeenCalled();
   });
 });
+
+/*
+  Gross was rebuilt from SUCCEEDED payments only. A refunded payment dropped out of gross while
+  its refund was still in `refundsMinor`, so release deducted the same refund twice.
+*/
+describe('SettlementService.syncForEvent', () => {
+  it('keeps refunded and partly refunded payments in gross; refunds stay in refundsMinor', async () => {
+    const { service, prisma } = makeDeps({ settlement: null });
+    const payments = [
+      { id: 'p1', status: 'SUCCEEDED', organizerNetMinor: 10_000, platformFeeMinor: 500 },
+      { id: 'p2', status: 'REFUNDED', organizerNetMinor: 8_000, platformFeeMinor: 400 },
+      { id: 'p3', status: 'PARTIALLY_REFUNDED', organizerNetMinor: 6_000, platformFeeMinor: 300 },
+      { id: 'p4', status: 'FAILED', organizerNetMinor: 9_999, platformFeeMinor: 999 },
+    ].map((p) => ({ ...p, currency: 'INR', provider: 'razorpay' }));
+    const matches = (status: string, where: string | { in: string[] }) =>
+      typeof where === 'string' ? status === where : where.in.includes(status);
+    const upsert = jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({
+      id: 's1',
+      ...create,
+    }));
+    Object.assign(prisma, {
+      event: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'e1', organizationId: 'org1', status: 'LIVE' }),
+      },
+      payment: {
+        findMany: jest.fn(async ({ where }: { where: { status: string | { in: string[] } } }) =>
+          payments.filter((p) => matches(p.status, where.status)),
+        ),
+        updateMany: jest.fn().mockResolvedValue({ count: 3 }),
+      },
+      organizerPaymentAccount: { findUnique: jest.fn().mockResolvedValue(null) },
+    });
+    Object.assign(prisma.settlement, { upsert });
+
+    await service.syncForEvent('e1');
+
+    expect(upsert.mock.calls[0][0].create).toMatchObject({
+      grossSalesMinor: 24_000,
+      platformFeesMinor: 1_200,
+    });
+  });
+});
+
+describe('SettlementService.applyDispute', () => {
+  it('deducts a lost dispute once — as a dispute, not also as a refund', async () => {
+    const reverseTransfer = jest
+      .fn()
+      .mockResolvedValue({ reversalId: 'trr_1', status: 'COMPLETED' });
+    const { service, prisma } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90_000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyDispute('e1', 'usd', { amountMinor: 30_000, open: false, lost: true });
+
+    const writes = prisma.settlement.update.mock.calls.map(([arg]) => arg.data);
+    expect(writes).toContainEqual({ disputesMinor: { increment: 30_000 } });
+    expect(writes.some((d) => 'refundsMinor' in d)).toBe(false);
+    // The money already with the organizer still comes back, exactly once.
+    expect(reverseTransfer).toHaveBeenCalledTimes(1);
+    expect(reverseTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({ transferId: 'tr_1', amountMinor: 30_000 }),
+    );
+  });
+
+  it('records nothing for a dispute delivery that is not the first loss', async () => {
+    const { service, prisma } = makeDeps({ settlement: approved() });
+    await service.applyDispute('e1', 'usd', { amountMinor: 30_000, open: false, lost: false });
+    expect(prisma.settlement.update).not.toHaveBeenCalled();
+  });
+});

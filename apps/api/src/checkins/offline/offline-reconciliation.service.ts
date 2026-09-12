@@ -54,7 +54,7 @@ export class OfflineReconciliationService {
 
     const results: ReconcileResultItem[] = [];
     for (const q of queued) {
-      const ticket = await this.prisma.ticket.findUnique({
+      const found = await this.prisma.ticket.findUnique({
         where: { id: q.ticketId },
         include: {
           checkIns: {
@@ -62,8 +62,20 @@ export class OfflineReconciliationService {
             orderBy: { createdAt: 'asc' },
             take: 1,
           },
+          eventSession: { select: { event: { select: { organizationId: true } } } },
         },
       });
+      /*
+        Only this device's organization's tickets.
+
+        The caller is authorized for the DEVICE's organization, and the queued ticket id was
+        trusted as-is — so staff of one organization could upload another's ticket id and mark
+        it CHECKED_IN, spending somebody else's admission. A foreign ticket is treated exactly
+        like one that does not exist: nothing is claimed, it goes to supervisor review, and
+        the answer does not reveal that the id belongs to someone.
+      */
+      const ticket =
+        found && found.eventSession.event.organizationId === device.organizationId ? found : null;
       const server: ServerTicketState | null = ticket
         ? {
             status: ticket.status,

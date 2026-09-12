@@ -32,7 +32,37 @@ import {
 import { metricsAccess } from '@eticketsgo/shared-types';
 import { renderWorkerMetrics, sampleQueueMetrics } from './metrics';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+/**
+ * The Redis this worker drives its queues through, or a refusal to start.
+ *
+ * `redis://localhost:6379` is the developer default. In a deployed container there is no Redis on
+ * localhost, so a worker that lost REDIS_URL used to start, report itself up, and never expire a
+ * hold or send a notification. Keyed on APP_ENV rather than NODE_ENV because QA and UAT run with
+ * NODE_ENV=production. Mirrors `resolveRedisUrl` in the API's config, which the API's index does
+ * not export; the application context below enforces that one as well.
+ */
+function redisUrlForEnvironment(): string {
+  const appEnv = (process.env.APP_ENV ?? '').trim().toUpperCase() || 'LOCAL';
+  const url = (process.env.REDIS_URL ?? '').trim();
+  if (['LOCAL', 'DEV', 'TEST'].includes(appEnv)) return url || 'redis://localhost:6379';
+  if (!url)
+    throw new Error(`REDIS_URL is not set, and APP_ENV=${appEnv} has no Redis on localhost.`);
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    // Not echoed: the URL carries the Redis password.
+    throw new Error(`REDIS_URL is not a valid URL (APP_ENV=${appEnv}).`);
+  }
+  if (
+    ['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'].includes(host) ||
+    host.endsWith('.localhost') ||
+    host.startsWith('127.')
+  ) {
+    throw new Error(`REDIS_URL points at ${host}, and APP_ENV=${appEnv} has no Redis there.`);
+  }
+  return url;
+}
 // PaaS platforms (Railway, Heroku, Render…) inject the port to listen on as PORT and probe the
 // health endpoint there. Honour it first so the platform health check reaches us; WORKER_PORT
 // stays supported for compose/k8s deployments that pin :4100, and 4100 remains the default.
@@ -41,7 +71,11 @@ const WORKER_PORT =
   Number.isInteger(RAW_WORKER_PORT) && RAW_WORKER_PORT >= 0 && RAW_WORKER_PORT <= 65535
     ? RAW_WORKER_PORT
     : 4100;
-const EXPIRY_EVERY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
+// Guarded like the intervals below: a blank or mistyped value is 0 or NaN, and BullMQ refuses a
+// repeat of either, which crash-loops the worker on a configuration typo.
+const RAW_EXPIRY_MS = Number(process.env.HOLD_EXPIRY_INTERVAL_MS ?? 60_000);
+const EXPIRY_EVERY_MS =
+  Number.isFinite(RAW_EXPIRY_MS) && RAW_EXPIRY_MS > 0 ? RAW_EXPIRY_MS : 60_000;
 /*
   Every five seconds, not thirty.
 
@@ -99,7 +133,13 @@ const SENTRY_ENABLED = Boolean(process.env.SENTRY_DSN);
 if (SENTRY_ENABLED) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    environment: process.env.SENTRY_ENVIRONMENT ?? process.env.NODE_ENV ?? 'development',
+    // APP_ENV before NODE_ENV: QA and UAT run NODE_ENV=production, and their worker errors were
+    // filed under `production`. Same order as resolveSentryEnvironment in the API.
+    environment:
+      process.env.SENTRY_ENVIRONMENT?.trim() ||
+      process.env.APP_ENV?.trim().toLowerCase() ||
+      process.env.NODE_ENV?.trim() ||
+      'development',
     // Fall back to the commit SHA the platform injects (Railway sets RAILWAY_GIT_COMMIT_SHA)
     // so worker errors are attributable to a deploy without setting a variable by hand.
     release: process.env.SENTRY_RELEASE || process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
@@ -111,7 +151,16 @@ if (SENTRY_ENABLED) {
     // headers, and any user identity from every outgoing event. Never throws.
     beforeSend(event) {
       try {
+        /*
+          Some API routes carry a credential in the path (webhook secrets, invitation and share
+          tokens), and a URL or transaction name can ship it to Sentry. The API redacts those
+          segments with redactSecretSegments; the worker cannot import it (the API package
+          exports only its index), and it serves no such route and records no HTTP
+          transactions -- so both are dropped outright rather than copying the route list here.
+        */
+        delete event.transaction;
         if (event.request) {
+          delete event.request.url;
           delete event.request.cookies;
           delete event.request.data;
           delete event.request.query_string;
@@ -157,6 +206,8 @@ function log(
 }
 
 async function main(): Promise<void> {
+  // Before anything else, so a refusal is logged and captured through main()'s catch below.
+  const REDIS_URL = redisUrlForEnvironment();
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   const bookings = app.get(BookingsService);
   const bookingOrchestrator = app.get(LocalBookingOrchestrator);
@@ -192,8 +243,14 @@ async function main(): Promise<void> {
   const RAW_WEBHOOK_MS = Number(process.env.WEBHOOK_SWEEP_INTERVAL_MS ?? 15_000);
   const WEBHOOK_SWEEP_MS =
     Number.isFinite(RAW_WEBHOOK_MS) && RAW_WEBHOOK_MS > 0 ? RAW_WEBHOOK_MS : 15_000;
-  const RECONCILE_EVERY_MS = Number(process.env.RECONCILE_INTERVAL_MS ?? 24 * 3600 * 1000);
-  const TOKEN_PRUNE_EVERY_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? 24 * 3600 * 1000);
+  // Same guard as every other interval: a blank or mistyped value must not crash-loop the worker.
+  const DAY_MS = 24 * 3600 * 1000;
+  const RAW_RECONCILE_MS = Number(process.env.RECONCILE_INTERVAL_MS ?? DAY_MS);
+  const RECONCILE_EVERY_MS =
+    Number.isFinite(RAW_RECONCILE_MS) && RAW_RECONCILE_MS > 0 ? RAW_RECONCILE_MS : DAY_MS;
+  const RAW_TOKEN_PRUNE_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? DAY_MS);
+  const TOKEN_PRUNE_EVERY_MS =
+    Number.isFinite(RAW_TOKEN_PRUNE_MS) && RAW_TOKEN_PRUNE_MS > 0 ? RAW_TOKEN_PRUNE_MS : DAY_MS;
 
   // A plain options object avoids a type clash between our ioredis and the one
   // bundled inside bullmq. Parsed from the full REDIS_URL (credentials, db index and TLS

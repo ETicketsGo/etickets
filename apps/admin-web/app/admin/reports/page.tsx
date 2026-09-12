@@ -267,13 +267,16 @@ function SettlementSection() {
     queryKey: ['admin', 'reports', 'settlement'],
     queryFn: () => api.admin.reports.settlement(),
   });
+  // Every amount in its own currency: payouts are one per currency, and were all printed as rupees.
   const columns: Column<SettlementOrgRow>[] = [
     { key: 'org', header: 'Organizer', render: (o) => o.organizationName },
     {
       key: 'outstanding',
       header: 'Outstanding',
       render: (o) => (
-        <span className="font-semibold text-status-warning">{money(o.outstandingMinor)}</span>
+        <span className="font-semibold text-status-warning">
+          {money(o.outstandingMinor, o.currency)}
+        </span>
       ),
       sortable: true,
       sortValue: (o) => o.outstandingMinor,
@@ -282,28 +285,40 @@ function SettlementSection() {
     {
       key: 'paid',
       header: 'Paid',
-      render: (o) => money(o.paidMinor),
+      render: (o) => money(o.paidMinor, o.currency),
       sortable: true,
       sortValue: (o) => o.paidMinor,
     },
     { key: 'pc', header: 'Settled payouts', render: (o) => o.paidCount },
   ];
   return (
-    <Section query={query} isEmpty={(d) => d.byOrg.length === 0}>
+    <Section query={query} isEmpty={(d) => d.byCurrency.length === 0}>
       {(d) => (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MetricCard
-              label="Outstanding (unpaid)"
-              value={money(d.totals.outstandingMinor)}
-              tone={d.totals.outstandingMinor > 0 ? 'warning' : 'neutral'}
-            />
-            <MetricCard label="Paid out" value={money(d.totals.paidMinor)} tone="success" />
-            <MetricCard label="Total payouts" value={d.totals.payoutCount} />
-          </div>
-          <Card title="Settlement by organizer" action={<ExportCsvButton report="settlement" />}>
-            <DataTable columns={columns} rows={d.byOrg} rowKey={(o) => o.organizationId} />
-          </Card>
+        <div className="space-y-8">
+          {d.byCurrency.map((c) => (
+            <div key={c.currency} className="space-y-5">
+              {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MetricCard
+                  label="Outstanding (unpaid)"
+                  value={money(c.totals.outstandingMinor, c.currency)}
+                  tone={c.totals.outstandingMinor > 0 ? 'warning' : 'neutral'}
+                />
+                <MetricCard
+                  label="Paid out"
+                  value={money(c.totals.paidMinor, c.currency)}
+                  tone="success"
+                />
+                <MetricCard label="Total payouts" value={c.totals.payoutCount} />
+              </div>
+              <Card
+                title={`Settlement by organizer — ${c.currency}`}
+                action={<ExportCsvButton report="settlement" />}
+              >
+                <DataTable columns={columns} rows={c.byOrg} rowKey={(o) => o.organizationId} />
+              </Card>
+            </div>
+          ))}
         </div>
       )}
     </Section>
@@ -315,57 +330,65 @@ function RefundsSection({ range }: { range: ReportRange }) {
     queryKey: ['admin', 'reports', 'refunds', range],
     queryFn: () => api.admin.reports.refunds(range),
   });
-  const maxDay = Math.max(1, ...(query.data?.byDay.map((d) => d.amountMinor) ?? [1]));
   return (
-    <Section query={query}>
+    <Section query={query} isEmpty={(d) => d.byCurrency.length === 0}>
       {(d) => (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MetricCard label="Refunds completed" value={d.totals.count} />
-            <MetricCard
-              label="Refund amount"
-              value={money(d.totals.amountMinor)}
-              tone={d.totals.amountMinor > 0 ? 'warning' : 'neutral'}
-            />
-          </div>
-          <div className="grid gap-5 lg:grid-cols-2">
-            <Card title="By status">
-              {d.byStatus.length === 0 ? (
-                <EmptyState title="No refunds in this range" />
-              ) : (
-                <ul className="divide-y divide-border text-sm">
-                  {d.byStatus.map((s) => (
-                    <li key={s.status} className="flex items-center justify-between py-2.5">
-                      <StatusBadge status={s.status} />
-                      <span className="text-text-muted">
-                        {s.count} · {money(s.amountMinor)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-            <Card
-              title="Completed by day"
-              action={<ExportCsvButton report="refunds" params={range} />}
-            >
-              {d.byDay.length === 0 ? (
-                <EmptyState title="No completed refunds" />
-              ) : (
-                <div className="space-y-2.5">
-                  {d.byDay.map((r) => (
-                    <BarRow
-                      key={r.day}
-                      label={r.day}
-                      value={r.amountMinor}
-                      max={maxDay}
-                      display={money(r.amountMinor)}
-                    />
-                  ))}
+        <div className="space-y-8">
+          {d.byCurrency.map((c) => {
+            /* Scaled within its own currency — a shared axis would compare paise to cents. */
+            const maxDay = Math.max(1, ...c.byDay.map((r) => r.amountMinor));
+            return (
+              <div key={c.currency} className="space-y-5">
+                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MetricCard label="Refunds completed" value={c.totals.count} />
+                  <MetricCard
+                    label="Refund amount"
+                    value={money(c.totals.amountMinor, c.currency)}
+                    tone={c.totals.amountMinor > 0 ? 'warning' : 'neutral'}
+                  />
                 </div>
-              )}
-            </Card>
-          </div>
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <Card title={`By status — ${c.currency}`}>
+                    {c.byStatus.length === 0 ? (
+                      <EmptyState title="No refunds in this range" />
+                    ) : (
+                      <ul className="divide-y divide-border text-sm">
+                        {c.byStatus.map((s) => (
+                          <li key={s.status} className="flex items-center justify-between py-2.5">
+                            <StatusBadge status={s.status} />
+                            <span className="text-text-muted">
+                              {s.count} · {money(s.amountMinor, c.currency)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Card>
+                  <Card
+                    title={`Completed by day — ${c.currency}`}
+                    action={<ExportCsvButton report="refunds" params={range} />}
+                  >
+                    {c.byDay.length === 0 ? (
+                      <EmptyState title="No completed refunds" />
+                    ) : (
+                      <div className="space-y-2.5">
+                        {c.byDay.map((r) => (
+                          <BarRow
+                            key={r.day}
+                            label={r.day}
+                            value={r.amountMinor}
+                            max={maxDay}
+                            display={money(r.amountMinor, c.currency)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </Section>
@@ -428,15 +451,31 @@ function TaxSection({ range }: { range: ReportRange }) {
             role="note"
             className="rounded-lg border border-status-warning/30 bg-status-warning/5 p-4 text-sm text-text-secondary"
           >
-            <p className="font-semibold text-status-warning">Tax is not modelled</p>
+            <p className="font-semibold text-status-warning">
+              {d.taxModelled ? 'Tax as charged' : 'Tax is not modelled'}
+            </p>
             <p className="mt-1">{d.note}</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MetricCard label="Gross ticket sales" value={money(d.grossMinor)} />
-            <MetricCard label="Platform fees" value={money(d.platformFeesMinor)} />
-            <MetricCard label="Taxable base" value={money(d.taxableBaseMinor)} tone="info" />
-            <MetricCard label="Tax collected" value={money(d.taxCollectedMinor)} tone="neutral" />
-          </div>
+          {/* One block per currency: GST in rupees and sales tax in dollars are two figures. */}
+          {d.byCurrency.map((c) => (
+            <div key={c.currency} className="space-y-3">
+              {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MetricCard label="Gross ticket sales" value={money(c.grossMinor, c.currency)} />
+                <MetricCard label="Platform fees" value={money(c.platformFeesMinor, c.currency)} />
+                <MetricCard
+                  label="Taxable base"
+                  value={money(c.taxableBaseMinor, c.currency)}
+                  tone="info"
+                />
+                <MetricCard
+                  label="Tax collected"
+                  value={money(c.taxCollectedMinor, c.currency)}
+                  tone="neutral"
+                />
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Section>
@@ -466,17 +505,25 @@ function TopExperiencesSection({ range }: { range: ReportRange }) {
       sortable: true,
       sortValue: (e) => e.bookings,
     },
+    // The currency sits beside the gross it qualifies, as in Organizer Revenue.
+    { key: 'currency', header: 'Currency', render: (e) => e.currency },
     {
       key: 'gross',
       header: 'Gross',
-      render: (e) => money(e.grossMinor),
+      render: (e) => money(e.grossMinor, e.currency),
       sortable: true,
       sortValue: (e) => e.grossMinor,
     },
   ];
   return (
     <Section query={query} isEmpty={(d) => d.experiences.length === 0}>
-      {(d) => <DataTable columns={columns} rows={d.experiences} rowKey={(e) => e.eventId} />}
+      {(d) => (
+        <DataTable
+          columns={columns}
+          rows={d.experiences}
+          rowKey={(e) => `${e.eventId}:${e.currency}`}
+        />
+      )}
     </Section>
   );
 }

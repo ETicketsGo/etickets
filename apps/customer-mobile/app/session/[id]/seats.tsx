@@ -9,6 +9,10 @@ import { formatMoney } from '@/services/locale';
 import { messageForError } from '@/services/errors';
 import { useEvent } from '@/features/events/api';
 import {
+  SEAT_SELECTION_ON_WEBSITE,
+  SeatSelectionUnavailableError,
+} from '@/features/events/seating';
+import {
   findSeatConflicts,
   maxSelectableSeats,
   selectionTotalMinor,
@@ -41,7 +45,16 @@ export default function SeatSelectionScreen() {
 
   const { data: event } = useEvent(slug ?? '');
   const session = event?.sessions.find((s) => s.id === sessionId);
-  const { data: map, isPending, isError, refetch, isRefetching } = useSeatMap(sessionId ?? '');
+  const {
+    data: map,
+    error,
+    isPending,
+    isError,
+    refetch,
+    isRefetching,
+  } = useSeatMap(sessionId ?? '');
+  // A sectioned venue map the app cannot draw: say where to choose seats, not "try again".
+  const onWebsiteOnly = error instanceof SeatSelectionUnavailableError;
 
   // The seat map carries prices but no currency; the session's ticket types do. INR is
   // the fallback only until the session loads — prices render from the same map either way.
@@ -187,6 +200,8 @@ export default function SeatSelectionScreen() {
 
       {isPending ? (
         <LoadingState label="Loading seats…" />
+      ) : onWebsiteOnly ? (
+        <ErrorState title="Choose seats on the website" message={SEAT_SELECTION_ON_WEBSITE} />
       ) : isError || !map ? (
         <ErrorState
           title="Couldn't load the seat map"

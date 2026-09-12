@@ -18,7 +18,7 @@ import {
 import { ImageLightbox } from '@/components/image-lightbox';
 import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
-import { money, dateTime } from '@/lib/format';
+import { money, dateTime, zoneAbbrev } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
 import {
   Badge,
@@ -120,7 +120,7 @@ export default function EventDetailPage() {
     mutationFn: () =>
       api.createReview({ eventId: event!.id, rating, comment: comment || undefined }),
     onSuccess: () => {
-      toast.push('Thanks for your review!', 'success');
+      toast.push(sf('event.reviewThanks'), 'success');
       qc.invalidateQueries({ queryKey: ['reviews', event?.id] });
       qc.invalidateQueries({ queryKey: ['my-review', event?.id] });
     },
@@ -330,25 +330,28 @@ export default function EventDetailPage() {
       (eventError.code === 'NOT_FOUND' || eventError.code === 'EVENT_NOT_PUBLISHED');
     return gone ? (
       <EmptyState
-        title="Event not found"
-        hint="This event may have ended or been removed."
+        title={sf('event.notFoundTitle')}
+        hint={sf('event.notFoundHint')}
         icon={CalendarDays}
       />
     ) : (
-      <ErrorState
-        message="We couldn't load this event. Please try again."
-        onRetry={() => refetch()}
-      />
+      <ErrorState message={sf('event.loadError')} onRetry={() => refetch()} />
     );
   }
   if (!event)
     return (
       <EmptyState
-        title="Event not found"
-        hint="This event may have ended or been removed."
+        title={sf('event.notFoundTitle')}
+        hint={sf('event.notFoundHint')}
         icon={CalendarDays}
       />
     );
+
+  /*
+    The venue's clock. A session is at the time printed at the venue, and a buyer planning a
+    trip from another zone must see that time, named — not their phone's conversion of it.
+  */
+  const zone = event.venue.timezone ?? undefined;
 
   /*
     Every image the organizer gave, cover first — or just the cover from an API that predates
@@ -478,7 +481,7 @@ export default function EventDetailPage() {
             className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
           >
             <Share2 className="h-3.5 w-3.5" />
-            {shared ? 'Copied!' : 'Share'}
+            {shared ? sf('common.copied') : tx('action.share')}
           </button>
         </div>
       </div>
@@ -526,7 +529,7 @@ export default function EventDetailPage() {
         {/* Left column */}
         <div className="space-y-6 lg:col-span-2">
           {event.description && (
-            <Card title="About this event">
+            <Card title={sf('event.about')}>
               <p className="whitespace-pre-line leading-relaxed text-text-secondary">
                 {event.description}
               </p>
@@ -556,7 +559,13 @@ export default function EventDetailPage() {
                     <span
                       className={`text-[0.9375rem] font-medium ${active ? 'text-action-primary' : 'text-text-primary'}`}
                     >
-                      {dateTime(s.startsAt)}
+                      {dateTime(s.startsAt, undefined, zone)}
+                      {zone ? (
+                        <span className="font-normal text-text-muted">
+                          {' '}
+                          ({zoneAbbrev(s.startsAt, zone)})
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 );
@@ -594,7 +603,7 @@ export default function EventDetailPage() {
               >
                 <MapPin className="h-4 w-4" />
                 {sf('event.getDirections')}
-                <span className="sr-only">(opens in a new tab)</span>
+                <span className="sr-only">{sf('event.opensInNewTab')}</span>
               </a>
             </Card>
             <Card title={sf('event.organizerHeading')}>
@@ -609,7 +618,7 @@ export default function EventDetailPage() {
                   <p className="font-medium text-text-primary group-hover:text-action-primary">
                     {event.organizer.name}
                   </p>
-                  <p className="text-caption text-text-muted">View profile</p>
+                  <p className="text-caption text-text-muted">{sf('event.viewProfile')}</p>
                 </div>
                 <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
               </Link>
@@ -621,7 +630,7 @@ export default function EventDetailPage() {
               <div className="flex items-start gap-3">
                 <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-status-success" />
                 <div>
-                  <h3 className="font-semibold text-text-primary">Refund policy</h3>
+                  <h3 className="font-semibold text-text-primary">{sf('event.refundPolicy')}</h3>
                   <p className="mt-1 text-[0.9375rem] text-text-muted">{event.refundPolicy}</p>
                 </div>
               </div>
@@ -629,7 +638,7 @@ export default function EventDetailPage() {
           )}
 
           {/* Reviews */}
-          <Card title="Ratings & reviews">
+          <Card title={sf('event.reviews')}>
             {reviews.isLoading ? (
               <div className="space-y-3">
                 <Skeleton className="h-16 w-40" />
@@ -645,7 +654,7 @@ export default function EventDetailPage() {
                     </p>
                     <RatingStars value={Math.round(reviews.data.average)} size="sm" />
                     <p className="mt-1 text-caption text-text-muted">
-                      {reviews.data.count} review{reviews.data.count > 1 ? 's' : ''}
+                      {sf('event.reviewCount', { count: reviews.data.count })}
                     </p>
                   </div>
                   <div className="flex-1 space-y-1">
@@ -683,26 +692,24 @@ export default function EventDetailPage() {
                 </ul>
               </div>
             ) : (
-              <p className="text-[0.9375rem] text-text-muted">
-                No reviews yet — be the first to share your experience.
-              </p>
+              <p className="text-[0.9375rem] text-text-muted">{sf('event.noReviews')}</p>
             )}
 
             {/* Write a review */}
             {authed && (
               <div className="mt-5 rounded-lg border border-border bg-background-subtle/50 p-4">
                 <p className="font-medium text-text-primary">
-                  {mine.data ? 'Update your review' : 'Write a review'}
+                  {mine.data ? sf('event.updateYourReview') : sf('event.writeReview')}
                 </p>
                 <div className="mt-2">
                   <RatingStars value={rating} onChange={setRating} size="lg" />
                 </div>
                 <Textarea
                   id="review-comment"
-                  aria-label="Your review"
+                  aria-label={sf('event.yourReview')}
                   className="mt-3"
                   rows={3}
-                  placeholder="Share how the event went…"
+                  placeholder={sf('event.reviewPlaceholder')}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                 />
@@ -712,11 +719,9 @@ export default function EventDetailPage() {
                   disabled={rating < 1}
                   onClick={() => submitReview.mutate()}
                 >
-                  {mine.data ? 'Update review' : 'Submit review'}
+                  {mine.data ? sf('event.updateReview') : sf('event.submitReview')}
                 </Button>
-                <p className="mt-2 text-caption text-text-muted">
-                  Only attendees with a confirmed booking can review.
-                </p>
+                <p className="mt-2 text-caption text-text-muted">{sf('event.reviewEligibility')}</p>
               </div>
             )}
           </Card>
@@ -725,24 +730,14 @@ export default function EventDetailPage() {
           <Card title={sf('event.faq')}>
             <div className="divide-y divide-border">
               {[
+                { q: sf('event.faqReceiveQ'), a: sf('event.faqReceiveA') },
                 {
-                  q: 'How do I receive my ticket?',
-                  a: 'Instantly after payment. Your QR ticket appears in “My tickets” and can be added to your calendar.',
+                  q: sf('event.faqRefundQ'),
+                  // The organizer's own policy is their words, shown as written.
+                  a: event.refundPolicy ?? sf('event.faqRefundA'),
                 },
-                {
-                  q: 'Can I get a refund?',
-                  a:
-                    event.refundPolicy ??
-                    'Refunds follow the organizer’s policy. Request one from your booking within the eligible window.',
-                },
-                {
-                  q: 'Do I need to print my ticket?',
-                  a: 'No — just show the QR code on your phone at the gate for check-in.',
-                },
-                {
-                  q: 'Can I transfer my ticket?',
-                  a: 'Ticket transfers are handled by the organizer. Contact them for details.',
-                },
+                { q: sf('event.faqPrintQ'), a: sf('event.faqPrintA') },
+                { q: sf('event.faqTransferQ'), a: sf('event.faqTransferA') },
               ].map((f) => (
                 <details key={f.q} className="group py-3">
                   <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-text-primary">
@@ -807,7 +802,7 @@ export default function EventDetailPage() {
                             {soldOut ? (
                               <span className="text-status-error">{tx('state.soldOut')}</span>
                             ) : (
-                              `${t.available} left`
+                              sf('event.left', { count: t.available })
                             )}
                           </p>
                         </div>
@@ -837,7 +832,7 @@ export default function EventDetailPage() {
                 {addOns.length > 0 && (
                   <div className="mt-5">
                     <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                      Enhance your experience
+                      {sf('event.enhance')}
                     </p>
                     <div className="space-y-2">
                       {addOns.map((a) => {
@@ -855,12 +850,15 @@ export default function EventDetailPage() {
                               <p className="text-caption text-text-muted">
                                 {money(a.priceMinor, a.currency)}
                                 {a.soldOut && (
-                                  <span className="text-status-error"> · Sold out</span>
+                                  <span className="text-status-error">
+                                    {' '}
+                                    · {tx('state.soldOut')}
+                                  </span>
                                 )}
                               </p>
                             </div>
                             <select
-                              aria-label={`Quantity of ${a.name}`}
+                              aria-label={tx('a11y.quantityOf', { name: a.name })}
                               disabled={a.soldOut}
                               value={addOnQty[a.id] ?? 0}
                               onChange={(e) =>
@@ -885,7 +883,7 @@ export default function EventDetailPage() {
                 {bundles.length > 0 && (
                   <div className="mt-5">
                     <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                      Bundles &amp; deals
+                      {sf('event.bundlesHeading')}
                     </p>
                     <div className="space-y-2">
                       {bundles.map((b) => (
@@ -898,13 +896,16 @@ export default function EventDetailPage() {
                                 {b.savingsMinor > 0 && (
                                   <span className="text-status-success">
                                     {' '}
-                                    · save {money(b.savingsMinor, b.currency)}
+                                    ·{' '}
+                                    {sf('event.bundleSave', {
+                                      amount: money(b.savingsMinor, b.currency),
+                                    })}
                                   </span>
                                 )}
                               </p>
                             </div>
                             <select
-                              aria-label={`Quantity of ${b.name}`}
+                              aria-label={tx('a11y.quantityOf', { name: b.name })}
                               value={bundleQty[b.id] ?? 0}
                               onChange={(e) =>
                                 setBundleQty((p) => ({ ...p, [b.id]: Number(e.target.value) }))
@@ -920,8 +921,11 @@ export default function EventDetailPage() {
                           </div>
                           {b.components.length > 0 && (
                             <p className="mt-1.5 text-caption text-text-muted">
-                              Includes{' '}
-                              {b.components.map((c) => `${c.quantity}× ${c.label}`).join(', ')}
+                              {sf('event.bundleIncludes', {
+                                items: b.components
+                                  .map((c) => `${c.quantity}× ${c.label}`)
+                                  .join(', '),
+                              })}
                             </p>
                           )}
                         </div>

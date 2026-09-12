@@ -72,6 +72,17 @@ describe('Sentry integration', () => {
     expect(captureMock).toHaveBeenCalledTimes(1);
   });
 
+  it('files QA and UAT errors under their own environment, not NODE_ENV=production', () => {
+    process.env.SENTRY_DSN = 'https://public@example.ingest.sentry.io/1';
+    delete process.env.SENTRY_ENVIRONMENT;
+    process.env.APP_ENV = 'UAT';
+    process.env.NODE_ENV = 'production';
+    const sentry = loadSentry();
+
+    sentry.initSentry();
+    expect(initMock.mock.calls[0][0]).toMatchObject({ environment: 'uat' });
+  });
+
   it('does not re-initialise on a second call', () => {
     process.env.SENTRY_DSN = 'https://public@example.ingest.sentry.io/1';
     const sentry = loadSentry();
@@ -105,6 +116,37 @@ describe('resolveSentryRelease — deploy attribution', () => {
     const { resolveSentryRelease } = loadSentry();
     expect(resolveSentryRelease({})).toBeUndefined();
     expect(resolveSentryRelease({ SENTRY_RELEASE: '' })).toBeUndefined();
+  });
+});
+
+describe('resolveSentryEnvironment — which issue stream an error lands in', () => {
+  it('prefers an explicit SENTRY_ENVIRONMENT', () => {
+    const { resolveSentryEnvironment } = loadSentry();
+    expect(
+      resolveSentryEnvironment({
+        SENTRY_ENVIRONMENT: 'qa-blue',
+        APP_ENV: 'QA',
+        NODE_ENV: 'production',
+      }),
+    ).toBe('qa-blue');
+  });
+
+  // QA and UAT build and run production bundles, so NODE_ENV says `production` in both.
+  it.each([
+    ['QA', 'qa'],
+    ['UAT', 'uat'],
+    ['PRODUCTION', 'production'],
+  ])('uses APP_ENV=%s rather than NODE_ENV', (APP_ENV, expected) => {
+    const { resolveSentryEnvironment } = loadSentry();
+    expect(resolveSentryEnvironment({ APP_ENV, NODE_ENV: 'production' })).toBe(expected);
+  });
+
+  it('falls back to NODE_ENV, then development, and treats blank values as unset', () => {
+    const { resolveSentryEnvironment } = loadSentry();
+    expect(
+      resolveSentryEnvironment({ SENTRY_ENVIRONMENT: '', APP_ENV: ' ', NODE_ENV: 'test' }),
+    ).toBe('test');
+    expect(resolveSentryEnvironment({})).toBe('development');
   });
 });
 
@@ -143,6 +185,46 @@ describe('scrubSensitiveData — PII filter (beforeSend)', () => {
     expect(out.request.headers.Cookie).toBeUndefined();
     // Benign header is preserved.
     expect(out.request.headers['content-type']).toBe('application/json');
+  });
+
+  it.each([
+    ['an SES webhook path secret', '/api/notifications/webhooks/ses/', 'ses-path-secret-3f9a'],
+    ['a share-link token', '/api/public/share/', 'share-token-8c21'],
+  ])('redacts %s from the request URL and the transaction name', (_label, route, secret) => {
+    /*
+      On these routes the path segment IS the credential. Sentry records the URL and names the
+      transaction after it, so an error there used to hand the secret to a third party.
+    */
+    const { scrubSensitiveData } = loadSentry();
+    const event = {
+      transaction: `POST ${route}${secret}`,
+      request: {
+        method: 'POST',
+        url: `https://api.eticketsgo.test${route}${secret}?utm=1`,
+      },
+    } as unknown as ScrubEvent;
+
+    const out = scrubSensitiveData(event) as unknown as {
+      transaction: string;
+      request: { url: string };
+    };
+    expect(out.request.url).toBe(`https://api.eticketsgo.test${route}[REDACTED]`);
+    expect(out.transaction).toBe(`POST ${route}[REDACTED]`);
+    expect(JSON.stringify(out)).not.toContain(secret);
+  });
+
+  it('leaves an ordinary URL and transaction readable', () => {
+    const { scrubSensitiveData } = loadSentry();
+    const event = {
+      transaction: 'GET /api/bookings/:id',
+      request: { url: 'https://api.eticketsgo.test/api/bookings/bk-1' },
+    } as unknown as ScrubEvent;
+    const out = scrubSensitiveData(event) as unknown as {
+      transaction: string;
+      request: { url: string };
+    };
+    expect(out.request.url).toBe('https://api.eticketsgo.test/api/bookings/bk-1');
+    expect(out.transaction).toBe('GET /api/bookings/:id');
   });
 
   it('removes any user identity (email/ip/username)', () => {

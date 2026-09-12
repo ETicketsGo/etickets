@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import {
@@ -38,6 +38,14 @@ import {
   TransactionalEventPublisher,
 } from '../common/domain-events';
 import { BookingConfirmationBridge } from '../bookings/orchestration/booking-confirmation-bridge';
+import { FinanceReconciliationService } from './finance/finance-reconciliation.service';
+
+/** Payment statuses that mean a capture has been applied to its booking. */
+const APPLIED_PAYMENT_STATUSES: string[] = [
+  PaymentStatus.SUCCEEDED,
+  PaymentStatus.PARTIALLY_REFUNDED,
+  PaymentStatus.REFUNDED,
+];
 
 const serial = () => `TKT-${randomBytes(6).toString('hex').toUpperCase()}`;
 const nonce = () => randomBytes(8).toString('hex');
@@ -73,6 +81,8 @@ export class PaymentsService {
     // webhook commits, advances the durable BookingWorkflow. No-op unless a workflow
     // exists (active mode); never affects the confirmation result.
     private readonly bookingBridge: BookingConfirmationBridge,
+    // Where money that arrived but could not be applied is filed for a person to refund.
+    @Optional() private readonly finance?: FinanceReconciliationService,
   ) {}
 
   private readonly logger = new Logger(PaymentsService.name);
@@ -166,13 +176,24 @@ export class PaymentsService {
         event: {
           select: { organizationId: true, isFree: true, venue: { select: { country: true } } },
         },
+        eventSession: { select: { status: true, startsAt: true } },
       },
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     // Ownership: an authenticated user may only pay their own booking (guest
     // bookings have no owner and are paid via the unguessable booking id).
-    if (booking.userId && user) {
+    if (booking.userId) {
+      /*
+        A booking that belongs to an account is paid by that account.
+
+        The check used to run only when a user was passed, and the guest pay route passes none
+        — so anybody holding a signed-in customer's booking id could open a payment for it
+        through the guest path. Answered as not found, like any booking the caller cannot see.
+      */
+      if (!user) {
+        throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+      }
       const isAdmin =
         user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
       if (booking.userId !== user.id && !isAdmin) {
@@ -212,6 +233,29 @@ export class PaymentsService {
       throw new AppException(
         ErrorCodes.BOOKING_NOT_PAYABLE,
         'This event is free. There is nothing to pay.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      The show must still be on, and not yet under way.
+
+      A hold outlives a cancellation: the booking stays PENDING_PAYMENT with an unexpired hold
+      after the organizer cancels the show, and nothing here looked at the show, so the buyer
+      could still open a gateway order and pay for something that is not happening. Booking
+      creation already refuses a session that has started; paying is held to the same line.
+    */
+    if (booking.eventSession?.status !== 'SCHEDULED') {
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This show is no longer on sale, so this booking cannot be paid for.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (booking.eventSession.startsAt <= new Date()) {
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        'This show has already started, so this booking can no longer be paid for.',
         HttpStatus.CONFLICT,
       );
     }
@@ -472,17 +516,30 @@ export class PaymentsService {
     }
 
     /*
-      Stamped BEFORE confirming, and conditionally on it still being uncollected.
+      Stamped INSIDE the confirmation, by the same update that claims PENDING_PAYMENT →
+      CONFIRMED.
 
-      Two people at the same counter can press Collect at the same moment. This update is
-      the race winner's proof: `count === 0` means somebody else got there first, and the
-      loser must not go on to issue a second set of tickets.
+      It used to be stamped first, on its own. If confirming then failed — the hold had lapsed,
+      inventory could not settle — the stamp stayed, every retry answered "already collected",
+      and the tickets were never issued for money the customer had handed over. Now the stamp
+      and the confirmation commit or roll back together.
+
+      The claim is still the race winner's proof: two people pressing Collect at once both
+      reach it, and only one flips the booking. The other sees "already confirmed", which here
+      means somebody else collected it.
     */
-    const claimed = await this.prisma.booking.updateMany({
-      where: { id: bookingId, cashCollectedAt: null, paymentMethod: 'CASH' },
-      data: { cashCollectedAt: new Date(), cashCollectedByUserId: collectorUserId },
-    });
-    if (claimed.count === 0) {
+    const result = await this.confirm(
+      {
+        type: 'payment.succeeded',
+        // The amount check stays on. `providerRef` records how this was confirmed so a later
+        // reader of the Booking is never left guessing why there is no provider reference.
+        providerRef: `cash:${bookingId}`,
+        bookingId,
+        amountMinor: booking.totalMinor,
+      },
+      { withoutPayment: true, cashCollectedByUserId: collectorUserId },
+    );
+    if (result.status !== 'confirmed') {
       return { status: 'already_collected' as const, bookingId };
     }
 
@@ -494,20 +551,7 @@ export class PaymentsService {
       entityId: booking.id,
       metadata: { amountMinor: booking.totalMinor },
     });
-
-    /*
-      The amount check stays on. `providerRef` records how this was confirmed so a later
-      reader of the Booking is never left guessing why there is no provider reference.
-    */
-    return this.confirm(
-      {
-        type: 'payment.succeeded',
-        providerRef: `cash:${bookingId}`,
-        bookingId,
-        amountMinor: booking.totalMinor,
-      },
-      { withoutPayment: true },
-    );
+    return result;
   }
 
   async confirmFreeBooking(bookingId: string) {
@@ -549,10 +593,16 @@ export class PaymentsService {
    * @param options.skipAmountCheck Only for free bookings, where there is no provider
    *   figure to agree with. Cash deliberately keeps the check: the collector confirms a
    *   specific amount, and it must equal what the booking says is owed.
+   * @param options.cashCollectedByUserId Cash only: who took the money. Stamped by the same
+   *   update that confirms the booking, so a failed confirmation leaves no stamp behind.
    */
   private async confirm(
     event: PaymentEvent,
-    options: { withoutPayment?: boolean; skipAmountCheck?: boolean } = {},
+    options: {
+      withoutPayment?: boolean;
+      skipAmountCheck?: boolean;
+      cashCollectedByUserId?: string;
+    } = {},
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: event.bookingId },
@@ -573,6 +623,7 @@ export class PaymentsService {
         eventSession: {
           select: {
             startsAt: true,
+            status: true,
             screen: { select: { cinema: { select: { timezone: true } } } },
           },
         },
@@ -583,12 +634,60 @@ export class PaymentsService {
 
     // Idempotent: a re-delivered webhook must not double-confirm or double-issue.
     if (booking.status === BookingStatus.CONFIRMED) {
+      // ...but a capture under a DIFFERENT reference is a second charge, not a redelivery.
+      if (!options.withoutPayment) await this.recordUnappliedCapture(booking, event);
       return { status: 'already_confirmed', bookingId: booking.id };
     }
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
+      /*
+        The provider took money for a booking that can no longer be paid — the hold expired
+        while the buyer was still at the gateway, or the booking was cancelled.
+
+        This threw, the webhook retried six times and dead-lettered, and nothing anywhere said
+        that a customer's money had been captured. Throwing cannot un-capture it, so it is
+        recorded instead — the attempt on the payment, a finance discrepancy for a person to
+        refund, an audit entry — and the event completes. Nothing is refunded automatically:
+        whether to refund or to honour the booking is a decision about a real customer.
+      */
+      if (!options.withoutPayment) {
+        const outcome = await this.recordUnappliedCapture(booking, event);
+        if (outcome === 'recorded') {
+          return { status: 'captured_on_unpayable_booking', bookingId: booking.id };
+        }
+        // The capture this booking already applied, redelivered after a refund or dispute.
+        if (outcome === 'applied') return { status: 'already_settled', bookingId: booking.id };
+      }
       throw new AppException(
         ErrorCodes.BOOKING_NOT_PAYABLE,
         `Booking cannot be confirmed from status ${booking.status}.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      The show must still be on when the money lands, not only when the payment was opened.
+
+      A cancellation can arrive between the buyer opening the gateway and the capture reaching
+      us, before anything has expired the pending booking. Confirming then issued tickets to a
+      show that is not happening. A captured payment is recorded exactly as a late capture is —
+      the money is real and somebody has to refund it — and a cash or free confirmation is
+      refused.
+    */
+    const sessionStatus = booking.eventSession?.status;
+    if (sessionStatus && sessionStatus !== 'SCHEDULED') {
+      if (!options.withoutPayment) {
+        const outcome = await this.recordUnappliedCapture(
+          booking,
+          event,
+          `its show is ${sessionStatus}`,
+        );
+        if (outcome === 'recorded') {
+          return { status: 'captured_on_unpayable_booking', bookingId: booking.id };
+        }
+      }
+      throw new AppException(
+        ErrorCodes.BOOKING_NOT_PAYABLE,
+        `This show is ${sessionStatus.toLowerCase()}, so the booking cannot be confirmed.`,
         HttpStatus.CONFLICT,
       );
     }
@@ -642,6 +741,8 @@ export class PaymentsService {
     let issuedSeatLabels: string[] = [];
     // The BookingConfirmed fact, built + durably recorded inside the confirm tx (ADR-041).
     let confirmedEvent: DomainEvent | null = null;
+    // Set when the coupon was already at its limit by the time this booking was paid.
+    let couponOverLimit = false;
 
     await this.prisma.$transaction(async (tx) => {
       // Atomic idempotency guard: only the delivery that flips PENDING_PAYMENT →
@@ -649,7 +750,13 @@ export class PaymentsService {
       // so tickets can never be double-issued.
       const claim = await tx.booking.updateMany({
         where: { id: booking.id, status: BookingStatus.PENDING_PAYMENT },
-        data: { status: BookingStatus.CONFIRMED, confirmedAt: new Date() },
+        data: {
+          status: BookingStatus.CONFIRMED,
+          confirmedAt: new Date(),
+          ...(options.cashCollectedByUserId
+            ? { cashCollectedAt: new Date(), cashCollectedByUserId: options.cashCollectedByUserId }
+            : {}),
+        },
       });
       if (claim.count !== 1) {
         alreadyConfirmed = true;
@@ -748,10 +855,29 @@ export class PaymentsService {
         });
       }
       if (booking.couponId) {
-        await tx.coupon.update({
-          where: { id: booking.couponId },
+        /*
+          Counted only while the coupon is under its limit.
+
+          The limit is checked when a booking is created, but many bookings can be pending on
+          the same coupon at once, and the increment here was unconditional — so parallel
+          checkouts took a 100-use coupon past 100. The compare-and-increment is one statement,
+          so two confirmations cannot both take the last use.
+
+          Losing that race does NOT fail the booking: the customer has already paid the
+          discounted price, and refusing their tickets now would be the platform keeping money
+          for its own counting error. It is audited after the commit instead.
+        */
+        const redeemed = await tx.coupon.updateMany({
+          where: {
+            id: booking.couponId,
+            OR: [
+              { maxRedemptions: null },
+              { redemptions: { lt: tx.coupon.fields.maxRedemptions } },
+            ],
+          },
           data: { redemptions: { increment: 1 } },
         });
+        couponOverLimit = redeemed.count === 0;
       }
 
       // ADR-041 proof slice: build the BookingConfirmed fact and record it DURABLY in
@@ -808,6 +934,9 @@ export class PaymentsService {
     });
 
     if (alreadyConfirmed) {
+      // Lost the claim: another delivery confirmed it, or the booking expired meanwhile. Either
+      // way, a capture that is not the one applied must not vanish.
+      if (!options.withoutPayment) await this.recordUnappliedCapture(booking, event);
       return { status: 'already_confirmed', bookingId: booking.id };
     }
 
@@ -818,6 +947,15 @@ export class PaymentsService {
       entityId: booking.id,
       metadata: { providerRef: event.providerRef },
     });
+    if (couponOverLimit && booking.couponId) {
+      await this.audit.record({
+        organizationId: booking.organizationId,
+        action: 'COUPON_REDEEMED_OVER_LIMIT',
+        entityType: 'Coupon',
+        entityId: booking.couponId,
+        metadata: { bookingId: booking.id, discountMinor: booking.discountMinor },
+      });
+    }
     this.metrics.recordBookingConfirmed();
     this.metrics.recordPaymentSucceeded();
     this.metrics.recordGmv(booking.totalMinor);
@@ -837,6 +975,121 @@ export class PaymentsService {
       }
     }
     return { status: 'confirmed', bookingId: booking.id, tickets: ticketCount };
+  }
+
+  /**
+   * A provider reports a successful capture that this booking has not applied.
+   *
+   * Two cases, one treatment: the booking can no longer be paid (expired, cancelled), or it
+   * is already paid under a different provider reference (the buyer paid twice). The money is
+   * real either way and the platform is holding it. What an operator sees:
+   *
+   *   - a SUCCEEDED PaymentAttempt on the booking's payment, carrying the provider reference;
+   *   - for an unpayable booking, the Payment row's `providerStatus` = 'captured' and
+   *     `failureCode` = 'CAPTURED_ON_UNPAYABLE_BOOKING' (its status is left alone, so the money
+   *     never counts towards a settlement or payout);
+   *   - an OPEN finance discrepancy — PAYMENT_MISSING_INTERNALLY for an unpayable booking,
+   *     DUPLICATE_CAPTURE for a second charge — keyed on the provider reference, with the amount,
+   *     currency and booking in its detail, in the finance reconciliation queue;
+   *   - an audit entry, and an error in the log.
+   *
+   * Redeliveries do not repeat the attempt, the audit entry or the discrepancy.
+   *
+   * @returns 'applied' when this IS the capture the booking recorded (a redelivery),
+   *   'simulated' for the mock gateway (no money exists, so the caller keeps its old refusal),
+   *   'recorded' otherwise.
+   */
+  private async recordUnappliedCapture(
+    booking: { id: string; status: string; organizationId: string; currency: string },
+    event: PaymentEvent,
+    /** Why the booking cannot take the money, when it is not the booking's own status. */
+    reason?: string,
+  ): Promise<'applied' | 'simulated' | 'recorded'> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { bookingId: booking.id },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        providerRef: true,
+        providerPaymentIntentId: true,
+        providerOrderId: true,
+      },
+    });
+    const applied = !!payment && APPLIED_PAYMENT_STATUSES.includes(payment.status);
+    const sameCapture =
+      !event.providerRef ||
+      (!!payment &&
+        [payment.providerRef, payment.providerPaymentIntentId, payment.providerOrderId].includes(
+          event.providerRef,
+        ));
+    if (applied && sameCapture) return 'applied';
+    if (payment?.provider === 'mock') return 'simulated';
+
+    const unpayable = !applied;
+    const seen = payment
+      ? await this.prisma.paymentAttempt.findFirst({
+          where: {
+            paymentId: payment.id,
+            providerRef: event.providerRef,
+            status: PaymentAttemptStatus.SUCCEEDED,
+          },
+          select: { id: true },
+        })
+      : null;
+    if (seen) return 'recorded';
+
+    const detail = unpayable
+      ? `Provider captured ${event.amountMinor} ${booking.currency} (${event.providerRef}) for booking ` +
+        `${booking.id} (${reason ?? `status ${booking.status}`}), which cannot be paid. No tickets ` +
+        'were issued; refund the customer manually.'
+      : `Provider captured ${event.amountMinor} ${booking.currency} (${event.providerRef}) for booking ` +
+        `${booking.id}, which was already paid under ${payment?.providerRef ?? 'another reference'}. ` +
+        'The customer was charged twice; refund this capture manually.';
+
+    if (payment) {
+      await this.prisma.paymentAttempt.create({
+        data: {
+          paymentId: payment.id,
+          status: PaymentAttemptStatus.SUCCEEDED,
+          providerRef: event.providerRef,
+          rawEvent: event as unknown as object,
+        },
+      });
+      if (unpayable) {
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            providerStatus: 'captured',
+            failureCode: 'CAPTURED_ON_UNPAYABLE_BOOKING',
+            failureMessage: detail.slice(0, 500),
+          },
+        });
+      }
+    }
+    await this.finance?.fileDiscrepancy({
+      type: unpayable ? 'PAYMENT_MISSING_INTERNALLY' : 'DUPLICATE_CAPTURE',
+      provider: payment?.provider ?? 'unknown',
+      entityRef: event.providerRef || booking.id,
+      amountMinor: event.amountMinor,
+      currency: booking.currency,
+      detail,
+    });
+    await this.audit.record({
+      organizationId: booking.organizationId,
+      action: unpayable ? 'PAYMENT_CAPTURED_ON_UNPAYABLE_BOOKING' : 'PAYMENT_DUPLICATE_CAPTURE',
+      entityType: 'Booking',
+      entityId: booking.id,
+      metadata: {
+        providerRef: event.providerRef,
+        amountMinor: event.amountMinor,
+        currency: booking.currency,
+        bookingStatus: booking.status,
+        ...(reason ? { reason } : {}),
+      },
+    });
+    this.logger.error(detail);
+    return 'recorded';
   }
 
   private async fail(event: PaymentEvent) {

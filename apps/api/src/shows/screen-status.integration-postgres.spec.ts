@@ -74,7 +74,8 @@ describe('integration-real-postgres: screen operational status', () => {
     cinemas = new CinemasService(db as never, allowAll, audit);
 
     const org = await db.organization.create({
-      data: { name: `Scr ${suffix}`, slug: `scr-${suffix}` },
+      // Approved: an unapproved organization cannot put shows on sale.
+      data: { name: `Scr ${suffix}`, slug: `scr-${suffix}`, status: 'APPROVED' },
     });
     orgId = org.id;
     const venue = await db.venue.create({

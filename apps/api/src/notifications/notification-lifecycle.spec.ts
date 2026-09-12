@@ -23,6 +23,10 @@ function setup(opts: { deliver?: jest.Mock; dueRows?: Record<string, unknown>[] 
   const deliver = opts.deliver ?? jest.fn().mockResolvedValue({ provider: 'log' });
   const update = jest.fn().mockResolvedValue({});
   const prisma = {
+    // The sweep runs inside a transaction that holds its single-flight advisory lock.
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]) }),
+    ),
     user: { findUnique: jest.fn().mockResolvedValue({ locale: null }) },
     notification: {
       create: jest.fn().mockResolvedValue({ id: 'n1' }),
@@ -162,16 +166,22 @@ describe('the status column tells the truth', () => {
 
     expect(summary).toMatchObject({ sent: 0, failed: 0, retried: 1 });
     expect(update.mock.calls[0][0].data).toMatchObject({ attempts: 1, status: 'PENDING' });
+    // Queued for LATER, not for the next five-second sweep.
+    expect(update.mock.calls[0][0].data.scheduledFor.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('gives up after the attempt limit', async () => {
+    /*
+      Six attempts spread over about four hours, not three inside ten seconds: a provider blip
+      shorter than the retry ladder must not be able to fail a ticket email for good.
+    */
     const deliver = jest.fn().mockRejectedValue(new Error('connection reset'));
-    const { service, update } = setup({ deliver, dueRows: [dueRow({ attempts: 2 })] });
+    const { service, update } = setup({ deliver, dueRows: [dueRow({ attempts: 5 })] });
 
     const summary = await service.dispatchDue();
 
     expect(summary).toMatchObject({ failed: 1 });
-    expect(update.mock.calls[0][0].data).toMatchObject({ attempts: 3, status: 'FAILED' });
+    expect(update.mock.calls[0][0].data).toMatchObject({ attempts: 6, status: 'FAILED' });
   });
 
   it('believes a permanent refusal the first time', async () => {

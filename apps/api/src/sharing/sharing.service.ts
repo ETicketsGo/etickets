@@ -16,6 +16,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { ShareableResourceRegistry } from './shareable-resource.registry';
+import { ACCEPTED_TRANSFERS, currentHolderUserId } from '../tickets/ticket-holder';
 
 const YEARS_100 = 100 * 365 * 86_400_000;
 
@@ -248,11 +249,17 @@ export class SharingService {
   private async loadOwnedShare(user: RequestUser, shareId: string) {
     const invite = await this.prisma.ticketInvite.findUnique({
       where: { id: shareId },
-      include: { ticket: { select: { booking: { select: { userId: true } } } } },
+      include: {
+        ticket: {
+          select: { booking: { select: { userId: true } }, invites: ACCEPTED_TRANSFERS },
+        },
+      },
     });
     if (!invite)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Share not found.', HttpStatus.NOT_FOUND);
-    if (invite.ticket.booking.userId !== user.id && !this.isAdmin(user)) {
+    // The ticket's CURRENT holder, not its buyer: once transferred, the buyer may not re-open
+    // (extend) or re-scope a link to a ticket that is no longer theirs.
+    if (currentHolderUserId(invite.ticket) !== user.id && !this.isAdmin(user)) {
       throw new AppException(ErrorCodes.FORBIDDEN, 'Not your share.', HttpStatus.FORBIDDEN);
     }
     return invite;
@@ -338,11 +345,12 @@ export class SharingService {
   async activityForTicket(user: RequestUser, ticketId: string) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
-      select: { booking: { select: { userId: true } } },
+      select: { booking: { select: { userId: true } }, invites: ACCEPTED_TRANSFERS },
     });
     if (!ticket)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Ticket not found.', HttpStatus.NOT_FOUND);
-    if (ticket.booking.userId !== user.id && !this.isAdmin(user)) {
+    // Share management belongs to whoever holds the ticket now (see `loadOwnedShare`).
+    if (currentHolderUserId(ticket) !== user.id && !this.isAdmin(user)) {
       throw new AppException(ErrorCodes.FORBIDDEN, 'Not your ticket.', HttpStatus.FORBIDDEN);
     }
     const shares = await this.prisma.ticketInvite.findMany({

@@ -28,6 +28,10 @@ function setup(channel: 'sms' | 'email', deliver: jest.Mock) {
   };
   const calls: string[] = [];
   const prisma = {
+    // The sweep runs inside a transaction that holds its single-flight advisory lock.
+    $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]) }),
+    ),
     notification: {
       findMany: jest.fn().mockResolvedValue([row]),
       update: jest.fn().mockResolvedValue({}),

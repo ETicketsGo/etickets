@@ -18,7 +18,8 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
-import { refundTax, ticketPrices } from './refund-tax';
+import { refundTax, ticketNetPrices } from './refund-tax';
+import { ACCEPTED_TRANSFERS, currentHolderUserId } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -50,7 +51,8 @@ export class RefundsService {
         // their terms rather than by a constant in platform code.
         eventSession: { select: { startsAt: true } },
         event: { select: { refundsEnabled: true, refundCutoffHours: true } },
-        tickets: true,
+        // Accepted transfers travel with each ticket, so the refund can tell whose it is now.
+        tickets: { include: { invites: ACCEPTED_TRANSFERS } },
         taxLines: true,
       },
     });
@@ -61,6 +63,21 @@ export class RefundsService {
         ErrorCodes.FORBIDDEN,
         'You cannot refund this booking.',
         HttpStatus.FORBIDDEN,
+      );
+    }
+
+    /*
+      Cash never passed through a gateway, so there is nothing online to send it back through.
+
+      A cash booking has no Payment row, and an approved refund with no provider named went to
+      the default provider — which on QA is the mock, and reports COMPLETED for money that was
+      never returned. The money is in the venue's till; it goes back across the same counter.
+    */
+    if (booking.paymentMethod === 'CASH') {
+      throw new AppException(
+        ErrorCodes.REFUND_NOT_ELIGIBLE,
+        'This booking was paid in cash at the venue. Cash refunds are handled at the venue, not online.',
+        HttpStatus.CONFLICT,
       );
     }
 
@@ -79,40 +96,76 @@ export class RefundsService {
       );
     }
 
-    // Tickets already covered by an open (requested/processing/completed) refund
-    // must not be refunded again.
-    const priorRefunds = await this.prisma.refund.findMany({
-      where: { bookingId: booking.id, status: { in: [...OPEN_REFUND_STATUSES] } },
-    });
-    const alreadyCovered = new Set(priorRefunds.flatMap((r) => r.ticketIds));
+    /*
+      A ticket the buyer has transferred is no longer theirs to cash in.
 
-    // Only ACTIVE/CHECKED_IN tickets are refundable — apply the status filter even
-    // when the client supplies ticketIds (so already-refunded ids can't sneak in).
-    const refundable = (
-      input.ticketIds?.length
-        ? booking.tickets.filter((t) => input.ticketIds!.includes(t.id))
-        : booking.tickets
-    ).filter(
-      (t) =>
-        (t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN) &&
-        !alreadyCovered.has(t.id),
-    );
-    if (refundable.length === 0) {
+      An accepted transfer moves the ticket to its recipient, but the booking still names the
+      buyer — so the buyer could give a ticket away and then refund it, leaving the recipient
+      holding a voided ticket and the buyer holding the money. For the buyer, only tickets they
+      still hold are refundable, and naming one they gave away is refused outright rather than
+      quietly dropped. Platform staff act on the booking as a whole and are not limited by it.
+    */
+    const actingAsStaff = this.access.isPlatformAdmin(user);
+    const heldByCaller = (t: (typeof booking.tickets)[number]) =>
+      currentHolderUserId({ booking, invites: t.invites }) === user.id;
+    if (
+      !actingAsStaff &&
+      input.ticketIds?.length &&
+      booking.tickets.some((t) => input.ticketIds!.includes(t.id) && !heldByCaller(t))
+    ) {
       throw new AppException(
         ErrorCodes.REFUND_NOT_ELIGIBLE,
-        'No refundable tickets in this booking.',
+        'One or more of these tickets has been transferred to someone else and can no longer be refunded by you.',
         HttpStatus.CONFLICT,
       );
     }
-    const targetTickets = refundable;
+    const ownTickets = actingAsStaff ? booking.tickets : booking.tickets.filter(heldByCaller);
+
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
-    const { priceByType, bookingTicketsMinor } = ticketPrices(items);
-    const ticketsMinor = targetTickets.reduce(
-      (s, t) => s + (priceByType.get(t.ticketTypeId) ?? 0),
-      0,
-    );
+    // What each ticket actually cost after the booking's discount — see `ticketNetPrices`.
+    // Priced across EVERY ticket on the booking, transferred or not, so the shares still add up.
+    const { netByTicket, bookingTicketsMinor } = ticketNetPrices(items, booking.tickets, booking);
 
     /*
+      Reading the open refunds and creating this one are a single step per booking.
+
+      Two requests for the same tickets arriving together both read "nothing covers these yet"
+      and both created a refund; both could then be approved and paid. The advisory lock is
+      keyed on the booking, so the second request waits for the first to commit and then sees
+      its refund in `priorRefunds`. Scoped to the transaction, so it cannot be left held.
+    */
+    const refund = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`refund-request:${booking.id}`}))`;
+
+      // Tickets already covered by an open (requested/processing/completed) refund
+      // must not be refunded again.
+      const priorRefunds = await tx.refund.findMany({
+        where: { bookingId: booking.id, status: { in: [...OPEN_REFUND_STATUSES] } },
+      });
+      const alreadyCovered = new Set(priorRefunds.flatMap((r) => r.ticketIds));
+
+      // Only ACTIVE/CHECKED_IN tickets are refundable — apply the status filter even
+      // when the client supplies ticketIds (so already-refunded ids can't sneak in).
+      const refundable = (
+        input.ticketIds?.length
+          ? ownTickets.filter((t) => input.ticketIds!.includes(t.id))
+          : ownTickets
+      ).filter(
+        (t) =>
+          (t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN) &&
+          !alreadyCovered.has(t.id),
+      );
+      if (refundable.length === 0) {
+        throw new AppException(
+          ErrorCodes.REFUND_NOT_ELIGIBLE,
+          'No refundable tickets in this booking.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      const targetTickets = refundable;
+      const ticketsMinor = targetTickets.reduce((s, t) => s + (netByTicket.get(t.id) ?? 0), 0);
+
+      /*
       Tax charged on the tickets being returned goes back with them.
 
       Booking and payment fees do NOT — that is the platform's long-standing policy and this
@@ -125,32 +178,35 @@ export class RefundsService {
       line as added refunded Indian GST twice and refused the refund as exceeding the balance.
       Nothing here decides WHAT rate applies — that is TaxRule configuration, and with none
       active this whole block is zero.
+
+      Both figures are after the discount, because tax was levied on the discounted price.
     */
-    const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor);
-    const taxMinor = tax.taxMinor;
-    const amountMinor = ticketsMinor + tax.addedMinor;
+      const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor);
+      const taxMinor = tax.taxMinor;
+      const amountMinor = ticketsMinor + tax.addedMinor;
 
-    // Never let cumulative refunds exceed what was paid.
-    const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
-    if (priorAmount + amountMinor > booking.totalMinor) {
-      throw new AppException(
-        ErrorCodes.REFUND_NOT_ELIGIBLE,
-        'Refund amount exceeds the remaining refundable balance.',
-        HttpStatus.CONFLICT,
-      );
-    }
+      // Never let cumulative refunds exceed what was paid.
+      const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
+      if (priorAmount + amountMinor > booking.totalMinor) {
+        throw new AppException(
+          ErrorCodes.REFUND_NOT_ELIGIBLE,
+          'Refund amount exceeds the remaining refundable balance.',
+          HttpStatus.CONFLICT,
+        );
+      }
 
-    const refund = await this.prisma.refund.create({
-      data: {
-        bookingId: booking.id,
-        organizationId: booking.organizationId,
-        amountMinor,
-        taxMinor,
-        reason: input.reason,
-        status: RefundStatus.REQUESTED,
-        ticketIds: targetTickets.map((t) => t.id),
-        requestedByUserId: user.id,
-      },
+      return tx.refund.create({
+        data: {
+          bookingId: booking.id,
+          organizationId: booking.organizationId,
+          amountMinor,
+          taxMinor,
+          reason: input.reason,
+          status: RefundStatus.REQUESTED,
+          ticketIds: targetTickets.map((t) => t.id),
+          requestedByUserId: user.id,
+        },
+      });
     });
     await this.audit.record({
       actorUserId: user.id,
@@ -158,7 +214,7 @@ export class RefundsService {
       action: 'REFUND_REQUESTED',
       entityType: 'Refund',
       entityId: refund.id,
-      metadata: { amountMinor },
+      metadata: { amountMinor: refund.amountMinor },
     });
     return refund;
   }
@@ -191,19 +247,43 @@ export class RefundsService {
   }
 
   /**
+   * One refund from the platform queue, by id.
+   *
+   * The admin detail page used to look for the refund inside the newest hundred rows of the
+   * list, so an older request — the ones most likely to need chasing — showed "not found".
+   * Same shape as a list row, so the page reads it the same way.
+   */
+  async adminGet(refundId: string) {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      include: { booking: { select: { buyerEmail: true, eventId: true, currency: true } } },
+    });
+    if (!refund) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Refund not found.', HttpStatus.NOT_FOUND);
+    }
+    return refund;
+  }
+
+  /**
    * One organization's refunds.
    *
    * `adminList` above is deliberately unscoped — it is the platform's queue. An organizer
    * reaching for it would see every seller's refunds, so this is a separate query with the
    * tenant filter applied in the WHERE clause rather than after the fact. Membership is
    * asserted first, so a caller cannot read another organization's book by passing its id.
+   *
+   * Owners and managers only. A refund row carries the buyer's name and email and the money
+   * returned to them; check-in staff scan tickets at the door and have no need to read either.
    */
   async listForOrganization(
     user: RequestUser,
     organizationId: string,
     opts: { status?: RefundStatus; page?: number; pageSize?: number } = {},
   ) {
-    await this.access.assertMember(user, organizationId);
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
     const page = Math.max(1, opts.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
     const where = { organizationId, ...(opts.status ? { status: opts.status } : {}) };
@@ -306,6 +386,23 @@ export class RefundsService {
       return this.prisma.refund.findUnique({ where: { id: refundId } });
     }
 
+    /*
+      A cash booking cannot be refunded online — see the same refusal in `request`. Checked
+      before the claim so a request that predates that refusal stays REQUESTED and can still
+      be rejected, rather than being sent to whichever provider happens to be the default.
+    */
+    const paidHow = await this.prisma.booking.findUnique({
+      where: { id: refund.bookingId },
+      select: { paymentMethod: true },
+    });
+    if (paidHow?.paymentMethod === 'CASH' && refund.amountMinor > 0) {
+      throw new AppException(
+        ErrorCodes.REFUND_NOT_ELIGIBLE,
+        'This booking was paid in cash at the venue. Cash refunds are handled at the venue, not online.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
     // Atomic claim BEFORE any money moves: prevents concurrent double-approval
     // (and thus double provider refunds). Only the winner proceeds.
     const claim = await this.prisma.refund.updateMany({
@@ -336,6 +433,40 @@ export class RefundsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
 
+    /*
+      Every ticket this refund names must still be live BEFORE any money moves.
+
+      The provider used to be called first and the ticket status looked at afterwards, so a
+      refund whose tickets had already gone back through another refund still paid out — and
+      then voided nothing. Refused here, the second payout never happens.
+    */
+    const stillLive = new Set(
+      booking.tickets
+        .filter((t) => t.status === TicketStatus.ACTIVE || t.status === TicketStatus.CHECKED_IN)
+        .map((t) => t.id),
+    );
+    const gone = refund.ticketIds.filter((id) => !stillLive.has(id));
+    if (gone.length > 0) {
+      await this.prisma.refund.update({
+        where: { id: refundId },
+        data: { status: RefundStatus.FAILED },
+      });
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: refund.organizationId,
+        action: 'REFUND_TICKETS_NOT_LIVE',
+        entityType: 'Refund',
+        entityId: refundId,
+        metadata: { ticketIds: gone },
+      });
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Some tickets on this refund have already been refunded or cancelled, so nothing was paid out.',
+        HttpStatus.CONFLICT,
+        { ticketIds: gone },
+      );
+    }
+
     const payment = await this.prisma.payment.findUnique({
       where: { bookingId: refund.bookingId },
     });
@@ -357,10 +488,10 @@ export class RefundsService {
 
     // Provider call happens exactly once (after the claim). On failure the refund
     // is marked FAILED rather than left stuck in PROCESSING.
-    let providerResult: { providerRef: string };
+    let providerResult: { providerRef: string; status?: 'COMPLETED' | 'PROCESSING' | 'FAILED' };
     try {
       providerResult = nothingWasCaptured
-        ? { providerRef: `free:${refund.bookingId}` }
+        ? { providerRef: `free:${refund.bookingId}`, status: 'COMPLETED' }
         : await this.payments.refundPayment(
             payment?.providerRef ?? 'mock',
             refund.amountMinor,
@@ -376,6 +507,39 @@ export class RefundsService {
         .catch(() => undefined);
       throw err;
     }
+
+    /*
+      The provider's answer decides what the row says.
+
+      A refund the gateway refused came back FAILED and was then marked COMPLETED, with the
+      tickets voided — the customer told their money was on its way when it was not.
+
+      A refund the gateway ACCEPTED but has not yet paid (Razorpay's `pending`) stays PROCESSING.
+      The tickets still go back now, because the refund is committed at the provider; the row
+      becomes COMPLETED when `refund.processed` arrives, or FAILED on `refund.failed`, both in
+      the Razorpay webhook processor. Until then it sits in the admin queue under PROCESSING.
+    */
+    if (providerResult.status === 'FAILED') {
+      await this.prisma.refund.update({
+        where: { id: refundId },
+        data: { status: RefundStatus.FAILED, providerRef: providerResult.providerRef },
+      });
+      await this.audit.record({
+        actorUserId: user.id,
+        organizationId: refund.organizationId,
+        action: 'REFUND_FAILED',
+        entityType: 'Refund',
+        entityId: refundId,
+        metadata: { amountMinor: refund.amountMinor, providerRef: providerResult.providerRef },
+      });
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        'The payment provider refused this refund. No tickets were cancelled.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    const settledStatus =
+      providerResult.status === 'PROCESSING' ? RefundStatus.PROCESSING : RefundStatus.COMPLETED;
 
     // Only void tickets that are still live; return their stock via the
     // experience's inventory strategy (frees movie seats + decrements counters).
@@ -418,7 +582,7 @@ export class RefundsService {
       await tx.refund.update({
         where: { id: refundId },
         data: {
-          status: RefundStatus.COMPLETED,
+          status: settledStatus,
           processedByUserId: user.id,
           providerRef: providerResult.providerRef,
         },
@@ -458,12 +622,12 @@ export class RefundsService {
     await this.audit.record({
       actorUserId: user.id,
       organizationId: refund.organizationId,
-      action: 'REFUND_COMPLETED',
+      action: settledStatus === RefundStatus.COMPLETED ? 'REFUND_COMPLETED' : 'REFUND_PROCESSING',
       entityType: 'Refund',
       entityId: refundId,
       metadata: { amountMinor: refund.amountMinor, providerRef: providerResult.providerRef },
     });
-    this.metrics.recordRefundCompleted();
+    if (settledStatus === RefundStatus.COMPLETED) this.metrics.recordRefundCompleted();
     return this.prisma.refund.findUnique({ where: { id: refundId } });
   }
 }

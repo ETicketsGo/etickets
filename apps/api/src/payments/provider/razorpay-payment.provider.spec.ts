@@ -142,6 +142,13 @@ describe('RazorpayPaymentProvider', () => {
     expect(result).toEqual({ providerRef: 'rfnd_1', status: 'COMPLETED' });
   });
 
+  it('refund maps a pending refund to PROCESSING, not COMPLETED', async () => {
+    // Razorpay creates refunds `pending` and settles them later by webhook.
+    mockPaymentsRefund.mockResolvedValue({ id: 'rfnd_3', status: 'pending' });
+    const result = await makeProvider().refund({ providerRef: 'pay_1', amountMinor: 1 });
+    expect(result).toEqual({ providerRef: 'rfnd_3', status: 'PROCESSING' });
+  });
+
   it('refund maps a failed refund to FAILED', async () => {
     mockPaymentsRefund.mockResolvedValue({ id: 'rfnd_2', status: 'failed' });
     const result = await makeProvider().refund({ providerRef: 'pay_1', amountMinor: 1 });

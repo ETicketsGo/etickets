@@ -1,5 +1,10 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role, priceBundle, type BundleComponentInput } from '@eticketsgo/shared-types';
+import {
+  EventStatus,
+  Role,
+  priceBundle,
+  type BundleComponentInput,
+} from '@eticketsgo/shared-types';
 import type { CreateBundleInput, UpdateBundleInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -190,7 +195,9 @@ export class BundlesService {
 
   async publicListForEvent(eventId: string, now = new Date()) {
     const bundles = await this.prisma.bundle.findMany({
-      where: { eventId, enabled: true },
+      // Only for a PUBLISHED event, filtered in the query — the same rule and reasoning as
+      // `AddOnsService.publicListForEvent`: an unauthenticated route must not preview a draft.
+      where: { eventId, enabled: true, event: { status: EventStatus.PUBLISHED } },
       orderBy: { createdAt: 'asc' },
       include: { items: true },
     });

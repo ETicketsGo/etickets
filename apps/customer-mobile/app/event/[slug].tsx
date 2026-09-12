@@ -11,6 +11,7 @@ import { formatDateTime, formatMoney } from '@/services/locale';
 import { useEvent } from '@/features/events/api';
 import { QuantityStepper } from '@/features/events/quantity-stepper';
 import type { EventSession, TicketType } from '@/features/events/schema';
+import { requiresSeatSelection } from '@/features/events/seating';
 
 /**
  * Event detail and ticket selection.
@@ -45,11 +46,12 @@ export default function EventDetailScreen() {
   );
 
   /**
-   * MOVIE-type experiences use reserved seating: their sessions have a screen with a
-   * seat map, and the API requires seatIds on the booking line. EVENT-type is general
-   * admission, where a quantity is all the API wants.
+   * Whether this session is booked by choosing seats — decided by the session, not the kind
+   * of event. A seated theatre or arena show is an EVENT, and keying this on `MOVIE` offered
+   * it a quantity stepper the API refuses at the last step. The server's `seatBased` answers;
+   * only an older API without it falls back to the experience type.
    */
-  const reservedSeating = event?.experienceType === 'MOVIE';
+  const reservedSeating = requiresSeatSelection(session, event?.experienceType);
 
   const totalQty = selected.reduce((n, r) => n + r.qty, 0);
   const subtotalMinor = selected.reduce((n, r) => n + r.type.priceMinor * r.qty, 0);

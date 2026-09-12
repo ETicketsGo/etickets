@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ResourceType } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from '../tickets/qr.service';
+import { ACCEPTED_TRANSFERS } from '../tickets/ticket-holder';
 import type { ShareableResource } from './shareable-resource';
 import { TicketShareableResource } from './resources/ticket-shareable.resource';
 
@@ -40,17 +41,19 @@ export class ShareableResourceRegistry {
         seatLabel: true,
         holderName: true,
         booking: { select: { userId: true, reference: true } },
+        // Who may share it: the current holder, which after a transfer is not the buyer.
+        invites: ACCEPTED_TRANSFERS,
         ticketType: { select: { name: true } },
         eventSession: {
           select: {
             startsAt: true,
             endsAt: true,
-            screen: { select: { name: true, cinema: { select: { name: true } } } },
+            screen: { select: { name: true, cinema: { select: { name: true, timezone: true } } } },
             event: {
               select: {
                 title: true,
                 experienceType: true,
-                venue: { select: { name: true } },
+                venue: { select: { name: true, timezone: true } },
               },
             },
           },

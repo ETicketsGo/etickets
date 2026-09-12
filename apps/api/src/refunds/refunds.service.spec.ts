@@ -39,6 +39,9 @@ interface ProcessOpts {
     seatId: string | null;
   }>;
   providerThrows?: boolean;
+  /** What the provider says about the refund it was asked for. */
+  providerStatus?: 'COMPLETED' | 'PROCESSING' | 'FAILED';
+  paymentMethod?: 'ONLINE' | 'CASH';
 }
 
 function setupProcess(opts: ProcessOpts = {}) {
@@ -57,6 +60,7 @@ function setupProcess(opts: ProcessOpts = {}) {
     buyerEmail: 'ada@example.test',
     eventSessionId: 'sess-1',
     totalMinor: 5000,
+    paymentMethod: opts.paymentMethod ?? 'ONLINE',
     tickets: opts.bookingTickets ?? [
       { id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1', seatId: 's1' },
     ],
@@ -101,7 +105,9 @@ function setupProcess(opts: ProcessOpts = {}) {
   const payments = {
     refundPayment: opts.providerThrows
       ? jest.fn().mockRejectedValue(new Error('provider down'))
-      : jest.fn().mockResolvedValue({ providerRef: 'rf_abc' }),
+      : jest
+          .fn()
+          .mockResolvedValue({ providerRef: 'rf_abc', status: opts.providerStatus ?? 'COMPLETED' }),
   };
   const access = accessStub();
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
@@ -234,6 +240,80 @@ describe('RefundsService.process', () => {
       }),
     );
   });
+
+  /*
+    Two refunds for the same ticket can both be approved. The provider used to be called
+    first and the tickets inspected afterwards, so the second one paid out again and then
+    voided nothing.
+  */
+  it('refuses before any money moves when a named ticket is no longer live', async () => {
+    const { service, prisma, payments, tx } = setupProcess({
+      approveClaimCount: 1,
+      bookingTickets: [
+        { id: 'tk1', status: TicketStatus.REFUNDED, ticketTypeId: 't1', seatId: null },
+      ],
+    });
+    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+    expect(payments.refundPayment).not.toHaveBeenCalled();
+    expect(tx.refund.update).not.toHaveBeenCalled();
+    expect(prisma.refund.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: RefundStatus.FAILED } }),
+    );
+  });
+
+  it('a refund the provider refused is FAILED, not COMPLETED, and cancels no tickets', async () => {
+    const { service, prisma, tx, receipts } = setupProcess({
+      approveClaimCount: 1,
+      providerStatus: 'FAILED',
+    });
+    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toBeInstanceOf(AppException);
+    expect(prisma.refund.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: RefundStatus.FAILED }),
+      }),
+    );
+    expect(tx.ticket.updateMany).not.toHaveBeenCalled();
+    expect(receipts.issueCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('a refund the provider accepted but has not paid stays PROCESSING', async () => {
+    // Razorpay answers `pending`; `refund.processed` finalises it later.
+    const { service, tx } = setupProcess({ approveClaimCount: 1, providerStatus: 'PROCESSING' });
+    await service.process(ADMIN, 'rf-1', 'APPROVE');
+    expect(tx.refund.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: RefundStatus.PROCESSING, providerRef: 'rf_abc' }),
+      }),
+    );
+  });
+
+  it('refuses to refund a cash booking online, before claiming it', async () => {
+    const { service, prisma, payments } = setupProcess({
+      approveClaimCount: 1,
+      paymentMethod: 'CASH',
+    });
+    await expect(service.process(ADMIN, 'rf-1', 'APPROVE')).rejects.toThrow(/at the venue/);
+    expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+    expect(payments.refundPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe('RefundsService.adminGet', () => {
+  it('reads the refund by id rather than searching a page of the list', async () => {
+    const { service, prisma } = setupProcess();
+    await service.adminGet('rf-1');
+    expect(prisma.refund.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'rf-1' } }),
+    );
+  });
+
+  it('is NOT_FOUND for an id that does not exist', async () => {
+    const { service, prisma } = setupProcess();
+    (prisma.refund.findUnique as jest.Mock).mockResolvedValue(null);
+    await expect(service.adminGet('nope')).rejects.toMatchObject({ code: ErrorCodes.NOT_FOUND });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -250,11 +330,22 @@ interface RequestOpts {
     basis?: string | null;
     inclusive?: boolean | null;
   }[];
-  bookingTickets: Array<{ id: string; status: string; ticketTypeId: string }>;
+  bookingTickets: Array<{
+    id: string;
+    status: string;
+    ticketTypeId: string;
+    /** Accepted TRANSFER invites, as ACCEPTED_TRANSFERS loads them. */
+    invites?: { acceptedByUserId: string | null }[];
+  }>;
+  /** Call as the buyer (u1) rather than as platform staff. */
+  asBuyer?: boolean;
   ticketIds?: string[];
   priorRefunds?: Array<{ ticketIds: string[]; amountMinor: number; status: string }>;
   totalMinor?: number;
-  items?: Array<{ ticketTypeId: string; unitPriceMinor: number; quantity?: number }>;
+  subtotalMinor?: number;
+  discountMinor?: number;
+  paymentMethod?: 'ONLINE' | 'CASH';
+  items?: Array<{ id?: string; ticketTypeId: string; unitPriceMinor: number; quantity?: number }>;
 }
 
 function setupRequest(opts: RequestOpts) {
@@ -263,25 +354,36 @@ function setupRequest(opts: RequestOpts) {
     userId: 'u1',
     organizationId: 'org-1',
     status: BookingStatus.CONFIRMED,
+    paymentMethod: opts.paymentMethod ?? 'ONLINE',
     totalMinor: opts.totalMinor ?? 100000,
+    subtotalMinor: opts.subtotalMinor,
+    discountMinor: opts.discountMinor ?? 0,
     // Session far in the future → passes the 48h refund-window policy.
     eventSession: { startsAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30) },
     tickets: opts.bookingTickets,
     taxLines: opts.taxLines ?? [],
   };
+  const refund = {
+    findMany: jest.fn().mockResolvedValue(opts.priorRefunds ?? []),
+    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 'rf-new',
+      ...data,
+    })),
+  };
+  // The open-refund read and the create run on the transaction client, behind a lock.
+  const tx = { $executeRaw: jest.fn().mockResolvedValue(0), refund };
   const prisma = {
     booking: { findUnique: jest.fn().mockResolvedValue(booking) },
-    refund: {
-      findMany: jest.fn().mockResolvedValue(opts.priorRefunds ?? []),
-      create: jest.fn().mockResolvedValue({ id: 'rf-new' }),
-    },
+    refund,
     bookingItem: {
       findMany: jest
         .fn()
         .mockResolvedValue(opts.items ?? [{ ticketTypeId: 't1', unitPriceMinor: 5000 }]),
     },
+    $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
   const access = accessStub();
+  if (opts.asBuyer) access.isPlatformAdmin.mockReturnValue(false);
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const service = new RefundsService(
     prisma as never,
@@ -293,7 +395,7 @@ function setupRequest(opts: RequestOpts) {
     new MetricsService(),
     { issueCreditNote: jest.fn() } as never,
   );
-  return { service, prisma };
+  return { service, prisma, tx };
 }
 
 describe('RefundsService.request hardening', () => {
@@ -515,6 +617,129 @@ describe('RefundsService.request hardening', () => {
         }),
       );
     });
+  });
+
+  /*
+    A 50% coupon on two ₹500 tickets took ₹500. Refunding one ticket returned ₹500 — the whole
+    payment — and the second ticket was then refused as exceeding the balance.
+  */
+  describe('a booking bought with a discount', () => {
+    const couponBooking = (over: Partial<RequestOpts> = {}) =>
+      setupRequest({
+        bookingTickets: [
+          { id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+          { id: 'tk2', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+        ],
+        items: [{ id: 'i1', ticketTypeId: 't1', unitPriceMinor: 50_000, quantity: 2 }],
+        subtotalMinor: 100_000,
+        discountMinor: 50_000,
+        totalMinor: 52_000, // ₹500 for the tickets + ₹20 of fees
+        ...over,
+      });
+
+    it('refunds a ticket at what was paid for it, not its pre-coupon price', async () => {
+      const { service, prisma } = couponBooking();
+      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk1'] } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amountMinor: 25_000 }) }),
+      );
+    });
+
+    it('still refunds the second ticket after the first', async () => {
+      const { service, prisma } = couponBooking({
+        priorRefunds: [{ ticketIds: ['tk1'], amountMinor: 25_000, status: RefundStatus.COMPLETED }],
+      });
+      await service.request(ADMIN, { bookingId: 'b1', ticketIds: ['tk2'] } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amountMinor: 25_000 }) }),
+      );
+    });
+  });
+
+  it('prices two lines of the same ticket type at their own prices', async () => {
+    // Keyed by type, the second line's price overwrote the first: 2 × ₹6 on a ₹10 booking.
+    const { service, prisma } = setupRequest({
+      bookingTickets: [
+        { id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+        { id: 'tk2', status: TicketStatus.ACTIVE, ticketTypeId: 't1' },
+      ],
+      items: [
+        { id: 'i1', ticketTypeId: 't1', unitPriceMinor: 400, quantity: 1 },
+        { id: 'i2', ticketTypeId: 't1', unitPriceMinor: 600, quantity: 1 },
+      ],
+      subtotalMinor: 1_000,
+      totalMinor: 1_000,
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    expect(prisma.refund.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ amountMinor: 1_000 }) }),
+    );
+  });
+
+  /*
+    An accepted transfer moves the ticket to its recipient, but the booking still names the
+    buyer — who could give a ticket away and then refund it.
+  */
+  describe('a ticket the buyer has transferred away', () => {
+    const BUYER = { id: 'u1', email: 'u1@example.test', fullName: 'Buyer', roles: [] as never };
+    const transferredBooking = () =>
+      setupRequest({
+        asBuyer: true,
+        bookingTickets: [
+          {
+            id: 'tk1',
+            status: TicketStatus.ACTIVE,
+            ticketTypeId: 't1',
+            invites: [{ acceptedByUserId: 'friend-1' }],
+          },
+          { id: 'tk2', status: TicketStatus.ACTIVE, ticketTypeId: 't1', invites: [] },
+        ],
+        items: [{ id: 'i1', ticketTypeId: 't1', unitPriceMinor: 5000, quantity: 2 }],
+      });
+
+    it('is refused when the buyer names it — not quietly dropped from the request', async () => {
+      // Named alongside a ticket the buyer still holds: dropping tk1 and refunding tk2 alone
+      // would answer a different request than the one made.
+      const { service, prisma } = transferredBooking();
+      await expect(
+        service.request(BUYER, { bookingId: 'b1', ticketIds: ['tk1', 'tk2'] } as never),
+      ).rejects.toMatchObject({ code: ErrorCodes.REFUND_NOT_ELIGIBLE });
+      expect(prisma.refund.create).not.toHaveBeenCalled();
+    });
+
+    it('is left out when the buyer refunds the whole booking', async () => {
+      const { service, prisma } = transferredBooking();
+      await service.request(BUYER, { bookingId: 'b1' } as never);
+      expect(prisma.refund.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ ticketIds: ['tk2'], amountMinor: 5000 }),
+        }),
+      );
+    });
+  });
+
+  it('refuses an online refund of a cash booking — that money is in the venue till', async () => {
+    const { service, prisma } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+      paymentMethod: 'CASH',
+    });
+    await expect(service.request(ADMIN, { bookingId: 'b1' } as never)).rejects.toThrow(
+      /at the venue/,
+    );
+    expect(prisma.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('reads the open refunds only after taking the per-booking lock, in one transaction', async () => {
+    // Two simultaneous requests for the same tickets both saw nothing covering them.
+    const { service, prisma, tx } = setupRequest({
+      bookingTickets: [{ id: 'tk1', status: TicketStatus.ACTIVE, ticketTypeId: 't1' }],
+    });
+    await service.request(ADMIN, { bookingId: 'b1' } as never);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    const lockedAt = tx.$executeRaw.mock.invocationCallOrder[0];
+    expect(lockedAt).toBeLessThan(tx.refund.findMany.mock.invocationCallOrder[0]);
+    expect(lockedAt).toBeLessThan(tx.refund.create.mock.invocationCallOrder[0]);
   });
 
   it('creates a refund for genuinely refundable tickets', async () => {

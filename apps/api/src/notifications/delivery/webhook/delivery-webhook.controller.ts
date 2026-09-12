@@ -15,6 +15,7 @@ import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../../../common/decorators';
 import { AppException, ErrorCodes } from '../../../common/errors';
 import { safeEqual } from './delivery-webhook.signatures';
@@ -37,8 +38,17 @@ export const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Re
  * For MSG91 and SES it is the only thing the provider will carry: both register a callback
  * URL in a dashboard and neither offers a custom header. It is stated as weaker than a
  * signature in the ADR rather than presented as equivalent.
+ *
+ * ── WHY THE PER-IP RATE LIMIT DOES NOT APPLY ───────────────────────────────────────
+ * The global limit is 120 requests a minute per client IP, and a provider is ONE client: a bulk
+ * send of a few hundred SMS produces a few hundred Twilio status callbacks from a handful of
+ * Twilio addresses within seconds. Past the limit they got 429, and Twilio does not retry a
+ * status callback, so those messages were never marked delivered or failed. The limit exists to
+ * slow down people guessing credentials; every route here authenticates by signature or path
+ * secret before it writes anything, so it protects nothing here and loses real events.
  */
 @ApiTags('notifications')
+@SkipThrottle()
 @Controller('notifications/webhooks')
 export class DeliveryWebhookController {
   constructor(

@@ -70,6 +70,57 @@ describe('a credential in the path is redacted', () => {
   });
 });
 
+describe('a link token in the path is redacted', () => {
+  /*
+    Each of these IS an account or a ticket rather than a webhook secret. A back-office invite
+    account holds its grants before it is accepted, so a readable invitation token in a 4xx log
+    line is a takeover; a share token opens a guest QR; an attendee-invite token claims a ticket.
+  */
+  const TOKEN = 'Zk3pL9qR2sT5vW8xY1bC4dF7gH0jK6mN';
+
+  it('redacts the invitation token on both of its routes', () => {
+    expect(redactSecretSegments(`/api/public/invitations/${TOKEN}`)).toBe(
+      `/api/public/invitations/${REDACTED}`,
+    );
+    expect(redactSecretSegments(`/api/public/invitations/${TOKEN}/accept`)).toBe(
+      `/api/public/invitations/${REDACTED}/accept`,
+    );
+  });
+
+  it('redacts a share-link token', () => {
+    expect(redactSecretSegments(`/api/public/share/${TOKEN}`)).toBe(
+      `/api/public/share/${REDACTED}`,
+    );
+  });
+
+  it('redacts an attendee-invite token on accept and on decline', () => {
+    expect(redactSecretSegments(`/api/attendee-invites/${TOKEN}/accept`)).toBe(
+      `/api/attendee-invites/${REDACTED}/accept`,
+    );
+    expect(redactSecretSegments(`/api/attendee-invites/${TOKEN}/decline`)).toBe(
+      `/api/attendee-invites/${REDACTED}/decline`,
+    );
+  });
+
+  it('keeps the invite ID on resend, which is an identifier and not a credential', () => {
+    expect(redactSecretSegments('/api/attendee-invites/cmtut10xc000jt06sn5knpcf7/resend')).toBe(
+      '/api/attendee-invites/cmtut10xc000jt06sn5knpcf7/resend',
+    );
+  });
+
+  it('does not mistake a longer action name for accept', () => {
+    expect(redactSecretSegments('/api/attendee-invites/abc/acceptance-report')).toBe(
+      '/api/attendee-invites/abc/acceptance-report',
+    );
+  });
+
+  it('drops the query string AND redacts the token', () => {
+    expect(safeRequestPath({ originalUrl: `/api/public/share/${TOKEN}?utm_source=mail` })).toBe(
+      `/api/public/share/${REDACTED}`,
+    );
+  });
+});
+
 describe('negative controls — ordinary paths are untouched', () => {
   /*
     The failure this guards against is a redactor that quietly mangles the logs. A booking

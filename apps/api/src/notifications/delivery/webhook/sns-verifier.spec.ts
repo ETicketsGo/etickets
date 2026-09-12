@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSign, createPrivateKey, type KeyObject } from 'node:crypto';
+import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SnsVerifier, type SnsEnvelope } from './sns-verifier';
 
 /**
@@ -83,6 +85,40 @@ try {
 
 const TRUSTED_URL = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-abc.pem';
 
+function configFor(values: Record<string, string | undefined>): ConfigService {
+  return { get: (k: string) => values[k] } as unknown as ConfigService;
+}
+
+/**
+ * An envelope that is well-formed but carries a dummy signature.
+ *
+ * Enough for every check that happens BEFORE any signature work -- the host and the topic --
+ * so these cases run whether or not openssl is available to mint a real certificate.
+ */
+function unsigned(over: Partial<SnsEnvelope> = {}): SnsEnvelope {
+  return {
+    Type: 'Notification',
+    MessageId: 'msg-1',
+    TopicArn: 'arn:aws:sns:us-east-1:1234:ses-events',
+    Message: '{"eventType":"Bounce"}',
+    Timestamp: '2026-09-07T10:00:00.000Z',
+    SignatureVersion: '1',
+    Signature: 'ZGVhZGJlZWY=',
+    SigningCertURL: TRUSTED_URL,
+    ...over,
+  };
+}
+
+/** A fetch that records the URL and answers not-ok: reaching it proves the earlier checks passed. */
+function unreachableCerts() {
+  const calls: string[] = [];
+  const impl = jest.fn(async (url: unknown) => {
+    calls.push(String(url));
+    return { ok: false, text: async () => '' } as never;
+  });
+  return { impl: impl as unknown as typeof fetch, calls };
+}
+
 /** Runs only with a real certificate in hand; see `selfSigned`. */
 const maybe = (name: string, fn: () => Promise<void> | void) =>
   it(name, async () => {
@@ -127,6 +163,123 @@ function certServer(body = certPem) {
   });
   return { impl: impl as unknown as typeof fetch, calls };
 }
+
+describe('the signing host is matched as a whole, not by prefix and suffix', () => {
+  /*
+    `startsWith('sns.') && endsWith('.amazonaws.com')` accepted `sns.s3.amazonaws.com`: an S3
+    bucket named `sns`, which anybody can create and serve their own certificate from.
+  */
+  it.each([
+    'sns.s3.amazonaws.com',
+    'sns.my-bucket.s3.amazonaws.com',
+    'sns.s3-website-us-east-1.amazonaws.com',
+    'sns.us-east-1.s3.amazonaws.com',
+    'sns.execute-api.us-east-1.amazonaws.com',
+    'sns.ec2.amazonaws.com',
+    'sns.amazonaws.com',
+  ])('refuses %s without making a request', async (host) => {
+    const { impl, calls } = unreachableCerts();
+    await expect(
+      new SnsVerifier(impl).verify(unsigned({ SigningCertURL: `https://${host}/cert.pem` })),
+    ).resolves.toEqual({ ok: false, reason: 'cert_url_untrusted_host' });
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    'sns.us-east-1.amazonaws.com',
+    'sns.ap-southeast-4.amazonaws.com',
+    'sns.us-gov-west-1.amazonaws.com',
+    'sns.cn-north-1.amazonaws.com.cn',
+  ])('lets a real regional signing host (%s) through to the certificate fetch', async (host) => {
+    const { impl, calls } = unreachableCerts();
+    await expect(
+      new SnsVerifier(impl).verify(unsigned({ SigningCertURL: `https://${host}/cert.pem` })),
+    ).resolves.toEqual({ ok: false, reason: 'cert_fetch_failed' });
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('which topic a message may come from', () => {
+  /*
+    A valid signature proves Amazon sent the message, not that it came from OUR topic: anybody
+    can create a topic, subscribe this endpoint and publish signed bounces from it.
+  */
+  const ALLOWED = 'arn:aws:sns:ap-south-1:1111:ses-events-qa';
+
+  it('refuses a topic that is not on SES_SNS_TOPIC_ARNS, before fetching anything', async () => {
+    const { impl, calls } = unreachableCerts();
+    const verifier = new SnsVerifier(impl, configFor({ SES_SNS_TOPIC_ARNS: ALLOWED }));
+    await expect(
+      verifier.verify(unsigned({ TopicArn: 'arn:aws:sns:us-east-1:9999:attacker-topic' })),
+    ).resolves.toEqual({ ok: false, reason: 'topic_not_allowed' });
+    await expect(verifier.verify(unsigned({ TopicArn: undefined }))).resolves.toEqual({
+      ok: false,
+      reason: 'topic_not_allowed',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('accepts any listed topic, tolerating spaces around the commas', async () => {
+    const { impl, calls } = unreachableCerts();
+    const verifier = new SnsVerifier(
+      impl,
+      configFor({ SES_SNS_TOPIC_ARNS: ` arn:aws:sns:us-east-1:1111:other , ${ALLOWED} ` }),
+    );
+    await expect(verifier.verify(unsigned({ TopicArn: ALLOWED }))).resolves.toEqual({
+      ok: false,
+      reason: 'cert_fetch_failed',
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each([undefined, '', ' , '])(
+    'checks no topic when the allowlist is unset or blank (%p), as before',
+    async (value) => {
+      const { impl } = unreachableCerts();
+      const verifier = new SnsVerifier(impl, configFor({ SES_SNS_TOPIC_ARNS: value }));
+      await expect(
+        verifier.verify(unsigned({ TopicArn: 'arn:aws:sns:us-east-1:9999:anything' })),
+      ).resolves.toEqual({ ok: false, reason: 'cert_fetch_failed' });
+    },
+  );
+
+  describe('the boot-time warning when it is unset', () => {
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => warn.mockRestore());
+
+    it.each(['QA', 'UAT', 'PRODUCTION'])(
+      'warns once in %s when this environment receives SES events',
+      (APP_ENV) => {
+        const verifier = new SnsVerifier(
+          undefined,
+          configFor({ APP_ENV, SES_WEBHOOK_SECRET: 'path-secret' }),
+        );
+        verifier.onModuleInit();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain('SES_SNS_TOPIC_ARNS');
+      },
+    );
+
+    it('stays quiet locally, once configured, or where SES is not in use', () => {
+      new SnsVerifier(
+        undefined,
+        configFor({ APP_ENV: 'LOCAL', EMAIL_PROVIDER: 'ses' }),
+      ).onModuleInit();
+      new SnsVerifier(
+        undefined,
+        configFor({ APP_ENV: 'QA', EMAIL_PROVIDER: 'ses', SES_SNS_TOPIC_ARNS: ALLOWED }),
+      ).onModuleInit();
+      new SnsVerifier(
+        undefined,
+        configFor({ APP_ENV: 'QA', EMAIL_PROVIDER: 'log' }),
+      ).onModuleInit();
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+});
 
 describe('a genuine SNS notification', () => {
   maybe('verifies', async () => {
@@ -310,6 +463,15 @@ describe('where the certificate is allowed to come from', () => {
       new SnsVerifier(impl).verify(notification({ SigningCertURL: 'not a url' })),
     ).resolves.toEqual({ ok: false, reason: 'cert_url_malformed' });
     expect(calls).toEqual([]);
+  });
+
+  maybe('verifies a message from a topic on the allowlist', async () => {
+    const { impl } = certServer();
+    const verifier = new SnsVerifier(
+      impl,
+      configFor({ SES_SNS_TOPIC_ARNS: 'arn:aws:sns:us-east-1:1234:ses-events' }),
+    );
+    await expect(verifier.verify(notification())).resolves.toMatchObject({ ok: true });
   });
 
   maybe('refuses when the certificate cannot be fetched, rather than accepting', async () => {
