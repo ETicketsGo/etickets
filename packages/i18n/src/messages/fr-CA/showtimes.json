@@ -1,0 +1,77 @@
+{
+  "heading": "Séances",
+  "movie": {
+    "notFoundTitle": "Film introuvable",
+    "notFoundHint": "Ce film n'est peut-être plus à l'affiche.",
+    "browseMovies": "Parcourir les films",
+    "loadError": "Impossible de charger ce film. Veuillez réessayer.",
+    "loading": "Chargement des séances",
+    "poster": "Affiche de {title}",
+    "certificate": "Classement",
+    "language": "Langue",
+    "runtime": "Durée",
+    "hoursMinutes": "{hours} h {minutes} min",
+    "hoursOnly": "{hours} h",
+    "minutesOnly": "{minutes} min",
+    "trailer": "Voir la bande-annonce",
+    "opensInNewTab": "(s'ouvre dans un nouvel onglet)",
+    "director": "Réalisation",
+    "cast": "Distribution",
+    "readMore": "Lire la suite",
+    "readLess": "Réduire"
+  },
+  "dates": {
+    "label": "Choisir une date",
+    "earlier": "Dates précédentes",
+    "later": "Dates suivantes",
+    "noShows": "Aucune séance"
+  },
+  "filters": {
+    "label": "Filtrer les séances",
+    "format": "Format",
+    "time": "Heure",
+    "clear": "Effacer les filtres",
+    "timeOfDay": {
+      "MORNING": { "label": "Matin", "range": "Avant 12 h" },
+      "AFTERNOON": { "label": "Après-midi", "range": "12 h – 16 h" },
+      "EVENING": { "label": "Fin de journée", "range": "16 h – 19 h" },
+      "NIGHT": { "label": "Soir", "range": "Dès 19 h" }
+    }
+  },
+  "legend": {
+    "label": "Disponibilité",
+    "available": "Disponible",
+    "fillingFast": "Presque complet",
+    "soldOut": "Complet"
+  },
+  "status": {
+    "AVAILABLE": "Disponible",
+    "LIMITED": "Presque complet",
+    "SOLD_OUT": "Complet",
+    "SALES_PAUSED": "Ventes suspendues"
+  },
+  "pill": {
+    "from": "à partir de {price}",
+    "free": "Gratuit",
+    "lateNight": "Séance de nuit"
+  },
+  "cinema": {
+    "list": "Cinémas",
+    "favourite": "Cinéma favori : {name}",
+    "localTime": "Heure locale ({zone})"
+  },
+  "summary": "{shows, plural, one {# séance} other {# séances}} dans {cinemas, plural, one {# cinéma} other {# cinémas}}",
+  "truncated": "Affichage des {returned} premières séances sur {total}.",
+  "city": {
+    "scoped": "Cinémas à {city}",
+    "showAll": "Afficher toutes les villes"
+  },
+  "empty": {
+    "noShowsTitle": "Aucune séance prévue",
+    "noShowsHint": "Revenez bientôt — les séances de ce film ne sont pas encore offertes.",
+    "noShowsInCityTitle": "Aucune séance à {city} pour le moment",
+    "noShowsInCityHint": "Ce film est peut-être à l'affiche dans d'autres villes.",
+    "noMatchTitle": "Aucun résultat",
+    "noMatchHint": "Aucune séance ce jour-là ne correspond à vos filtres."
+  }
+}

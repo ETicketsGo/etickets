@@ -516,7 +516,19 @@ export function DataTable<T>({
     );
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-sm">
+    /*
+      Reachable by keyboard, because it scrolls.
+
+      The table has a 640px floor, so on a narrow screen — or a wide one once a column holds long
+      invited emails — this box scrolls sideways. A table with no clickable rows has nothing inside
+      that takes focus, which left a keyboard user no way to scroll it at all: the organizer team
+      page failed WCAG 2.1.1 in the accessibility sweep as soon as its member list grew. One tab
+      stop on the box lets the arrow keys scroll it.
+    */
+    <div
+      tabIndex={0}
+      className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
       <table className="w-full min-w-[640px] text-left text-[0.9375rem]">
         <thead>
           <tr className="border-b border-border">

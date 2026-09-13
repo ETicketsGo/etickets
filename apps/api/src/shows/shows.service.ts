@@ -2119,6 +2119,116 @@ export class ShowsService {
   }
 
   /**
+   * Which show a seat page is for: the film or event, the cinema and screen, and when — in the
+   * zone the show is advertised in.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * The seat layout carries nothing about the show itself, so the seat page could put nothing
+   * above the map but "Select seats". A buyer who arrived from a shared link, or refreshed,
+   * could not tell which film, which cinema or which day they were choosing seats for — the
+   * one thing every other ticketing app states first.
+   *
+   * Public on exactly the layout's terms: only a published event's show, and "not found" for
+   * anything else, so it confirms nothing about an unpublished one. The film is included only
+   * while it is itself published; an unpublished film still lets the published listing sell.
+   */
+  async getPublicShowSummary(sessionId: string) {
+    const session = await this.prisma.eventSession.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        startsAt: true,
+        endsAt: true,
+        status: true,
+        event: {
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            status: true,
+            experienceType: true,
+            refundsEnabled: true,
+            venue: { select: { name: true, city: true, country: true, timezone: true } },
+            movie: {
+              select: {
+                slug: true,
+                title: true,
+                certificate: true,
+                language: true,
+                runtimeMinutes: true,
+                genres: true,
+                posterUrl: true,
+                status: true,
+              },
+            },
+          },
+        },
+        screen: {
+          select: {
+            name: true,
+            screenType: true,
+            cinema: { select: { id: true, name: true, timezone: true } },
+          },
+        },
+      },
+    });
+    if (!session || session.event.status !== EventStatus.PUBLISHED) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
+    }
+
+    // The cinema's zone is authoritative for a screening; an ordinary venue carries its own.
+    const zone = session.screen?.cinema?.timezone ?? session.event.venue.timezone;
+    let localDate: string;
+    try {
+      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses.
+      localDate = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(session.startsAt);
+    } catch {
+      // A zone name Intl does not know. Zones are validated on write; this only keeps one bad
+      // row from failing the whole page.
+      localDate = session.startsAt.toISOString().slice(0, 10);
+    }
+    const movie = session.event.movie;
+    return {
+      sessionId: session.id,
+      startsAt: session.startsAt.toISOString(),
+      endsAt: session.endsAt.toISOString(),
+      status: session.status,
+      timeZone: zone,
+      localDate,
+      event: {
+        id: session.event.id,
+        slug: session.event.slug,
+        title: session.event.title,
+        experienceType: session.event.experienceType,
+        refundsEnabled: session.event.refundsEnabled,
+      },
+      movie:
+        movie && movie.status === 'PUBLISHED'
+          ? {
+              slug: movie.slug,
+              title: movie.title,
+              certificate: movie.certificate,
+              language: movie.language,
+              runtimeMinutes: movie.runtimeMinutes,
+              genres: movie.genres,
+              posterUrl: movie.posterUrl,
+            }
+          : null,
+      venue: {
+        name: session.event.venue.name,
+        city: session.event.venue.city,
+        country: session.event.venue.country,
+      },
+      cinema: session.screen?.cinema
+        ? { id: session.screen.cinema.id, name: session.screen.cinema.name }
+        : null,
+      screen: session.screen
+        ? { name: session.screen.name, format: session.screen.screenType }
+        : null,
+    };
+  }
+
+  /**
    * The seat layout a customer picks from.
    *
    * ── TWO SHAPES, FOR ONE REASON ─────────────────────────────────────────────────

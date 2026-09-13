@@ -4,15 +4,30 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { MonitorPlay, Armchair, X, Clock, ChevronLeft, Accessibility } from 'lucide-react';
-import { currencyForCountry, useToast, VenueMap } from '@eticketsgo/web-kit';
+import { Armchair, ChevronLeft, Info } from 'lucide-react';
+import {
+  api as webKit,
+  applySeatTap,
+  currencyForCountry,
+  MAX_SEATS_PER_BOOKING,
+  strandedSeats,
+  useAuthUser,
+  useToast,
+  VenueMap,
+  BuyerRegionField,
+  type SelectableSeat,
+} from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { PriceBreakdown } from '@/components/price-breakdown';
+import { ShowHeader } from '@/components/seat-selection/show-header';
+import { TicketCount } from '@/components/seat-selection/ticket-count';
+import { SeatMap } from '@/components/seat-selection/seat-map';
+import { SeatLegend } from '@/components/seat-selection/seat-legend';
+import { BookingBar } from '@/components/seat-selection/booking-bar';
 import { useTranslations } from 'next-intl';
-import { BuyerRegionField } from '@eticketsgo/web-kit';
 
 /**
  * Errors about the SHOW rather than about the seats.
@@ -30,51 +45,24 @@ import { BuyerRegionField } from '@eticketsgo/web-kit';
  */
 const SHOW_LEVEL_ERROR_CODES = ['VALIDATION_FAILED'];
 
-const MAX_SEATS = 10;
-
 /**
- * How an accessible seat is described and drawn.
+ * How an accessible seat is described.
  *
- * ── WHY THE CUSTOMER NEEDS THIS AND DID NOT HAVE IT ────────────────────────────────
- * `Seat.kind` has always existed and the organizer's own seat map has always shown it. The
- * customer's did not — the API never sent it — so a wheelchair bay rendered as an ordinary
- * seat. Two people are failed by that at once: the customer who needs the space cannot find
- * it, and the customer who does not need it takes it without ever knowing.
- *
- * Marked with an icon AND named in the accessible label, because a symbol alone is invisible
- * to a screen reader and a label alone is invisible to everyone else.
+ * `Seat.kind` has always existed and the organizer's own seat map has always shown it; the
+ * customer's did not, so a wheelchair bay rendered as an ordinary seat — failing the customer
+ * who needs it and the one who takes it without knowing. Marked with an icon AND named in the
+ * accessible label, because a symbol alone is invisible to a screen reader and a label alone
+ * is invisible to everyone else.
  */
 const SEAT_KIND_KEY: Record<string, 'wheelchair' | 'companion'> = {
   WHEELCHAIR: 'wheelchair',
   COMPANION: 'companion',
 };
 
-/** True for the seats that need marking. Ordinary seats are the overwhelming majority. */
 const isAccessible = (kind: string) => kind === 'WHEELCHAIR' || kind === 'COMPANION';
 
-/**
- * Pick a readable foreground for a selected seat filled with an arbitrary
- * category swatch, so selection never relies on a fixed `text-white` that may
- * be invisible on a light swatch. Uses perceived (Rec. 601) luminance and
- * returns design-token colours.
- */
-function readableTextOn(hex?: string): string {
-  if (!hex) return 'var(--action-primary-foreground)';
-  const raw = hex.replace('#', '');
-  const full =
-    raw.length === 3
-      ? raw
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : raw;
-  if (full.length < 6) return 'var(--action-primary-foreground)';
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? 'var(--text-primary)' : '#ffffff';
-}
+/** Where the mobile pay bar's "Price details" link lands. */
+const SUMMARY_ID = 'seat-summary';
 
 export default function SeatSelectionPage() {
   const sf = useTranslations('storefront');
@@ -103,8 +91,20 @@ export default function SeatSelectionPage() {
     not need an overview to choose from.
   */
   const [sectionId, setSectionId] = useState<string | null>(null);
-  // Optional, and only rendered for Indian venues. See BuyerRegionField.
+
+  /*
+    Optional, only rendered for Indian venues, and PREFILLED from the last answer — the event
+    page's rule, so a returning customer is not asked the same optional question every time.
+    `touched` stops a late-arriving profile overwriting a choice made on this screen.
+  */
+  const { user } = useAuthUser();
   const [buyerRegion, setBuyerRegion] = useState('');
+  const [regionTouched, setRegionTouched] = useState(false);
+  useEffect(() => {
+    if (!regionTouched && !buyerRegion && user?.lastBuyerRegion) {
+      setBuyerRegion(user.lastBuyerRegion);
+    }
+  }, [user?.lastBuyerRegion, regionTouched, buyerRegion]);
 
   const {
     data: layout,
@@ -117,8 +117,22 @@ export default function SeatSelectionPage() {
     queryFn: () => api.showSeats(sessionId, sectionId ?? undefined),
   });
 
-  // Selected seat ids.
+  /*
+    Which show this is. Failing to load it costs the header, never the seats: the map and the
+    booking work without it, so it neither blocks the page nor retries into a delay.
+  */
+  const summaryQ = useQuery({
+    queryKey: ['show-summary', sessionId],
+    queryFn: () => webKit.publicShows.summary(sessionId),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const summary = summaryQ.data;
+
+  // Selected seat ids, and the ticket count the buyer chose (null = pick one by one).
   const [selected, setSelected] = useState<string[]>([]);
+  const [quantity, setQuantity] = useState<number | null>(null);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   /*
     What we know about every seat the customer has SEEN, not just the block on screen.
@@ -126,8 +140,7 @@ export default function SeatSelectionPage() {
     This has to accumulate. A large venue is read one block at a time, so a customer who
     takes two seats in the stalls and then opens the balcony would otherwise have the
     stalls seats vanish from their basket the moment the payload changed — the summary,
-    the price and the booking call all derive from this map. Accumulating means their
-    selection survives moving around the venue, which is the whole point of being able to.
+    the price and the booking call all derive from this map.
   */
   const [known, setKnown] = useState<
     Map<string, { label: string; rowLabel: string; categoryId: string }>
@@ -158,33 +171,40 @@ export default function SeatSelectionPage() {
     return map;
   }, [layout]);
 
-  const toggle = (seatId: string, status: string) => {
-    if (status !== 'AVAILABLE') return;
-    setSelected((prev) => {
-      if (prev.includes(seatId)) return prev.filter((s) => s !== seatId);
-      if (prev.length >= MAX_SEATS) {
-        toast.push(s('maxSeats', { max: MAX_SEATS }), 'warning');
-        return prev;
-      }
-      return [...prev, seatId];
-    });
+  const tap = (seatId: string, row: readonly SelectableSeat[]) => {
+    const result = applySeatTap({ selected, row, seatId, quantity });
+    if (result.limitReached) {
+      toast.push(s('maxSeats', { max: MAX_SEATS_PER_BOOKING }), 'warning');
+      return;
+    }
+    setSelected(result.selected);
+  };
+
+  const chooseQuantity = (count: number | null) => {
+    setQuantity(count);
+    // Fewer tickets than seats already chosen: keep the first ones, in the order they were chosen.
+    if (count !== null) setSelected((prev) => prev.slice(0, count));
   };
 
   /*
-    Seat id → the label a human uses, which includes the ROW.
-
-    `seat.label` on its own is the number within the row, so the summary listed "11, 12" and
-    left the buyer to work out which row from the map they had just clicked away from.
-    Reported from QA. It is also genuinely ambiguous here: the seat CATEGORY in this layout
-    is called "A", so "A / 11, 12" read as row A.
+    Seat id → the label a human uses, which includes the ROW. `seat.label` on its own is the
+    number within the row, so the summary listed "11, 12" and left the buyer to work out which
+    row from the map they had just clicked away from.
   */
   const seatLabelById = useMemo(() => {
     const map = new Map<string, string>();
-    // Built from everything seen so far, so a seat chosen in another block still has a name
-    // in the summary after the customer has moved on.
     known.forEach((seat, id) => map.set(id, `${seat.rowLabel}${seat.label}`));
     return map;
   }, [known]);
+
+  const selectedLabels = useMemo(
+    () =>
+      selected
+        .map((id) => seatLabelById.get(id))
+        .filter((label): label is string => Boolean(label))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [selected, seatLabelById],
+  );
 
   // Group the current selection by seat category for the summary + booking items.
   const grouped = useMemo(() => {
@@ -199,6 +219,25 @@ export default function SeatSelectionPage() {
     }
     return byCat;
   }, [selected, known, seatLabelById]);
+
+  /*
+    Seats this selection leaves on their own. A suggestion to shift along, never a refusal —
+    a buyer may have every reason to want exactly these seats.
+  */
+  const stranded = useMemo(() => {
+    const ids = new Set<string>();
+    if (!layout || layout.view !== 'seats' || selected.length === 0) return ids;
+    for (const section of layout.sections) {
+      for (const row of section.rows) {
+        for (const id of strandedSeats(row.seats, selectedSet)) ids.add(id);
+      }
+    }
+    return ids;
+  }, [layout, selected.length, selectedSet]);
+  const strandedLabels = [...stranded]
+    .map((id) => seatLabelById.get(id))
+    .filter((label): label is string => Boolean(label))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   /*
     Price the cart here, not on the next screen.
@@ -241,13 +280,9 @@ export default function SeatSelectionPage() {
   });
   const quote = quoteQ.data?.fees;
   /*
-    What every price on this screen is in.
-
-    The quote is authoritative once there is something to price; before a seat is chosen
-    there is no quote, and the seat map still shows prices — so the venue's country answers,
-    which is the same rule the server uses. Without this, `money()` fell back to INR and a
-    seat map for a cinema in Boise priced every seat in rupees while the checkout that
-    followed priced it in dollars.
+    What every price on this screen is in: the quote once there is something to price, and the
+    venue's country before that — the same rule the server uses. Without it, `money()` fell
+    back to INR and a seat map for a cinema in Boise priced every seat in rupees.
   */
   const currency = quote?.currency ?? currencyForCountry(layout?.country) ?? 'INR';
   const codeRejected = Boolean(appliedCode) && quoteQ.data?.coupon.applied === false;
@@ -275,7 +310,7 @@ export default function SeatSelectionPage() {
         throw new Error('login');
       }
       const me = await api.me();
-      const items = Array.from(grouped.entries())
+      const bookingItems = Array.from(grouped.entries())
         .map(([catId, entry]) => {
           const cat = categoriesById.get(catId);
           if (!cat) return null;
@@ -292,9 +327,8 @@ export default function SeatSelectionPage() {
       }[];
       return api.createBooking({
         eventSessionId: sessionId,
-        items,
-        // Carried through, so the price quoted on this screen is the price booked. Without
-        // this the buyer would watch a discount they applied vanish on the next step.
+        items: bookingItems,
+        // Carried through, so the price quoted on this screen is the price booked.
         ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
         buyerName: me.fullName,
         buyerEmail: me.email,
@@ -305,26 +339,13 @@ export default function SeatSelectionPage() {
     onError: (e) => {
       if ((e as Error).message === 'login') return;
       /*
-        Only a seat that is genuinely gone justifies emptying the cart.
-
-        Every failure used to clear the selection and refetch, on the theory that a seat had
-        been taken between load and submit. That is one cause among many, and it was the only
-        one being served: a show whose regulatory pricing is not configured, a rejected coupon,
-        a validation error — all of them threw away the seats the buyer had just chosen, so the
-        real message flashed past next to a map that had visibly reset itself. The reset reads
-        as the failure, and the explanation goes unread.
-
-        A conflict means pick again. Anything else means read this and try again, with the
-        seats still selected.
+        Only a seat that is genuinely gone justifies emptying the cart. A conflict means pick
+        again; anything identifiably about the show means read this and try again, with the
+        seats still selected. Anything not identifiably about the show keeps the old behaviour
+        — assume a seat went and re-read the map — the safer default of the two.
       */
       const showLevel = e instanceof ApiRequestError && SHOW_LEVEL_ERROR_CODES.includes(e.code);
       toast.push(e instanceof ApiRequestError ? e.message : s('seatTaken'), 'error');
-      /*
-        Anything not identifiably about the show keeps the old behaviour: assume a seat went
-        and re-read the map. That is the safer default of the two -- leaving a stale selection
-        after a real conflict sends the buyer into a second failure -- so only the cases we
-        can positively identify as show-level are exempted.
-      */
       if (!showLevel) {
         setSelected([]);
         refetch();
@@ -332,12 +353,20 @@ export default function SeatSelectionPage() {
     },
   });
 
+  const payDisabled = selected.length === 0 || book.isPending || isFetching;
+  const payableMinor = quote?.totalMinor ?? total;
+
+  // Heading levels: the show's title is the page's h1 when we know it; otherwise the map's is.
+  const MapHeading = summary ? 'h2' : 'h1';
+
   if (isLoading) return <div className="h-96 animate-pulse rounded-lg bg-background-subtle" />;
   if (isError) return <ErrorState message={s('loadError')} onRetry={() => refetch()} />;
   if (!layout)
     return (
       <EmptyState title={s('mapUnavailableTitle')} hint={s('mapUnavailableHint')} icon={Armchair} />
     );
+
+  const header = summary ? <ShowHeader summary={summary} /> : null;
 
   /*
     The venue overview: blocks around a stage, with no seats in them.
@@ -349,12 +378,15 @@ export default function SeatSelectionPage() {
   if (layout.view === 'overview') {
     return (
       <div className="space-y-6">
+        {header}
         <div>
-          <h1 className="text-h2 font-bold tracking-tight text-text-primary">{s('chooseArea')}</h1>
+          <MapHeading className="text-h3 font-bold tracking-tight text-text-primary">
+            {s('chooseArea')}
+          </MapHeading>
           <p className="mt-1.5 text-[0.9375rem] text-text-muted">{s('chooseAreaLead')}</p>
         </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="min-w-0 lg:col-span-2">
             <Card>
               <VenueMap
                 focal={layout.focal}
@@ -367,11 +399,8 @@ export default function SeatSelectionPage() {
           </div>
           {selected.length > 0 ? (
             /*
-              The basket stays visible on the map.
-
-              Someone who has taken two seats in the stalls and gone back to look at the
-              balcony must be able to see they still hold those two — otherwise the natural
-              reading of an empty sidebar is that browsing away discarded them.
+              The basket stays visible on the map: someone who has taken two seats in the stalls
+              and gone back to look at the balcony must be able to see they still hold those two.
             */
             <div className="lg:col-span-1">
               <Card title={s('basketTitle')}>
@@ -386,248 +415,106 @@ export default function SeatSelectionPage() {
     );
   }
 
-  const hasSeats = layout.sections.some((s) => s.rows.some((r) => r.seats.length > 0));
-  const hasSold = layout.sections.some((s) =>
-    s.rows.some((r) => r.seats.some((seat) => seat.status === 'SOLD')),
-  );
-  const hasHeld = layout.sections.some((s) =>
-    s.rows.some((r) => r.seats.some((seat) => seat.status === 'HELD')),
-  );
-  const hasAccessible = layout.sections.some((s) =>
-    s.rows.some((r) => r.seats.some((seat) => isAccessible(seat.kind))),
-  );
+  const allSeats = layout.sections.flatMap((section) => section.rows.flatMap((row) => row.seats));
+  const hasSeats = allSeats.length > 0;
+  const hasSold = allSeats.some((seat) => seat.status === 'SOLD');
+  const hasHeld = allSeats.some((seat) => seat.status === 'HELD' || seat.status === 'BLOCKED');
+  const hasAccessible = allSeats.some((seat) => isAccessible(seat.kind));
   // True only when the customer arrived here from a venue map, which is the only case
   // where "back to the map" is a place they can actually return to.
   const cameFromMap = sectionId !== null;
 
   return (
-    <div className="space-y-6">
-      <div>
-        {cameFromMap ? (
-          <button
-            type="button"
-            onClick={() => setSectionId(null)}
-            className="mb-2 inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {s('backToMap')}
-          </button>
-        ) : null}
-        <h1 className="text-h2 font-bold tracking-tight text-text-primary">
-          {cameFromMap ? (layout.sections[0]?.name ?? s('selectSeats')) : s('selectSeats')}
-        </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-text-muted">{s('tapToAdd')}</p>
-      </div>
+    <div className={`space-y-6 ${selected.length > 0 ? 'pb-24 lg:pb-0' : ''}`}>
+      {header}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      {/* Announced, not shown: the map itself shows what is chosen. */}
+      <p className="sr-only" aria-live="polite">
+        {selected.length > 0
+          ? `${s('selectionCount', { count: selected.length })}: ${selectedLabels.join(', ')}`
+          : ''}
+      </p>
+
+      {/*
+        One column that cannot grow past the screen, stated rather than implied: an implicit grid
+        track sizes to its widest content, and a seat map is wider than a phone.
+      */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         {/* Seat map */}
-        <div className="lg:col-span-2">
+        <div className="min-w-0">
           <Card>
-            {!hasSeats ? (
-              <EmptyState title={s('noSeatsTitle')} hint={s('noSeatsHint')} icon={Armchair} />
-            ) : (
-              <div className="overflow-x-auto">
-                {/*
-                  The screen and the seating are ONE column, sized by the seating.
-
-                  They used to be laid out independently: the screen was centred in the card
-                  and capped at a fixed width, while the rows were left-aligned and as wide as
-                  the room needed. So the arc floated off to one side of the seats it was
-                  supposed to be in front of, and a wide room overflowed it entirely — which
-                  is exactly the "seating doesn't match the screen" an organizer reported.
-
-                  `w-fit` makes this wrapper exactly as wide as the widest row, `mx-auto`
-                  centres the pair, and the arc below takes its width from the wrapper. The
-                  left padding is the row-label gutter, so the arc spans the SEATS rather than
-                  the labels beside them.
-                */}
-                <div className="mx-auto w-fit space-y-8">
-                  <div className="pl-8">
-                    <div className="mx-auto h-2 w-full rounded-t-[100%] bg-gradient-to-b from-action-primary/40 to-transparent" />
-                    <p className="mt-1 flex items-center justify-center gap-2 text-caption font-medium uppercase tracking-widest text-text-muted">
-                      <MonitorPlay className="h-3.5 w-3.5" />
-                      {s('screenThisWay')}
-                    </p>
-                  </div>
-
-                  <div className="space-y-6">
-                    {layout.sections.map((section) => (
-                      <div key={section.name}>
-                        <p className="mb-2 text-caption font-semibold uppercase tracking-wide text-text-muted">
-                          {section.name}
-                        </p>
-                        <div className="space-y-1.5">
-                          {section.rows.map((row) => {
-                            const sorted = [...row.seats].sort((a, b) => a.colIndex - b.colIndex);
-                            return (
-                              <div key={row.label} className="flex items-center gap-2">
-                                <span className="w-6 shrink-0 text-center text-caption font-medium text-text-muted">
-                                  {row.label}
-                                </span>
-                                <div className="flex gap-1.5">
-                                  {sorted.map((seat, i) => {
-                                    // Insert an aisle gap where column indices jump.
-                                    const gap =
-                                      i > 0 ? seat.colIndex - sorted[i - 1].colIndex - 1 : 0;
-                                    const cat = categoriesById.get(seat.categoryId);
-                                    const color = cat?.colorHex ?? undefined;
-                                    const isSelected = selected.includes(seat.id);
-                                    const available = seat.status === 'AVAILABLE';
-                                    const priceLabel = cat ? money(cat.priceMinor, currency) : '';
-                                    return (
-                                      <span key={seat.id} className="flex">
-                                        {gap > 0 && (
-                                          <span
-                                            aria-hidden
-                                            style={{ width: `${Math.min(gap, 3) * 0.75}rem` }}
-                                          />
-                                        )}
-                                        <button
-                                          type="button"
-                                          disabled={!available}
-                                          aria-pressed={isSelected}
-                                          /*
-                                          The ROW is part of the seat's name.
-
-                                          `seat.label` is only the number within the row, so
-                                          the accessible name was "Seat 1" for the first seat
-                                          of every row — A1 and B1 announced identically, and
-                                          a screen-reader user had no way to tell which row
-                                          they were in. The visible grid conveys it by
-                                          position, which conveys nothing to a screen reader.
-                                        */
-                                          aria-label={[
-                                            s('seatName', { name: `${row.label}${seat.label}` }),
-                                            SEAT_KIND_KEY[seat.kind]
-                                              ? s(SEAT_KIND_KEY[seat.kind])
-                                              : null,
-                                            priceLabel || null,
-                                            seatStatusLabel(seat.status),
-                                          ]
-                                            .filter(Boolean)
-                                            .join(', ')}
-                                          onClick={() => toggle(seat.id, seat.status)}
-                                          title={`${row.label}${seat.label}${cat ? ` · ${cat.name}` : ''}${
-                                            SEAT_KIND_KEY[seat.kind]
-                                              ? ` · ${s(SEAT_KIND_KEY[seat.kind])}`
-                                              : ''
-                                          }`}
-                                          style={
-                                            available && !isSelected && color
-                                              ? { borderColor: color, color }
-                                              : isSelected && color
-                                                ? {
-                                                    backgroundColor: color,
-                                                    borderColor: color,
-                                                    color: readableTextOn(color),
-                                                  }
-                                                : undefined
-                                          }
-                                          className={`flex h-9 w-9 items-center justify-center rounded-md border text-[0.625rem] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-7 sm:w-7 ${
-                                            !available
-                                              ? 'cursor-not-allowed border-border bg-background-subtle text-text-muted/60'
-                                              : isSelected
-                                                ? 'bg-action-primary text-action-primary-foreground ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface hover:scale-110'
-                                                : 'bg-background-surface hover:scale-110'
-                                          }`}
-                                        >
-                                          {/*
-                                          The mark wins over the number on an accessible
-                                          seat. A customer scanning for somewhere they can
-                                          sit needs to spot it at a glance; the number is
-                                          still in the tooltip, the accessible name and the
-                                          basket.
-                                        */}
-                                          {!available ? (
-                                            seat.status === 'SOLD' ? (
-                                              <X className="h-3.5 w-3.5" aria-hidden />
-                                            ) : (
-                                              <Clock className="h-3 w-3" aria-hidden />
-                                            )
-                                          ) : isAccessible(seat.kind) ? (
-                                            <Accessibility className="h-3.5 w-3.5" aria-hidden />
-                                          ) : (
-                                            seat.label.replace(/^[A-Za-z]+/, '')
-                                          )}
-                                        </button>
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  {cameFromMap ? (
+                    <button
+                      type="button"
+                      onClick={() => setSectionId(null)}
+                      className="mb-1 inline-flex items-center gap-1.5 rounded-md text-[0.9375rem] text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden />
+                      {s('backToMap')}
+                    </button>
+                  ) : null}
+                  <MapHeading className="text-title font-semibold text-text-primary">
+                    {cameFromMap
+                      ? (layout.sections[0]?.name ?? s('selectSeats'))
+                      : s('selectSeats')}
+                  </MapHeading>
                 </div>
-
-                {/* Legend — status is conveyed by shape/icon, not colour alone. */}
-                <div className="mt-8 space-y-3 border-t border-border pt-4 text-caption text-text-secondary">
-                  {/* Available seats, by price tier */}
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <span className="font-medium text-text-muted">{s('available')}</span>
-                    {layout.categories.map((c) => (
-                      <span key={c.id} className="flex items-center gap-1.5">
-                        <span
-                          className="h-3.5 w-3.5 rounded border"
-                          style={{
-                            borderColor: c.colorHex ?? 'var(--border)',
-                            backgroundColor: c.colorHex ? `${c.colorHex}22` : undefined,
-                          }}
-                        />
-                        {c.name} · {money(c.priceMinor, currency)}
-                      </span>
-                    ))}
-                  </div>
-                  {/* Selection & unavailable states, each with a non-colour affordance */}
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-3.5 w-3.5 rounded bg-action-primary ring-2 ring-action-primary ring-offset-1 ring-offset-background-surface" />
-                      {s('selected')}
-                    </span>
-                    {hasSold && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
-                          <X className="h-2.5 w-2.5" aria-hidden />
-                        </span>
-                        {s('sold')}
-                      </span>
-                    )}
-                    {hasHeld && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border bg-background-subtle text-text-muted/60">
-                          <Clock className="h-2.5 w-2.5" aria-hidden />
-                        </span>
-                        {s('held')}
-                      </span>
-                    )}
-                    {/*
-                      Only shown when the room actually has one. A legend entry for something
-                      that is not on the map teaches the customer to expect a mark they will
-                      never find.
-                    */}
-                    {hasAccessible && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="flex h-3.5 w-3.5 items-center justify-center rounded border border-border">
-                          <Accessibility className="h-2.5 w-2.5" aria-hidden />
-                        </span>
-                        {s('accessibleLegend')}
-                      </span>
-                    )}
-                  </div>
-                </div>
+                {selected.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelected([])}
+                    className="rounded-md text-caption font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    {s('clearSeats')}
+                  </button>
+                ) : null}
               </div>
-            )}
+
+              {hasSeats ? <TicketCount value={quantity} onChange={chooseQuantity} /> : null}
+
+              {strandedLabels.length > 0 ? (
+                <p
+                  role="status"
+                  className="flex items-start gap-2 rounded-md bg-tint-warning px-3 py-2 text-caption text-status-warning"
+                >
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <span>
+                    {strandedLabels.length === 1
+                      ? s('strandedOne', { seats: strandedLabels[0] })
+                      : s('strandedMany', { seats: strandedLabels.join(', ') })}{' '}
+                    {s('strandedAdvice')}
+                  </span>
+                </p>
+              ) : null}
+
+              {!hasSeats ? (
+                <EmptyState title={s('noSeatsTitle')} hint={s('noSeatsHint')} icon={Armchair} />
+              ) : (
+                <>
+                  <SeatMap
+                    layout={layout}
+                    selected={selectedSet}
+                    stranded={stranded}
+                    onTap={tap}
+                    formatMinor={(minor) => money(minor, currency)}
+                    seatStatusLabel={seatStatusLabel}
+                    kindLabel={(kind) => (SEAT_KIND_KEY[kind] ? s(SEAT_KIND_KEY[kind]) : null)}
+                  />
+                  <SeatLegend hasSold={hasSold} hasHeld={hasHeld} hasAccessible={hasAccessible} />
+                </>
+              )}
+            </div>
           </Card>
         </div>
 
         {/* Summary */}
-        <div className="lg:sticky lg:top-24 lg:h-fit">
+        <div id={SUMMARY_ID} className="scroll-mt-24 lg:sticky lg:top-24 lg:h-fit">
           <Card>
             <div className="mb-4 flex items-center gap-2">
-              <Armchair className="h-5 w-5 text-action-primary" />
+              <Armchair className="h-5 w-5 text-action-primary" aria-hidden />
               <h2 className="text-title font-semibold text-text-primary">{s('yourSeats')}</h2>
             </div>
 
@@ -649,7 +536,7 @@ export default function SeatSelectionPage() {
                             .join(', ')}
                         </p>
                       </div>
-                      <span className="whitespace-nowrap text-[0.9375rem] text-text-secondary">
+                      <span className="whitespace-nowrap text-[0.9375rem] tabular-nums text-text-secondary">
                         {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
                       </span>
                     </div>
@@ -659,11 +546,8 @@ export default function SeatSelectionPage() {
             )}
 
             {/*
-              A discount code, and the offers worth advertising.
-
-              The dropdown lists only codes the organizer PUBLISHED. Listing every active code
-              would leak the ones whose whole value is that not everyone has them — so private
-              codes are still typed into the box beside it.
+              A discount code, and the offers worth advertising. The dropdown lists only codes the
+              organizer PUBLISHED; private codes are still typed into the box beside it.
             */}
             {selected.length > 0 && (
               <div className="mt-4 border-t border-border pt-4">
@@ -697,7 +581,7 @@ export default function SeatSelectionPage() {
                           setCode(e.target.value);
                           setAppliedCode(e.target.value);
                         }}
-                        className="w-full rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="w-full rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                       >
                         <option value="">{k('availableOffers')}</option>
                         {offersQ.data!.map((o) => (
@@ -713,13 +597,13 @@ export default function SeatSelectionPage() {
                         placeholder={s('haveCode')}
                         value={code}
                         onChange={(e) => setCode(e.target.value.toUpperCase())}
-                        className="min-w-0 flex-1 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        className="min-w-0 flex-1 rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                       />
                       <button
                         type="button"
                         disabled={!code.trim()}
                         onClick={() => setAppliedCode(code.trim())}
-                        className="shrink-0 rounded-md border border-border px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                        className="shrink-0 rounded-md border border-border-input px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
                       >
                         {k('apply')}
                       </button>
@@ -734,53 +618,65 @@ export default function SeatSelectionPage() {
               </div>
             )}
 
-            {/*
-              The full breakdown, here rather than one screen later.
-
-              Shared with the event page rather than written twice. It was written twice —
-              this screen had it and the ordinary event page still said "Transparent fees
-              shown on the next step", which is how a platform ends up quoting two different
-              prices for the same purchase. Sharing it also gives this screen its French,
-              which the hardcoded version above never had.
-            */}
             {/* Above the breakdown, because it can change what the breakdown says. */}
             <div className="mt-4">
               <BuyerRegionField
                 value={buyerRegion}
-                onChange={setBuyerRegion}
+                onChange={(region) => {
+                  setRegionTouched(true);
+                  setBuyerRegion(region);
+                }}
                 country={layout?.country}
                 // Translated: the field's English defaults showed on French Indian pages (QA).
                 label={k('buyerRegionLabel')}
                 hint={k('buyerRegionHint')}
                 noneLabel={k('buyerRegionNone')}
+                prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
                 prefilledNote={k('buyerRegionPrefilled')}
               />
             </div>
 
+            {/*
+              The full breakdown, here rather than one screen later — shared with the event page
+              so the platform never quotes two prices for the same purchase.
+            */}
             <div className="mt-4">
               <PriceBreakdown
                 quote={quote}
                 loading={quoteQ.isFetching}
                 fallbackTotalMinor={total}
-                // The same currency the seat map and the legend are priced in, so an empty
-                // cart does not open in a different one from the seats above it.
                 fallbackCurrency={currency}
                 totalLabel={sf('event.totalSeats', { count: selected.length })}
                 emptyNote={sf('event.priceAddSeat')}
               />
             </div>
 
-            <Button
-              className="mt-4 w-full"
-              loading={book.isPending}
-              disabled={selected.length === 0 || book.isPending || isFetching}
-              onClick={() => book.mutate()}
-            >
-              {book.isPending ? s('holdingSeats') : s('proceedToPay')}
-            </Button>
+            {/* On phones the pay button lives in the bar at the bottom of the screen. */}
+            <div className="mt-4 hidden lg:block">
+              <Button
+                className="w-full"
+                loading={book.isPending}
+                disabled={payDisabled}
+                onClick={() => book.mutate()}
+              >
+                {book.isPending ? s('holdingSeats') : s('proceedToPay')}
+              </Button>
+            </div>
           </Card>
         </div>
       </div>
+
+      {selected.length > 0 ? (
+        <BookingBar
+          count={selected.length}
+          seats={selectedLabels.join(', ')}
+          amount={money(payableMinor, currency)}
+          pending={book.isPending}
+          disabled={payDisabled}
+          onPay={() => book.mutate()}
+          detailsHref={`#${SUMMARY_ID}`}
+        />
+      ) : null}
     </div>
   );
 }

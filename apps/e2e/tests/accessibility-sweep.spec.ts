@@ -207,6 +207,21 @@ test.describe('accessibility sweep: a signed-in customer', () => {
     test.skip(!slug, 'no published event in this environment');
     await scan(page, `${CUSTOMER}/events/${slug}`);
   });
+
+  /*
+    The cinema path, which the sweep never visited: the film page (date strip, filters,
+    availability-coloured showtimes) and the seat page (show header, ticket count, zoomable seat
+    map, legend). Both were redesigned after BookMyShow's, and both are where a buyer commits.
+  */
+  test('customer /movies/[slug] — the film page and its showtimes', async ({ page }) => {
+    await scan(page, `${CUSTOMER}/movies/skyfront-protocol`);
+  });
+
+  test('customer /shows/[id] — the seat map', async ({ page, request }) => {
+    const sessionId = await firstBookableShow(request);
+    test.skip(!sessionId, 'no bookable screening in this environment');
+    await scan(page, `${CUSTOMER}/shows/${sessionId}`);
+  });
 });
 
 test.describe('accessibility sweep: the organizer console', () => {
@@ -292,4 +307,18 @@ async function firstEventSlug(request: APIRequestContext): Promise<string | unde
   const body = await res.json();
   const rows = Array.isArray(body) ? body : (body.data ?? []);
   return rows[0]?.slug;
+}
+
+/** A screening of the seeded film that can still be booked, or undefined when there is none. */
+async function firstBookableShow(request: APIRequestContext): Promise<string | undefined> {
+  const res = await request.get(`${API}/public/movies/skyfront-protocol/shows?limit=50`);
+  if (!res.ok()) return undefined;
+  const { shows } = (await res.json()) as {
+    shows: { sessionId: string; seatingType: string; availability: string }[];
+  };
+  return shows.find(
+    (show) =>
+      show.seatingType === 'RESERVED' &&
+      (show.availability === 'AVAILABLE' || show.availability === 'LIMITED'),
+  )?.sessionId;
 }

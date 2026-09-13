@@ -772,9 +772,20 @@ export const api = {
     list: (params?: { city?: string; country?: string; genre?: string; q?: string }) =>
       request<PublicMovieCard[]>(`/public/movies${qs(params ?? {})}`, { auth: false }),
     get: (slug: string) => request<PublicMovie>(`/public/movies/${slug}`, { auth: false }),
+    /**
+     * Every bookable screening of a film, with price, format and availability per show.
+     * `from` / `to` are ISO instants (`to` exclusive); `limit` is at most 200.
+     */
+    shows: (slug: string, params?: { city?: string; from?: string; to?: string; limit?: number }) =>
+      request<PublicMovieShows>(`/public/movies/${slug}/shows${qs(params ?? {})}`, {
+        auth: false,
+      }),
   },
 
   publicShows: {
+    /** Which show this is — film or event, cinema, screen, and when, in the cinema's zone. */
+    summary: (sessionId: string) =>
+      request<PublicShowSummary>(`/public/shows/${sessionId}`, { auth: false }),
     /**
      * The seat layout for one show.
      *
@@ -2679,7 +2690,8 @@ export interface DiscoverySection {
   items: unknown[];
 }
 
-export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD';
+/** `BLOCKED` is a seat the organizer has taken off sale; the public read passes it through. */
+export type SeatStatus = 'AVAILABLE' | 'HELD' | 'SOLD' | 'BLOCKED';
 
 /**
  * What sort of seat this is.
@@ -2969,6 +2981,97 @@ export interface PublicMovie extends PublicMovieCard {
     cinemaName: string | null;
     sessions: { id: string; startsAt: string; screenName: string | null }[];
   }[];
+}
+
+/**
+ * How bookable one screening is, from a customer's point of view.
+ *
+ * `LIMITED` is the server's "filling fast": 15 or fewer seats left. `SALES_PAUSED` is still
+ * listed — a show that vanished would read as a bug to someone about to book it.
+ */
+export type ShowAvailability = 'AVAILABLE' | 'LIMITED' | 'SOLD_OUT' | 'SALES_PAUSED';
+
+/** One bookable screening of a film, with what a showtime picker needs to show it. */
+export interface PublicShowRow {
+  sessionId: string;
+  eventId: string;
+  eventSlug: string;
+  startsAt: string;
+  endsAt: string;
+  venue: { id: string; name: string; city: string; country: string };
+  cinema: { id: string; name: string; brand: string | null; timezone: string } | null;
+  /**
+   * The show's calendar date AT THE CINEMA, e.g. "2026-09-13". Group by this — slicing the
+   * instant groups by the viewer's zone and files a 00:30 show under the previous day.
+   */
+  localDate: string | null;
+  screen: { id: string; name: string } | null;
+  /** Presentation format, from the screen: 2D, 3D, IMAX, 4DX… Free text set by the cinema. */
+  format: string | null;
+  /** From the film: every screening of a film reports the same language today. */
+  language: string;
+  currency: string;
+  /** The cheapest ticket, as advertised (all-in where the fee mode requires it). */
+  fromPriceMinor: number | null;
+  seatingType: 'RESERVED' | 'GENERAL_ADMISSION';
+  availability: ShowAvailability;
+  /** Null for general admission, which has no seat rows. */
+  seatsAvailable: number | null;
+  seatsTotal: number | null;
+}
+
+/** `GET /public/movies/:slug/shows` — the screenings of one film, and the filters present in them. */
+export interface PublicMovieShows {
+  movie: PublicMovieCard & {
+    synopsis: string | null;
+    releaseDate: string | null;
+    trailerUrl: string | null;
+    cast: string[];
+    director: string | null;
+  };
+  shows: PublicShowRow[];
+  /** Distinct values in `shows`. `dates` are cinema-local YYYY-MM-DD. */
+  filters: { dates: string[]; cities: string[]; formats: string[]; languages: string[] };
+  meta: { total: number; returned: number; limit: number };
+}
+
+/**
+ * `GET /public/shows/:sessionId` — which show a seat page is for.
+ *
+ * The seat layout carries nothing about the show itself, so without this the seat page could
+ * say only "Select seats": not the film, the cinema, or the day.
+ */
+export interface PublicShowSummary {
+  sessionId: string;
+  startsAt: string;
+  endsAt: string;
+  /** SCHEDULED, PAUSED, CANCELLED or COMPLETED. */
+  status: string;
+  /** The zone the show is advertised in: the cinema's, else the venue's. */
+  timeZone: string;
+  /** Calendar date of the show in `timeZone`, YYYY-MM-DD. */
+  localDate: string;
+  event: {
+    id: string;
+    slug: string;
+    title: string;
+    experienceType: string;
+    /** False means the organizer takes no cancellations for this event. */
+    refundsEnabled: boolean;
+  };
+  /** Set for a film screening whose film is published. */
+  movie: {
+    slug: string;
+    title: string;
+    certificate: string | null;
+    language: string;
+    runtimeMinutes: number;
+    genres: string[];
+    posterUrl: string | null;
+  } | null;
+  venue: { name: string; city: string; country: string };
+  cinema: { id: string; name: string } | null;
+  screen: { name: string; format: string | null } | null;
 }
 
 export interface OrgEventRow {
