@@ -73,5 +73,58 @@
     "noShowsInCityHint": "This film may be showing in other cities.",
     "noMatchTitle": "Nothing matches",
     "noMatchHint": "No showtimes on this day fit your filters."
+  },
+  "card": {
+    "runtime": "{minutes} min"
+  },
+  "rating": {
+    "average": "{average}/5",
+    "votes": "{count, plural, one {{votes} vote} other {{votes} votes}}",
+    "summary": "Rated {average} out of 5 by {count, plural, one {# person} other {# people}}",
+    "jump": "Read ratings and reviews"
+  },
+  "reviews": {
+    "heading": "Ratings & reviews",
+    "loading": "Loading ratings",
+    "loadError": "We couldn't load ratings for this film.",
+    "totalRatings": "{count, plural, one {# rating} other {# ratings}}",
+    "verified": "Only people who booked and watched this film can rate it, once each.",
+    "breakdown": "Rating breakdown",
+    "breakdownRow": "{stars, plural, one {# star} other {# stars}}: {count, plural, one {# rating} other {# ratings}} ({percent}%)",
+    "percent": "{percent}%",
+    "recent": "Recent reviews",
+    "latestOf": "The {shown} most recent of {count, plural, one {# rating} other {# ratings}}",
+    "emptyTitle": "No ratings yet",
+    "emptyHint": "Ratings appear here once people who watched this film share theirs.",
+    "firstTitle": "Be the first to rate this film",
+    "firstHint": "You've seen it — let others know what you thought.",
+    "rate": {
+      "title": "Rate this film",
+      "updateTitle": "Update your rating",
+      "signedOut": "Watched it? Sign in to rate it.",
+      "signIn": "Sign in to rate",
+      "noBooking": "Ratings come only from people who booked this film here and watched it.",
+      "notStarted": "You can rate this film once your show has started.",
+      "yourRating": "Your rating",
+      "yourRatingIs": "You rated it {rating} out of 5.",
+      "pick": "Choose from 1 to 5 stars.",
+      "words": {
+        "1": "Poor",
+        "2": "Fair",
+        "3": "Good",
+        "4": "Very good",
+        "5": "Excellent"
+      },
+      "comment": "Your review (optional)",
+      "placeholder": "What did you think? No spoilers, please.",
+      "counter": "{used} of {max} characters",
+      "submit": "Submit rating",
+      "update": "Update rating",
+      "thanks": "Thanks — your rating is in.",
+      "updated": "Your rating has been updated.",
+      "notEligible": "You can't rate this film yet.",
+      "failed": "We couldn't save your rating. Please try again.",
+      "checkError": "We couldn't check whether you can rate this film."
+    }
   }
 }

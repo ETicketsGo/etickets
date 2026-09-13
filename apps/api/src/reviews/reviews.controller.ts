@@ -21,6 +21,15 @@ export class ReviewsController {
     return this.reviews.create(user, body);
   }
 
+  @Get('movies/:slug/mine')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Whether you can rate a film, which listing to rate it through, and your rating.',
+  })
+  mineForMovie(@CurrentUser() user: RequestUser, @Param('slug') slug: string) {
+    return this.reviews.mineForMovie(user, slug);
+  }
+
   @Get('mine')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get your review for an event, if any.' })
@@ -36,6 +45,15 @@ export class ReviewsController {
 @Controller('public/reviews')
 export class PublicReviewsController {
   constructor(private readonly reviews: ReviewsService) {}
+
+  @Public()
+  @Get('movies/:slug')
+  @ApiOperation({
+    summary: 'A film’s rating across every cinema (one voice per viewer) and recent reviews.',
+  })
+  forMovie(@Param('slug') slug: string) {
+    return this.reviews.forMovie(slug);
+  }
 
   @Public()
   @Get(':eventId')

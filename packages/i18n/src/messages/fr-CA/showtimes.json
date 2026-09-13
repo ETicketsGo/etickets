@@ -73,5 +73,58 @@
     "noShowsInCityHint": "Ce film est peut-être à l'affiche dans d'autres villes.",
     "noMatchTitle": "Aucun résultat",
     "noMatchHint": "Aucune séance ce jour-là ne correspond à vos filtres."
+  },
+  "card": {
+    "runtime": "{minutes} min"
+  },
+  "rating": {
+    "average": "{average}/5",
+    "votes": "{count, plural, one {{votes} vote} other {{votes} votes}}",
+    "summary": "Noté {average} sur 5 par {count, plural, one {# personne} other {# personnes}}",
+    "jump": "Lire les notes et les avis"
+  },
+  "reviews": {
+    "heading": "Notes et avis",
+    "loading": "Chargement des notes",
+    "loadError": "Impossible de charger les notes de ce film.",
+    "totalRatings": "{count, plural, one {# note} other {# notes}}",
+    "verified": "Seules les personnes qui ont réservé et vu ce film peuvent le noter, une fois chacune.",
+    "breakdown": "Répartition des notes",
+    "breakdownRow": "{stars, plural, one {# étoile} other {# étoiles}} : {count, plural, one {# note} other {# notes}} ({percent} %)",
+    "percent": "{percent} %",
+    "recent": "Avis récents",
+    "latestOf": "Les {shown} plus récents sur {count, plural, one {# note} other {# notes}}",
+    "emptyTitle": "Aucune note pour le moment",
+    "emptyHint": "Les notes s'afficheront ici dès que des personnes ayant vu ce film donneront la leur.",
+    "firstTitle": "Donnez la première note à ce film",
+    "firstHint": "Vous l'avez vu — dites aux autres ce que vous en avez pensé.",
+    "rate": {
+      "title": "Noter ce film",
+      "updateTitle": "Modifier votre note",
+      "signedOut": "Vous l'avez vu? Connectez-vous pour le noter.",
+      "signIn": "Se connecter pour noter",
+      "noBooking": "Seules les personnes qui ont réservé ce film ici et l'ont vu peuvent le noter.",
+      "notStarted": "Vous pourrez noter ce film dès que votre séance aura commencé.",
+      "yourRating": "Votre note",
+      "yourRatingIs": "Vous lui avez donné {rating} sur 5.",
+      "pick": "Choisissez de 1 à 5 étoiles.",
+      "words": {
+        "1": "Décevant",
+        "2": "Passable",
+        "3": "Bon",
+        "4": "Très bon",
+        "5": "Excellent"
+      },
+      "comment": "Votre avis (facultatif)",
+      "placeholder": "Qu'en avez-vous pensé? Pas de divulgâcheur, s'il vous plaît.",
+      "counter": "{used} sur {max} caractères",
+      "submit": "Envoyer ma note",
+      "update": "Mettre à jour ma note",
+      "thanks": "Merci — votre note a été enregistrée.",
+      "updated": "Votre note a été mise à jour.",
+      "notEligible": "Vous ne pouvez pas encore noter ce film.",
+      "failed": "Impossible d'enregistrer votre note. Veuillez réessayer.",
+      "checkError": "Impossible de vérifier si vous pouvez noter ce film."
+    }
   }
 }

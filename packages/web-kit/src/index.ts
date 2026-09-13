@@ -44,3 +44,4 @@ export * from './logo';
 export * from './printable-tickets';
 export * from './safe-next';
 export * from './showtimes';
+export * from './ratings';

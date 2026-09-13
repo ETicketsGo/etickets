@@ -17,6 +17,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { CacheService } from '../cache/cache.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { availableUnits } from '../inventory/inventory-strategy.interface';
+import { movieRatingsFor } from '../reviews/movie-ratings';
 import type { RequestUser } from '../common/decorators';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
@@ -301,6 +302,11 @@ export class PublicMoviesService {
       orderBy: { releaseDate: 'desc' },
       take: 60,
     });
+    // Every card's rating in one query, not one per poster.
+    const ratings = await movieRatingsFor(
+      this.prisma,
+      movies.map((m) => m.id),
+    );
     return movies.map((m) => ({
       id: m.id,
       title: m.title,
@@ -310,6 +316,7 @@ export class PublicMoviesService {
       language: m.language,
       genres: m.genres,
       runtimeMinutes: m.runtimeMinutes,
+      rating: ratings.get(m.id) ?? null,
     }));
   }
 
@@ -375,7 +382,9 @@ export class PublicMoviesService {
       }
     }
 
+    const rating = (await movieRatingsFor(this.prisma, [movie.id])).get(movie.id) ?? null;
     return {
+      rating,
       id: movie.id,
       title: movie.title,
       slug: movie.slug,
@@ -584,8 +593,10 @@ export class PublicMoviesService {
       };
     });
 
+    const rating = (await movieRatingsFor(this.prisma, [movie.id])).get(movie.id) ?? null;
     return {
       movie: {
+        rating,
         id: movie.id,
         title: movie.title,
         slug: movie.slug,

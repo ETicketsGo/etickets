@@ -145,4 +145,43 @@ test.describe('choosing seats', () => {
     await expect(pay).toBeInViewport();
     await context.close();
   });
+
+  test('6: the basket names the block the seats are in, and the price category when it differs', async ({
+    page,
+  }) => {
+    /*
+      Reported by the owner: seats tapped under "BALCONY" were listed as "Premium". The seeded
+      rooms name their blocks after their categories, so the layout is renamed in flight to the
+      reported shape — a Balcony block sold at a Premium price.
+    */
+    let chosen = '';
+    await page.route(`**/public/shows/${show.sessionId}/seats**`, async (route) => {
+      const response = await route.fetch();
+      const layout = await response.json();
+      const section = layout.sections[0];
+      const target = section.rows
+        .flatMap((row: { label: string; seats: Seat[] }) =>
+          row.seats.map((s) => ({ seat: s, row: row.label })),
+        )
+        .find(
+          ({ seat: s }: { seat: Seat }) =>
+            s.status === 'AVAILABLE' && s.kind !== 'WHEELCHAIR' && s.kind !== 'COMPANION',
+        );
+      chosen = `${target.row}${target.seat.label}`;
+      section.name = 'BALCONY';
+      layout.categories.find((c: { id: string }) => c.id === target.seat.categoryId).name =
+        'Premium';
+      await route.fulfill({ response, json: layout });
+    });
+
+    await page.goto(`${CUSTOMER}/shows/${show.sessionId}`);
+    await expect(page.getByRole('heading', { name: 'Select seats' })).toBeVisible({
+      timeout: 20_000,
+    });
+    await seat(page, chosen).click();
+
+    const basket = page.locator('#seat-summary');
+    await expect(basket.getByText('BALCONY')).toBeVisible();
+    await expect(basket.getByText('· Premium')).toBeVisible();
+  });
 });

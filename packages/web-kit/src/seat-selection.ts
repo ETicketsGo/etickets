@@ -152,6 +152,36 @@ export function strandedSeats(
   return stranded;
 }
 
+/**
+ * What the basket calls a group of chosen seats.
+ *
+ * ── WHY NOT THE CATEGORY'S NAME ────────────────────────────────────────────────────
+ * A seat belongs to a block of the room (the section: "Balcony") and is sold at a price category
+ * ("Premium"). The map heads each block with the section's name; the basket used to use the
+ * category's, so a buyer who tapped three seats under "BALCONY" was told they had chosen
+ * "Premium" — reported by the owner as confusing, which it is. The basket now names the block
+ * they saw, and adds the category only when its name says something the block's does not (it is
+ * what the ticket and Review & pay will call it). Where a cinema names both the same, one name.
+ */
+export function seatGroupName(
+  sectionNames: readonly string[],
+  categoryName: string | null | undefined,
+): { title: string; category: string | null } {
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const blocks: string[] = [];
+  for (const name of sectionNames) {
+    if (name.trim() && !blocks.some((block) => same(block, name))) blocks.push(name.trim());
+  }
+  const category = categoryName?.trim() || null;
+  return {
+    title: blocks.join(', ') || category || '',
+    category:
+      category && blocks.length > 0 && !blocks.some((block) => same(block, category))
+        ? category
+        : null,
+  };
+}
+
 export type SeatDirection = 'left' | 'right' | 'up' | 'down';
 
 /**
