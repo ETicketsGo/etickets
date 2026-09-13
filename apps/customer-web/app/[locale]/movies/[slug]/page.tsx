@@ -33,6 +33,7 @@ import {
   ShowtimesSkeleton,
   useFavouriteCinemas,
 } from '@/components/showtimes';
+import { MovieRatings } from '@/components/reviews';
 
 /** The API's ceiling. One request holds every screening the page can show. */
 const SHOW_LIMIT = 200;
@@ -225,6 +226,8 @@ export default function MovieDetailPage() {
           </>
         )}
       </section>
+
+      <MovieRatings slug={data.movie.slug} />
     </div>
   );
 }

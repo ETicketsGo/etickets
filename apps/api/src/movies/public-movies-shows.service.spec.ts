@@ -77,6 +77,8 @@ function makeService(opts: {
     eventSession: { count, findMany },
     showSeat: { groupBy },
     $transaction,
+    // The film's rating (one raw aggregate, see movieRatingsFor). No ratings in these cases.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
   // The service also takes a CacheService, used only by list(). shows() reads live
   // inventory and deliberately does not cache, so this stub is never called.

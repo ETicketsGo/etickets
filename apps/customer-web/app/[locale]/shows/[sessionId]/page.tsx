@@ -9,6 +9,7 @@ import {
   api as webKit,
   applySeatTap,
   currencyForCountry,
+  seatGroupName,
   MAX_SEATS_PER_BOOKING,
   strandedSeats,
   useAuthUser,
@@ -143,7 +144,7 @@ export default function SeatSelectionPage() {
     the price and the booking call all derive from this map.
   */
   const [known, setKnown] = useState<
-    Map<string, { label: string; rowLabel: string; categoryId: string }>
+    Map<string, { label: string; rowLabel: string; categoryId: string; sectionName: string }>
   >(new Map());
 
   useEffect(() => {
@@ -157,6 +158,8 @@ export default function SeatSelectionPage() {
               label: seat.label,
               rowLabel: row.label,
               categoryId: seat.categoryId,
+              // The block the buyer saw it under — what the basket calls it (see seatGroupName).
+              sectionName: section.name,
             });
           }
         }
@@ -527,9 +530,23 @@ export default function SeatSelectionPage() {
                   return (
                     <div key={catId} className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-text-primary">
-                          {cat?.name ?? s('seatsFallback')}
-                        </p>
+                        {(() => {
+                          const name = seatGroupName(
+                            entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
+                            cat?.name,
+                          );
+                          return (
+                            <p className="font-medium text-text-primary">
+                              {name.title || s('seatsFallback')}
+                              {name.category ? (
+                                <span className="font-normal text-text-muted">
+                                  {' '}
+                                  · {name.category}
+                                </span>
+                              ) : null}
+                            </p>
+                          );
+                        })()}
                         <p className="text-caption text-text-muted">
                           {[...entry.labels]
                             .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))

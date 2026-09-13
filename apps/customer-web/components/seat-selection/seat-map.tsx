@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Accessibility, Minus, MonitorPlay, Plus, ScanLine } from 'lucide-react';
 import {
+  seatGroupName,
   seatInDirection,
   type SeatDirection,
   type SeatLayout,
@@ -187,6 +188,15 @@ export function SeatMap({
                       })
                     : null;
               const swatch = sectionCategories.length === 1 ? sectionCategories[0].colorHex : null;
+              /*
+                The price category's own name, when it is not the block's: "₹10 · BALCONY ·
+                Premium". It is what the basket, Review & pay and the ticket call these seats, so
+                the map says it too rather than letting "Premium" appear from nowhere later.
+              */
+              const tier =
+                sectionCategories.length === 1
+                  ? seatGroupName([section.name], sectionCategories[0].name).category
+                  : null;
 
               return (
                 <div key={`${sectionIndex}-${section.name}`}>
@@ -209,6 +219,12 @@ export function SeatMap({
                         </>
                       ) : null}
                       {section.name}
+                      {tier ? (
+                        <span className="font-medium normal-case tracking-normal text-text-muted">
+                          {' '}
+                          · {tier}
+                        </span>
+                      ) : null}
                     </p>
                   </div>
 

@@ -386,8 +386,17 @@ export const api = {
     forEvent: (eventId: string) =>
       request<ReviewSummary>(`/public/reviews/${eventId}`, { auth: false }),
     mine: (eventId: string) => request<MyReview | null>(`/reviews/mine${qs({ eventId })}`),
+    /**
+     * Rate an event you have attended. For a film screening this rates the FILM: a second
+     * rating through another cinema's listing updates your first rather than adding a vote.
+     */
     create: (body: { eventId: string; rating: number; comment?: string }) =>
       request<MyReview>('/reviews', { method: 'POST', body: JSON.stringify(body) }),
+    /** A film's rating across every cinema, one voice per viewer, with recent reviews. */
+    forMovie: (slug: string) =>
+      request<ReviewSummary>(`/public/reviews/movies/${slug}`, { auth: false }),
+    /** Whether you can rate this film, which listing to rate it through, and your rating so far. */
+    mineForMovie: (slug: string) => request<MyMovieReview>(`/reviews/movies/${slug}/mine`),
   },
 
   support: {
@@ -2966,6 +2975,8 @@ export interface PublicMovieCard {
   language: string;
   genres: string[];
   runtimeMinutes: number;
+  /** Null until someone who watched the film has rated it. Absent on an older API. */
+  rating?: MovieRating | null;
 }
 
 export interface PublicMovie extends PublicMovieCard {
@@ -4607,6 +4618,24 @@ export interface MyReview {
   id: string;
   rating: number;
   comment: string | null;
+}
+/**
+ * A film's rating: the average of 1–5 stars from the people who watched it — each person's
+ * latest rating counted once, across every cinema showing it — and how many of them rated.
+ */
+export interface MovieRating {
+  /** 1.0–5.0, one decimal. */
+  average: number;
+  /** Viewers who rated — the "votes". */
+  count: number;
+}
+export interface MyMovieReview {
+  /** Your latest rating of this film, through whichever cinema you rated it. */
+  review: { id: string; rating: number; comment: string | null; eventId: string } | null;
+  /** The listing to rate through: one whose show you have watched. Null when you cannot rate yet. */
+  eligibleEventId: string | null;
+  /** Why you cannot rate yet: no confirmed booking for this film, or your show has not started. */
+  reason: 'NO_BOOKING' | 'NOT_STARTED' | null;
 }
 
 // ─── Support / Customer Success ───

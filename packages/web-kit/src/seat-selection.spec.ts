@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applySeatTap,
   pickAdjacentSeats,
+  seatGroupName,
   seatInDirection,
   strandedSeats,
   type SelectableSeat,
@@ -122,6 +123,31 @@ describe('strandedSeats', () => {
   it('does not blame the buyer for gaps they did not make', () => {
     // A3 was already stranded between two sold seats before anyone chose anything.
     expect(strandedSeats(row('.x.x..'), new Set(['A5', 'A6']))).toEqual([]);
+  });
+});
+
+describe('seatGroupName — what the basket calls the seats', () => {
+  it('names the block the buyer saw on the map, and adds the category when it differs', () => {
+    // Reported by the owner: seats under "BALCONY" were listed as "Premium".
+    expect(seatGroupName(['BALCONY'], 'Premium')).toEqual({
+      title: 'BALCONY',
+      category: 'Premium',
+    });
+  });
+
+  it('says one name once when the cinema named both the same', () => {
+    expect(seatGroupName(['NORMAL'], 'Normal')).toEqual({ title: 'NORMAL', category: null });
+  });
+
+  it('lists each block once when the seats span blocks at one price', () => {
+    expect(seatGroupName(['Stalls', 'Balcony', 'stalls'], 'Premium')).toEqual({
+      title: 'Stalls, Balcony',
+      category: 'Premium',
+    });
+  });
+
+  it('falls back to the category when no block name is known', () => {
+    expect(seatGroupName([''], 'Premium')).toEqual({ title: 'Premium', category: null });
   });
 });
 

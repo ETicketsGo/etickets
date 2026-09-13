@@ -1,10 +1,11 @@
 'use client';
 
-import { Clock, Film, Play } from 'lucide-react';
+import { Clock, Film, Play, Star } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { gradientFor, type PublicMovieShows } from '@eticketsgo/web-kit';
+import { gradientFor, hasRating, type PublicMovieShows } from '@eticketsgo/web-kit';
 import { Badge } from '@/components/ui';
+import { useRatingText } from '@/components/reviews/use-rating-text';
 import { focusRing } from './styles';
 
 /** Long enough that three lines would cut it off; below this there is nothing to expand. */
@@ -21,6 +22,9 @@ const tag =
  */
 export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
   const t = useTranslations('showtimes.movie');
+  const tr = useTranslations('showtimes.rating');
+  const words = useRatingText();
+  const rating = hasRating(movie.rating) ? movie.rating : null;
   const [expanded, setExpanded] = useState(false);
   /*
     A poster URL that does not load shows the placeholder, not a broken image with its alt text
@@ -80,6 +84,27 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
             <span className="sr-only">{t('language')}: </span>
             {movie.language}
           </Badge>
+          {rating && (
+            /*
+              A link to the ratings section rather than a static badge: the number invites
+              "says who?", and the answer — the breakdown and the reviews — is further down.
+              A solid tint so its contrast is a fixed pair (see tokens.css), not a wash.
+            */
+            <a
+              href="#ratings"
+              className={`inline-flex items-center gap-1.5 rounded-full bg-tint-warning px-2.5 py-0.5 text-caption font-medium text-text-primary hover:underline ${focusRing}`}
+            >
+              <Star className="h-3.5 w-3.5 fill-status-warning text-status-warning" aria-hidden />
+              <span aria-hidden className="tabular-nums">
+                <span className="font-semibold">{words.outOf5(rating.average)}</span>
+                {' · '}
+                {words.votes(rating.count)}
+              </span>
+              <span className="sr-only">
+                {words.summary(rating)}. {tr('jump')}
+              </span>
+            </a>
+          )}
         </div>
         <h1 className="mt-2 break-words text-h3 font-bold tracking-tight text-text-primary sm:text-h1">
           {movie.title}
