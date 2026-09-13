@@ -197,6 +197,16 @@ export class PublicShowsController {
   constructor(private readonly shows: ShowsService) {}
 
   @Public()
+  @Get(':sessionId')
+  @ApiOperation({
+    summary:
+      'Which show this is: the film or event, cinema, screen and start time in the cinema’s zone.',
+  })
+  summary(@Param('sessionId') sessionId: string) {
+    return this.shows.getPublicShowSummary(sessionId);
+  }
+
+  @Public()
   @Get(':sessionId/seats')
   @ApiOperation({
     summary:

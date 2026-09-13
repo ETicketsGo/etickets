@@ -72,6 +72,18 @@ const ENGLISH = new Set([
   'Payment fee',
   'This is the full amount you will pay.',
   'Transparent fees shown on the next step.',
+  // The film page and the seat page, redesigned after BookMyShow's.
+  'Showtimes',
+  'Watch trailer',
+  'Filling fast',
+  'Select seats',
+  'How many tickets?',
+  'Screen this way',
+  'Your seats',
+  'Available',
+  'Selected',
+  'Sold',
+  'Proceed to pay',
 ]);
 
 /**
@@ -91,6 +103,13 @@ const TRANSACTIONAL = [
     catalogue, because a hardcoded one rots the first time the seed changes.
   */
   '/fr-CA/events/:firstPaid',
+  /*
+    The film page and the seat page — the cinema path, redesigned after BookMyShow's: the date
+    strip, filters and showtime pills, then the show header, ticket count, seat map and legend.
+    Neither was checked here before, and the film page was entirely hardcoded English.
+  */
+  '/fr-CA/movies/skyfront-protocol',
+  '/fr-CA/shows/:firstShow',
   '/fr-CA/login',
   '/fr-CA/register',
   '/fr-CA/account/tickets',
@@ -109,8 +128,22 @@ test.describe('the French transactional path carries no English', () => {
     await seedBrowserAuth(context, tokens);
   });
 
-  /** Resolves the `:firstPaid` placeholder against whatever is actually on sale. */
+  /** Resolves the `:firstPaid` / `:firstShow` placeholders against whatever is actually on sale. */
   async function resolve(route: string, request: APIRequestContext): Promise<string> {
+    if (route.includes(':firstShow')) {
+      const { shows } = await (
+        await request.get(`${API}/public/movies/skyfront-protocol/shows?limit=50`)
+      ).json();
+      const show = (
+        shows as { sessionId: string; seatingType: string; availability: string }[]
+      ).find(
+        (s) =>
+          s.seatingType === 'RESERVED' &&
+          (s.availability === 'AVAILABLE' || s.availability === 'LIMITED'),
+      );
+      expect(show, 'a bookable screening is needed to check the French seat page').toBeTruthy();
+      return route.replace(':firstShow', show!.sessionId);
+    }
     if (!route.includes(':firstPaid')) return route;
     const list = await (await request.get(`${API}/public/events?pageSize=50`)).json();
     const paid = (list.data ?? list).find(

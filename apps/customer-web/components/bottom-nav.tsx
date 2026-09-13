@@ -51,7 +51,12 @@ export function BottomNav() {
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
   useEffect(() => setAuthed(!!tokenStore.access), []);
-  if (!authed) return null;
+  /*
+    Not while choosing seats. That screen has its own bar at the bottom — the seats, the amount
+    and the pay button — and a navigation bar under it would put five ways to leave the booking
+    beneath the one thing the buyer came to press.
+  */
+  if (!authed || pathname.startsWith('/shows/')) return null;
 
   return (
     <nav

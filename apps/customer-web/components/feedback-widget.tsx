@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
+import { usePathname } from '@/i18n/navigation';
 import { api, ApiRequestError } from '@/lib/api';
 import { Button, Dialog, Textarea, RatingStars, useToast } from '@/components/ui';
 
@@ -13,6 +14,11 @@ import { Button, Dialog, Textarea, RatingStars, useToast } from '@/components/ui
  */
 export function FeedbackWidget() {
   const toast = useToast();
+  /*
+    Not over the seat page's pay bar on a phone. The button sits bottom-left, exactly where that
+    bar shows the seats and the amount, and covered the number the buyer is about to pay.
+  */
+  const onSeatPage = usePathname().startsWith('/shows/');
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [rating, setRating] = useState(0);
@@ -63,7 +69,7 @@ export function FeedbackWidget() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Send feedback"
-        className="fixed bottom-5 left-5 z-40 flex print:hidden items-center gap-2 rounded-full border border-border bg-background-elevated px-4 py-2.5 text-[0.9375rem] font-medium text-text-secondary shadow-lg transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:text-text-primary hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+        className={`fixed bottom-5 left-5 z-40 ${onSeatPage ? 'hidden lg:flex' : 'flex'} print:hidden items-center gap-2 rounded-full border border-border bg-background-elevated px-4 py-2.5 text-[0.9375rem] font-medium text-text-secondary shadow-lg transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:text-text-primary hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas`}
       >
         <MessageSquarePlus className="h-4 w-4" aria-hidden />
         <span className="hidden sm:inline">Feedback</span>

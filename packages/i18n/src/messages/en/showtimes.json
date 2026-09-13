@@ -1,0 +1,77 @@
+{
+  "heading": "Showtimes",
+  "movie": {
+    "notFoundTitle": "Movie not found",
+    "notFoundHint": "This film may no longer be listed.",
+    "browseMovies": "Browse movies",
+    "loadError": "We couldn't load this movie. Please try again.",
+    "loading": "Loading showtimes",
+    "poster": "{title} poster",
+    "certificate": "Certificate",
+    "language": "Language",
+    "runtime": "Runtime",
+    "hoursMinutes": "{hours}h {minutes}m",
+    "hoursOnly": "{hours}h",
+    "minutesOnly": "{minutes}m",
+    "trailer": "Watch trailer",
+    "opensInNewTab": "(opens in a new tab)",
+    "director": "Director",
+    "cast": "Cast",
+    "readMore": "Read more",
+    "readLess": "Show less"
+  },
+  "dates": {
+    "label": "Choose a date",
+    "earlier": "Earlier dates",
+    "later": "Later dates",
+    "noShows": "No shows"
+  },
+  "filters": {
+    "label": "Filter showtimes",
+    "format": "Format",
+    "time": "Time",
+    "clear": "Clear filters",
+    "timeOfDay": {
+      "MORNING": { "label": "Morning", "range": "Before 12 pm" },
+      "AFTERNOON": { "label": "Afternoon", "range": "12–4 pm" },
+      "EVENING": { "label": "Evening", "range": "4–7 pm" },
+      "NIGHT": { "label": "Night", "range": "7 pm onwards" }
+    }
+  },
+  "legend": {
+    "label": "Availability",
+    "available": "Available",
+    "fillingFast": "Filling fast",
+    "soldOut": "Sold out"
+  },
+  "status": {
+    "AVAILABLE": "Available",
+    "LIMITED": "Filling fast",
+    "SOLD_OUT": "Sold out",
+    "SALES_PAUSED": "Sales paused"
+  },
+  "pill": {
+    "from": "from {price}",
+    "free": "Free",
+    "lateNight": "Late-night show"
+  },
+  "cinema": {
+    "list": "Cinemas",
+    "favourite": "Favourite cinema: {name}",
+    "localTime": "Local time ({zone})"
+  },
+  "summary": "{shows, plural, one {# showtime} other {# showtimes}} at {cinemas, plural, one {# cinema} other {# cinemas}}",
+  "truncated": "Showing the first {returned} of {total} shows.",
+  "city": {
+    "scoped": "Cinemas in {city}",
+    "showAll": "Show all cities"
+  },
+  "empty": {
+    "noShowsTitle": "No shows scheduled",
+    "noShowsHint": "Check back soon — showtimes for this film aren't available yet.",
+    "noShowsInCityTitle": "No shows in {city} yet",
+    "noShowsInCityHint": "This film may be showing in other cities.",
+    "noMatchTitle": "Nothing matches",
+    "noMatchHint": "No showtimes on this day fit your filters."
+  }
+}

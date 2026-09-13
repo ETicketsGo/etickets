@@ -23,18 +23,22 @@ anything requiring a human reading the page. It cannot tell you:
 - whether alt text is **accurate** — only that it exists. `alt="image"` passes.
 - whether heading levels describe the **actual** structure, or were chosen for their size.
 - whether a flow can be **completed** with a keyboard. Reaching the checkout by Tab and
-  Enter is now asserted; paying, picking a seat and applying a coupon are not.
+  Enter is asserted, and so is moving between seats with the arrow keys from a single tab stop
+  (`seat-selection-ux.spec.ts`); paying and applying a coupon are not.
 - whether focus order is **sensible**, or whether focus is **trapped** in a dialog and
   **returned** when it closes.
 - whether an error message says what went wrong and how to fix it.
 - whether anything is **announced** at the moment it changes — a seat becoming unavailable,
   a payment succeeding, a hold expiring.
 - whether the seat map, which is the core interaction of this product, is usable at all by
-  somebody who cannot see it.
+  somebody who cannot see it. The sweep now scans the seat page and the film page, and each seat
+  announces row, number, kind, price and status — but a clean scan is not proof the map is usable
+  without sight; that needs a person with a screen reader.
 - whether the extension offered on the hold arrives early enough, and whether ten is the
   right bound — the mechanism exists and is asserted, the judgement is an auditor's.
 - whether the SEAT MAP and the schedule week-view reflow. The storefront is asserted at
-  320px; those two are not, and they are the likely failures.
+  320px. The seat page is asserted not to scroll sideways at a 390px phone width (the map
+  scrolls inside its own box); 320px and the week view are not asserted.
 
 Every one of those is in scope for an audit and none of them is covered here.
 
