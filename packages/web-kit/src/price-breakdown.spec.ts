@@ -269,6 +269,157 @@ describe('the GST on the fees, by name', () => {
   });
 });
 
+/*
+  Reported by the owner: payment processing and the platform fee were shown together under one
+  "Convenience fees" heading, after they had asked for the two apart. Each fee is now its own
+  line, opening the way BookMyShow's convenience fee does — its base amount, then its own GST.
+*/
+describe('each fee with its own GST', () => {
+  const fee = (label: string, rateBasisPoints: number, amountMinor: number) => ({
+    label,
+    rateBasisPoints,
+    amountMinor,
+    basis: 'FEES' as const,
+    inclusive: false,
+  });
+  const cart = (
+    feeTax: NonNullable<BreakdownQuote['taxLines']>,
+    over: Partial<BreakdownQuote> = {},
+  ): BreakdownQuote => ({
+    subtotalMinor: 49_900,
+    discountMinor: 0,
+    bookingFeeMinor: 1_000,
+    paymentFeeMinor: 1_018,
+    customerFeeMinor: 2_018,
+    customerFeeInclusiveMinor: 2_382,
+    feeTaxRateBasisPoints: 1_800,
+    taxLines: feeTax,
+    totalMinor: 52_282,
+    ...over,
+  });
+
+  /**
+   * The groups are the fee rows, redrawn: each group foots to its own total, every stored GST
+   * line is divided without losing a paisa, and the groups add up to the fee rows they replace.
+   */
+  const reconciles = (q: BreakdownQuote) => {
+    const b = priceBreakdown(q);
+    const feeRows = b.rows
+      .filter((r) => r.kind === 'paymentFee' || r.kind === 'platformFee' || r.kind === 'feeTax')
+      .reduce((sum, r) => sum + r.amountMinor, 0);
+    const groups = b.feeGroups.reduce((sum, g) => sum + g.totalMinor, 0);
+    const eachGroupFoots = b.feeGroups.every(
+      (g) => g.baseMinor + g.taxLines.reduce((sum, t) => sum + t.amountMinor, 0) === g.totalMinor,
+    );
+    const everyLineKept = b.feeTaxLines.every(
+      (line) =>
+        b.feeGroups
+          .flatMap((g) => g.taxLines)
+          .filter((t) => t.label === line.label && t.rateBasisPoints === line.rateBasisPoints)
+          .reduce((sum, t) => sum + t.amountMinor, 0) === line.amountMinor,
+    );
+    return feeRows === groups && eachGroupFoots && everyLineKept;
+  };
+
+  it('reproduces the reported cart: ₹12.02 of payment processing and ₹11.80 of convenience fees', () => {
+    const q = cart([fee('CGST', 900, 182), fee('SGST', 900, 182)]);
+    expect(priceBreakdown(q).feeGroups).toEqual([
+      {
+        kind: 'paymentFee',
+        baseMinor: 1_018,
+        taxLines: [
+          { label: 'CGST', rateBasisPoints: 900, amountMinor: 92 },
+          { label: 'SGST', rateBasisPoints: 900, amountMinor: 92 },
+        ],
+        totalMinor: 1_202,
+      },
+      {
+        // ₹0.90 at 9% on a ₹10 fee — its own share, not the ₹1.82 levied on both fees.
+        kind: 'platformFee',
+        baseMinor: 1_000,
+        taxLines: [
+          { label: 'CGST', rateBasisPoints: 900, amountMinor: 90 },
+          { label: 'SGST', rateBasisPoints: 900, amountMinor: 90 },
+        ],
+        totalMinor: 1_180,
+      },
+    ]);
+    expect(reconciles(q)).toBe(true);
+    expect(foots(q)).toBe(true);
+  });
+
+  it('divides IGST the same way for a buyer in another state', () => {
+    const q = cart([fee('IGST', 1_800, 364)]);
+    expect(priceBreakdown(q).feeGroups.map((g) => [g.kind, g.baseMinor, g.totalMinor])).toEqual([
+      ['paymentFee', 1_018, 1_202],
+      ['platformFee', 1_000, 1_180],
+    ]);
+    expect(reconciles(q)).toBe(true);
+  });
+
+  it('divides the one combined-rate line when the stored lines cannot be named', () => {
+    const q = cart([]);
+    const b = priceBreakdown(q);
+    expect(b.feeGroups.map((g) => g.taxLines)).toEqual([
+      [{ label: null, rateBasisPoints: 1_800, amountMinor: 184 }],
+      [{ label: null, rateBasisPoints: 1_800, amountMinor: 180 }],
+    ]);
+    expect(reconciles(q)).toBe(true);
+  });
+
+  it('never loses a paisa, whatever the amounts — including a fee the customer is not charged', () => {
+    for (const [booking, payment, cgst] of [
+      [1_000, 1_018, 182],
+      [1, 999, 90],
+      [4_000, 680, 421],
+      [333, 333, 60],
+      [0, 1_018, 92],
+      [1_000, 0, 90],
+    ]) {
+      const fees = booking + payment;
+      const q = cart([fee('CGST', 900, cgst), fee('SGST', 900, cgst)], {
+        bookingFeeMinor: booking,
+        paymentFeeMinor: payment,
+        customerFeeMinor: fees,
+        customerFeeInclusiveMinor: fees + 2 * cgst,
+        totalMinor: 49_900 + fees + 2 * cgst,
+      });
+      expect(reconciles(q)).toBe(true);
+      expect(foots(q)).toBe(true);
+    }
+  });
+
+  it('divides the customer’s SHARE when the organizer covers the rest of the fees', () => {
+    const q = cart([fee('CGST', 900, 141), fee('SGST', 900, 141)], {
+      bookingFeeMinor: 1_500,
+      paymentFeeMinor: 1_628,
+      customerFeeMinor: 1_564,
+      customerFeeInclusiveMinor: 1_846,
+      totalMinor: 49_900 + 1_846,
+    });
+    expect(priceBreakdown(q).feeGroups.map((g) => g.kind)).toEqual(['paymentFee', 'platformFee']);
+    expect(reconciles(q)).toBe(true);
+  });
+
+  it('lists each fee as a plain line when the fees are untaxed', () => {
+    const b = priceBreakdown(
+      quote({ customerFeeInclusiveMinor: 4_680, feeTaxRateBasisPoints: 0, totalMinor: 34_680 }),
+    );
+    expect(b.feeGroups).toEqual([
+      { kind: 'paymentFee', baseMinor: 680, taxLines: [], totalMinor: 680 },
+      { kind: 'platformFee', baseMinor: 4_000, taxLines: [], totalMinor: 4_000 },
+    ]);
+  });
+
+  it('has no groups when the fees are one undivided row', () => {
+    const b = priceBreakdown(
+      quote({ customerFeeMinor: undefined, customerFeeInclusiveMinor: 5_522 }),
+    );
+    expect(b.rows.map((r) => r.kind)).toEqual(['tickets', 'fees']);
+    expect(b.feeGroups).toEqual([]);
+  });
+});
+
 describe('the fees, divided', () => {
   it('reproduces the QA cart line for line: ₹499 + ₹10.18 + ₹10 + ₹3.64 = ₹522.82', () => {
     const q: BreakdownQuote = {

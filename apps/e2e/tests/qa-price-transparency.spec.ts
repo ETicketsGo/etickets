@@ -67,8 +67,10 @@ test.describe('QA: the event page shows the full price, not the subtotal', () =>
     const breakdown = page.getByTestId('price-breakdown');
     await expect(breakdown).toBeVisible({ timeout: 30_000 });
 
-    // The fees that used to be hidden are named, not merely bundled into a bigger number.
-    await expect(breakdown).toContainText(/Platform fee/);
+    // The fees that used to be hidden are named, each on its own line, not merely bundled into
+    // a bigger number.
+    await expect(breakdown).toContainText(/Payment processing fee/);
+    await expect(breakdown).toContainText(/Convenience fees/);
 
     // And the promise is made explicitly, replacing the apology that used to be here.
     await expect(page.getByText('This is the full amount you will pay.')).toBeVisible();

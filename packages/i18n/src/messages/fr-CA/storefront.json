@@ -63,6 +63,7 @@
     "noUpcomingSessions": "Aucune date à venir pour cet événement.",
     "taxIncludedSummary": "Comprend {amount} de taxes",
     "convenienceFees": "Frais de commodité",
+    "feeBaseAmount": "Montant de base",
     "feeTaxLine": "{name} @ {rate}",
     "taxNameIGST": "GST intégrée (IGST)",
     "taxNameCGST": "GST centrale (CGST)",

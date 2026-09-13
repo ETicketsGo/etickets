@@ -102,7 +102,8 @@ export default function AdminBookingDetail() {
           This listed the full booking fee and payment fee and the total — no GST on the fees,
           and, when the organizer covered part of the fees, two figures that were not what the
           buyer paid. Support reading this page to answer a buyer needs the buyer's numbers:
-          tickets, convenience fees with their parts and each GST line named, and the total.
+          tickets, payment processing and convenience fees — each with its base amount and its
+          own GST lines named, as the buyer's checkout shows them — and the total.
         */}
         <Card title="Amounts">
           {(() => {
@@ -120,8 +121,17 @@ export default function AdminBookingDetail() {
               totalMinor: b.totalMinor,
             });
             // One number of decimals for the card, so "₹1,598" never sits above "₹32.36".
+            // Each fee's GST share can carry paise the rows do not, so the groups count too.
             const digits = moneyFractionDigits(
-              [...breakdown.rows.map((r) => r.amountMinor), b.totalMinor],
+              [
+                ...breakdown.rows.map((r) => r.amountMinor),
+                ...breakdown.feeGroups.flatMap((g) => [
+                  g.totalMinor,
+                  g.baseMinor,
+                  ...g.taxLines.map((t) => t.amountMinor),
+                ]),
+                b.totalMinor,
+              ],
               b.currency,
             );
             const fmt = (minor: number) => money(minor, b.currency, undefined, digits);
@@ -152,32 +162,32 @@ export default function AdminBookingDetail() {
                         value={fmt(r.amountMinor)}
                       />
                     ))}
-                  {feesTotal > 0 && (
-                    <>
-                      <Row label="Convenience fees" value={fmt(feesTotal)} />
-                      <div className="space-y-1 border-l-2 border-border pl-3 text-xs">
-                        {part('paymentFee') && (
-                          <SubRow
-                            label="Payment processing fee"
-                            value={fmt(part('paymentFee')!.amountMinor)}
+                  {breakdown.feeGroups.length > 0
+                    ? breakdown.feeGroups.map((group) => (
+                        <div key={group.kind} className="space-y-1">
+                          <Row
+                            label={
+                              group.kind === 'paymentFee'
+                                ? 'Payment processing fee'
+                                : 'Convenience fees'
+                            }
+                            value={fmt(group.totalMinor)}
                           />
-                        )}
-                        {part('platformFee') && (
-                          <SubRow
-                            label="Platform fee"
-                            value={fmt(part('platformFee')!.amountMinor)}
-                          />
-                        )}
-                        {breakdown.feeTaxLines.map((tax) => (
-                          <SubRow
-                            key={`fee-tax-${tax.label ?? 'combined'}-${tax.rateBasisPoints}`}
-                            label={feeTaxLabel(tax)}
-                            value={fmt(tax.amountMinor)}
-                          />
-                        ))}
-                      </div>
-                    </>
-                  )}
+                          {group.taxLines.length > 0 && (
+                            <div className="space-y-1 border-l-2 border-border pl-3 text-xs">
+                              <SubRow label="Base amount" value={fmt(group.baseMinor)} />
+                              {group.taxLines.map((tax) => (
+                                <SubRow
+                                  key={`fee-tax-${tax.label ?? 'combined'}-${tax.rateBasisPoints}`}
+                                  label={feeTaxLabel(tax)}
+                                  value={fmt(tax.amountMinor)}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    : feesTotal > 0 && <Row label="Convenience fees" value={fmt(feesTotal)} />}
                   <Row label="Total" value={fmt(b.totalMinor)} />
                 </dl>
                 {breakdown.includedTax.length > 0 && (

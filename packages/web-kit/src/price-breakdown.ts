@@ -46,6 +46,29 @@ export interface FeeTaxPart {
   amountMinor: number;
 }
 
+/**
+ * One fee as the buyer is shown it: what it is before tax, and the GST charged on it.
+ *
+ * ── WHY EACH FEE CARRIES ITS OWN GST ───────────────────────────────────────────────
+ * Payment processing and the platform's own fee sat inside one "Convenience fees" line, and the
+ * owner reported it as the two shown together again — the separation asked for earlier, undone
+ * by the grouping. Each is now its own line, opening the way BookMyShow's convenience fee does:
+ * the base amount, then "Integrated GST (IGST) @ 18%" beneath it.
+ *
+ * The GST is levied once, on the two fees together. Each fee's share of every stored line is its
+ * base's share of the fees, so a ₹10 platform fee shows ₹0.90 of CGST at 9% rather than the
+ * ₹1.82 levied on both fees, which would not be 9% of anything on the screen.
+ */
+export interface FeeGroup {
+  kind: 'paymentFee' | 'platformFee';
+  /** The fee before tax. */
+  baseMinor: number;
+  /** This fee's share of each GST line on the fees. */
+  taxLines: FeeTaxPart[];
+  /** `baseMinor` plus its tax lines. */
+  totalMinor: number;
+}
+
 export interface BreakdownQuote {
   subtotalMinor: number;
   discountMinor: number;
@@ -112,6 +135,12 @@ export interface Breakdown {
    * `feeTax` row. Empty when the fees are untaxed.
    */
   feeTaxLines: FeeTaxPart[];
+  /**
+   * The fee rows as the buyer reads them: payment processing, then the platform fee, each with
+   * its own share of the GST. Their totals sum to the fee rows exactly, so a screen may draw
+   * these in place of those rows and still foot. Empty when the fees are one undivided row.
+   */
+  feeGroups: FeeGroup[];
   totalMinor: number;
 }
 
@@ -272,6 +301,7 @@ export function priceBreakdown(quote: BreakdownQuote): Breakdown {
 
   return {
     feeTaxLines,
+    feeGroups: parts ? feeGroupsFor(parts, feeTaxLines) : [],
     rows,
     includedTax: mergeByRate(ticketTax.filter((tax) => tax.inclusive === true)),
     includedMaintenanceMinor: maintenanceMinor > 0 && !added ? maintenanceMinor : 0,
@@ -315,6 +345,42 @@ function feeParts(
     bookingFeeMinor: shareMinor - paymentFeeMinor,
     taxMinor: feesAllInMinor - shareMinor,
   };
+}
+
+/**
+ * Each fee with its own share of the GST on the fees.
+ *
+ * Every line is divided in proportion to the two bases: the payment fee's share is rounded and
+ * the platform fee takes the remainder, so the halves of a line always add back to it and the
+ * groups add back to the fee rows. A fee the customer is not charged has no group, and a share
+ * that rounds to nothing is not listed as a line of ₹0.00.
+ */
+function feeGroupsFor(
+  parts: { paymentFeeMinor: number; bookingFeeMinor: number; taxMinor: number },
+  taxLines: FeeTaxPart[],
+): FeeGroup[] {
+  const baseMinor = parts.paymentFeeMinor + parts.bookingFeeMinor;
+  const paymentTax: FeeTaxPart[] = [];
+  const platformTax: FeeTaxPart[] = [];
+  for (const tax of taxLines) {
+    const paymentShare =
+      baseMinor > 0 ? Math.round((tax.amountMinor * parts.paymentFeeMinor) / baseMinor) : 0;
+    paymentTax.push({ ...tax, amountMinor: paymentShare });
+    platformTax.push({ ...tax, amountMinor: tax.amountMinor - paymentShare });
+  }
+  const group = (kind: FeeGroup['kind'], base: number, lines: FeeTaxPart[]): FeeGroup => {
+    const listed = lines.filter((line) => line.amountMinor !== 0);
+    return {
+      kind,
+      baseMinor: base,
+      taxLines: listed,
+      totalMinor: base + listed.reduce((sum, line) => sum + line.amountMinor, 0),
+    };
+  };
+  return [
+    group('paymentFee', parts.paymentFeeMinor, paymentTax),
+    group('platformFee', parts.bookingFeeMinor, platformTax),
+  ].filter((g) => g.totalMinor > 0);
 }
 
 /**

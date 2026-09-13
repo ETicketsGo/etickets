@@ -15,10 +15,23 @@ import {
   ErrorState,
   PageHeader,
   dateOnly,
+  MARKETS,
+  type AnalyticsOrganizerMarket,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { WelcomeCard } from '@/components/onboarding-checklist';
 import { isForbidden } from '@/lib/org-permissions';
+
+/**
+ * "India · INR" rather than "INR" — the same label the admin dashboard gives a market.
+ *
+ * A currency is how the money is grouped; a country is how an organizer thinks about where they
+ * sell. A currency with no known country keeps its code rather than guessing one.
+ */
+function marketName(market: { country: string | null; currency: string }): string {
+  const name = MARKETS.find((m) => m.code === market.country)?.name;
+  return name ? `${name} · ${market.currency}` : market.currency;
+}
 
 export default function OrganizerDashboard() {
   const { activeOrg, can } = useOrg();
@@ -67,8 +80,24 @@ export default function OrganizerDashboard() {
   */
   const revenues = analytics?.revenue ?? [];
   const countries = analytics?.countries ?? [];
+  /*
+    Every market the organization sells in or has a venue in, including one that has taken
+    nothing yet. Reported by the owner: the admin dashboard showed payments by country and this
+    one did not — the switch below appeared only for a second currency WITH revenue, so a US
+    market whose checkouts had all failed was invisible here. An older API without `markets`
+    falls back to the currencies that have revenue.
+  */
+  const markets: AnalyticsOrganizerMarket[] = analytics?.markets ?? [];
+  const choices =
+    markets.length > 0
+      ? markets.map((m) => ({ currency: m.currency, label: marketName(m) }))
+      : revenues.map((r) => ({
+          currency: r.currency,
+          label: `${countries.find((c) => c.currency === r.currency)?.country ?? r.currency} · ${r.currency}`,
+        }));
   const [market, setMarket] = useState<string | null>(null);
-  const activeCurrency = market ?? revenues[0]?.currency ?? null;
+  const activeCurrency = market ?? choices[0]?.currency ?? null;
+  const activeMarket = markets.find((m) => m.currency === activeCurrency);
   const revenue = revenues.find((r) => r.currency === activeCurrency);
   const refundsFor = analytics?.refunds?.find((r) => r.currency === activeCurrency);
   const couponsFor = analytics?.coupons?.find((c) => c.currency === activeCurrency);
@@ -141,9 +170,11 @@ export default function OrganizerDashboard() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
                   Revenue
-                  {marketCountries.length > 0 && (
+                  {(activeMarket || marketCountries.length > 0) && (
                     <span className="ml-2 font-normal normal-case tracking-normal text-text-secondary">
-                      {marketCountries.map((c) => c.country).join(', ')}
+                      {activeMarket
+                        ? marketName(activeMarket)
+                        : marketCountries.map((c) => c.country).join(', ')}
                     </span>
                   )}
                 </h2>
@@ -151,26 +182,24 @@ export default function OrganizerDashboard() {
                 Shown only when there IS a choice. A single-market organizer is not asked to
                 make a decision that has one answer.
               */}
-                {revenues.length > 1 && (
+                {choices.length > 1 && (
                   <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Market">
-                    {revenues.map((r) => {
-                      const label =
-                        countries.find((c) => c.currency === r.currency)?.country ?? r.currency;
-                      const on = r.currency === activeCurrency;
+                    {choices.map((choice) => {
+                      const on = choice.currency === activeCurrency;
                       return (
                         <button
-                          key={r.currency}
+                          key={choice.currency}
                           type="button"
                           role="tab"
                           aria-selected={on}
-                          onClick={() => setMarket(r.currency)}
+                          onClick={() => setMarket(choice.currency)}
                           className={`rounded-md border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                             on
                               ? 'border-action-primary bg-tint-primary text-action-primary'
                               : 'border-border text-text-secondary hover:bg-background-subtle'
                           }`}
                         >
-                          {label} · {r.currency}
+                          {choice.label}
                         </button>
                       );
                     })}
@@ -199,6 +228,90 @@ export default function OrganizerDashboard() {
                   tone={sum.refunds > 0 ? 'warning' : 'neutral'}
                 />
               </div>
+              {/*
+                Every market side by side, as the admin dashboard lists the platform's. The cards
+                above answer "how is this market doing"; this answers "where am I selling at all,
+                and where are payments failing". Each amount is formatted in its own row's
+                currency, and rows are never totalled — a sum across currencies is not an amount.
+              */}
+              {markets.length > 0 && (
+                <Card title="By market" className="mt-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <caption className="sr-only">
+                        Sales, refunds, bookings and payment failures for each market
+                      </caption>
+                      <thead>
+                        <tr className="border-b border-border text-caption uppercase tracking-wide text-text-muted">
+                          <th scope="col" className="whitespace-nowrap py-2 pr-4 font-semibold">
+                            Market
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 pr-4 text-right font-semibold"
+                          >
+                            Gross sales
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 pr-4 text-right font-semibold"
+                          >
+                            Net revenue
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 pr-4 text-right font-semibold"
+                          >
+                            Refunds
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 pr-4 text-right font-semibold"
+                          >
+                            Paid bookings
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 pr-4 text-right font-semibold"
+                          >
+                            All bookings
+                          </th>
+                          <th
+                            scope="col"
+                            className="whitespace-nowrap py-2 text-right font-semibold"
+                          >
+                            Payment failures
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {markets.map((m) => (
+                          <tr key={m.currency}>
+                            <th
+                              scope="row"
+                              className="whitespace-nowrap py-2 pr-4 font-medium text-text-primary"
+                            >
+                              {marketName(m)}
+                            </th>
+                            <td className="whitespace-nowrap py-2 pr-4 text-right tabular-nums">
+                              {money(m.grossMinor, m.currency)}
+                            </td>
+                            <td className="whitespace-nowrap py-2 pr-4 text-right tabular-nums">
+                              {money(m.netMinor, m.currency)}
+                            </td>
+                            <td className="whitespace-nowrap py-2 pr-4 text-right tabular-nums">
+                              {money(m.refundsMinor, m.currency)}
+                            </td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{m.paidBookings}</td>
+                            <td className="py-2 pr-4 text-right tabular-nums">{m.totalBookings}</td>
+                            <td className="py-2 text-right tabular-nums">{m.paymentFailures}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
             </div>
           )}
           <div>

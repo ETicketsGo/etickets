@@ -89,6 +89,8 @@ function makeService(
       findUnique: jest
         .fn()
         .mockResolvedValue({ id: 'v1', name: 'Hall', city: 'BLR', organizationId: 'o1' }),
+      // An Indian venue that sells, and a US one that has not sold yet.
+      findMany: jest.fn().mockResolvedValue([{ country: 'India' }, { country: 'United States' }]),
     },
     event: {
       count: jest.fn().mockResolvedValue(3),
@@ -177,12 +179,71 @@ describe('AnalyticsService.organizer', () => {
     expect(r.revenue).toBeUndefined();
     expect(r.refunds).toBeUndefined();
     expect(r.coupons).toBeUndefined();
+    expect(r.markets).toBeUndefined();
     // Non-financial metrics still present.
     expect(r.attendance.issued).toBe(10);
     // The revenue/refund aggregates must not be issued at all.
     expect(prisma.booking.aggregate).not.toHaveBeenCalled();
-    // Refunds and the country split are raw joins now; neither may run for a non-financial role.
+    // Refunds, the country split and payment failures are raw joins; none may run for this role.
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.venue.findMany).not.toHaveBeenCalled();
+  });
+
+  /*
+    Reported by the owner: the admin dashboard shows payments by country and the organizer's did
+    not. Every market is listed — one that has sold nothing too — with its payments beside it.
+  */
+  it('lists every market with its payments, including a country that has not sold yet', async () => {
+    const $queryRaw = jest.fn((strings: TemplateStringsArray) => {
+      const sql = strings.join('?');
+      if (sql.includes('"Refund"')) {
+        return Promise.resolve([{ currency: 'INR', count: 2n, amount: 10000n }]);
+      }
+      if (sql.includes('"Venue"')) {
+        return Promise.resolve([
+          { country: 'India', currency: 'INR', gross: 100000n, bookings: 4n },
+        ]);
+      }
+      if (sql.includes('"Payment"')) {
+        return Promise.resolve([
+          { currency: 'INR', count: 3n },
+          { currency: 'usd', count: 2n },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    const { service } = makeService({ prisma: { $queryRaw } });
+    const r = await service.organizer(owner, 'o1');
+
+    expect(r.markets).toEqual([
+      {
+        country: 'IN',
+        currency: 'INR',
+        grossMinor: 100000,
+        netMinor: 87000,
+        refundsMinor: 10000,
+        paidBookings: 4,
+        totalBookings: 4,
+        paymentFailures: 3,
+      },
+      {
+        country: 'US',
+        currency: 'USD',
+        grossMinor: 0,
+        netMinor: 0,
+        refundsMinor: 0,
+        paidBookings: 0,
+        totalBookings: 0,
+        paymentFailures: 2,
+      },
+    ]);
+
+    // Failures are this organization's, and the status is a literal (an enum refuses a bound text).
+    const failures = $queryRaw.mock.calls.find(([strings]) =>
+      strings.join('?').includes('"Payment"'),
+    ) as unknown as [TemplateStringsArray, ...unknown[]];
+    expect(failures[0].join('?')).toContain(`p."status" = 'FAILED'`);
+    expect(failures.slice(1)).toEqual(['o1']);
   });
 
   it('grants financial fields to platform admins regardless of membership', async () => {
