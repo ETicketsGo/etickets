@@ -7,6 +7,8 @@ import {
   Role,
   TicketStatus,
   RefundStatus,
+  MARKETS,
+  currencyForCountry,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -60,6 +62,39 @@ export interface CountryRevenue {
   grossMinor: number;
   bookings: number;
 }
+
+/**
+ * One market an organization sells in — or has a venue in — with its payments side by side.
+ *
+ * ── WHY THIS, WHEN `countries` EXISTS ─────────────────────────────────────────────
+ * Reported by the owner: the admin dashboard lists every market with its money, bookings and
+ * payment failures; the organizer dashboard did not. `countries` names only markets that have
+ * already taken money, and only in a heading, so an organizer whose US checkouts had all failed
+ * could not see the United States on their dashboard at all. This is the admin table's shape,
+ * scoped to one organization.
+ */
+export interface OrganizerMarket {
+  /** ISO alpha-2 of the country the currency is sold from, or null when unknown. */
+  country: string | null;
+  currency: string;
+  /** Ticket sales on paid bookings, before fees. */
+  grossMinor: number;
+  /** What the organizer keeps: after organizer fees and completed refunds. */
+  netMinor: number;
+  refundsMinor: number;
+  paidBookings: number;
+  /** Bookings of any status, paid or not. */
+  totalBookings: number;
+  /** Failed payments on this organization's bookings in the currency. */
+  paymentFailures: number;
+}
+
+/** What `markets` needs beyond the revenue and refunds the dashboard already reads. */
+interface MarketActivity {
+  bookings: { currency: string; _count: { _all: number } }[];
+  failures: { currency: string | null; count: bigint | number }[];
+  venues: { country: string }[];
+}
 export interface AttendanceMetrics {
   issued: number;
   checkedIn: number;
@@ -103,6 +138,8 @@ export interface OrganizerAnalytics {
   coupons?: { currency: string; redemptions: number; discountMinor: number }[];
   /** Where the money came from, so a multi-country organizer can see the split. */
   countries?: CountryRevenue[];
+  /** Every market with its money, bookings and payment failures, as the admin dashboard lists them. */
+  markets?: OrganizerMarket[];
   topEvents?: {
     eventId: string;
     title: string;
@@ -422,6 +459,7 @@ export class AnalyticsService {
       couponRedemptions,
       topEvents,
       countries,
+      marketActivity,
     ] = await Promise.all([
       this.attendance({
         organizationId,
@@ -440,6 +478,7 @@ export class AnalyticsService {
       showFinancials ? this.couponRedemptions({ organizationId }) : Promise.resolve([]),
       showFinancials ? this.topEvents(organizationId) : Promise.resolve(null),
       showFinancials ? this.countryRevenue(organizationId) : Promise.resolve(null),
+      showFinancials ? this.marketActivity(organizationId) : Promise.resolve(null),
     ]);
 
     const capacity = inventory._sum.quantityTotal ?? 0;
@@ -478,8 +517,129 @@ export class AnalyticsService {
       result.coupons = couponRedemptions;
       result.countries = countries ?? [];
       result.topEvents = topEvents ?? [];
+      result.markets = this.buildMarkets(
+        result.revenue,
+        result.refunds,
+        marketActivity ?? { bookings: [], failures: [], venues: [] },
+      );
     }
     return result;
+  }
+
+  /**
+   * Bookings of any status, failed payments and venue countries for one organization — what
+   * `markets` needs beyond the revenue and refunds already read.
+   *
+   * The failed-payment status is a string literal, as in the admin dashboard: Postgres refuses an
+   * enum column compared to a bound text parameter.
+   */
+  private async marketActivity(organizationId: string): Promise<MarketActivity> {
+    const [bookings, failures, venues] = await Promise.all([
+      this.prisma.booking.groupBy({
+        by: ['currency'],
+        where: { organizationId },
+        _count: { _all: true },
+      }),
+      this.prisma.$queryRaw<{ currency: string | null; count: bigint | number }[]>`
+        SELECT b."currency" AS currency, COUNT(*) AS count
+        FROM "Payment" p
+        JOIN "Booking" b ON b."id" = p."bookingId"
+        WHERE p."status" = 'FAILED' AND b."organizationId" = ${organizationId}
+        GROUP BY b."currency"`,
+      this.prisma.venue.findMany({
+        where: { organizationId },
+        distinct: ['country'],
+        select: { country: true },
+      }),
+    ]);
+    return { bookings, failures, venues };
+  }
+
+  /**
+   * Every market in one list, the way the admin dashboard lists the platform's.
+   *
+   * A market is any currency the organization has been paid in, been asked to sell in (a booking
+   * of any status), refunded in, or has a venue in. A zero is a figure: a market missing from the
+   * table cannot be told apart from one nobody set up. Markets that have sold something come
+   * first, biggest first; the rest follow alphabetically.
+   */
+  private buildMarkets(
+    revenue: CurrencyRevenue[],
+    refunds: CurrencyRefunds[],
+    activity: MarketActivity,
+  ): OrganizerMarket[] {
+    // "inr" and "INR" are one market. A blank currency is not a market at all.
+    const normalise = (currency: string | null | undefined) =>
+      currency?.trim().toUpperCase() || null;
+    const byCurrency = <Row>(
+      rows: Row[],
+      currencyOf: (row: Row) => string | null | undefined,
+      valueOf: (row: Row) => number | bigint | null | undefined,
+    ) => {
+      const totals = new Map<string, number>();
+      for (const row of rows) {
+        const currency = normalise(currencyOf(row));
+        if (currency) totals.set(currency, (totals.get(currency) ?? 0) + Number(valueOf(row) ?? 0));
+      }
+      return totals;
+    };
+
+    const gross = byCurrency(
+      revenue,
+      (r) => r.currency,
+      (r) => r.grossMinor,
+    );
+    // Already net of refunds: `organizer()` subtracts them within each currency before this runs.
+    const net = byCurrency(
+      revenue,
+      (r) => r.currency,
+      (r) => r.netMinor,
+    );
+    const paid = byCurrency(
+      revenue,
+      (r) => r.currency,
+      (r) => r.confirmedBookings,
+    );
+    const refunded = byCurrency(
+      refunds,
+      (r) => r.currency,
+      (r) => r.amountMinor,
+    );
+    const bookings = byCurrency(
+      activity.bookings,
+      (r) => r.currency,
+      (r) => r._count._all,
+    );
+    const failures = byCurrency(
+      activity.failures,
+      (r) => r.currency,
+      (r) => r.count,
+    );
+
+    const currencies = new Set<string>([
+      ...gross.keys(),
+      ...bookings.keys(),
+      ...refunded.keys(),
+      ...activity.venues.flatMap((venue) => normalise(currencyForCountry(venue.country)) ?? []),
+    ]);
+    return [...currencies]
+      .map((currency) => ({
+        country: MARKETS.find((market) => market.currency === currency)?.code ?? null,
+        currency,
+        grossMinor: gross.get(currency) ?? 0,
+        // A currency refunded in but no longer sold in keeps its refunds as a negative, not a zero.
+        netMinor: net.has(currency) ? net.get(currency)! : 0 - (refunded.get(currency) ?? 0),
+        refundsMinor: refunded.get(currency) ?? 0,
+        paidBookings: paid.get(currency) ?? 0,
+        totalBookings: bookings.get(currency) ?? 0,
+        paymentFailures: failures.get(currency) ?? 0,
+      }))
+      .sort(
+        (a, b) =>
+          Number(b.paidBookings > 0) - Number(a.paidBookings > 0) ||
+          b.grossMinor - a.grossMinor ||
+          a.currency.localeCompare(b.currency),
+      );
   }
 
   /** Top events by gross confirmed sales for an organization (financials only). */

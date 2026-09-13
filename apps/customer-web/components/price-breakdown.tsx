@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
@@ -9,6 +9,7 @@ import {
   moneyFractionDigits,
   type BreakdownRow,
   type BreakdownTaxLine,
+  type FeeGroup,
   type FeeTaxPart,
 } from '@eticketsgo/web-kit';
 
@@ -69,7 +70,7 @@ function ratePercent(basisPoints: number): string {
   return (basisPoints / 100).toFixed(basisPoints % 100 === 0 ? 0 : 2);
 }
 
-/** The rows that make up "Convenience fees". They are always the last rows, together. */
+/** The fee rows. They are always the last rows, together, and are drawn as their fee groups. */
 const FEE_KINDS: ReadonlySet<BreakdownRow['kind']> = new Set([
   'paymentFee',
   'platformFee',
@@ -219,28 +220,26 @@ function TicketsLine({
 }
 
 /**
- * Everything charged on top of the tickets, as one line that opens to what it is made of.
+ * One fee as a line of its own, opening to its base amount and the GST charged on it.
  *
- * ── WHY ONE LINE THAT OPENS ────────────────────────────────────────────────────────
- * Requested by the owner, pointing at BookMyShow: "Convenience fees ₹566.13" over "Base
- * Amount" and "Integrated GST (IGST) @ 18%". Three sibling rows — processing, platform fee,
- * "GST on fees (18%)" — gave the buyer arithmetic to do and never said which GST it was.
- *
- * The parts keep their own names inside it. Payment processing is still named as what the
- * payment network charges, because folding it into "Platform fee" was reported as reading like
- * money the platform keeps; and each GST line is named as the invoice will name it.
+ * ── WHY TWO LINES, EACH THAT OPENS ─────────────────────────────────────────────────
+ * The fees were one "Convenience fees" line with payment processing and the platform fee both
+ * inside it, after BookMyShow's "Convenience fees" over "Base Amount" and "Integrated GST (IGST)
+ * @ 18%". Reported by the owner as the two shown together again: they had asked for them apart,
+ * because payment processing is what the card or UPI network charges, and a heading over both
+ * reads as money the platform keeps. So payment processing and convenience fees are each their
+ * own line, and each opens the way BookMyShow's does — the base amount, then every GST line by
+ * the name the invoice gives it, at this fee's own share.
  *
  * Open by default. Hidden GST was the complaint that started this ("not showing GST details");
- * a buyer who has seen it can close it.
+ * a buyer who has seen it can close it. A fee with no tax on it has nothing to open.
  */
-function FeesLine({
-  rows,
-  taxLines,
+function FeeGroupLine({
+  group,
   currency,
   digits,
 }: {
-  rows: BreakdownRow[];
-  taxLines: FeeTaxPart[];
+  group: FeeGroup;
   currency?: string;
   digits?: number;
 }) {
@@ -249,9 +248,8 @@ function FeesLine({
   const [open, setOpen] = useState(true);
   const panelId = useId();
   const format = (minor: number) => money(minor, currency, undefined, digits);
-  const totalMinor = rows.reduce((sum, row) => sum + row.amountMinor, 0);
-  const paymentFee = rows.find((row) => row.kind === 'paymentFee');
-  const platformFee = rows.find((row) => row.kind === 'platformFee');
+  const label = group.kind === 'paymentFee' ? t('feePaymentPart') : t('convenienceFees');
+  const hint = group.kind === 'paymentFee' ? t('paymentFeeHint') : undefined;
 
   const taxLabel = (tax: FeeTaxPart) => {
     const rate = `${ratePercent(tax.rateBasisPoints)}%`;
@@ -263,46 +261,43 @@ function FeesLine({
     return t('feeTaxLine', { name, rate });
   };
 
+  if (group.taxLines.length === 0) {
+    return <Line row label={label} hint={hint} value={format(group.totalMinor)} />;
+  }
+
   return (
     <div>
       <div
         data-testid="price-row"
-        className="flex items-center justify-between gap-4 text-[0.9375rem]"
+        className="flex items-start justify-between gap-4 text-[0.9375rem]"
       >
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls={panelId}
-          className="inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
-        >
-          {t('convenienceFees')}
-          {open ? (
-            <ChevronUp className="h-4 w-4" aria-hidden />
-          ) : (
-            <ChevronDown className="h-4 w-4" aria-hidden />
-          )}
-        </button>
-        <span className="tabular-nums text-text-primary">{format(totalMinor)}</span>
+        <span className="text-text-secondary">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls={panelId}
+            className="inline-flex items-center gap-1 rounded text-left text-text-secondary hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+          >
+            {label}
+            {open ? (
+              <ChevronUp className="h-4 w-4" aria-hidden />
+            ) : (
+              <ChevronDown className="h-4 w-4" aria-hidden />
+            )}
+          </button>
+          {hint ? <span className="block text-caption text-text-muted">{hint}</span> : null}
+        </span>
+        <span className="tabular-nums text-text-primary">{format(group.totalMinor)}</span>
       </div>
       <div
         id={panelId}
         hidden={!open}
-        data-testid="fee-details"
+        data-testid={`fee-details-${group.kind}`}
         className="mt-1 space-y-1 border-l-2 border-border pl-3"
       >
-        {paymentFee && (
-          <Line
-            muted
-            label={t('feePaymentPart')}
-            hint={t('paymentFeeHint')}
-            value={format(paymentFee.amountMinor)}
-          />
-        )}
-        {platformFee && (
-          <Line muted label={t('platformFee')} value={format(platformFee.amountMinor)} />
-        )}
-        {taxLines.map((tax) => (
+        <Line muted label={t('feeBaseAmount')} value={format(group.baseMinor)} />
+        {group.taxLines.map((tax) => (
           <Line
             key={`fee-tax-${tax.label ?? 'combined'}-${tax.rateBasisPoints}`}
             muted
@@ -372,9 +367,22 @@ export function PriceBreakdown({
     Deciding per row prints "₹300" above "₹55.22", where the decimal points do not line up
     and the first row reads as a different kind of number from the second.
   */
+  /*
+    The fee groups count too: their GST shares can carry paise the rows do not — ₹25 + ₹25 of
+    fees with ₹9 of GST are whole-rupee rows, but each fee's ₹4.50 share is not, and deciding
+    from the rows alone would print it as "₹5".
+  */
   const digits = breakdown
     ? moneyFractionDigits(
-        [...breakdown.rows.map((r) => r.amountMinor), breakdown.totalMinor],
+        [
+          ...breakdown.rows.map((r) => r.amountMinor),
+          ...breakdown.feeGroups.flatMap((g) => [
+            g.totalMinor,
+            g.baseMinor,
+            ...g.taxLines.map((t) => t.amountMinor),
+          ]),
+          breakdown.totalMinor,
+        ],
         currency,
       )
     : undefined;
@@ -416,19 +424,23 @@ export function PriceBreakdown({
               );
             }
             /*
-              The fee rows arrive together, last. They are drawn once, as "Convenience fees", at
-              the first of them; the rest are inside it.
+              The fee rows arrive together, last. They are drawn once, at the first of them, as
+              the fee groups — payment processing, then convenience fees, each with its own GST —
+              whose totals are exactly those rows, so what is drawn still foots.
             */
             if (FEE_KINDS.has(row.kind)) {
               if (index > 0 && FEE_KINDS.has(breakdown.rows[index - 1].kind)) return null;
               return (
-                <FeesLine
-                  key="fees"
-                  rows={breakdown.rows.filter((r) => FEE_KINDS.has(r.kind))}
-                  taxLines={breakdown.feeTaxLines}
-                  currency={currency}
-                  digits={digits}
-                />
+                <Fragment key="fees">
+                  {breakdown.feeGroups.map((group) => (
+                    <FeeGroupLine
+                      key={group.kind}
+                      group={group}
+                      currency={currency}
+                      digits={digits}
+                    />
+                  ))}
+                </Fragment>
               );
             }
             /*

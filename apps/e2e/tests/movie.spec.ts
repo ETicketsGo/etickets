@@ -61,15 +61,23 @@ test('customer books a movie seat and pays', async ({ page }) => {
     charges. Payment processing, the platform fee and the tax on them are now rows of their own.
   */
   /*
-    Now one "Convenience fees" line, open, with its parts named beneath it — the way the owner
-    asked for it, after BookMyShow. The parts keep their names inside it.
+    Then one "Convenience fees" line with both inside it, after BookMyShow — which put payment
+    processing back under the same heading as the platform's fee. Reported by the owner as the
+    separation undone. Now "Payment processing fee" and "Convenience fees" are lines of their
+    own, each opening to its base amount and its own GST, and payment processing is never listed
+    inside convenience fees.
   */
-  await expect(breakdown.getByRole('button', { name: 'Convenience fees' })).toHaveAttribute(
-    'aria-expanded',
-    'true',
-  );
   await expect(breakdown.getByText('Payment processing fee', { exact: true })).toBeVisible();
-  await expect(breakdown.getByText('Platform fee', { exact: true })).toBeVisible();
+  await expect(breakdown.getByText('Convenience fees', { exact: true })).toBeVisible();
+  const convenience = breakdown.getByTestId('fee-details-platformFee');
+  if (await convenience.count()) {
+    await expect(breakdown.getByRole('button', { name: 'Convenience fees' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    await expect(convenience.getByText('Base amount', { exact: true })).toBeVisible();
+    await expect(convenience).not.toContainText('Payment processing');
+  }
   // Tax already inside the ticket price is folded under the tickets, closed until asked for.
   const includedTax = breakdown.getByTestId('included-tax');
   if (await includedTax.count()) await expect(includedTax).toBeHidden();
@@ -93,9 +101,8 @@ test('customer books a movie seat and pays', async ({ page }) => {
   };
 
   /*
-    Only the ROWS are summed, not every line of text. "Convenience fees" is one row whose parts —
-    payment processing, the platform fee and each GST line — are listed open beneath it, and
-    adding those too would count the fees twice. Each row carries `price-row`; its amount is the
+    Only the ROWS are summed, not every line of text. Each fee is one row whose base amount and
+    GST lines are listed open beneath it, and adding those too would count the fees twice. Each row carries `price-row`; its amount is the
     last line of its text, after any label, hint or toggle.
   */
   const visible = (await breakdown.getByTestId('price-row').allInnerTexts())

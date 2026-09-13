@@ -63,6 +63,7 @@
     "noUpcomingSessions": "There are no upcoming dates for this event.",
     "taxIncludedSummary": "Includes {amount} tax",
     "convenienceFees": "Convenience fees",
+    "feeBaseAmount": "Base amount",
     "feeTaxLine": "{name} @ {rate}",
     "taxNameIGST": "Integrated GST (IGST)",
     "taxNameCGST": "Central GST (CGST)",

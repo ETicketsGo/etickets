@@ -3994,6 +3994,21 @@ export interface AnalyticsCountryRevenue {
   grossMinor: number;
   bookings: number;
 }
+/** One market on the organizer dashboard's "By market" table. */
+export interface AnalyticsOrganizerMarket {
+  /** ISO alpha-2 of the country the currency is sold from, or null when unknown. */
+  country: string | null;
+  currency: string;
+  /** Ticket sales on paid bookings, before fees. */
+  grossMinor: number;
+  /** After organizer fees and completed refunds. */
+  netMinor: number;
+  refundsMinor: number;
+  paidBookings: number;
+  /** Bookings of any status, paid or not. */
+  totalBookings: number;
+  paymentFailures: number;
+}
 export interface OrganizerAnalytics {
   organizationId: string;
   attendance: { issued: number; checkedIn: number; checkInRate: number };
@@ -4014,6 +4029,11 @@ export interface OrganizerAnalytics {
   coupons?: { currency: string; redemptions: number; discountMinor: number }[];
   /** Where the money came from. Empty for an organizer trading in one place. */
   countries?: AnalyticsCountryRevenue[];
+  /**
+   * Every market the organization sells in or has a venue in — including one that has sold
+   * nothing — with its money, bookings and payment failures, as the admin dashboard lists them.
+   */
+  markets?: AnalyticsOrganizerMarket[];
   topEvents?: {
     eventId: string;
     title: string;
