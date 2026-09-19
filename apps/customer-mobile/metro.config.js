@@ -28,8 +28,11 @@ config.resolver.extraNodeModules = {
   react: path.resolve(projectRoot, 'node_modules/react'),
   'react-dom': path.resolve(projectRoot, 'node_modules/react-dom'),
   // react-native for the same reason as react, and it is not hypothetical: nativewind pulls
-  // its own react-native (0.86.2) into node_modules/nativewind/node_modules while this app
-  // uses the Expo-SDK-aligned 0.85.3. An npm `overrides` entry does not constrain it — the
+  // its own react-native into node_modules/nativewind/node_modules while this app uses the
+  // Expo-SDK-aligned 0.86.3. No version is named for the nested copy on purpose — it FLOATS.
+  // react-native-css-interop declares `react-native: "*"`, so npm installs whatever the
+  // latest release is on the day of the install, and it has already moved twice (0.86.2 on
+  // SDK 56, 0.87.1 after the SDK 57 upgrade). An npm `overrides` entry does not constrain it — the
   // copy arrives as an auto-installed peer of react-native-css-interop. Two react-native
   // copies in one bundle means two native module registries and two copies of the component
   // types, which is how "className is not a prop" appears at build time and far stranger
