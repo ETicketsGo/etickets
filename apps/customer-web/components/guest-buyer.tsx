@@ -140,6 +140,11 @@ export function GuestBuyerFields({ state }: { state: GuestBuyerState }) {
         hint={g('emailHint')}
         onChange={(e) => state.setBuyer((p) => ({ ...p, email: e.target.value }))}
       />
+      {/*
+        Two sentences, on two lines. Run together they read as one -- "Already have an account?
+        Sign in We keep your selection on this page." -- because the link ends a sentence and
+        the reassurance starts another, with only a space between them.
+      */}
       <p className="text-caption text-text-muted">
         {g('haveAccount')}{' '}
         <Link
@@ -147,9 +152,9 @@ export function GuestBuyerFields({ state }: { state: GuestBuyerState }) {
           className="text-action-primary underline"
         >
           {g('signInInstead')}
-        </Link>{' '}
-        {g('selectionKept')}
+        </Link>
       </p>
+      <p className="text-caption text-text-muted">{g('selectionKept')}</p>
     </div>
   );
 }
