@@ -190,7 +190,13 @@ describe('NotificationTemplateService', () => {
       expect(body).toContain('₹522.82');
       expect(body).toContain('Kantara Chapter 1');
       expect(body).toMatch(/12 Sept?,? 2026/);
-      expect(body).toContain('no tickets were issued');
+      /*
+        The SENTENCE the copy is allowed to change; the FACT it states is not. Asserted on the
+        words "did not issue" rather than one fixed phrasing, so the plain-language pass that
+        rewrote this line does not fail a test whose point is that the buyer is told no tickets
+        exist — while deleting that reassurance still does.
+      */
+      expect(body).toMatch(/did not issue any tickets|no tickets were issued/);
     });
 
     it('says WHY, in words a buyer can act on', () => {

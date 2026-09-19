@@ -12,6 +12,8 @@ import { safeNextPath } from '@eticketsgo/web-kit';
 
 function LoginForm() {
   const a = useTranslations('storefront.auth');
+  // Guest copy, for the way in that does not involve an account at all.
+  const g = useTranslations('storefront.guest');
   const router = useRouter();
   const params = useSearchParams();
   // Only a path on this site: an unchecked `next` made sign-in a redirect to any host.
@@ -121,6 +123,19 @@ function LoginForm() {
         {a('noAccount')}{' '}
         <Link href={registerHref} className="text-action-primary underline">
           {a('createOne')}
+        </Link>
+      </p>
+      {/*
+        The way in for somebody who never made an account.
+
+        A guest has no password to reset and nothing to sign in to, so every link on this page
+        was a dead end for them -- and this is the page they land on when they go looking for a
+        ticket they have already bought.
+      */}
+      <p className="text-caption text-text-muted">
+        {g('findFromSignIn')}{' '}
+        <Link href="/booking/find" className="text-action-primary underline">
+          {g('findTitle')}
         </Link>
       </p>
     </Card>

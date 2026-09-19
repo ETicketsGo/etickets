@@ -52,6 +52,13 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.TICKET_TRANSFERRED]: 'TRANSACTIONAL',
 
   /*
+    A guest asking for the booking they paid for. Transactional for the same reason a password
+    reset is: it is the only route back to something the person already owns, and suppressing
+    it over a marketing preference would leave somebody who paid unable to reach their ticket.
+  */
+  [NotificationType.GUEST_BOOKING_ACCESS]: 'TRANSACTIONAL',
+
+  /*
     A reminder about an event you hold a ticket for is transactional: it concerns a
     transaction already entered into and carries information you need in order to use what
     you paid for. It stops being transactional the moment it carries anything promotional —
@@ -163,6 +170,9 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.SHARE_CREATED]: 'CUSTOMER',
   [NotificationType.SHARE_VIEWED]: 'CUSTOMER',
   [NotificationType.SHARE_REVOKED]: 'CUSTOMER',
+  // The person who bought without an account. There is no inbox to file it in — a guest has
+  // no account — but the audience still decides which console it would belong to if there were.
+  [NotificationType.GUEST_BOOKING_ACCESS]: 'CUSTOMER',
 
   // ── Somebody running events: their money, their applications ────────────────────
   [NotificationType.PAYOUT_ACCOUNT_UPDATED]: 'ORGANIZER',

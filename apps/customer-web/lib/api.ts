@@ -22,6 +22,8 @@ export type {
   PublicEventCard,
   BookingResult,
   BookingDetail,
+  GuestBookingResult,
+  GuestBookingView,
   WalletTicket,
   BookingSummary,
   BookingRequest,
@@ -69,6 +71,19 @@ export const api = {
   getEvent: wk.publicEvents.get,
   createBooking: (body: BookingRequest) => wk.bookings.create(body),
   getBooking: wk.bookings.get,
+  /*
+    Buying without an account (guest checkout).
+
+    The token bookkeeping is NOT here. It lives in `lib/guest-session.ts`, which is the one
+    place that knows what this browser is holding. A page that read the token itself would be
+    a second copy of that rule, and the copy is what goes stale.
+  */
+  createGuestBooking: wk.guestBookings.create,
+  getGuestBooking: wk.guestBookings.get,
+  payGuestBooking: wk.guestBookings.pay,
+  cancelGuestBooking: wk.guestBookings.cancel,
+  guestBookingLookup: wk.guestBookings.lookup,
+  guestBookingByAccessToken: wk.guestBookings.access,
   createPaymentIntent: wk.bookings.pay,
   setBookingCoupon: wk.bookingCoupon.set,
   extendBookingHold: wk.bookingHold.extend,

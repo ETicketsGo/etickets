@@ -2,8 +2,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, tokenStore } from '@/lib/api';
 import { Card, ErrorState, Spinner } from '@/components/ui';
+import { GuestBookingNotHere } from '@/components/guest-booking-view';
+import { guestTokenFor } from '@/lib/guest-session';
+import { useMounted } from '@/lib/use-mounted';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
 import { useTranslations } from 'next-intl';
@@ -18,8 +21,30 @@ import { useTranslations } from 'next-intl';
  *
  * And it is not the payment screen either: there is no Payment row and no provider to send
  * them to, so that page would show a bill with a button that cannot work.
+ *
+ * ── THE GUEST FORK ─────────────────────────────────────────────────────────────────
+ * A guest can reserve and pay cash as well, and their booking is not readable through the
+ * account endpoint -- so this page failed with "We couldn't load this reservation" on the one
+ * screen that holds the reference they have to read out at the counter. The fork is the same
+ * one the payment and confirmation screens make: does this browser hold the booking.
  */
 export default function ReservedPage() {
+  const mounted = useMounted();
+  const { id } = useParams<{ id: string }>();
+  const guestToken = mounted ? guestTokenFor(id) : null;
+
+  if (!mounted)
+    return (
+      <main className="grid min-h-[50vh] place-items-center">
+        <Spinner />
+      </main>
+    );
+  if (guestToken) return <GuestReserved id={id} anonSession={guestToken} />;
+  if (!tokenStore.access) return <GuestBookingNotHere />;
+  return <AccountReserved />;
+}
+
+function AccountReserved() {
   const { id } = useParams<{ id: string }>();
   const b = useTranslations('storefront.booking');
   const a = useTranslations('storefront.account');
@@ -89,6 +114,68 @@ export default function ReservedPage() {
       <Link href="/account/bookings" className="text-caption text-action-primary underline">
         {a('bookingsHeading')}
       </Link>
+    </Card>
+  );
+}
+
+/** The same reservation, read with the anonymous session instead of an account. */
+function GuestReserved({ id, anonSession }: { id: string; anonSession: string }) {
+  const b = useTranslations('storefront.booking');
+  const g = useTranslations('storefront.guest');
+  const { money, dateTime, zoneAbbrev } = useFormat();
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['guest-booking', id],
+    queryFn: () => api.getGuestBooking(id, anonSession),
+  });
+
+  if (isLoading) {
+    return (
+      <main className="grid min-h-[50vh] place-items-center">
+        <Spinner />
+      </main>
+    );
+  }
+  if (isError || !data) {
+    return <ErrorState message={b('loadError')} onRetry={() => refetch()} />;
+  }
+
+  return (
+    <Card className="mx-auto mt-8 max-w-lg space-y-4">
+      <h1 className="text-title font-semibold text-text-primary">{b('cashTitle')}</h1>
+
+      <p className="text-[0.9375rem] text-text-secondary">
+        {b('cashLead', { amount: money(data.totals.totalMinor, data.currency) })}
+      </p>
+
+      <div className="rounded-md border border-border bg-background-canvas p-4 text-center">
+        <p className="text-caption uppercase tracking-wide text-text-muted">{b('cashRef')}</p>
+        <p className="mt-1 font-mono text-title font-semibold text-text-primary">
+          {data.reference}
+        </p>
+      </div>
+
+      <dl className="space-y-1 text-[0.9375rem]">
+        <div className="flex justify-between">
+          <dt className="text-text-muted">{data.event.title}</dt>
+          {/* The venue's clock, named: the time the counter will be open, not the phone's. */}
+          <dd className="text-text-primary">
+            {dateTime(data.event.startsAt, undefined, data.event.timeZone ?? undefined)}
+            {data.event.timeZone ? (
+              <span className="text-text-muted">
+                {' '}
+                ({zoneAbbrev(data.event.startsAt, data.event.timeZone)})
+              </span>
+            ) : null}
+          </dd>
+        </div>
+      </dl>
+
+      <p className="text-caption text-text-muted">{b('cashNote')}</p>
+      {/* How a guest finds this again: the emailed link, because there is no bookings list. */}
+      <p className="text-caption text-text-muted">
+        {g('keepTicketsBody', { email: data.buyer.emailMasked })}
+      </p>
     </Card>
   );
 }
