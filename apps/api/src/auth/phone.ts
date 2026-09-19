@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
+import { MARKETS } from '@eticketsgo/shared-types';
 import { AppException, ErrorCodes } from '../common/errors';
 
 /**
@@ -18,11 +19,10 @@ import { AppException, ErrorCodes } from '../common/errors';
  * bare national number gets the default prefix.
  */
 
-/** The launch market. A bare national number is assumed to be from here. */
-const DEFAULT_COUNTRY_CODE = '91';
-
-/** Indian mobile numbers are ten digits and never start with 0–5. */
-const NATIONAL_LENGTH = 10;
+/** The calling codes this platform sells in, longest first so +971 is not read as +9. */
+const CALLING_CODES: readonly string[] = [...new Set(MARKETS.map((m) => m.callingCode))].sort(
+  (a, b) => b.length - a.length || a.localeCompare(b),
+);
 
 export function normalisePhone(input: string): string {
   const raw = (input ?? '').trim();
@@ -34,17 +34,28 @@ export function normalisePhone(input: string): string {
     );
   }
 
-  const hadPlus = raw.startsWith('+');
   let digits = raw.replace(/\D/g, '');
+  // `00` is the other way of writing `+`.
+  const international = raw.startsWith('+') || digits.startsWith('00');
+  if (digits.startsWith('00')) digits = digits.slice(2);
 
-  if (!hadPlus) {
-    // `00` is the other way of writing `+`, and a single leading `0` is the domestic trunk
-    // prefix — neither is part of the number.
-    if (digits.startsWith('00')) digits = digits.slice(2);
-    else if (digits.length === NATIONAL_LENGTH + 1 && digits.startsWith('0'))
-      digits = digits.slice(1);
-    if (digits.length === NATIONAL_LENGTH) digits = `${DEFAULT_COUNTRY_CODE}${digits}`;
+  if (!international) {
+    /*
+      A bare national number does not say which country it is from, and this is the one place
+      that cannot guess. It used to assume India, which is correct for the launch market and
+      silently wrong everywhere else: ten digits is also the national length in the United
+      States and Canada, so `4155550132` became `+914155550132` — a real Indian number
+      belonging to somebody else, who then received a stranger's sign-in code. Refusing is the
+      only answer that cannot send a code to the wrong person.
+    */
+    throw new AppException(
+      ErrorCodes.VALIDATION_FAILED,
+      'Start your number with the country code, for example +91 or +1.',
+      HttpStatus.BAD_REQUEST,
+    );
   }
+
+  digits = withoutTrunkPrefix(digits);
 
   /*
     Bounds from E.164: a country code plus a subscriber number is never shorter than eight
@@ -61,6 +72,25 @@ export function normalisePhone(input: string): string {
   }
 
   return `+${digits}`;
+}
+
+/**
+ * Drops the domestic trunk `0` somebody kept when they wrote their number in full:
+ * `+91 09704464007`. Left in, it is a different number from `+919704464007`, so the same
+ * person gets a second account and neither has their tickets in it.
+ *
+ * Only applied after a calling code this platform actually sells in, because a leading zero
+ * is not always a trunk prefix: an Italian number keeps it (+39 06…). Italy is not a market
+ * here, and restricting the rule to known codes means adding one cannot break that country
+ * by accident.
+ */
+function withoutTrunkPrefix(digits: string): string {
+  for (const code of CALLING_CODES) {
+    if (digits.startsWith(code) && digits[code.length] === '0') {
+      return `${code}${digits.slice(code.length + 1)}`;
+    }
+  }
+  return digits;
 }
 
 /** The last four digits, for telling somebody which number a code went to. */

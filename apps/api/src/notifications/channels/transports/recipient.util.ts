@@ -1,4 +1,4 @@
-import { marketsForE164 } from '@eticketsgo/shared-types';
+import { MARKETS, marketsForE164 } from '@eticketsgo/shared-types';
 import { RenderedNotification } from '../notification-channel.interface';
 
 /**
@@ -50,21 +50,9 @@ export function maskPhone(phone: string | null | undefined): string {
     the country code is the half of this that is actually useful to read.
   */
   const markets = marketsForE164(phone);
-  const code = markets.length > 0 ? CALLING_CODE_FOR[markets[0]] : undefined;
+  const code = markets.length > 0 ? MARKETS.find((m) => m.code === markets[0])?.callingCode : null;
   return `${code ? `+${code}` : ''}***${digits.slice(-2)}`;
 }
-
-/** Calling code per market, for masking only. Mirrors the routing table's own list. */
-const CALLING_CODE_FOR: Record<string, string> = {
-  IN: '91',
-  US: '1',
-  CA: '1',
-  GB: '44',
-  AE: '971',
-  SG: '65',
-  AU: '61',
-  NZ: '64',
-};
 
 /**
  * Reads push device token(s) from the payload: `payload.pushToken` (string) or
