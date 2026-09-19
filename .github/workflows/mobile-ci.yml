@@ -90,11 +90,14 @@ jobs:
       - name: Expo web export (Metro bundle — no native toolchain needed)
         run: npm run export:web -w @eticketsgo/customer-mobile
 
-  # Native EAS development builds. Requires an Expo account token in repo secrets
-  # (EXPO_TOKEN). Skipped automatically when the secret is absent so the workflow never
-  # fails for forks/contributors without EAS access. Configure to gate before release.
+  # The native build, on EAS, because compiling Android or iOS needs a toolchain this
+  # runner does not have. Requires an Expo account token in repo secrets (EXPO_TOKEN), and
+  # skips itself when the secret is absent so the workflow never fails for a fork or a
+  # contributor without EAS access. `--no-wait` queues the build and returns: a green job
+  # here means the build was ACCEPTED, not that it succeeded. Read the result on expo.dev,
+  # or with `eas build:list`.
   eas-build:
-    name: EAS dev build (Android + iOS)
+    name: EAS build (Android, QA profile)
     runs-on: ubuntu-latest
     needs: verify
     if: ${{ github.ref == 'refs/heads/main' }}
@@ -121,10 +124,40 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+      # ── WHY THE `qa` PROFILE, AND NOT `development` OR `preview` ──────────────────
+      #
+      # This artifact exists to be INSTALLED AND OPENED by somebody who is not the person
+      # who wrote the code — a tester, or whoever has to sign off that a React Native
+      # upgrade did not break the app on real hardware. That rules out both of the others:
+      #
+      #   development  carries no JavaScript bundle. It needs a Metro server on the same
+      #                network, so it is a developer's tool and cannot be handed to anybody.
+      #                Still buildable on demand by a developer; that is what expo-dev-client
+      #                is installed for.
+      #   preview      is built against api-uat.eticketsgo.com, which resolves and then
+      #                answers nothing. An app that installs and reaches no API proves less
+      #                than no app at all, because it looks like a product failure.
+      #
+      # `qa` is bundled, internally distributed, and points at api-qa.eticketsgo.com, which
+      # answers. Re-check that before moving this: an artifact aimed at a dead host is the
+      # failure this comment exists to prevent.
       - if: steps.guard.outputs.has_token == 'true'
         working-directory: apps/customer-mobile
-        run: |
-          eas build --platform android --profile development --non-interactive --no-wait
-          eas build --platform ios --profile development --non-interactive --no-wait
+        run: eas build --platform android --profile qa --non-interactive --no-wait
+      # ── WHY iOS IS BEHIND A FLAG ───────────────────────────────────────────────────
+      #
+      # An iOS build needs signing credentials, and those need a paid Apple Developer
+      # Program membership. Without one this step cannot pass, and a job that is red for a
+      # reason nobody can fix is worse than one that is absent: people stop reading it, and
+      # the next real failure goes unnoticed. That is the same lesson as the Hermes filter
+      # removed above.
+      #
+      # Set the repository variable EAS_IOS_ENABLED to `true` once the membership exists.
+      # Fail-closed and explicit, like the DEPLOY_ENABLED_<ENV> locks in deploy-railway.yml.
+      - if: steps.guard.outputs.has_token == 'true' && vars.EAS_IOS_ENABLED == 'true'
+        working-directory: apps/customer-mobile
+        run: eas build --platform ios --profile qa --non-interactive --no-wait
+      - if: steps.guard.outputs.has_token == 'true' && vars.EAS_IOS_ENABLED != 'true'
+        run: echo "::notice::iOS build skipped - set the EAS_IOS_ENABLED variable once an Apple Developer membership exists."
       - if: steps.guard.outputs.has_token != 'true'
         run: echo "EXPO_TOKEN not configured — skipping EAS builds (configure to enable)."
