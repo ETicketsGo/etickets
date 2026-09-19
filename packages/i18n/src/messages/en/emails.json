@@ -39,6 +39,10 @@
     "subject": "Your refund is complete",
     "body": "A refund of {amount} for booking {reference} has been completed. It usually reaches your account within a few working days."
   },
+  "REFUND_REQUESTED": {
+    "subject": "A refund was requested for your booking",
+    "body": "A refund of {amount} was requested for booking {reference}. Nothing has been decided yet and no money has moved - the organizer reviews the request and you will be told the outcome. If you did not ask for this, contact the organizer before it is approved: whoever has the link to your tickets was able to make this request."
+  },
   "TICKET_CHECKED_IN": {
     "subject": "Ticket checked in",
     "body": "Ticket {serial} has been checked in."

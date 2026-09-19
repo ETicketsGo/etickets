@@ -39,6 +39,10 @@
     "subject": "Votre remboursement est effectué",
     "body": "Un remboursement de {amount} pour la réservation {reference} a été effectué. Il parvient habituellement à votre compte en quelques jours ouvrables."
   },
+  "REFUND_REQUESTED": {
+    "subject": "Un remboursement a été demandé pour votre réservation",
+    "body": "Un remboursement de {amount} a été demandé pour la réservation {reference}. Rien n'est encore décidé et aucun montant n'a été versé : l'organisateur examine la demande et vous serez informé du résultat. Si vous n'avez rien demandé, communiquez avec l'organisateur avant l'approbation : quiconque détient le lien vers vos billets pouvait faire cette demande."
+  },
   "TICKET_CHECKED_IN": {
     "subject": "Billet validé à l'entrée",
     "body": "Le billet {serial} a été validé à l'entrée."

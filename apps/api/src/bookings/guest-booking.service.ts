@@ -1,16 +1,29 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
-import { BookingStatus, NotificationType, type GuestBookingView } from '@eticketsgo/shared-types';
+import {
+  BookingStatus,
+  NotificationType,
+  type GuestBookingClaim,
+  type GuestBookingView,
+  type GuestReceiptsView,
+} from '@eticketsgo/shared-types';
+import { resolveLocale } from '@eticketsgo/i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { TicketsService } from '../tickets/tickets.service';
+import { ReceiptsService } from '../receipts/receipts.service';
+import { renderReceiptHtml } from '../receipts/receipt-html';
+import { RefundsService } from '../refunds/refunds.service';
+import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { AnonymousSessionService, BookingOwnerResolver } from './orchestration/booking-owner';
-import { BookingWorkflowRepository } from './orchestration/booking-workflow.repository';
+import type { RequestUser } from '../common/decorators';
+import { AnonymousSessionService } from './orchestration/booking-owner';
+import { GuestSessionVerifier } from './guest-session';
 import {
   guestAccessLink,
   guestAccessTokenMatches,
+  guestEmailMatches,
   hashGuestAccessToken,
   issueGuestAccessToken,
 } from './guest-access';
@@ -63,6 +76,12 @@ export function maskEmail(email: string | null | undefined): string {
 const VIEW_SELECT = {
   id: true,
   userId: true,
+  /*
+    Read so the session check can be made, and never projected: `toView` enumerates its fields, so
+    the hash cannot reach a response by being part of the row. It is a credential digest, and the
+    one place it belongs is a comparison.
+  */
+  guestSessionHash: true,
   reference: true,
   status: true,
   currency: true,
@@ -125,6 +144,7 @@ const VIEW_SELECT = {
 type BookingForView = {
   id: string;
   userId: string | null;
+  guestSessionHash: string | null;
   reference: string | null;
   status: string;
   currency: string;
@@ -187,17 +207,22 @@ export class GuestBookingService {
     private readonly notifications: NotificationService,
     private readonly config: ConfigService,
     private readonly anon: AnonymousSessionService,
-    private readonly owners: BookingOwnerResolver,
-    private readonly workflows: BookingWorkflowRepository,
+    /*
+      No `BookingOwnerResolver` and no workflow repository any more. `assertOwner` was how this
+      service checked a guest session — against the workflow's durable owner, a row that exists
+      only in ACTIVE mode, which no environment runs. The binding now lives on the booking, and the
+      one implementation of that check is `GuestSessionVerifier`, shared with the guest PAYMENT
+      route so the two cannot drift apart again. The resolver remains the router's, where
+      request-time owner resolution belongs.
+    */
+    private readonly sessions: GuestSessionVerifier,
+    // The documents and the refund rules are NOT reimplemented here. This service owns one
+    // thing — deciding whether an anonymous caller may act on a booking — and then calls the
+    // same services the account routes call. See `RefundsService.requestAsGuest`.
+    private readonly receipts: ReceiptsService,
+    private readonly refunds: RefundsService,
+    private readonly audit: AuditService,
   ) {}
-
-  /** The single source of truth for the current orchestration mode, read the same way. */
-  private activeMode(): boolean {
-    return (
-      this.config.get<boolean>('BOOKING_ORCHESTRATOR_ENABLED') === true &&
-      this.config.get<string>('BOOKING_ORCHESTRATOR_MODE', 'shadow') === 'active'
-    );
-  }
 
   /**
    * Read a booking with the guest checkout session that is still in the browser.
@@ -208,10 +233,16 @@ export class GuestBookingService {
    * checking after would answer "does this booking id exist" to anybody who guesses one, which
    * is a different leak from the one this route is about but a leak all the same.
    *
-   * In active mode the token is then matched against the workflow's durable owner, so a guest
-   * cannot read a booking merely because they hold *some* valid session. In the other modes no
-   * workflow exists to match against; the well-formedness check plus the 404 below are what
-   * there is, which is the same guarantee the guest payment route has always given.
+   * ── AND WHAT THE TOKEN IS THEN MATCHED AGAINST ─────────────────────────────────────
+   * The session hash the booking itself carries, written when it was created in EVERY mode — see
+   * {@link GuestSessionVerifier}. Before that column existed this check was only made in active
+   * mode, against the workflow's durable owner, and no environment runs active mode: possession of
+   * a booking id was effectively the whole check, because any well-formed token was accepted.
+   *
+   * A booking with NO binding is still read on a well-formed token. That is the behaviour every
+   * environment already had, and refusing it would lock somebody who bought before the column
+   * existed out of the tickets they paid for. The claim route refuses the same case, because
+   * adopting a booking is permanent and a read is not.
    */
   async viewBySession(
     bookingId: string,
@@ -224,16 +255,16 @@ export class GuestBookingService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-    if (this.activeMode()) {
-      const workflow = await this.workflows.getByBookingId(bookingId);
-      if (workflow) {
-        this.owners.assertOwner(
-          workflow,
-          this.owners.resolveForRequest({ user: null, anonymousToken }),
-        );
-      }
-    }
     const booking = await this.loadGuestBooking({ id: bookingId });
+    // `UNBOUND` is accepted here and refused on the claim; `null` is a token that contradicts a
+    // binding the booking does carry, and that is refused everywhere.
+    if ((await this.sessions.verify(booking, anonymousToken)) === null) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This booking was not started in this browser.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
     return this.toView(booking, null);
   }
 
@@ -249,30 +280,7 @@ export class GuestBookingService {
    * not a status code.
    */
   async viewByAccessToken(rawToken: string): Promise<GuestBookingView> {
-    const notFound = () =>
-      new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
-
-    const trimmed = (rawToken ?? '').trim();
-    if (!trimmed) throw notFound();
-
-    const access = await this.prisma.guestBookingAccess.findUnique({
-      where: { tokenHash: hashGuestAccessToken(trimmed) },
-      select: { id: true, bookingId: true, expiresAt: true, tokenHash: true },
-    });
-    /*
-      The row was found BY the hash, so this comparison cannot fail — which is the point of
-      making it anyway. It is the assertion that the credential presented is the credential
-      stored, written where a future change to how the row is located (a scan, a join, a cache)
-      would otherwise quietly remove the guarantee. Constant-time, so it never becomes an
-      oracle for how much of a token was right.
-    */
-    if (access && !guestAccessTokenMatches(trimmed, access.tokenHash)) throw notFound();
-    /*
-      A superseded token needs no check of its own: issuing a new link DELETES the old rows, so
-      an old token simply has no row. Expiry is the only live-token condition left.
-    */
-    if (!access || access.expiresAt.getTime() <= Date.now()) throw notFound();
-
+    const access = await this.liveAccess(rawToken);
     const booking = await this.loadGuestBooking({ id: access.bookingId });
 
     /*
@@ -288,6 +296,361 @@ export class GuestBookingService {
       .catch(() => undefined);
 
     return this.toView(booking, access.expiresAt);
+  }
+
+  /** The 404 every unopenable link gets, whatever is wrong with it. */
+  private linkOpensNothing(): AppException {
+    return new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+  }
+
+  /**
+   * The live access row for a raw token, or the one 404.
+   *
+   * Extracted so that the read route, the receipt route and the refund route cannot diverge on
+   * what makes a link valid — an expiry check that exists on two of three routes is a link that
+   * keeps working for the third one forever.
+   */
+  private async liveAccess(
+    rawToken: string,
+  ): Promise<{ id: string; bookingId: string; expiresAt: Date }> {
+    const trimmed = (rawToken ?? '').trim();
+    if (!trimmed) throw this.linkOpensNothing();
+
+    const access = await this.prisma.guestBookingAccess.findUnique({
+      where: { tokenHash: hashGuestAccessToken(trimmed) },
+      select: { id: true, bookingId: true, expiresAt: true, tokenHash: true },
+    });
+    /*
+      The row was found BY the hash, so this comparison cannot fail — which is the point of
+      making it anyway. It is the assertion that the credential presented is the credential
+      stored, written where a future change to how the row is located (a scan, a join, a cache)
+      would otherwise quietly remove the guarantee. Constant-time, so it never becomes an
+      oracle for how much of a token was right.
+    */
+    if (access && !guestAccessTokenMatches(trimmed, access.tokenHash))
+      throw this.linkOpensNothing();
+    /*
+      A superseded token needs no check of its own: issuing a new link DELETES the old rows, so
+      an old token simply has no row. Expiry is the only live-token condition left.
+    */
+    if (!access || access.expiresAt.getTime() <= Date.now()) throw this.linkOpensNothing();
+    return { id: access.id, bookingId: access.bookingId, expiresAt: access.expiresAt };
+  }
+
+  /**
+   * The gate on everything that is money or paperwork: the link, and then the address.
+   *
+   * ── WHY TWO PROOFS AND NOT ONE ─────────────────────────────────────────────────────
+   * The link is forwardable and is MEANT to be — that is how a friend finds their seat and how
+   * a ticket reaches somebody's second phone. It therefore cannot be the only thing standing
+   * between a stranger and an invoice with the buyer's name on it, or a request that empties
+   * the buyer's booking back onto their card. So the link proves which booking, and the address
+   * the booking was PAID with proves who is asking.
+   *
+   * The buyer types it in three seconds. Somebody holding a forwarded link cannot: the view
+   * they were given shows two characters and a domain, on purpose.
+   *
+   * ── WHAT THE REFUSALS SAY ──────────────────────────────────────────────────────────
+   * A bad or dead link is the same 404 the read route gives, for the reasons above it. A wrong
+   * address is a 403 and says so plainly: the caller has already proven they hold a live link
+   * to a real booking, so refusing them a status code tells them nothing they do not have, and
+   * a real buyer who mistyped needs to be told it was the address.
+   */
+  private async provenByLinkAndEmail(
+    rawToken: string,
+    email: string,
+  ): Promise<{ id: string; organizationId: string; buyerEmail: string }> {
+    const access = await this.liveAccess(rawToken);
+    /*
+      `userId: null` in the WHERE clause, exactly as `loadGuestBooking` does it and for the same
+      reason — plus one that is specific to these routes: an access row OUTLIVES a claim. Once a
+      booking has been attached to an account, its emailed link must stop being able to pull the
+      buyer's invoice or move their money, and the way to guarantee that is for the statement
+      that finds the booking to be unable to find one with an owner.
+    */
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: access.bookingId, userId: null },
+      select: { id: true, organizationId: true, buyerEmail: true },
+    });
+    if (!booking) throw this.linkOpensNothing();
+
+    if (!guestEmailMatches(email, booking.buyerEmail)) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'That is not the email address this booking was paid with.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return booking;
+  }
+
+  /**
+   * The financial documents for a guest's own booking.
+   *
+   * ── WHY THE RENDERING IS NOT DONE HERE ─────────────────────────────────────────────
+   * `renderReceiptHtml` is the one renderer, and the document it renders is the frozen snapshot
+   * the platform issued — never a recomputation. A second renderer for guests would be a second
+   * thing that can disagree with the organizer's books about an amount, and a receipt that
+   * disagrees with the card statement is worse than no receipt.
+   *
+   * ── WHY AN EMPTY ANSWER IS NOT AN ERROR ────────────────────────────────────────────
+   * A confirmed, paid booking has its sale document issued in the same transaction that
+   * confirms it, so the common case always has one. But a free booking has no sale to document
+   * and an unpaid one has nothing to show, and neither is a fault the buyer can act on. An
+   * empty list says "nothing to show yet"; a 404 would say "we have lost your invoice".
+   */
+  async receiptsByAccessToken(
+    rawToken: string,
+    input: { email: string; locale?: string | null; acceptLanguage?: string | null },
+  ): Promise<GuestReceiptsView> {
+    const booking = await this.provenByLinkAndEmail(rawToken, input.email);
+    const issued = await this.receipts.listForBooking(booking.id);
+
+    const documents = issued.map((row) => ({
+      id: row.id,
+      kind: String(row.kind),
+      number: row.number,
+      issuedAt: row.issuedAt.toISOString(),
+      totalMinor: row.totalMinor,
+      currency: row.currency,
+    }));
+    if (documents.length === 0) return { documents: [], html: '' };
+
+    /*
+      The SALE document is the primary one — the invoice or receipt for what was bought. Credit
+      notes are listed alongside it and are never the primary: a booking that has been partly
+      refunded would otherwise render its credit note as "your receipt", which states a negative
+      total and names none of the tickets the customer still holds.
+
+      `listForBooking` is oldest-first, so the first non-credit-note row is the original sale.
+    */
+    const primary = issued.find((row) => String(row.kind) !== 'CREDIT_NOTE') ?? issued[0];
+    const { document } = await this.receipts.document(primary.id);
+
+    /*
+      Which language the document is written in. A guest has no stored preference — there is no
+      account to hold one — so it is whatever the page asked for, then the browser's header,
+      then the default. Re-derived per request, like the account route: a receipt is a rendering
+      of stored facts and not a stored rendering, and the AMOUNTS come from the document.
+    */
+    const locale = resolveLocale({
+      stored: input.locale ?? null,
+      acceptLanguage: input.acceptLanguage ?? null,
+    });
+
+    /*
+      Audited, unlike the plain read. A financial document names the buyer, their address and an
+      amount, and it was just handed to a caller with no account — so who pulled which document,
+      and when, is the only trail there is. The metadata carries ids and nothing else: never the
+      token, never the address.
+    */
+    await this.audit.record({
+      actorUserId: null,
+      organizationId: booking.organizationId,
+      action: 'GUEST_RECEIPT_VIEWED',
+      entityType: 'Receipt',
+      entityId: primary.id,
+      metadata: { bookingId: booking.id, via: 'GUEST_ACCESS_LINK' },
+    });
+
+    return { documents, html: renderReceiptHtml(document, locale) };
+  }
+
+  /**
+   * A refund, asked for by the buyer through their emailed link.
+   *
+   * ── WHY THERE IS SO LITTLE HERE ────────────────────────────────────────────────────
+   * This method is the authorisation and nothing else. Whether a refund may happen at all — the
+   * organizer's cutoff, the cash refusal, what is left of the refundable balance, the
+   * per-booking lock that stops two requests paying out twice — is decided by the SAME body the
+   * account route goes through, in `RefundsService`. A guest refund therefore lands in exactly
+   * the state an account refund lands in, in the same organizer queue, and an organizer changing
+   * their refund terms cannot find the change applying to one door and not the other.
+   */
+  async requestRefundByAccessToken(rawToken: string, input: { email: string; reason?: string }) {
+    const booking = await this.provenByLinkAndEmail(rawToken, input.email);
+    /*
+      A reason is required on the stored refund and optional in this request, so a guest who
+      types nothing gets a plain, true sentence rather than an empty column. Not the customer's
+      words attributed to them when they said none.
+    */
+    const reason = (input.reason ?? '').trim() || 'Requested by the buyer, who has no account.';
+    return this.refunds.requestAsGuest({ bookingId: booking.id, reason });
+  }
+
+  /**
+   * Attach a booking bought without an account to the account that is now signed in.
+   *
+   * ── WHAT PROVES THE CALLER MAY ADOPT IT ────────────────────────────────────────────
+   * Either of the two things a guest can legitimately hold, and nothing else: the checkout
+   * session that bought it (`x-anon-session`, matched against the workflow's durable owner), or
+   * a live access link to it. A booking id alone proves nothing — it is a cuid in a URL — and
+   * accepting one would let anybody walk ids and adopt other people's tickets.
+   *
+   * ── WHY A SESSION TOKEN IS ONLY PROOF WHEN A WORKFLOW SAYS SO ──────────────────────
+   * The anonymous token is bound to a booking by the orchestration workflow and by nothing
+   * else. With the orchestrator disabled or in shadow mode no such row exists, so there is
+   * nothing to match the token against — and a well-formed token is something the caller can
+   * mint for themselves. `POST /bookings/guest/:id/cancel` refuses guests on that path for
+   * precisely this reason; here the caller is told to use their emailed link instead, which
+   * genuinely is bound to the booking.
+   *
+   * ── AND WHY AN EXISTING OWNER IS NEVER DISPLACED ───────────────────────────────────
+   * The write is conditional on `userId: null`, so the database — not a read a moment earlier —
+   * decides. Two callers claiming at once cannot both win, and a booking that already belongs
+   * to somebody is a 409 rather than a silent change of ownership. Re-claiming one the caller
+   * already owns is a 200 with no write at all, because a client that retries a request it did
+   * not see the answer to must not be punished for it.
+   */
+  async claim(input: {
+    bookingId: string;
+    user: RequestUser;
+    accessToken?: string | null;
+    anonymousToken?: string | null;
+  }): Promise<GuestBookingClaim> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: input.bookingId },
+      select: { id: true, userId: true, organizationId: true, guestSessionHash: true },
+    });
+    if (!booking) throw this.linkOpensNothing();
+
+    // Already theirs. Idempotent, and no proof is asked for: owning it IS the proof, and a
+    // client whose guest session has since been cleared would otherwise be refused its own
+    // booking on a retry.
+    if (booking.userId === input.user.id) return { bookingId: booking.id, claimed: true };
+
+    const proof = await this.proofOfGuestControl(booking, input);
+    if (!proof) {
+      /*
+        The message names the way forward, because for one class of refusal there genuinely is one.
+        A booking that records no session — created before that column existed — cannot be claimed
+        with a session token at all, deliberately; but its buyer has a link in their confirmation
+        email, and that link IS accepted here. Telling somebody only "forbidden" would leave them
+        stuck in front of a booking they own.
+      */
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This booking cannot be added to your account. Open it from the link in your confirmation email and try again.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    /*
+      Checked AFTER the proof, deliberately. Answering 409 first would confirm "this booking id
+      exists and belongs to an account" to anybody posting guessed ids, which is the one fact a
+      route reachable by id should not volunteer.
+    */
+    if (booking.userId !== null) throw this.alreadyOwned();
+
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const write = await tx.booking.updateMany({
+        // `userId: null` in the WHERE clause is what makes this safe under a race: the row is
+        // claimed only if it is still unclaimed, decided by the database.
+        where: { id: booking.id, userId: null },
+        data: { userId: input.user.id },
+      });
+      if (write.count !== 1) return false;
+      /*
+        The emailed links are spent by the claim.
+
+        A guest access token is a forwardable bearer credential, and `requestAccessLink` already
+        refuses to mint one for a booking that has an owner — for the good reason that it would
+        turn "I know a reference and an address" into a way into an account's tickets. A link
+        that was minted BEFORE the claim is the same credential, so it goes at the moment the
+        booking stops being a guest booking. Without this the read route would still 404 (it
+        filters `userId: null`), but the row would sit there as a credential waiting for a future
+        route to honour.
+      */
+      await tx.guestBookingAccess.deleteMany({ where: { bookingId: booking.id } });
+      return true;
+    });
+
+    if (!claimed) {
+      /*
+        Somebody else got there in between. Re-read to tell the two cases apart: the same
+        account claiming twice concurrently is still idempotent, and anybody else is a conflict.
+      */
+      const now = await this.prisma.booking.findUnique({
+        where: { id: booking.id },
+        select: { userId: true },
+      });
+      if (now?.userId === input.user.id) return { bookingId: booking.id, claimed: true };
+      throw this.alreadyOwned();
+    }
+
+    await this.audit.record({
+      actorUserId: input.user.id,
+      organizationId: booking.organizationId,
+      action: 'GUEST_BOOKING_CLAIMED',
+      entityType: 'Booking',
+      entityId: booking.id,
+      // Which of the two proofs was used, and nothing that could identify either credential.
+      metadata: { proof },
+    });
+
+    return { bookingId: booking.id, claimed: true };
+  }
+
+  /** An existing owner is never displaced; the caller is told plainly why not. */
+  private alreadyOwned(): AppException {
+    return new AppException(
+      ErrorCodes.CONFLICT,
+      'This booking already belongs to an account.',
+      HttpStatus.CONFLICT,
+    );
+  }
+
+  /**
+   * Which proof of guest control the caller presented, or null for none.
+   *
+   * Neither branch throws: a caller may legitimately send both — a browser that still has its
+   * checkout session, opening a link from the email — and a failing first proof must not refuse
+   * a request the second one would have allowed.
+   */
+  private async proofOfGuestControl(
+    booking: { id: string; guestSessionHash: string | null },
+    input: { accessToken?: string | null; anonymousToken?: string | null },
+  ): Promise<'ACCESS_LINK' | 'GUEST_SESSION' | null> {
+    const raw = (input.accessToken ?? '').trim();
+    if (raw) {
+      const access = await this.prisma.guestBookingAccess.findUnique({
+        where: { tokenHash: hashGuestAccessToken(raw) },
+        select: { bookingId: true, expiresAt: true, tokenHash: true },
+      });
+      if (
+        access &&
+        guestAccessTokenMatches(raw, access.tokenHash) &&
+        access.expiresAt.getTime() > Date.now() &&
+        // A live link to a DIFFERENT booking is not proof about this one.
+        access.bookingId === booking.id
+      ) {
+        return 'ACCESS_LINK';
+      }
+    }
+
+    /*
+      The same verifier the read route uses — see {@link GuestSessionVerifier} — read STRICTLY.
+
+      It used to be the workflow owner and only the workflow owner, which was right about what
+      binds a token to a booking and wrong about where that binding lives: the workflow row exists
+      only in ACTIVE mode, and no environment runs active mode. So the browser that had just
+      bought the booking was refused when it tried to claim it, and "save this to my account"
+      could not succeed anywhere. The binding is now on the booking, written in every mode.
+
+      ── WHY ONLY `BOUND` COUNTS HERE, WHERE A READ ACCEPTS `UNBOUND` ─────────────────
+      Because a claim is permanent and it takes tickets away from somebody. On a booking that
+      records no session, accepting a well-formed token would mean a booking id plus 256 bits the
+      caller generated themselves is enough to adopt a stranger's booking — and unlike a read,
+      there is no undoing it. Those callers are not stuck: the link in their confirmation email is
+      a proof that genuinely exists for them, it is checked above, and the refusal says so.
+    */
+    if (
+      this.anon.isWellFormed(input.anonymousToken) &&
+      (await this.sessions.verify(booking, input.anonymousToken)) === 'BOUND'
+    ) {
+      return 'GUEST_SESSION';
+    }
+    return null;
   }
 
   /**

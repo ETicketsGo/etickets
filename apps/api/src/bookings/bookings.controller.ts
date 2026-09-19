@@ -39,6 +39,36 @@ const guestLookupSchema = z.object({
   email: z.string().trim().email().max(320),
 });
 
+/**
+ * The second proof on a guest money/paperwork route: the address the booking was paid with.
+ *
+ * ── WHY `.trim()` IS BEFORE `.email()` AND NOT AFTER ───────────────────────────────
+ * Because a trailing space makes `.email()` fail, and this address arrives from a clipboard on
+ * a phone. Validated after trimming, it is a valid address and the route behaves as the person
+ * expects. Case is left exactly as typed — `guestEmailMatches` lower-cases both sides when it
+ * compares, and the comparison is the only place that may decide what counts as equal.
+ */
+export const guestProvenEmail = z.string().trim().email().max(320);
+
+const guestProvenEmailSchema = z.object({
+  email: guestProvenEmail,
+  /** The language the page is in, when it knows. Falls back to `accept-language`. */
+  locale: z.string().max(20).optional(),
+});
+
+const guestRefundSchema = z.object({
+  email: guestProvenEmail,
+  reason: z.string().trim().max(500).optional(),
+});
+
+const guestClaimSchema = z.object({
+  /**
+   * An emailed access token, for the buyer who is signing in on a different device from the one
+   * that bought. The other accepted proof is the `x-anon-session` header.
+   */
+  accessToken: z.string().trim().max(200).optional(),
+});
+
 @ApiTags('bookings')
 @ApiBearerAuth()
 @Controller('bookings')
@@ -210,6 +240,75 @@ export class GuestBookingsController {
   @ApiOperation({ summary: 'Open a guest booking with an emailed access link.' })
   getGuestByAccessToken(@Param('token') token: string) {
     return this.guests.viewByAccessToken(token);
+  }
+
+  /*
+    ── AND THE THREE THINGS A LINK ALONE IS NOT ENOUGH FOR ───────────────────────────
+    The link is forwardable on purpose: it shows somebody where to sit, and the buyer's address
+    is masked precisely so it does not show who bought the seat. That makes it the wrong and
+    only credential for an invoice with the buyer's name on it, for a request that moves money
+    off their card, and for attaching the booking to an account.
+
+    So each of the two guest routes below asks for one more thing — the address the booking was
+    PAID with, compared in constant time — and the claim route asks for a signed-in account plus
+    a proof that the caller controls the booking. Both `receipt` and `refund` carry the lookup
+    form's throttle: the address is the whole secret on those routes, and a route somebody can
+    call a hundred times a minute is a route where two masked characters and a domain become a
+    guessing game.
+  */
+
+  @Public()
+  @Post('guest/access/:token/receipt')
+  @Throttle(GUEST_LOOKUP_THROTTLE)
+  @ApiOperation({
+    summary: "A guest booking's receipts and invoices. Needs the address that paid.",
+  })
+  guestReceipts(
+    @Param('token') token: string,
+    @Body(new ZodValidationPipe(guestProvenEmailSchema)) body: { email: string; locale?: string },
+    @Headers('accept-language') acceptLanguage?: string,
+  ) {
+    return this.guests.receiptsByAccessToken(token, {
+      email: body.email,
+      locale: body.locale ?? null,
+      acceptLanguage: acceptLanguage ?? null,
+    });
+  }
+
+  @Public()
+  @Post('guest/access/:token/refund')
+  @Throttle(GUEST_LOOKUP_THROTTLE)
+  @ApiOperation({
+    summary: 'Request a refund on a guest booking. Needs the address that paid.',
+  })
+  guestRefund(
+    @Param('token') token: string,
+    @Body(new ZodValidationPipe(guestRefundSchema)) body: { email: string; reason?: string },
+  ) {
+    return this.guests.requestRefundByAccessToken(token, body);
+  }
+
+  /*
+    Authenticated, and the ONLY route on this controller that is. There is no `@Public()` here
+    because the whole point is the account the booking is being attached to: without a signed-in
+    caller there is no answer to "attached to whom", and a guest route that took a user id from
+    a body would be a route for giving somebody else's tickets to yourself.
+  */
+  @Post('guest/:id/claim')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Attach a guest booking to the signed-in account (proof required).' })
+  claimGuest(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(guestClaimSchema)) body: { accessToken?: string },
+    @Headers('x-anon-session') anonymousToken?: string,
+  ) {
+    return this.guests.claim({
+      bookingId: id,
+      user,
+      accessToken: body.accessToken ?? null,
+      anonymousToken: anonymousToken ?? null,
+    });
   }
 
   @Public()

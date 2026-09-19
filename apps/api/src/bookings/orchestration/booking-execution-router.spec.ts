@@ -8,9 +8,10 @@ import { PaymentsService } from '../../payments/payments.service';
 import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { BookingExecutionRouter } from './booking-execution-router.service';
 import { AnonymousSessionService, BookingOwnerResolver } from './booking-owner';
+import { GuestSessionVerifier } from '../guest-session';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
 
-function make(mode: 'disabled' | 'shadow' | 'active') {
+function make(mode: 'disabled' | 'shadow' | 'active', sessionHash: string | null = null) {
   const config = {
     get: jest.fn((k: string, d?: unknown) => {
       if (k === 'BOOKING_ORCHESTRATOR_ENABLED') return mode !== 'disabled';
@@ -47,12 +48,28 @@ function make(mode: 'disabled' | 'shadow' | 'active') {
         maintenanceTreatment: 'NOT_APPLICABLE',
         totalMinor: 4854,
         payment: { id: 'p1', status: 'REQUIRES_PAYMENT' },
+        // Read by the guest payment route's session check as well as the response shaper.
+        guestSessionHash: sessionHash,
       }),
+      // The guest session binding: a conditional update on the booking, made in every mode.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     bookingWorkflow: { count: jest.fn().mockResolvedValue(0) },
   } as unknown as PrismaService;
+  // Stands in for the hold transaction, so a binding written inside it is observable.
+  const holdTx = { booking: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
   const bookings = {
-    create: jest.fn().mockResolvedValue({ id: 'legacy-b', status: 'PENDING_PAYMENT' }),
+    create: jest.fn(
+      async (
+        _user: unknown,
+        _body: unknown,
+        _key: unknown,
+        hooks?: { inHoldTx?: (tx: unknown, id: string) => Promise<void> },
+      ) => {
+        if (hooks?.inHoldTx) await hooks.inHoldTx(holdTx, 'legacy-b');
+        return { id: 'legacy-b', status: 'PENDING_PAYMENT' };
+      },
+    ),
     getForUser: jest.fn().mockResolvedValue({ id: 'b1', status: 'PENDING_PAYMENT' }),
     cancelUnpaid: jest
       .fn()
@@ -79,6 +96,7 @@ function make(mode: 'disabled' | 'shadow' | 'active') {
   const anon = new AnonymousSessionService();
   const owners = new BookingOwnerResolver(anon);
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
+  const workflows = { getByBookingId: jest.fn().mockResolvedValue(null) };
   const router = new BookingExecutionRouter(
     config,
     prisma,
@@ -89,8 +107,11 @@ function make(mode: 'disabled' | 'shadow' | 'active') {
     orchestrator,
     owners,
     anon,
+    // The real verifier over these stubs: the point of the guest-payment tests below is the rule
+    // itself, which a mocked verifier would not exercise.
+    new GuestSessionVerifier(prisma, config, workflows as never, anon),
   );
-  return { router, bookings, payments, orchestrator, anon };
+  return { router, bookings, payments, orchestrator, anon, prisma, holdTx };
 }
 
 const body = {
@@ -160,6 +181,148 @@ describe('BookingExecutionRouter.initiate', () => {
     const arg = (orchestrator.initiate as jest.Mock).mock.calls[0][0];
     expect(arg.requestOwner.ownerType).toBe('ANONYMOUS_SESSION');
     expect(arg.requestOwner.ownerId).not.toEqual(res.anonymousSessionToken);
+  });
+});
+
+/**
+ * The guest checkout session, made durable in every mode.
+ *
+ * ── WHY THESE TESTS EXIST ──────────────────────────────────────────────────────────
+ * Guest ownership used to be recorded only on `BookingWorkflow.ownerId`, which this router writes
+ * only in ACTIVE mode — and local, QA, UAT and production all run SHADOW. Proved end to end: a
+ * guest created a booking with a session token and then could not claim it with that same token,
+ * because there was nothing to compare it against. "Save this booking to my account" could not
+ * succeed in any real environment, and `GET /bookings/guest/:id` accepted any well-formed token.
+ *
+ * So each mode is asserted separately here, and shadow is the one that matters most.
+ */
+describe('the guest checkout session is bound to the booking in every mode', () => {
+  const anon = new AnonymousSessionService();
+
+  it.each(['disabled', 'shadow'] as const)(
+    'writes the hash of the client’s own token inside the creating transaction (%s)',
+    async (mode) => {
+      const token = anon.issueToken();
+      const { router, holdTx } = make(mode);
+      const res = (await router.initiate({ user: null, body, anonymousToken: token })) as Record<
+        string,
+        unknown
+      >;
+
+      expect(holdTx.booking.updateMany).toHaveBeenCalledWith({
+        // Conditional, so it can never overwrite an existing binding or touch an account booking.
+        where: { id: 'legacy-b', userId: null, guestSessionHash: null },
+        data: { guestSessionHash: anon.hash(token) },
+      });
+      // The client already has its token, so nothing is handed back and the shape is unchanged.
+      expect(res).toEqual({ id: 'legacy-b', status: 'PENDING_PAYMENT' });
+    },
+  );
+
+  it('issues a token and returns it once when the client sent none, in shadow mode', async () => {
+    /*
+      Before this, a token was minted only in active mode, so a first-time guest in shadow got
+      nothing back — and a client that waited for one stored nothing, leaving the buyer with a paid
+      booking their own browser could not open.
+    */
+    const { router, holdTx } = make('shadow');
+    const res = (await router.initiate({ user: null, body })) as Record<string, string>;
+    expect(typeof res.anonymousSessionToken).toBe('string');
+    // What was stored is the HASH of exactly what was returned, and never the token itself.
+    const written = holdTx.booking.updateMany.mock.calls[0][0] as {
+      data: { guestSessionHash: string };
+    };
+    expect(written.data.guestSessionHash).toBe(anon.hash(res.anonymousSessionToken));
+    expect(JSON.stringify(written)).not.toContain(res.anonymousSessionToken);
+  });
+
+  it('ignores a token that is not well-formed and issues a real one instead', async () => {
+    // A client-supplied value is only adopted if it is the right shape; otherwise the server
+    // decides, rather than binding the booking to something nobody can reproduce.
+    const { router, holdTx } = make('shadow');
+    const res = (await router.initiate({
+      user: null,
+      body,
+      anonymousToken: 'nonsense',
+    })) as Record<string, string>;
+    expect(res.anonymousSessionToken).toMatch(/^anon_/);
+    expect(holdTx.booking.updateMany.mock.calls[0][0].data.guestSessionHash).toBe(
+      anon.hash(res.anonymousSessionToken),
+    );
+  });
+
+  it('binds it in active mode too, alongside the workflow owner', async () => {
+    // Belt and braces there — active mode also records the owner on the workflow — so that ONE
+    // rule holds everywhere: every guest booking carries the hash of the session that made it.
+    const token = anon.issueToken();
+    const { router, prisma } = make('active');
+    await router.initiate({ user: null, body, anonymousToken: token });
+    expect(prisma.booking.updateMany as jest.Mock).toHaveBeenCalledWith({
+      where: { id: 'b1', userId: null, guestSessionHash: null },
+      data: { guestSessionHash: anon.hash(token) },
+    });
+  });
+
+  it('the guest payment route accepts the session that created the booking', async () => {
+    /*
+      The real path, and the one that must not break: the storefront pays with the very token it
+      created the booking with, so a bound booking and its own session go through untouched.
+    */
+    const token = anon.issueToken();
+    const { router, payments } = make('shadow', anon.hash(token));
+    await router.beginPayment({
+      user: null,
+      bookingId: 'b1',
+      anonymousToken: token,
+      requireAnonymousToken: true,
+    });
+    expect(payments.createIntent).toHaveBeenCalledWith('b1', undefined);
+  });
+
+  it('the guest payment route refuses a different well-formed session on a bound booking', async () => {
+    /*
+      Well-formedness used to be the whole check here, in every mode, so 256 bits the caller
+      generated themselves plus a booking id opened a payment on somebody else's booking. Less
+      harmful than reading it — the server decides provider, amount and currency — but the same
+      missing check, and no payment intent is created now.
+    */
+    const { router, payments } = make('shadow', anon.hash(anon.issueToken()));
+    await expect(
+      router.beginPayment({
+        user: null,
+        bookingId: 'b1',
+        anonymousToken: anon.issueToken(),
+        requireAnonymousToken: true,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(payments.createIntent).not.toHaveBeenCalled();
+  });
+
+  it('the guest payment route still pays for an unbound booking, which is the status quo', async () => {
+    // A booking that predates the column records no session. Refusing it would strand a guest
+    // mid-checkout on a booking they legitimately hold — the opposite of the claim route, where the
+    // consequence of leniency is somebody losing their tickets rather than not paying for them.
+    const { router, payments } = make('shadow', null);
+    await router.beginPayment({
+      user: null,
+      bookingId: 'b1',
+      anonymousToken: anon.issueToken(),
+      requireAnonymousToken: true,
+    });
+    expect(payments.createIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('never binds a signed-in buyer’s booking, in any mode', async () => {
+    // An account booking is owned by its `userId`. Writing a session hash onto one would create a
+    // second credential for a booking that already has an owner.
+    for (const mode of ['disabled', 'shadow'] as const) {
+      const { router, holdTx } = make(mode);
+      await router.initiate({ user, body, anonymousToken: anon.issueToken() });
+      expect(holdTx.booking.updateMany).not.toHaveBeenCalled();
+    }
+    const active = make('active');
+    await active.router.initiate({ user, body, anonymousToken: anon.issueToken() });
+    expect(active.prisma.booking.updateMany as jest.Mock).not.toHaveBeenCalled();
   });
 });
 

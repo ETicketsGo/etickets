@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, ButtonLink, Card, Skeleton } from '@/components/ui';
 import { GuestBookingSummary, GuestTickets } from '@/components/guest-booking-view';
-import { isGuestBooking } from '@/lib/guest-session';
+import { GuestClaimCard, GuestInvoiceCard, GuestRefundCard } from '@/components/guest-self-service';
+import { guestTokenFor, isGuestBooking } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
 
 /**
@@ -15,10 +16,15 @@ import { useMounted } from '@/lib/use-mounted';
  *
  * ── WHY IT NEEDS NOTHING FROM THE BROWSER ──────────────────────────────────────────
  * This is the only way back to a guest booking that survives a new phone, a cleared browser or
- * a forwarded email. So it asks for nothing: no account, no code, no anonymous session. The
- * token in the URL is the whole credential, which is why the server gives it a life span and
- * why this page prints when that runs out -- somebody who has to show a ticket at a door needs
- * to know their link expires before they are standing at the door.
+ * a forwarded email. So SEEING the booking asks for nothing: no account, no code, no anonymous
+ * session. The token in the URL is the whole credential, which is why the server gives it a life
+ * span and why this page prints when that runs out -- somebody who has to show a ticket at a
+ * door needs to know their link expires before they are standing at the door.
+ *
+ * ── WHERE THAT STOPS ───────────────────────────────────────────────────────────────
+ * The link is forwardable, so it buys exactly what a forwarded ticket already gives away: the
+ * QR. Getting the invoice or asking for a refund needs the address the booking was paid with,
+ * which the forwarding does not carry. See components/guest-self-service.tsx.
  *
  * ── WHY IT DOES NOT OFFER TO PAY ───────────────────────────────────────────────────
  * Paying needs the anonymous session that created the booking, and an access link is not one.
@@ -88,7 +94,30 @@ export default function BookingAccessPage() {
       <GuestBookingSummary view={view} />
 
       {confirmed ? (
-        <GuestTickets view={view} />
+        <>
+          <GuestTickets view={view} />
+          {/*
+            Everything else a booking needs after the tickets themselves, and only for a booking
+            that is paid for: an unpaid one has no invoice to issue, nothing to refund, and
+            nothing worth putting in an account.
+
+            The order is the order somebody asks for them in. The invoice is the common errand;
+            a refund is the uncommon one; keeping the booking is the thing they had not thought
+            of until the page offered it.
+          */}
+          <GuestInvoiceCard token={token} emailMasked={view.buyer.emailMasked} />
+          <GuestRefundCard token={token} emailMasked={view.buyer.emailMasked} />
+          {/*
+            The access token proves the claim here. This booking's own anonymous session goes
+            with it when this browser is the one that bought it, which costs nothing and is what
+            makes the same card work on the confirmation screen, where there is no access token.
+          */}
+          <GuestClaimCard
+            bookingId={view.id}
+            accessToken={token}
+            anonSession={mounted ? guestTokenFor(view.id) : null}
+          />
+        </>
       ) : pending ? (
         <Card className="space-y-3">
           <p className="text-[0.9375rem] text-text-secondary">{g('notPaidYet')}</p>

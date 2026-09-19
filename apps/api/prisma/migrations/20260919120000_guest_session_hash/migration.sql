@@ -1,0 +1,25 @@
+-- Bind a guest booking to the anonymous checkout session that created it, durably.
+--
+-- ── THE HOLE THIS CLOSES ─────────────────────────────────────────────────────────────────────
+-- Guest ownership was recorded only on `BookingWorkflow.ownerId`, and that row is written ONLY
+-- when the booking orchestrator runs in ACTIVE mode. Local, QA, UAT and production all run
+-- SHADOW, so in every environment that exists there was nothing for a presented `x-anon-session`
+-- to be checked against. Two consequences, proved end to end against a running API:
+--
+--   * `GET /bookings/guest/:id` accepted ANY well-formed token, so possession of a booking id was
+--     effectively the whole check.
+--   * `POST /bookings/guest/:id/claim` could never succeed, because the session that had just
+--     bought the booking could not be matched to it. "Save this booking to my account" was
+--     unreachable in every real environment.
+--
+-- Only the SHA-256 of the token is stored, for the same reason `GuestBookingAccess` stores only a
+-- hash: a dump of this table must not open anybody's booking.
+--
+-- Purely additive and nullable. No existing row changes, nothing gains a requirement, and an
+-- older API keeps working against a migrated database. Rows that predate this column keep a NULL
+-- hash and keep today's (weaker) behaviour, so nobody who bought yesterday is locked out of the
+-- booking they paid for -- a deliberate, time-boxed allowance, described where it is applied.
+--
+-- No index. This is never a lookup key: every route loads the booking by its id and then verifies
+-- the token against this column. An index on a credential hash only invites searching by one.
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "guestSessionHash" TEXT;

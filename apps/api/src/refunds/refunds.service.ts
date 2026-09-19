@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
   AdminPermission,
   BookingStatus,
@@ -19,7 +20,7 @@ import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { checkRefundEligibility } from './refund-eligibility';
 import { refundTax, ticketNetPrices } from './refund-tax';
-import { ACCEPTED_TRANSFERS, currentHolderUserId } from '../tickets/ticket-holder';
+import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -29,6 +30,78 @@ const OPEN_REFUND_STATUSES = [
   RefundStatus.PROCESSING,
   RefundStatus.COMPLETED,
 ] as const;
+
+/**
+ * Everything a refund request has to read off the booking, in one place.
+ *
+ * Named rather than inlined because two entry points now load it — the account route and the
+ * guest access link — and the eligibility body below depends on every relation being present.
+ * A second, slightly different `include` at the guest entry is how a check silently stops
+ * being made: `tickets.invites` missing makes every ticket read as never transferred, and
+ * `taxLines` missing makes a refund return the ticket price and keep the tax.
+ */
+const REFUND_BOOKING_INCLUDE = {
+  // The organizer's policy travels with the booking, so eligibility is decided by
+  // their terms rather than by a constant in platform code.
+  eventSession: { select: { startsAt: true } },
+  event: { select: { refundsEnabled: true, refundCutoffHours: true } },
+  // Accepted transfers travel with each ticket, so the refund can tell whose it is now.
+  tickets: { include: { invites: ACCEPTED_TRANSFERS } },
+  taxLines: true,
+} satisfies Prisma.BookingInclude;
+
+type BookingForRefund = Prisma.BookingGetPayload<{ include: typeof REFUND_BOOKING_INCLUDE }>;
+
+/**
+ * Who is asking for a refund, and what their asking has already proven.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ * Guest self-service needed a second door into the refund request, and the dangerous way to
+ * build it is a second copy of the rules: the organizer's cutoff, the cash refusal, the
+ * transferred-ticket rule, the per-booking lock, the "never more than was paid" ceiling. Two
+ * copies drift, and the copy that drifts is the one nobody looks at — so the rules stayed in
+ * ONE body and everything that differs between an account and a link-holder was pushed out
+ * into this shape.
+ *
+ * Nothing here decides whether the caller is allowed to ask. That is settled at the door:
+ * `request` checks booking ownership, and the guest entry is only reached after a live access
+ * token AND the address the booking was paid with have both been proven.
+ */
+interface RefundRequester {
+  /**
+   * The account recorded as having asked, or null for a guest.
+   *
+   * Null is a fact, not a gap: a guest booking has no account behind it, so there is no user
+   * id to name and inventing one would put a stranger's id on somebody else's refund.
+   */
+  userId: string | null;
+  /** Platform staff act on the booking as a whole; a customer acts on their own tickets. */
+  staff: boolean;
+  /**
+   * Whether this requester still holds a given ticket — the transferred-ticket rule, asked in
+   * whichever way is correct for who is asking.
+   *
+   * A predicate rather than a user id, because the account path compares against a real id
+   * while a guest has none, and `currentHolderUserId(...) === null` would read as "yes, the
+   * caller holds it" for every ticket whose holder cannot be named. Fail-closed is the guest's
+   * own predicate saying so explicitly.
+   */
+  holds: (ticket: { invites?: readonly { acceptedByUserId: string | null }[] }) => boolean;
+  /** What the audit trail records about where the request came from. */
+  via: 'ACCOUNT' | 'GUEST_ACCESS_LINK';
+  /**
+   * Whether to email the address that PAID that a refund has been requested.
+   *
+   * True only for a guest access link, and that is the whole reason the notice exists: a link
+   * is forwardable, so the person asking may not be the person whose money it is. The buyer
+   * finds out while it is still a request rather than when their tickets stop working.
+   *
+   * False for the account path, deliberately. A signed-in buyer asking for their own refund
+   * already sees it in their wallet, and adding an email to a flow that has never sent one is a
+   * product decision rather than a side effect of closing that hole.
+   */
+  notifyBuyer: boolean;
+}
 
 @Injectable()
 export class RefundsService {
@@ -43,21 +116,26 @@ export class RefundsService {
     private readonly receipts: ReceiptsService,
   ) {}
 
-  async request(user: RequestUser, input: RefundRequestInput) {
+  /** The booking a refund request is about, with everything the rules below read. */
+  private async loadForRefund(bookingId: string): Promise<BookingForRefund> {
     const booking = await this.prisma.booking.findUnique({
-      where: { id: input.bookingId },
-      include: {
-        // The organizer's policy travels with the booking, so eligibility is decided by
-        // their terms rather than by a constant in platform code.
-        eventSession: { select: { startsAt: true } },
-        event: { select: { refundsEnabled: true, refundCutoffHours: true } },
-        // Accepted transfers travel with each ticket, so the refund can tell whose it is now.
-        tickets: { include: { invites: ACCEPTED_TRANSFERS } },
-        taxLines: true,
-      },
+      where: { id: bookingId },
+      include: REFUND_BOOKING_INCLUDE,
     });
     if (!booking)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    return booking;
+  }
+
+  /**
+   * A signed-in buyer (or platform staff) asking for a refund.
+   *
+   * This method is the OWNERSHIP check and nothing else. Every rule about whether a refund may
+   * happen at all lives in {@link createRequest}, which the guest access-link entry calls too —
+   * see {@link RefundRequester} for why that split exists.
+   */
+  async request(user: RequestUser, input: RefundRequestInput) {
+    const booking = await this.loadForRefund(input.bookingId);
     if (booking.userId !== user.id && !this.access.isPlatformAdmin(user)) {
       /*
         The holder of a transferred ticket, told why rather than refused as a stranger.
@@ -85,6 +163,81 @@ export class RefundsService {
       );
     }
 
+    return this.createRequest(
+      {
+        userId: user.id,
+        staff: this.access.isPlatformAdmin(user),
+        holds: (ticket) => currentHolderUserId({ booking, invites: ticket.invites }) === user.id,
+        via: 'ACCOUNT',
+        notifyBuyer: false,
+      },
+      booking,
+      input,
+    );
+  }
+
+  /**
+   * A refund asked for by somebody holding a guest access link.
+   *
+   * ── WHAT PROVES THE CALLER MAY ASK ─────────────────────────────────────────────────
+   * Not this method. Control is settled before it is called, in `GuestBookingService`: a live
+   * access token AND the email address the booking was paid with, compared in constant time.
+   * The emailed link is forwardable, so the link alone opens the tickets and never the money.
+   *
+   * ── AND WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────────────────
+   * Any eligibility rule. This body is the two facts that differ from the account path — no
+   * actor user id, and a guest holds every ticket that has not been transferred away — handed
+   * to the same {@link createRequest} the account route uses. A guest refund therefore lands in
+   * exactly the state an account refund lands in, in the same organizer queue, and a change to
+   * the organizer's cutoff policy cannot apply to one door and not the other.
+   */
+  async requestAsGuest(input: RefundRequestInput) {
+    const booking = await this.loadForRefund(input.bookingId);
+    /*
+      A booking with an owner is not a guest booking, whatever token was presented.
+
+      Belt and braces: the guest service resolves the booking with `userId: null` in the WHERE
+      clause, so this cannot normally be reached. It is here because an access-token row
+      OUTLIVES a claim — the token is not deleted when the booking is attached to an account —
+      and "the link stops moving money once the booking has an owner" must be true in the
+      service that moves the money, not only in the one that reads it.
+    */
+    if (booking.userId !== null) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'This booking belongs to an account. Sign in to request a refund.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return this.createRequest(
+      {
+        userId: null,
+        // A link-holder is never staff, whoever they are. Staff act through the admin console.
+        staff: false,
+        // A guest booking's tickets cannot be transferred (that needs two accounts), so this is
+        // true for all of them — stated as the rule rather than assumed, so a ticket that somehow
+        // HAS moved on is excluded rather than silently refunded to the wrong person.
+        holds: (ticket) => !isTransferred({ booking, invites: ticket.invites }),
+        via: 'GUEST_ACCESS_LINK',
+        notifyBuyer: true,
+      },
+      booking,
+      input,
+    );
+  }
+
+  /**
+   * Whether a refund may happen, and the refund row if it may. ONE copy, two doors.
+   *
+   * Everything from here down applied to account refunds before guest self-service existed and
+   * applies unchanged: the cash refusal, the organizer's cutoff, the transferred-ticket rule,
+   * the per-booking advisory lock, the refundable-balance ceiling, the free-booking branch.
+   */
+  private async createRequest(
+    requester: RefundRequester,
+    booking: BookingForRefund,
+    input: RefundRequestInput,
+  ) {
     /*
       Cash never passed through a gateway, so there is nothing online to send it back through.
 
@@ -124,9 +277,8 @@ export class RefundsService {
       still hold are refundable, and naming one they gave away is refused outright rather than
       quietly dropped. Platform staff act on the booking as a whole and are not limited by it.
     */
-    const actingAsStaff = this.access.isPlatformAdmin(user);
-    const heldByCaller = (t: (typeof booking.tickets)[number]) =>
-      currentHolderUserId({ booking, invites: t.invites }) === user.id;
+    const actingAsStaff = requester.staff;
+    const heldByCaller = (t: (typeof booking.tickets)[number]) => requester.holds(t);
     if (
       !actingAsStaff &&
       input.ticketIds?.length &&
@@ -152,7 +304,14 @@ export class RefundsService {
       changes only that no money moves.
     */
     if (booking.totalMinor === 0) {
-      return this.cancelFreeTickets(user, booking, ownTickets, input);
+      /*
+        No REFUND_REQUESTED notice on this branch, and not by omission: nothing was requested.
+        The tickets are cancelled here and now, so the message a buyer is owed is "your tickets
+        were cancelled" — BOOKING_CANCELLED — which this path has never sent for anybody, guest
+        or account. Sending a refund-request notice for a refund that will never exist would put
+        a customer on hold waiting for money that was never taken.
+      */
+      return this.cancelFreeTickets(requester, booking, ownTickets, input);
     }
 
     const items = await this.prisma.bookingItem.findMany({ where: { bookingId: booking.id } });
@@ -229,7 +388,7 @@ export class RefundsService {
         );
       }
 
-      return tx.refund.create({
+      const created = await tx.refund.create({
         data: {
           bookingId: booking.id,
           organizationId: booking.organizationId,
@@ -238,17 +397,49 @@ export class RefundsService {
           reason: input.reason,
           status: RefundStatus.REQUESTED,
           ticketIds: targetTickets.map((t) => t.id),
-          requestedByUserId: user.id,
+          // Null for a guest: there is no account behind the booking to name as the requester.
+          requestedByUserId: requester.userId,
         },
       });
+
+      /*
+        The buyer is told inside the transaction that records the request, for the reason the
+        completion notice gives: "a refund was asked for" and "the person whose money it is
+        knows a refund was asked for" must not be able to come apart. Enqueued after the commit,
+        a crash in between leaves an unwanted request nobody was warned about.
+
+        `refundId` is what separates one notice from the next — a booking can be refunded in
+        parts, and two partial requests of the same amount are two real requests.
+      */
+      if (requester.notifyBuyer) {
+        await this.notifications.sendCritical(tx, {
+          type: NotificationType.REFUND_REQUESTED,
+          // Null: a guest booking has no account, so there is no inbox to file it in. The
+          // address that paid is the only recipient there is.
+          userId: booking.userId,
+          toEmail: booking.buyerEmail,
+          bookingId: booking.id,
+          payload: {
+            bookingId: booking.id,
+            refundId: created.id,
+            reference: booking.reference ?? '',
+            currency: booking.currency,
+            amountMinor: created.amountMinor,
+          },
+        });
+      }
+      return created;
     });
     await this.audit.record({
-      actorUserId: user.id,
+      actorUserId: requester.userId,
       organizationId: booking.organizationId,
       action: 'REFUND_REQUESTED',
       entityType: 'Refund',
       entityId: refund.id,
-      metadata: { amountMinor: refund.amountMinor },
+      // `via` is the only record of WHERE the request came from. With no actor user id, a guest
+      // refund is otherwise indistinguishable from a system-generated one in the audit trail —
+      // and "somebody with the emailed link asked for this" is the fact a dispute turns on.
+      metadata: { amountMinor: refund.amountMinor, via: requester.via },
     });
     return refund;
   }
@@ -274,7 +465,7 @@ export class RefundsService {
    * rolls back with nothing released. Stock only ever goes back for tickets this call voided.
    */
   private async cancelFreeTickets(
-    user: RequestUser,
+    requester: RefundRequester,
     booking: {
       id: string;
       organizationId: string;
@@ -350,7 +541,7 @@ export class RefundsService {
     });
 
     await this.audit.record({
-      actorUserId: user.id,
+      actorUserId: requester.userId,
       organizationId: booking.organizationId,
       action: 'FREE_TICKETS_CANCELLED',
       entityType: 'Booking',
@@ -359,6 +550,7 @@ export class RefundsService {
         ticketIds: outcome.ticketIds,
         bookingStatus: outcome.bookingStatus,
         reason: input.reason,
+        via: requester.via,
       },
     });
     // `amountMinor` is the field a refund answer carries, stated as the zero it is, so a client

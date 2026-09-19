@@ -48,6 +48,12 @@ export const MESSAGE_CLASS: Record<NotificationType, MessageClass> = {
   [NotificationType.BOOKING_CANCELLED]: 'TRANSACTIONAL',
   [NotificationType.SHOW_CANCELLED]: 'TRANSACTIONAL',
   [NotificationType.REFUND_COMPLETED]: 'TRANSACTIONAL',
+  /*
+    A refund asked for on somebody's booking. Transactional in the same sense a "your password
+    changed" notice is: it may be the only warning the buyer gets that somebody else acted on
+    something of theirs, and a marketing preference must never be able to suppress that.
+  */
+  [NotificationType.REFUND_REQUESTED]: 'TRANSACTIONAL',
   [NotificationType.TICKET_CHECKED_IN]: 'TRANSACTIONAL',
   [NotificationType.TICKET_TRANSFERRED]: 'TRANSACTIONAL',
 
@@ -161,6 +167,8 @@ export const MESSAGE_AUDIENCE: Record<NotificationType, MessageAudience> = {
   [NotificationType.BOOKING_CANCELLED]: 'CUSTOMER',
   [NotificationType.SHOW_CANCELLED]: 'CUSTOMER',
   [NotificationType.REFUND_COMPLETED]: 'CUSTOMER',
+  // Addressed to the person whose money it is, never to the organizer deciding the request.
+  [NotificationType.REFUND_REQUESTED]: 'CUSTOMER',
   [NotificationType.EVENT_REMINDER]: 'CUSTOMER',
   [NotificationType.TICKET_CHECKED_IN]: 'CUSTOMER',
   [NotificationType.TICKET_TRANSFERRED]: 'CUSTOMER',

@@ -8,7 +8,9 @@ import type {
   PricingComplianceStatus,
   ApiError,
   AuthTokens,
+  GuestBookingClaim,
   GuestBookingView,
+  GuestReceiptsView,
   ManifestEntry,
   ManifestMeta,
   QueuedCheckIn,
@@ -32,6 +34,14 @@ export type {
   GuestBookingTotals,
   GuestBookingItem,
   GuestBookingTicket,
+  /*
+    Guest self-service, declared where the server declares it for the same reason as the view
+    above: a second copy of "what a document row carries" is a copy that drifts, and the thing
+    that drifts is an amount printed at a buyer.
+  */
+  GuestReceiptDocument,
+  GuestReceiptsView,
+  GuestBookingClaim,
 } from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
@@ -519,6 +529,56 @@ export const api = {
     /** Read a booking from the token in an emailed link. The link is the credential. */
     access: (token: string) =>
       request<GuestBookingView>(`/bookings/guest/access/${token}`, { auth: false }),
+    /**
+     * The financial documents for a guest booking, and the printable one as HTML.
+     *
+     * ── WHY THE EMAIL IS SENT AS WELL AS THE TOKEN ─────────────────────────────────
+     * The token is in an email, and an email gets forwarded. That is acceptable for the
+     * tickets, which the holder of the link is going to be shown at the door anyway, and not
+     * acceptable for an invoice: it carries the buyer's name, their address and what they
+     * paid. So the document asks for one more thing that only the buyer knows — the address
+     * the booking was paid with — and the server answers 403 when it does not match.
+     *
+     * `documents` may be empty and `html` an empty string when nothing has been issued yet,
+     * which is a real state rather than a failure and must be said in words.
+     */
+    receipt: (token: string, email: string) =>
+      request<GuestReceiptsView>(`/bookings/guest/access/${token}/receipt`, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+        auth: false,
+      }),
+    /**
+     * Ask the organizer for the money back, from an emailed link.
+     *
+     * Same email check as the document, for the same reason: whoever a link was forwarded to
+     * must not be able to give somebody else's tickets back. 409 means the booking cannot be
+     * refunded — past the cutoff, already refunded, paid in cash — and the message says
+     * which, so a caller shows it rather than a failure of its own.
+     */
+    refund: (token: string, body: { email: string; reason?: string }) =>
+      request<GuestRefundRequest>(`/bookings/guest/access/${token}/refund`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        auth: false,
+      }),
+    /**
+     * Attach a guest booking to the account that is signed in now.
+     *
+     * The ONE guest call that is authenticated, because it needs to know which account to
+     * attach the booking to — so no `auth: false` here. What proves the caller may claim this
+     * booking is either the access token from the emailed link or the anonymous session of
+     * the browser that bought it; both are sent when both are to hand.
+     *
+     * 409 means the booking already belongs to a different account. That is an answer, not an
+     * error: somebody else has claimed it, and no retry changes that.
+     */
+    claim: (id: string, body: { accessToken?: string }, anonSession?: string | null) =>
+      request<GuestBookingClaim>(`/bookings/guest/${id}/claim`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: anonSession ? { 'x-anon-session': anonSession } : undefined,
+      }),
   },
 
   payments: {
@@ -2174,6 +2234,38 @@ export interface BookingDetail {
  */
 export interface GuestBookingResult extends BookingResult {
   anonymousSessionToken?: string;
+}
+
+/**
+ * What asking for money back answers with — and it is two different things.
+ *
+ * A paid booking creates a refund REQUEST that somebody at the organizer reads and decides, so
+ * it comes back with an id and a status. A free booking has no money to return: the tickets are
+ * cancelled outright, there and then, and the answer is that outcome instead. The account route
+ * has always behaved this way; a client that assumed one shape printed an empty status line for
+ * every free booking, which is why these are written out separately rather than as one type with
+ * everything optional.
+ */
+export type GuestRefundRequest =
+  | {
+      id: string;
+      status: string;
+      amountMinor?: number;
+      booking?: { currency: string };
+    }
+  | {
+      outcome: 'CANCELLED';
+      bookingId: string;
+      bookingStatus: string;
+      ticketIds: string[];
+      amountMinor: 0;
+    };
+
+/** Narrows the answer above: true when the tickets were cancelled rather than a refund requested. */
+export function isFreeCancellation(
+  result: GuestRefundRequest,
+): result is Extract<GuestRefundRequest, { outcome: 'CANCELLED' }> {
+  return 'outcome' in result;
 }
 
 export interface BookingSummary {

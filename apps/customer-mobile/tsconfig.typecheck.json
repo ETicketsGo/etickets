@@ -13,12 +13,15 @@
     "paths": {
       "@/*": ["./src/*"],
       "react": ["./node_modules/@types/react"],
-      // Same problem as react, different package. nativewind carries its own react-native
-      // (0.86.2) as an auto-installed peer of react-native-css-interop, while this app uses
-      // the Expo-SDK-aligned 0.85.3. Without this, nativewind's `className` augmentation
-      // lands on the 0.86.2 component types and the app's components resolve to 0.85.3 —
-      // so every `className` prop fails to typecheck while the styling works fine at
-      // runtime. Metro is pinned to the same single copy (see metro.config.js).
+      // Same problem as react, different package. nativewind carries its own react-native as
+      // an auto-installed peer of react-native-css-interop, while this app uses the
+      // Expo-SDK-aligned 0.86.3. The nested version is not named here because it FLOATS —
+      // css-interop's peer is `react-native: "*"`, so npm takes the newest release going
+      // (0.86.2 under SDK 56, 0.87.1 after the SDK 57 upgrade). Without this alias,
+      // nativewind's `className` augmentation lands on the nested copy's component types
+      // while the app's components resolve to 0.86.3 — so every `className` prop fails to
+      // typecheck while the styling works fine at runtime. Metro is pinned to the same single
+      // copy (see metro.config.js).
       "react-native": ["./node_modules/react-native"],
       "react-native/*": ["./node_modules/react-native/*"]
     }

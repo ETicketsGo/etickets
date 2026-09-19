@@ -1,6 +1,6 @@
 # ETicketsGo — Customer Mobile App
 
-React Native (Expo SDK 56) customer app for ETicketsGo, living in the monorepo at
+React Native (Expo SDK 57) customer app for ETicketsGo, living in the monorepo at
 `apps/customer-mobile`.
 
 ## Status, honestly

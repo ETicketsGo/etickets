@@ -13,5 +13,10 @@ import { ReceiptsModule } from '../receipts/receipts.module';
   imports: [PaymentsModule, InventoryModule, ReceiptsModule],
   controllers: [RefundsController, OrganizationRefundsController, AdminRefundsController],
   providers: [RefundsService],
+  // Exported for the guest access-link entry (`requestAsGuest`), which lives on
+  // GuestBookingService so that guest authorisation stays in one place — while the refund RULES
+  // stay in exactly one place too, here. The dependency runs one way: booking orchestration
+  // imports refunds, and refunds knows nothing about bookings.
+  exports: [RefundsService],
 })
 export class RefundsModule {}

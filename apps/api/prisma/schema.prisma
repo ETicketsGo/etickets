@@ -378,6 +378,14 @@ enum NotificationType {
   /// BOOKING_CONFIRMED: this one answers an anonymous request, so it has to be rate-limited
   /// and deduped separately from the confirmation that carries somebody's tickets.
   GUEST_BOOKING_ACCESS
+
+  /// A refund has been ASKED for on a booking, as opposed to paid out (REFUND_COMPLETED).
+  ///
+  /// It exists for guest self-service: a guest access link is forwardable by design, and a
+  /// refund can be requested through one, so the address that PAID is told at the moment of the
+  /// request. Otherwise the first the buyer hears of a request they did not make is their
+  /// tickets no longer working.
+  REFUND_REQUESTED
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -1503,6 +1511,22 @@ model Booking {
   user           User?        @relation(fields: [userId], references: [id])
   couponId       String?
   coupon         Coupon?      @relation(fields: [couponId], references: [id])
+
+  /// SHA-256 of the anonymous checkout session that created this guest booking. Never the token.
+  ///
+  /// ── WHAT IT IS FOR ──────────────────────────────────────────────────────────────
+  /// It is what makes "this browser bought this booking" a durable, checkable fact. Guest
+  /// ownership used to live only on `BookingWorkflow.ownerId`, and that row is written ONLY when
+  /// the booking orchestrator runs in active mode — which no environment does. So in every real
+  /// environment there was nothing to check a presented `x-anon-session` against: any well-formed
+  /// token read any guest booking whose id somebody knew, and the browser that actually bought
+  /// the booking could not prove it in order to claim it.
+  ///
+  /// Null on bookings created before this column existed, and on account bookings, which are
+  /// owned by `userId` instead. Not indexed on purpose: it is never a lookup key. Every route
+  /// loads the booking by its id and then verifies the presented token against this column, so
+  /// an index would only invite somebody to search by a credential hash.
+  guestSessionHash String?
 
   // Human-readable, globally-unique, immutable public reference assigned once at
   // confirmation, e.g. "ETG-IND-2026-000001" (brand-country-year-sequence). Null

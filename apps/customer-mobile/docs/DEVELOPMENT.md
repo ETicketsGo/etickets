@@ -15,9 +15,9 @@ Android emulator: `localhost` means the emulator, not your machine. Use
 ## The React 18 / 19 split — do not "fix" it by hoisting
 
 The root has React 18 for the three Next.js web apps. This app needs React 19 with
-react-native 0.85.3. They cannot be the same version.
+react-native 0.86.3. They cannot be the same version.
 
-Hoisting react-native to the root **fails** (npm ERESOLVE: RN 0.85.3 requires React 19)
+Hoisting react-native to the root **fails** (npm ERESOLVE: RN 0.86.3 requires React 19)
 and would break the web apps if it succeeded. The nesting is a consequence of a correct
 decision, so every fix belongs at a **resolver**, not in the dependency tree:
 
@@ -77,3 +77,29 @@ npm run verify               # whole monorepo
    `@expo/vector-icons` is silently dropped — icons take a `color` prop.
 5. **`tailwind.config.js` must extend `fontSize`**, or semantic classes such as
    `text-caption` resolve to nothing, silently.
+6. **`@react-native/jest-preset` is pinned to an exact version, not a caret.** react-native
+   declares it as `peerOptional "0.86.3"` - an exact match. A caret range goes out of that
+   range the moment react-native publishes the next patch, and npm then refuses to install
+   the workspace at all. Bump it in lockstep with `react-native`.
+
+## Upgrading the Expo SDK
+
+`npx expo install expo@^<next>.0.0 --fix` rewrites `dependencies` correctly but leaves
+`devDependencies` alone, so `jest-expo`, `eslint-config-expo` and
+`@react-native/jest-preset` must be bumped by hand in the same commit.
+
+The install itself will fail with `ERESOLVE` on the first attempt, and the error is
+misleading: it names a reanimated/worklets peer conflict that does not actually exist. The
+cause is the **lockfile**, not the versions. npm resolves against the tree already recorded
+there, and the recorded app-local `react-native-reanimated` from the previous SDK blocks the
+new one from being placed. Deleting `node_modules` does not help, because the stale tree is
+in `package-lock.json`.
+
+What works, and what was used for the SDK 56 -> 57 upgrade: drop every
+`apps/customer-mobile/node_modules/**` entry from `package-lock.json` plus the root entries
+for the mobile-only packages (`react-native*`, `expo*`, `@expo/*`, `@react-native*`,
+`metro*`, `nativewind`, `jest-expo`, `babel-preset-expo`, `eslint-config-expo`,
+`@sentry/react-native`), then run `npm install` from the root. npm re-resolves exactly that
+subtree and leaves every other workspace pinned, which a full lockfile regeneration would
+not. Confirm afterwards that a second `npm install --package-lock-only` changes nothing -
+if the lockfile is not a fixpoint, `npm ci` will fail in CI.
