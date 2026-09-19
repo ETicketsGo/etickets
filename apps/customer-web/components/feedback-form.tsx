@@ -18,7 +18,7 @@ export function FeedbackForm({
   showSubject = false,
   showRating = false,
   submitLabel = 'Send',
-  successMessage = 'Thanks — your message has been sent.',
+  successMessage = 'Thanks - your message has been sent.',
   messageLabel = 'Message',
   messagePlaceholder,
 }: {

@@ -5,7 +5,7 @@ import { PageHero, Prose } from '@/components/marketing/blocks';
 export const metadata: Metadata = {
   title: 'API reference',
   description:
-    'ETicketsGo API conventions — authentication, pagination, errors, webhooks, and the interactive OpenAPI/Swagger reference.',
+    'ETicketsGo API conventions - authentication, pagination, errors, webhooks, and the interactive OpenAPI/Swagger reference.',
   alternates: { canonical: '/docs/api' },
 };
 
@@ -13,7 +13,7 @@ export default function ApiDocsPage() {
   return (
     <>
       <PageHero
-        eyebrow="Documentation · API"
+        eyebrow="Documentation - API"
         title="ETicketsGo API"
         lead="A predictable REST API with an always-in-sync OpenAPI reference."
       />
@@ -22,7 +22,7 @@ export default function ApiDocsPage() {
           <Prose>
             <h2>Interactive reference</h2>
             <p>
-              The API is documented with OpenAPI/Swagger, generated from the code — it lists every
+              The API is documented with OpenAPI/Swagger, generated from the code - it lists every
               route, request/response shape, and auth requirement. It is served at{' '}
               <code>/api/docs</code> in non-production environments.
             </p>
@@ -56,7 +56,7 @@ export default function ApiDocsPage() {
             </ul>
             <h2>Webhooks</h2>
             <p>
-              Payment providers call <code>POST /api/payments/webhook/:provider</code> — signed,
+              Payment providers call <code>POST /api/payments/webhook/:provider</code> - signed,
               idempotent, and replay-safe.
             </p>
             <h2>Health & metrics</h2>

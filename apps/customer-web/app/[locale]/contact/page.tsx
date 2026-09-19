@@ -16,7 +16,7 @@ import { ContactForm } from '@/components/marketing/contact-form';
 export const metadata: Metadata = {
   title: 'Contact',
   description:
-    'Get in touch with ETicketsGo — sales, support, partnerships, media, and general enquiries.',
+    'Get in touch with ETicketsGo - sales, support, partnerships, media, and general enquiries.',
   alternates: { canonical: '/contact' },
 };
 
@@ -65,7 +65,7 @@ export default function ContactPage() {
                 {[
                   { icon: Phone, label: '+00 0000 000000 (placeholder)' },
                   { icon: MapPin, label: 'Bengaluru, India (placeholder)' },
-                  { icon: Clock, label: 'Mon–Fri, 9:00–18:00 IST (placeholder)' },
+                  { icon: Clock, label: 'Mon-Fri, 9:00-18:00 IST (placeholder)' },
                   { icon: Mail, label: 'hello@eticketsgo.example (placeholder)' },
                 ].map((r) => (
                   <div

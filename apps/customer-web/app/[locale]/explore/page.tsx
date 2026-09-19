@@ -86,7 +86,7 @@ function MovieSkeletons({ count = 5 }: { count?: number }) {
 function SeeAllLink({ href, label = 'See all' }: { href: string; label?: string }) {
   return (
     <ButtonLink href={href} variant="ghost">
-      {label} →
+      {label}
     </ButtonLink>
   );
 }
@@ -149,7 +149,7 @@ function OrganizerList({ items }: { items: OrganizerSpotlight[] }) {
           key={o.id}
           href={`/organizers/${o.id}`}
           title={o.name}
-          meta={`${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ' · Verified' : ''}`}
+          meta={`${o.eventCount} event${o.eventCount === 1 ? '' : 's'}${o.verified ? ', verified' : ''}`}
           icon={Users}
         />
       ))}
@@ -165,7 +165,7 @@ function VenueList({ items }: { items: VenueSpotlight[] }) {
           key={v.id}
           href={`/events?city=${encodeURIComponent(v.city)}`}
           title={v.name}
-          meta={`${v.city} · ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`}
+          meta={`${v.city}, ${v.eventCount} event${v.eventCount === 1 ? '' : 's'}`}
           icon={Building2}
         />
       ))}
@@ -248,14 +248,13 @@ export default function ExplorePage() {
         <div className="relative mx-auto max-w-2xl">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background-canvas px-3 py-1 text-caption font-medium text-text-secondary">
             <Compass className="h-3.5 w-3.5 text-action-primary" />
-            Explore what’s on
+            Explore what is on
           </span>
           <h1 className="mt-6 text-h1 font-bold tracking-tight text-text-primary sm:text-hero">
             Movies, events, and more
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-[1.05rem] leading-relaxed text-text-secondary">
-            A hand-picked mix of what’s showing now, what’s trending, and plans for the weekend —
-            all in one place.
+            Films playing now, events people are booking, and things to do this weekend.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <ButtonLink href="/movies" variant="primary">
@@ -277,7 +276,7 @@ export default function ExplorePage() {
 
       {isError ? (
         <ErrorState
-          message="We couldn't load your discovery feed. Please try again."
+          message="We could not load this page. Please try again."
           onRetry={() => refetch()}
         />
       ) : isLoading ? (
@@ -306,8 +305,8 @@ export default function ExplorePage() {
               <MovieGrid items={data.nowShowing} />
             ) : (
               <EmptyState
-                title="No movies showing yet"
-                hint="New releases land here first — check back soon."
+                title="No films showing yet"
+                hint="We list films here as soon as a cinema adds showtimes."
                 icon={Film}
                 action={<ButtonLink href="/movies">Browse movies</ButtonLink>}
               />
@@ -327,8 +326,8 @@ export default function ExplorePage() {
               <EventGrid items={data.trendingEvents} />
             ) : (
               <EmptyState
-                title="No trending events yet"
-                hint="Check back soon — new events land here first."
+                title="No popular events yet"
+                hint="Events appear here once people start booking them."
                 icon={Sparkles}
                 action={<ButtonLink href="/events">Browse events</ButtonLink>}
               />
@@ -339,7 +338,7 @@ export default function ExplorePage() {
           {data && data.thisWeekend.length > 0 && (
             <Section
               title="This weekend"
-              subtitle="Plans sorted — happening in the next few days."
+              subtitle="Happening in the next few days."
               icon={Sparkles}
               action={<SeeAllLink href="/events" />}
             >
@@ -350,8 +349,8 @@ export default function ExplorePage() {
           {/* Composed strategy sections (organizer/venue spotlights, new releases, …). */}
           {feed?.fellBackToAllCities ? (
             <p className="rounded-lg border border-border bg-background-subtle px-4 py-3 text-[0.9375rem] text-text-secondary">
-              Nothing on sale in <strong className="text-text-primary">{city}</strong> just yet —
-              showing everywhere instead.
+              Nothing is on sale in <strong className="text-text-primary">{city}</strong> yet. These
+              events are from everywhere.
             </p>
           ) : null}
 
@@ -365,7 +364,7 @@ export default function ExplorePage() {
           {data && data.categories.length > 0 && (
             <Section
               title="Browse by category"
-              subtitle="Jump straight to what you love."
+              subtitle="Jump straight to a category."
               icon={Compass}
             >
               <div className="flex flex-wrap gap-2.5">
@@ -386,7 +385,7 @@ export default function ExplorePage() {
           {recentCategories.length > 0 && (
             <Section
               title="Continue exploring"
-              subtitle="Categories you’ve been browsing."
+              subtitle="Categories you have been browsing."
               icon={Compass}
             >
               <div className="flex flex-wrap gap-2.5">

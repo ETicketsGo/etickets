@@ -215,7 +215,7 @@ test.describe('a free event', () => {
     await page.goto(`${CUSTOMER}/events/${fx.slug}`, { waitUntil: 'networkidle' });
     await expect(page.getByText('Free entry')).toBeVisible({ timeout: 30_000 });
     // The ticket line and the summary both say Free.
-    await expect(page.getByText(/^Free ·/)).toBeVisible();
+    await expect(page.getByText(/^Free -/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Get my tickets' })).toBeVisible();
 
     await page.getByLabel('Quantity of Free entry').selectOption('1');

@@ -215,14 +215,14 @@ export function SeatMap({
                       {price ? (
                         <>
                           <span className="tabular-nums text-text-primary">{price}</span>
-                          <span aria-hidden> · </span>
+                          <span aria-hidden> - </span>
                         </>
                       ) : null}
                       {section.name}
                       {tier ? (
                         <span className="font-medium normal-case tracking-normal text-text-muted">
                           {' '}
-                          · {tier}
+                          - {tier}
                         </span>
                       ) : null}
                     </p>
@@ -297,7 +297,7 @@ export function SeatMap({
                                     .join(', ')}
                                   title={[name, category?.name, priceLabel, kind]
                                     .filter(Boolean)
-                                    .join(' · ')}
+                                    .join(' - ')}
                                   tabIndex={seat.id === tabStop ? 0 : -1}
                                   onFocus={() => setActive(seat.id)}
                                   onClick={() => onTap(seat.id, selectable)}

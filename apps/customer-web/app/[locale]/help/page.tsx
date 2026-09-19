@@ -12,11 +12,11 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'How do I book tickets?',
-        a: 'Open an event or movie, choose a session, pick your ticket types or seats, and check out. Your booking is held for a few minutes while you pay.',
+        a: 'Open an event or film, choose a session, pick your seats or ticket types, and check out. We hold your tickets for a few minutes while you pay.',
       },
       {
-        q: 'My booking is held — what does that mean?',
-        a: 'When you start a booking we reserve your tickets for a short window so no one else can take them. Complete payment before the timer runs out or the hold is released.',
+        q: 'What does a held booking mean?',
+        a: 'When you start a booking we reserve your tickets so nobody else can take them. Pay before the timer runs out, or we release them.',
       },
     ],
   },
@@ -25,24 +25,24 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'What payment methods are accepted?',
-        a: 'This demo uses a mock payment step — no real money is charged. In production, standard cards and popular wallets are supported.',
+        a: 'This demo uses a mock payment step, so no money is charged. The live site takes cards and popular wallets.',
       },
       {
         q: 'My payment failed. What now?',
-        a: 'Nothing is charged on a failed payment. Your hold may have expired — start the booking again from the event page.',
+        a: 'Nothing is charged on a failed payment. Your hold may have run out, so start the booking again from the event page.',
       },
     ],
   },
   {
-    heading: 'Tickets & QR',
+    heading: 'Tickets and QR codes',
     items: [
       {
         q: 'Where are my tickets?',
-        a: 'Right after payment your QR tickets appear under “My tickets”. Each ticket has a unique QR code scanned at the door.',
+        a: 'Your QR tickets appear under My tickets as soon as you pay. Each ticket has its own code, and we scan it at the door.',
       },
       {
         q: 'Can I transfer a ticket?',
-        a: 'Ticket transfers are handled by the organizer. Contact them via the event page for details.',
+        a: 'The organizer handles transfers. Contact them from the event page.',
       },
     ],
   },
@@ -51,16 +51,16 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'How do I request a refund?',
-        a: 'Open the booking under “My bookings” and request a refund. Approval depends on the organizer’s refund policy shown on the event.',
+        a: 'Open the booking under My bookings and request a refund. The organizer decides, and their refund policy is shown on the event.',
       },
     ],
   },
   {
-    heading: 'Movies & seats',
+    heading: 'Films and seats',
     items: [
       {
         q: 'How does seat selection work?',
-        a: 'For movies and seated shows you pick specific seats from the seat map. Selected seats are held while you complete checkout.',
+        a: 'On films and seated shows you pick your seats from the seat map. We hold them while you check out.',
       },
     ],
   },
@@ -69,7 +69,7 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'How do I update my profile?',
-        a: 'Go to your account area to update your name. Your email is used for booking confirmations and support replies.',
+        a: 'Go to your account to change your name. We use your email for booking confirmations and support replies.',
       },
     ],
   },
@@ -82,7 +82,7 @@ export default function HelpCenterPage() {
       <div>
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">Help center</h1>
         <p className="mt-1 text-[0.9375rem] text-text-muted">
-          Answers to common questions, plus ways to reach us.
+          Common questions, and how to reach us.
         </p>
       </div>
 
@@ -116,7 +116,9 @@ export default function HelpCenterPage() {
             <Lightbulb className="h-4 w-4" />
           </span>
           <p className="mt-3 font-semibold text-text-primary">Request a feature</p>
-          <p className="mt-1 text-caption text-text-muted">Share an idea to make us better.</p>
+          <p className="mt-1 text-caption text-text-muted">
+            Tell us what you would like us to add.
+          </p>
         </Link>
       </div>
 
@@ -155,15 +157,15 @@ export default function HelpCenterPage() {
         }
       >
         <p className="mb-4 text-[0.9375rem] text-text-muted">
-          Can’t find what you need above? Send us a message and we’ll get back to you.
+          Not here? Send us a message and we will reply.
         </p>
         <FeedbackForm
           kind="CONTACT"
           showSubject
           submitLabel="Send message"
-          successMessage="Thanks — we’ll get back to you soon."
+          successMessage="Thanks. We will get back to you soon."
           messageLabel="How can we help?"
-          messagePlaceholder="Describe your question or issue…"
+          messagePlaceholder="Describe your question or issue"
         />
       </Card>
 
@@ -178,7 +180,7 @@ export default function HelpCenterPage() {
         }
       >
         <p className="mb-4 text-[0.9375rem] text-text-muted">
-          Rate your overall experience with ETicketsGo — your feedback shapes what we build next.
+          Tell us how ETicketsGo is working for you. We read every rating.
         </p>
         <FeedbackForm
           kind="CSAT"
@@ -186,7 +188,7 @@ export default function HelpCenterPage() {
           submitLabel="Submit rating"
           successMessage="Thanks for rating your experience!"
           messageLabel="Anything you'd like to add? (optional)"
-          messagePlaceholder="Tell us more about your experience…"
+          messagePlaceholder="Tell us more"
         />
       </Card>
 
@@ -195,7 +197,7 @@ export default function HelpCenterPage() {
           <div className="flex items-center gap-3">
             <RatingStars value={5} size="sm" label="ETicketsGo" />
             <p className="text-[0.9375rem] text-text-muted">
-              Prefer to browse? Explore events and movies while you’re here.
+              Prefer to browse? Have a look at the events and films.
             </p>
           </div>
           <div className="flex gap-2">

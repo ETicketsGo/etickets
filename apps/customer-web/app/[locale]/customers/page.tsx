@@ -30,45 +30,53 @@ export const metadata: Metadata = {
 const ITEMS = [
   {
     icon: Search,
-    title: 'Discover events',
-    body: 'Browse and search by title, city, or category with a fast, clean experience.',
+    title: 'Find events',
+    body: 'Search by name, city or category.',
   },
   {
     icon: Armchair,
     title: 'Seat selection',
-    body: 'Pick your exact seats on a clear map — what you choose is what you get.',
+    body: 'Pick your exact seats on a map. You get the seats you chose.',
   },
   {
     icon: Zap,
     title: 'Fast checkout',
-    body: 'A short, transparent flow with the full total shown before you pay.',
+    body: 'A short checkout that shows the full total before you pay.',
   },
   {
     icon: ShieldCheck,
     title: 'Secure payments',
-    body: 'Card details go straight to the payment provider — never stored by us.',
+    body: 'Your card details go to the payment provider. We never store them.',
   },
   {
     icon: Wallet,
     title: 'Wallet tickets',
-    body: 'Keep passes handy and accessible, even without a signal.',
+    body: 'Keep a pass in your phone wallet. It opens without a signal.',
   },
-  { icon: QrCode, title: 'QR tickets', body: 'Secure, single-use codes that can’t be replayed.' },
+  {
+    icon: QrCode,
+    title: 'QR tickets',
+    body: 'Each code works once, so nobody can copy your ticket.',
+  },
   {
     icon: DoorOpen,
     title: 'Fast entry',
-    body: 'Event Day Mode keeps your screen bright and ready at the gate.',
+    body: 'Event Day Mode keeps your screen bright at the gate.',
   },
   {
     icon: Smartphone,
-    title: 'Mobile experience',
-    body: 'Built mobile-first for how you actually buy and attend.',
+    title: 'Works on a phone',
+    body: 'Every page fits a phone screen.',
   },
-  { icon: RotateCcw, title: 'Refunds', body: 'Simple refund requests within the event’s window.' },
+  {
+    icon: RotateCcw,
+    title: 'Refunds',
+    body: 'Ask for a refund inside the window shown on the event.',
+  },
   {
     icon: UserCircle,
-    title: 'Account management',
-    body: 'Your bookings, tickets, and shares in one place.',
+    title: 'Your account',
+    body: 'Your bookings, tickets and shared links in one place.',
   },
 ];
 
@@ -78,16 +86,13 @@ export default function CustomersPage() {
       <PageHero
         eyebrow="For attendees"
         title="Book in seconds. Get in fast."
-        lead="A fast, secure, mobile-first way to discover events, pick your seats, and walk through the gate."
+        lead="Find an event, pick your seats, and pay on your phone. Your ticket is a QR code."
         primary={{ href: '/events', label: 'Browse events' }}
         secondary={{ href: '/register', label: 'Create an account' }}
       />
       <Section>
         <Container>
-          <SectionHeading
-            eyebrow="The attendee experience"
-            title="Everything about going out, made easy"
-          />
+          <SectionHeading eyebrow="What you get" title="Ten things you can do" />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {ITEMS.map((i) => (
               <FeatureCard key={i.title} icon={i.icon} title={i.title}>
@@ -100,7 +105,7 @@ export default function CustomersPage() {
       <Section className="border-t border-border">
         <CtaBand
           title="Find something to do this weekend"
-          lead="Discover events near you and book in a few taps."
+          lead="See what is on near you."
           primaryHref="/events"
           primaryLabel="Browse live events"
           secondaryHref="/faq"

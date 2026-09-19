@@ -32,10 +32,22 @@
     "time": "Time",
     "clear": "Clear filters",
     "timeOfDay": {
-      "MORNING": { "label": "Morning", "range": "Before 12 pm" },
-      "AFTERNOON": { "label": "Afternoon", "range": "12–4 pm" },
-      "EVENING": { "label": "Evening", "range": "4–7 pm" },
-      "NIGHT": { "label": "Night", "range": "7 pm onwards" }
+      "MORNING": {
+        "label": "Morning",
+        "range": "Before 12 pm"
+      },
+      "AFTERNOON": {
+        "label": "Afternoon",
+        "range": "12-4 pm"
+      },
+      "EVENING": {
+        "label": "Evening",
+        "range": "4-7 pm"
+      },
+      "NIGHT": {
+        "label": "Night",
+        "range": "7 pm onwards"
+      }
     }
   },
   "legend": {
@@ -68,7 +80,7 @@
   },
   "empty": {
     "noShowsTitle": "No shows scheduled",
-    "noShowsHint": "Check back soon — showtimes for this film aren't available yet.",
+    "noShowsHint": "Check back soon - showtimes for this film aren't available yet.",
     "noShowsInCityTitle": "No shows in {city} yet",
     "noShowsInCityHint": "This film may be showing in other cities.",
     "noMatchTitle": "Nothing matches",
@@ -97,7 +109,7 @@
     "emptyTitle": "No ratings yet",
     "emptyHint": "Ratings appear here once people who watched this film share theirs.",
     "firstTitle": "Be the first to rate this film",
-    "firstHint": "You've seen it — let others know what you thought.",
+    "firstHint": "Tell other people what you thought of this film.",
     "rate": {
       "title": "Rate this film",
       "updateTitle": "Update your rating",
@@ -120,7 +132,7 @@
       "counter": "{used} of {max} characters",
       "submit": "Submit rating",
       "update": "Update rating",
-      "thanks": "Thanks — your rating is in.",
+      "thanks": "Thanks - your rating is in.",
       "updated": "Your rating has been updated.",
       "notEligible": "You can't rate this film yet.",
       "failed": "We couldn't save your rating. Please try again.",

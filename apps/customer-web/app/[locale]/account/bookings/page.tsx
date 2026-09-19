@@ -197,7 +197,7 @@ export default function BookingsPage() {
                   */}
                   {dateTime(row.eventSession.startsAt, undefined, row.timeZone ?? undefined)}
                   {row.timeZone ? ` (${zoneAbbrev(row.eventSession.startsAt, row.timeZone)})` : ''}
-                  {ticketCount(row) && ` · ${ticketCount(row)}`}
+                  {ticketCount(row) && ` - ${ticketCount(row)}`}
                 </p>
                 {row.reference && (
                   <p className="relative z-10 mt-1 w-fit text-caption text-text-muted">
@@ -304,7 +304,7 @@ export default function BookingsPage() {
                         (t.ticketTypeName ?? w('generalAdmission'))
                       )}
                       {t.seatLabel && t.ticketTypeName ? (
-                        <span className="text-text-muted"> · {t.ticketTypeName}</span>
+                        <span className="text-text-muted"> - {t.ticketTypeName}</span>
                       ) : null}
                     </span>
                     <StatusBadge status={t.status} label={statusLabel('ticket', t.status)} />

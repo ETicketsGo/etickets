@@ -89,8 +89,8 @@ export default function ReceiptsPage() {
                     {r.booking.event.title}
                   </p>
                   <p className="mt-1 text-caption text-text-muted">
-                    {KIND_LABEL[r.kind] ?? r.kind} {r.number} · {dateOnly(r.issuedAt)}
-                    {r.booking.reference && ` · ${r.booking.reference}`}
+                    {KIND_LABEL[r.kind] ?? r.kind} {r.number} - {dateOnly(r.issuedAt)}
+                    {r.booking.reference && ` - ${r.booking.reference}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

@@ -20,7 +20,7 @@ import { Link } from '@/i18n/navigation';
 export const metadata: Metadata = {
   title: 'Documentation',
   description:
-    'The ETicketsGo documentation portal — getting started, organizer and customer guides, API, offline operations, payments, reports, troubleshooting, release notes, and architecture.',
+    'The ETicketsGo documentation portal - getting started, organizer and customer guides, API, offline operations, payments, reports, troubleshooting, release notes, and architecture.',
   alternates: { canonical: '/docs' },
 };
 
@@ -99,7 +99,7 @@ export default function DocsPage() {
       <PageHero
         eyebrow="Documentation"
         title="Everything you need to build with ETicketsGo"
-        lead="Guides for organizers, attendees, and administrators — plus API and operations references."
+        lead="Guides for organizers, attendees, and administrators - plus API and operations references."
         primary={{ href: '/register', label: 'Get started' }}
         secondary={{ href: '/docs/api', label: 'API reference' }}
       />
@@ -128,7 +128,8 @@ export default function DocsPage() {
             ))}
           </div>
           <p className="mt-10 text-center text-caption text-text-muted">
-            Full engineering guides, runbooks, and ADRs are maintained in the product repository’s{' '}
+            Full engineering guides, runbooks, and ADRs are maintained in the product
+            repository&apos;s{' '}
             <code className="rounded bg-background-subtle px-1.5 py-0.5 text-text-secondary">
               docs/
             </code>{' '}

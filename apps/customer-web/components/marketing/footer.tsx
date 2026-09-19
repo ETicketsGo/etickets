@@ -64,8 +64,8 @@ export function MarketingFooter() {
               <Logo markClassName="h-9 w-9" id="mftr" />
             </Link>
             <p className="mt-3 max-w-xs text-[0.9375rem] leading-relaxed text-text-secondary">
-              The experience-commerce platform for selling tickets, checking in guests, and
-              understanding your events — online and offline.
+              ETicketsGo sells your tickets, checks guests in at the door, and shows you how the
+              event did. The gate keeps working when the network does not.
             </p>
           </div>
           {COLUMNS.map((col) => (
@@ -91,7 +91,7 @@ export function MarketingFooter() {
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-secondary sm:flex-row sm:items-center">
           <p>© {2026} ETicketsGo. All rights reserved.</p>
           <p className="text-text-secondary">
-            Demo build · contact details &amp; legal terms are placeholders pending finalization.
+            Demo build. The contact details and legal terms are placeholders.
           </p>
         </div>
       </div>

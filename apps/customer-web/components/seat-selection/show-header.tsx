@@ -80,7 +80,7 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
     summary.venue.city,
   ]
     .filter(Boolean)
-    .join(' · ');
+    .join(' - ');
   const zone = readerIsElsewhere(summary.timeZone)
     ? ` ${zoneAbbrev(summary.startsAt, summary.timeZone)}`
     : '';
@@ -116,7 +116,7 @@ export function ShowHeader({ summary }: { summary: PublicShowSummary }) {
         </div>
         <p className="text-[0.9375rem] text-text-secondary">
           {place}
-          <span aria-hidden> · </span>
+          <span aria-hidden> - </span>
           <time dateTime={summary.startsAt} className="font-medium text-text-primary">
             {day(summary.startsAt, summary.timeZone, intlLocale)},{' '}
             {clock(summary.startsAt, summary.timeZone, intlLocale)}

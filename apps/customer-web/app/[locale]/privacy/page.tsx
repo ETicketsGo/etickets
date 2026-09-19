@@ -27,21 +27,21 @@ export default function PrivacyPage() {
           </NoticeBanner>
           <Prose>
             <p>
-              <strong>Controller:</strong> ETicketsGo (placeholder) ·{' '}
+              <strong>Controller:</strong> ETicketsGo (placeholder) -{' '}
               <strong>Effective date:</strong> pending.
             </p>
             <h2>1. Data we collect</h2>
             <ul>
               <li>Account: name, email, password hash (bcrypt), roles.</li>
               <li>Orders: buyer and ticket-holder name and email.</li>
-              <li>Payments: provider references only — no card numbers or CVV are stored.</li>
+              <li>Payments: provider references only - no card numbers or CVV are stored.</li>
               <li>Security: refresh-token hashes, IP, and user-agent; an immutable audit log.</li>
               <li>Notifications: recipient email, phone, or push tokens.</li>
             </ul>
             <h2>2. How we use data</h2>
             <p>
               To provide the service (accounts, ticketing, payments, entry), for security and fraud
-              prevention, support, legal compliance, and — where permitted — service communications.
+              prevention, support, legal compliance, and - where permitted - service communications.
             </p>
             <h2>3. Sharing</h2>
             <p>
@@ -57,7 +57,7 @@ export default function PrivacyPage() {
             </p>
             <h2>5. Your rights</h2>
             <p>
-              Access, rectification, erasure, portability, and objection — scoped by your
+              Access, rectification, erasure, portability, and objection - scoped by your
               jurisdiction. Requests via the <Link href="/contact">contact page</Link>.
             </p>
             <h2>6. Security</h2>

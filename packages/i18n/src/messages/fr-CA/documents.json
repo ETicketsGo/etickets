@@ -32,8 +32,8 @@
     "taxName": {
       "IGST": "GST intégrée (IGST)",
       "CGST": "GST centrale (CGST)",
-      "SGST": "GST d’État (SGST)",
-      "UTGST": "GST de territoire de l’Union (UTGST)"
+      "SGST": "GST d'État (SGST)",
+      "UTGST": "GST de territoire de l'Union (UTGST)"
     }
   },
   "ticket": {

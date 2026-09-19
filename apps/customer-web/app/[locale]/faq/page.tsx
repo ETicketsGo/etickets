@@ -6,7 +6,7 @@ import { FaqSearch, type FaqGroup } from '@/components/marketing/faq';
 export const metadata: Metadata = {
   title: 'FAQ',
   description:
-    'Answers for organizers and attendees — general, payments, refunds, offline check-in, security, pricing, accounts, and support.',
+    'Answers about creating events, payments, refunds, offline check-in, security, pricing and accounts.',
   alternates: { canonical: '/faq' },
 };
 
@@ -16,11 +16,11 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'What is ETicketsGo?',
-        a: 'An experience-commerce platform for selling tickets, checking in guests (online and offline), and understanding your events with built-in analytics.',
+        a: 'Software for selling tickets, checking guests in at the door, and seeing how an event did. The door app works with or without a network.',
       },
       {
         q: 'Is it free to start?',
-        a: 'Yes — you can create events and explore the platform. Live payments require completing payment onboarding; the demo uses mock payments.',
+        a: 'Yes. You can create events and look around. To take real payments you finish payment onboarding first. The demo uses mock payments.',
       },
     ],
   },
@@ -29,19 +29,19 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'How do I create an event?',
-        a: 'Use the guided wizard to add sessions, ticket types, pricing, and a fee mode, then save as a draft or submit to publish.',
+        a: 'Use the wizard to add your sessions, ticket types, prices and fee mode. Then save a draft, or submit it to publish.',
       },
       {
         q: 'Can I edit ticket types after they go on sale?',
-        a: 'Yes, safely: the price is locked once a ticket sells, and quantity can only rise to cover what is already sold or held.',
+        a: 'Yes, within limits. The price locks once a ticket sells, and the quantity can only rise to cover what is already sold or held.',
       },
       {
         q: 'Can I run discount codes?',
-        a: 'Yes — create percentage or fixed-amount coupons with redemption limits and date windows from the Promotions page.',
+        a: 'Yes. Create percentage or fixed-amount coupons on the Promotions page, each with a redemption limit and a date window.',
       },
       {
         q: 'How do I export my attendee list?',
-        a: 'From the Attendees tab, Export CSV downloads the full filtered list — your door list, not just one page.',
+        a: 'Open the Attendees tab and choose Export CSV. It downloads the whole filtered list, not just the page you can see.',
       },
     ],
   },
@@ -50,11 +50,11 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'Where are my tickets?',
-        a: 'In your account under Tickets. Each ticket has a secure QR code and stays accessible offline.',
+        a: 'In your account, under Tickets. Each ticket has its own QR code, and it opens without a signal.',
       },
       {
         q: 'Can I share or transfer a ticket?',
-        a: 'Yes — use Share on a ticket to send a view, guest, or transfer link with an expiry, and revoke it anytime.',
+        a: 'Yes. Use Share on a ticket to send a view, guest or transfer link. Each link has an expiry, and you can revoke it at any time.',
       },
     ],
   },
@@ -63,15 +63,15 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'Which payment providers are supported?',
-        a: 'The platform routes across multiple providers (e.g. Stripe, Razorpay, PayPal, Square) by country and currency, with failover.',
+        a: 'We route each payment by country and currency, and try another provider if one is down. Stripe, Razorpay, PayPal and Square are supported.',
       },
       {
         q: 'Is my card data stored?',
-        a: 'No. Card handling is delegated to PCI-compliant providers; ETicketsGo never stores card numbers.',
+        a: 'No. Card details go straight to a PCI-compliant provider. ETicketsGo never stores card numbers.',
       },
       {
-        q: 'My payment was declined — was I charged?',
-        a: 'No. A declined payment issues no ticket and no charge — just try another method.',
+        q: 'My payment was declined. Was I charged?',
+        a: 'No. A declined payment issues no ticket and takes no money. Try another method.',
       },
     ],
   },
@@ -80,11 +80,11 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'Can I get a refund?',
-        a: 'Refunds are available for confirmed bookings up to the event’s cut-off (a default of 48 hours before the session), subject to the organizer’s policy.',
+        a: 'You can refund a confirmed booking up to the cut-off on the event. The default cut-off is 48 hours before the session, and the organizer can set their own.',
       },
       {
         q: 'How do I request one?',
-        a: 'Request from your booking or tickets page; the request is validated and routed for processing.',
+        a: 'Ask from your booking or tickets page. We check the request against the refund rules and pass it on for processing.',
       },
     ],
   },
@@ -93,11 +93,11 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'Do I need internet to check people in?',
-        a: 'No. Offline gate check-in keeps scanning with a signed manifest and durable queue, then reconciles with the server on reconnect.',
+        a: 'No. The gate app scans from a signed list of tickets and stores each scan. The server checks them all when the device reconnects.',
       },
       {
         q: 'Is offline check-in safe?',
-        a: 'Yes — the server stays authoritative. A rejected scan can never be turned into an admission, and every scan is reconciled.',
+        a: 'Yes. The server has the last word. A scan the device rejected can never become an admission, and we check every scan afterwards.',
       },
     ],
   },
@@ -106,11 +106,11 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'How are tickets protected from copying?',
-        a: 'Tickets use rotating, signed QR codes with single-use, atomic check-in — a code cannot be replayed for double entry.',
+        a: 'Each QR code is signed and changes over time. The gate accepts a code once, so it cannot be used for a second entry.',
       },
       {
         q: 'Is there an audit trail?',
-        a: 'Yes — sensitive actions (auth, payments, refunds, check-in, config changes) are recorded in an immutable audit log.',
+        a: 'Yes. We record sign-ins, payments, refunds, check-ins and config changes in a log that nobody can edit.',
       },
     ],
   },
@@ -119,24 +119,24 @@ const GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'How much does it cost?',
-        a: 'Starter is free to begin; Professional and Enterprise add advanced tooling. Figures on the pricing page are illustrative pending final decisions.',
+        a: 'Starter is free. Professional and Enterprise add more tools. The figures on the pricing page are placeholders for now.',
       },
       {
         q: 'Who pays the fees?',
-        a: 'You choose per event — the customer pays, you absorb them, or you split them.',
+        a: 'You choose per event. The customer pays them, you absorb them, or you split them.',
       },
     ],
   },
   {
-    category: 'Accounts & support',
+    category: 'Accounts and support',
     items: [
       {
         q: 'How do I get help?',
-        a: 'Check this FAQ and the documentation, or reach out via the contact page. Organizers get priority channels on paid plans.',
+        a: 'Read this FAQ and the docs, or write to us from the contact page. Paid plans get a faster reply.',
       },
       {
         q: 'How do I manage my account?',
-        a: 'Your bookings, tickets, and shares live in your account; organizers manage events, team, and payouts in the organizer console.',
+        a: 'Your bookings, tickets and shared links live in your account. Organizers manage events, team and payouts in the organizer console.',
       },
     ],
   },
@@ -148,7 +148,7 @@ export default function FaqPage() {
       <PageHero
         eyebrow="Help center"
         title="Frequently asked questions"
-        lead="Search across organizer and attendee questions, or browse by topic."
+        lead="Search the questions, or browse by topic."
       />
       <Section>
         <Container className="max-w-3xl">

@@ -73,7 +73,7 @@ export default function PrintTicketsPage() {
     return (
       <>
         <Toolbar bookingId={bookingId} canPrint={false} />
-        <p className="mx-auto max-w-2xl px-6 text-sm">Preparing your tickets…</p>
+        <p className="mx-auto max-w-2xl px-6 text-sm">Preparing your tickets...</p>
       </>
     );
   if (isError || tickets.length === 0)

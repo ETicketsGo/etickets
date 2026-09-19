@@ -6,7 +6,7 @@ import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 export const metadata: Metadata = {
   title: 'Pricing',
   description:
-    'Simple, scalable pricing for event organizers — Starter, Professional, and Enterprise. Illustrative placeholder pricing pending final business decisions.',
+    'Starter, Professional and Enterprise plans for event organizers. The figures are placeholders while we set the real prices.',
   alternates: { canonical: '/pricing' },
 };
 
@@ -29,11 +29,11 @@ const PLANS = [
     name: 'Professional',
     price: 'From 2%',
     note: 'per ticket',
-    blurb: 'For growing organizers who sell regularly.',
+    blurb: 'For organizers who sell regularly.',
     features: [
       'Everything in Starter',
       'Reserved seating',
-      'Coupons & promotions',
+      'Coupons and promotions',
       'Offline check-in',
       'Full analytics + CSV export',
       'Priority support',
@@ -50,8 +50,8 @@ const PLANS = [
       'Everything in Professional',
       'Multi-provider payment routing',
       'Dedicated onboarding',
-      'SLA & priority support',
-      'Advanced controls & audit',
+      'SLA and priority support',
+      'Advanced controls and audit log',
     ],
     cta: { href: '/contact', label: 'Contact sales' },
   },
@@ -67,7 +67,7 @@ const MATRIX: {
   { label: 'Tiered ticket types', starter: true, pro: true, ent: true },
   { label: 'QR check-in', starter: true, pro: true, ent: true },
   { label: 'Reserved seating', starter: false, pro: true, ent: true },
-  { label: 'Coupons & promotions', starter: false, pro: true, ent: true },
+  { label: 'Coupons and promotions', starter: false, pro: true, ent: true },
   { label: 'Offline gate check-in', starter: false, pro: true, ent: true },
   { label: 'Analytics + CSV export', starter: 'Basic', pro: 'Full', ent: 'Full' },
   { label: 'Multi-provider payments', starter: false, pro: false, ent: true },
@@ -88,16 +88,16 @@ export default function PricingPage() {
     <>
       <PageHero
         eyebrow="Pricing"
-        title="Pricing that scales with your events"
-        lead="Start free and grow into advanced tooling. You only pay more as you sell more."
+        title="Plans and prices"
+        lead="Start on the free plan. Move up when you need reserved seating or offline check-in."
       />
 
       <Section>
         <Container>
           <div className="mx-auto max-w-4xl">
             <NoticeBanner>
-              Pricing figures below are <strong>illustrative placeholders</strong> shown for
-              demonstration; final plans and rates are a pending business decision.
+              The figures below are <strong>placeholders</strong>. We have not set the real plans or
+              rates yet.
             </NoticeBanner>
           </div>
           <div className="mx-auto mt-12 grid max-w-5xl gap-6 lg:grid-cols-3">
@@ -193,19 +193,19 @@ export default function PricingPage() {
             {[
               [
                 'How are fees charged?',
-                'Depending on your plan and the event’s fee mode, a booking fee and payment-processing fee may apply. The buyer always sees the full total before paying.',
+                'A booking fee and a payment-processing fee can apply. Which ones depends on your plan and the fee mode you chose for the event. The buyer always sees the full total before paying.',
               ],
               [
                 'Who pays the fees?',
-                'You choose per event — the customer pays, you absorb them, or you split them.',
+                'You choose per event. The customer pays them, you absorb them, or you split them.',
               ],
               [
                 'When do I get paid?',
-                'Proceeds settle to your verified merchant account net of fees, refunds, and chargebacks, per your payout schedule.',
+                'Your money settles to your verified merchant account on your payout schedule. Fees, refunds and chargebacks come off first.',
               ],
               [
                 'Is there a contract?',
-                'Starter and Professional are self-serve with no long-term contract. Enterprise terms are agreed with our team.',
+                'Starter and Professional are self-serve, with no long-term contract. Enterprise terms are agreed with our team.',
               ],
             ].map(([q, a]) => (
               <details
@@ -231,7 +231,7 @@ export default function PricingPage() {
       <Section className="border-t border-border">
         <CtaBand
           title="Start free, upgrade when you're ready"
-          lead="No card required to explore the platform."
+          lead="You do not need a card to look around."
           primaryHref="/register"
           primaryLabel="Create your account"
           secondaryHref="/contact"

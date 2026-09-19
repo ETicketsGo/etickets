@@ -33,22 +33,22 @@ const STEPS = [
   {
     n: '1',
     title: 'Create your event',
-    body: 'Use the guided wizard to add sessions, ticket types, pricing, and a fee mode. Save as a draft or submit to publish.',
+    body: 'Add your sessions, ticket types and prices, and choose who pays the fees. Save a draft, or send it for review.',
   },
   {
     n: '2',
-    title: 'Sell & promote',
-    body: 'Share your event, run coupon codes, and watch sales update live on your dashboard.',
+    title: 'Sell and promote',
+    body: 'Share the link, hand out coupon codes, and watch sales on your dashboard.',
   },
   {
     n: '3',
     title: 'Check people in',
-    body: 'Scan at the gate online, or switch to offline mode when the venue network drops.',
+    body: 'Scan tickets at the gate. Switch to offline mode if the venue network drops.',
   },
   {
     n: '4',
-    title: 'Settle & learn',
-    body: 'Reconcile payments, receive payouts, and review analytics to plan your next event.',
+    title: 'Get paid',
+    body: 'Check your payments, take your payout, and read the report before the next event.',
   },
 ];
 
@@ -56,49 +56,57 @@ const CAPS = [
   {
     icon: CalendarPlus,
     title: 'Create events',
-    body: 'A guided wizard with drafts, review, and publish.',
+    body: 'Build the event step by step, and save a draft first.',
   },
   {
     icon: Boxes,
     title: 'Manage inventory',
-    body: 'Edit ticket types safely — price locked after sale, quantity only rises.',
+    body: 'Change a ticket type after it sells. The price is locked, and the quantity can only go up.',
   },
-  { icon: Tag, title: 'Coupons', body: 'Percentage or fixed codes with limits and windows.' },
-  { icon: Megaphone, title: 'Promotions', body: 'Activate, deactivate, and track redemptions.' },
+  {
+    icon: Tag,
+    title: 'Coupons',
+    body: 'Percentage or fixed codes, with a limit and an end date.',
+  },
+  {
+    icon: Megaphone,
+    title: 'Promotions',
+    body: 'Turn a code on or off, and see how often it was used.',
+  },
   {
     icon: BarChart3,
     title: 'Analytics',
-    body: 'Sales, conversion, check-in rate, and payment health.',
+    body: 'Sales, bookings per visit, check-in rate, and failed payments.',
   },
   {
     icon: FileText,
     title: 'Reports',
-    body: 'Revenue, settlement, refunds, and fees — export to CSV.',
+    body: 'Revenue, settlement, refunds and fees. Download as CSV.',
   },
   {
     icon: WifiOff,
     title: 'Offline operations',
-    body: 'Device lifecycle, activation, and reconciliation.',
+    body: 'Approve the gate devices, activate them, and check their scans.',
   },
   {
     icon: Users,
     title: 'Team management',
-    body: 'Invite managers and check-in staff with scoped roles.',
+    body: 'Invite managers and check-in staff, each with their own role.',
   },
   {
     icon: CreditCard,
     title: 'Payments',
-    body: 'Multi-provider routing with failover and reconciliation.',
+    body: 'We pick a provider by country, and try another if one is down.',
   },
   {
     icon: Banknote,
     title: 'Payouts',
-    body: 'Settlement statements net of fees, refunds, and chargebacks.',
+    body: 'A statement that shows your fees, refunds and chargebacks.',
   },
   {
     icon: LifeBuoy,
     title: 'Support',
-    body: 'Docs, runbooks, and responsive help when you need it.',
+    body: 'Docs you can read, and a team you can write to.',
   },
 ];
 
@@ -108,14 +116,14 @@ export default function OrganizersPage() {
       <PageHero
         eyebrow="For organizers"
         title="Run a professional box office"
-        lead="From your first event to your busiest on-sale, ETicketsGo gives you the tools to sell, operate, and understand every event."
+        lead="Sell tickets, scan people in at the door, and see what the event made."
         primary={{ href: '/register?intent=organizer', label: 'Start selling tickets' }}
         secondary={{ href: '/pricing', label: 'See pricing' }}
       />
 
       <Section>
         <Container>
-          <SectionHeading eyebrow="How it works" title="From idea to sold-out in four steps" />
+          <SectionHeading eyebrow="How it works" title="Four steps" />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s) => (
               <div
@@ -137,7 +145,7 @@ export default function OrganizersPage() {
 
       <Section className="border-t border-border bg-background-subtle/30">
         <Container>
-          <SectionHeading eyebrow="Everything you need" title="A full organizer toolkit" />
+          <SectionHeading eyebrow="Your tools" title="What you can do" />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {CAPS.map((c) => (
               <FeatureCard key={c.title} icon={c.icon} title={c.title}>
@@ -152,13 +160,13 @@ export default function OrganizersPage() {
         <Container>
           <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
             <h3 className="text-xl font-bold tracking-tight text-text-primary">
-              Why organizers choose ETicketsGo
+              Why use ETicketsGo
             </h3>
             <ul className="mt-6 space-y-3.5">
-              <CheckItem>One platform instead of stitching vendors together</CheckItem>
-              <CheckItem>The gate keeps moving even when the network drops</CheckItem>
-              <CheckItem>Money you can reconcile — integer-precise and idempotent</CheckItem>
-              <CheckItem>Analytics that tell you what actually sells</CheckItem>
+              <CheckItem>One place for tickets, seating, payments and the door</CheckItem>
+              <CheckItem>The gate keeps scanning when the network drops</CheckItem>
+              <CheckItem>Every payment lines up with your payout statement</CheckItem>
+              <CheckItem>Reports that show which tickets sell</CheckItem>
             </ul>
           </div>
         </Container>
@@ -167,7 +175,7 @@ export default function OrganizersPage() {
       <Section className="border-t border-border">
         <CtaBand
           title="Ready to sell your next event?"
-          lead="Create your organizer account and publish in minutes."
+          lead="Create an organizer account and publish your first event."
           primaryHref="/register"
           primaryLabel="Get started free"
           secondaryHref="/contact"

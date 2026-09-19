@@ -16,7 +16,7 @@ export default function SavedPage() {
       <div>
         <h1 className="text-h2 font-bold tracking-tight text-text-primary">Saved events</h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-muted">
-          Events you’ve hearted — book before they sell out.
+          Events you&apos;ve hearted - book before they sell out.
         </p>
       </div>
 

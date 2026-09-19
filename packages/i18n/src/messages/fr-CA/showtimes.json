@@ -32,10 +32,22 @@
     "time": "Heure",
     "clear": "Effacer les filtres",
     "timeOfDay": {
-      "MORNING": { "label": "Matin", "range": "Avant 12 h" },
-      "AFTERNOON": { "label": "Après-midi", "range": "12 h – 16 h" },
-      "EVENING": { "label": "Fin de journée", "range": "16 h – 19 h" },
-      "NIGHT": { "label": "Soir", "range": "Dès 19 h" }
+      "MORNING": {
+        "label": "Matin",
+        "range": "Avant 12 h"
+      },
+      "AFTERNOON": {
+        "label": "Après-midi",
+        "range": "12 h - 16 h"
+      },
+      "EVENING": {
+        "label": "Fin de journée",
+        "range": "16 h - 19 h"
+      },
+      "NIGHT": {
+        "label": "Soir",
+        "range": "Dès 19 h"
+      }
     }
   },
   "legend": {
@@ -68,7 +80,7 @@
   },
   "empty": {
     "noShowsTitle": "Aucune séance prévue",
-    "noShowsHint": "Revenez bientôt — les séances de ce film ne sont pas encore offertes.",
+    "noShowsHint": "Revenez bientôt - les séances de ce film ne sont pas encore offertes.",
     "noShowsInCityTitle": "Aucune séance à {city} pour le moment",
     "noShowsInCityHint": "Ce film est peut-être à l'affiche dans d'autres villes.",
     "noMatchTitle": "Aucun résultat",
@@ -97,7 +109,7 @@
     "emptyTitle": "Aucune note pour le moment",
     "emptyHint": "Les notes s'afficheront ici dès que des personnes ayant vu ce film donneront la leur.",
     "firstTitle": "Donnez la première note à ce film",
-    "firstHint": "Vous l'avez vu — dites aux autres ce que vous en avez pensé.",
+    "firstHint": "Dites aux autres ce que vous avez pensé de ce film.",
     "rate": {
       "title": "Noter ce film",
       "updateTitle": "Modifier votre note",
@@ -120,7 +132,7 @@
       "counter": "{used} sur {max} caractères",
       "submit": "Envoyer ma note",
       "update": "Mettre à jour ma note",
-      "thanks": "Merci — votre note a été enregistrée.",
+      "thanks": "Merci - votre note a été enregistrée.",
       "updated": "Votre note a été mise à jour.",
       "notEligible": "Vous ne pouvez pas encore noter ce film.",
       "failed": "Impossible d'enregistrer votre note. Veuillez réessayer.",

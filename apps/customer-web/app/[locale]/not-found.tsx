@@ -14,8 +14,8 @@ export default function NotFound() {
         This page took a different exit
       </h1>
       <p className="mt-3 max-w-md text-[0.9375rem] leading-relaxed text-text-secondary">
-        The page you’re looking for doesn’t exist or may have moved. Let’s get you back to something
-        useful.
+        The page you&apos;re looking for doesn&apos;t exist or may have moved. Let&apos;s get you
+        back to something useful.
       </p>
       <div className="mt-8 flex flex-col gap-3 sm:flex-row">
         <PrimaryLink href="/">Back to home</PrimaryLink>

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Car,
+  Check,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -280,8 +281,8 @@ export default function BookingTicketsViewer() {
   const zoneLabel = current.timezone ? zoneAbbrev(current.startsAt, current.timezone) : null;
   const seatText = seat ? b('seatLabel', { seat }) : null;
   const place = group.isMovie
-    ? [group.cinemaName, group.screenName, seatText].filter(Boolean).join(' · ')
-    : [group.venueName, seatText].filter(Boolean).join(' · ');
+    ? [group.cinemaName, group.screenName, seatText].filter(Boolean).join(' - ')
+    : [group.venueName, seatText].filter(Boolean).join(' - ');
   const mapsQuery = group.isMovie
     ? [group.cinemaName, group.venueName].filter(Boolean).join(', ') || group.title
     : group.venueName || group.title;
@@ -625,7 +626,7 @@ function GroupHeader({ group }: { group: BookingGroup }) {
       </h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[0.9375rem] text-text-muted">
         <span>{b('ticketCount', { count: counts.total })}</span>
-        <span aria-hidden>·</span>
+        <span aria-hidden>-</span>
         <span className="font-mono">{group.bookingRef}</span>
       </p>
 
@@ -711,7 +712,8 @@ function TicketStrip({
                   : 'border-border text-text-secondary hover:bg-background-subtle'
               } ${dim ? 'opacity-50' : ''}`}
             >
-              {checkedIn && <span aria-hidden>✓</span>}
+              {/* An icon, not a check-mark character: some devices have no glyph for it. */}
+              {checkedIn && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />}
               {label}
             </button>
           </li>

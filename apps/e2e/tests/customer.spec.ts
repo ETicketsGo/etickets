@@ -53,7 +53,8 @@ test('customer registers, books a ticket, pays, and sees a QR ticket', async ({ 
     "All my tickets" — every ticket the account has ever bought, where the booking just made
     had to be found again. Each QR now opens its own ticket too.
   */
-  await expect(page.getByTestId('confirmation-order')).toContainText('× 2');
+  // A plain letter x, not the multiplication sign: some devices have no glyph for that one.
+  await expect(page.getByTestId('confirmation-order')).toContainText('x 2');
   await expect(page.getByRole('link', { name: 'View tickets' })).toHaveAttribute(
     'href',
     /\/account\/bookings\/[^/]+\/tickets$/,

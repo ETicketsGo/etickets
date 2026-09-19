@@ -18,11 +18,11 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'ETicketsGo — Sell tickets, check in guests, understand your events',
-    template: '%s · ETicketsGo',
+    default: 'ETicketsGo: Sell tickets, check in guests, see your sales',
+    template: '%s - ETicketsGo',
   },
   description:
-    'ETicketsGo is the experience-commerce platform for event organizers — ticketing, reserved seating, payments, offline gate check-in, and analytics in one place.',
+    'ETicketsGo is ticketing software for event organizers. Sell tickets, reserve seats, take payments, scan people in at the gate, and read your sales reports.',
   applicationName: 'ETicketsGo',
   keywords: [
     'event ticketing',
@@ -40,16 +40,16 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: 'ETicketsGo',
-    title: 'ETicketsGo — Sell tickets, check in guests, understand your events',
+    title: 'ETicketsGo: Sell tickets, check in guests, see your sales',
     description:
-      'The experience-commerce platform for event organizers — ticketing, seating, payments, offline check-in, and analytics.',
+      'Ticketing software for event organizers. Tickets, seating, payments, offline check-in and sales reports.',
     url: SITE_URL,
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ETicketsGo — Experience commerce for event organizers',
+    title: 'ETicketsGo: Ticketing software for event organizers',
     description:
-      'Ticketing, reserved seating, payments, offline gate check-in, and analytics in one platform.',
+      'Tickets, reserved seating, payments, offline gate check-in and sales reports in one place.',
   },
   robots: { index: true, follow: true },
 };

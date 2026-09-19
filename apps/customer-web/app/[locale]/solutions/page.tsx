@@ -30,37 +30,37 @@ const INDUSTRIES = [
   {
     icon: Music,
     title: 'Concerts',
-    body: 'High-demand on-sales with fair, race-safe seat and tier allocation.',
+    body: 'A busy on-sale where two buyers never get the same seat.',
   },
   {
     icon: Trophy,
     title: 'Sports',
-    body: 'Fixtures, sections, and fast gate entry for match days.',
+    body: 'Fixtures, seating blocks, and a queue that moves on match day.',
   },
   {
     icon: Mic2,
     title: 'Comedy',
-    body: 'Intimate rooms to touring shows, with easy multi-date management.',
+    body: 'One room or a whole tour. Every date sits under the same show.',
   },
   {
     icon: Theater,
     title: 'Theatre',
-    body: 'Seasons, seat maps, and subscriber-friendly bookings.',
+    body: 'A season of dates, with a seat map for each one.',
   },
   {
     icon: PartyPopper,
     title: 'Festivals',
-    body: 'Multi-day passes and multiple gates with offline-ready check-in.',
+    body: 'Passes that cover several days, and more than one gate.',
   },
   {
     icon: Presentation,
     title: 'Conferences',
-    body: 'Sessions, tiers, and attendee management for professional events.',
+    body: 'Sessions, ticket tiers, and a list of who is coming.',
   },
   {
     icon: GraduationCap,
     title: 'College events',
-    body: 'Fests and campus shows with simple team roles and coupons.',
+    body: 'Campus shows and fests, with coupons and roles for your team.',
   },
   {
     icon: Users,
@@ -75,14 +75,14 @@ export default function SolutionsPage() {
     <>
       <PageHero
         eyebrow="Solutions"
-        title="Built for every kind of experience"
-        lead="One flexible platform models everything from a single show to a multi-day festival or a cinema chain — and it's designed to expand into new categories."
+        title="Event types we support"
+        lead="The same tools work for one comedy night, a three-day festival, or a cinema chain."
         primary={{ href: '/register', label: 'Get started' }}
         secondary={{ href: '/features', label: 'Explore features' }}
       />
       <Section>
         <Container>
-          <SectionHeading eyebrow="Industries" title="Ten categories, one platform" />
+          <SectionHeading eyebrow="Industries" title="Ten kinds of event" />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {INDUSTRIES.map((i) => (
               <div
@@ -106,7 +106,7 @@ export default function SolutionsPage() {
       <Section className="border-t border-border">
         <CtaBand
           title="Don't see your category?"
-          lead="ETicketsGo is designed to expand — tell us what you're running."
+          lead="Tell us what you run and we will look at it."
           primaryHref="/contact"
           primaryLabel="Talk to us"
           secondaryHref="/register"

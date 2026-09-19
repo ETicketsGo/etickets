@@ -63,7 +63,7 @@ export function CinemaCard({
             <span>{group.city}</span>
             {brand && (
               <>
-                <span aria-hidden>·</span>
+                <span aria-hidden>-</span>
                 <span>{brand}</span>
               </>
             )}

@@ -59,10 +59,10 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
           </h1>
           <div className="mt-4 flex flex-wrap items-center gap-3 text-caption text-text-muted">
             <span className="font-medium text-text-secondary">{post.author}</span>
-            <span>· {post.role}</span>
-            <span>· {formatDate(post.date)}</span>
+            <span>- {post.role}</span>
+            <span>- {formatDate(post.date)}</span>
             <span className="inline-flex items-center gap-1">
-              · <Clock className="h-3.5 w-3.5" /> {post.readingMinutes} min read
+              - <Clock className="h-3.5 w-3.5" /> {post.readingMinutes} min read
             </span>
           </div>
         </div>
