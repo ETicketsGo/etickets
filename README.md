@@ -23,16 +23,19 @@ Built as a **modular monolith** in a Turborepo monorepo with strict TypeScript.
 
 ## Tech stack
 
-| Layer      | Choice                                                                    |
-| ---------- | ------------------------------------------------------------------------- |
-| Monorepo   | Turborepo + npm workspaces                                                |
-| Backend    | NestJS 10, Prisma 5, PostgreSQL 16, REST + OpenAPI/Swagger                |
-| Frontend   | Next.js (App Router), React, Tailwind CSS, shadcn/ui, TanStack Query, RHF |
-| Validation | Zod (shared between API and web via `@eticketsgo/validation`)             |
-| Infra      | Redis (holds/cache/queues), BullMQ, S3-compatible storage abstraction     |
-| Auth       | Email/password, JWT access + rotating refresh tokens, RBAC                |
-| Testing    | Jest (API units), Vitest (packages), Playwright (critical e2e)            |
-| Local dev  | Docker Compose (Postgres + Redis)                                         |
+| Layer      | Choice                                                                  |
+| ---------- | ----------------------------------------------------------------------- |
+| Monorepo   | Turborepo 2 + npm workspaces, TypeScript 5.6 strict, Node ≥ 20          |
+| Backend    | NestJS 11 (Express 5), Prisma 5, PostgreSQL 16, REST + OpenAPI/Swagger  |
+| Frontend   | Next.js 15 (App Router), React 18, Tailwind CSS, TanStack Query, RHF    |
+| Mobile     | Expo 56 + React 19 (`apps/customer-mobile`)                             |
+| i18n       | next-intl + `@eticketsgo/i18n` — English and Canadian French            |
+| Validation | Zod (shared between API and web via `@eticketsgo/validation`)           |
+| Infra      | Redis 7 (holds/cache/queues), BullMQ, S3-compatible storage abstraction |
+| Payments   | Razorpay (India/INR), Stripe (US/USD), mock provider locally            |
+| Auth       | Email/password + phone OTP, JWT access + rotating refresh tokens, RBAC  |
+| Testing    | Jest (API units), Vitest (packages), Playwright (critical e2e)          |
+| Local dev  | Docker Compose (Postgres + Redis)                                       |
 
 ---
 
@@ -138,6 +141,8 @@ All seed accounts use the password **`Password123!`**.
 
 In-depth docs live under [`docs/`](docs):
 
+- **New to the team? [Start here](docs/START-HERE.md)** — what the product is, the tech
+  stack, your first hour, and how we test. Written for a developer or QA joining the team.
 - [Architecture Handbook](docs/handbooks/ARCHITECTURE-HANDBOOK.md) — bounded
   contexts, layering, the strategy seams (inventory/pricing/notifications/discovery/
   recommendations/AI), atomicity guarantees, feature flags, and context/dependency

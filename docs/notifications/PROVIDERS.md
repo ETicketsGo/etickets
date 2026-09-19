@@ -42,7 +42,8 @@ ticket in a spam folder is a customer at a gate without one.
 ```
 EMAIL_PROVIDER=ses
 EMAIL_FROM=noreply@eticketsgo.com
-AWS_SES_REGION=ap-south-1                # Mumbai, for an India pilot
+AWS_REGION=ap-south-1                    # Mumbai, for an India pilot
+SES_CONFIGURATION_SET=eticketsgo-<env>   # without it SES publishes NO delivery events
 ```
 
 Credentials come from the standard AWS chain (task role or `AWS_ACCESS_KEY_ID` /
