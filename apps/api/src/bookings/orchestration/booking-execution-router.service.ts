@@ -11,6 +11,7 @@ import { PaymentsService } from '../../payments/payments.service';
 import { feeTaxSummary } from '../../pricing/fee-tax';
 import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { AnonymousSessionService, BookingOwnerResolver, type ResolvedOwner } from './booking-owner';
+import { GuestSessionVerifier } from '../guest-session';
 import { toPublicBookingStatus } from './booking-status.mapping';
 import { BookingWorkflowState as WS } from './booking-workflow-state';
 
@@ -58,6 +59,12 @@ export interface CancelContext extends RequestPrincipal {
  * Public request/response shapes are preserved in every mode; active mode adds only
  * internal fields (never removing or changing existing ones), plus a one-time
  * `anonymousSessionToken` for brand-new guest checkouts.
+ *
+ * That last field is now returned in EVERY mode rather than only in active mode, and the guest's
+ * session hash is written onto the booking in every mode too. It is the same additive, optional
+ * field clients already read; what changed is that a guest checkout no longer depends on an
+ * orchestration flag for the one credential that gets the buyer back to their booking. See
+ * {@link BookingExecutionRouter.guestSession}.
  */
 @Injectable()
 export class BookingExecutionRouter {
@@ -71,6 +78,9 @@ export class BookingExecutionRouter {
     private readonly orchestrator: LocalBookingOrchestrator,
     private readonly owners: BookingOwnerResolver,
     private readonly anon: AnonymousSessionService,
+    // One implementation of "is this the browser that created the booking?", shared with the guest
+    // read and claim routes on GuestBookingService. See GuestSessionVerifier.
+    private readonly sessions: GuestSessionVerifier,
   ) {}
 
   /** The single source of truth for the current orchestration mode. */
@@ -87,26 +97,86 @@ export class BookingExecutionRouter {
 
   // ── Initiation ────────────────────────────────────────────────────────────
 
+  /**
+   * The anonymous checkout session a guest is buying under — the same answer in every mode.
+   *
+   * ── WHY THIS IS NOT DECIDED PER MODE ANY MORE ──────────────────────────────────────
+   * It was, and the consequence was found end to end: guest ownership lived only on
+   * `BookingWorkflow.ownerId`, which is written only in ACTIVE mode, and every environment runs
+   * SHADOW. So there was nothing for a presented `x-anon-session` to be checked against — any
+   * well-formed token opened any guest booking whose id somebody knew, and the browser that had
+   * just bought the booking could not prove it in order to claim it. The session is now written
+   * onto the booking itself, in every mode, which is what makes it a fact rather than a mode.
+   *
+   * A guest who presents a well-formed token keeps it, so a second purchase in the same browser
+   * joins the same session. One who presents none is issued one, and it is returned once — the
+   * only copy that ever leaves the server.
+   */
+  private guestSession(presented?: string | null): {
+    token: string;
+    hash: string;
+    issued: boolean;
+  } {
+    const issued = !this.anon.isWellFormed(presented);
+    const token = issued ? this.anon.issueToken() : presented;
+    return { token, hash: this.anon.hash(token), issued };
+  }
+
+  /**
+   * Bind the session to the booking, once and only while it is unbound.
+   *
+   * `userId: null` and `guestSessionHash: null` are in the WHERE clause rather than checked
+   * beforehand, so this can never overwrite a binding that already exists or touch an account
+   * booking — which is what makes it safe to call on an idempotent replay, and safe if it is ever
+   * reached twice.
+   */
+  private bindGuestSession(
+    client: { booking: { updateMany: (args: unknown) => Promise<unknown> } },
+    bookingId: string,
+    hash: string,
+  ): Promise<unknown> {
+    return client.booking.updateMany({
+      where: { id: bookingId, userId: null, guestSessionHash: null },
+      data: { guestSessionHash: hash },
+    });
+  }
+
   async initiate(ctx: InitiateContext): Promise<unknown> {
     const mode = this.mode();
     this.metrics.recordBookingApi('initiate', mode, this.ownerTypeLabel(ctx.user));
+    // A signed-in buyer is owned by their user id and has no anonymous session at all.
+    const guest = ctx.user?.id ? null : this.guestSession(ctx.anonymousToken);
+
     if (mode !== 'active') {
-      // disabled + shadow: unchanged legacy path (shadow observation happens inside create()).
-      return this.bookings.create(ctx.user ?? null, ctx.body, ctx.idempotencyKey);
+      /*
+        disabled + shadow: the legacy path, plus the one thing that is new in every mode — the
+        guest's session hash, written INSIDE the transaction that inserts the booking. Atomic
+        deliberately: a booking that exists without its session bound is a booking its own buyer
+        cannot prove they made, and there is no second moment at which the raw token is in hand.
+      */
+      const booking = (await this.bookings.create(
+        ctx.user ?? null,
+        ctx.body,
+        ctx.idempotencyKey,
+        guest
+          ? {
+              inHoldTx: async (tx, bookingId) => {
+                await this.bindGuestSession(tx as never, bookingId, guest.hash);
+              },
+            }
+          : undefined,
+      )) as Record<string, unknown>;
+      // Additive, and only when the server minted the token: a client that sent its own already
+      // has it. Returned once — nothing stores the raw token, here or anywhere.
+      return guest?.issued ? { ...booking, anonymousSessionToken: guest.token } : booking;
     }
 
     // Active mode: resolve durable ownership server-side. A brand-new guest with no token
     // is issued one now and it is returned once in the response.
-    let issuedToken: string | undefined;
-    let owner: ResolvedOwner;
-    if (ctx.user?.id) {
-      owner = { ownerType: 'USER', ownerId: ctx.user.id };
-    } else {
-      const token = this.anon.isWellFormed(ctx.anonymousToken)
-        ? ctx.anonymousToken
-        : (issuedToken = this.anon.issueToken());
-      owner = { ownerType: 'ANONYMOUS_SESSION', ownerId: this.anon.hash(token) };
-    }
+    const issuedToken: string | undefined = guest?.issued ? guest.token : undefined;
+    const owner: ResolvedOwner = ctx.user?.id
+      ? { ownerType: 'USER', ownerId: ctx.user.id }
+      : { ownerType: 'ANONYMOUS_SESSION', ownerId: guest!.hash };
 
     const idempotencyKey =
       ctx.idempotencyKey ?? `${owner.ownerId}:${ctx.body.eventSessionId}:${owner.ownerType}`;
@@ -132,6 +202,14 @@ export class BookingExecutionRouter {
       ip: ctx.ip,
       metadata: { ownerType: owner.ownerType, workflowState: result.workflowState },
     });
+    /*
+      The same binding the other modes write, so one rule holds everywhere: every guest booking
+      carries the hash of the session that made it. Here it is belt and braces — active mode also
+      records the owner on the workflow, atomically — which is why this one write is allowed to
+      happen after the booking rather than inside it. If it were ever to fail, the workflow owner
+      still proves the session, and the booking falls back to exactly today's behaviour.
+    */
+    if (guest) await this.bindGuestSession(this.prisma as never, result.bookingId, guest.hash);
     const response = await this.shapeBookingResponse(result.bookingId);
     return issuedToken ? { ...response, anonymousSessionToken: issuedToken } : response;
   }
@@ -158,6 +236,32 @@ export class BookingExecutionRouter {
           ErrorCodes.UNAUTHORIZED,
           'A valid guest checkout session is required.',
           HttpStatus.UNAUTHORIZED,
+        );
+      }
+      /*
+        And that the session is the one that CREATED this booking.
+
+        Well-formedness was the whole check here, in every mode, which meant 256 bits the caller
+        generated themselves plus a booking id was enough to open a payment on somebody else's
+        booking. Less harmful than reading it — the server decides provider, amount and currency,
+        so the outcome is paying for a stranger's ticket — but the same missing check, and shipping
+        a verified read alongside an unverified payment would be incoherent.
+
+        Checked in EVERY mode, on purpose. In active mode the orchestrator also asserts the
+        workflow owner; the verifier consults that same owner, so the two agree rather than one
+        being the other's exception.
+
+        A booking that records no session is still accepted, exactly as it is on the read route: it
+        is the status quo, not a regression, and the storefront always pays with the token it
+        created the booking with, so the real path never notices this check.
+      */
+      const proof = await this.sessions.verifyByBookingId(ctx.bookingId, ctx.anonymousToken);
+      if (proof === null) {
+        this.metrics.recordBookingOwnerRejection('begin_payment', 'session_not_bound');
+        throw new AppException(
+          ErrorCodes.FORBIDDEN,
+          'This booking was not started in this browser.',
+          HttpStatus.FORBIDDEN,
         );
       }
     }

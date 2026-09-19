@@ -377,6 +377,27 @@ export const NotificationType = {
    * confirmation alongside it.
    */
   GUEST_BOOKING_ACCESS: 'GUEST_BOOKING_ACCESS',
+  /**
+   * Somebody has asked for this booking's money back.
+   *
+   * ── WHY THE REQUEST IS NOTIFIED AND NOT ONLY THE OUTCOME ───────────────────────────
+   * REFUND_COMPLETED tells the buyer that money arrived. It cannot do this job: it is sent
+   * after an organizer approves, which may be days later, and it is never sent at all for a
+   * request that is rejected or abandoned.
+   *
+   * What makes it necessary is guest self-service. A guest access link is forwardable on
+   * purpose, and a refund can now be asked for through one. So the address that PAID is told
+   * the moment a request is made — not to confirm the refund, but so that somebody who
+   * forwarded their link and then reads "a refund was requested" can see a request they did
+   * not make while it is still only a request. Without it, the first the buyer hears of it is
+   * their tickets being void.
+   *
+   * Sent today only for a request made through a guest access link, because that is the only
+   * door where the person asking may not be the person who paid. An account holder asking is
+   * signed in as the buyer and sees the request in their own wallet; adding an email to that
+   * flow is a product decision, not a side effect of closing this hole.
+   */
+  REFUND_REQUESTED: 'REFUND_REQUESTED',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

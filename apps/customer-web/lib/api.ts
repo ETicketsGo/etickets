@@ -24,6 +24,10 @@ export type {
   BookingDetail,
   GuestBookingResult,
   GuestBookingView,
+  GuestReceiptDocument,
+  GuestReceiptsView,
+  GuestRefundRequest,
+  GuestBookingClaim,
   WalletTicket,
   BookingSummary,
   BookingRequest,
@@ -84,6 +88,16 @@ export const api = {
   cancelGuestBooking: wk.guestBookings.cancel,
   guestBookingLookup: wk.guestBookings.lookup,
   guestBookingByAccessToken: wk.guestBookings.access,
+  /*
+    What a guest can do from the emailed link besides look at the tickets.
+
+    The first two ask for the email address that paid, because the link itself is forwardable
+    and an invoice or a refund must not be. The third is the only authenticated guest call:
+    claiming needs an account to attach the booking to.
+  */
+  guestBookingReceipt: wk.guestBookings.receipt,
+  guestBookingRefund: wk.guestBookings.refund,
+  claimGuestBooking: wk.guestBookings.claim,
   createPaymentIntent: wk.bookings.pay,
   setBookingCoupon: wk.bookingCoupon.set,
   extendBookingHold: wk.bookingHold.extend,

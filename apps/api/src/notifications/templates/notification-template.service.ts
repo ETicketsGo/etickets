@@ -329,6 +329,21 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
     }),
   }),
 
+  /*
+    A refund has been ASKED for, which is not the same as paid — and this one may not have been
+    asked for by the person reading it. A guest access link is forwardable, so the body says
+    plainly what to do if this was not you: nothing has been decided yet, and the organizer is
+    who decides. No link in it: the reader either has the emailed link already or is the person
+    who should not be given one.
+  */
+  [NotificationType.REFUND_REQUESTED]: (l, p) => ({
+    subject: t(l, 'emails.REFUND_REQUESTED.subject'),
+    body: t(l, 'emails.REFUND_REQUESTED.body', {
+      amount: money(l, p, 'amountMinor'),
+      reference: bookingName(l, p),
+    }),
+  }),
+
   [NotificationType.TICKET_CHECKED_IN]: (l, p) => ({
     subject: t(l, 'emails.TICKET_CHECKED_IN.subject'),
     body: t(l, 'emails.TICKET_CHECKED_IN.body', {

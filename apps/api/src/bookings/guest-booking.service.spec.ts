@@ -1,6 +1,7 @@
 import { GuestBookingService, maskEmail } from './guest-booking.service';
 import { guestAccessExpiry, hashGuestAccessToken } from './guest-access';
-import { AnonymousSessionService, BookingOwnerResolver } from './orchestration/booking-owner';
+import { AnonymousSessionService } from './orchestration/booking-owner';
+import { GuestSessionVerifier } from './guest-session';
 
 /**
  * What somebody who bought without an account may see, and what they may not.
@@ -78,6 +79,12 @@ interface Stubs {
   workflow?: { ownerType: string | null; ownerId: string | null } | null;
 }
 
+/** A collaborator no route in this suite may call, stubbed so that calling it fails loudly. */
+const unreachable = (name: string) =>
+  jest.fn(() => {
+    throw new Error(`${name} must not be reached from a guest READ route`);
+  });
+
 function setup(stubs: Stubs = {}) {
   const bookingFindFirst = jest.fn().mockResolvedValue(stubs.booking ?? null);
   const accessFindUnique = jest.fn().mockResolvedValue(stubs.access ?? null);
@@ -114,8 +121,20 @@ function setup(stubs: Stubs = {}) {
     { send } as never,
     config as never,
     anon,
-    new BookingOwnerResolver(anon),
-    workflows as never,
+    /*
+      The REAL verifier over the same stubs, not a mock of it: the session binding is the rule these
+      suites are about, and a stubbed verifier would assert only that a method was called.
+    */
+    new GuestSessionVerifier(prisma as never, config as never, workflows as never, anon),
+    /*
+      Receipts, refunds and the audit log reach the guest routes that need the buyer's ADDRESS as
+      well as the link — see guest-self-service.spec.ts. Stubbed to throw here rather than to
+      resolve: nothing in this suite may touch a document or move money, and a stub that quietly
+      returned would let a future change do so without failing a test.
+    */
+    { listForBooking: unreachable('listForBooking'), document: unreachable('document') } as never,
+    { requestAsGuest: unreachable('requestAsGuest') } as never,
+    { record: jest.fn().mockResolvedValue(undefined) } as never,
   );
   return {
     service,

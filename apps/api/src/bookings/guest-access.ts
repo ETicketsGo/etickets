@@ -60,6 +60,50 @@ export function guestAccessTokenMatches(presented: string, storedHash: string): 
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/**
+ * Whether somebody typed the address the booking was paid with.
+ *
+ * ── WHY THE LINK IS NOT ENOUGH ON ITS OWN ──────────────────────────────────────────
+ * The emailed link is forwardable — to the friend who is coming, to a colleague claiming
+ * expenses, into a support thread — and that is a feature: it shows somebody where to sit.
+ * It deliberately does NOT show who bought the seat, which is why the view masks the buyer's
+ * address. Money and personal documents are a different matter: an invoice names the buyer and
+ * an amount, and a refund moves money out of their card. Those need one more thing that only
+ * the buyer has, and the cheapest such thing is the address the platform already mailed the
+ * link to. The real buyer types it in three seconds; the person holding a forwarded link cannot,
+ * because all they were ever shown was two characters and a domain.
+ *
+ * ── WHY TRIMMED AND CASE-INSENSITIVE ───────────────────────────────────────────────
+ * It is typed, by a person, into a form, on a phone that capitalises the first letter and a
+ * clipboard that brings a trailing space. The local part of an address is case-sensitive by RFC
+ * and by no mail provider on earth, and refusing `Bobby@example.com` to the person who owns
+ * `bobby@example.com` would deny somebody a receipt for their own money. It is not a password
+ * and must not be treated like one.
+ *
+ * ── AND WHY CONSTANT TIME ANYWAY ───────────────────────────────────────────────────
+ * Because it is being used here as a proof of identity, and `a === b` on strings returns as
+ * soon as two characters differ. Against a route somebody can call repeatedly that is a
+ * character-at-a-time oracle for an address they were only ever shown two characters of.
+ * Hashing first is what makes the comparison constant time over inputs of DIFFERENT lengths:
+ * `timingSafeEqual` throws on a length mismatch, and returning early on length would leak how
+ * long the buyer's address is.
+ */
+export function guestEmailMatches(
+  presented: string | null | undefined,
+  stored: string | null | undefined,
+): boolean {
+  const normalise = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
+  const a = normalise(presented);
+  const b = normalise(stored);
+  // Nothing matches nothing: a booking with no recorded address must not be openable by
+  // submitting an empty field, and an empty submission must never match anything.
+  if (!a || !b) return false;
+  return timingSafeEqual(
+    createHash('sha256').update(a).digest(),
+    createHash('sha256').update(b).digest(),
+  );
+}
+
 export interface IssueGuestAccessInput {
   bookingId: string;
   /**

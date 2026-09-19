@@ -26,6 +26,7 @@ import {
   GuestBookingSummary,
   GuestTickets,
 } from '@/components/guest-booking-view';
+import { GuestClaimCard } from '@/components/guest-self-service';
 import { guestTokenFor } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
 import { useLocale, useTranslations } from 'next-intl';
@@ -615,6 +616,15 @@ function GuestConfirmation({ id, anonSession }: { id: string; anonSession: strin
               </Link>
             </p>
           </Card>
+          {/*
+            The offer to keep the booking, here as well as on the emailed link.
+
+            This is the moment a buyer is most likely to take it: they have just paid, the
+            tickets are in front of them, and they have not yet closed the tab. The claim is
+            proved by the anonymous session this browser is holding -- the same token that read
+            the booking to draw this page -- so no access token is needed and none exists here.
+          */}
+          <GuestClaimCard bookingId={view.id} anonSession={anonSession} />
         </>
       )}
     </div>

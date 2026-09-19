@@ -97,3 +97,54 @@ export interface GuestBookingView {
    */
   accessExpiresAt: string | null;
 }
+
+/**
+ * One issued financial document, listed.
+ *
+ * ── WHY THIS IS A SEPARATE SHAPE FROM THE RECEIPT ROW ──────────────────────────────
+ * The stored row carries the whole frozen document as JSON — every line, the buyer's full name
+ * and address, the seller's tax registration. This is the INDEX: enough to say "you have an
+ * invoice, numbered this, for this much, issued then", which is what a list needs. The document
+ * itself travels once, rendered, as `html`.
+ */
+export interface GuestReceiptDocument {
+  id: string;
+  /** TAX_INVOICE · RECEIPT · CREDIT_NOTE, as the platform issued it. */
+  kind: string;
+  /** The gapless series number a customer or an accountant quotes. */
+  number: string;
+  issuedAt: string;
+  /** Integer minor units, never a float, and in `currency` — not the reader's. */
+  totalMinor: number;
+  currency: string;
+}
+
+/**
+ * What a guest who has proven the address gets back for their own documents.
+ *
+ * `html` is the PRIMARY document — the sale document, invoice or receipt — rendered by the same
+ * code the account route renders it with, so a guest's invoice and an account holder's are the
+ * same document and not two renderings that can disagree about an amount.
+ *
+ * An empty list and an empty string are the honest answer for a booking with no document yet:
+ * a booking is confirmed and its receipt issued in one transaction, but a free booking has no
+ * sale to document, and a booking that has not been paid for has nothing to show. None of those
+ * is an error, and none of them should look like the platform losing somebody's invoice.
+ */
+export interface GuestReceiptsView {
+  documents: GuestReceiptDocument[];
+  html: string;
+}
+
+/**
+ * The result of attaching a guest booking to an account.
+ *
+ * Deliberately two fields. Anything more would tempt a client to read the booking out of the
+ * claim response, and after a claim the booking is an ORDINARY account booking: the account
+ * routes are where it is read, refunded, receipted and transferred from then on.
+ */
+export interface GuestBookingClaim {
+  bookingId: string;
+  /** Always true. A claim that did not happen is an error status, never `claimed: false`. */
+  claimed: true;
+}
