@@ -182,6 +182,6 @@ test.describe('choosing seats', () => {
 
     const basket = page.locator('#seat-summary');
     await expect(basket.getByText('BALCONY')).toBeVisible();
-    await expect(basket.getByText('· Premium')).toBeVisible();
+    await expect(basket.getByText('- Premium')).toBeVisible();
   });
 });

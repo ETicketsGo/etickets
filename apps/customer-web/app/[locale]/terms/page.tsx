@@ -26,7 +26,7 @@ export default function TermsPage() {
           </NoticeBanner>
           <Prose>
             <p>
-              <strong>Effective date:</strong> pending · <strong>Operator:</strong> ETicketsGo
+              <strong>Effective date:</strong> pending - <strong>Operator:</strong> ETicketsGo
               (placeholder legal entity).
             </p>
             <h2>1. Overview</h2>
@@ -45,13 +45,13 @@ export default function TermsPage() {
             <h2>3. Buying tickets</h2>
             <p>
               Prices, fees, and the final total are shown before payment. A ticket is issued on
-              successful payment and is subject to the Organizer’s event terms. Tickets contain a
-              secure, single-use entry credential; reproduction or resale outside permitted channels
-              may void them.
+              successful payment and is subject to the Organizer&apos;s event terms. Tickets contain
+              a secure, single-use entry credential; reproduction or resale outside permitted
+              channels may void them.
             </p>
             <h2>4. Refunds & cancellations</h2>
             <p>
-              Refunds follow the <Link href="/refunds">Refund Policy</Link> and the Organizer’s
+              Refunds follow the <Link href="/refunds">Refund Policy</Link> and the Organizer&apos;s
               stated policy. If an Organizer cancels an event, refund handling is described there.
             </p>
             <h2>5. Organizers</h2>
@@ -72,8 +72,8 @@ export default function TermsPage() {
             </p>
             <h2>8. Disclaimers & liability</h2>
             <p>
-              The service is provided “as is” to the extent permitted by law. Liability limitations,
-              warranty disclaimers, and caps are to be drafted by counsel.
+              The service is provided &quot;as is&quot; to the extent permitted by law. Liability
+              limitations, warranty disclaimers, and caps are to be drafted by counsel.
             </p>
             <h2>9. Privacy</h2>
             <p>

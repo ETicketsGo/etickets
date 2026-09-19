@@ -364,6 +364,19 @@ export const NotificationType = {
    * up and the checkout refuses, and without this the first person to notice is a customer.
    */
   EVENT_NOT_SELLABLE: 'EVENT_NOT_SELLABLE',
+  /**
+   * Somebody who bought without an account has asked for their booking back.
+   *
+   * ── WHY IT IS NOT BOOKING_CONFIRMED SENT AGAIN ─────────────────────────────────────
+   * The confirmation says "you have tickets" and is sent once, to an address the platform
+   * took payment from. This is a RECOVERY message answering a request from an anonymous
+   * caller who typed a reference and an address, which is a different thing in two ways that
+   * matter: it must be dedupable and rate-limitable on its own so a stranger cannot mail
+   * somebody repeatedly by guessing, and it carries a fresh credential where the
+   * confirmation carries a record. Sharing one type would rate-limit the real
+   * confirmation alongside it.
+   */
+  GUEST_BOOKING_ACCESS: 'GUEST_BOOKING_ACCESS',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
 

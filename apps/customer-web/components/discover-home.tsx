@@ -177,7 +177,7 @@ export function DiscoverHome() {
             Find your next experience
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-[1.05rem] leading-relaxed text-text-secondary">
-            Concerts, conferences, comedy and more — transparent pricing, instant QR tickets, no
+            Concerts, conferences, comedy and more - transparent pricing, instant QR tickets, no
             surprises.
           </p>
 
@@ -189,7 +189,7 @@ export function DiscoverHome() {
                 list="search-suggestions"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search events, artists, cities…"
+                placeholder="Search events, artists, cities..."
                 className="w-full rounded-md border border-border bg-background-canvas py-3.5 pl-12 pr-4 text-[0.9375rem] text-text-primary shadow-sm placeholder:text-text-muted focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15"
               />
               <datalist id="search-suggestions">
@@ -246,14 +246,14 @@ export function DiscoverHome() {
       {weekendQ.data && weekendQ.data.data.length > 0 && (
         <Section
           title="This weekend"
-          subtitle="Plans sorted — happening in the next few days."
+          subtitle="Plans sorted - happening in the next few days."
           icon={Sparkles}
           action={
             <ButtonLink
               href={`/events?dateFrom=${weekend.dateFrom}&dateTo=${weekend.dateTo}`}
               variant="ghost"
             >
-              View all →
+              View all
             </ButtonLink>
           }
         >
@@ -283,7 +283,7 @@ export function DiscoverHome() {
         icon={TrendingUp}
         action={
           <ButtonLink href="/events" variant="ghost">
-            View all →
+            View all
           </ButtonLink>
         }
       >
@@ -317,7 +317,7 @@ export function DiscoverHome() {
         ) : (
           <EmptyState
             title="No events yet"
-            hint="Check back soon — new events land here first."
+            hint="Events appear here as soon as an organizer puts tickets on sale."
             icon={Sparkles}
           />
         )}
@@ -333,7 +333,7 @@ export function DiscoverHome() {
               className="group rounded-lg border border-border bg-background-surface p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
             >
               <p className="font-semibold text-text-primary group-hover:text-action-primary">{c}</p>
-              <p className="mt-0.5 text-caption text-text-muted">Browse {c.toLowerCase()} →</p>
+              <p className="mt-0.5 text-caption text-text-muted">Browse {c.toLowerCase()}</p>
             </button>
           ))}
         </div>

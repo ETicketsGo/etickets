@@ -75,7 +75,7 @@ export default function MoviesPage() {
           id="q"
           label="Search"
           icon={Search}
-          placeholder="Title…"
+          placeholder="Title..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />

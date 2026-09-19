@@ -146,6 +146,27 @@ export class TicketsService {
     return Promise.all(tickets.map((t) => this.decorate(t, staff.id)));
   }
 
+  /**
+   * Every ticket on ONE booking that nobody owns, for the guest who paid for it.
+   *
+   * ── WHY THE "NO ACCOUNT" TEST IS IN THE QUERY ──────────────────────────────────────
+   * This method takes a booking id and no viewer, because a guest is not one — their proof is a
+   * checkout session or an emailed link, and it was verified before we got here. A method with
+   * no viewer and no filter would be a way to read any booking's QR codes from anywhere it is
+   * ever called. `booking: { userId: null }` makes that structurally impossible: an account
+   * booking returns nothing here no matter who asks or how the caller was reached.
+   *
+   * The caller still owns authorisation. This owns the part a caller cannot get wrong.
+   */
+  async ticketsForGuestBooking(bookingId: string) {
+    const tickets = await this.prisma.ticket.findMany({
+      where: { bookingId, booking: { userId: null } },
+      orderBy: [{ seatLabel: 'asc' }, { serial: 'asc' }],
+      include: TICKET_INCLUDE,
+    });
+    return Promise.all(tickets.map((t) => this.decorate(t, null)));
+  }
+
   async getForUser(user: RequestUser, id: string) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id },
@@ -202,8 +223,19 @@ export class TicketsService {
         };
       };
     },
-    viewerUserId: string,
+    /**
+     * The account reading this, or null for a guest booking — one nobody signed in to buy.
+     *
+     * Null is a viewer that matches NOBODY, which is the only safe reading of "there is no
+     * account here". Compared directly it would not be: `attendeeUserId` is null on an
+     * unassigned ticket and `currentHolderUserId` is null when a transfer's recipient was
+     * never recorded, so `viewerUserId === ticket.attendeeUserId` would be two nulls agreeing
+     * and would hand a transferred ticket's QR straight back to the guest who gave it away.
+     */
+    viewerUserId: string | null,
   ) {
+    /** Whether an id on the ticket is this viewer. Never true for a guest. */
+    const isViewer = (id: string | null) => viewerUserId !== null && id === viewerUserId;
     /*
       ── A TRANSFERRED TICKET'S CREDENTIAL BELONGS TO ITS NEW HOLDER ─────────────────
       Accepting a transfer rotated the QR, but this method re-signed the QR from the ticket's
@@ -217,12 +249,12 @@ export class TicketsService {
       exists and that it was transferred, and nothing that opens a gate. That includes a
       third-party barcode, which IS the gate credential for those tickets.
 
-      A ticket that was never transferred is unchanged for every viewer.
+      A ticket that was never transferred is unchanged for every viewer — including a guest,
+      who is the only holder such a ticket has.
     */
     const transferred = isTransferred(ticket);
     const holderUserId = currentHolderUserId(ticket);
-    const mayPresent =
-      !transferred || viewerUserId === holderUserId || viewerUserId === ticket.attendeeUserId;
+    const mayPresent = !transferred || isViewer(holderUserId) || isViewer(ticket.attendeeUserId);
 
     const token = mayPresent
       ? this.qr.sign({
@@ -302,8 +334,8 @@ export class TicketsService {
       // The CURRENT holder, which after a transfer is no longer the buyer. Clients key
       // owner-only actions (assign, transfer, share) off this, and the server now refuses
       // those actions to anybody else.
-      ownedByViewer: holderUserId !== null && holderUserId === viewerUserId,
-      assignedToViewer: ticket.attendeeUserId === viewerUserId,
+      ownedByViewer: isViewer(holderUserId),
+      assignedToViewer: isViewer(ticket.attendeeUserId),
       transferred,
     };
   }

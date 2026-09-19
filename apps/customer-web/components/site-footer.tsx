@@ -28,14 +28,28 @@ import { Logo } from '@eticketsgo/web-kit';
  * where it is wanted and shown it exactly where it is not.
  */
 
-/** Where a person mid-purchase actually wants to go from the bottom of a page. */
-const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
+/**
+ * Where a person mid-purchase actually wants to go from the bottom of a page.
+ *
+ * `guest: true` means the label lives in the storefront catalogue rather than the shared footer
+ * one. "Find my booking" is the guest flow's own wording, and it belongs beside that flow's
+ * other copy so the two are translated and reviewed together.
+ */
+const COLUMNS: {
+  title: string;
+  links: { href: string; label: string; guest?: boolean }[];
+}[] = [
   {
     title: 'product',
     links: [
       { href: '/events', label: 'browseEvents' },
       { href: '/movies', label: 'browseMovies' },
       { href: '/account/tickets', label: 'myTickets' },
+      /*
+        For somebody who bought without an account. "My tickets" above it needs a sign-in, so
+        without this line the footer offered a guest nothing at all.
+      */
+      { href: '/booking/find', label: 'findTitle', guest: true },
     ],
   },
   {
@@ -58,6 +72,7 @@ const COLUMNS: { title: string; links: { href: string; label: string }[] }[] = [
 
 export function SiteFooter({ environmentNotice }: { environmentNotice?: string | null }) {
   const f = useTranslations('common.footer');
+  const g = useTranslations('storefront.guest');
 
   return (
     /*
@@ -98,7 +113,7 @@ export function SiteFooter({ environmentNotice }: { environmentNotice?: string |
                       href={l.href}
                       className="rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      {f(`links.${l.label}`)}
+                      {l.guest ? g(l.label) : f(`links.${l.label}`)}
                     </Link>
                   </li>
                 ))}

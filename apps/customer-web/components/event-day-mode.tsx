@@ -100,7 +100,7 @@ export function EventDayMode({
   const timing = eventTiming(current.startsAt, Date.now());
   const seat = current.seatLabel;
   const place = group.isMovie
-    ? [group.cinemaName, group.screenName].filter(Boolean).join(' · ')
+    ? [group.cinemaName, group.screenName].filter(Boolean).join(' - ')
     : group.venueName;
   const fallback = qrFallback(b('qrUnavailable'), b('qrUseTicketId'));
 

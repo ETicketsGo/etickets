@@ -39,7 +39,7 @@
   "ticketStatus": {
     "ACTIVE": "Actif",
     "TRANSFERRED": "Transféré",
-    "CHECKED_IN": "Validé à l’entrée",
+    "CHECKED_IN": "Validé à l'entrée",
     "CANCELLED": "Annulé",
     "REFUNDED": "Remboursé",
     "VOID": "Invalidé"
@@ -119,6 +119,6 @@
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
     "rights": "© {year} ETicketsGo. Tous droits réservés.",
-    "testEnvironment": "Environnement de test — les paiements sont simulés."
+    "testEnvironment": "Environnement de test - les paiements sont simulés."
   }
 }

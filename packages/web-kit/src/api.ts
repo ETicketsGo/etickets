@@ -8,6 +8,7 @@ import type {
   PricingComplianceStatus,
   ApiError,
   AuthTokens,
+  GuestBookingView,
   ManifestEntry,
   ManifestMeta,
   QueuedCheckIn,
@@ -15,7 +16,23 @@ import type {
   RevocationDelta,
 } from '@eticketsgo/shared-types';
 
-export type { QueuedCheckIn, RevocationDelta } from '@eticketsgo/shared-types';
+/*
+  The guest view is declared once, in shared-types, and re-exported here.
+
+  It was declared twice, and the two copies had already drifted: this one promised a
+  reference, a hold expiry, a time zone and a venue name that the server returns as null.
+  A page built against the promise renders the word null to a buyer.
+*/
+export type {
+  QueuedCheckIn,
+  RevocationDelta,
+  GuestBookingView,
+  GuestBookingEvent,
+  GuestBookingBuyer,
+  GuestBookingTotals,
+  GuestBookingItem,
+  GuestBookingTicket,
+} from '@eticketsgo/shared-types';
 
 import { markApiReachable, markApiUnreachable } from './connectivity';
 
@@ -432,6 +449,76 @@ export const api = {
       request<{ id: string; status: string; refundPending: boolean }>(`/bookings/${id}/cancel`, {
         method: 'POST',
       }),
+  },
+
+  /**
+   * Buying a ticket without an account.
+   *
+   * ── WHY A SEPARATE SET OF CALLS ────────────────────────────────────────────────────
+   * Nothing here is authenticated by a bearer token, so `auth: false` on every call: sending
+   * a stale Authorization header to a guest route asks the server to answer as two different
+   * people at once. What identifies the buyer instead is the anonymous session in
+   * `x-anon-session`, which the browser holds for as long as it holds the booking. It is a
+   * capability, not an identity: it proves "this browser created that booking" and nothing
+   * more, which is exactly the claim a guest can make.
+   *
+   * The token is passed in by the caller rather than read from a store in here, because the
+   * store is a browser thing and this client also runs where there is no localStorage.
+   */
+  guestBookings: {
+    /**
+     * Hold tickets for somebody who is not signed in.
+     *
+     * The body is the same one `/bookings` takes: `buyerName` and `buyerEmail` are already
+     * required there, so a guest sends nothing extra. `anonSession` carries a token this
+     * browser already has, so a second purchase joins the same anonymous session; the
+     * response may hand back a new one, which the caller must keep or lose the booking.
+     */
+    create: (body: BookingRequest, anonSession?: string | null) =>
+      request<GuestBookingResult>('/bookings/guest', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: anonSession ? { 'x-anon-session': anonSession } : undefined,
+        auth: false,
+      }),
+    get: (id: string, anonSession: string) =>
+      request<GuestBookingView>(`/bookings/guest/${id}`, {
+        headers: { 'x-anon-session': anonSession },
+        auth: false,
+      }),
+    pay: (id: string, anonSession: string) =>
+      request<PayResult>(`/bookings/guest/${id}/pay`, {
+        method: 'POST',
+        headers: { 'x-anon-session': anonSession },
+        auth: false,
+      }),
+    /**
+     * Give the tickets back before the hold runs out.
+     *
+     * May be refused with 409, which means guest cancel is not available for this booking.
+     * That is not an error to shout about: the hold expires on its own, and the caller says so.
+     */
+    cancel: (id: string, anonSession: string) =>
+      request<{ id: string; status: string }>(`/bookings/guest/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'x-anon-session': anonSession },
+        auth: false,
+      }),
+    /**
+     * Email a link to a booking, given its reference and the address that bought it.
+     *
+     * Always answers `{ sent: true }`. It never says whether the pair matched, because an
+     * endpoint that did would tell anybody with a reference which email address is on it.
+     */
+    lookup: (body: { reference: string; email: string }) =>
+      request<{ sent: true }>('/bookings/guest/lookup', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        auth: false,
+      }),
+    /** Read a booking from the token in an emailed link. The link is the credential. */
+    access: (token: string) =>
+      request<GuestBookingView>(`/bookings/guest/access/${token}`, { auth: false }),
   },
 
   payments: {
@@ -2077,6 +2164,18 @@ export interface BookingDetail {
    */
   seatLabels?: string[];
 }
+/**
+ * What `POST /bookings/guest` answers: the ordinary booking result, plus the session token.
+ *
+ * The token is optional because a browser that already had one keeps using it. A response
+ * with no token and no token sent leaves the caller unable to read its own booking, so the
+ * caller treats that as "we cannot follow this booking here" and points the buyer at the
+ * emailed link instead of pretending otherwise.
+ */
+export interface GuestBookingResult extends BookingResult {
+  anonymousSessionToken?: string;
+}
+
 export interface BookingSummary {
   id: string;
   reference: string | null;

@@ -30,6 +30,7 @@ import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { BookingReferenceService } from '../bookings/booking-reference.service';
+import { guestAccessLink, issueGuestAccessToken } from '../bookings/guest-access';
 import { SettlementService } from './settlement/settlement.service';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
 import {
@@ -911,6 +912,46 @@ export class PaymentsService {
       await this.eventPublisher.recordInTransaction(tx, [confirmedEvent]);
 
       /*
+        ── THE ONE THING A GUEST HAS NO OTHER WAY TO GET ───────────────────────────────
+        Somebody who bought without an account has exactly one durable handle on this booking:
+        this email. Their checkout session lives in one browser's memory and is gone with the
+        tab. So for a guest — and ONLY for a guest — the confirmation carries a link back in,
+        minted in this same transaction so a committed booking and a working link are one fact
+        rather than two that can disagree.
+
+        An account booking's email is untouched. Its owner signs in, and mailing them a
+        password-free credential to the same tickets would weaken what they already have.
+      */
+      const guestAccess = booking.userId
+        ? null
+        : await issueGuestAccessToken(tx, {
+            bookingId: booking.id,
+            showStartsAt: booking.eventSession?.startsAt ?? null,
+          });
+      let guestLink: string | undefined;
+      if (guestAccess) {
+        try {
+          guestLink = guestAccessLink(this.config, guestAccess.token);
+        } catch (err) {
+          /*
+            `redirectUrl` refuses to invent an origin, and refusing is right — but not here,
+            and not like this. This is inside the transaction that confirms a paid booking, so
+            letting a missing CUSTOMER_WEB_URL out would roll the confirmation back: the money
+            is captured, the webhook retries, and a deployment's misconfiguration becomes a
+            customer with no tickets. The link is the better email; the email is the ticket.
+
+            So the confirmation goes out without it, loudly. The row that was written is
+            unreachable and expires on its own, and the sentence the customer reads is the one
+            this platform sent before guest links existed.
+          */
+          this.logger.error(
+            `Guest access link could not be built for booking ${booking.id}; the confirmation ` +
+              `was sent without it. ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      /*
         What the customer is actually told, written in the SAME transaction that confirms
         the booking -- for exactly the reason the receipt above is.
 
@@ -934,6 +975,12 @@ export class PaymentsService {
         payload: {
           bookingId: booking.id,
           reference,
+          /*
+            Undefined, not an empty string, for an account booking: the template omits an
+            absent fragment and prints an empty one. Undefined is also what every notification
+            queued before this field existed carries, so those still render as a sentence.
+          */
+          link: guestLink,
           eventTitle: booking.event?.title ?? '',
           startsAt: booking.eventSession?.startsAt?.toISOString() ?? '',
           // Cinema first, then the venue. Without the fallback every non-cinema event fell

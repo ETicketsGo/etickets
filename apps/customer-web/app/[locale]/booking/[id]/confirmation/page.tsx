@@ -14,13 +14,20 @@ import {
 } from 'lucide-react';
 import { buildIcsDataUrl, useToast, type BookingDetail } from '@eticketsgo/web-kit';
 import type { Locale } from '@eticketsgo/i18n';
-import { api } from '@/lib/api';
+import { api, tokenStore } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Link, getPathname } from '@/i18n/navigation';
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ButtonLink, Card, ErrorState, StatusBadge, Stepper } from '@/components/ui';
 import { useStatusLabel } from '@/lib/status-label';
+import {
+  GuestBookingNotHere,
+  GuestBookingSummary,
+  GuestTickets,
+} from '@/components/guest-booking-view';
+import { guestTokenFor } from '@/lib/guest-session';
+import { useMounted } from '@/lib/use-mounted';
 import { useLocale, useTranslations } from 'next-intl';
 
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
@@ -61,7 +68,25 @@ function itemName(item: BookingDetail['items'][number]): string {
 const SECONDARY_ACTION =
   'flex flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background-surface px-4 py-2.5 text-[0.9375rem] font-medium text-text-primary shadow-sm transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
 
+/**
+ * Where a booking lands, with or without an account.
+ *
+ * The fork is the same one the payment screen makes, for the same reason: a guest reads a
+ * different endpoint and gets a different payload. See PaymentPage.
+ */
 export default function ConfirmationPage() {
+  const mounted = useMounted();
+  const { id } = useParams<{ id: string }>();
+  const guestToken = mounted ? guestTokenFor(id) : null;
+
+  if (!mounted) return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
+  if (guestToken) return <GuestConfirmation id={id} anonSession={guestToken} />;
+  // Signed out with no guest token: the account read can only 401, so say what to do instead.
+  if (!tokenStore.access) return <GuestBookingNotHere />;
+  return <AccountConfirmation />;
+}
+
+function AccountConfirmation() {
   const c = useTranslations('storefront.confirmation');
   const e = useTranslations('storefront.event');
   const w = useTranslations('storefront.wallet');
@@ -201,11 +226,12 @@ export default function ConfirmationPage() {
           ) : closed ? (
             <XCircle className="h-8 w-8" />
           ) : (
-            '…'
+            '...'
           )}
         </div>
         <h1 className="mt-4 text-h2 font-bold tracking-tight text-text-primary">
-          {confirmed ? `${c('youreGoing')} 🎉` : closed ? c(closedCopy.title) : c('pending')}
+          {/* The tick above already says this went well; an emoji here was one more glyph to fail. */}
+          {confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
         </h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
           {confirmed
@@ -392,7 +418,7 @@ export default function ConfirmationPage() {
                     {t.seatLabel ? (
                       <p className="text-[0.9375rem] text-text-primary">
                         {c('seat')} <strong>{t.seatLabel}</strong>
-                        {t.screenName ? ` · ${t.screenName}` : ''}
+                        {t.screenName ? ` - ${t.screenName}` : ''}
                       </p>
                     ) : null}
                     <p className="font-mono text-caption text-text-muted">{t.serial}</p>
@@ -459,6 +485,137 @@ export default function ConfirmationPage() {
             ))}
           </div>
         </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A guest booking, just paid for.
+ *
+ * ── WHY IT STILL POLLS ─────────────────────────────────────────────────────────────
+ * For the same reason the account screen does. Confirmation arrives on a signed webhook from
+ * the payment provider, not from the browser that paid, so the only honest thing a page can do
+ * between "paid" and "confirmed" is keep asking. Every other status is final and the polling
+ * stops -- an expired hold will not change however long the page waits.
+ *
+ * ── WHERE THE QR COMES FROM ────────────────────────────────────────────────────────
+ * The booking payload, not the wallet. `api.wallet()` answers for an account and there is no
+ * account here.
+ */
+function GuestConfirmation({ id, anonSession }: { id: string; anonSession: string }) {
+  const c = useTranslations('storefront.confirmation');
+  const g = useTranslations('storefront.guest');
+
+  const {
+    data: view,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ['guest-booking', id],
+    queryFn: () => api.getGuestBooking(id, anonSession),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === undefined || status === AWAITING_PAYMENT ? 4000 : false;
+    },
+  });
+
+  if (isError) return <ErrorState message={c('loadError')} onRetry={() => refetch()} />;
+  if (isLoading || !view)
+    return <div className="h-64 animate-pulse rounded-lg bg-background-subtle" />;
+
+  const confirmed = view.status === 'CONFIRMED';
+  const pending = view.status === AWAITING_PAYMENT;
+  const closed = !confirmed && !pending;
+  const closedCopy = CLOSED_COPY[view.status as keyof typeof CLOSED_COPY] ?? CLOSED_FALLBACK;
+  // Read from this booking's own total: nothing was owed, so nothing was paid.
+  const free = view.totals.totalMinor === 0;
+  /*
+    A booking with no hold expiry has nothing left to hold: it is already paid for, or it was
+    never holding stock. Treating a missing deadline as "still live" would offer a way back to
+    a payment page that can only turn the buyer away.
+  */
+  const holdLive =
+    pending && !!view.holdExpiresAt && new Date(view.holdExpiresAt).getTime() > Date.now();
+
+  return (
+    <div className="mx-auto max-w-lg space-y-8">
+      <Stepper
+        steps={(free ? FREE_BOOKING_STEPS : BOOKING_STEPS).map((k) => c(`steps.${k}`))}
+        current={free ? 1 : confirmed ? 2 : 1}
+      />
+
+      <div className="text-center">
+        <div
+          className={`mx-auto flex h-16 w-16 animate-scale-in items-center justify-center rounded-full ${
+            confirmed
+              ? 'bg-tint-success text-status-success'
+              : closed
+                ? 'bg-background-subtle text-text-muted'
+                : 'bg-tint-warning text-status-warning'
+          }`}
+          aria-hidden
+        >
+          {confirmed ? (
+            <Check className="h-8 w-8" strokeWidth={2.5} />
+          ) : closed ? (
+            <XCircle className="h-8 w-8" />
+          ) : (
+            '...'
+          )}
+        </div>
+        <h1 className="mt-4 text-h2 font-bold tracking-tight text-text-primary">
+          {confirmed ? c('youreGoing') : closed ? c(closedCopy.title) : c('pending')}
+        </h1>
+        <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
+          {confirmed
+            ? c('sentTo', { count: view.tickets.length, email: view.buyer.emailMasked })
+            : closed
+              ? c(closedCopy.body)
+              : c('pendingBody')}
+        </p>
+      </div>
+
+      {pending && (
+        <ButtonLink
+          href={holdLive ? `/booking/${view.id}/payment` : `/events/${view.event.slug}`}
+          variant="outline"
+          className="w-full"
+        >
+          {holdLive ? c('returnToPayment') : c('backToEvent')}
+        </ButtonLink>
+      )}
+      {closed && (
+        <ButtonLink href={`/events/${view.event.slug}`} className="w-full">
+          {c('backToEvent')}
+        </ButtonLink>
+      )}
+
+      <GuestBookingSummary view={view} />
+
+      {confirmed && (
+        <>
+          <GuestTickets view={view} />
+          {/*
+            The one thing a guest needs that an account holder does not: a way back to this
+            page from a different device, or after this browser forgets the booking.
+          */}
+          <Card className="space-y-2">
+            <h2 className="text-[0.9375rem] font-semibold text-text-primary">
+              {g('keepTicketsTitle')}
+            </h2>
+            <p className="text-caption text-text-muted">
+              {g('keepTicketsBody', { email: view.buyer.emailMasked })}
+            </p>
+            <p className="text-caption text-text-muted">
+              {g('wantAnAccount')}{' '}
+              <Link href="/register" className="text-action-primary underline">
+                {g('createAccountLater')}
+              </Link>
+            </p>
+          </Card>
+        </>
       )}
     </div>
   );

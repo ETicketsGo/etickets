@@ -54,7 +54,7 @@ export default function InviteClaimPage() {
       <Wrapper>
         <h1 className="text-h3 font-bold text-text-primary">Invitation declined</h1>
         <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
-          No problem — we’ve let the sender know.
+          No problem - we&apos;ve let the sender know.
         </p>
         <div className="mt-6">
           <ButtonLink href="/events" variant="outline">
@@ -69,7 +69,7 @@ export default function InviteClaimPage() {
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-tint-primary text-action-primary">
         <Ticket className="h-6 w-6" />
       </div>
-      <h1 className="mt-4 text-h3 font-bold text-text-primary">You’ve been given a ticket</h1>
+      <h1 className="mt-4 text-h3 font-bold text-text-primary">You&apos;ve been given a ticket</h1>
       <p className="mt-1.5 text-[0.9375rem] text-text-secondary">
         Accept it to add the ticket to your ETicketsGo wallet with your own QR code.
       </p>

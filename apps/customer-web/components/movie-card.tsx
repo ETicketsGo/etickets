@@ -70,7 +70,7 @@ export function MovieCard({ movie }: { movie: PublicMovieCard }) {
         </h3>
         <p className="line-clamp-1 text-caption text-text-muted">
           {movie.language}
-          {movie.genres.length > 0 ? ` · ${movie.genres.join(', ')}` : ''}
+          {movie.genres.length > 0 ? ` - ${movie.genres.join(', ')}` : ''}
         </p>
         <p className="flex items-center gap-1.5 text-caption text-text-muted">
           <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />

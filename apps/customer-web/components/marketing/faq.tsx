@@ -37,7 +37,7 @@ export function FaqSearch({ groups }: { groups: FaqGroup[] }) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search questions…"
+          placeholder="Search questions..."
           aria-label="Search FAQs"
           className="w-full rounded-xl border border-border bg-background-surface py-2.5 pl-10 pr-3.5 text-[0.9375rem] text-text-primary shadow-xs placeholder:text-text-muted focus:border-action-primary focus:outline-none focus:ring-2 focus:ring-ring/40"
         />
@@ -46,7 +46,7 @@ export function FaqSearch({ groups }: { groups: FaqGroup[] }) {
       <div className="mt-10 space-y-10">
         {filtered.length === 0 ? (
           <p className="text-center text-[0.9375rem] text-text-muted">
-            No questions match “{query}”. Try a different term or{' '}
+            No questions match &quot;{query}&quot;. Try a different term or{' '}
             <Link href="/contact" className="font-medium text-action-primary hover:underline">
               contact us
             </Link>

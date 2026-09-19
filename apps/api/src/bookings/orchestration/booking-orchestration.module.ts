@@ -6,6 +6,8 @@ import { PaymentsModule } from '../../payments/payments.module';
 import { InventorySourcingModule } from '../../inventory/sourcing/inventory-sourcing.module';
 import { InventoryLockingModule } from '../../inventory/locking/inventory-locking.module';
 import { BookingProvidersModule } from '../providers/booking-providers.module';
+import { TicketsModule } from '../../tickets/tickets.module';
+import { GuestBookingService } from '../guest-booking.service';
 import { BookingWorkflowRepository } from './booking-workflow.repository';
 import { LocalBookingOrchestrator } from './local-booking-orchestrator.service';
 import { BookingExecutionRouter } from './booking-execution-router.service';
@@ -32,6 +34,9 @@ import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
     InventorySourcingModule,
     InventoryLockingModule,
     BookingProvidersModule,
+    // The guest read routes hand out QR codes, and TicketsService is the only place a QR
+    // payload is signed. TicketsModule imports nothing, so there is no cycle to create.
+    TicketsModule,
   ],
   controllers: [BookingsController, GuestBookingsController, BookingOrchestrationHealthController],
   providers: [
@@ -43,6 +48,7 @@ import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
     AllocationAccountingService,
     BookingOwnerResolver,
     AnonymousSessionService,
+    GuestBookingService,
     { provide: BOOKING_ORCHESTRATOR, useExisting: LocalBookingOrchestrator },
   ],
   exports: [
@@ -52,6 +58,7 @@ import { BOOKING_ORCHESTRATOR } from './booking-orchestrator.contract';
     BookingWorkflowRepository,
     BookingOwnerResolver,
     AnonymousSessionService,
+    GuestBookingService,
   ],
 })
 export class BookingOrchestrationModule {}

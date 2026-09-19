@@ -203,9 +203,30 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
         when: whenClause(l, p),
         seats: optional(l, 'seats', { seats }),
         reference: bookingName(l, p),
+        /*
+          The way back in for somebody who bought without an account — and nothing at all for
+          somebody who has one, who signs in instead.
+
+          Optional, like every other fragment here, for the reason the file's header gives: this
+          row may have been queued before the field existed, and a required `{link}` would print
+          literally in the one message that carries a customer's tickets. It is in the BODY, not
+          the subject: a subject shows on a locked screen, and this is a bearer credential.
+        */
+        link: optional(l, 'accessLink', { link: str(p, 'link') }),
       }),
     };
   },
+
+  /*
+    A guest asking for their booking back. The whole message is the link, so there is nothing
+    optional about it — and nothing else in it either: the request came from somebody who typed
+    a reference and an address, and naming the show would tell whoever reads the inbox what was
+    bought before anything has verified that they are the buyer.
+  */
+  [NotificationType.GUEST_BOOKING_ACCESS]: (l, p) => ({
+    subject: t(l, 'emails.GUEST_BOOKING_ACCESS.subject'),
+    body: t(l, 'emails.GUEST_BOOKING_ACCESS.body', { link: str(p, 'link') }),
+  }),
 
   /*
     Account security. The link is a live credential, so it appears in the BODY and nowhere

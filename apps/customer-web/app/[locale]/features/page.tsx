@@ -26,80 +26,80 @@ import { PageHero } from '@/components/marketing/blocks';
 export const metadata: Metadata = {
   title: 'Features',
   description:
-    'Event management, ticketing, reserved seating, payments, coupons, offline check-in, dashboards, reports, analytics, wallet support, security, scalability, accessibility, and responsive design.',
+    'Event setup, ticketing, reserved seating, payments, coupons, offline check-in, dashboards, reports, wallet passes, security, and accessibility.',
   alternates: { canonical: '/features' },
 };
 
 const FEATURES = [
   {
     icon: CalendarDays,
-    title: 'Event management',
-    body: 'Guided event wizard, sessions, drafts, review and publish. Edit safely once live.',
+    title: 'Event setup',
+    body: 'Add your sessions, save a draft, then publish. You can still edit after it goes live.',
   },
   {
     icon: Ticket,
     title: 'Ticketing',
-    body: 'Tiered ticket types with per-order limits, inventory tracking, and sales-safe edits.',
+    body: 'Set up ticket types and a limit per order. The price locks once a ticket sells.',
   },
   {
     icon: Armchair,
     title: 'Reserved seating',
-    body: 'Interactive seat maps with atomic holds — no two buyers get the same seat.',
+    body: 'Buyers pick seats on a map. Two people cannot buy the same seat.',
   },
   {
     icon: CreditCard,
     title: 'Payments',
-    body: 'Multi-country, multi-provider routing with circuit-breaker failover and reconciliation.',
+    body: 'Each payment goes to a provider that works in your country. If one is down, we try another.',
   },
   {
     icon: Tag,
     title: 'Coupons',
-    body: 'Percentage or fixed discount codes with redemption limits and date windows.',
+    body: 'Discount codes for a percentage or a fixed amount, with a limit and an end date.',
   },
   {
     icon: WifiOff,
     title: 'Offline check-in',
-    body: 'Signed device manifests + durable queue keep the gate moving without connectivity.',
+    body: 'The gate app scans from a signed list of tickets and stores each scan until it can sync.',
   },
   {
     icon: LayoutDashboard,
     title: 'Organizer dashboard',
-    body: 'A single, fast view of sales, revenue, attendance, and payouts.',
+    body: 'One page for sales, revenue, attendance and payouts.',
   },
   {
     icon: BarChart3,
     title: 'Reports',
-    body: 'Daily revenue, organizer revenue, settlement, refunds, fees — exportable to CSV.',
+    body: 'Daily revenue, settlement, refunds and fees. Download any of them as a CSV file.',
   },
   {
     icon: Gauge,
     title: 'Analytics',
-    body: 'Conversion funnel, check-in rate, refund trends, growth, and payment success rate.',
+    body: 'How many visits turn into bookings, how many people check in, how many payments succeed.',
   },
   {
     icon: Wallet,
-    title: 'Wallet support',
-    body: 'Wallet passes and QR tickets that stay accessible offline at the gate.',
+    title: 'Wallet passes',
+    body: 'Add a pass to a phone wallet. The QR ticket opens with no signal.',
   },
   {
     icon: ShieldCheck,
     title: 'Security',
-    body: 'Fail-closed config, no card data stored, replay-safe tickets, and a full audit trail.',
+    body: 'We store no card numbers. Ticket codes work once, and we log every sensitive action.',
   },
   {
     icon: Gauge,
-    title: 'Scalability',
-    body: 'Bounded background jobs, indexed queries, and horizontal-ready services.',
+    title: 'Speed',
+    body: 'Background jobs run in batches, and the database queries use indexes.',
   },
   {
     icon: Accessibility,
     title: 'Accessibility',
-    body: 'Labelled controls, non-color status, keyboard support, and focus management.',
+    body: 'Every control has a label. You can use the site with a keyboard, and status never relies on color alone.',
   },
   {
     icon: Smartphone,
-    title: 'Responsive design',
-    body: 'Mobile-first experiences for buyers and an operator-ready gate on any device.',
+    title: 'Works on a phone',
+    body: 'The buyer pages fit a phone screen. The gate app runs on a phone or a tablet.',
   },
 ];
 
@@ -108,17 +108,17 @@ export default function FeaturesPage() {
     <>
       <PageHero
         eyebrow="Features"
-        title="A complete toolkit for modern events"
-        lead="Every capability an organizer needs to sell, operate, and understand events — designed to work together."
+        title="What the platform does"
+        lead="The tools you use to sell tickets, run the door, and read the numbers afterwards."
         primary={{ href: '/register', label: 'Get started free' }}
         secondary={{ href: '/pricing', label: 'See pricing' }}
       />
       <Section>
         <Container>
           <SectionHeading
-            eyebrow="Platform capabilities"
-            title="Fourteen capabilities, one platform"
-            lead="No stitching vendors together — ticketing, seating, payments, check-in, and analytics share one source of truth."
+            eyebrow="Features"
+            title="Fourteen features"
+            lead="Ticketing, seating, payments, check-in and reports all read the same data."
           />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
@@ -131,8 +131,8 @@ export default function FeaturesPage() {
       </Section>
       <Section className="border-t border-border">
         <CtaBand
-          title="See it on your own events"
-          lead="Create an account and publish your first event in minutes."
+          title="Try it on your own event"
+          lead="Create an account and publish your first event."
           primaryHref="/register"
           primaryLabel="Start free"
           secondaryHref="/docs"

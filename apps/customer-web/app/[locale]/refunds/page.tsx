@@ -21,46 +21,46 @@ export default function RefundsPage() {
       <Section>
         <Container className="max-w-3xl space-y-8">
           <NoticeBanner>
-            This is a <strong>draft for demonstration</strong>. Fee-refundability and cancellation
-            handling are pending a commercial decision and legal review.
+            This is a <strong>draft for the demo</strong>. We have not decided whether fees are
+            refundable, or how cancellations work. A lawyer has not reviewed it.
           </NoticeBanner>
           <Prose>
             <h2>How refunds work</h2>
-            <p>Refund eligibility is enforced by a deterministic rule:</p>
+            <p>Two things decide whether a booking can be refunded:</p>
             <ul>
               <li>
-                <strong>Refundable state</strong> — a confirmed, un-cancelled booking. Already
-                cancelled or refunded bookings are not eligible.
+                <strong>The state of the booking.</strong> It must be confirmed. A booking that is
+                already cancelled or refunded is not eligible.
               </li>
               <li>
-                <strong>Within the window</strong> — refunds are allowed up to a cut-off before the
-                session, defaulting to <strong>48 hours</strong>. Organizers may set a different
-                policy per event.
+                <strong>The refund window.</strong> You can refund up to a cut-off before the
+                session, which defaults to <strong>48 hours</strong>. An Organizer can set a
+                different window on each event.
               </li>
               <li>
-                After the window, or once entry has occurred, tickets are non-refundable unless the
-                Organizer or law requires otherwise.
+                After the window closes, or once the ticket has been used at the gate, it cannot be
+                refunded. The Organizer or the law can still require a refund.
               </li>
             </ul>
             <h2>Requesting a refund</h2>
             <p>
-              Customers request from their booking or tickets page; the request is validated against
-              the rule above and routed to the Organizer for processing. Status moves from Requested
-              → Processing → Completed or Rejected, and every step is auditable.
+              Customers ask from their booking or tickets page. We check the request against the
+              rules above and pass it to the Organizer. The status moves from Requested to
+              Processing, and then to Completed or Rejected. We record every step.
             </p>
             <h2>Event cancellation</h2>
             <p>
-              If an Organizer cancels or materially changes an event, the platform’s handling (for
-              example automatic full refunds) is to be finalized.
+              We have not settled what happens when an Organizer cancels an event, or changes it a
+              lot. Automatic full refunds are one option.
             </p>
             <h2>Disputes</h2>
             <p>
-              Chargebacks and disputes are handled per the payment provider’s process and the
-              platform’s reconciliation workflow.
+              We handle chargebacks and disputes the way the payment provider requires. We then
+              match the result against our own records.
             </p>
             <h2>Contact</h2>
             <p>
-              Refund questions? See the <Link href="/faq">FAQ</Link> or{' '}
+              Still have a question? See the <Link href="/faq">FAQ</Link> or{' '}
               <Link href="/contact">contact us</Link>.
             </p>
           </Prose>

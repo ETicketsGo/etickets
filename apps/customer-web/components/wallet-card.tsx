@@ -94,11 +94,11 @@ export function WalletCard({
             {item.status}
           </span>
           {item.startsAt && (
-            <span className="text-caption text-text-muted">· {dateTime(item.startsAt)}</span>
+            <span className="text-caption text-text-muted">- {dateTime(item.startsAt)}</span>
           )}
           {item.expiresAt && !item.startsAt && (
             <span className="text-caption text-text-muted">
-              · {wc('expires', { when: dateTime(item.expiresAt) })}
+              - {wc('expires', { when: dateTime(item.expiresAt) })}
             </span>
           )}
         </div>

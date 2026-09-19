@@ -18,7 +18,7 @@
   },
   "state": {
     "loading": "Loading",
-    "loadingFailed": "We couldn’t load this. Please try again.",
+    "loadingFailed": "We couldn't load this. Please try again.",
     "empty": "Nothing here yet",
     "soldOut": "Sold out",
     "free": "Free",
@@ -119,6 +119,6 @@
     },
     "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
     "rights": "© {year} ETicketsGo. All rights reserved.",
-    "testEnvironment": "Test environment — payments are simulated."
+    "testEnvironment": "Test environment - payments are simulated."
   }
 }

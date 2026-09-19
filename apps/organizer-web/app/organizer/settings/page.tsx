@@ -28,7 +28,9 @@ const PROFILE_FIELDS: {
 }[] = [
   { key: 'website', label: 'Website', placeholder: 'https://example.com' },
   { key: 'contactEmail', label: 'Public contact email', placeholder: 'hello@example.com' },
-  { key: 'contactPhone', label: 'Public contact phone', placeholder: '+91 98765 43210' },
+  // No example number: one country's format printed in the box tells every other country it
+  // is the wrong form to be filling in. The label says what the field is.
+  { key: 'contactPhone', label: 'Public contact phone' },
   { key: 'logoUrl', label: 'Logo URL', placeholder: 'https://…/logo.png' },
   { key: 'coverImageUrl', label: 'Cover image URL', placeholder: 'https://…/cover.jpg' },
   { key: 'twitterUrl', label: 'X / Twitter', placeholder: 'https://x.com/…' },

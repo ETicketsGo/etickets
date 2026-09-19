@@ -76,7 +76,7 @@ export function WalletPasses({
         <Wallet className="h-4 w-4" aria-hidden /> Add to your wallet
       </h2>
       <p className="mb-3 text-caption text-text-muted">
-        A wallet pass is a shortcut to this ticket — it uses the same secure QR code.
+        A wallet pass is a shortcut to this ticket - it uses the same secure QR code.
       </p>
       <div className="flex flex-wrap gap-2">
         {usable.map((p) => (

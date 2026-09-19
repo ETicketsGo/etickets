@@ -70,7 +70,7 @@ export default function SharePage() {
   const r = data.resource;
   const place =
     r.resourceType === 'TICKET' && r.cinemaName
-      ? [r.cinemaName, r.screenName].filter(Boolean).join(' · ')
+      ? [r.cinemaName, r.screenName].filter(Boolean).join(' - ')
       : r.venueName;
   const fallback = shareQrFallback(w('qrUnavailable'));
 

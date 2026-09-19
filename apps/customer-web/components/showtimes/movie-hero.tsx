@@ -97,7 +97,7 @@ export function MovieHero({ movie }: { movie: PublicMovieShows['movie'] }) {
               <Star className="h-3.5 w-3.5 fill-status-warning text-status-warning" aria-hidden />
               <span aria-hidden className="tabular-nums">
                 <span className="font-semibold">{words.outOf5(rating.average)}</span>
-                {' · '}
+                {' - '}
                 {words.votes(rating.count)}
               </span>
               <span className="sr-only">

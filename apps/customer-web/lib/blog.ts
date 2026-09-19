@@ -25,7 +25,7 @@ export const POSTS: Post[] = [
     slug: 'launching-your-first-event',
     title: 'Launching your first event: a practical checklist',
     excerpt:
-      'From drafting your event to opening the gate, here is a calm, ordered way to launch your first on-sale without surprises.',
+      'A checklist for your first on-sale, from the first draft to the moment the gate opens.',
     category: 'Guides',
     tags: ['organizers', 'getting-started'],
     author: 'The ETicketsGo Team',
@@ -36,7 +36,7 @@ export const POSTS: Post[] = [
     body: [
       {
         type: 'p',
-        text: 'Your first event on a new platform should feel boring — in the best way. Here is a checklist that keeps it that way.',
+        text: 'Nothing should surprise you on your first event. Here is what to check before you go on sale.',
       },
       { type: 'h2', text: 'Before you publish' },
       {
@@ -51,7 +51,7 @@ export const POSTS: Post[] = [
       { type: 'h2', text: 'During the on-sale' },
       {
         type: 'p',
-        text: 'Watch your sales dashboard, keep an eye on conversion, and have a coupon ready for a launch push if you need one.',
+        text: 'Watch your sales dashboard. Have a coupon ready in case you need to push the launch.',
       },
       { type: 'h2', text: 'At the gate' },
       {
@@ -62,9 +62,8 @@ export const POSTS: Post[] = [
   },
   {
     slug: 'selling-more-tickets',
-    title: 'Selling more tickets without discounting yourself to zero',
-    excerpt:
-      'Discounts are a tool, not a strategy. Here is how to use coupons, timing, and clarity to sell more while protecting your margin.',
+    title: 'How to use coupons without giving away your margin',
+    excerpt: 'A coupon works best with a limit and an end date. Here is how we suggest using them.',
     category: 'Growth',
     tags: ['organizers', 'promotions'],
     author: 'The ETicketsGo Team',
@@ -74,9 +73,9 @@ export const POSTS: Post[] = [
     body: [
       {
         type: 'p',
-        text: 'The fastest way to erode your event economics is a permanent discount. The second fastest is a confusing checkout.',
+        text: 'A discount you never turn off becomes your real price. A confusing checkout costs you sales as well.',
       },
-      { type: 'h2', text: 'Use coupons with intent' },
+      { type: 'h2', text: 'Set limits on every code' },
       {
         type: 'ul',
         items: [
@@ -85,18 +84,18 @@ export const POSTS: Post[] = [
           'Reserve deeper discounts for genuine partners',
         ],
       },
-      { type: 'h2', text: 'Reduce friction, not price' },
+      { type: 'h2', text: 'Make the checkout clear' },
       {
         type: 'p',
-        text: 'Show the full total early, keep the flow short, and make seat selection obvious. Clarity converts as well as any coupon.',
+        text: 'Show the full total early and keep the steps short. Make the seat map easy to read.',
       },
     ],
   },
   {
     slug: 'improving-attendee-experience',
-    title: 'Five small things that make attendees love your event',
+    title: 'Five small things attendees notice',
     excerpt:
-      'The details attendees remember are rarely the big ones. A few small touches make the difference between fine and fantastic.',
+      'Small details decide how an evening feels. Here are five that are worth getting right.',
     category: 'Experience',
     tags: ['attendees', 'experience'],
     author: 'The ETicketsGo Team',
@@ -106,7 +105,7 @@ export const POSTS: Post[] = [
     body: [
       {
         type: 'p',
-        text: 'Attendees judge your event long before the first act — and long after the last.',
+        text: 'People form an opinion of your event before the first act, and after the last one.',
       },
       {
         type: 'ul',
@@ -114,13 +113,13 @@ export const POSTS: Post[] = [
           'A booking flow that shows the total up front',
           'Tickets that open offline at the gate',
           'A bright, awake screen in Event Day Mode',
-          'Fast, respectful entry',
+          'A queue at the door that keeps moving',
           'Simple refunds when plans change',
         ],
       },
       {
         type: 'p',
-        text: 'None of these are flashy. All of them build trust — and trust is what brings people back.',
+        text: 'None of these are flashy. They are the reason people come back.',
       },
     ],
   },
@@ -128,7 +127,7 @@ export const POSTS: Post[] = [
     slug: 'offline-ticket-validation',
     title: 'Offline ticket validation, explained simply',
     excerpt:
-      'What actually happens when you scan a ticket with no internet — and why it stays trustworthy.',
+      'What happens when you scan a ticket with no internet, and why the result still holds.',
     category: 'Engineering',
     tags: ['offline', 'security'],
     author: 'The ETicketsGo Team',
@@ -138,25 +137,24 @@ export const POSTS: Post[] = [
     body: [
       {
         type: 'p',
-        text: 'Venue networks fail. A ticketing platform that stops working when the Wi-Fi does is not really a ticketing platform.',
+        text: 'Venue networks fail. Your gate still has to let people in.',
       },
-      { type: 'h2', text: 'A signed manifest, not a guess' },
+      { type: 'h2', text: 'A signed list of tickets' },
       {
         type: 'p',
-        text: 'Approved devices download a cryptographically-signed manifest scoped to the device. The device holds no signing secret — it validates scans against the manifest.',
+        text: 'An approved device downloads a signed list of the tickets for that event. The list only works on that device, and the device holds no signing key. It checks each scan against the list.',
       },
       { type: 'h2', text: 'The server always wins' },
       {
         type: 'p',
-        text: 'Scans queue durably and reconcile when you reconnect. A rejected scan can never become an admission, and duplicates resolve to a single accepted entry.',
+        text: 'Scans wait on the device and go to the server when you reconnect. A scan the device rejected can never become an admission, and two scans of one ticket end as a single entry.',
       },
     ],
   },
   {
     slug: 'modern-ticketing-platforms',
     title: 'What a modern ticketing platform should actually do',
-    excerpt:
-      'Ticketing is not just a checkout. Here is the short list of what separates a real platform from a payment form.',
+    excerpt: 'Taking the payment is the easy part. Here is the rest of the job.',
     category: 'Perspective',
     tags: ['platform', 'perspective'],
     author: 'The ETicketsGo Team',
@@ -166,16 +164,16 @@ export const POSTS: Post[] = [
     body: [
       {
         type: 'p',
-        text: 'Anyone can take a payment. A platform earns the name by handling everything around it.',
+        text: 'Anyone can take a payment. The work is everything around it.',
       },
       {
         type: 'ul',
         items: [
-          'Race-safe inventory and reserved seating',
-          'Money you can reconcile to the cent',
+          'Seat holds that stop two people buying one seat',
+          'Amounts that match your payout statement',
           'Entry that works with or without a network',
-          'Analytics that explain what sold and why',
-          'Fairness to buyers, built in',
+          'Reports that show what sold',
+          'Every fee shown to the buyer before they pay',
         ],
       },
       { type: 'p', text: 'Get those right and the checkout takes care of itself.' },

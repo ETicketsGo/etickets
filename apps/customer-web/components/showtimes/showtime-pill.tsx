@@ -106,7 +106,7 @@ export function ShowtimePill({ show }: { show: PublicShowRow }) {
       {(screen || price) && (
         <span className="mt-0.5 flex max-w-full items-center justify-center gap-1 text-caption text-text-secondary">
           {screen && <span className="truncate">{screen}</span>}
-          {screen && price && <span aria-hidden>·</span>}
+          {screen && price && <span aria-hidden>-</span>}
           {price && <span className="shrink-0">{price}</span>}
         </span>
       )}

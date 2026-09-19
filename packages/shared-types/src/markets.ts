@@ -43,6 +43,19 @@ export interface Market {
   /** ISO-4217. What a seller in this country prices and is paid in. */
   currency: string;
   /**
+   * The E.164 country calling code, without a `+`.
+   *
+   * Here because a phone number cannot be read, written or dialled without one, and this
+   * file already exists to stop country facts being retyped per feature. Two private copies
+   * of this table were in the codebase before it moved here: the notification router's and
+   * the log masker's. A third was about to be typed into the sign-in form.
+   *
+   * Shared codes are real: +1 is both the United States and Canada, and a number alone
+   * cannot tell them apart. Anything that needs the country rather than the code must ask,
+   * not infer.
+   */
+  callingCode: string;
+  /**
    * What this country calls its first-level subdivisions.
    *
    * Not cosmetic. Asking a Canadian for their "state" or an Emirati for their "province"
@@ -217,6 +230,7 @@ export const MARKETS: readonly Market[] = [
     code: 'IN',
     name: 'India',
     currency: 'INR',
+    callingCode: '91',
     regionLabel: 'State',
     regions: IN_REGIONS,
     timezones: ['Asia/Kolkata'],
@@ -225,6 +239,7 @@ export const MARKETS: readonly Market[] = [
     code: 'US',
     name: 'United States',
     currency: 'USD',
+    callingCode: '1',
     regionLabel: 'State',
     regions: US_REGIONS,
     timezones: [
@@ -241,6 +256,7 @@ export const MARKETS: readonly Market[] = [
     code: 'CA',
     name: 'Canada',
     currency: 'CAD',
+    callingCode: '1',
     regionLabel: 'Province or territory',
     regions: CA_REGIONS,
     timezones: [
@@ -257,6 +273,7 @@ export const MARKETS: readonly Market[] = [
     code: 'GB',
     name: 'United Kingdom',
     currency: 'GBP',
+    callingCode: '44',
     regionLabel: 'Nation',
     regions: GB_REGIONS,
     timezones: ['Europe/London'],
@@ -265,6 +282,7 @@ export const MARKETS: readonly Market[] = [
     code: 'AE',
     name: 'United Arab Emirates',
     currency: 'AED',
+    callingCode: '971',
     regionLabel: 'Emirate',
     regions: AE_REGIONS,
     timezones: ['Asia/Dubai'],
@@ -273,6 +291,7 @@ export const MARKETS: readonly Market[] = [
     code: 'SG',
     name: 'Singapore',
     currency: 'SGD',
+    callingCode: '65',
     regionLabel: 'Region',
     // A Singapore address has no state, province or equivalent. Asking would be asking for
     // something with no answer, so the field is simply not shown.
@@ -283,6 +302,7 @@ export const MARKETS: readonly Market[] = [
     code: 'AU',
     name: 'Australia',
     currency: 'AUD',
+    callingCode: '61',
     regionLabel: 'State or territory',
     regions: AU_REGIONS,
     timezones: [
@@ -299,6 +319,7 @@ export const MARKETS: readonly Market[] = [
     code: 'NZ',
     name: 'New Zealand',
     currency: 'NZD',
+    callingCode: '64',
     regionLabel: 'Region',
     regions: NZ_REGIONS,
     timezones: ['Pacific/Auckland', 'Pacific/Chatham'],

@@ -4,7 +4,7 @@ import { PageHero } from '@/components/marketing/blocks';
 
 export const metadata: Metadata = {
   title: 'Changelog',
-  description: 'What has shipped on ETicketsGo — from the Phase 1 platform through RC1 and beyond.',
+  description: 'What has shipped on ETicketsGo - from the Phase 1 platform through RC1 and beyond.',
   alternates: { canonical: '/changelog' },
 };
 

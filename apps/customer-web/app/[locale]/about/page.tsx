@@ -13,7 +13,7 @@ import { PageHero, NoticeBanner } from '@/components/marketing/blocks';
 export const metadata: Metadata = {
   title: 'About',
   description:
-    'ETicketsGo is an experience-commerce platform built with operational maturity — mission, vision, technology, security, and roadmap.',
+    'What ETicketsGo is for, how we build it, how we keep tickets and money safe, and what we plan to add next.',
   alternates: { canonical: '/about' },
 };
 
@@ -22,8 +22,8 @@ export default function AboutPage() {
     <>
       <PageHero
         eyebrow="About ETicketsGo"
-        title="Experience commerce, engineered to be trusted"
-        lead="We build the platform that lets organizers sell with confidence and lets attendees show up without friction."
+        title="We make ticketing software"
+        lead="Organizers use it to sell tickets and check people in. Buyers use it to book a seat and get through the door."
       />
 
       <Section>
@@ -37,9 +37,8 @@ export default function AboutPage() {
                 Our mission
               </h2>
               <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
-                Make it effortless for anyone to sell tickets and run a great event — with the
-                financial integrity, reliability, and fairness that both organizers and attendees
-                deserve.
+                Make it easy to sell tickets and run an event. An organizer should be able to check
+                every payment. A buyer should see the total before they pay.
               </p>
             </div>
             <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
@@ -50,8 +49,8 @@ export default function AboutPage() {
                 Our vision
               </h2>
               <p className="mt-3 text-[0.9375rem] leading-relaxed text-text-secondary">
-                A single experience-commerce platform for every kind of event, in every market —
-                built to scale from a community meetup to a national tour.
+                One platform for every kind of event, in every market we support. A local meetup and
+                a national tour use the same tools.
               </p>
             </div>
           </div>
@@ -61,23 +60,24 @@ export default function AboutPage() {
       <Section className="border-t border-border bg-background-subtle/30">
         <Container>
           <SectionHeading
-            eyebrow="Philosophy"
+            eyebrow="Our approach"
             title="How we build"
-            lead="The principles that shaped the platform."
+            lead="Four rules we keep to."
           />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <FeatureCard icon={Cpu} title="Technology">
-              A modular monolith with pure, tested domain rules — reliable and easy to evolve.
+              One codebase, split into modules. The rules about money and tickets are plain
+              functions with tests.
             </FeatureCard>
             <FeatureCard icon={ShieldCheck} title="Security">
-              Fail-closed defaults, no card data stored, replay-safe tickets, and full audit.
+              We store no card numbers. Each ticket code works once, and we log every sensitive
+              action.
             </FeatureCard>
-            <FeatureCard icon={Sparkles} title="Innovation">
-              Server-authoritative offline check-in that keeps the gate honest without a network.
+            <FeatureCard icon={Sparkles} title="Offline gate">
+              The gate keeps scanning with no network. The server still decides what counts.
             </FeatureCard>
-            <FeatureCard icon={Map} title="Operational maturity">
-              Backups, rollback, monitoring, and runbooks — treated as first-class, not
-              afterthoughts.
+            <FeatureCard icon={Map} title="Running it">
+              We take a backup every night and test the restore. We can put a release back.
             </FeatureCard>
           </div>
         </Container>
@@ -86,10 +86,10 @@ export default function AboutPage() {
       <Section className="border-t border-border">
         <Container>
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
-            <Stat value="Phase 3" label="Engineering complete" />
-            <Stat value="RC1" label="Production candidate" />
-            <Stat value="Offline" label="Gate check-in shipped" />
-            <Stat value="Multi-market" label="Payments ready" />
+            <Stat value="Seat maps" label="Reserved seating" />
+            <Stat value="4 providers" label="Payment gateways" />
+            <Stat value="Offline" label="Check-in at the gate" />
+            <Stat value="2 languages" label="English and French" />
           </div>
         </Container>
       </Section>
@@ -105,14 +105,17 @@ export default function AboutPage() {
           <ol className="mx-auto mt-10 max-w-2xl space-y-4">
             {[
               [
-                'First controlled pilots',
-                'Onboard early organizers, run live events, and learn from real usage.',
+                'Run the first pilots',
+                'Take on a few organizers, sell real tickets, and fix what we find.',
               ],
               [
-                'Organizer growth tooling',
-                'Deeper promotions, marketing, and self-service capabilities.',
+                'More selling tools',
+                'More ways to promote an event, and more that organizers can set up themselves.',
               ],
-              ['Platform evolution', 'Mobile apps, richer discovery, and international expansion.'],
+              [
+                'Mobile and new markets',
+                'Phone apps, better ways to find events, and more countries.',
+              ],
             ].map(([t, b], i) => (
               <li
                 key={t}
@@ -133,18 +136,18 @@ export default function AboutPage() {
 
       <Section className="border-t border-border">
         <Container className="max-w-3xl space-y-6">
-          <SectionHeading eyebrow="Company" title="Founder · Media · Careers" />
+          <SectionHeading eyebrow="Company" title="Founder, media and careers" />
           <NoticeBanner>
-            Founder bios, media resources, and open roles are <strong>placeholders</strong> for this
-            demo build and will be published as the company formalizes them.
+            Founder bios, press material and open roles are <strong>placeholders</strong> in this
+            demo build. We will publish the real ones later.
           </NoticeBanner>
         </Container>
       </Section>
 
       <Section className="border-t border-border">
         <CtaBand
-          title="Build your events on a platform that takes them seriously"
-          lead="Get started today, or reach out to learn more."
+          title="Sell your next event here"
+          lead="Create an account, or ask us a question first."
           primaryHref="/register"
           primaryLabel="Get started"
           secondaryHref="/contact"

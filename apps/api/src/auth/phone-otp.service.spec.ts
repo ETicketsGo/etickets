@@ -95,28 +95,39 @@ describe('normalisePhone', () => {
   */
   it('folds every way a person types one Indian number into one value', () => {
     for (const typed of [
-      '9704464007',
       '+91 97044 64007',
-      '09704464007',
-      '0091-9704464007',
       '+919704464007',
-      ' 97044-64007 ',
+      '0091-9704464007',
+      // The trunk zero somebody keeps when writing the number out in full.
+      '+91 097044 64007',
+      ' +91 97044-64007 ',
     ]) {
       expect(normalisePhone(typed)).toBe('+919704464007');
     }
   });
 
-  it('takes an international number at its word rather than forcing India onto it', () => {
-    // The default country applies ONLY to a bare national number. A caller who wrote a `+`
-    // has already said where they are.
+  it('takes an international number at its word', () => {
     expect(normalisePhone('+1 415 555 0132')).toBe('+14155550132');
     expect(normalisePhone('+44 20 7946 0958')).toBe('+442079460958');
   });
 
+  it('refuses a bare national number instead of guessing a country', () => {
+    /*
+      The bug this replaces: a bare ten-digit number was assumed to be Indian, and ten digits
+      is also the national length in the United States and Canada. A San Francisco number
+      became +91 4155550132 — a real number belonging to somebody in India, who received a
+      stranger's sign-in code. Both of these must be refused, not guessed at.
+    */
+    expect(() => normalisePhone('4155550132')).toThrow(/country code/i);
+    expect(() => normalisePhone('9704464007')).toThrow(/country code/i);
+    expect(() => normalisePhone('09704464007')).toThrow(/country code/i);
+  });
+
   it('refuses something that cannot be a phone number', () => {
+    // Written with a `+`, so these test the E.164 length bounds rather than the country rule.
     expect(() => normalisePhone('')).toThrow(/mobile number/i);
-    expect(() => normalisePhone('12345')).toThrow(/mobile number/i);
-    expect(() => normalisePhone('1'.repeat(20))).toThrow(/mobile number/i);
+    expect(() => normalisePhone('+12345')).toThrow(/mobile number/i);
+    expect(() => normalisePhone(`+${'1'.repeat(20)}`)).toThrow(/mobile number/i);
   });
 
   it('masks to the last four, for telling somebody where a code went', () => {
@@ -133,7 +144,7 @@ describe('PhoneOtpService.requestCode', () => {
       the platform, and nobody can rotate a code they never knew existed.
     */
     const { service, created, sent } = setup();
-    await service.requestCode('9704464007');
+    await service.requestCode('+919704464007');
 
     const row = created[0];
     const codeInMessage = /(\d{6})/.exec(sent[0].body)![1];
@@ -143,7 +154,7 @@ describe('PhoneOtpService.requestCode', () => {
 
   it('sends to the normalised number, so one person gets one code', async () => {
     const { service, sent } = setup();
-    await service.requestCode('097044 64007');
+    await service.requestCode('+91 097044 64007');
     expect(sent[0].payload.phone).toBe('+919704464007');
   });
 
@@ -151,7 +162,7 @@ describe('PhoneOtpService.requestCode', () => {
     // Two live codes double an attacker's odds and help nobody who simply pressed the
     // button twice.
     const { service, prisma } = setup();
-    await service.requestCode('9704464007');
+    await service.requestCode('+919704464007');
     expect(prisma.phoneOtp.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { consumedAt: expect.any(Date) } }),
     );
@@ -161,7 +172,7 @@ describe('PhoneOtpService.requestCode', () => {
     // The edge throttle counts requests from one CALLER. This counts messages to one
     // RECIPIENT, which is the unit that matters when the cost is somebody else's.
     const { service } = setup({ recentSends: 5 });
-    await expect(service.requestCode('9704464007')).rejects.toThrow(/too many/i);
+    await expect(service.requestCode('+919704464007')).rejects.toThrow(/too many/i);
   });
 
   it('renders the body from a CONFIGURED template, so India can be made compliant', async () => {
@@ -173,20 +184,20 @@ describe('PhoneOtpService.requestCode', () => {
     const { service, sent } = setup({
       template: 'Your ETicketsGo code is {code}. Valid {minutes} min. Do not share.',
     });
-    await service.requestCode('9704464007');
+    await service.requestCode('+919704464007');
     expect(sent[0].body).toMatch(/^Your ETicketsGo code is \d{6}\. Valid 10 min\. Do not share\.$/);
   });
 
   it('falls back to a readable default when no template is configured', async () => {
     const { service, sent } = setup();
-    await service.requestCode('9704464007');
+    await service.requestCode('+919704464007');
     expect(sent[0].body).toMatch(/\d{6}/);
     expect(sent[0].body).toMatch(/never share/i);
   });
 
   it('never returns the code to the caller', async () => {
     const { service } = setup();
-    const result = await service.requestCode('9704464007');
+    const result = await service.requestCode('+919704464007');
     expect(JSON.stringify(result)).not.toMatch(/\d{6}/);
   });
 
@@ -198,7 +209,7 @@ describe('PhoneOtpService.requestCode', () => {
       is what stops somebody "tidying" it back.
     */
     const { service, sms } = setup();
-    await service.requestCode('9704464007');
+    await service.requestCode('+919704464007');
     expect(sms.deliver).toHaveBeenCalledTimes(1);
   });
 });
@@ -219,7 +230,7 @@ describe('PhoneOtpService.verifyCode', () => {
       otpRow: await liveOtp('123456'),
       existingUser: { id: 'user-1' },
     });
-    const result = await service.verifyCode('9704464007', '123456');
+    const result = await service.verifyCode('+919704464007', '123456');
     expect(result).toEqual({ id: 'user-1', isNewAccount: false });
   });
 
@@ -230,7 +241,7 @@ describe('PhoneOtpService.verifyCode', () => {
       a password at all, only with a code, until somebody sets one.
     */
     const { service, prisma } = setup({ otpRow: await liveOtp('123456') });
-    const result = await service.verifyCode('9704464007', '123456');
+    const result = await service.verifyCode('+919704464007', '123456');
 
     expect(result.isNewAccount).toBe(true);
     const created = prisma.user.create.mock.calls[0][0].data;
@@ -244,7 +255,7 @@ describe('PhoneOtpService.verifyCode', () => {
       otpRow: await liveOtp('123456'),
       existingUser: { id: 'user-1' },
     });
-    await service.verifyCode('9704464007', '123456');
+    await service.verifyCode('+919704464007', '123456');
     expect(updates.some((u) => (u.data as Record<string, unknown>).consumedAt)).toBe(true);
   });
 
@@ -252,7 +263,7 @@ describe('PhoneOtpService.verifyCode', () => {
     // A request throttle counts requests; this counts wrong answers against ONE code, so it
     // dies after a handful however the guesses arrive — several IPs, several sessions.
     const { service, updates, row } = setup({ otpRow: await liveOtp('123456') });
-    await expect(service.verifyCode('9704464007', '000000')).rejects.toThrow(/not valid/i);
+    await expect(service.verifyCode('+919704464007', '000000')).rejects.toThrow(/not valid/i);
     expect(updates[0].data).toEqual({ attempts: { increment: 1 } });
     expect(row!.attempts).toBe(1);
   });
@@ -281,7 +292,7 @@ describe('PhoneOtpService.verifyCode', () => {
     const guesses = [...Array.from({ length: 11 }, (_, i) => String(100000 + i)), '123456'];
 
     const results = await Promise.allSettled(
-      guesses.map((guess) => service.verifyCode('9704464007', guess)),
+      guesses.map((guess) => service.verifyCode('+919704464007', guess)),
     );
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(0);
@@ -294,15 +305,15 @@ describe('PhoneOtpService.verifyCode', () => {
     // A double tap. The code is single-use, so the second must not mint a second session.
     const { service } = setup({ otpRow: await burstOtp('123456'), existingUser: { id: 'user-1' } });
     const results = await Promise.allSettled([
-      service.verifyCode('9704464007', '123456'),
-      service.verifyCode('9704464007', '123456'),
+      service.verifyCode('+919704464007', '123456'),
+      service.verifyCode('+919704464007', '123456'),
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
   });
 
   it('burns a code that has been guessed at too many times', async () => {
     const { service, updates } = setup({ otpRow: await liveOtp('123456', { attempts: 5 }) });
-    await expect(service.verifyCode('9704464007', '123456')).rejects.toThrow(/not valid/i);
+    await expect(service.verifyCode('+919704464007', '123456')).rejects.toThrow(/not valid/i);
     // Even the RIGHT code no longer works, and the row is spent rather than left to be
     // ground down further.
     expect(updates.some((u) => (u.data as Record<string, unknown>).consumedAt)).toBe(true);
@@ -317,8 +328,8 @@ describe('PhoneOtpService.verifyCode', () => {
     const none = setup({ otpRow: null });
     const wrong = setup({ otpRow: await liveOtp('123456') });
 
-    const a = await none.service.verifyCode('9704464007', '111111').catch((e) => e.message);
-    const b = await wrong.service.verifyCode('9704464007', '000000').catch((e) => e.message);
+    const a = await none.service.verifyCode('+919704464007', '111111').catch((e) => e.message);
+    const b = await wrong.service.verifyCode('+919704464007', '000000').catch((e) => e.message);
     expect(a).toBe(b);
   });
 
@@ -326,7 +337,7 @@ describe('PhoneOtpService.verifyCode', () => {
     // The query itself excludes expired rows, so an expired code is indistinguishable from
     // no code at all — which is the same answer, deliberately.
     const { service, prisma } = setup({ otpRow: null });
-    await expect(service.verifyCode('9704464007', '123456')).rejects.toThrow();
+    await expect(service.verifyCode('+919704464007', '123456')).rejects.toThrow();
     expect(prisma.phoneOtp.findFirst.mock.calls[0][0].where.expiresAt).toEqual({
       gt: expect.any(Date),
     });
@@ -351,21 +362,24 @@ describe('one mobile number, one account', () => {
     attempts: 0,
   });
 
-  it.each(['9704464007', '97044 64007', '+91 97044 64007', '09704464007', '0091 9704464007'])(
-    'reaches the same account when the number is typed as %s',
-    async (typed) => {
-      const { service, prisma } = setup({
-        otpRow: await liveCode('123456'),
-        existingUser: { id: 'user-1' },
-      });
-      await expect(service.verifyCode(typed, '123456')).resolves.toEqual({
-        id: 'user-1',
-        isNewAccount: false,
-      });
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { phone: '+919704464007' } });
-      expect(prisma.user.create).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    '+919704464007',
+    '+91 97044 64007',
+    '+91 097044 64007',
+    '0091 9704464007',
+    ' +91 97044-64007 ',
+  ])('reaches the same account when the number is typed as %s', async (typed) => {
+    const { service, prisma } = setup({
+      otpRow: await liveCode('123456'),
+      existingUser: { id: 'user-1' },
+    });
+    await expect(service.verifyCode(typed, '123456')).resolves.toEqual({
+      id: 'user-1',
+      isNewAccount: false,
+    });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { phone: '+919704464007' } });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
 
   it('signs the loser of a race for a new number into the winner’s account', async () => {
     /*
@@ -381,7 +395,7 @@ describe('one mobile number, one account', () => {
       }),
     );
 
-    await expect(service.verifyCode('9704464007', '123456')).resolves.toEqual({
+    await expect(service.verifyCode('+919704464007', '123456')).resolves.toEqual({
       id: 'user-winner',
       isNewAccount: false,
     });
@@ -393,7 +407,7 @@ describe('one mobile number, one account', () => {
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.user.create.mockRejectedValueOnce(Object.assign(new Error('Unique'), { code: 'P2002' }));
 
-    await expect(service.verifyCode('9704464007', '123456')).rejects.toMatchObject({
+    await expect(service.verifyCode('+919704464007', '123456')).rejects.toMatchObject({
       code: 'CONFLICT',
     });
   });
@@ -401,7 +415,7 @@ describe('one mobile number, one account', () => {
   it('does not disguise an unrelated database failure as a duplicate', async () => {
     const { service, prisma } = setup({ otpRow: await liveCode('123456') });
     prisma.user.create.mockRejectedValueOnce(Object.assign(new Error('down'), { code: 'P1001' }));
-    await expect(service.verifyCode('9704464007', '123456')).rejects.toMatchObject({
+    await expect(service.verifyCode('+919704464007', '123456')).rejects.toMatchObject({
       code: 'P1001',
     });
   });
@@ -409,7 +423,7 @@ describe('one mobile number, one account', () => {
   it('keeps the placeholder address in exactly the shape existing accounts already have', async () => {
     // Changing it would orphan every phone-only account created before this change.
     const { service, prisma } = setup({ otpRow: await liveCode('123456') });
-    await service.verifyCode('9704464007', '123456');
+    await service.verifyCode('+919704464007', '123456');
     expect(prisma.user.create.mock.calls[0][0].data.email).toBe(
       'phone+919704464007@users.eticketsgo.internal',
     );

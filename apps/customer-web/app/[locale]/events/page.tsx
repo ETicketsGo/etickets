@@ -350,7 +350,7 @@ export default function EventsPage() {
           id="q"
           label="Search"
           icon={Search}
-          placeholder="Artist, event or venue…"
+          placeholder="Artist, event or venue..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -407,7 +407,7 @@ export default function EventsPage() {
         <div className="flex flex-wrap items-center gap-2" role="status">
           <span className="text-caption text-text-muted">Filtered by</span>
           {applied.q && (
-            <FilterChip icon={Search} label={`“${applied.q}”`} onRemove={() => removeFilter('q')} />
+            <FilterChip icon={Search} label={`"${applied.q}"`} onRemove={() => removeFilter('q')} />
           )}
           {applied.city && (
             <FilterChip icon={MapPin} label={applied.city} onRemove={() => removeFilter('city')} />
@@ -484,7 +484,7 @@ export default function EventsPage() {
                 disabled={isFetching}
                 onClick={() => setPage((p) => p + 1)}
               >
-                {isFetching ? 'Loading…' : 'Load more'}
+                {isFetching ? 'Loading...' : 'Load more'}
               </Button>
             </div>
           )}
@@ -507,7 +507,7 @@ export default function EventsPage() {
               ? 'Other places have events on sale.'
               : hasFilters
                 ? intent
-                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' · ')
+                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
                   : 'Try removing a filter above.'
                 : 'Check back soon for new events.'
           }
@@ -590,7 +590,7 @@ function CityField({
       <datalist id="city-options">
         {options.map((c) => (
           <option key={`${c.country}-${c.city}`} value={c.city}>
-            {c.country} · {c.eventCount} event{c.eventCount === 1 ? '' : 's'}
+            {c.country} - {c.eventCount} event{c.eventCount === 1 ? '' : 's'}
           </option>
         ))}
       </datalist>

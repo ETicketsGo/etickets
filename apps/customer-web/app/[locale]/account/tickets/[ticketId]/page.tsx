@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CalendarPlus,
+  Check,
   CloudSun,
   Heart,
   MapPin,
@@ -356,7 +357,7 @@ function Timeline({ status }: { status: string }) {
                   : 'bg-background-subtle text-text-muted'
               }`}
             >
-              {s.done ? '✓' : i + 1}
+              {s.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : i + 1}
             </span>
             {i < steps.length - 1 && <span className="my-1 h-6 w-px bg-border" />}
           </div>

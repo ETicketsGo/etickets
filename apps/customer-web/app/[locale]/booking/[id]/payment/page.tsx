@@ -7,11 +7,15 @@ import { useEffect, useState } from 'react';
 import { Clock, QrCode, RefreshCcw, ShieldCheck } from 'lucide-react';
 import { api as webKit } from '@eticketsgo/web-kit';
 import { razorpayFailureReason } from '@eticketsgo/shared-types';
-import { api } from '@/lib/api';
+import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
 import { Button, ButtonLink, Card, Dialog, ErrorState, Stepper, useToast } from '@/components/ui';
 import { PriceBreakdown } from '@/components/price-breakdown';
+import { GuestBookingNotHere, GuestBookingSummary } from '@/components/guest-booking-view';
+import { forgetGuestBooking, guestTokenFor } from '@/lib/guest-session';
+import { useMounted } from '@/lib/use-mounted';
+import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 
 // The same step names as the confirmation screen, from the same messages.
@@ -64,7 +68,32 @@ function useCountdown(expiresAt: string | undefined) {
   return { expired: remaining <= 0, label: `${mm}:${ss}`, totalSeconds };
 }
 
+/**
+ * Paying for a booking, with or without an account.
+ *
+ * ── WHY THE FORK IS HERE AND NOT INSIDE ONE COMPONENT ──────────────────────────────
+ * The two paths read different endpoints and get different payloads: an account gets the
+ * fee-by-fee booking, a guest gets the four totals a guest is allowed to see. One component
+ * serving both would branch on every line that touches the booking, and the branch it got
+ * wrong would be the one that charges somebody. Two components, one decision, taken once.
+ *
+ * The decision is "does this browser hold a guest token for this booking id", not "is anybody
+ * signed in". Somebody who bought as a guest and then signed in still owns a guest booking:
+ * their account cannot read it, and the token can.
+ */
 export default function PaymentPage() {
+  const mounted = useMounted();
+  const { id } = useParams<{ id: string }>();
+  // localStorage does not exist while the server renders, so this is read after mounting.
+  const guestToken = mounted ? guestTokenFor(id) : null;
+
+  if (!mounted) return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
+  if (guestToken) return <GuestPayment id={id} anonSession={guestToken} />;
+  if (!tokenStore.access) return <GuestBookingNotHere />;
+  return <AccountPayment />;
+}
+
+function AccountPayment() {
   const k = useTranslations('storefront.checkout');
   const c = useTranslations('storefront.confirmation');
   const tx = useTranslations('common');
@@ -402,7 +431,7 @@ export default function PaymentPage() {
           {booking.items.map((i, idx) => (
             <Row
               key={idx}
-              label={`${i.quantity} × ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
+              label={`${i.quantity} x ${i.label ?? i.ticketType?.name ?? i.addOn?.name ?? i.bundle?.name ?? k('item')}`}
               value={money(i.unitPriceMinor * i.quantity, booking.currency)}
             />
           ))}
@@ -447,7 +476,7 @@ export default function PaymentPage() {
                   <option value="">{k('availableOffers')}</option>
                   {offersQ.data!.map((o) => (
                     <option key={o.code} value={o.code}>
-                      {o.code} — {o.label}
+                      {o.code} - {o.label}
                     </option>
                   ))}
                 </select>
@@ -586,6 +615,262 @@ export default function PaymentPage() {
           <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
             <ShieldCheck className="h-3.5 w-3.5" />
             {k('securePaymentNote')}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Review and pay, for a buyer with no account.
+ *
+ * ── WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────────────────────
+ * No discount box, no "keep my seats", no list of offers. Every one of those is an account
+ * endpoint: the server would refuse the call, so the control would be a button that cannot
+ * work. The hold timer stays, because a guest is on exactly the same clock as everybody else.
+ *
+ * The Razorpay path also skips the signature check the account path makes. There is no guest
+ * verify route, and there does not need to be: that call was never proof of payment anyway --
+ * the signed webhook confirms the booking, and the confirmation screen polls for it.
+ */
+function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) {
+  const k = useTranslations('storefront.checkout');
+  const c = useTranslations('storefront.confirmation');
+  const g = useTranslations('storefront.guest');
+  const tx = useTranslations('common');
+  const { money } = useFormat();
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+
+  const {
+    data: view,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ['guest-booking', id],
+    queryFn: () => api.getGuestBooking(id, anonSession),
+  });
+
+  // No deadline means no countdown to show, which is a different thing from a deadline of zero.
+  const countdown = useCountdown(view?.holdExpiresAt ?? undefined);
+
+  const pay = useMutation({
+    mutationFn: async () => {
+      const payResult = await api.payGuestBooking(id, anonSession);
+      const { clientActionUrl } = payResult;
+      if (isExternalUrl(clientActionUrl)) {
+        // Real Stripe: the hosted Checkout page. Only the signed webhook confirms the booking.
+        window.location.href = clientActionUrl;
+        return { redirected: true as const };
+      }
+      if (payResult.provider === 'razorpay' && payResult.razorpay) {
+        const rzp = payResult.razorpay;
+        const Razorpay = await loadRazorpay();
+        let failed = false;
+        const checkout = new Razorpay({
+          key: rzp.keyId,
+          order_id: rzp.orderId,
+          amount: rzp.amountMinor,
+          currency: rzp.currency,
+          name: rzp.name,
+          description: rzp.description,
+          prefill: rzp.prefill,
+          ...(rzp.upiEnabled
+            ? {
+                config: {
+                  display: {
+                    blocks: {
+                      upi: {
+                        name: k('upiBlockName'),
+                        instruments: [{ method: 'upi', flows: ['qr', 'intent'] }],
+                      },
+                    },
+                    sequence: ['block.upi'],
+                    preferences: { show_default_blocks: true },
+                  },
+                },
+              }
+            : {}),
+          handler: () => {
+            qc.invalidateQueries({ queryKey: ['guest-booking', id] });
+            router.push(`/booking/${id}/confirmation`);
+          },
+          modal: {
+            ondismiss: () => {
+              if (!failed) setError(k('paymentCancelled'));
+            },
+          },
+        });
+        checkout.on('payment.failed', (response) => {
+          failed = true;
+          setError(k(`failure.${razorpayFailureReason(response.error)}`));
+        });
+        checkout.open();
+        return { redirected: true as const };
+      }
+      // Local/dev mock. A real gateway calls our signed webhook instead.
+      await api.mockPay(id, 'succeeded');
+      return { redirected: false as const };
+    },
+    onSuccess: (result) => {
+      if (result.redirected) return;
+      qc.invalidateQueries({ queryKey: ['guest-booking', id] });
+      router.push(`/booking/${id}/confirmation`);
+    },
+    onError: (err: unknown) => {
+      const status = (err as { status?: number }).status;
+      setError(status === 402 ? k('failure.CARD_DECLINED') : k('paymentFailed'));
+    },
+  });
+
+  /*
+    Giving the tickets back early.
+
+    A 409 means guest cancel is not available for this booking. That is not a failure worth
+    alarming anybody about: the hold runs out by itself and the seats go back on sale, so the
+    screen says exactly that and stops offering the button.
+  */
+  const cancelBooking = useMutation({
+    mutationFn: () => api.cancelGuestBooking(id, anonSession),
+    onSuccess: () => {
+      setConfirmingCancel(false);
+      forgetGuestBooking(id);
+      qc.invalidateQueries({ queryKey: ['guest-booking', id] });
+      router.push('/');
+    },
+    onError: (err: unknown) => {
+      setConfirmingCancel(false);
+      const unavailable = err instanceof ApiRequestError && err.status === 409;
+      setNotice(unavailable ? g('cancelUnavailable') : null);
+      if (!unavailable) setError(k('cancelFailed'));
+      qc.invalidateQueries({ queryKey: ['guest-booking', id] });
+    },
+  });
+
+  if (isError) return <ErrorState message={k('loadError')} onRetry={() => refetch()} />;
+  if (isLoading || !view)
+    return <div className="h-72 animate-pulse rounded-lg bg-background-subtle" />;
+
+  if (view.status !== 'PENDING_PAYMENT') {
+    const statusKey = `status.${view.status}`;
+    const statusLabel = tx.has(statusKey)
+      ? tx(statusKey)
+      : view.status.replaceAll('_', ' ').toLowerCase();
+    return (
+      <Card className="mx-auto max-w-md text-center">
+        <p className="text-text-primary">{k('bookingStatus', { status: statusLabel })}</p>
+        <Button className="mt-4" onClick={() => router.push(`/booking/${id}/confirmation`)}>
+          {k('viewBooking')}
+        </Button>
+      </Card>
+    );
+  }
+
+  const expired = countdown.expired;
+
+  return (
+    <div className="mx-auto max-w-lg space-y-6">
+      <Stepper steps={BOOKING_STEPS.map((step) => c(`steps.${step}`))} current={1} />
+      <h1 className="text-h2 font-bold tracking-tight text-text-primary">{k('reviewAndPay')}</h1>
+
+      <p className="text-[0.9375rem] text-text-secondary">{g('payingAsGuest')}</p>
+
+      <div
+        className={`flex items-center justify-between rounded-md border px-4 py-3 ${
+          expired
+            ? 'border-status-error/30 bg-status-error/5'
+            : countdown.totalSeconds < 120
+              ? 'border-status-warning/30 bg-status-warning/5'
+              : 'border-border bg-background-subtle/60'
+        }`}
+      >
+        <span className="flex items-center gap-2 text-[0.9375rem] text-text-secondary">
+          <Clock className={`h-4 w-4 ${expired ? 'text-status-error' : 'text-text-muted'}`} />
+          {expired ? k('holdExpiredTitle') : k('ticketsHeldForYou')}
+        </span>
+        {!expired && (
+          <span
+            className={`font-mono text-title font-semibold tabular-nums ${
+              countdown.totalSeconds < 120 ? 'text-status-warning' : 'text-text-primary'
+            }`}
+            aria-live="polite"
+          >
+            {countdown.label}
+          </span>
+        )}
+      </div>
+
+      <GuestBookingSummary view={view} />
+
+      {error && (
+        <p role="alert" className="text-caption text-status-error">
+          {error}
+        </p>
+      )}
+      {notice && <p className="text-caption text-text-muted">{notice}</p>}
+
+      {expired ? (
+        <div className="space-y-3 text-center">
+          <p className="text-[0.9375rem] text-text-muted">{k('ticketsReleased')}</p>
+          <ButtonLink href={`/events/${view.event.slug}`} className="w-full">
+            {k('backToEvent')}
+          </ButtonLink>
+        </div>
+      ) : (
+        <>
+          <Button className="w-full" loading={pay.isPending} onClick={() => pay.mutate()}>
+            {pay.isPending
+              ? k('processing')
+              : k('payAmount', { amount: money(view.totals.totalMinor, view.currency) })}
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={pay.isPending}
+            onClick={() => setConfirmingCancel(true)}
+          >
+            {k('cancelBooking')}
+          </Button>
+          <Dialog
+            open={confirmingCancel}
+            onClose={() => setConfirmingCancel(false)}
+            title={k('cancelBookingTitle')}
+          >
+            <div className="space-y-4">
+              <p className="text-[0.9375rem] text-text-secondary">{k('cancelBookingBody')}</p>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  disabled={cancelBooking.isPending}
+                  onClick={() => setConfirmingCancel(false)}
+                >
+                  {k('keepBooking')}
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={cancelBooking.isPending}
+                  onClick={() => cancelBooking.mutate()}
+                >
+                  {k('confirmCancelBooking')}
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+
+          <p className="flex items-center justify-center gap-1.5 text-center text-caption text-text-muted">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {k('securePaymentNote')}
+          </p>
+          <p className="text-center text-caption text-text-muted">
+            {g('wantAnAccount')}{' '}
+            <Link href="/register" className="text-action-primary underline">
+              {g('createAccountLater')}
+            </Link>
           </p>
         </>
       )}

@@ -18,10 +18,12 @@ import {
   BuyerRegionField,
   type SelectableSeat,
 } from '@eticketsgo/web-kit';
-import { api, tokenStore, ApiRequestError, type SeatLayout } from '@/lib/api';
+import { api, ApiRequestError, type SeatLayout } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
+import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
+import { startGuestBooking } from '@/lib/guest-session';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { ShowHeader } from '@/components/seat-selection/show-header';
 import { TicketCount } from '@/components/seat-selection/ticket-count';
@@ -135,6 +137,44 @@ export default function SeatSelectionPage() {
   const [quantity, setQuantity] = useState<number | null>(null);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
+  /* Buying without an account. False for a signed-in customer, so their screen is unchanged. */
+  const guest = useGuestBuyer();
+
+  /*
+    ── SEATS THAT SURVIVE A TRIP TO THE SIGN-IN PAGE ─────────────────────────────────
+    Signing in navigates away and back, and this page held its seats in component state only
+    -- so the buyer returned to an empty map and had to find their seats again. The event page
+    has saved its selection for a while; this is the same idea for a seat map.
+
+    Saved by SEAT ID and re-checked against the live layout on the way back in, never restored
+    blind: a seat somebody else bought in the meantime is gone, and silently re-selecting it
+    would put a seat in the basket that the next request must refuse.
+  */
+  const selectionKey = `etg_seatsel_${sessionId}`;
+  const [restoring, setRestoring] = useState<string[] | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(selectionKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as {
+        sectionId?: string | null;
+        selected?: unknown;
+        quantity?: unknown;
+      } | null;
+      if (!saved) return;
+      const ids = Array.isArray(saved.selected)
+        ? saved.selected.filter((id): id is string => typeof id === 'string')
+        : [];
+      if (ids.length === 0) return;
+      setSectionId(saved.sectionId ?? null);
+      setQuantity(typeof saved.quantity === 'number' ? saved.quantity : null);
+      setRestoring(ids);
+    } catch {
+      /* A browser that will not read it simply starts with an empty map. */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionKey]);
+
   /*
     What we know about every seat the customer has SEEN, not just the block on screen.
 
@@ -167,6 +207,34 @@ export default function SeatSelectionPage() {
       return next;
     });
   }, [layout]);
+
+  /* Put a saved selection back, keeping only the seats that are still free to take. */
+  useEffect(() => {
+    if (!restoring || !layout || layout.view !== 'seats') return;
+    const free = new Set<string>();
+    for (const section of layout.sections) {
+      for (const row of section.rows) {
+        for (const seat of row.seats) if (seat.status === 'AVAILABLE') free.add(seat.id);
+      }
+    }
+    const kept = restoring.filter((id) => free.has(id));
+    if (kept.length > 0) setSelected(kept);
+    setRestoring(null);
+  }, [restoring, layout]);
+
+  /*
+    And keep it saved. Nothing is written while a restore is still pending, or the empty
+    starting state would erase the very value being restored.
+  */
+  useEffect(() => {
+    if (restoring) return;
+    try {
+      if (selected.length === 0) localStorage.removeItem(selectionKey);
+      else localStorage.setItem(selectionKey, JSON.stringify({ sectionId, selected, quantity }));
+    } catch {
+      /* ignore */
+    }
+  }, [selectionKey, restoring, sectionId, selected, quantity]);
 
   const categoriesById = useMemo(() => {
     const map = new Map<string, SeatLayout['categories'][number]>();
@@ -308,11 +376,6 @@ export default function SeatSelectionPage() {
 
   const book = useMutation({
     mutationFn: async () => {
-      if (!tokenStore.access) {
-        router.push(`/login?next=/shows/${sessionId}`);
-        throw new Error('login');
-      }
-      const me = await api.me();
       const bookingItems = Array.from(grouped.entries())
         .map(([catId, entry]) => {
           const cat = categoriesById.get(catId);
@@ -328,19 +391,40 @@ export default function SeatSelectionPage() {
         quantity: number;
         seatIds: string[];
       }[];
-      return api.createBooking({
+      const order = {
         eventSessionId: sessionId,
         items: bookingItems,
         // Carried through, so the price quoted on this screen is the price booked.
         ...(appliedCode && !codeRejected ? { couponCode: appliedCode } : {}),
-        buyerName: me.fullName,
-        buyerEmail: me.email,
         ...(buyerRegion ? { buyerRegion } : {}),
-      });
+      };
+      /*
+        A guest buys through the guest route. `startBooking` has already validated the name
+        and the email, and this re-reads them rather than trusting a copy.
+      */
+      if (guest.asGuest) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        return startGuestBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
+      }
+      const me = await api.me();
+      return api.createBooking({ ...order, buyerName: me.fullName, buyerEmail: me.email });
     },
-    onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
+    onSuccess: (booking) => {
+      /*
+        The seats are held now, so the saved selection has done its job. Leaving it behind
+        would put an already-bought seat back in the basket on the way past this page again.
+      */
+      try {
+        localStorage.removeItem(selectionKey);
+      } catch {
+        /* ignore */
+      }
+      router.push(nextStepAfterBooking(booking));
+    },
     onError: (e) => {
-      if ((e as Error).message === 'login') return;
+      // 'details' is the guest form talking to itself: the fields already say what is missing.
+      if ((e as Error).message === 'details') return;
       /*
         Only a seat that is genuinely gone justifies emptying the cart. A conflict means pick
         again; anything identifiably about the show means read this and try again, with the
@@ -358,6 +442,18 @@ export default function SeatSelectionPage() {
 
   const payDisabled = selected.length === 0 || book.isPending || isFetching;
   const payableMinor = quote?.totalMinor ?? total;
+
+  /**
+   * Press Pay, from the summary panel or from the bar at the bottom of a phone.
+   *
+   * Nothing is sent until the guest form is satisfied. A failed check puts focus in the field
+   * that is wrong, which also scrolls it into view -- the bar is fixed to the bottom of the
+   * screen and the form it is complaining about may be well above it.
+   */
+  const startBooking = () => {
+    if (guest.asGuest && !guest.validate()) return;
+    book.mutate();
+  };
 
   // Heading levels: the show's title is the page's h1 when we know it; otherwise the map's is.
   const MapHeading = summary ? 'h2' : 'h1';
@@ -541,7 +637,7 @@ export default function SeatSelectionPage() {
                               {name.category ? (
                                 <span className="font-normal text-text-muted">
                                   {' '}
-                                  · {name.category}
+                                  - {name.category}
                                 </span>
                               ) : null}
                             </p>
@@ -603,7 +699,7 @@ export default function SeatSelectionPage() {
                         <option value="">{k('availableOffers')}</option>
                         {offersQ.data!.map((o) => (
                           <option key={o.code} value={o.code}>
-                            {o.code} — {o.label}
+                            {o.code} - {o.label}
                           </option>
                         ))}
                       </select>
@@ -668,13 +764,19 @@ export default function SeatSelectionPage() {
               />
             </div>
 
+            {/*
+              Name and email, for somebody with no account. Only once there is something to
+              buy: an empty map does not need to ask who the buyer is.
+            */}
+            {guest.asGuest && selected.length > 0 && <GuestBuyerFields state={guest} />}
+
             {/* On phones the pay button lives in the bar at the bottom of the screen. */}
             <div className="mt-4 hidden lg:block">
               <Button
                 className="w-full"
                 loading={book.isPending}
                 disabled={payDisabled}
-                onClick={() => book.mutate()}
+                onClick={startBooking}
               >
                 {book.isPending ? s('holdingSeats') : s('proceedToPay')}
               </Button>
@@ -690,7 +792,7 @@ export default function SeatSelectionPage() {
           amount={money(payableMinor, currency)}
           pending={book.isPending}
           disabled={payDisabled}
-          onPay={() => book.mutate()}
+          onPay={startBooking}
           detailsHref={`#${SUMMARY_ID}`}
         />
       ) : null}

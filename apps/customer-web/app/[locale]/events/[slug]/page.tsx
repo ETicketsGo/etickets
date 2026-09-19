@@ -33,6 +33,8 @@ import {
 import { EventCard } from '@/components/event-card';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
+import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
+import { startGuestBooking } from '@/lib/guest-session';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { BuyerRegionField, useAuthUser } from '@eticketsgo/web-kit';
@@ -78,6 +80,13 @@ export default function EventDetailPage() {
     }
   }, [user?.lastBuyerRegion, regionTouched, buyerRegion]);
   const [qty, setQty] = useState<Record<string, number>>({});
+  /*
+    Buying without an account.
+
+    `asGuest` is false for a signed-in customer, so nothing below changes for them. For
+    everybody else it is what replaces the old silent redirect to /login.
+  */
+  const guest = useGuestBuyer();
   const [error, setError] = useState<string | null>(null);
   /*
     Which button was pressed, read by the mutation. Kept out of the request body until
@@ -295,12 +304,7 @@ export default function EventDetailPage() {
   const book = useMutation({
     mutationFn: async () => {
       if (!session || sessionStarted) throw new Error('No session selected');
-      if (!tokenStore.access) {
-        router.push('/login?next=/events/' + slug);
-        throw new Error('login');
-      }
-      const me = await api.me();
-      return api.createBooking({
+      const order = {
         eventSessionId: session.id,
         // Only sent when the buyer chose it. The server refuses CASH unless the organizer
         // enabled it, so this is a request rather than a decision.
@@ -314,17 +318,48 @@ export default function EventDetailPage() {
         bundles: bundles
           .filter((b) => (bundleQty[b.id] ?? 0) > 0)
           .map((b) => ({ bundleId: b.id, quantity: bundleQty[b.id] })),
-        buyerName: me.fullName,
-        buyerEmail: me.email,
         ...(buyerRegion ? { buyerRegion } : {}),
-      });
+      };
+      /*
+        A guest buys through the guest route, with the name and email they just typed.
+
+        `startBooking` has already validated them, so this cannot be the first place the
+        buyer learns the form was incomplete -- and it re-reads the same values rather than
+        trusting a copy, so what is sent is what is on screen.
+      */
+      if (guest.asGuest) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        return startGuestBooking({
+          ...order,
+          buyerName: buyer.name,
+          buyerEmail: buyer.email,
+        });
+      }
+      const me = await api.me();
+      return api.createBooking({ ...order, buyerName: me.fullName, buyerEmail: me.email });
     },
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
     onError: (e) => {
+      const message = (e as Error).message;
       if (e instanceof ApiRequestError) setError(e.message);
-      else if ((e as Error).message !== 'login') setError(sf('event.couldNotBook'));
+      // 'details' is the form talking to itself: the fields already say what is missing.
+      else if (message !== 'login' && message !== 'details') setError(sf('event.couldNotBook'));
     },
   });
+
+  /**
+   * Press the button.
+   *
+   * Nothing is sent until the guest form is satisfied, which is the point: a request that can
+   * only be refused for a missing name is a slower way of saying what the form can say now.
+   */
+  const startBooking = (cash: boolean) => {
+    setError(null);
+    setPayWithCash(cash);
+    if (guest.asGuest && !guest.validate()) return;
+    book.mutate();
+  };
 
   const share = async () => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
@@ -828,7 +863,7 @@ export default function EventDetailPage() {
                           price that failed to load, and it is the one thing about this event a
                           buyer most wants confirmed before they commit to a seat.
                         */}
-                            {event.isFree ? tx('state.free') : money(t.priceMinor, t.currency)} ·{' '}
+                            {event.isFree ? tx('state.free') : money(t.priceMinor, t.currency)} -{' '}
                             {soldOut ? (
                               <span className="text-status-error">{tx('state.soldOut')}</span>
                             ) : (
@@ -882,7 +917,7 @@ export default function EventDetailPage() {
                                 {a.soldOut && (
                                   <span className="text-status-error">
                                     {' '}
-                                    · {tx('state.soldOut')}
+                                    - {tx('state.soldOut')}
                                   </span>
                                 )}
                               </p>
@@ -926,7 +961,7 @@ export default function EventDetailPage() {
                                 {b.savingsMinor > 0 && (
                                   <span className="text-status-success">
                                     {' '}
-                                    ·{' '}
+                                    -{' '}
                                     {sf('event.bundleSave', {
                                       amount: money(b.savingsMinor, b.currency),
                                     })}
@@ -953,7 +988,7 @@ export default function EventDetailPage() {
                             <p className="mt-1.5 text-caption text-text-muted">
                               {sf('event.bundleIncludes', {
                                 items: b.components
-                                  .map((c) => `${c.quantity}× ${c.label}`)
+                                  .map((c) => `${c.quantity}x ${c.label}`)
                                   .join(', '),
                               })}
                             </p>
@@ -1002,6 +1037,13 @@ export default function EventDetailPage() {
                   />
                 </div>
 
+                {/*
+                  Name and email, for somebody with no account. Below the price and above the
+                  button, which is the order the buyer reads: what it costs, who it is for,
+                  then pay.
+                */}
+                {guest.asGuest && <GuestBuyerFields state={guest} />}
+
                 {error && (
                   <p role="alert" className="mt-3 text-caption text-status-error">
                     {error}
@@ -1011,11 +1053,7 @@ export default function EventDetailPage() {
                   className="mt-4 w-full"
                   loading={book.isPending && !payWithCash}
                   disabled={totalQty === 0 || book.isPending || sessionStarted}
-                  onClick={() => {
-                    setError(null);
-                    setPayWithCash(false);
-                    book.mutate();
-                  }}
+                  onClick={() => startBooking(false)}
                 >
                   {book.isPending && !payWithCash
                     ? sf('event.holdingTickets')
@@ -1037,11 +1075,7 @@ export default function EventDetailPage() {
                       className="mt-2 w-full"
                       loading={book.isPending && payWithCash}
                       disabled={totalQty === 0 || book.isPending || sessionStarted}
-                      onClick={() => {
-                        setError(null);
-                        setPayWithCash(true);
-                        book.mutate();
-                      }}
+                      onClick={() => startBooking(true)}
                     >
                       {b('payAtVenue')}
                     </Button>

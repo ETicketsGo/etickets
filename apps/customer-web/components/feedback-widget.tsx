@@ -102,7 +102,7 @@ export function FeedbackWidget() {
             label="What's on your mind?"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Tell us what's working or what could be better…"
+            placeholder="Tell us what's working or what could be better..."
             rows={4}
             error={error}
             maxLength={4000}

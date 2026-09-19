@@ -1,6 +1,9 @@
 # ETicketsGo — Documentation Index
 
-A map of the `docs/` tree. Start here.
+A map of the `docs/` tree.
+
+**Joining the team?** Read [START-HERE](START-HERE.md) first — the product, the tech stack,
+your first hour, and how we test, in one page for developers and QA.
 
 ## Product guides (`guides/`)
 

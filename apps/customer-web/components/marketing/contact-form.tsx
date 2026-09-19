@@ -41,11 +41,11 @@ export function ContactForm() {
       <div className="rounded-2xl border border-status-success/30 bg-status-success/5 p-8 text-center">
         <CheckCircle2 className="mx-auto h-10 w-10 text-status-success" />
         <h3 className="mt-4 text-lg font-semibold text-text-primary">
-          Thanks — your message is ready to send
+          Thanks - your message is ready to send
         </h3>
         <p className="mt-2 text-[0.9375rem] text-text-secondary">
           We opened your email client to deliver it. If nothing happened, email us at the address
-          listed — we&rsquo;ll get back to you soon.
+          listed - we&rsquo;ll get back to you soon.
         </p>
       </div>
     );

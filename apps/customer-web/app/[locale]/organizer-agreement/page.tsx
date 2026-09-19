@@ -48,8 +48,8 @@ export default function OrganizerAgreementPage() {
             <h2>3. Fees & payouts</h2>
             <p>
               ETicketsGo charges booking and payment-processing fees; the Organizer selects the fee
-              mode (who bears fees). Payouts settle to the Organizer’s verified account net of fees,
-              refunds, and chargebacks, per a schedule to be defined.
+              mode (who bears fees). Payouts settle to the Organizer&apos;s verified account net of
+              fees, refunds, and chargebacks, per a schedule to be defined.
             </p>
             <h2>4. Data & privacy</h2>
             <p>
@@ -64,8 +64,8 @@ export default function OrganizerAgreementPage() {
             </p>
             <h2>6. Offline check-in</h2>
             <p>
-              Where enabled, offline gate check-in is used per the platform’s runbook; the server
-              remains the entry authority and safety controls must not be circumvented.
+              Where enabled, offline gate check-in is used per the platform&apos;s runbook; the
+              server remains the entry authority and safety controls must not be circumvented.
             </p>
             <h2>7. Suspension & termination</h2>
             <p>

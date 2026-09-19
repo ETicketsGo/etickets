@@ -373,6 +373,11 @@ enum NotificationType {
   // Account security, addressed to the account holder about their own credentials.
   PASSWORD_RESET_REQUESTED
   PASSWORD_CHANGED
+
+  /// A buyer with no account asking for their booking back. Its own type rather than a second
+  /// BOOKING_CONFIRMED: this one answers an anonymous request, so it has to be rate-limited
+  /// and deduped separately from the confirmation that carries somebody's tickets.
+  GUEST_BOOKING_ACCESS
 }
 
 // Assignment lifecycle of a ticket to an attendee (identity layer, ADR-031).
@@ -1616,6 +1621,9 @@ model Booking {
   payment Payment?
   refunds Refund[]
   Receipt Receipt[]
+
+  /// Emailed links that let a buyer with no account back into this booking.
+  guestAccess GuestBookingAccess[]
 
   @@index([organizationId])
   @@index([eventId])
@@ -4078,4 +4086,47 @@ model AdminGrant {
 
   @@unique([userId, permission])
   @@index([userId])
+}
+
+/// A link that returns a buyer with no account to the booking they paid for.
+///
+/// ── WHY A ROW AND NOT A SIGNED TOKEN ──────────────────────────────────────────────
+/// A stateless HMAC cannot be withdrawn. This credential goes out by email — forwardable,
+/// stored in inboxes for years, readable by anyone who later gets into the mailbox — so the
+/// platform has to be able to stop honouring one: superseded when a fresh link is issued,
+/// and answerable to "was this opened, and when". Neither question has an answer if the only
+/// record of the token is the token. The password-reset table exists for the same reason and
+/// this follows it deliberately.
+///
+/// ── WHAT IS STORED ────────────────────────────────────────────────────────────────
+/// SHA-256 of the token and nothing else. The raw value exists for the length of one request,
+/// inside one email body, and is never written to a column or a log line. A stolen dump of
+/// this table opens no bookings.
+///
+/// Superseding is a DELETE rather than a `revokedAt`: there is no audit question a spent
+/// guest link answers that the booking's own history does not, and rows that are never
+/// removed grow without bound on the busiest table's children.
+model GuestBookingAccess {
+  id        String  @id @default(cuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the emailed token, never the token itself.
+  tokenHash String @unique
+
+  expiresAt DateTime
+
+  /// How often the link has been followed, and when it last was.
+  ///
+  /// Not analytics. A guest ticket has no account behind it, so this is the only signal that
+  /// a link has been forwarded or scraped — one booking opened forty times from nowhere is
+  /// the shape of a leaked inbox, and without a count nobody can see it.
+  openCount    Int       @default(0)
+  lastOpenedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId])
+  /// The expiry sweep's worklist.
+  @@index([expiresAt])
 }

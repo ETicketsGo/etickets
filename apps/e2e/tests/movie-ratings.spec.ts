@@ -195,7 +195,7 @@ test.describe('film ratings', () => {
         rating: 4,
         comment: 'Tense, clever, and gorgeous in IMAX.',
       });
-      await expect(page.getByText('Thanks — your rating is in.')).toBeVisible();
+      await expect(page.getByText('Thanks - your rating is in.')).toBeVisible();
     });
 
     test('a viewer whose show has not started is told when they can rate', async ({ page }) => {

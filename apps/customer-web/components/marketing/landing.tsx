@@ -50,15 +50,15 @@ export function MarketingLanding() {
         <Container className="pb-16 pt-16 sm:pb-24 sm:pt-24">
           <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
-              <Eyebrow>Experience commerce platform</Eyebrow>
+              <Eyebrow>Ticketing platform</Eyebrow>
               <h1 className="mt-5 text-balance text-4xl font-bold leading-[1.08] tracking-tight text-text-primary sm:text-5xl lg:text-6xl">
                 Sell tickets. Check in guests.{' '}
                 <span className="text-action-primary">Grow every event.</span>
               </h1>
               <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-text-secondary">
-                ETicketsGo gives organizers everything to run a great event — ticketing, reserved
-                seating, payments, coupons, offline gate check-in, and analytics — while attendees
-                get a fast, secure, mobile-first booking experience.
+                ETicketsGo runs your box office. Sell tickets, reserve seats, take payments, and
+                scan people in at the gate. Buyers get a clear checkout and a QR ticket on their
+                phone.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <PrimaryLink href="/register?intent=organizer">
@@ -67,16 +67,16 @@ export function MarketingLanding() {
                 <SecondaryLink href="/events">Browse live events</SecondaryLink>
               </div>
               <p className="mt-5 text-caption text-text-muted">
-                No setup fees to start · Mock payments in demo · Cancel anytime
+                No setup fee. The demo uses mock payments. Cancel anytime.
               </p>
             </div>
             <HeroPreview />
           </div>
           <div className="mt-16 grid grid-cols-2 gap-6 border-t border-border pt-10 sm:grid-cols-4">
-            <Stat value="15 states" label="Ticket states modelled" />
-            <Stat value="4 gateways" label="Payment providers" />
-            <Stat value="Offline" label="Gate check-in ready" />
-            <Stat value="Real-time" label="Sales analytics" />
+            <Stat value="Seat maps" label="Reserved seating" />
+            <Stat value="4 providers" label="Payment gateways" />
+            <Stat value="Offline" label="Check-in at the gate" />
+            <Stat value="Live" label="Sales reports" />
           </div>
         </Container>
       </div>
@@ -85,9 +85,9 @@ export function MarketingLanding() {
       <Section className="border-b border-border">
         <Container>
           <SectionHeading
-            eyebrow="Built for every experience"
-            title="One platform for every kind of event"
-            lead="From a single comedy night to a multi-day festival or a cinema chain — model it, sell it, and check it in."
+            eyebrow="Event types"
+            title="Sell tickets for any kind of event"
+            lead="One comedy night, a three-day festival, or every screen in a cinema chain."
           />
           <div className="mt-10 flex flex-wrap justify-center gap-3">
             {CATEGORIES.map((c) => (
@@ -107,34 +107,34 @@ export function MarketingLanding() {
       <Section id="capabilities" className="border-b border-border bg-background-subtle/30">
         <Container>
           <SectionHeading
-            eyebrow="Platform capabilities"
-            title="Everything you need, nothing you don't"
-            lead="A complete toolset that scales from your first event to your busiest on-sale."
+            eyebrow="What you get"
+            title="Ticketing, seating, payments, check-in"
+            lead="You set all of it up in one place, and the parts read the same data."
           />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard icon={Ticket} title="Event & ticket management">
-              Publish events with sessions and tiered ticket types, edit inventory safely, and track
-              sales in real time.
+            <FeatureCard icon={Ticket} title="Events and tickets">
+              Publish an event with its sessions and ticket types. Change the inventory later, and
+              watch sales as they come in.
             </FeatureCard>
             <FeatureCard icon={Armchair} title="Reserved seating">
-              Interactive seat maps with atomic, race-safe holds so two buyers never land the same
-              seat.
+              Buyers pick their seats on a map. We hold each seat, so two people cannot buy the same
+              one.
             </FeatureCard>
-            <FeatureCard icon={CreditCard} title="Payments & payouts">
-              Multi-country, multi-provider routing with failover, reconciliation, and organizer
-              payouts.
+            <FeatureCard icon={CreditCard} title="Payments and payouts">
+              We send each payment to a provider that works in your country. You get a payout
+              statement you can check.
             </FeatureCard>
-            <FeatureCard icon={Tag} title="Coupons & promotions">
-              Percentage or fixed-amount discount codes with limits and date windows, applied at
-              checkout.
+            <FeatureCard icon={Tag} title="Coupons">
+              Hand out discount codes for a percentage or a fixed amount. Set how many people can
+              use each code, and until when.
             </FeatureCard>
             <FeatureCard icon={WifiOff} title="Offline gate check-in">
-              Keep scanning when the venue Wi-Fi drops — signed device manifests, durable queue, and
-              a server-authoritative reconcile.
+              The venue Wi-Fi can drop and the queue keeps moving. Each device holds a signed list
+              of tickets and stores its scans until it can sync.
             </FeatureCard>
-            <FeatureCard icon={BarChart3} title="Analytics & reports">
-              Sales, revenue, conversion, refunds, check-in rate, and payment health — exportable to
-              CSV.
+            <FeatureCard icon={BarChart3} title="Reports">
+              See sales, revenue, refunds, and how many people checked in. Download any report as a
+              CSV file.
             </FeatureCard>
           </div>
         </Container>
@@ -147,33 +147,33 @@ export function MarketingLanding() {
             <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
               <Eyebrow>For organizers</Eyebrow>
               <h3 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">
-                Run a professional box office
+                Run your box office
               </h3>
               <ul className="mt-6 space-y-3.5">
-                <CheckItem>Create events in a guided wizard with drafts and review</CheckItem>
-                <CheckItem>Live sales dashboard and full attendee export for the door</CheckItem>
-                <CheckItem>Coupons, fee modes, and per-event refund policies</CheckItem>
-                <CheckItem>Offline check-in with device lifecycle controls</CheckItem>
-                <CheckItem>Finance reconciliation and payout statements</CheckItem>
+                <CheckItem>Build an event step by step, and save a draft first</CheckItem>
+                <CheckItem>Watch sales live, and download the door list</CheckItem>
+                <CheckItem>Set coupons, who pays the fees, and a refund window</CheckItem>
+                <CheckItem>Approve the devices that scan at the gate</CheckItem>
+                <CheckItem>Check every payment against your payout statement</CheckItem>
               </ul>
               <PrimaryLink href="/organizers" className="mt-8">
-                Explore the organizer platform <ArrowRight className="h-4 w-4" />
+                See what organizers get <ArrowRight className="h-4 w-4" />
               </PrimaryLink>
             </div>
             <div className="rounded-3xl border border-border bg-background-surface p-8 shadow-sm">
               <Eyebrow>For attendees</Eyebrow>
               <h3 className="mt-4 text-2xl font-bold tracking-tight text-text-primary">
-                Book in seconds, get in fast
+                Book on a phone, get in fast
               </h3>
               <ul className="mt-6 space-y-3.5">
-                <CheckItem>Discover events and pick seats on a clear, fast map</CheckItem>
-                <CheckItem>Transparent pricing — see the total before you pay</CheckItem>
-                <CheckItem>Secure QR tickets that work offline at the gate</CheckItem>
-                <CheckItem>Wallet passes and easy sharing or transfer</CheckItem>
-                <CheckItem>Simple refunds within the event&rsquo;s window</CheckItem>
+                <CheckItem>Find an event and pick your seats on a map</CheckItem>
+                <CheckItem>See the full total before you pay</CheckItem>
+                <CheckItem>Your QR ticket opens without a signal</CheckItem>
+                <CheckItem>Add the ticket to a wallet, or send it to a friend</CheckItem>
+                <CheckItem>Ask for a refund inside the refund window</CheckItem>
               </ul>
               <SecondaryLink href="/customers" className="mt-8">
-                See the attendee experience <ArrowRight className="h-4 w-4" />
+                See what buyers get <ArrowRight className="h-4 w-4" />
               </SecondaryLink>
             </div>
           </div>
@@ -187,18 +187,17 @@ export function MarketingLanding() {
             <div>
               <Eyebrow>Never miss a scan</Eyebrow>
               <h2 className="mt-4 text-3xl font-bold tracking-tight text-text-primary sm:text-4xl">
-                Offline check-in that stays honest
+                Check people in without a network
               </h2>
               <p className="mt-4 text-lg leading-relaxed text-text-secondary">
-                Venue networks fail at the worst moment. ETicketsGo keeps the gate moving with
-                cryptographically-signed device manifests and a durable local queue — then the
-                server reconciles every scan when you reconnect. A rejected scan can never be turned
-                into an admission.
+                Venue networks fail at the worst moment. Each approved device carries a signed list
+                of tickets and keeps its scans on the device. The server checks every scan when the
+                device reconnects. A scan the device rejected can never become an admission.
               </p>
               <ul className="mt-6 space-y-3.5">
-                <CheckItem>Signed, device-scoped manifests — no secrets on the device</CheckItem>
-                <CheckItem>Controlled activation with audited go / no-go gates</CheckItem>
-                <CheckItem>Reconciliation console and live command center</CheckItem>
+                <CheckItem>The device holds no signing key</CheckItem>
+                <CheckItem>Someone has to approve each device before it scans</CheckItem>
+                <CheckItem>A console shows you every scan once it syncs</CheckItem>
               </ul>
             </div>
             <div className="flex justify-center">
@@ -214,11 +213,11 @@ export function MarketingLanding() {
                 </div>
                 <div className="mt-5 space-y-2">
                   <div className="flex items-center justify-between rounded-lg bg-status-success/10 px-3 py-2 text-caption">
-                    <span className="font-medium text-status-success">Accepted · queued</span>
+                    <span className="font-medium text-status-success">Accepted, queued</span>
                     <span className="text-text-muted">A-101</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-background-subtle px-3 py-2 text-caption">
-                    <span className="text-text-secondary">12 queued · syncing on reconnect</span>
+                    <span className="text-text-secondary">12 queued, syncing on reconnect</span>
                   </div>
                 </div>
               </div>
@@ -231,23 +230,25 @@ export function MarketingLanding() {
       <Section className="border-b border-border">
         <Container>
           <SectionHeading
-            eyebrow="Built to be trusted"
-            title="Secure, reliable, and fair by design"
-            lead="Financial integrity and attendee trust are engineered in — not bolted on."
+            eyebrow="Security and money"
+            title="How we protect tickets and money"
+            lead="We store amounts as whole units, and every ticket code works once."
           />
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <FeatureCard icon={ShieldCheck} title="Secure by default">
-              Fail-closed production config, no card data stored, and a full immutable audit trail.
+              We do not store card numbers. The app refuses to start when a production setting is
+              unsafe.
             </FeatureCard>
-            <FeatureCard icon={QrCode} title="Replay-safe tickets">
-              Rotating signed QR codes with single-use, atomic check-in — no double entry.
+            <FeatureCard icon={QrCode} title="Tickets that work once">
+              Each QR code is signed and changes over time. The gate accepts it once, so nobody gets
+              in twice.
             </FeatureCard>
-            <FeatureCard icon={Wallet} title="Money you can reconcile">
-              Integer-precise amounts, idempotent transitions, and finance reconciliation.
+            <FeatureCard icon={Wallet} title="Money you can check">
+              We store amounts as whole units, never as rounded decimals. Repeating a request does
+              not charge twice.
             </FeatureCard>
             <FeatureCard icon={Users} title="Fair to buyers">
-              Transparent fees, honest refunds, and a server that&rsquo;s always the source of
-              truth.
+              Buyers see every fee before they pay. Refunds follow the window shown on the event.
             </FeatureCard>
           </div>
         </Container>
@@ -258,8 +259,8 @@ export function MarketingLanding() {
         <Container>
           <SectionHeading
             eyebrow="Simple pricing"
-            title="Plans that scale with your events"
-            lead="Start free, grow into advanced tooling. Final pricing is being finalized — figures below are illustrative."
+            title="Three plans"
+            lead="Start on the free plan. The prices below are placeholders while we set the real ones."
           />
           <div className="mx-auto mt-12 grid max-w-5xl gap-6 lg:grid-cols-3">
             <PlanCard
@@ -272,10 +273,10 @@ export function MarketingLanding() {
             <PlanCard
               name="Professional"
               price="From 2%"
-              blurb="For growing organizers who sell regularly."
+              blurb="For organizers who sell regularly."
               features={[
                 'Reserved seating',
-                'Coupons & promotions',
+                'Coupons and promotions',
                 'Offline check-in',
                 'Full analytics + CSV',
               ]}
@@ -288,7 +289,7 @@ export function MarketingLanding() {
               blurb="For venues, chains, and high-volume sellers."
               features={[
                 'Multi-provider payments',
-                'SLA & priority support',
+                'SLA and priority support',
                 'Advanced controls',
                 'Onboarding',
               ]}
@@ -296,7 +297,7 @@ export function MarketingLanding() {
             />
           </div>
           <p className="mt-6 text-center text-caption text-text-muted">
-            Illustrative placeholder pricing — see the{' '}
+            These prices are placeholders. See the{' '}
             <Link href="/pricing" className="font-medium text-action-primary hover:underline">
               full pricing page
             </Link>
@@ -309,14 +310,14 @@ export function MarketingLanding() {
       <Section className="border-b border-border">
         <Container>
           <SectionHeading
-            eyebrow="Loved by organizers"
-            title="What teams say"
-            lead="Placeholder testimonials for demonstration."
+            eyebrow="Testimonials"
+            title="Sample quotes"
+            lead="These quotes are placeholders. They are not from real customers."
           />
           <div className="mt-12 grid gap-6 lg:grid-cols-3">
             {[
               {
-                q: 'We moved our whole on-sale to ETicketsGo and the gate finally stopped being a bottleneck.',
+                q: 'We moved our whole on-sale to ETicketsGo and the gate stopped being a bottleneck.',
                 a: 'Festival Director',
                 c: 'Placeholder',
               },
@@ -326,7 +327,7 @@ export function MarketingLanding() {
                 c: 'Placeholder',
               },
               {
-                q: 'The analytics tell us what actually sells. Refunds and payouts just reconcile.',
+                q: 'The reports tell us what sells. Refunds and payouts add up.',
                 a: 'Promoter',
                 c: 'Placeholder',
               },
@@ -336,7 +337,7 @@ export function MarketingLanding() {
                 className="rounded-2xl border border-border bg-background-surface p-6 shadow-sm"
               >
                 <blockquote className="text-[0.9375rem] leading-relaxed text-text-secondary">
-                  “{t.q}”
+                  &quot;{t.q}&quot;
                 </blockquote>
                 <figcaption className="mt-5 flex items-center gap-3">
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-caption font-semibold text-action-primary">
@@ -361,19 +362,19 @@ export function MarketingLanding() {
             {[
               [
                 'Is ETicketsGo free to start?',
-                'Yes — you can create events and explore the platform. Live payments require completing payment onboarding; the demo uses mock payments.',
+                'Yes. You can create events and look around. To take real payments you finish payment onboarding first. The demo uses mock payments.',
               ],
               [
                 'Do I need internet to check people in?',
-                'No. Offline gate check-in keeps scanning with a signed manifest and a durable queue, then reconciles with the server on reconnect.',
+                'No. The gate app scans from a signed list of tickets and stores each scan. The server checks them all when the device reconnects.',
               ],
               [
                 'Which payment providers are supported?',
-                'The platform routes across multiple providers (e.g. Stripe, Razorpay, PayPal, Square) by country and currency, with failover.',
+                'We route each payment by country and currency, and try another provider if one is down. Stripe, Razorpay, PayPal and Square are supported.',
               ],
               [
                 'Can attendees get refunds?',
-                'Yes, within each event’s refund window (a default cut-off before the session), subject to the organizer’s policy.',
+                'Yes, up to the cut-off on the event. The default cut-off is 48 hours before the session, and the organizer can set their own.',
               ],
             ].map(([q, a]) => (
               <details
@@ -406,8 +407,8 @@ export function MarketingLanding() {
       {/* ── Final CTA ── */}
       <Section>
         <CtaBand
-          title="Ready to run your next event on ETicketsGo?"
-          lead="Create your account and publish your first event in minutes."
+          title="Put your next event on ETicketsGo"
+          lead="Create an account and publish your first event."
           primaryHref="/register"
           primaryLabel="Get started free"
           secondaryHref="/contact"
@@ -452,7 +453,7 @@ function HeroPreview() {
           ))}
         </div>
         <div className="mt-4 space-y-2">
-          {['General · ₹799', 'Gold · ₹1,499'].map((row) => (
+          {['General - ₹799', 'Gold - ₹1,499'].map((row) => (
             <div
               key={row}
               className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-caption"

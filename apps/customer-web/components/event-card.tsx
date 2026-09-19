@@ -120,7 +120,7 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
           </span>
           <span className="text-[1.05rem] font-semibold text-text-primary">
             {event.fromPriceMinor == null
-              ? '—'
+              ? '-'
               : event.fromPriceMinor === 0
                 ? t('free')
                 : money(event.fromPriceMinor, event.currency)}

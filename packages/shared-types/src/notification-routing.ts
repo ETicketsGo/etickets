@@ -27,6 +27,8 @@
  * but the number is what is checked otherwise.
  */
 
+import { MARKETS } from './markets';
+
 /** Channels whose provider can differ by market. Email and push do not, today. */
 export type RoutableChannel = 'sms' | 'whatsapp';
 
@@ -38,23 +40,27 @@ export type NotificationRoute =
   | { ok: false; refusal: RouteRefusal; market: string | null };
 
 /**
- * ISO-3166 alpha-2 markets sharing each E.164 calling code, for the markets this platform
- * declares in `markets.ts`. Deliberately not a world list: a code that is not here resolves
- * to no market, which is refused rather than guessed.
+ * ISO-3166 alpha-2 markets sharing each E.164 calling code, derived from `markets.ts` so a
+ * new market cannot arrive with a code this table has never heard of. Deliberately not a
+ * world list: a code that is not here resolves to no market, which is refused rather than
+ * guessed.
  *
  * +1 is North America — the United States and Canada share it and a number cannot tell them
  * apart. That is fine when both route to the same provider, and honestly ambiguous when they
  * do not; see {@link routeNotificationProvider}.
  */
-const CALLING_CODES: ReadonlyArray<readonly [string, readonly string[]]> = [
-  ['971', ['AE']],
-  ['91', ['IN']],
-  ['65', ['SG']],
-  ['64', ['NZ']],
-  ['61', ['AU']],
-  ['44', ['GB']],
-  ['1', ['US', 'CA']],
-];
+const CALLING_CODES: ReadonlyArray<readonly [string, readonly string[]]> = (() => {
+  const byCode = new Map<string, string[]>();
+  for (const market of MARKETS) {
+    const sharing = byCode.get(market.callingCode) ?? [];
+    sharing.push(market.code);
+    byCode.set(market.callingCode, sharing);
+  }
+  // Longest first, so +971 is never read as +9 and +91 never as +9 either.
+  return [...byCode.entries()]
+    .sort(([a], [b]) => b.length - a.length || a.localeCompare(b))
+    .map(([code, markets]) => [code, markets] as const);
+})();
 
 /**
  * The market(s) an E.164 number could belong to, longest calling code first so +971 is not

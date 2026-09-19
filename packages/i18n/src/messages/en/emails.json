@@ -2,12 +2,12 @@
   "BOOKING_CONFIRMED": {
     "subjectWithEvent": "Your tickets for {event}",
     "subject": "Your booking is confirmed",
-    "body": "{count} confirmed{forEvent}{when}.{seats} Booking reference {reference}."
+    "body": "{count} confirmed{forEvent}{when}.{seats} Booking reference {reference}.{link}"
   },
   "PAYMENT_FAILED": {
     "subjectWithEvent": "Payment failed for {event}",
     "subject": "Payment failed",
-    "body": "Your payment{amount}{forEvent}{when} did not go through, and no tickets were issued.{reason}{retry} If your bank shows a debit for this attempt, it will be reversed automatically."
+    "body": "Your payment{amount}{forEvent}{when} did not go through. We did not issue any tickets.{reason}{retry} If your bank shows a charge for this attempt, it will be reversed automatically."
   },
   "paymentFailureReason": {
     "INTERNATIONAL_CARD_NOT_ACCEPTED": " The card was issued outside India, and international cards are not accepted for this payment. Use a card issued in India or another payment method.",
@@ -44,7 +44,7 @@
     "body": "Ticket {serial} has been checked in."
   },
   "ATTENDEE_INVITED": {
-    "subject": "You’ve been given a ticket",
+    "subject": "You've been given a ticket",
     "body": "You have been invited to claim a ticket{ref}. Open the link to accept it into your wallet."
   },
   "ATTENDEE_ACCEPTED": {
@@ -61,7 +61,7 @@
   },
   "SHARE_CREATED": {
     "subject": "Someone shared an experience with you",
-    "body": "You’ve been sent {permission} access. Open the link to view it: {url}"
+    "body": "You've been sent {permission} access. Open the link to view it: {url}"
   },
   "SHARE_VIEWED": {
     "subject": "Your shared link was opened",
@@ -73,7 +73,7 @@
   },
   "ORGANIZATION_REGISTERED": {
     "subject": "New organizers awaiting approval",
-    "body": "{organization} has registered and is waiting for review. Contact: {contact}. Others may have registered this hour too: you receive at most one of these emails an hour, so open the review queue to see everyone waiting. No organizer can sell tickets until an admin approves them."
+    "body": "{organization} has registered and is waiting for review. Contact: {contact}. Open the review queue to see everyone who is waiting. We send at most one of these emails an hour. An organizer cannot sell tickets until an admin approves them."
   },
   "ORGANIZATION_APPROVED": {
     "subject": "{organization} is approved",
@@ -85,19 +85,19 @@
   },
   "EVENT_SUBMITTED": {
     "subject": "Event awaiting review: {event}",
-    "body": "{organization} submitted “{event}” for review. It cannot go on sale until an admin approves it."
+    "body": "{organization} submitted '{event}' for review. It cannot go on sale until an admin approves it."
   },
   "EVENT_APPROVED": {
-    "subject": "“{event}” is approved",
-    "body": "“{event}” has been approved and is now published."
+    "subject": "'{event}' is approved",
+    "body": "'{event}' has been approved and is now published."
   },
   "EVENT_REJECTED": {
-    "subject": "“{event}” needs changes",
-    "body": "“{event}” was not approved.{reason} Make the changes and submit it again."
+    "subject": "'{event}' needs changes",
+    "body": "'{event}' was not approved.{reason} Make the changes and submit it again."
   },
   "EVENT_NOT_SELLABLE": {
-    "subject": "“{event}” is live but cannot be sold",
-    "body": "Customers can find “{event}” and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
+    "subject": "'{event}' is live but cannot be sold",
+    "body": "Customers can find '{event}' and are turned away at checkout. {reason} Open the event in your organizer console to fix it."
   },
   "generic": {
     "subject": "Notification: {type}",
@@ -121,11 +121,16 @@
     "yourOrganization": "Your organization",
     "anOrganizer": "An organizer",
     "anEvent": "an event",
-    "notProvided": "not provided"
+    "notProvided": "not provided",
+    "accessLink": " Open your tickets here, no account needed: {link}"
+  },
+  "GUEST_BOOKING_ACCESS": {
+    "subject": "Your ETicketsGo tickets",
+    "body": "Open this link to see your booking and your tickets: {link}. It is the newest link for this booking, so any earlier one has stopped working. If you did not ask for this, ignore this message - nothing about your booking has changed."
   },
   "PASSWORD_RESET_REQUESTED": {
     "subject": "Reset your ETicketsGo password",
-    "body": "Open this link to choose a new password: {link}. It works once and expires in {minutes} minutes. If you did not ask for this, ignore this message — your password has not changed."
+    "body": "Open this link to choose a new password: {link}. It works once and expires in {minutes} minutes. If you did not ask for this, ignore this message - your password has not changed."
   },
   "PASSWORD_CHANGED": {
     "subject": "Your ETicketsGo password was changed",
