@@ -100,9 +100,16 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
+      # Node 22 HERE ONLY, and not because this repo needs it.
+      #
+      # `eas-cli` depends on @oclif/plugin-autocomplete, which now declares `node >=22`, so
+      # installing the latest CLI on Node 20 fails before a build is ever requested. The
+      # `verify` job above stays on 20, which is what package.json engines declare and what
+      # every other workflow uses -- this is the EAS tooling's requirement, not ours, and it
+      # is pinned to the job that has it.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - name: Guard — EXPO_TOKEN present
         id: guard
