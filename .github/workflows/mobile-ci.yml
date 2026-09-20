@@ -119,6 +119,16 @@ jobs:
         run: echo "has_token=${{ secrets.EXPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
       - if: steps.guard.outputs.has_token == 'true'
         run: npm ci
+      # The shared packages, compiled, BEFORE eas is called.
+      #
+      # `eas build` reads metro.config.js on this runner before it uploads anything, and that
+      # config resolves the workspace packages to their compiled `dist`. Without this the CLI
+      # stops at "Cannot find module @eticketsgo/design-tokens/dist/index.js" and no build is
+      # ever queued. The EAS builder itself is already covered by the app's
+      # `eas-build-post-install` hook, which runs the same command over there — this is the
+      # near side of the same requirement, and the verify job above does it for the same reason.
+      - if: steps.guard.outputs.has_token == 'true'
+        run: npm run build -w @eticketsgo/shared-types -w @eticketsgo/validation -w @eticketsgo/design-tokens
       - if: steps.guard.outputs.has_token == 'true'
         uses: expo/expo-github-action@v8
         with:
