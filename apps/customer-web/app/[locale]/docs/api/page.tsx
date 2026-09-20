@@ -7,6 +7,16 @@ export const metadata: Metadata = {
   description:
     'ETicketsGo API conventions - authentication, pagination, errors, webhooks, and the interactive OpenAPI/Swagger reference.',
   alternates: { canonical: '/docs/api' },
+  /*
+    Kept reachable, deliberately not advertised.
+
+    The page names the webhook path, the auth scheme and the metrics endpoint. None of that is
+    secret, and none of it is useful to anybody outside either: there is no developer portal
+    and no way to obtain credentials, so it is a map with no door. It stays so that a
+    bookmarked link does not 404, and it leaves the index until there is an API somebody can
+    actually be given access to.
+  */
+  robots: { index: false, follow: true },
 };
 
 export default function ApiDocsPage() {

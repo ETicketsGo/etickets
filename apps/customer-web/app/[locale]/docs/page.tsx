@@ -4,7 +4,6 @@ import {
   CalendarPlus,
   UserCircle,
   ShieldCheck,
-  Code2,
   WifiOff,
   CreditCard,
   BarChart3,
@@ -49,12 +48,13 @@ const SECTIONS = [
     body: 'Reports, ops console, audit trail, and payment configuration.',
     href: '/features',
   },
-  {
-    icon: Code2,
-    title: 'API',
-    body: 'REST conventions, auth, pagination, errors, and webhooks (OpenAPI/Swagger).',
-    href: '/docs/api',
-  },
+  /*
+    The API reference is not listed here, and the page is still at /docs/api.
+
+    It documents an integration nobody outside can use: there is no developer portal and no
+    way to be given credentials, so listing it sends a reader to a reference they cannot act
+    on. Put it back the day there is an API somebody can be granted access to.
+  */
   {
     icon: WifiOff,
     title: 'Offline operations',
@@ -99,9 +99,9 @@ export default function DocsPage() {
       <PageHero
         eyebrow="Documentation"
         title="Everything you need to build with ETicketsGo"
-        lead="Guides for organizers, attendees, and administrators - plus API and operations references."
+        lead="Guides for organizers, attendees and administrators, plus how we run the platform."
         primary={{ href: '/register', label: 'Get started' }}
-        secondary={{ href: '/docs/api', label: 'API reference' }}
+        secondary={{ href: '/help', label: 'Help centre' }}
       />
       <Section>
         <Container>
