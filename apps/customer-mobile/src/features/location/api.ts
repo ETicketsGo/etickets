@@ -34,12 +34,25 @@ export const sellableCitySchema = z.object({
   eventCount: z.number(),
 });
 
+/**
+ * ── THIS SCHEMA HAD DRIFTED FROM THE ENDPOINT ──────────────────────────────────────
+ * It still asked for `cities`, which the API renamed to `topCities` when the response
+ * stopped being every sellable city and became a short list to offer — and a required Zod
+ * field that is never sent makes `getParsed` throw, so this call could only ever fail.
+ * Nothing noticed because nothing on a screen imports this module yet.
+ *
+ * `scopeCountry` is the other half and is the one that carries the rule: the country to
+ * filter by, set whether or not we sell there. Whoever wires this into a screen must apply
+ * it — the phone showing a customer in the United States a comedy night in Hyderabad is the
+ * exact defect the web side was just fixed for.
+ */
 export const resolvedLocationSchema = z.object({
   country: z.string().nullable(),
   city: z.string().nullable(),
   source: z.enum(['coordinates', 'network', 'device-region', 'none']),
   confident: z.boolean(),
-  cities: z.array(sellableCitySchema),
+  scopeCountry: z.string().nullable(),
+  topCities: z.array(sellableCitySchema),
 });
 
 export type SellableCity = z.infer<typeof sellableCitySchema>;
@@ -66,7 +79,8 @@ export function useResolvedLocation() {
 export interface CityPreference {
   /** The city to filter by, or null for everywhere. */
   city: string | null;
-  cities: SellableCity[];
+  /** A few cities worth offering. Named to match the endpoint, which caps it. */
+  topCities: SellableCity[];
   /** A guess not yet applied, worth offering. Null once accepted, dismissed, or chosen. */
   suggestion: ResolvedLocation | null;
   setCity: (city: string | null) => void;
@@ -118,7 +132,7 @@ export function useCityPreference(): CityPreference {
   const guess = resolved.data ?? null;
   return {
     city,
-    cities: guess?.cities ?? [],
+    topCities: guess?.topCities ?? [],
     // Only ever a suggestion on mobile: neither the device region nor the network is
     // precise enough to silently filter what somebody sees.
     suggestion: !ready || chosen || dismissed || !guess?.city ? null : guess,

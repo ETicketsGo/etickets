@@ -46,6 +46,29 @@ describe('visitorCountryFromTimeZone', () => {
     });
   });
 
+  it.each([
+    ['Asia/Calcutta', 'IN'],
+    ['US/Pacific', 'US'],
+    ['Canada/Eastern', 'CA'],
+    ['NZ', 'NZ'],
+  ])('%s, the old name browsers still answer with, resolves to %s', (zone, expected) => {
+    /*
+      The defect this pins, found in a real browser and invisible everywhere else: ask Chrome
+      for `Asia/Kolkata` and it answers `Asia/Calcutta`, because the tz database keeps the
+      pre-1996 spelling as a link and browsers resolve to the link. The lookup is an exact
+      match, so our LAUNCH MARKET produced no time-zone hint at all and discovery fell
+      through to `navigator.language` — scoping a customer in Hyderabad on an en-US browser
+      to the United States.
+
+      It mattered little while a country with no inventory quietly dropped the scope. Now the
+      scope holds whether or not we sell there, so the same customer would be shown an empty
+      storefront and told there is nothing on in the United States.
+    */
+    withTimeZone(zone, () => {
+      expect(visitorCountryFromTimeZone()).toBe(expected);
+    });
+  });
+
   it('returns null for a country the platform does not sell in', () => {
     /*
       Null rather than the country, so the caller falls through to its next signal. Scoping

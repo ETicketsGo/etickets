@@ -7,7 +7,7 @@ import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { getRecent, type RecentEvent } from '@/lib/recent';
-import { cityScope, inCityScope, useCity } from '@eticketsgo/web-kit';
+import { cityScope, countryPhrase, inCityScope, useCity } from '@eticketsgo/web-kit';
 import { Button, ButtonLink, EmptyState } from '@/components/ui';
 
 /**
@@ -131,8 +131,16 @@ export function DiscoverHome() {
       }),
   });
 
-  /** What the sections below are actually showing, for the copy that describes them. */
-  const where = preference.city ?? preference.country ?? null;
+  /**
+   * What the sections below are actually showing, for the copy that describes them.
+   *
+   * The country is named, not coded — "Nothing on in US just yet" is a database row read
+   * aloud. And it is tracked separately from the city because the way out of each differs:
+   * leaving a city lands you in the rest of the country, which for a visitor whose country
+   * we do not sell in yet is the same empty page they are already looking at.
+   */
+  const whereCountry = preference.city ? null : preference.country;
+  const where = preference.city ?? (whereCountry ? countryPhrase(whereCountry) : null);
 
   const freeEvents = useMemo(
     () => (featured.data?.data ?? []).filter((e) => e.fromPriceMinor === 0),
@@ -306,10 +314,19 @@ export function DiscoverHome() {
           */
           <EmptyState
             title={`Nothing on in ${where} just yet`}
-            hint="Other places have events on sale."
+            hint={
+              whereCountry
+                ? 'Other countries have events on sale.'
+                : 'Other places have events on sale.'
+            }
             icon={Sparkles}
             action={
-              <Button variant="secondary" onClick={() => preference.setCity(null)}>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  whereCountry ? preference.browseWorldwide() : preference.setCity(null)
+                }
+              >
                 Show me everywhere
               </Button>
             }
