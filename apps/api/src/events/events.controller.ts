@@ -340,6 +340,20 @@ export class PublicEventsController {
         paginationSchema.extend({
           q: z.string().optional(),
           city: z.string().optional(),
+          /**
+           * Specific events, by id — for a client holding a list of them, such as the
+           * "Continue exploring" rail built from what the customer has looked at.
+           *
+           * Every other rule below still applies, and that is the entire point: an event
+           * that has finished, been cancelled or been unpublished simply does not come
+           * back, so a caller cannot use this to resurrect something the catalogue has
+           * dropped. Capped, because it is a fixed-size shortlist and not a bulk export.
+           */
+          ids: z
+            .union([z.string(), z.array(z.string())])
+            .transform((v) => (Array.isArray(v) ? v : v.split(',')))
+            .pipe(z.array(z.string().trim().min(1).max(40)).max(12))
+            .optional(),
           // Either spelling — `IN` or `India`. Ignored when a city is given.
           country: z.string().trim().min(2).max(60).optional(),
           category: z.string().optional(),
@@ -357,6 +371,7 @@ export class PublicEventsController {
       pageSize: number;
       q?: string;
       city?: string;
+      ids?: string[];
       country?: string;
       category?: string;
       dateFrom?: Date;

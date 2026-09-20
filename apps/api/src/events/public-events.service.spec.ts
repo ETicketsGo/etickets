@@ -324,3 +324,56 @@ describe('PublicEventsService cards carry the venue zone', () => {
     expect(findMany.mock.calls[0][0].include.venue.select.timezone).toBe(true);
   });
 });
+
+describe('PublicEventsService.list by id', () => {
+  function makeService() {
+    const count = jest.fn().mockReturnValue(0);
+    const findMany = jest.fn().mockReturnValue([]);
+    const prisma = {
+      event: { count, findMany },
+      $transaction: jest.fn().mockResolvedValue([0, []]),
+    };
+    return { service: new PublicEventsService(prisma as never, advertised), count };
+  }
+
+  it('narrows to the ids it was given', async () => {
+    const { service, count } = makeService();
+
+    await service.list({ ids: ['a', 'b'], page: 1, pageSize: 10 });
+
+    expect(count.mock.calls[0][0].where.id).toEqual({ in: ['a', 'b'] });
+  });
+
+  it('leaves the id clause off entirely when no ids are given', async () => {
+    const { service, count } = makeService();
+
+    await service.list({ page: 1, pageSize: 10 });
+
+    expect(count.mock.calls[0][0].where.id).toBeUndefined();
+  });
+
+  it('still refuses anything the catalogue would not list anyway', async () => {
+    /*
+      The point of the filter, and the reason it is safe to expose.
+
+      It exists for the "Continue exploring" rail, which is built from ids the browser
+      remembers. That rail used to render its own stored copy of each event, so a show that
+      finished last month sat on the homepage for ever, priced and dated as it had been on
+      the day somebody looked at it — the owner's screenshot had a card reading 19 September
+      against a session the organizer had since moved to the 18th.
+
+      Asking by id fixes that only if asking cannot bypass the rules. So: still PUBLISHED,
+      still an EVENT rather than a film, and still required to have a session that has not
+      happened yet. An id is a narrowing, never a key to the back door.
+    */
+    const { service, count } = makeService();
+
+    await service.list({ ids: ['a'], page: 1, pageSize: 10 });
+
+    const where = count.mock.calls[0][0].where;
+    expect(where.status).toBe('PUBLISHED');
+    expect(where.experienceType).toBe('EVENT');
+    expect(where.sessions.some.startsAt.gte).toBeInstanceOf(Date);
+    expect(where.sessions.some.status).toEqual({ in: ['SCHEDULED', 'PAUSED'] });
+  });
+});
