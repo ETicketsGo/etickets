@@ -208,6 +208,38 @@ describe('LocationService', () => {
       expect(result.source).toBe('none');
     });
 
+    it('falls back to the country when coordinates match no city of ours', async () => {
+      /*
+        What "use my current location" actually does most of the time, and the half of it
+        that was broken in the client.
+
+        Coordinates can only ever name a city through a CINEMA carrying latitude and
+        longitude, and almost none do — so the lookup above usually finds nothing and this
+        path is the real one. The browser sends its region alongside the coordinates, and
+        when it does the answer must still be that country.
+
+        The client used to send the coordinates ALONE. With the fix missing and the lookup
+        empty, the server had no hint left and answered "we do not know" — which does not
+        mean "stay put", it clears the scope and opens the storefront to the world. Pressing
+        the one button whose purpose is to put you where you are, in New York, offered
+        Hyderabad.
+      */
+      const result = await service(
+        [venue('Mumbai')],
+        [{ city: 'Mumbai', latitude: MUMBAI.lat, longitude: MUMBAI.lng }],
+      ).resolve({
+        headers: {},
+        latitude: LONDON.lat,
+        longitude: LONDON.lng,
+        deviceRegion: 'gb',
+      });
+
+      expect(result.city).toBeNull();
+      expect(result.scopeCountry).toBe('GB');
+      // And it does NOT offer Mumbai to somebody standing in London.
+      expect(result.topCities).toEqual([]);
+    });
+
     it('ignores a nearby cinema that has nothing on sale', async () => {
       // A cinema with no upcoming shows is a building, not an answer.
       const result = await service(

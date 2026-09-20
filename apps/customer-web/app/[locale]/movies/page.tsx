@@ -138,7 +138,7 @@ export default function MoviesPage() {
           title={cityOnly ? `No films in ${place} just yet` : 'No movies match your search'}
           hint={
             countryOnly
-              ? 'Other countries have films showing.'
+              ? 'Search for a city to see what is showing there.'
               : cityOnly
                 ? 'Other places have films showing.'
                 : 'Try clearing filters.'
@@ -146,8 +146,8 @@ export default function MoviesPage() {
           icon={Film}
           action={
             countryOnly ? (
-              <Button variant="secondary" onClick={() => preference.browseWorldwide()}>
-                Show every country
+              <Button variant="secondary" onClick={() => preference.requestPicker()}>
+                Search for a city
               </Button>
             ) : cityOnly ? (
               <Button variant="secondary" onClick={() => setCity(null)}>

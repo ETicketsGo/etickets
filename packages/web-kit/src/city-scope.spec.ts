@@ -21,10 +21,11 @@ const preference = (over: Partial<CityPreference> = {}): CityPreference => ({
   chosen: false,
   setCity: () => undefined,
   clearCity: () => undefined,
-  browseWorldwide: () => undefined,
-  worldwide: false,
+  requestPicker: () => undefined,
+  pickerRequests: 0,
+  locateError: null,
   dismissSuggestion: () => undefined,
-  useMyLocation: async () => undefined,
+  useMyLocation: async () => 'refused' as const,
   locating: false,
   searchCities: async () => [],
   ...over,
@@ -73,15 +74,18 @@ describe('cityScope', () => {
     expect(cityScope(preference())).toEqual({});
   });
 
-  it('asks for everything once the customer has said they want everything', () => {
+  it('asks for one city by name, even in a country we did not put them in', () => {
     /*
-      `browseWorldwide()` is the only control that drops the country, and the hook expresses
-      that by handing this function a null country. Pinned here because the pairing is the
-      whole escape route: the scope is now applied whether or not we sell in the country, so
-      a visitor in a market we have not opened sits on an empty storefront until they press
-      it. If this ever came back as `{ country: 'US' }` the button would be decorative.
+      Searching for a city IS how somebody looks abroad — there is deliberately no "browse
+      every country" control, because a page of events on another continent is not a remedy
+      for an empty storefront. So this pairing is the whole escape route: a visitor we placed
+      in the United States searches "Hyderabad", picks it, and the request must carry the
+      city ALONE. Sending the country alongside it would ask for a Hyderabad in America and
+      hand them the empty page they were trying to leave.
     */
-    expect(cityScope(preference({ city: null, country: null, worldwide: true }))).toEqual({});
+    expect(cityScope(preference({ city: 'Hyderabad', country: 'US' }))).toEqual({
+      city: 'Hyderabad',
+    });
   });
 });
 

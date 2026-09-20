@@ -316,19 +316,20 @@ export function DiscoverHome() {
             title={`Nothing on in ${where} just yet`}
             hint={
               whereCountry
-                ? 'Other countries have events on sale.'
+                ? 'Search for a city to see what is on there.'
                 : 'Other places have events on sale.'
             }
             icon={Sparkles}
             action={
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  whereCountry ? preference.browseWorldwide() : preference.setCity(null)
-                }
-              >
-                Show me everywhere
-              </Button>
+              whereCountry ? (
+                <Button variant="secondary" onClick={() => preference.requestPicker()}>
+                  Search for a city
+                </Button>
+              ) : (
+                <Button variant="secondary" onClick={() => preference.setCity(null)}>
+                  Show me everywhere
+                </Button>
+              )
             }
           />
         ) : (

@@ -95,37 +95,17 @@ function writeStoredCity(city: string | null): void {
 }
 
 /**
- * Set when the person deliberately asked to look outside their own country.
+ * ── WHY THERE IS NO "BROWSE EVERY COUNTRY" ─────────────────────────────────────────
+ * There briefly was one, added on the reasoning that a scope needs an escape hatch. The
+ * owner's judgement, and it is the right one: somebody in the United States has no use for a
+ * list of Indian events, and neither does somebody in India for American ones. A control
+ * offering "everywhere" is not a way out, it is a way to a page of things you cannot attend.
  *
- * ── WHY THIS HAS TO BE REMEMBERED ──────────────────────────────────────────────────
- * The country scope is not a filter anybody set. It is inferred on every page load from
- * `GET /public/location/resolve`, so an override held only in React state would be undone
- * by the next navigation — "Show everywhere" would work for one page and then quietly snap
- * back, which is worse than not offering it.
- *
- * It matters more now than it did. Scoping used to fall away for a country with no
- * inventory, so nobody was ever shut in an empty storefront; now they are, correctly, and
- * this is the door out of it. A scope with no exit would just be the old bug wearing the
- * other face.
+ * The way to look somewhere else is to SEARCH for the city — which is a deliberate act with
+ * a specific place in mind, and is how a person actually thinks about it. That is why
+ * `searchCities` below is not scoped to the visitor's country: the search box IS the escape
+ * hatch, so it must find a city anywhere, and every result names its country.
  */
-const WORLDWIDE_KEY = 'etg.location.worldwide';
-
-function readStoredWorldwide(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(WORLDWIDE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeStoredWorldwide(on: boolean): void {
-  try {
-    if (on) globalThis.localStorage?.setItem(WORLDWIDE_KEY, '1');
-    else globalThis.localStorage?.removeItem(WORLDWIDE_KEY);
-  } catch {
-    /* as above: honoured for this session even if it cannot be kept */
-  }
-}
 
 export interface CityPreference {
   /** The city to filter by, or null for everywhere. */
@@ -146,32 +126,47 @@ export interface CityPreference {
    * Choose a city, or choose everywhere.
    *
    * `null` here means every city IN THE COUNTRY we believe they are in — it is what the
-   * picker's "All cities in India" does, and it keeps the country. To leave the country as
-   * well, call `browseWorldwide()`; to forget the stored choice entirely, `clearCity()`.
+   * picker's "All cities in India" does, and it keeps the country. To forget the stored
+   * choice entirely and let the next visit guess again, call `clearCity()`.
    *
    * This doc used to say the opposite, that choosing everywhere dropped the country too.
    * The implementation had already stopped doing that, for the reason written beside it: a
    * storefront in the United States leading with events in Mumbai reads as broken. Left
-   * uncorrected, the comment was an invitation to "fix" the code back — and the control it
-   * described was labelled "Browse all cities", which promised more than it did. It now says
-   * which country it stays inside, and the way out sits under it.
+   * uncorrected, the comment was an invitation to "fix" the code back. The control it
+   * describes is labelled with the country now, so nothing has to be inferred from the word
+   * "all"; leaving the country is done by searching for a city, not by a button.
    */
   setCity: (city: string | null) => void;
   /** Stop filtering by city, keeping the country scope and forgetting the stored choice. */
   clearCity: () => void;
   /**
-   * Look outside their own country, and remember that they asked to.
+   * Ask the header's picker to open, with the search box focused.
    *
-   * The one control that drops the country scope. Everything else narrows within it — see
-   * `setCity(null)`, which is "every city here". Offered wherever the page is empty because
-   * of the country, because that page has nothing else to give them.
+   * So a page that is empty because of WHERE can hand the person the one control that fixes
+   * it, instead of describing a box in the corner and hoping they find it. A counter rather
+   * than a boolean: two presses in a row must both open it, and the picker owns its own
+   * closing.
    */
-  browseWorldwide: () => void;
-  /** Whether they asked to look worldwide, so a control can show it as the active choice. */
-  worldwide: boolean;
+  requestPicker: () => void;
+  /** Incremented by `requestPicker`. The picker watches this; nothing else should. */
+  pickerRequests: number;
+  /**
+   * Why the last "use my current location" did not apply anything, or null.
+   *
+   * It used to fail in complete silence — the panel simply closed. A permission the browser
+   * refused and a coordinate fix that matched no city look identical from the outside, and
+   * both look like a broken button.
+   */
+  locateError: 'refused' | 'no-city' | null;
   dismissSuggestion: () => void;
-  /** Ask the browser for coordinates. Only ever call from a click. */
-  useMyLocation: () => Promise<void>;
+  /**
+   * Ask the browser for coordinates. Only ever call from a click.
+   *
+   * Reports what happened so the caller can decide whether to close the panel. It used to
+   * return nothing and the panel closed either way, so a refused permission and a successful
+   * fix were the same gesture from the outside — which is what made the button look dead.
+   */
+  useMyLocation: () => Promise<'applied' | 'no-city' | 'refused'>;
   locating: boolean;
   /** Prefix search over sellable cities, run on the server. */
   searchCities: (q: string) => Promise<SellableCity[]>;
@@ -186,19 +181,12 @@ export function useCityPreference(): CityPreference {
   const [chosen, setChosen] = useState<boolean>(() =>
     typeof window === 'undefined' ? false : readStoredCity() !== null,
   );
-  /*
-    The country the server told us to scope to, kept separately from whether we are applying
-    it. Holding both means "Show everywhere" and a click back are the same state flipped,
-    with no second call to the resolver and no chance of the two answers disagreeing.
-  */
-  const [resolvedCountry, setResolvedCountry] = useState<string | null>(null);
-  const [worldwide, setWorldwideState] = useState<boolean>(() =>
-    typeof window === 'undefined' ? false : readStoredWorldwide(),
-  );
-  const country = worldwide ? null : resolvedCountry;
+  const [country, setCountry] = useState<string | null>(null);
   const [topCities, setTopCities] = useState<SellableCity[]>([]);
   const [suggestion, setSuggestion] = useState<ResolvedLocation | null>(null);
   const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<'refused' | 'no-city' | null>(null);
+  const [pickerRequests, setPickerRequests] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,9 +219,9 @@ export function useCityPreference(): CityPreference {
           narrow the page but removed the filter — so the one visitor we had nothing for was
           the one shown everything. An empty country is an empty storefront that says so.
           When we do not know where somebody is at all, this stays null and the feed is
-          worldwide, because there is nothing narrower to be.
+          unscoped, because there is nothing narrower to be.
         */
-        setResolvedCountry(result.scopeCountry);
+        setCountry(result.scopeCountry);
         if (readStoredCity() === ALL_CITIES) return;
         if (readStoredCity() !== null) return; // their choice stands
         if (result.confident && result.city) {
@@ -280,25 +268,14 @@ export function useCityPreference(): CityPreference {
     // Storage cleared rather than set to '__all__': this is "I have not chosen a city",
     // not "I want everywhere", so the next visit is free to guess again.
     writeStoredCity(null);
-    // A fresh start means the country comes back too. This is the one place that forgets
-    // everything, so leaving a worldwide flag behind would make "start over" a lie.
-    setWorldwideState(false);
-    writeStoredWorldwide(false);
   }, []);
 
-  const browseWorldwide = useCallback(() => {
-    setWorldwideState(true);
-    writeStoredWorldwide(true);
-    // No city either: this is somebody looking further out, not somebody picking one place.
-    setCityState(null);
-    setChosen(true);
-    setSuggestion(null);
-    writeStoredCity(ALL_CITIES);
-  }, []);
+  const requestPicker = useCallback(() => setPickerRequests((n) => n + 1), []);
 
-  const useMyLocation = useCallback(async () => {
-    if (!globalThis.navigator?.geolocation) return;
+  const useMyLocation = useCallback(async (): Promise<'applied' | 'no-city' | 'refused'> => {
+    if (!globalThis.navigator?.geolocation) return 'refused';
     setLocating(true);
+    setLocateError(null);
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         globalThis.navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -309,17 +286,36 @@ export function useCityPreference(): CityPreference {
       const result = await api.location.resolve({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
+        /*
+          The region goes WITH the coordinates, and leaving it out was a real defect.
+
+          Coordinates only ever resolve to a city through a cinema that has latitude and
+          longitude on it, and almost none do — so for most people the coordinate lookup
+          finds nothing. With no region alongside it the server then had no hint left at all
+          and answered "we do not know", which does not mean "stay where you are": it clears
+          the country and opens the storefront to the whole world. Pressing "use my current
+          location" in New York therefore offered Hyderabad. The one button whose entire
+          purpose is to put you where you are was the one way to be sent somewhere else.
+        */
+        region: visitorCountry() ?? undefined,
       });
       setTopCities(result.topCities);
-      setResolvedCountry(result.scopeCountry);
-      // Pressing "use my location" is asking to be put back where you are, so an earlier
-      // "show everywhere" is spent — otherwise the button would appear to do nothing.
-      setWorldwideState(false);
-      writeStoredWorldwide(false);
+      setCountry(result.scopeCountry);
       // Coordinates come from a button press, so this IS their choice — persisted as one.
-      if (result.city) setCity(result.city);
+      if (result.city) {
+        setCity(result.city);
+        return 'applied';
+      }
+      // Country but no city: honest, and worth saying, because the panel would otherwise
+      // look like it had ignored the press. Common, because coordinates only ever resolve to
+      // a city through a cinema carrying latitude and longitude, and almost none do.
+      setLocateError('no-city');
+      return 'no-city';
     } catch {
-      // Declined, timed out, or nowhere near a city we serve. The picker is still open.
+      // Refused, timed out, or no position available. All the same to the person: we asked
+      // the browser and it would not say. The panel stays open and now explains itself.
+      setLocateError('refused');
+      return 'refused';
     } finally {
       setLocating(false);
     }
@@ -335,19 +331,21 @@ export function useCityPreference(): CityPreference {
     than as principled. Every row names its country, so a widened answer is never mistaken
     for a local one.
   */
+  /**
+   * Prefix search over every sellable city, ANYWHERE — deliberately not scoped.
+   *
+   * This is the only way to shop outside the country we put you in, so it has to find the
+   * place you have in mind wherever it is. It was briefly scoped to the visitor's country
+   * with a widen-if-empty fallback, which is the worst of both: somebody in the United
+   * States typing "Hyderabad" got it only because nothing American matched, so the same
+   * keystrokes would stop working the day we sell a ticket in Houston.
+   *
+   * Every result names its country beside the city, so "Springfield" is still a choice
+   * between places rather than a guess.
+   */
   const searchCities = useCallback(
-    async (q: string) => {
-      const here = await api.location
-        .cities({
-          q,
-          limit: 8,
-          ...(country ? { country } : {}),
-        })
-        .catch(() => []);
-      if (here.length > 0 || !country) return here;
-      return api.location.cities({ q, limit: 8 }).catch(() => []);
-    },
-    [country],
+    async (q: string) => api.location.cities({ q, limit: 8 }).catch(() => []),
+    [],
   );
 
   return {
@@ -359,8 +357,9 @@ export function useCityPreference(): CityPreference {
     chosen,
     setCity,
     clearCity,
-    browseWorldwide,
-    worldwide,
+    requestPicker,
+    pickerRequests,
+    locateError,
     dismissSuggestion: () => setSuggestion(null),
     useMyLocation,
     locating,
@@ -400,10 +399,11 @@ export function useCity(): CityPreference {
       chosen: false,
       setCity: () => undefined,
       clearCity: () => undefined,
-      browseWorldwide: () => undefined,
-      worldwide: false,
+      requestPicker: () => undefined,
+      pickerRequests: 0,
+      locateError: null,
       dismissSuggestion: () => undefined,
-      useMyLocation: async () => undefined,
+      useMyLocation: async () => 'refused' as const,
       locating: false,
       searchCities: async () => [],
     }
@@ -507,12 +507,20 @@ export function CityPicker({
     country,
     topCities,
     setCity,
-    browseWorldwide,
-    worldwide,
     useMyLocation,
     locating,
+    locateError,
+    pickerRequests,
     searchCities,
   } = preference ?? fromContext;
+
+  /*
+    An empty page elsewhere can ask this panel to open — see `requestPicker`. Skipped on the
+    first render, where the counter is still 0 and nobody has asked for anything.
+  */
+  useEffect(() => {
+    if (pickerRequests > 0) setOpen(true);
+  }, [pickerRequests]);
 
   // Debounced, and last-response-wins. Without the generation check a slow answer for "mu"
   // can land after the answer for "mumb" and repopulate the list with staler matches.
@@ -546,6 +554,24 @@ export function CityPicker({
       setResults(null);
       setActive(0);
     }
+  }, [open]);
+
+  /*
+    Escape closes it from wherever focus happens to be.
+
+    The panel's own `onKeyDown` only fires for keys pressed INSIDE it, and this is not a
+    focus trap on purpose — it is a filter, not a decision to defend. So focus can legally
+    sit outside while the panel is open, and there Escape did nothing at all: the overlay
+    swallowed clicks and the keyboard had no answer, which is a panel you cannot leave
+    without a mouse.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    globalThis.addEventListener?.('keydown', onKey);
+    return () => globalThis.removeEventListener?.('keydown', onKey);
   }, [open]);
 
   const shown = results ?? topCities;
@@ -644,8 +670,9 @@ export function CityPicker({
                 type="button"
                 disabled={locating}
                 onClick={async () => {
-                  await useMyLocation();
-                  setOpen(false);
+                  // Closed only when the answer changed something. Closing on a refusal hides
+                  // the explanation the person needs and looks exactly like a dead button.
+                  if ((await useMyLocation()) === 'applied') setOpen(false);
                 }}
                 className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-[0.9375rem] font-medium text-action-primary transition-colors hover:bg-background-subtle disabled:opacity-60"
               >
@@ -656,6 +683,25 @@ export function CityPicker({
                 )}
                 {locating ? 'Finding you…' : 'Use my current location'}
               </button>
+            ) : null}
+
+            {/*
+              What happened, in the panel that is still open because of it.
+
+              Stated and no more. What to do next is already on screen — the search box sits
+              directly under this, and where the country has nothing the line below says so
+              and names the box. Repeating "search for a city" twice in four inches is how a
+              panel starts to sound like it is apologising.
+            */}
+            {locateError && !locating ? (
+              <p
+                role="status"
+                className="border-b border-border bg-background-subtle px-3 py-2.5 text-caption text-text-secondary"
+              >
+                {locateError === 'refused'
+                  ? 'Your browser did not share your location.'
+                  : 'We could not find one of our cities near you.'}
+              </p>
             ) : null}
 
             <div className="relative border-b border-border">
@@ -689,12 +735,12 @@ export function CityPicker({
               {/*
                 Said plainly, because the alternative is a panel that looks like it failed to
                 load. Scoping to a country we do not sell in yet is correct and it is not
-                obvious, so the picker says so and points at the two ways to look further.
+                obvious, so the picker says so and points at the box directly above it.
               */}
               {!results && shown.length === 0 && country ? (
                 <li className="px-2.5 py-3 text-[0.9375rem] text-text-secondary">
-                  We have nothing on sale in {countryPhrase(country)} yet. Search for a city, or
-                  browse every country below.
+                  We have nothing on sale in {countryPhrase(country)} yet. To look somewhere else,
+                  search for the city above.
                 </li>
               ) : null}
 
@@ -746,42 +792,24 @@ export function CityPicker({
             </ul>
 
             {/*
-              The ways out, last and quiet — never the headline.
+              ONE way out, last and quiet — never the headline.
 
-              TWO of them, because they are different questions and one control cannot answer
-              both. "All cities in India" stops filtering by city; "every country" stops
-              filtering by country, which is the only way past a scope nobody chose. They were
-              one button reading "Browse all cities", which kept the country and so did
-              nothing at all for the visitor who most needed it: somebody in a country we do
-              not sell in yet, looking at an empty page, pressing the only button on it.
-
-              The country row is hidden when there is no country to widen out of, where it
-              would say the same thing as the row below it.
+              It widens to the country and stops there. There is deliberately no "every
+              country" beneath it: a person in the United States has no use for a page of
+              Indian events, and offering it as the remedy for an empty storefront sends them
+              somewhere they cannot buy a ticket. Looking abroad is a deliberate act with a
+              place already in mind, which is what the search box above is for.
             */}
-            {country ? (
-              <button
-                type="button"
-                onClick={() => choose(null)}
-                className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle"
-              >
-                <MapPin className="h-4 w-4 shrink-0 text-text-muted" />
-                <span className="flex-1">All cities in {countryPhrase(country)}</span>
-                {city === null ? <Check className="h-4 w-4 text-action-primary" /> : null}
-              </button>
-            ) : null}
             <button
               type="button"
-              onClick={() => {
-                browseWorldwide();
-                setOpen(false);
-              }}
+              onClick={() => choose(null)}
               className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle"
             >
               <Globe className="h-4 w-4 shrink-0 text-text-muted" />
-              <span className="flex-1">Browse every country</span>
-              {/* Ticked when the feed really is worldwide, which includes not knowing where
-                  they are — the state matters to the customer, the reason for it does not. */}
-              {worldwide || !country ? <Check className="h-4 w-4 text-action-primary" /> : null}
+              <span className="flex-1">
+                {country ? `All cities in ${countryPhrase(country)}` : 'All cities'}
+              </span>
+              {city === null ? <Check className="h-4 w-4 text-action-primary" /> : null}
             </button>
           </div>
         </>
