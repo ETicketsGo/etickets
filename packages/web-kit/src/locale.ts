@@ -27,6 +27,59 @@ const ZONE_TO_COUNTRY: Record<string, string> = Object.fromEntries(
 );
 
 /**
+ * The old names browsers still answer with, pointed at the zone `MARKETS` calls it.
+ *
+ * ── THE BUG THIS EXISTS TO FIX ─────────────────────────────────────────────────────
+ * Chrome resolves `Asia/Kolkata` and reports back `Asia/Calcutta`. The tz database keeps
+ * the pre-1996 spelling as a "backward" link, browsers resolve to the link rather than to
+ * the modern name, and the lookup above is an exact match — so for our LAUNCH MARKET the
+ * time-zone hint silently returned null and discovery fell through to `navigator.language`.
+ * An Indian customer on an en-US browser, which is an ordinary thing to be, was therefore
+ * scoped to the United States.
+ *
+ * That was survivable while a country with nothing on sale quietly dropped the scope. It is
+ * not survivable now: the scope holds whether or not we sell there, so the same customer
+ * would open the app in Hyderabad and be told there is nothing on in the United States.
+ *
+ * Only the aliases for zones we actually list. An alias for a country we do not sell in
+ * would resolve to a scope with nothing in it, which is the failure above wearing a hat.
+ */
+const ZONE_ALIASES: Record<string, string> = {
+  // India — the one that matters most, and the one browsers really do send.
+  'Asia/Calcutta': 'Asia/Kolkata',
+  // United States
+  'US/Eastern': 'America/New_York',
+  'US/Central': 'America/Chicago',
+  'US/Mountain': 'America/Denver',
+  'US/Arizona': 'America/Phoenix',
+  'US/Pacific': 'America/Los_Angeles',
+  'US/Alaska': 'America/Anchorage',
+  'US/Hawaii': 'Pacific/Honolulu',
+  'America/Indianapolis': 'America/New_York',
+  // Canada
+  'Canada/Eastern': 'America/Toronto',
+  'Canada/Pacific': 'America/Vancouver',
+  'Canada/Mountain': 'America/Edmonton',
+  'Canada/Central': 'America/Winnipeg',
+  'Canada/Atlantic': 'America/Halifax',
+  'Canada/Saskatchewan': 'America/Regina',
+  'Canada/Newfoundland': 'America/St_Johns',
+  // United Kingdom
+  GB: 'Europe/London',
+  'GB-Eire': 'Europe/London',
+  // Australia
+  'Australia/Canberra': 'Australia/Sydney',
+  'Australia/NSW': 'Australia/Sydney',
+  'Australia/Victoria': 'Australia/Melbourne',
+  'Australia/Queensland': 'Australia/Brisbane',
+  'Australia/West': 'Australia/Perth',
+  'Australia/South': 'Australia/Adelaide',
+  // New Zealand
+  NZ: 'Pacific/Auckland',
+  // Singapore / UAE have no legacy spellings in common use.
+};
+
+/**
  * The visitor's country from their TIME ZONE, or null.
  *
  * ── WHY THE ZONE BEATS THE LANGUAGE ────────────────────────────────────────────────
@@ -50,7 +103,10 @@ const ZONE_TO_COUNTRY: Record<string, string> = Object.fromEntries(
 export function visitorCountryFromTimeZone(): string | null {
   try {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return zone ? (ZONE_TO_COUNTRY[zone] ?? null) : null;
+    if (!zone) return null;
+    // The alias table second, so the modern spelling is always the cheap path and the
+    // legacy one is a fallback rather than a translation step everything goes through.
+    return ZONE_TO_COUNTRY[zone] ?? ZONE_TO_COUNTRY[ZONE_ALIASES[zone] ?? ''] ?? null;
   } catch {
     // No Intl, or a runtime that will not resolve a zone. The caller has other signals.
     return null;

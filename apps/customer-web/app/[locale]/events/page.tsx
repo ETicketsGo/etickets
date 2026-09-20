@@ -8,7 +8,7 @@ import {
   emptyResultSuggestions,
   type SearchIntent,
 } from '@eticketsgo/shared-types';
-import { cityScope, useCity, type SellableCity } from '@eticketsgo/web-kit';
+import { cityScope, countryPhrase, useCity, type SellableCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
@@ -293,10 +293,19 @@ export default function EventsPage() {
    * Distinguished from "empty with a search term in the box", where the customer already
    * knows what they typed and a location message would be a red herring.
    */
-  const placeOnly =
-    !applied.q && !applied.category && !applied.dateFrom && !applied.freeOnly
-      ? (applied.city ?? preference.country ?? null)
-      : null;
+  const nothingTyped = !applied.q && !applied.category && !applied.dateFrom && !applied.freeOnly;
+  /**
+   * Whether the place doing the emptying is the COUNTRY rather than a city.
+   *
+   * Kept apart because the way out is different, and getting it wrong is how the page ends
+   * up with a button that does nothing: widening out of a city means "all cities here",
+   * widening out of a country means leaving it. This is also now the ordinary case, not the
+   * rare one — every visitor outside a launch market arrives here.
+   */
+  const placeIsCountry = nothingTyped && !applied.city && Boolean(preference.country);
+  const placeOnly = nothingTyped
+    ? (applied.city ?? (preference.country ? countryPhrase(preference.country) : null))
+    : null;
 
   const clearFilters = () => {
     setQ('');
@@ -439,13 +448,19 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* Naming the wider scope, since it narrows the results and nobody asked for it. */}
+      {/*
+        Naming the wider scope, since it narrows the results and nobody asked for it.
+
+        `browseWorldwide` and not `setCity(null)`: the latter means "every city in this
+        country", so under a link reading "Show everywhere" it did nothing whatsoever. The
+        country is the thing being widened out of, so the country is the thing to drop.
+      */}
       {!applied.city && preference.country && (
         <p className="text-caption text-text-muted">
-          Showing events in {preference.country}.{' '}
+          Showing events in {countryPhrase(preference.country)}.{' '}
           <button
             type="button"
-            onClick={() => preference.setCity(null)}
+            onClick={() => preference.browseWorldwide()}
             className="font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             Show everywhere
@@ -503,17 +518,23 @@ export default function EventsPage() {
         <EmptyState
           title={placeOnly ? `Nothing on in ${placeOnly} just yet` : 'No events match your search'}
           hint={
-            placeOnly
-              ? 'Other places have events on sale.'
-              : hasFilters
-                ? intent
-                  ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
-                  : 'Try removing a filter above.'
-                : 'Check back soon for new events.'
+            placeIsCountry
+              ? 'Other countries have events on sale.'
+              : placeOnly
+                ? 'Other places have events on sale.'
+                : hasFilters
+                  ? intent
+                    ? emptyResultSuggestions(intent, categoryNames).slice(0, 3).join(' - ')
+                    : 'Try removing a filter above.'
+                  : 'Check back soon for new events.'
           }
           icon={Search}
           action={
-            placeOnly ? (
+            placeIsCountry ? (
+              <Button variant="secondary" onClick={() => preference.browseWorldwide()}>
+                Show every country
+              </Button>
+            ) : placeOnly ? (
               <Button
                 variant="secondary"
                 onClick={() => {

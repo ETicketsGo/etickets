@@ -240,23 +240,26 @@ describe('LocationService', () => {
       expect(result).toMatchObject({ country: 'IN', city: null, source: 'device-region' });
     });
 
-    it('refuses to hand back a country scope it cannot fill', async () => {
+    it('scopes to the country it thinks they are in, even when we sell nothing there', async () => {
       /*
-        The failure CI found, and the reason this field exists at all.
+        The owner's rule, and the reverse of what this returned before.
 
-        The e2e suite runs under a US locale against Indian inventory. With the raw country
-        hint applied, Browse asked for events in the United States, got none, and seven
-        tests failed on an empty storefront — which is exactly what a real visitor in an
-        unserved country would have seen. `resolve` has always refused to name a CITY it
-        cannot sell in; the country scope has to obey the same rule.
+        It used to null the scope for a country we had no inventory in, on the reasoning that
+        an empty storefront looks broken. But nulling a scope does not narrow a page, it
+        REMOVES the filter: the one visitor we had nothing for was the one shown everything,
+        so somebody in the United States met a storefront full of Indian events. Empty is the
+        honest answer and the empty state explains it; the picker's "Browse every country" is how
+        a person chooses to look further, deliberately.
       */
       const result = await service([venue('Mumbai', 'India')]).resolve({
         headers: {},
         deviceRegion: 'us',
       });
 
-      expect(result.country).toBe('US'); // the guess is still reported…
-      expect(result.scopeCountry).toBeNull(); // …but it is not safe to filter by
+      expect(result.country).toBe('US');
+      expect(result.scopeCountry).toBe('US');
+      // And it offers nothing, rather than offering Mumbai to somebody in Idaho.
+      expect(result.topCities).toEqual([]);
     });
 
     it('hands back a country scope when we do sell there', async () => {
@@ -292,13 +295,24 @@ describe('LocationService', () => {
       expect(result.topCities.map((c) => c.city)).toEqual(['Meridian']);
     });
 
-    it('falls back to the busiest cities anywhere when we sell nothing in their country', async () => {
-      // Better to show somewhere they could travel to than an empty picker that looks broken.
+    it('offers nothing when we sell nothing in their country, rather than another continent', async () => {
+      /*
+        A visitor in Germany is not helped by being offered Mumbai. The picker keeps its
+        search box and its "Browse every country" way out, so looking further is still one tap —
+        it is just no longer what happens to somebody who asked for nothing.
+      */
       const result = await service([venue('Mumbai', 'India')]).resolve({
         headers: {},
         deviceRegion: 'de',
       });
+      expect(result.topCities).toEqual([]);
+    });
+
+    it('still offers the busiest cities when it has no idea where they are', async () => {
+      // Not a fallback: with no country there is nothing narrower to offer than everywhere.
+      const result = await service([venue('Mumbai', 'India')]).resolve({ headers: {} });
       expect(result.topCities.map((c) => c.city)).toEqual(['Mumbai']);
+      expect(result.scopeCountry).toBeNull();
     });
 
     it('caps what it offers, because the picker is a search and not a menu', async () => {

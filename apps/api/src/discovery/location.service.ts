@@ -25,10 +25,14 @@ import { countryMatches } from '../common/country';
  * coordinate fix is applied; a country guessed from an IP header is offered.
  *
  * ── THE FAILURE THIS EXISTS TO PREVENT ─────────────────────────────────────────────
- * A city filter that silently matches nothing is worse than no filter at all: the customer
- * sees an empty homepage and concludes the platform has nothing on sale anywhere. So a
- * resolved city is only ever returned if it is a city we actually sell in — see
- * `resolve()`, which checks its own answer before handing it back.
+ * A guessed CITY that matches nothing is a filter nobody asked for and nobody can see, so a
+ * resolved city is only ever returned if it is a city we actually sell in — see `resolve()`,
+ * which checks its own answer before handing it back.
+ *
+ * The COUNTRY is deliberately not treated that way. A visitor is scoped to the country they
+ * are in whether or not we sell there, because the alternative — dropping the filter for the
+ * one person we have nothing for — shows an American a page of Indian events, which is a far
+ * more confusing answer than an empty page that explains itself.
  */
 
 /** How the answer was arrived at. The client shows different UI for each. */
@@ -67,22 +71,20 @@ export interface ResolvedLocation {
    */
   confident: boolean;
   /**
-   * The country it is SAFE to filter by, or null.
+   * The country discovery is filtered to, or null when we could not work one out.
    *
    * ── WHY THIS IS NOT JUST `country` ─────────────────────────────────────────────
-   * `country` above is the raw guess and may be anywhere on earth. This one is the guess
-   * only when we have something on sale there, and null otherwise.
+   * `country` above is the raw guess, from whichever source won. This one is the same
+   * country expressed as an instruction: filter the storefront to it. They differ only in
+   * the one case that matters — no guess at all — where `country` is null and so is this,
+   * and the storefront stays worldwide because there is nothing narrower to say.
    *
-   * The distinction is the whole feature. Scoping discovery to a country the platform does
-   * not operate in shows the visitor an empty storefront, and an empty storefront is
-   * indistinguishable from a dead company — the customer does not think "my locale is
-   * wrong", they think "there is nothing here" and leave. A guess is allowed to be wrong;
-   * it is not allowed to be wrong and invisible.
-   *
-   * This is the same rule `resolve` already applied to a guessed CITY, which was only ever
-   * returned if we could sell there. Scoping by country arrived later and did not inherit
-   * it — and the e2e suite went red the first time it ran under a US locale against Indian
-   * inventory, which is precisely the scenario.
+   * It does NOT ask whether we have inventory there, and that is the correction. It used to:
+   * a country we sold nothing in produced null, which does not narrow the page, it removes
+   * the filter — so the one visitor we had nothing for was the only one shown everything,
+   * and somebody in the United States browsed a storefront full of Indian events. Scoping
+   * to an empty country is the honest answer; the empty state says so in words, and
+   * "browse every country" is one click away for anyone who wants to look further.
    */
   scopeCountry: string | null;
 
@@ -228,17 +230,34 @@ export class LocationService {
     const inCountry = (country: string | null): SellableCity[] =>
       country ? cities.filter((c) => countryMatches(c.country, country)) : [];
 
-    /** The handful to offer up front, preferring the country we think they are in. */
-    const offer = (country: string | null): SellableCity[] => {
-      const local = inCountry(country);
-      // Falls back to the busiest cities anywhere rather than to nothing: a visitor in a
-      // country we do not sell in yet should still see somewhere they could go.
-      return (local.length ? local : cities).slice(0, RESOLVE_CITY_COUNT);
-    };
+    /**
+     * The handful to offer up front: the visitor's own country, and only that.
+     *
+     * ── WHY AN EMPTY LIST IS NOW THE RIGHT ANSWER ────────────────────────────────────
+     * This used to fall back to the busiest cities anywhere, reasoning that somewhere to
+     * travel to beats an empty picker. In practice a visitor in the United States opened the
+     * picker and was offered Hyderabad, which does not read as generous — it reads as a
+     * different company's website. We do not sell there yet, and saying so is the honest
+     * answer. "Browse every country" is still there for somebody who genuinely wants to look
+     * further, which makes leaving your own country a deliberate act rather than a default.
+     *
+     * Only when we have NO idea where they are does the busiest-anywhere list stand in, and
+     * that is not a fallback — with no country there is nothing narrower to offer.
+     */
+    const offer = (country: string | null): SellableCity[] =>
+      (country ? inCountry(country) : cities).slice(0, RESOLVE_CITY_COUNT);
 
-    /** A country worth filtering by is a country we have something to sell in. */
-    const scope = (country: string | null): string | null =>
-      inCountry(country).length ? country : null;
+    /**
+     * Discovery is scoped to where the visitor is, whether or not we sell there yet.
+     *
+     * ── WHY THIS NO LONGER ASKS WHETHER WE HAVE INVENTORY ────────────────────────────
+     * It used to return null for a country we sell nothing in, which does not narrow the
+     * page — it REMOVES the filter. So the one visitor we had nothing for was the one shown
+     * everything, and somebody in the United States got a storefront full of Indian events.
+     * An empty country now produces an empty page, which the empty state explains, and which
+     * is a true statement about this platform rather than a misleading one about them.
+     */
+    const scope = (country: string | null): string | null => country;
 
     // 1. Coordinates the person actively offered. The only source good enough to apply
     //    without asking.
@@ -282,11 +301,11 @@ export class LocationService {
       }
     }
     if (country) {
-      const inCountry = cities.filter((c) => countryMatches(c.country, country));
+      const here = inCountry(country);
       return {
         country,
         // Exactly one city in the country means there is nothing to choose between.
-        city: inCountry.length === 1 ? inCountry[0].city : null,
+        city: here.length === 1 ? here[0].city : null,
         source: 'network',
         confident: false,
         scopeCountry: scope(country),

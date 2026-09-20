@@ -22,12 +22,12 @@ export function CityChip({
 }) {
   const [open, setOpen] = useState(false);
   const { colors } = useTheme();
-  const { city, cities, setCity } = preference;
+  const { city, topCities, setCity } = preference;
 
   // Grouped by country: the same city name exists in more than one, and a flat list makes
   // a multi-market platform look like a mistake.
-  const byCountry = new Map<string, typeof cities>();
-  for (const c of cities) {
+  const byCountry = new Map<string, typeof topCities>();
+  for (const c of topCities) {
     const list = byCountry.get(c.country) ?? [];
     list.push(c);
     byCountry.set(c.country, list);
@@ -79,7 +79,7 @@ export function CityChip({
                 setOpen(false);
               }}
             />
-            {cities.length === 0 ? (
+            {topCities.length === 0 ? (
               <Text variant="footnote" tone="muted" className="px-5 py-4">
                 No cities have events on sale yet.
               </Text>

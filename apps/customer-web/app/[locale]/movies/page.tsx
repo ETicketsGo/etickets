@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Film, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { cityScope, useCity } from '@eticketsgo/web-kit';
+import { cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { MovieCard } from '@/components/movie-card';
 import { Button, EmptyState, ErrorState, Input, Select } from '@/components/ui';
@@ -30,15 +30,20 @@ export default function MoviesPage() {
   /**
    * Empty because of the LOCATION alone — not because of something the customer typed.
    *
-   * The country counts here, not just the city. A country scope is validated against the
-   * cities we sell EVENTS in, and this page sells films: on QA today a visitor with a US
-   * locale gets a working events page and an empty film shelf, because the one American
-   * venue has an event and no cinema. Validating per-catalogue would need the resolver to
-   * know what page it is on; naming the cause and offering the way out is the same answer
-   * this product already gives for a quiet city, and it works whatever the mismatch is.
+   * The country counts here, not just the city, and it is the common case rather than the
+   * exotic one: discovery scopes to the country the visitor is in whether or not we sell
+   * there, so every visitor outside our launch markets lands on this page empty. That is the
+   * intended answer, and the only thing that makes it an honest one instead of a broken one
+   * is this block — name the place, and offer the way out of it.
+   *
+   * Named, not coded: "No films in the United States just yet" is a sentence, "No films in
+   * US just yet" is a database row.
    */
-  const place = city ?? preference.country ?? null;
+  const place = city ?? (preference.country ? countryPhrase(preference.country) : null);
   const cityOnly = Boolean(place) && !applied.q && !applied.genre;
+  // Which scope is doing the emptying, because each has a different way out — "all cities"
+  // stays inside the country, and inside the country is exactly where there is nothing.
+  const countryOnly = cityOnly && !city;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['movies', applied, JSON.stringify(scope)],
@@ -131,10 +136,20 @@ export default function MoviesPage() {
         */
         <EmptyState
           title={cityOnly ? `No films in ${place} just yet` : 'No movies match your search'}
-          hint={cityOnly ? 'Other places have films showing.' : 'Try clearing filters.'}
+          hint={
+            countryOnly
+              ? 'Other countries have films showing.'
+              : cityOnly
+                ? 'Other places have films showing.'
+                : 'Try clearing filters.'
+          }
           icon={Film}
           action={
-            cityOnly ? (
+            countryOnly ? (
+              <Button variant="secondary" onClick={() => preference.browseWorldwide()}>
+                Show every country
+              </Button>
+            ) : cityOnly ? (
               <Button variant="secondary" onClick={() => setCity(null)}>
                 Show all cities
               </Button>

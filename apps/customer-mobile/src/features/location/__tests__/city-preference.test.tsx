@@ -45,14 +45,25 @@ const resolved = {
   city: 'Mumbai',
   source: 'network' as const,
   confident: false,
-  cities: [
+  scopeCountry: 'IN',
+  topCities: [
     { city: 'Mumbai', country: 'India', eventCount: 4 },
     { city: 'Bengaluru', country: 'India', eventCount: 2 },
   ],
 };
 
+/*
+  The fixture is PARSED by the real schema rather than handed back whole.
+
+  It used to be returned as-is, and that is how this file went on passing for months after
+  the endpoint renamed `cities` to `topCities`: the mock never checked, so a module that
+  could only ever throw against the live API had a green test. Parsing costs nothing and
+  turns this fixture into a statement about the endpoint instead of a statement about itself.
+*/
 jest.mock('@/services/http', () => ({
-  getParsed: jest.fn(async () => resolved),
+  getParsed: jest.fn(async (_path: string, schema: { parse: (v: unknown) => unknown }) =>
+    schema.parse(resolved),
+  ),
 }));
 
 jest.mock('@/services/locale', () => ({
@@ -166,8 +177,8 @@ describe('useCityPreference', () => {
 
   it('offers the cities to choose from', async () => {
     const result = mount();
-    await waitFor(() => expect(result.current.cities).toHaveLength(2));
-    expect(result.current.cities.map((c) => c.city)).toEqual(['Mumbai', 'Bengaluru']);
+    await waitFor(() => expect(result.current.topCities).toHaveLength(2));
+    expect(result.current.topCities.map((c) => c.city)).toEqual(['Mumbai', 'Bengaluru']);
   });
 
   it('dismissing the suggestion leaves the customer browsing everywhere', async () => {

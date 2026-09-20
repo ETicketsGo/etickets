@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cityScope, type CityPreference } from './city';
+import { cityScope, countryName, countryPhrase, type CityPreference } from './city';
 
 /**
  * What the storefront asks the API for, given where we think the customer is.
@@ -21,6 +21,8 @@ const preference = (over: Partial<CityPreference> = {}): CityPreference => ({
   chosen: false,
   setCity: () => undefined,
   clearCity: () => undefined,
+  browseWorldwide: () => undefined,
+  worldwide: false,
   dismissSuggestion: () => undefined,
   useMyLocation: async () => undefined,
   locating: false,
@@ -69,5 +71,62 @@ describe('cityScope', () => {
     // No hint must mean no filter — never a filter on an empty string, which would match
     // only venues with a blank country and show a dead platform.
     expect(cityScope(preference())).toEqual({});
+  });
+
+  it('asks for everything once the customer has said they want everything', () => {
+    /*
+      `browseWorldwide()` is the only control that drops the country, and the hook expresses
+      that by handing this function a null country. Pinned here because the pairing is the
+      whole escape route: the scope is now applied whether or not we sell in the country, so
+      a visitor in a market we have not opened sits on an empty storefront until they press
+      it. If this ever came back as `{ country: 'US' }` the button would be decorative.
+    */
+    expect(cityScope(preference({ city: null, country: null, worldwide: true }))).toEqual({});
+  });
+});
+
+describe('countryName', () => {
+  /*
+    Copy, not data. Every visitor outside a launch market reads this country back in a
+    sentence — "Nothing on in ___ just yet" — because the scope now holds for a country we
+    sell nothing in, so the empty page is the normal page for them.
+  */
+  it('names a market we declare', () => {
+    expect(countryName('US')).toBe('United States');
+    expect(countryName('IN')).toBe('India');
+  });
+
+  it('accepts a lowercase code, because the source of it is a browser locale', () => {
+    expect(countryName('in')).toBe('India');
+  });
+
+  it('falls back to the code rather than printing nothing', () => {
+    // A country we do not declare as a market still gets scoped to, so this is reachable:
+    // "Nothing on in BR just yet" is poor, and an empty gap in the sentence is worse.
+    expect(countryName('BR')).toBe('BR');
+  });
+});
+
+describe('countryPhrase', () => {
+  /*
+    The label and the sentence are not the same string, which is the whole reason this exists
+    beside `countryName`. A chip in the header reads "United States"; the line under it has to
+    read "Showing events in the United States", and three of our eight markets are named in a
+    form that needs the article.
+  */
+  it('adds the article to the countries whose names take one', () => {
+    expect(countryPhrase('US')).toBe('the United States');
+    expect(countryPhrase('GB')).toBe('the United Kingdom');
+    expect(countryPhrase('AE')).toBe('the United Arab Emirates');
+  });
+
+  it('leaves alone the ones that do not', () => {
+    expect(countryPhrase('IN')).toBe('India');
+    expect(countryPhrase('CA')).toBe('Canada');
+    expect(countryPhrase('NZ')).toBe('New Zealand');
+  });
+
+  it('never prefixes a bare code, which would read as a typo', () => {
+    expect(countryPhrase('BR')).toBe('BR');
   });
 });
