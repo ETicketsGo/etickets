@@ -8,6 +8,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { swaggerVisibility } from './common/swagger-visibility';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false, rawBody: true });
@@ -31,12 +32,24 @@ async function bootstrap(): Promise<void> {
     .filter(Boolean);
   app.enableCors({ origin: origins, credentials: true });
 
-  // Swagger publishes the full API surface — keep it out of production unless
-  // explicitly enabled (ENABLE_SWAGGER=true) to avoid free reconnaissance.
-  const swaggerEnabled =
-    config.get<string>('NODE_ENV') !== 'production' ||
-    config.get<string>('ENABLE_SWAGGER') === 'true';
-  if (swaggerEnabled) {
+  /*
+    Swagger publishes the full API surface, so production never serves it — not even when a
+    variable says otherwise. See `swaggerVisibility` for why APP_ENV decides what production
+    is, and why NODE_ENV cannot: QA and UAT both run production builds.
+  */
+  const swagger = swaggerVisibility({
+    APP_ENV: config.get<string>('APP_ENV'),
+    NODE_ENV: config.get<string>('NODE_ENV'),
+    ENABLE_SWAGGER: config.get<string>('ENABLE_SWAGGER'),
+  });
+  if (swagger.refusedInProduction) {
+    // Loudly, because somebody set that variable on purpose and is expecting a docs page.
+    Logger.warn(
+      'ENABLE_SWAGGER is set in PRODUCTION and is being ignored: the API reference is never published there.',
+      'Bootstrap',
+    );
+  }
+  if (swagger.enabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('ETicketsGo API')
       .setDescription('Event operating system — customer, organizer, and admin APIs.')
@@ -65,7 +78,7 @@ async function bootstrap(): Promise<void> {
   const port = config.get<number>('PORT') ?? config.get<number>('API_PORT', 4000);
   await app.listen(port, '0.0.0.0');
   logger.log(`ETicketsGo API listening on 0.0.0.0:${port}/${prefix}`);
-  if (swaggerEnabled) logger.log(`Swagger docs at /${prefix}/docs`);
+  if (swagger.enabled) logger.log(`Swagger docs at /${prefix}/docs`);
 }
 
 void bootstrap();

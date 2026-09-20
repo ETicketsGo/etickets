@@ -15,8 +15,16 @@ const LINKS = [
   { href: '/pricing', label: 'pricing' },
   { href: '/organizers', label: 'forOrganizers' },
   { href: '/customers', label: 'forAttendees' },
-  { href: '/docs', label: 'docs' },
 ];
+
+/*
+  Docs used to sit here, and it is reachable from the footer instead.
+
+  This is a place to buy a ticket. A "Docs" tab beside Pricing reads as a developer product,
+  and there is not one: every route needs an account made through the product, there are no
+  API keys and no way for an outsider to get credentials. Somebody who followed it arrived at
+  a reference they could not act on, and everybody else was offered a door meant for nobody.
+*/
 
 export function MarketingNav() {
   const m = useTranslations('common.marketing');
