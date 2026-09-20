@@ -3,7 +3,13 @@ import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
-import { BookingStatus, EventStatus, Role, NotificationType } from '@eticketsgo/shared-types';
+import {
+  BookingStatus,
+  EventStatus,
+  Role,
+  SessionStatus,
+  NotificationType,
+} from '@eticketsgo/shared-types';
 import type {
   CreateEventInput,
   CreateSessionInput,
@@ -1440,11 +1446,46 @@ export class EventsService {
   }
 
   /**
-   * Retires live events whose last session has ended. Invoked by the worker so
-   * the catalogue and reporting reflect reality without manual intervention.
+   * Retires what is over: sessions that have ended, then events whose last one has.
+   *
+   * Invoked by the worker so the catalogue and reporting reflect reality without manual
+   * intervention.
+   *
+   * ── WHY THE SESSIONS ARE DONE HERE TOO ─────────────────────────────────────────────
+   * They were not, and nothing else did it either, so a show that finished last month still
+   * said SCHEDULED for ever. An organizer opening a COMPLETED event found its one session
+   * marked SCHEDULED underneath — the page contradicting itself about the same show, which
+   * is how a console stops being believed.
+   *
+   * It is not only cosmetic. Two places on the booking path carry comments explaining that
+   * "nothing marks a session COMPLETED", and compensate by checking the clock instead. Those
+   * checks stay, because a session is unsellable the moment it STARTS while it is only over
+   * once it ENDS — but they are no longer the only thing standing between a stale page and a
+   * ticket to last Tuesday.
+   *
+   * Sessions are retired independently of their event, which matters for the multi-date runs
+   * theatres and cinemas exist to sell: the dates that have been and gone read COMPLETED
+   * while the run itself is still PUBLISHED and still selling the rest.
    */
   async completePastEvents(): Promise<number> {
     const now = new Date();
+
+    /*
+      `endsAt`, not `startsAt`: a show is over when it is over. Marking it at the start would
+      retire a session while the audience is still inside it and the gate is still scanning
+      tickets against it.
+
+      CANCELLED is left alone — it is a different outcome and a permanent one, and rewriting
+      it to COMPLETED would erase the reason a refund was owed.
+    */
+    await this.prisma.eventSession.updateMany({
+      where: {
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.PAUSED] },
+        endsAt: { lt: now },
+      },
+      data: { status: SessionStatus.COMPLETED },
+    });
+
     const live: EventStatus[] = [EventStatus.PUBLISHED, EventStatus.PAUSED, EventStatus.SOLD_OUT];
     const candidates = await this.prisma.event.findMany({
       where: { status: { in: live } },

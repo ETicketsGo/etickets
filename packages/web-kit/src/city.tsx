@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import { MapPin, Check, Crosshair, Globe, Search, X, Loader2 } from 'lucide-react';
-import { MARKETS } from '@eticketsgo/shared-types';
+import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
 import { api, type ResolvedLocation, type SellableCity } from './api';
 import { visitorCountry } from './locale';
 
@@ -455,7 +455,23 @@ export function inCityScope(
     Boolean(a?.trim() && b?.trim() && a.trim().toLowerCase() === b.trim().toLowerCase());
 
   if (preference.city) return same(venue.city, preference.city);
-  if (preference.country) return same(venue.country, preference.country);
+  /*
+    Countries are compared through the alias table, NOT as strings.
+
+    `preference.country` is an ISO code — `scopeCountry` hands back "IN" — while a venue
+    carries whatever its organizer typed, which on real data is "India". A plain comparison
+    of those two is false for every event on the platform, so a visitor with a country scope
+    and no chosen city had this list silently emptied, and an empty "Continue exploring" is
+    indistinguishable from never having viewed anything.
+
+    It hid because the chosen-city path above is the one people exercise, and because the
+    tests compared "USA" with "USA". `countryMatches` is the same function the API filters
+    with, which is the point: the local list and the server list must not disagree about
+    what country an event is in.
+  */
+  if (preference.country) {
+    return Boolean(venue.country && countryMatches(venue.country, preference.country));
+  }
   // No preference at all — nothing is out of scope.
   return true;
 }

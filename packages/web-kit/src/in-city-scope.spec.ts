@@ -65,6 +65,28 @@ describe('with no city, the country is the scope', () => {
     expect(inCityScope(event('Meridian', 'USA'), p)).toBe(true);
     expect(inCityScope(event('Hyderabad', 'India'), p)).toBe(false);
   });
+
+  it('matches an ISO code against the name a venue actually carries', () => {
+    /*
+      The defect this pins, and the reason the case above did not catch it.
+
+      `preference.country` is an ISO code — `scopeCountry` hands back "IN" — while a venue
+      carries whatever its organizer typed, which on real data is "India". Compared as
+      strings those are never equal, so EVERY event failed this check and the one list it
+      guards was silently emptied for any visitor scoped to a country without having chosen
+      a city. An empty "Continue exploring" looks exactly like never having viewed anything,
+      which is why it went unreported.
+
+      The test above compared "USA" with "USA" and so proved only that identical strings are
+      identical. Real data never looks like that.
+    */
+    expect(inCityScope(event('Hyderabad', 'India'), preference({ country: 'IN' }))).toBe(true);
+    expect(inCityScope(event('Meridian', 'United States'), preference({ country: 'US' }))).toBe(
+      true,
+    );
+    // And it still separates them: an ISO code is a narrowing, not a free pass.
+    expect(inCityScope(event('Hyderabad', 'India'), preference({ country: 'US' }))).toBe(false);
+  });
 });
 
 describe('what it refuses to hide', () => {

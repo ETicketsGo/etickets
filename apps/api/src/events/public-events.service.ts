@@ -13,6 +13,15 @@ export interface PublicEventFilters {
   q?: string;
   city?: string;
   /**
+   * Restrict to specific events, for a caller that already holds a list of ids.
+   *
+   * Built for the "Continue exploring" rail, which is assembled from what the customer has
+   * looked at. Every other rule in `list` still applies on top of this — an event that has
+   * finished, been cancelled or been unpublished does not come back — which is exactly why
+   * the rail asks rather than rendering what it remembers.
+   */
+  ids?: string[];
+  /**
    * Scope to one country, in any spelling — `IN` and `India` both work.
    *
    * This is what the storefront applies when nobody has picked a city. Showing a visitor in
@@ -43,6 +52,7 @@ export class PublicEventsService {
     const now = new Date();
     const where: Prisma.EventWhereInput = {
       status: EventStatus.PUBLISHED,
+      ...(filters.ids ? { id: { in: filters.ids } } : {}),
       // Keep the generic browse events-only; movie experiences surface via /public/movies.
       experienceType: ExperienceType.EVENT,
       // Free-text `q` matches the event title, the organizer name, and the venue
