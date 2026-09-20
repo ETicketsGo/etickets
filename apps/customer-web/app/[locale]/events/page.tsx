@@ -451,19 +451,19 @@ export default function EventsPage() {
       {/*
         Naming the wider scope, since it narrows the results and nobody asked for it.
 
-        `browseWorldwide` and not `setCity(null)`: the latter means "every city in this
-        country", so under a link reading "Show everywhere" it did nothing whatsoever. The
-        country is the thing being widened out of, so the country is the thing to drop.
+        It offers the PICKER, not "show everywhere". Somewhere else means a particular
+        somewhere else, so the useful thing to hand them is the box they can name it in; a
+        link that dumped every country on them would answer a question nobody asked.
       */}
       {!applied.city && preference.country && (
         <p className="text-caption text-text-muted">
           Showing events in {countryPhrase(preference.country)}.{' '}
           <button
             type="button"
-            onClick={() => preference.browseWorldwide()}
+            onClick={() => preference.requestPicker()}
             className="font-medium text-action-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           >
-            Show everywhere
+            Change location
           </button>
         </p>
       )}
@@ -519,7 +519,7 @@ export default function EventsPage() {
           title={placeOnly ? `Nothing on in ${placeOnly} just yet` : 'No events match your search'}
           hint={
             placeIsCountry
-              ? 'Other countries have events on sale.'
+              ? 'Search for a city to see what is on there.'
               : placeOnly
                 ? 'Other places have events on sale.'
                 : hasFilters
@@ -531,8 +531,8 @@ export default function EventsPage() {
           icon={Search}
           action={
             placeIsCountry ? (
-              <Button variant="secondary" onClick={() => preference.browseWorldwide()}>
-                Show every country
+              <Button variant="secondary" onClick={() => preference.requestPicker()}>
+                Search for a city
               </Button>
             ) : placeOnly ? (
               <Button
