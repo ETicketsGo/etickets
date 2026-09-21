@@ -91,15 +91,58 @@ describe('DiscoverySectionsService', () => {
     expect(sections).toEqual([]);
   });
 
+  it('passes the country through when no city is chosen', async () => {
+    /*
+      The defect on Explore, at its root: the composer only ever passed a city, so a visitor
+      scoped to a country with no city chosen - every visitor until they pick one - got
+      sections filtered by nothing. From the United States the owner saw Hyderabad, Mumbai,
+      Boise and Meridian on one page.
+    */
+    const strategy = strategyReturning({
+      key: 'trending',
+      title: 'T',
+      kind: 'events',
+      items: [{ id: 'e' }],
+    });
+    const service = new DiscoverySectionsService([strategy], passthroughCache(), locationWith());
+
+    await service.sections(undefined, 'US');
+
+    expect(strategy.discover).toHaveBeenCalledWith(expect.objectContaining({ country: 'US' }));
+  });
+
+  it('lets a chosen city win over the country, as every other page does', async () => {
+    const strategy = strategyReturning({
+      key: 'trending',
+      title: 'T',
+      kind: 'events',
+      items: [{ id: 'e' }],
+    });
+    const service = new DiscoverySectionsService(
+      [strategy],
+      passthroughCache(),
+      locationWith('Hyderabad'),
+    );
+
+    // A US visitor who searched for Hyderabad and picked it.
+    await service.sections('Hyderabad', 'US');
+
+    const ctx = (strategy.discover as jest.Mock).mock.calls[0][0];
+    expect(ctx.city).toBe('Hyderabad');
+    // Sending both would ask for a Hyderabad in America and empty the page they chose.
+    expect(ctx.country).toBeUndefined();
+  });
+
   /**
-   * A city with nothing in it.
+   * A place with nothing in it.
    *
-   * The reason this matters more than it looks: the platform launches city by city, so for
-   * a long while most cities will be empty. Filtering to one and rendering the empty array
-   * that comes back tells the customer the whole platform has nothing on sale.
+   * This used to answer with every city on the platform, flagged as a fallback. The owner
+   * reversed that for the whole storefront - a visitor in India is never shown US events,
+   * even when India has nothing - and Explore was the one page still doing it. Empty is the
+   * honest answer; the page explains it and offers the city search.
    */
-  describe('a city with nothing on sale', () => {
-    // A strategy that only has stock in Mumbai — like the real ones, which filter by city.
+  describe('a place with nothing on sale', () => {
+    // A strategy that only has stock in Mumbai - like the real ones, which filter by place.
     const mumbaiOnly = (key: string): DiscoveryStrategy => ({
       key,
       discover: jest.fn(async (ctx) => ({
@@ -110,89 +153,60 @@ describe('DiscoverySectionsService', () => {
       })),
     });
 
-    it('shows everywhere instead of an empty page, and says that is what it did', async () => {
+    it('stays empty rather than showing everywhere, and names the city it looked in', async () => {
       const service = new DiscoverySectionsService(
         [mumbaiOnly('trending')],
         passthroughCache(),
         locationWith('Mumbai'),
       );
-
-      const feed = await service.sections('Pune');
-
-      expect(feed.sections.map((s) => s.key)).toEqual(['trending']);
-      // Both flags matter. Silently ignoring the filter would be its own lie — the customer
-      // would wonder why the city they picked is not being applied.
-      expect(feed.fellBackToAllCities).toBe(true);
-      expect(feed.appliedCity).toBeNull();
-    });
-
-    it('does not fall back when the city does have something', async () => {
-      const service = new DiscoverySectionsService(
-        [mumbaiOnly('trending')],
-        passthroughCache(),
-        locationWith('Mumbai'),
-      );
-
-      const feed = await service.sections('Mumbai');
-
-      expect(feed.fellBackToAllCities).toBe(false);
-      expect(feed.appliedCity).toBe('Mumbai');
-    });
-
-    it('reports an empty platform as empty rather than as a fallback', async () => {
-      // Nothing anywhere is a different situation from nothing here, and conflating them
-      // would have the client apologise for a filter that is not the problem.
-      const nothing: DiscoveryStrategy = {
-        key: 'x',
-        discover: jest.fn().mockResolvedValue({ key: 'x', title: 'X', kind: 'events', items: [] }),
-      };
-      const service = new DiscoverySectionsService([nothing], passthroughCache(), locationWith());
 
       const feed = await service.sections('Pune');
 
       expect(feed.sections).toEqual([]);
-      expect(feed.fellBackToAllCities).toBe(true);
+      // Named, so the page can say "Nothing on in Pune just yet" instead of looking broken.
+      expect(feed.appliedCity).toBe('Pune');
     });
 
-    it('falls back on a city with no inventory even when a section still has items', async () => {
+    it('does not compose at all for a city we sell nothing in', async () => {
       /*
-        The regression that only a real database exposed.
-
-        The organizer and venue spotlights are platform-wide by design, so a city with
-        nothing on sale still returns one populated shelf — of organizers from somewhere
-        else entirely. Judged on "did the array come back empty" that reads as a working
-        filter; the customer sees one lonely row and no explanation for the missing page.
+        Not every strategy filters by place, so composing anyway could return one lonely,
+        unrelated shelf (a real database once returned exactly one section for Pune). A city
+        with nothing on sale has nothing to show, and no strategy is asked.
       */
       const platformWide: DiscoveryStrategy = {
         key: 'organizer-spotlight',
         discover: jest.fn().mockResolvedValue({
           key: 'organizer-spotlight',
           title: 'Organizer spotlight',
-          kind: 'events',
+          kind: 'organizers',
           items: [{ id: 'o1' }],
         }),
       };
       const service = new DiscoverySectionsService(
         [platformWide],
         passthroughCache(),
-        locationWith('Mumbai'), // Pune is not sellable
+        locationWith('Mumbai'),
       );
 
       const feed = await service.sections('Pune');
 
-      expect(feed.fellBackToAllCities).toBe(true);
-      expect(feed.appliedCity).toBeNull();
+      expect(feed.sections).toEqual([]);
+      expect(platformWide.discover).not.toHaveBeenCalled();
     });
 
-    it('matches the city case-insensitively, as the picker and the API both do', async () => {
+    it('applies a city it does sell in, in its stored spelling', async () => {
       const service = new DiscoverySectionsService(
         [mumbaiOnly('trending')],
         passthroughCache(),
         locationWith('Mumbai'),
       );
-      // A stored "Mumbai" and a chosen "mumbai" are the same place; treating them as
-      // different would make the header chip and the feed disagree.
-      expect((await service.sections('MUMBAI')).fellBackToAllCities).toBe(false);
+
+      const feed = await service.sections('MUMBAI');
+
+      // A stored "Mumbai" and a typed "MUMBAI" are the same place; the strategies and the
+      // page both get the spelling the picker shows.
+      expect(feed.appliedCity).toBe('Mumbai');
+      expect(feed.sections.map((s) => s.key)).toEqual(['trending']);
     });
   });
 });

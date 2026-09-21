@@ -347,12 +347,13 @@ export class PublicEventsController {
            * Every other rule below still applies, and that is the entire point: an event
            * that has finished, been cancelled or been unpublished simply does not come
            * back, so a caller cannot use this to resurrect something the catalogue has
-           * dropped. Capped, because it is a fixed-size shortlist and not a bulk export.
+           * dropped. Capped at 50, the size of the saved list a browser keeps: a shortlist,
+           * never a bulk export.
            */
           ids: z
             .union([z.string(), z.array(z.string())])
             .transform((v) => (Array.isArray(v) ? v : v.split(',')))
-            .pipe(z.array(z.string().trim().min(1).max(40)).max(12))
+            .pipe(z.array(z.string().trim().min(1).max(40)).max(50))
             .optional(),
           // Either spelling — `IN` or `India`. Ignored when a city is given.
           country: z.string().trim().min(2).max(60).optional(),

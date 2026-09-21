@@ -255,20 +255,29 @@ async function downloadCsv(path: string, filename: string): Promise<void> {
  * Unified experience discovery. Callable for the legacy combined payload
  * (`api.discovery()`), with `.sections(city?)` for the composed strategy feed.
  */
-const discovery = Object.assign(() => request<Discovery>('/public/discovery', { auth: false }), {
-  sections: (city?: string) =>
-    request<{ sections: DiscoverySection[] }>(`/public/discovery/sections${qs({ city })}`, {
-      auth: false,
-    }).then((r) => r.sections),
-  /**
-   * The same feed, keeping what the filter actually did.
-   *
-   * `sections()` above throws that away, and a caller who only has the array cannot tell a
-   * quiet city from a quiet platform. New callers should use this one.
-   */
-  sectionFeed: (city?: string) =>
-    request<SectionFeed>(`/public/discovery/sections${qs({ city })}`, { auth: false }),
-});
+/*
+  Both calls take the visitor's place. They used to take none (the combined payload) or only a
+  city (the section feed), so Explore showed every country to a visitor who had not picked a
+  city - the storefront's location rule broken on exactly one page. Pass `cityScope(preference)`.
+*/
+const discovery = Object.assign(
+  (place?: { city?: string; country?: string }) =>
+    request<Discovery>(`/public/discovery${qs({ ...place })}`, { auth: false }),
+  {
+    sections: (city?: string) =>
+      request<{ sections: DiscoverySection[] }>(`/public/discovery/sections${qs({ city })}`, {
+        auth: false,
+      }).then((r) => r.sections),
+    /**
+     * The same feed, keeping what the filter actually did.
+     *
+     * `sections()` above throws that away, and a caller who only has the array cannot tell a
+     * quiet city from a quiet platform. New callers should use this one.
+     */
+    sectionFeed: (place?: { city?: string; country?: string }) =>
+      request<SectionFeed>(`/public/discovery/sections${qs({ ...place })}`, { auth: false }),
+  },
+);
 
 export const api = {
   request,
@@ -3964,10 +3973,14 @@ export interface EventSellability {
 
 export interface SectionFeed {
   sections: DiscoverySection[];
-  /** What was really used — not what was asked for. */
+  /**
+   * The city the feed is filtered to, in its stored spelling, or null when it is filtered by
+   * country (or by nothing). Named even when it is empty, so the page can say so.
+   *
+   * There is no "fell back to all cities" any more: an empty place gets an empty feed. The
+   * fallback was the old rule the owner reversed for the whole storefront.
+   */
   appliedCity: string | null;
-  /** The requested city had nothing, so this feed covers everywhere. Say so in the UI. */
-  fellBackToAllCities: boolean;
 }
 
 export interface Payout {

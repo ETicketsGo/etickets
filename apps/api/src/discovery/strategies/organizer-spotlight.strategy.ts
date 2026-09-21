@@ -6,6 +6,7 @@ import {
   DiscoverySection,
   DiscoveryStrategy,
 } from './discovery-strategy.interface';
+import { venueInScope } from './scope';
 
 const LIMIT = 8;
 
@@ -17,23 +18,31 @@ export interface OrganizerSpotlightItem {
   eventCount: number;
 }
 
-/** A few verified (APPROVED) organizations that have published events. */
+/**
+ * A few verified (APPROVED) organizations with published events IN THE VISITOR'S PLACE.
+ *
+ * It used to be platform-wide by design, so a visitor in the United States was shown a
+ * Bengaluru promoter as a "spotlight" — an organizer they cannot buy a single ticket from.
+ * Now an organizer appears only for its events where the visitor is, and its count is of
+ * those events, not of everything it runs everywhere.
+ */
 @Injectable()
 export class OrganizerSpotlightStrategy implements DiscoveryStrategy {
   readonly key = 'organizer-spotlight';
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async discover(_ctx: DiscoveryContext): Promise<DiscoverySection> {
+  async discover(ctx: DiscoveryContext): Promise<DiscoverySection> {
+    const here = { status: EventStatus.PUBLISHED, venue: venueInScope(ctx) };
     const orgs = await this.prisma.organization.findMany({
       where: {
         status: OrganizationStatus.APPROVED,
-        events: { some: { status: EventStatus.PUBLISHED } },
+        events: { some: here },
       },
       select: {
         id: true,
         name: true,
-        _count: { select: { events: { where: { status: EventStatus.PUBLISHED } } } },
+        _count: { select: { events: { where: here } } },
       },
       orderBy: { events: { _count: 'desc' } },
       take: LIMIT,

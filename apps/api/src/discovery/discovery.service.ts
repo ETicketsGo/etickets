@@ -5,6 +5,7 @@ import { PublicMoviesService } from '../movies/movies.service';
 import { PublicEventsService } from '../events/public-events.service';
 import { RECOMMENDATION_ENGINE, type RecommendationEngine } from '../ai/ai.ports';
 import { CacheService } from '../cache/cache.service';
+import { venueInScope } from './strategies/scope';
 
 const TRENDING_PAGE_SIZE = 8;
 const WEEKEND_PAGE_SIZE = 8;
@@ -12,6 +13,22 @@ const WEEKEND_PAGE_SIZE = 8;
 /** Short TTL: the composed feed is anonymous and safe to serve slightly stale. */
 const DISCOVERY_CACHE_TTL_SECONDS = 45;
 const DISCOVERY_CACHE_KEY = 'disc:legacy';
+
+/**
+ * Where the visitor is browsing. City wins over country, as on every other page.
+ *
+ * This endpoint took no place at all, and cached ONE answer for everybody. It feeds the top of
+ * Explore — Now showing, Trending, This weekend, the category chips — so those were the same
+ * worldwide list whether the visitor was in Hyderabad, in the United States, or had picked a
+ * city. The owner opened Explore from the United States and saw Indian shows throughout.
+ * Every other list on the storefront had been scoped; this one had never been asked.
+ *
+ * Callers that send nothing (the mobile app today) still get everything, exactly as before.
+ */
+export interface DiscoveryPlace {
+  city?: string;
+  country?: string;
+}
 
 /**
  * Composes the unified experience-discovery payload from the existing public
@@ -39,22 +56,43 @@ export class DiscoveryService {
     return { dateFrom, dateTo };
   }
 
-  async get() {
-    return this.cache.getOrSet(DISCOVERY_CACHE_KEY, DISCOVERY_CACHE_TTL_SECONDS, () =>
-      this.compose(),
+  async get(place: DiscoveryPlace = {}) {
+    // The place is part of the key. With one key for everybody, the first visitor's answer
+    // would be served to the next one wherever they were.
+    const scope = place.city
+      ? `city:${place.city}`
+      : place.country
+        ? `country:${place.country.toUpperCase()}`
+        : 'all';
+    return this.cache.getOrSet(`${DISCOVERY_CACHE_KEY}:${scope}`, DISCOVERY_CACHE_TTL_SECONDS, () =>
+      this.compose(place),
     );
   }
 
-  private async compose() {
+  private async compose(place: DiscoveryPlace) {
     const now = new Date();
     const { dateFrom, dateTo } = this.weekendWindow(now);
+    // `list` applies city over country itself, so both can be passed as they are.
+    const where = { city: place.city, country: place.country };
 
     const [movies, trending, weekend, categoryRows] = await Promise.all([
-      this.publicMovies.list({}),
-      this.publicEvents.list({ page: 1, pageSize: TRENDING_PAGE_SIZE }),
-      this.publicEvents.list({ page: 1, pageSize: WEEKEND_PAGE_SIZE, dateFrom, dateTo }),
+      this.publicMovies.list(where),
+      this.publicEvents.list({ page: 1, pageSize: TRENDING_PAGE_SIZE, ...where }),
+      this.publicEvents.list({ page: 1, pageSize: WEEKEND_PAGE_SIZE, dateFrom, dateTo, ...where }),
       this.prisma.event.findMany({
-        where: { status: EventStatus.PUBLISHED, experienceType: ExperienceType.EVENT },
+        where: {
+          status: EventStatus.PUBLISHED,
+          experienceType: ExperienceType.EVENT,
+          /*
+            Only categories you could actually buy something in, here, now.
+
+            A chip that leads to an empty page reads as "this platform has nothing", which is
+            why the home page's chips were fixed to come from real inventory. These came from
+            every published event anywhere, including ones whose shows were all over.
+          */
+          venue: venueInScope(place),
+          sessions: { some: { startsAt: { gte: now } } },
+        },
         select: { category: true },
         distinct: ['category'],
         orderBy: { category: 'asc' },

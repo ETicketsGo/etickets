@@ -17,7 +17,7 @@ const CANDIDATE_POOL = 24;
 export async function rankedEventCards(
   prisma: PrismaService,
   publicEvents: PublicEventsService,
-  ctx: { city?: string; now: Date },
+  ctx: { city?: string; country?: string; now: Date },
   weights: RankWeights,
   limit: number,
 ): Promise<EventCard[]> {
@@ -25,6 +25,8 @@ export async function rankedEventCards(
     page: 1,
     pageSize: CANDIDATE_POOL,
     city: ctx.city,
+    // Ignored by `list` when a city is given, which is the rule everywhere: city wins.
+    country: ctx.country,
   });
   const counts = await confirmedBookingCounts(
     prisma,

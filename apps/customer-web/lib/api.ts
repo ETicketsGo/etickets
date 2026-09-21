@@ -159,12 +159,13 @@ export const api = {
   organizerProfile: wk.publicEvents.organizer,
   // Discovery hub (PR-4): unified movies + events + categories feed, and
   // resolved platform feature flags for capability-gated UI.
-  discovery: () => wk.discovery(),
+  discovery: (place?: { city?: string; country?: string }) => wk.discovery(place),
   // Discovery Platform sprint: composed strategy sections + category counts.
   discoverySections: (city?: string) => wk.discovery.sections(city),
   // Same feed, keeping whether the city filter actually matched anything — so a quiet
   // city can be told apart from a quiet platform.
-  discoverySectionFeed: (city?: string) => wk.discovery.sectionFeed(city),
+  discoverySectionFeed: (place?: { city?: string; country?: string }) =>
+    wk.discovery.sectionFeed(place),
   // Recommendation Platform: "you might also like" events for an event page.
   recommendations: (params?: { eventId?: string; limit?: number; strategy?: string }) =>
     wk.recommendations(params),

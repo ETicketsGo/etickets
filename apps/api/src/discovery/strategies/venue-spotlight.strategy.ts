@@ -6,6 +6,7 @@ import {
   DiscoverySection,
   DiscoveryStrategy,
 } from './discovery-strategy.interface';
+import { venueInScope } from './scope';
 
 const LIMIT = 8;
 
@@ -28,7 +29,7 @@ export class VenueSpotlightStrategy implements DiscoveryStrategy {
   async discover(ctx: DiscoveryContext): Promise<DiscoverySection> {
     const venues = await this.prisma.venue.findMany({
       where: {
-        ...(ctx.city ? { city: { equals: ctx.city, mode: 'insensitive' } } : {}),
+        ...venueInScope(ctx),
         events: { some: { status: EventStatus.PUBLISHED } },
       },
       select: {
