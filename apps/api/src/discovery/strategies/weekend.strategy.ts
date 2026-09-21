@@ -37,6 +37,7 @@ export class WeekendStrategy implements DiscoveryStrategy {
       page: 1,
       pageSize: LIMIT,
       city: ctx.city,
+      country: ctx.country,
       dateFrom,
       dateTo,
     });

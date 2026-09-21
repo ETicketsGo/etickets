@@ -1,15 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Heart } from 'lucide-react';
 import { EventCard } from '@/components/event-card';
-import { getSaved, type SavedEvent } from '@/lib/saved';
+import { useSavedEvents } from '@/lib/use-live-events';
 import { ButtonLink, EmptyState } from '@/components/ui';
 
 export default function SavedPage() {
-  const [saved, setSaved] = useState<SavedEvent[] | null>(null);
+  /*
+    Current data, not the copy stored when the heart was pressed.
 
-  useEffect(() => setSaved(getSaved()), []);
+    This page rendered those stored copies as they were, so a saved show kept its old price
+    and date for ever and stayed on the page, looking bookable, long after it was over. Saved
+    events are deliberately NOT filtered by location - somebody who saved a show in the city
+    they are travelling to wants it there - but anything no longer on sale drops out, and the
+    page says how many so a shorter list is explained rather than looking like a loss.
+  */
+  const { events, ready, noLongerOnSale } = useSavedEvents();
 
   return (
     <div className="space-y-8">
@@ -20,7 +26,7 @@ export default function SavedPage() {
         </p>
       </div>
 
-      {saved === null ? (
+      {!ready ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div
@@ -29,20 +35,30 @@ export default function SavedPage() {
             />
           ))}
         </div>
-      ) : saved.length > 0 ? (
+      ) : events.length > 0 ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {saved.map((e) => (
+          {events.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}
         </div>
       ) : (
         <EmptyState
-          title="No saved events yet"
+          title={
+            noLongerOnSale > 0 ? 'None of your saved events are on sale' : 'No saved events yet'
+          }
           hint="Tap the heart on any event to save it here."
           icon={Heart}
           action={<ButtonLink href="/events">Browse events</ButtonLink>}
         />
       )}
+
+      {ready && noLongerOnSale > 0 ? (
+        <p className="text-caption text-text-muted">
+          {noLongerOnSale === 1
+            ? '1 saved event is no longer on sale, so it is not shown.'
+            : `${noLongerOnSale} saved events are no longer on sale, so they are not shown.`}
+        </p>
+      ) : null}
     </div>
   );
 }

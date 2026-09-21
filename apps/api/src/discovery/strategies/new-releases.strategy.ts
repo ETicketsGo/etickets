@@ -19,7 +19,7 @@ export class NewReleasesStrategy implements DiscoveryStrategy {
   constructor(private readonly publicMovies: PublicMoviesService) {}
 
   async discover(ctx: DiscoveryContext): Promise<DiscoverySection> {
-    const movies = await this.publicMovies.list({ city: ctx.city });
+    const movies = await this.publicMovies.list({ city: ctx.city, country: ctx.country });
     return {
       key: this.key,
       title: 'New releases',

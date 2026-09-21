@@ -32,6 +32,14 @@ export interface DiscoverySection {
 export interface DiscoveryContext {
   /** Optional city to localise results (city-based; see NearbyStrategy). */
   city?: string;
+  /**
+   * The country to scope to when no city is chosen, as the visitor's ISO code ("IN").
+   *
+   * Every section must honour it — see `venueInScope`. Without it a visitor who has not
+   * picked a city was shown every country on Explore, which is the whole storefront's rule
+   * broken on one page.
+   */
+  country?: string;
   /** "Now" is injected so strategies are deterministic and testable. */
   now: Date;
 }

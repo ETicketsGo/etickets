@@ -2,12 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Clock3, Search, Sparkles, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EventCard } from '@/components/event-card';
-import { getRecent } from '@/lib/recent';
-import { cityScope, countryPhrase, inCityScope, useCity } from '@eticketsgo/web-kit';
+import { useRecentlyViewed } from '@/lib/use-live-events';
+import { cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
 import { Button, ButtonLink, EmptyState } from '@/components/ui';
 
 /**
@@ -84,9 +84,6 @@ function weekendRange(): { dateFrom: string; dateTo: string } {
 export function DiscoverHome() {
   const router = useRouter();
   const [q, setQ] = useState('');
-  const [recentIds, setRecentIds] = useState<string[]>([]);
-
-  useEffect(() => setRecentIds(getRecent().map((e) => e.id)), []);
 
   /*
     Where the customer said they are.
@@ -102,42 +99,8 @@ export function DiscoverHome() {
   */
   const preference = useCity();
   const scope = cityScope(preference);
-  /**
-   * What the customer looked at, re-asked of the catalogue rather than replayed from storage.
-   *
-   * ── WHY THIS IS A FETCH AND NOT A `filter` ─────────────────────────────────────────
-   * `getRecent()` returns whole event objects copied into localStorage at the moment each
-   * card was opened, and this rail rendered them as-is. Nothing expired them, so a show that
-   * finished last month sat on the homepage for ever — and worse, it sat there frozen: the
-   * price, the date and the title as they were on the day. The owner's screenshot had a card
-   * reading 19 September against a session the organizer had since moved to the 18th, under
-   * a heading inviting them to go and buy a ticket for it.
-   *
-   * Asking by id fixes both at once. `/public/events` only ever returns events that are
-   * published and still have a date to come, so anything finished, cancelled or withdrawn
-   * simply does not come back and the rail shortens by one. What does come back is current.
-   *
-   * The ids are all storage is now trusted for. They are the one part of that snapshot that
-   * cannot go stale.
-   */
-  const recentQ = useQuery({
-    queryKey: ['events', 'recent', recentIds.join(',')],
-    // `enabled` rather than an early return: with no history there is nothing to ask for,
-    // and a request for an empty id list would come back as the whole catalogue.
-    enabled: recentIds.length > 0,
-    queryFn: () => api.listEvents({ ids: recentIds.join(','), pageSize: '12' }),
-  });
-  /*
-    Still scoped, and still for the original reason: this strip is an invitation to act, and
-    an invitation to a show eight thousand miles away is not one worth dressing up. Kept in
-    the order the customer viewed them, which the API has no reason to preserve.
-  */
-  const scopedRecent = useMemo(() => {
-    const byId = new Map((recentQ.data?.data ?? []).map((e) => [e.id, e]));
-    return recentIds
-      .map((id) => byId.get(id))
-      .filter((e): e is NonNullable<typeof e> => Boolean(e) && inCityScope(e!, preference));
-  }, [recentQ.data, recentIds, preference]);
+  // Current, still on sale, and in scope. One implementation, shared with Explore; see the hook.
+  const { events: scopedRecent } = useRecentlyViewed(preference);
   const scopeKey = JSON.stringify(scope);
 
   const categoriesQ = useQuery({
@@ -272,7 +235,7 @@ export function DiscoverHome() {
         it worse: the only events on screen were the out-of-scope ones, so the filtering
         looked broken precisely when it was working.
 
-        See `scopedRecent` for the second half of the same story: it was also the one list
+        See `useRecentlyViewed` for the second half of the same story: it was also the one list
         nothing kept up to date, so it went on advertising shows that were over.
       */}
       {scopedRecent.length > 0 && (

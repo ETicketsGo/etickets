@@ -1,7 +1,6 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
 import {
   Building2,
   Clapperboard,
@@ -12,7 +11,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { inCityScope, useCity } from '@eticketsgo/web-kit';
+import { cityScope, countryPhrase, useCity } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import type {
   DiscoverySection,
@@ -21,10 +20,10 @@ import type {
   PublicMovieCard,
   VenueSpotlight,
 } from '@/lib/api';
-import { getRecent, type RecentEvent } from '@/lib/recent';
+import { useRecentlyViewed } from '@/lib/use-live-events';
 import { EventCard } from '@/components/event-card';
 import { MovieCard } from '@/components/movie-card';
-import { ButtonLink, EmptyState, ErrorState } from '@/components/ui';
+import { Button, ButtonLink, EmptyState, ErrorState } from '@/components/ui';
 import { Link } from '@/i18n/navigation';
 
 function Section({
@@ -207,38 +206,58 @@ function DynamicSection({ section }: { section: DiscoverySection }) {
 }
 
 export default function ExplorePage() {
+  /*
+    Where the visitor is browsing: the chosen city, else their country, else nowhere.
+
+    Every list on this page is asked for this place, as every other page on the storefront
+    already was. Explore used to ask the top half for nothing and the lower half for a city
+    only, so a visitor who had not picked a city - every visitor, at first - was shown every
+    country. The owner opened it from the United States and got Hyderabad, Mumbai, Boise and
+    Meridian on one screen.
+  */
+  const preference = useCity();
+  const scope = cityScope(preference);
+  const scopeKey = JSON.stringify(scope);
+  const where = preference.city ?? (preference.country ? countryPhrase(preference.country) : null);
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['discovery'],
-    queryFn: () => api.discovery(),
+    queryKey: ['discovery', scopeKey],
+    queryFn: () => api.discovery(scope),
   });
 
-  // Composed strategy sections (organizers/venues/nearby/new-releases/…), scoped to the
-  // city in the header. The feed reports what it actually applied, because a city with no
-  // inventory falls back to everywhere and the customer deserves to be told that.
-  const preference = useCity();
-  const { city } = preference;
+  // Composed strategy sections (organizers/venues/nearby/new-releases/...), for the same place.
+  // An empty place gets an empty feed: there is no "here is everywhere instead" any more.
   const sectionsQuery = useQuery({
-    queryKey: ['discovery-sections', city],
-    queryFn: () => api.discoverySectionFeed(city ?? undefined),
+    queryKey: ['discovery-sections', scopeKey],
+    queryFn: () => api.discoverySectionFeed(scope),
   });
   const feed = sectionsQuery.data;
+  const extraSections = (feed?.sections ?? []).filter(
+    (s) => s.key !== 'trending' && s.key !== 'weekend',
+  );
 
-  // Client-only personalisation from the localStorage recent store. Read after
-  // mount to avoid a hydration mismatch (localStorage is unavailable on server).
-  const [recent, setRecent] = useState<RecentEvent[]>([]);
-  useEffect(() => setRecent(getRecent()), []);
   /*
-    "Continue exploring" = the distinct categories of recently-viewed events, and only from
-    events in the scope being browsed.
+    Recently viewed: current, still on sale, and in this place.
 
-    Milder than the home page's version of this — a category chip is location-neutral and
-    leads to a Browse page that IS scoped, so the worst case was a chip with nothing behind
-    it rather than an invitation to a show on another continent. Filtered anyway, because
-    two pages applying the same idea differently is how they drift apart.
+    This page used to render the copies stored in the browser as they were - which is how the
+    owner saw shows from 6 to 19 September, all over, at the top of Explore. It now shares one
+    implementation with the home page; see `useRecentlyViewed`.
   */
-  const recentCategories = Array.from(
-    new Set(recent.filter((e) => inCityScope(e, preference)).map((e) => e.category)),
-  ).slice(0, 8);
+  const { events: recent } = useRecentlyViewed(preference);
+  // "Continue exploring": the categories of those same events, so it cannot disagree with them.
+  const recentCategories = Array.from(new Set(recent.map((e) => e.category))).slice(0, 8);
+
+  /*
+    Nothing at all on sale here. Said once, plainly, with the one control that helps - instead
+    of four separate empty sections each apologising for the same fact.
+  */
+  const nothingHere =
+    Boolean(data) &&
+    Boolean(feed) &&
+    data!.nowShowing.length === 0 &&
+    data!.trendingEvents.length === 0 &&
+    data!.thisWeekend.length === 0 &&
+    extraSections.length === 0;
 
   return (
     <div className="space-y-16">
@@ -288,6 +307,17 @@ export default function ExplorePage() {
             <EventSkeletons />
           </Section>
         </div>
+      ) : nothingHere && where ? (
+        <EmptyState
+          title={`Nothing on in ${where} just yet`}
+          hint="Search for a city to see what is on there."
+          icon={Compass}
+          action={
+            <Button variant="secondary" onClick={() => preference.requestPicker()}>
+              Search for a city
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-16">
           {/* Now showing */}
@@ -305,7 +335,7 @@ export default function ExplorePage() {
               <MovieGrid items={data.nowShowing} />
             ) : (
               <EmptyState
-                title="No films showing yet"
+                title={where ? `No films showing in ${where} yet` : 'No films showing yet'}
                 hint="We list films here as soon as a cinema adds showtimes."
                 icon={Film}
                 action={<ButtonLink href="/movies">Browse movies</ButtonLink>}
@@ -326,7 +356,7 @@ export default function ExplorePage() {
               <EventGrid items={data.trendingEvents} />
             ) : (
               <EmptyState
-                title="No popular events yet"
+                title={where ? `No popular events in ${where} yet` : 'No popular events yet'}
                 hint="Events appear here once people start booking them."
                 icon={Sparkles}
                 action={<ButtonLink href="/events">Browse events</ButtonLink>}
@@ -347,18 +377,9 @@ export default function ExplorePage() {
           )}
 
           {/* Composed strategy sections (organizer/venue spotlights, new releases, …). */}
-          {feed?.fellBackToAllCities ? (
-            <p className="rounded-lg border border-border bg-background-subtle px-4 py-3 text-[0.9375rem] text-text-secondary">
-              Nothing is on sale in <strong className="text-text-primary">{city}</strong> yet. These
-              events are from everywhere.
-            </p>
-          ) : null}
-
-          {feed?.sections
-            .filter((s) => s.key !== 'trending' && s.key !== 'weekend')
-            .map((section) => (
-              <DynamicSection key={section.key} section={section} />
-            ))}
+          {extraSections.map((section) => (
+            <DynamicSection key={section.key} section={section} />
+          ))}
 
           {/* Browse by category — hidden when empty */}
           {data && data.categories.length > 0 && (
