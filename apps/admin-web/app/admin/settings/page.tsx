@@ -19,13 +19,15 @@ import {
   type FeeRule,
 } from '@eticketsgo/web-kit';
 
-/** Currencies the platform seeds bands for. Editing never changes a rule's currency. */
-const CURRENCY_LABELS: Record<string, string> = {
-  INR: 'India (INR)',
-  USD: 'United States (USD)',
-  CAD: 'Canada (CAD)',
-  AUD: 'Australia (AUD)',
-};
+/**
+ * A readable name for each market currency. Editing never changes a rule's currency.
+ *
+ * Built from MARKETS rather than listed by hand: the hand-written list had four currencies, so
+ * the other markets had no name here - and no way to add their first band either.
+ */
+const CURRENCY_LABELS: Record<string, string> = Object.fromEntries(
+  MARKETS.map((m) => [m.currency, `${m.name} (${m.currency})`]),
+);
 
 /** Draft state for the edit dialog. Kept as strings so a half-typed value does not fight the input. */
 interface Draft {
@@ -33,6 +35,13 @@ interface Draft {
   minMinor: string;
   maxMinor: string;
   feeMinor: string;
+  /** A fixed amount, or a percentage of the order. */
+  feeType: 'FLAT' | 'PERCENT';
+  /** PERCENT: typed as a person says it - "5" or "2.5" - and stored as basis points. */
+  percent: string;
+  /** PERCENT, optional limits, in minor units like every other amount on this form. */
+  minFeeMinor: string;
+  maxFeeMinor: string;
   country: string;
   region: string;
   active: boolean;
@@ -45,6 +54,10 @@ const toDraft = (r: FeeRule): Draft => ({
   minMinor: String(r.minMinor),
   maxMinor: r.maxMinor === null ? '' : String(r.maxMinor),
   feeMinor: String(r.feeMinor),
+  feeType: r.feeType === 'PERCENT' ? 'PERCENT' : 'FLAT',
+  percent: r.feePercentBps == null ? '' : String(r.feePercentBps / 100),
+  minFeeMinor: r.minFeeMinor == null ? '' : String(r.minFeeMinor),
+  maxFeeMinor: r.maxFeeMinor == null ? '' : String(r.maxFeeMinor),
   /*
     An existing rule keeps whatever scope it has. A NEW one defaults to the country whose
     currency it is in — see `defaultCountryFor`. Editing a USD band and being shown an empty
@@ -90,6 +103,45 @@ const bandLabel = (
 /** Keeps the label in step with the bounds, unless the admin has taken it over. */
 const withDerivedLabel = (draft: Draft, currency: string | null): Draft =>
   draft.labelEdited ? draft : { ...draft, label: bandLabel(draft, currency) };
+
+/**
+ * What a band charges, in words: "Rs 10.00", or "5% (min Rs 20.00, max Rs 500.00)".
+ *
+ * One function for the table and the dialog preview, so the admin reads the same sentence in
+ * both places and cannot be shown one charge while saving another.
+ */
+const describeCharge = (
+  band: {
+    feeType?: 'FLAT' | 'PERCENT';
+    feeMinor: number;
+    feePercentBps?: number | null;
+    minFeeMinor?: number | null;
+    maxFeeMinor?: number | null;
+  },
+  currency: string,
+): string => {
+  if (band.feeType !== 'PERCENT') return money(band.feeMinor, currency);
+  const limits = [
+    band.minFeeMinor != null ? `min ${money(band.minFeeMinor, currency)}` : null,
+    band.maxFeeMinor != null ? `max ${money(band.maxFeeMinor, currency)}` : null,
+  ].filter(Boolean);
+  const pct = `${(band.feePercentBps ?? 0) / 100}% of the order`;
+  return limits.length ? `${pct} (${limits.join(', ')})` : pct;
+};
+
+/** A typed percentage as basis points, or null when it is not a usable percentage. */
+const percentToBps = (raw: string): number | null => {
+  const value = Number(raw.trim());
+  if (raw.trim() === '' || !Number.isFinite(value)) return null;
+  const bps = Math.round(value * 100);
+  // Two decimal places at most: 2.55% is 255 basis points; 2.555% cannot be stored exactly.
+  if (Math.abs(bps - value * 100) > 1e-6 || bps < 1 || bps > 10_000) return null;
+  return bps;
+};
+
+/** An optional minor-unit amount: empty is "no limit". */
+const optionalMinor = (raw: string): number | null =>
+  raw.trim() === '' ? null : Number(raw.trim());
 
 /** Where a band applies, for the list. */
 const scopeOf = (r: FeeRule): string =>
@@ -153,6 +205,10 @@ export default function AdminSettings() {
       minMinor: '',
       maxMinor: '',
       feeMinor: '',
+      feeType: 'FLAT',
+      percent: '',
+      minFeeMinor: '',
+      maxFeeMinor: '',
       /*
         Opens on the country this currency belongs to rather than "Anywhere". A USD band that
         applies everywhere is not what anybody means — it would match an Indian venue selling
@@ -177,7 +233,17 @@ export default function AdminSettings() {
       label: draft.label.trim(),
       minMinor: Number(draft.minMinor),
       maxMinor: trimmedMax === '' ? null : Number(trimmedMax),
-      feeMinor: Number(draft.feeMinor),
+      // A percentage band sends its percentage and limits; the fixed amount is stored as 0.
+      // A fixed band sends its amount, and the API clears any percentage it used to have.
+      ...(draft.feeType === 'PERCENT'
+        ? {
+            feeType: 'PERCENT' as const,
+            feeMinor: 0,
+            feePercentBps: percentToBps(draft.percent),
+            minFeeMinor: optionalMinor(draft.minFeeMinor),
+            maxFeeMinor: optionalMinor(draft.maxFeeMinor),
+          }
+        : { feeType: 'FLAT' as const, feeMinor: Number(draft.feeMinor) }),
       country: draft.country.trim() || '*',
       region: draft.region.trim() || '*',
       active: draft.active,
@@ -190,12 +256,23 @@ export default function AdminSettings() {
   };
 
   /** Numeric fields are minor units; block a submit that would send NaN to a money endpoint. */
+  const optionalInteger = (raw: string) => raw.trim() === '' || Number.isInteger(Number(raw));
+  const floorAboveCeiling =
+    !!draft &&
+    draft.minFeeMinor.trim() !== '' &&
+    draft.maxFeeMinor.trim() !== '' &&
+    Number(draft.minFeeMinor) > Number(draft.maxFeeMinor);
   const invalid =
     !draft ||
     draft.label.trim() === '' ||
     !Number.isInteger(Number(draft.minMinor)) ||
-    !Number.isInteger(Number(draft.feeMinor)) ||
-    (draft.maxMinor.trim() !== '' && !Number.isInteger(Number(draft.maxMinor)));
+    (draft.maxMinor.trim() !== '' && !Number.isInteger(Number(draft.maxMinor))) ||
+    (draft.feeType === 'FLAT'
+      ? draft.feeMinor.trim() === '' || !Number.isInteger(Number(draft.feeMinor))
+      : percentToBps(draft.percent) === null ||
+        !optionalInteger(draft.minFeeMinor) ||
+        !optionalInteger(draft.maxFeeMinor) ||
+        floorAboveCeiling);
 
   const columns = (currency: string): Column<FeeRule>[] => [
     { key: 'label', header: 'Band', render: (r) => r.label },
@@ -214,7 +291,7 @@ export default function AdminSettings() {
       header: 'To',
       render: (r) => (r.maxMinor == null ? 'and above' : money(r.maxMinor, currency)),
     },
-    { key: 'fee', header: 'Booking fee', render: (r) => money(r.feeMinor, currency) },
+    { key: 'fee', header: 'Booking fee', render: (r) => describeCharge(r, currency) },
     { key: 'active', header: 'Active', render: (r) => (r.active ? 'Yes' : 'No') },
     {
       key: 'actions',
@@ -234,6 +311,15 @@ export default function AdminSettings() {
     return acc;
   }, {});
   const currencies = Object.keys(byCurrency).sort();
+  /*
+    Market currencies with no bands yet. Bands could only be added inside a currency that
+    already had one, so a market with none - four of the eight - could never be given a fee
+    schedule at all. Listed here so the first band for any market is one click away.
+  */
+  const unconfigured = Array.from(new Set(MARKETS.map((m) => m.currency))).filter(
+    (c) => !byCurrency[c],
+  );
+  const [newCurrency, setNewCurrency] = useState('');
 
   // The dialog serves both modes, so it reads its currency from whichever is active rather
   // than assuming an existing rule. Amounts are minor units, and the labels/preview must
@@ -265,6 +351,40 @@ export default function AdminSettings() {
           </Card>
         ))}
 
+      {!isLoading && unconfigured.length > 0 && (
+        <Card title="Set up fees for another market">
+          <p className="mb-3 text-sm text-text-secondary">
+            These markets have no fee bands of their own yet, so they use the built-in defaults. Add
+            a first band to give one its own schedule.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <Select
+              label="Market"
+              value={newCurrency}
+              onChange={(e) => setNewCurrency(e.target.value)}
+            >
+              <option value="">Choose a market</option>
+              {unconfigured.map((c) => (
+                <option key={c} value={c}>
+                  {CURRENCY_LABELS[c] ?? c}
+                </option>
+              ))}
+            </Select>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!newCurrency}
+              onClick={() => {
+                openCreator(newCurrency);
+                setNewCurrency('');
+              }}
+            >
+              Add first band
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {!isLoading && currencies.length === 0 && (
         <Card title="Booking fee rules">
           <p className="text-sm text-text-secondary">
@@ -289,6 +409,12 @@ export default function AdminSettings() {
             edit, because first-match resolution would make the fee depend on row order.
           </li>
           <li>Leave the upper bound empty for the top band (&ldquo;and above&rdquo;).</li>
+          <li>
+            A band charges either a <strong>fixed amount</strong> or a <strong>percentage</strong>{' '}
+            of the order, and one schedule can mix both - for example a fixed fee for small orders
+            and 5% above a set amount. A percentage band can have a minimum and a maximum fee. The
+            percentage is of the order after any discount, rounded to the nearest paisa or cent.
+          </li>
           <li>
             A band naming a <strong>state</strong> beats one naming only a country, which beats{' '}
             <code>*</code>. The winning scope supplies the <strong>whole</strong> schedule — a
@@ -354,12 +480,54 @@ export default function AdminSettings() {
                 setDraft(withDerivedLabel({ ...draft, maxMinor: e.target.value }, dialogCurrency))
               }
             />
-            <Input
-              label={`Booking fee (minor units, ${dialogCurrency})`}
-              inputMode="numeric"
-              value={draft.feeMinor}
-              onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
-            />
+            <Select
+              label="How this band charges"
+              value={draft.feeType}
+              onChange={(e) =>
+                setDraft({ ...draft, feeType: e.target.value === 'PERCENT' ? 'PERCENT' : 'FLAT' })
+              }
+            >
+              <option value="FLAT">A fixed amount</option>
+              <option value="PERCENT">A percentage of the order</option>
+            </Select>
+            {draft.feeType === 'FLAT' ? (
+              <Input
+                label={`Booking fee (minor units, ${dialogCurrency})`}
+                inputMode="numeric"
+                value={draft.feeMinor}
+                onChange={(e) => setDraft({ ...draft, feeMinor: e.target.value })}
+              />
+            ) : (
+              <>
+                <Input
+                  label="Percentage of the order (%)"
+                  inputMode="decimal"
+                  value={draft.percent}
+                  hint="For example 5 for 5%, or 2.5 for 2.5%. Up to two decimal places."
+                  onChange={(e) => setDraft({ ...draft, percent: e.target.value })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label={`Minimum fee (minor units, optional)`}
+                    inputMode="numeric"
+                    value={draft.minFeeMinor}
+                    hint="Leave empty for no minimum."
+                    onChange={(e) => setDraft({ ...draft, minFeeMinor: e.target.value })}
+                  />
+                  <Input
+                    label={`Maximum fee (minor units, optional)`}
+                    inputMode="numeric"
+                    value={draft.maxFeeMinor}
+                    hint={
+                      floorAboveCeiling
+                        ? 'The minimum is above the maximum.'
+                        : 'Leave empty for no maximum.'
+                    }
+                    onChange={(e) => setDraft({ ...draft, maxFeeMinor: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
             {/*
               Where the band applies.
 
@@ -429,7 +597,19 @@ export default function AdminSettings() {
               {draft.maxMinor.trim() === ''
                 ? 'and above'
                 : money(Number(draft.maxMinor) || 0, dialogCurrency)}{' '}
-              → fee {money(Number(draft.feeMinor) || 0, dialogCurrency)}
+              → fee{' '}
+              {describeCharge(
+                draft.feeType === 'PERCENT'
+                  ? {
+                      feeType: 'PERCENT',
+                      feeMinor: 0,
+                      feePercentBps: percentToBps(draft.percent) ?? 0,
+                      minFeeMinor: optionalMinor(draft.minFeeMinor),
+                      maxFeeMinor: optionalMinor(draft.maxFeeMinor),
+                    }
+                  : { feeType: 'FLAT', feeMinor: Number(draft.feeMinor) || 0 },
+                dialogCurrency,
+              )}
             </p>
 
             <div className="flex justify-end gap-2 pt-2">

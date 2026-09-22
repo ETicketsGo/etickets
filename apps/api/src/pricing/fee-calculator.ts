@@ -1,12 +1,70 @@
 import { FeeMode, type MaintenanceTreatment } from '@eticketsgo/shared-types';
 import { computeTax, type TaxLine, type TaxPlace, type TaxRuleInput } from './tax-calculator';
 
+/** How a band charges: a fixed amount, or a share of the order. */
+export type FeeTierType = 'FLAT' | 'PERCENT';
+
 /** A tiered platform booking-fee rule. All money in minor units (paise). */
 export interface FeeTier {
   minMinor: number;
   /** Inclusive upper bound; null means "and above". */
   maxMinor: number | null;
+  /** FLAT: the fee. PERCENT: unused. */
   feeMinor: number;
+  /** Omitted means FLAT, so every band written before percentages behaves exactly as before. */
+  type?: FeeTierType;
+  /** PERCENT: the share of the order in basis points (500 = 5%). */
+  percentBps?: number | null;
+  /** PERCENT, optional: the least this band charges. */
+  minFeeMinor?: number | null;
+  /** PERCENT, optional: the most this band charges. */
+  maxFeeMinor?: number | null;
+}
+
+/**
+ * A stored fee rule as a band, in one place.
+ *
+ * Two loaders turn rows into bands - live pricing and the advertised "from" price - and each
+ * used to copy three fields by hand. A new field added to one and forgotten in the other would
+ * make the card and the checkout charge differently for the same ticket, so both use this.
+ */
+export function feeTierFromRule(rule: {
+  minMinor: number;
+  maxMinor: number | null;
+  feeMinor: number;
+  feeType?: FeeTierType | string | null;
+  feePercentBps?: number | null;
+  minFeeMinor?: number | null;
+  maxFeeMinor?: number | null;
+}): FeeTier {
+  return {
+    minMinor: rule.minMinor,
+    maxMinor: rule.maxMinor,
+    feeMinor: rule.feeMinor,
+    type: rule.feeType === 'PERCENT' ? 'PERCENT' : 'FLAT',
+    percentBps: rule.feePercentBps ?? null,
+    minFeeMinor: rule.minFeeMinor ?? null,
+    maxFeeMinor: rule.maxFeeMinor ?? null,
+  };
+}
+
+/**
+ * What one band charges on an order of `amountMinor`.
+ *
+ * FLAT returns its amount, exactly as every band did before percentages existed.
+ *
+ * PERCENT takes its share of the order, rounded to the nearest minor unit (half up), then held
+ * between the band's floor and ceiling when it has them. Rounded once, on the whole order, and
+ * never per ticket: rounding each ticket and adding them up drifts from the rate the admin set.
+ * The floor is applied before the ceiling, so a band misconfigured with floor above ceiling
+ * still charges no more than its ceiling - money the customer is told is the most, is the most.
+ */
+export function feeForTier(tier: FeeTier, amountMinor: number): number {
+  if (tier.type !== 'PERCENT') return tier.feeMinor;
+  let fee = Math.round((Math.max(0, amountMinor) * Math.max(0, tier.percentBps ?? 0)) / 10_000);
+  if (tier.minFeeMinor != null) fee = Math.max(fee, tier.minFeeMinor);
+  if (tier.maxFeeMinor != null) fee = Math.min(fee, tier.maxFeeMinor);
+  return fee;
 }
 
 /** India seed defaults (section 13). Subtotal-tiered booking fee. */
@@ -83,10 +141,10 @@ export interface FeeCalcResult {
 function resolveBookingFee(amountMinor: number, tiers: FeeTier[]): number {
   for (const tier of tiers) {
     const underMax = tier.maxMinor === null || amountMinor <= tier.maxMinor;
-    if (amountMinor >= tier.minMinor && underMax) return tier.feeMinor;
+    if (amountMinor >= tier.minMinor && underMax) return feeForTier(tier, amountMinor);
   }
-  // Above all tiers -> use the last (highest) tier's fee as the cap.
-  return tiers.length ? tiers[tiers.length - 1].feeMinor : 0;
+  // Above all tiers -> use the last (highest) tier, charged the way that tier charges.
+  return tiers.length ? feeForTier(tiers[tiers.length - 1], amountMinor) : 0;
 }
 
 /**

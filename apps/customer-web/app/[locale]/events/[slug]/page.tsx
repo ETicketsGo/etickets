@@ -38,6 +38,7 @@ import { startGuestBooking } from '@/lib/guest-session';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { BuyerRegionField, useAuthUser } from '@eticketsgo/web-kit';
+import { currentPageUrl } from '@/lib/site-url';
 
 export default function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -362,7 +363,8 @@ export default function EventDetailPage() {
   };
 
   const share = async () => {
-    const url = typeof window !== 'undefined' ? window.location.href : '';
+    // On the site's own address, never the host this visitor happened to arrive on.
+    const url = currentPageUrl();
     if (navigator.share) {
       await navigator.share({ title: event?.title, url }).catch(() => undefined);
     } else {

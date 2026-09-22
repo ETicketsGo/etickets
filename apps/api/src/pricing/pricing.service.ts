@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   calculateFees,
   DEFAULT_FEE_TIERS,
+  feeTierFromRule,
   type FeeCalcResult,
   type FeeTier,
 } from './fee-calculator';
@@ -79,9 +80,7 @@ export class PricingService {
       (r.region !== '*' ? 2 : 0) + (r.country !== '*' ? 1 : 0);
     const best = Math.max(...applicable.map(score));
 
-    return applicable
-      .filter((r) => score(r) === best)
-      .map((r) => ({ minMinor: r.minMinor, maxMinor: r.maxMinor, feeMinor: r.feeMinor }));
+    return applicable.filter((r) => score(r) === best).map(feeTierFromRule);
   }
 
   /**

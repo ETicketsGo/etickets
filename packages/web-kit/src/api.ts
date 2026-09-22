@@ -1718,7 +1718,17 @@ export const api = {
       patch: Partial<
         Pick<
           FeeRule,
-          'label' | 'minMinor' | 'maxMinor' | 'feeMinor' | 'country' | 'region' | 'active'
+          | 'label'
+          | 'minMinor'
+          | 'maxMinor'
+          | 'feeMinor'
+          | 'feeType'
+          | 'feePercentBps'
+          | 'minFeeMinor'
+          | 'maxFeeMinor'
+          | 'country'
+          | 'region'
+          | 'active'
         >
       >,
     ) =>
@@ -4507,8 +4517,20 @@ export interface FeeRule {
   label: string;
   minMinor: number;
   maxMinor: number | null;
+  /** FLAT: the fee in minor units. PERCENT: unused, stored as 0. */
   feeMinor: number;
   currency: string;
+  /**
+   * How the band charges. Optional on input (a band with no type is a fixed amount, as every
+   * band was before percentages); always present on what the API returns.
+   */
+  feeType?: 'FLAT' | 'PERCENT';
+  /** PERCENT: the share of the order in basis points. 500 is 5%. */
+  feePercentBps?: number | null;
+  /** PERCENT, optional: the least the band charges, in minor units. */
+  minFeeMinor?: number | null;
+  /** PERCENT, optional: the most the band charges, in minor units. */
+  maxFeeMinor?: number | null;
   /**
    * Where the band applies — '*' for anywhere.
    *

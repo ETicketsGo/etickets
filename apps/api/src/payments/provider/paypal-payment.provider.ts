@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentErrorCode, PaymentProviderError } from '../domain/payment-errors';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
 import { currencyExponent, minorToDecimalString, requestJson } from './rest-client';
+import { redirectUrl } from '../../common/console-urls';
 import type {
   CreatePaymentInput,
   HealthCheckResult,
@@ -52,11 +53,9 @@ export class PayPalPaymentProvider implements PaymentProvider {
   private readonly clientSecret: string;
   private readonly webhookId: string;
   private readonly baseUrl: string;
-  private readonly returnUrl: string;
-  private readonly cancelUrl: string;
   private readonly testMode: boolean;
 
-  constructor(config: ConfigService) {
+  constructor(private readonly config: ConfigService) {
     this.clientId = requireKey(config, 'PAYPAL_CLIENT_ID');
     this.clientSecret = requireKey(config, 'PAYPAL_CLIENT_SECRET');
     this.webhookId = config.get<string>('PAYPAL_WEBHOOK_ID') ?? '';
@@ -65,11 +64,21 @@ export class PayPalPaymentProvider implements PaymentProvider {
     this.baseUrl = (
       config.get<string>('PAYPAL_API_BASE_URL') ?? 'https://api-m.sandbox.paypal.com'
     ).replace(/\/$/, '');
-    this.returnUrl =
-      config.get<string>('PAYPAL_RETURN_URL') ?? 'http://localhost:3000/checkout/success';
-    this.cancelUrl =
-      config.get<string>('PAYPAL_CANCEL_URL') ?? 'http://localhost:3000/checkout/cancel';
     this.testMode = /sandbox/i.test(this.baseUrl);
+  }
+
+  /**
+   * Where PayPal sends the buyer back to.
+   *
+   * These defaulted to `http://localhost:3000/...`, so in any deployed environment without the
+   * two PAYPAL_*_URL overrides - and no template sets them - a buyer who had just paid was sent to
+   * a laptop. It is the same bug this platform has already had with Razorpay and Stripe, and the
+   * same cure: derive the address from CUSTOMER_WEB_URL through `redirectUrl`, and fail the
+   * payment loudly rather than hand out a localhost link. Worked out per payment, not at start-up,
+   * so a missing setting fails the one payment and not the whole API.
+   */
+  private returnTo(path: string, overrideVariable: string, purpose: string): string {
+    return redirectUrl(this.config, { site: 'customer', path, overrideVariable, purpose });
   }
 
   async healthCheck(): Promise<HealthCheckResult> {
@@ -110,8 +119,8 @@ export class PayPalPaymentProvider implements PaymentProvider {
           paypal: {
             experience_context: {
               user_action: 'PAY_NOW',
-              return_url: this.returnUrl,
-              cancel_url: this.cancelUrl,
+              return_url: this.returnTo('/checkout/success', 'PAYPAL_RETURN_URL', 'PayPal return'),
+              cancel_url: this.returnTo('/checkout/cancel', 'PAYPAL_CANCEL_URL', 'PayPal cancel'),
             },
           },
         },

@@ -32,6 +32,7 @@ import { Badge, ErrorState, Skeleton, StatusBadge } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { useMounted } from '@/lib/use-mounted';
 import { useStatusLabel } from '@/lib/status-label';
+import { currentPageUrl } from '@/lib/site-url';
 
 // Lazy-loaded (WS6): the Apple/Google wallet-pass panel is below the fold and only
 // needed when a pass is available, so it's split out of the initial ticket bundle.
@@ -114,7 +115,8 @@ export default function TicketDetailPage() {
   };
 
   const share = async () => {
-    const url = typeof window !== 'undefined' ? window.location.href : '';
+    // On the site's own address, never the host this visitor happened to arrive on.
+    const url = currentPageUrl();
     if (navigator.share) {
       await navigator.share({ title: ticket?.event.title, url }).catch(() => undefined);
     } else {
