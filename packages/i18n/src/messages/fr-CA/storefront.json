@@ -97,7 +97,19 @@
     "enhance": "Bonifiez votre expérience",
     "bundlesHeading": "Forfaits et aubaines",
     "bundleSave": "économisez {amount}",
-    "bundleIncludes": "Comprend {items}"
+    "bundleIncludes": "Comprend {items}",
+    "durationHours": "{count, plural, one {# heure} other {# heures}}",
+    "durationMinutes": "{count, plural, one {# minute} other {# minutes}}",
+    "ageLimit": "Âge minimum : {age} ans et plus",
+    "dateRange": "du {from} au {to}",
+    "artistsHeading": "Artistes",
+    "organizerVerified": "Organisateur vérifié",
+    "organizerWebsite": "Site Web",
+    "organizerInstagram": "Instagram",
+    "termsHeading": "Conditions générales",
+    "termsSetBy": "Fixées par {organizer}.",
+    "termsAgree": "En réservant, vous acceptez les conditions de l'organisateur.",
+    "termsRead": "Lire les conditions"
   },
   "seats": {
     "heading": "Choisissez vos sièges",

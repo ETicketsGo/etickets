@@ -35,10 +35,17 @@ import { PriceBreakdown } from '@/components/price-breakdown';
 import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
 import { startGuestBooking } from '@/lib/guest-session';
-import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { BuyerRegionField, useAuthUser } from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
+import {
+  ArtistsCard,
+  EventFacts,
+  OrganizerCard,
+  TermsAgreeNote,
+  TermsRow,
+  useTermsDialog,
+} from '@/components/event-details';
 
 export default function EventDetailPage() {
   // `tx` is the shared vocabulary (Free, Sold out); `sf` is storefront copy.
@@ -95,6 +102,8 @@ export default function EventDetailPage() {
   */
   const [payWithCash, setPayWithCash] = useState(false);
   const [shared, setShared] = useState(false);
+  // Before the early returns below, as a hook must be; it renders nothing until the event loads.
+  const terms = useTermsDialog(event);
 
   // Reviews
   const qc = useQueryClient();
@@ -587,6 +596,14 @@ export default function EventDetailPage() {
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Left column */}
         <div className="space-y-6 lg:col-span-2">
+          {/*
+            On a phone the booking card comes after everything in this column, so the facts it
+            opens with would sit below the reviews and the FAQ. The same facts open the page
+            there instead; on a wide screen they stay in the booking card beside it.
+          */}
+          <Card className="lg:hidden">
+            <EventFacts event={event} session={session} zone={zone} standalone />
+          </Card>
           {event.description && (
             <Card title={sf('event.about')}>
               <p className="whitespace-pre-line leading-relaxed text-text-secondary">
@@ -594,6 +611,8 @@ export default function EventDetailPage() {
               </p>
             </Card>
           )}
+
+          <ArtistsCard artists={event.artists} />
 
           <Card title={sf('event.sessionsHeading')}>
             <div className="space-y-2">
@@ -671,23 +690,7 @@ export default function EventDetailPage() {
                 <span className="sr-only">{sf('event.opensInNewTab')}</span>
               </a>
             </Card>
-            <Card title={sf('event.organizerHeading')}>
-              <Link
-                href={`/organizers/${event.organizer.id}`}
-                className="group flex items-center gap-3"
-              >
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-tint-primary font-semibold text-action-primary">
-                  {event.organizer.name.charAt(0)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-text-primary group-hover:text-action-primary">
-                    {event.organizer.name}
-                  </p>
-                  <p className="text-caption text-text-muted">{sf('event.viewProfile')}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 text-text-muted transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </Card>
+            <OrganizerCard organizer={event.organizer} />
           </div>
 
           {event.refundPolicy && (
@@ -701,6 +704,9 @@ export default function EventDetailPage() {
               </div>
             </Card>
           )}
+
+          {terms.hasTerms && <TermsRow onOpen={terms.open} />}
+          {terms.dialog}
 
           {/* Reviews */}
           <Card title={sf('event.reviews')}>
@@ -819,6 +825,9 @@ export default function EventDetailPage() {
         {/* Sticky booking card */}
         <div className="lg:sticky lg:top-24 lg:h-fit">
           <Card>
+            <div className="hidden lg:block">
+              <EventFacts event={event} session={session} zone={zone} />
+            </div>
             <div className="mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-action-primary" />
               <h2 className="text-title font-semibold text-text-primary">
@@ -1086,6 +1095,7 @@ export default function EventDetailPage() {
                 )}
               </>
             )}
+            {terms.hasTerms && !sessionStarted && <TermsAgreeNote onOpen={terms.open} />}
           </Card>
         </div>
       </div>

@@ -1274,6 +1274,16 @@ model Event {
   /// Free text shown to buyers. Describes the policy; does not enforce it.
   refundPolicy String?
 
+  /// The youngest age admitted, in years: 16 means "16+". Null means no age limit.
+  ageLimit           Int?
+  /// The organizer's terms, one per line, shown to buyers as a numbered list. Their words,
+  /// shown as written - the platform does not interpret them.
+  termsAndConditions String?
+  /// Who performs or presents: an ordered list of { name, role?, bio? }. JSON because it is a
+  /// short list always read and written whole with the event - a table would add joins and a
+  /// second write path for what is, to everybody who reads it, one field of the event.
+  artists            Json?
+
   /// Whether this event offers refunds at all, and until when.
   ///
   /// ── WHY THE ORGANIZER OWNS THIS ────────────────────────────────────────────────

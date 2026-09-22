@@ -20,11 +20,18 @@ import {
   DateTimeField,
   LocationFields,
   defaultLocation,
+  termsList,
   type LocationValue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
+import {
+  EMPTY_EVENT_DETAILS,
+  EventDetailsFields,
+  eventDetailsBody,
+  type EventDetailsValue,
+} from '@/components/event-details-fields';
 import {
   EVENT_IMAGE_MAX_COUNT,
   EventGalleryEditor,
@@ -99,6 +106,7 @@ function NewEventWizard() {
     refundsEnabled: true,
     refundCutoffHours: '48',
   });
+  const [details, setDetails] = useState<EventDetailsValue>(EMPTY_EVENT_DETAILS);
   /*
     Whether the category is being picked or typed.
 
@@ -183,6 +191,7 @@ function NewEventWizard() {
   const draftState = {
     step,
     basics,
+    details,
     categoryMode,
     isFree,
     venueMode,
@@ -253,6 +262,8 @@ function NewEventWizard() {
     const d = found.data;
     setStep(d.step ?? 0);
     setBasics(d.basics);
+    // A draft saved before these details existed has none; start them empty rather than crash.
+    setDetails(d.details ?? EMPTY_EVENT_DETAILS);
     setCategoryMode(d.categoryMode);
     setIsFree(d.isFree);
     setVenueMode(d.venueMode);
@@ -375,6 +386,7 @@ function NewEventWizard() {
         refundCutoffHours: Number(basics.refundCutoffHours),
         feeMode,
         isFree,
+        ...eventDetailsBody(details),
       });
       const sessionIds: string[] = [];
       for (const s of sessions) {
@@ -528,6 +540,7 @@ function NewEventWizard() {
               value={basics.description}
               onChange={(e) => setBasics({ ...basics, description: e.target.value })}
             />
+            <EventDetailsFields value={details} onChange={setDetails} />
             <EventGalleryEditor
               tiles={images.map((image) => ({ key: image.key, url: image.url }))}
               busy={preparingImages}
@@ -1055,6 +1068,25 @@ function NewEventWizard() {
           <div className="space-y-3 text-sm">
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
+            <Row
+              label="Age limit"
+              value={details.ageLimit ? `${details.ageLimit}+` : 'No age limit'}
+            />
+            <Row
+              label="Artists"
+              value={
+                eventDetailsBody(details)
+                  .artists.map((a) => a.name)
+                  .join(', ') || 'None'
+              }
+            />
+            <Row
+              label="Terms"
+              value={(() => {
+                const n = termsList(details.termsAndConditions).length;
+                return n ? `${n} term${n === 1 ? '' : 's'}` : 'None';
+              })()}
+            />
             <Row label="Admission" value={isFree ? 'Free — no payment taken' : 'Paid'} />
             <Row
               label="Images"
