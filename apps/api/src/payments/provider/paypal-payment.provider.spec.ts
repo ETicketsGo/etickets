@@ -71,6 +71,44 @@ describe('PayPalPaymentProvider', () => {
     ).toBe('10.50');
   });
 
+  it('sends the buyer back to the customer site, never to localhost', async () => {
+    /*
+      These defaulted to http://localhost:3000/checkout/success, so in any deployed environment
+      without the PAYPAL_*_URL overrides - which no template sets - a buyer who had just paid was
+      returned to a laptop. They now follow CUSTOMER_WEB_URL, like every other return address.
+    */
+    const fetch = mockFetch([
+      { match: '/v1/oauth2/token', body: { access_token: 'tok' } },
+      {
+        match: '/v2/checkout/orders',
+        body: { id: 'ORD1', links: [{ rel: 'payer-action', href: 'https://paypal/approve' }] },
+      },
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).fetch = fetch;
+    await makeProvider({
+      APP_ENV: 'QA',
+      CUSTOMER_WEB_URL: 'https://qa.eticketsgo.com',
+    }).createPayment(input);
+    const orderCall = fetch.mock.calls.find((c) => String(c[0]).includes('/orders'));
+    const sent = JSON.stringify(JSON.parse((orderCall![1] as { body: string }).body));
+    expect(sent).toContain('https://qa.eticketsgo.com/checkout/success');
+    expect(sent).toContain('https://qa.eticketsgo.com/checkout/cancel');
+    expect(sent).not.toContain('localhost');
+  });
+
+  it('refuses the payment rather than send a deployed buyer to localhost', async () => {
+    const fetch = mockFetch([
+      { match: '/v1/oauth2/token', body: { access_token: 'tok' } },
+      { match: '/v2/checkout/orders', body: { id: 'ORD1', links: [] } },
+    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).fetch = fetch;
+    await expect(makeProvider({ APP_ENV: 'QA' }).createPayment(input)).rejects.toThrow(
+      /CUSTOMER_WEB_URL/,
+    );
+  });
+
   it('healthCheck reports test mode when the token call succeeds', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).fetch = mockFetch([{ match: '/oauth2/token', body: { access_token: 't' } }]);

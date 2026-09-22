@@ -192,3 +192,132 @@ describe('AdminService.createFeeRule', () => {
     expect(create).toHaveBeenCalled();
   });
 });
+
+/**
+ * Percentage bands on the write path.
+ *
+ * The owner asked to choose, per band, a fixed amount or a percentage of the order, with limits.
+ * These pin what the admin API stores for each choice, and what it refuses, so a band that
+ * cannot charge sensibly is caught on the form rather than at somebody's checkout.
+ */
+describe('AdminService fee type', () => {
+  function make(existing?: Record<string, unknown>) {
+    const create = jest.fn().mockImplementation(({ data }) => ({ id: 'new-1', ...data }));
+    const update = jest.fn().mockImplementation(({ data }) => ({ ...existing, ...data }));
+    const prisma = {
+      feeRule: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue(existing ?? null),
+        create,
+        update,
+      },
+    } as unknown as PrismaService;
+    const audit = { record: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
+    return { svc: new AdminService(prisma, audit), create, update, audit };
+  }
+
+  const ABOVE_5000 = {
+    currency: 'INR',
+    label: 'Above Rs 5,000',
+    minMinor: 500_001,
+    maxMinor: null,
+  };
+
+  it('stores a 5% band with its limits, and no fixed amount beside it', async () => {
+    const { svc, create } = make();
+    await svc.createFeeRule('admin-1', {
+      ...ABOVE_5000,
+      feeType: 'PERCENT',
+      feePercentBps: 500,
+      minFeeMinor: 2_000,
+      maxFeeMinor: 50_000,
+    });
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      feeType: 'PERCENT',
+      feePercentBps: 500,
+      minFeeMinor: 2_000,
+      maxFeeMinor: 50_000,
+      feeMinor: 0,
+    });
+  });
+
+  it('refuses a percentage band with no percentage', async () => {
+    const { svc } = make();
+    await expect(
+      svc.createFeeRule('admin-1', { ...ABOVE_5000, feeType: 'PERCENT' }),
+    ).rejects.toThrow(/percentage/i);
+  });
+
+  it('refuses a floor above the ceiling', async () => {
+    const { svc } = make();
+    await expect(
+      svc.createFeeRule('admin-1', {
+        ...ABOVE_5000,
+        feeType: 'PERCENT',
+        feePercentBps: 500,
+        minFeeMinor: 60_000,
+        maxFeeMinor: 50_000,
+      }),
+    ).rejects.toThrow(/minimum fee cannot be more than the maximum/i);
+  });
+
+  it('refuses a fixed-amount band with no amount', async () => {
+    const { svc } = make();
+    await expect(svc.createFeeRule('admin-1', { ...ABOVE_5000 })).rejects.toThrow(/amount/i);
+  });
+
+  it('still creates a fixed-amount band exactly as before when no type is given', async () => {
+    const { svc, create } = make();
+    await svc.createFeeRule('admin-1', { ...ABOVE_5000, feeMinor: 2_000 });
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      feeType: 'FLAT',
+      feeMinor: 2_000,
+      feePercentBps: null,
+    });
+  });
+
+  it('switching a band to a fixed amount clears its percentage and limits', async () => {
+    const { svc, update } = make({
+      id: 'r1',
+      ...ABOVE_5000,
+      feeMinor: 0,
+      feeType: 'PERCENT',
+      feePercentBps: 500,
+      minFeeMinor: 2_000,
+      maxFeeMinor: 50_000,
+      country: '*',
+      region: '*',
+      active: true,
+    });
+    await svc.updateFeeRule('admin-1', 'r1', { feeType: 'FLAT', feeMinor: 2_500 });
+    expect(update.mock.calls[0][0].data).toMatchObject({
+      feeType: 'FLAT',
+      feeMinor: 2_500,
+      feePercentBps: null,
+      minFeeMinor: null,
+      maxFeeMinor: null,
+    });
+  });
+
+  it('renaming a percentage band keeps its percentage and limits', async () => {
+    const { svc, update } = make({
+      id: 'r1',
+      ...ABOVE_5000,
+      feeMinor: 0,
+      feeType: 'PERCENT',
+      feePercentBps: 500,
+      minFeeMinor: null,
+      maxFeeMinor: 50_000,
+      country: '*',
+      region: '*',
+      active: true,
+    });
+    await svc.updateFeeRule('admin-1', 'r1', { label: 'Large orders' });
+    expect(update.mock.calls[0][0].data).toMatchObject({
+      label: 'Large orders',
+      feeType: 'PERCENT',
+      feePercentBps: 500,
+      maxFeeMinor: 50_000,
+    });
+  });
+});

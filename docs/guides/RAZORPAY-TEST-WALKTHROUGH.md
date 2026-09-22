@@ -49,7 +49,7 @@ live before a payment is attempted.
 
 Dashboard → **Settings → Webhooks → Add New Webhook**.
 
-- **URL:** `https://api-qa-f580.up.railway.app/api/payments/webhooks/razorpay`
+- **URL:** `https://api-qa.eticketsgo.com/api/payments/webhooks/razorpay`
 - **Secret:** the same `RAZORPAY_WEBHOOK_SECRET` you set above
 - **Events:** `payment.captured`, `payment.failed`, `order.paid`, `refund.processed`
 

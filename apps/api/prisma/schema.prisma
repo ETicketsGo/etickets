@@ -2747,13 +2747,35 @@ model BookingReferenceCounter {
 }
 
 // Configurable, tiered platform fee rules. Admin-managed (section 13).
+/// How a booking-fee band charges.
+///
+/// FLAT is a fixed amount for any order in the band (Rs 100-200 -> Rs 10). PERCENT is a share of
+/// the order (above Rs 5,000 -> 5%), optionally held between a floor and a ceiling. One band can
+/// be either, and a schedule can mix them, so small orders pay a fixed fee while large ones pay
+/// a percentage - which a flat-only schedule could never express without a band per rupee.
+enum FeeRuleType {
+  FLAT
+  PERCENT
+}
+
 model FeeRule {
   id       String @id @default(cuid())
   label    String
   minMinor Int
   maxMinor Int?
+  /// FLAT: the fee, in minor units. PERCENT: not used, and kept at 0.
   feeMinor Int
   currency String @default("INR")
+
+  /// FLAT for every band that existed before percentages, so nothing already configured
+  /// changes what it charges.
+  feeType       FeeRuleType @default(FLAT)
+  /// PERCENT only: the share of the order, in basis points. 500 is 5%, 250 is 2.5%.
+  feePercentBps Int?
+  /// PERCENT only, optional: the least the band may charge, in minor units. Null is no floor.
+  minFeeMinor   Int?
+  /// PERCENT only, optional: the most the band may charge, in minor units. Null is no ceiling.
+  maxFeeMinor   Int?
 
   /// Where this band applies — '*' for anywhere.
   ///

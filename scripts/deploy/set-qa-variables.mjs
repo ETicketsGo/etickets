@@ -88,13 +88,18 @@ const CUSTOM_ORG_HOST = 'organizer-qa.eticketsgo.com';
 const CUSTOM_ADMIN_HOST = 'admin-qa.eticketsgo.com';
 
 const API_URL = `https://${API_HOST}/api`;
+/*
+  Custom domains FIRST. The order carries no meaning to CORS itself, but code once took "the
+  first CORS origin" to be the website, and shared tickets went out as
+  customer-web-qa.up.railway.app. That code is gone; this order means nothing can regress to it.
+*/
 const CORS = [
-  WEB_HOST,
-  ORG_HOST,
-  ADMIN_HOST,
   CUSTOM_WEB_HOST,
   CUSTOM_ORG_HOST,
   CUSTOM_ADMIN_HOST,
+  WEB_HOST,
+  ORG_HOST,
+  ADMIN_HOST,
 ]
   .map((h) => `https://${h}`)
   .join(',');
@@ -124,6 +129,18 @@ const BACKEND = {
   API_GLOBAL_PREFIX: 'api',
   TRUST_PROXY_HOPS: '1',
   CORS_ORIGINS: CORS,
+  /*
+    Where each site lives, on the address people should see. Every link the API hands out -
+    invites, password resets, guest tickets, share links, event pages, payment returns - is
+    built from these, and they are the ONLY source: a link must never be derived from the CORS
+    list or the host a request arrived on. Set on the worker too, which checks push links
+    against them. QA's ORGANIZER_WEB_URL was once the Railway host, so every team invite from
+    QA pointed there.
+  */
+  CUSTOMER_WEB_URL: `https://${CUSTOM_WEB_HOST}`,
+  ORGANIZER_WEB_URL: `https://${CUSTOM_ORG_HOST}`,
+  ADMIN_WEB_URL: `https://${CUSTOM_ADMIN_HOST}`,
+  PUBLIC_API_URL: `https://${API_HOST}`,
   // QA posture: the simulated gateway, so bookings are deterministic and no money moves.
   // The API refuses to boot on a live key in QA unless PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV
   // is deliberately set, so this stays false as the second lock.

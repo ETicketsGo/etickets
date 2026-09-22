@@ -117,7 +117,11 @@ export class AdminService {
       label: string;
       minMinor: number;
       maxMinor: number | null;
-      feeMinor: number;
+      feeMinor?: number;
+      feeType?: 'FLAT' | 'PERCENT';
+      feePercentBps?: number | null;
+      minFeeMinor?: number | null;
+      maxFeeMinor?: number | null;
       country?: string;
       region?: string;
       active?: boolean;
@@ -125,6 +129,13 @@ export class AdminService {
   ) {
     const active = input.active ?? true;
     this.assertBandShape(input.minMinor, input.maxMinor);
+    const charge = this.normaliseCharge({
+      feeType: input.feeType ?? 'FLAT',
+      feeMinor: input.feeMinor,
+      feePercentBps: input.feePercentBps ?? null,
+      minFeeMinor: input.minFeeMinor ?? null,
+      maxFeeMinor: input.maxFeeMinor ?? null,
+    });
     if (active) {
       await this.assertNoOverlap(input.currency, input.minMinor, input.maxMinor, null, {
         country: input.country ?? '*',
@@ -138,7 +149,7 @@ export class AdminService {
         label: input.label,
         minMinor: input.minMinor,
         maxMinor: input.maxMinor,
-        feeMinor: input.feeMinor,
+        ...charge,
         country: input.country ?? '*',
         region: input.region ?? '*',
         active,
@@ -156,11 +167,78 @@ export class AdminService {
         minMinor: created.minMinor,
         maxMinor: created.maxMinor,
         feeMinor: created.feeMinor,
+        feeType: created.feeType,
+        feePercentBps: created.feePercentBps,
+        minFeeMinor: created.minFeeMinor,
+        maxFeeMinor: created.maxFeeMinor,
         active: created.active,
       },
     });
 
     return created;
+  }
+
+  /**
+   * How a band charges, checked and made consistent before it is stored.
+   *
+   * A booking fee is money taken from a customer, so a band that cannot charge sensibly is
+   * refused here rather than discovered at checkout:
+   *
+   *  - FLAT needs its amount. Its percentage fields are cleared, so a band switched from PERCENT
+   *    back to FLAT does not carry a dead 5% that a later reader might believe.
+   *  - PERCENT needs its percentage. `feeMinor` is stored as 0 because nothing reads it, and a
+   *    stale fixed amount left beside a percentage invites somebody to think both apply.
+   *  - A floor above the ceiling is refused. The calculator would still cap at the ceiling, but
+   *    a band whose floor can never be reached is a typo that should be caught while the person
+   *    who made it is still looking at the form.
+   */
+  private normaliseCharge(c: {
+    feeType: 'FLAT' | 'PERCENT';
+    feeMinor: number | undefined;
+    feePercentBps: number | null;
+    minFeeMinor: number | null;
+    maxFeeMinor: number | null;
+  }): {
+    feeType: 'FLAT' | 'PERCENT';
+    feeMinor: number;
+    feePercentBps: number | null;
+    minFeeMinor: number | null;
+    maxFeeMinor: number | null;
+  } {
+    if (c.feeType === 'FLAT') {
+      if (c.feeMinor === undefined) {
+        throw new AppException(
+          ErrorCodes.VALIDATION_FAILED,
+          'A fixed-amount band needs its booking fee amount.',
+        );
+      }
+      return {
+        feeType: 'FLAT',
+        feeMinor: c.feeMinor,
+        feePercentBps: null,
+        minFeeMinor: null,
+        maxFeeMinor: null,
+      };
+    }
+    if (c.feePercentBps === null || c.feePercentBps < 1 || c.feePercentBps > 10_000) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'A percentage band needs a percentage above 0% and no more than 100%.',
+      );
+    }
+    if (c.minFeeMinor !== null && c.maxFeeMinor !== null && c.minFeeMinor > c.maxFeeMinor) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The minimum fee cannot be more than the maximum fee.',
+      );
+    }
+    return {
+      feeType: 'PERCENT',
+      feeMinor: 0,
+      feePercentBps: c.feePercentBps,
+      minFeeMinor: c.minFeeMinor,
+      maxFeeMinor: c.maxFeeMinor,
+    };
   }
 
   /** An inverted band matches nothing and silently reprices via the fall-through tier. */
@@ -227,6 +305,10 @@ export class AdminService {
       minMinor?: number;
       maxMinor?: number | null;
       feeMinor?: number;
+      feeType?: 'FLAT' | 'PERCENT';
+      feePercentBps?: number | null;
+      minFeeMinor?: number | null;
+      maxFeeMinor?: number | null;
       country?: string;
       region?: string;
       active?: boolean;
@@ -235,11 +317,22 @@ export class AdminService {
     const existing = await this.prisma.feeRule.findUnique({ where: { id } });
     if (!existing) throw new AppException(ErrorCodes.NOT_FOUND, 'Fee rule not found.');
 
+    // Each charge field falls back to what is stored, so a patch that only changes the label
+    // of a percentage band keeps its percentage, floor and ceiling.
+    const pick = <T>(value: T | undefined, stored: T): T => (value === undefined ? stored : value);
+    const charge = this.normaliseCharge({
+      // A row with no type predates percentages, and every such row was a fixed amount.
+      feeType: pick(patch.feeType, existing.feeType) ?? 'FLAT',
+      feeMinor: pick(patch.feeMinor, existing.feeMinor),
+      feePercentBps: pick(patch.feePercentBps, existing.feePercentBps),
+      minFeeMinor: pick(patch.minFeeMinor, existing.minFeeMinor),
+      maxFeeMinor: pick(patch.maxFeeMinor, existing.maxFeeMinor),
+    });
     const next = {
       label: patch.label ?? existing.label,
       minMinor: patch.minMinor ?? existing.minMinor,
       maxMinor: patch.maxMinor === undefined ? existing.maxMinor : patch.maxMinor,
-      feeMinor: patch.feeMinor ?? existing.feeMinor,
+      ...charge,
       country: patch.country ?? existing.country,
       region: patch.region ?? existing.region,
       active: patch.active ?? existing.active,
@@ -270,6 +363,10 @@ export class AdminService {
           minMinor: existing.minMinor,
           maxMinor: existing.maxMinor,
           feeMinor: existing.feeMinor,
+          feeType: existing.feeType,
+          feePercentBps: existing.feePercentBps,
+          minFeeMinor: existing.minFeeMinor,
+          maxFeeMinor: existing.maxFeeMinor,
           active: existing.active,
         },
         after: next,

@@ -30,6 +30,7 @@ import { GuestClaimCard } from '@/components/guest-self-service';
 import { guestTokenFor } from '@/lib/guest-session';
 import { useMounted } from '@/lib/use-mounted';
 import { useLocale, useTranslations } from 'next-intl';
+import { siteUrl } from '@/lib/site-url';
 
 const BOOKING_STEPS = ['tickets', 'payment', 'confirmation', 'ticket'] as const;
 /*
@@ -192,10 +193,7 @@ function AccountConfirmation() {
   const share = async () => {
     // In the reader's language: a French buyer sharing with a French friend should send the
     // French page, and the default locale has no prefix to add.
-    const url = `${window.location.origin}${getPathname({
-      href: `/events/${booking.event.slug}`,
-      locale,
-    })}`;
+    const url = siteUrl(getPathname({ href: `/events/${booking.event.slug}`, locale }));
     if (navigator.share)
       await navigator.share({ title: booking.event.title, url }).catch(() => undefined);
     else {

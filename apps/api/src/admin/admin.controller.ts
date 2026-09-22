@@ -16,12 +16,33 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
  * `maxMinor` accepts null to mean "and above" for the top band, so `.nullable()` is required
  * and is distinct from omitting the key (which leaves the value unchanged).
  */
+/*
+  How a band charges. FLAT is a fixed amount (`feeMinor`); PERCENT is a share of the order in
+  BASIS POINTS - 500 is 5%, not 500% - optionally held between a floor and a ceiling in minor
+  units. Whether the combination makes sense (a percentage on a PERCENT band, a floor not above
+  the ceiling) is checked on the RESULT in AdminService, because a patch only carries the fields
+  that changed.
+*/
+const feeChargeFields = {
+  feeType: z.enum(['FLAT', 'PERCENT']).optional(),
+  feePercentBps: z
+    .number()
+    .int()
+    .min(1, 'A percentage fee must be above 0%.')
+    .max(10_000, 'Basis points: 500 is 5%. A booking fee cannot exceed 100% (10000).')
+    .nullable()
+    .optional(),
+  minFeeMinor: z.number().int().min(0).nullable().optional(),
+  maxFeeMinor: z.number().int().min(0).nullable().optional(),
+};
+
 const feeRulePatchSchema = z
   .object({
     label: z.string().trim().min(1).max(60).optional(),
     minMinor: z.number().int().min(0).optional(),
     maxMinor: z.number().int().min(0).nullable().optional(),
     feeMinor: z.number().int().min(0).optional(),
+    ...feeChargeFields,
     // Where the band applies. '*' is anywhere; a named region beats a named country.
     country: z.string().trim().max(60).optional(),
     region: z.string().trim().max(60).optional(),
@@ -44,7 +65,9 @@ const feeRuleCreateSchema = z.object({
   label: z.string().trim().min(1).max(60),
   minMinor: z.number().int().min(0),
   maxMinor: z.number().int().min(0).nullable(),
-  feeMinor: z.number().int().min(0),
+  // Required for a FLAT band, ignored on a PERCENT one - AdminService decides which.
+  feeMinor: z.number().int().min(0).optional(),
+  ...feeChargeFields,
   country: z.string().trim().max(60).optional(),
   region: z.string().trim().max(60).optional(),
   active: z.boolean().optional(),

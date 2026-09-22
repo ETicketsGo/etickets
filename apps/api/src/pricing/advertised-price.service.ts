@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_FEE_TIERS, type FeeTier } from './fee-calculator';
+import { DEFAULT_FEE_TIERS, feeTierFromRule, type FeeTier } from './fee-calculator';
 import {
   advertisedPriceMinor,
   parsePriceDisplayMode,
@@ -51,9 +51,7 @@ export class AdvertisedPriceService {
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
-    const tiers = rules.length
-      ? rules.map((r) => ({ minMinor: r.minMinor, maxMinor: r.maxMinor, feeMinor: r.feeMinor }))
-      : DEFAULT_FEE_TIERS;
+    const tiers = rules.length ? rules.map(feeTierFromRule) : DEFAULT_FEE_TIERS;
     this.tierCache.set(currency, tiers);
     return tiers;
   }

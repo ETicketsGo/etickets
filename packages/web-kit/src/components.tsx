@@ -21,6 +21,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -148,6 +149,21 @@ function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNo
   );
 }
 
+/**
+ * The id a field is known by: the caller's, or one made up for it.
+ *
+ * Every field linked its label with `htmlFor={id}`, and most callers never passed an id - so
+ * the label was attached to nothing. A screen reader announced an unnamed dropdown, clicking
+ * a label did not focus its field, and each hint got the id `undefined-hint`, the same one on
+ * every field of the page. Found while testing the booking-fee editor, where no field had an
+ * id; the same was true of forms across all three apps. A generated id fixes every caller at
+ * once, and a caller that does pass an id keeps it.
+ */
+function useFieldId(id: string | undefined): string {
+  const generated = useId();
+  return id ?? generated;
+}
+
 export function Input({
   label,
   id,
@@ -162,21 +178,27 @@ export function Input({
   hint?: string;
   icon?: LucideIcon;
 }) {
+  const fieldId = useFieldId(id);
   return (
     <div>
-      {label && <FieldLabel htmlFor={id}>{label}</FieldLabel>}
+      {label && <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>}
       <div className="relative">
         {Icon && (
           <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
         )}
         <input
-          id={id}
+          id={fieldId}
+          aria-describedby={hint && !error ? `${fieldId}-hint` : undefined}
           className={`${fieldBase} ${Icon ? 'pl-10' : ''} ${error ? 'border-status-error focus:border-status-error focus:ring-status-error/15' : ''} ${className}`}
           aria-invalid={!!error}
           {...props}
         />
       </div>
-      {hint && !error && <p className="mt-1.5 text-caption text-text-muted">{hint}</p>}
+      {hint && !error && (
+        <p id={`${fieldId}-hint`} className="mt-1.5 text-caption text-text-muted">
+          {hint}
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-1.5 text-caption text-status-error">
           {error}
@@ -199,18 +221,19 @@ export function Textarea({
   /** Matches `Input` and `Select`. A box whose contents have consequences needs to say so. */
   hint?: string;
 }) {
+  const fieldId = useFieldId(id);
   return (
     <div>
-      {label && <FieldLabel htmlFor={id}>{label}</FieldLabel>}
+      {label && <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>}
       <textarea
-        id={id}
-        aria-describedby={hint && !error ? `${id}-hint` : undefined}
+        id={fieldId}
+        aria-describedby={hint && !error ? `${fieldId}-hint` : undefined}
         className={`${fieldBase} ${className}`}
         aria-invalid={!!error}
         {...props}
       />
       {hint && !error && (
-        <p id={`${id}-hint`} className="mt-1.5 text-caption text-text-muted">
+        <p id={`${fieldId}-hint`} className="mt-1.5 text-caption text-text-muted">
           {hint}
         </p>
       )}
@@ -237,13 +260,14 @@ export function Select({
   /** Matches `Input`. A dropdown whose choice has consequences needs room to say so. */
   hint?: string;
 }) {
+  const fieldId = useFieldId(id);
   return (
     <div>
-      {label && <FieldLabel htmlFor={id}>{label}</FieldLabel>}
+      {label && <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>}
       <div className="relative">
         <select
-          id={id}
-          aria-describedby={hint && !error ? `${id}-hint` : undefined}
+          id={fieldId}
+          aria-describedby={hint && !error ? `${fieldId}-hint` : undefined}
           className={`${fieldBase} cursor-pointer appearance-none pr-10 ${className}`}
           {...props}
         >
@@ -252,7 +276,7 @@ export function Select({
         <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
       </div>
       {hint && !error && (
-        <p id={`${id}-hint`} className="mt-1.5 text-caption text-text-muted">
+        <p id={`${fieldId}-hint`} className="mt-1.5 text-caption text-text-muted">
           {hint}
         </p>
       )}

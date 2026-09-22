@@ -9,6 +9,7 @@ import type { Locale } from '@eticketsgo/i18n';
 import { api } from '@/lib/api';
 import { getPathname } from '@/i18n/navigation';
 import { Button, Dialog, Input } from '@/components/ui';
+import { siteUrl } from '@/lib/site-url';
 
 type Mode = 'invite' | 'assign';
 
@@ -56,9 +57,8 @@ export function AssignAttendeeDialog({
     mutationFn: () => api.inviteAttendee(ticket.id, { email, name: name || undefined }),
     onSuccess: (res) => {
       // The invite page in the sender's language; the default locale has no prefix to add.
-      setInviteLink(
-        `${window.location.origin}${getPathname({ href: `/invite/${res.token}`, locale })}`,
-      );
+      // On the site's own address: this link is sent to somebody else to trust and open.
+      setInviteLink(siteUrl(getPathname({ href: `/invite/${res.token}`, locale })));
       invalidate();
       toast.push(t('invitedToast'), 'success');
     },
