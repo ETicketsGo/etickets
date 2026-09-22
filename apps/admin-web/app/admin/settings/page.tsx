@@ -417,9 +417,9 @@ export default function AdminSettings() {
           </li>
           <li>
             A band naming a <strong>state</strong> beats one naming only a country, which beats{' '}
-            <code>*</code>. The winning scope supplies the <strong>whole</strong> schedule — a
-            state&rsquo;s bands replace the national ones rather than mixing with them, so a partial
-            state schedule does not silently inherit a national band.
+            <code>*</code>, for any amount they both cover. An amount that only the broader schedule
+            covers keeps the broader band, so adding one band for one place changes that range and
+            nothing else. The schedule around it is not deleted.
           </li>
           <li>
             Bands may only overlap <em>across</em> scopes. Two bands covering the same amount in the

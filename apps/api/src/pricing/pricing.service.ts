@@ -3,10 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  applicableTiers,
   calculateFees,
   DEFAULT_FEE_TIERS,
   feeTierFromRule,
   type FeeCalcResult,
+  type FeePlace,
   type FeeTier,
 } from './fee-calculator';
 import type { TaxPlace } from './tax-calculator';
@@ -43,44 +45,20 @@ export class PricingService {
    * Indian states cap what may be charged for booking a cinema ticket online, and the cap
    * differs by state — so one INR band cannot be correct for the whole country.
    *
-   * ── MOST SPECIFIC WINS, AND ONLY ONE SET APPLIES ───────────────────────────────
-   * A rule naming a region beats one naming only a country, which beats the wildcard. The
-   * winning specificity takes the WHOLE band set: mixing a Telangana ₹5 band with a national
-   * ₹20 band would produce a fee schedule nobody wrote, where the charge depends on which
-   * band an order happens to fall in rather than on a decision somebody made.
+   * ── THE MOST SPECIFIC BAND WINS, NOT THE MOST SPECIFIC SET ─────────────────────
+   * Ordering (and the reason it changed) lives in `applicableTiers`, so live pricing and the
+   * advertised "from" price cannot drift apart: both call it.
    */
-  private async loadTiers(
-    currency: string,
-    place: { country?: string | null; region?: string | null } = {},
-  ): Promise<FeeTier[]> {
+  private async loadTiers(currency: string, place: FeePlace = {}): Promise<FeeTier[]> {
     const rules = await this.prisma.feeRule.findMany({
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
     if (rules.length === 0) return DEFAULT_FEE_TIERS;
 
-    const matches = (ruleValue: string, actual: string | null | undefined): boolean => {
-      const v = (ruleValue ?? '*').trim();
-      if (v === '*' || v === '') return true;
-      if (actual == null) return false;
-      return v.toUpperCase() === actual.trim().toUpperCase();
-    };
-
-    const applicable = rules.filter(
-      (r) => matches(r.country, place.country) && matches(r.region, place.region),
-    );
+    const applicable = applicableTiers(rules, place);
     if (applicable.length === 0) return DEFAULT_FEE_TIERS;
-
-    /*
-      Specificity is counted, not guessed: a named region scores 2, a named country 1. Taking
-      the highest score present and keeping only those rules means a state's schedule replaces
-      the national one wholesale rather than being blended into it.
-    */
-    const score = (r: { country: string; region: string }) =>
-      (r.region !== '*' ? 2 : 0) + (r.country !== '*' ? 1 : 0);
-    const best = Math.max(...applicable.map(score));
-
-    return applicable.filter((r) => score(r) === best).map(feeTierFromRule);
+    return applicable.map(feeTierFromRule);
   }
 
   /**

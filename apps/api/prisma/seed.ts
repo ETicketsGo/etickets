@@ -22,6 +22,7 @@ import {
   SessionStatus,
   TicketStatus,
 } from '@prisma/client';
+import { MARKETS } from '@eticketsgo/shared-types';
 import { routesFor } from './payment-routing-policy';
 import { assertDestructiveResetAllowed } from './destructive-guard';
 import * as bcrypt from 'bcryptjs';
@@ -40,6 +41,13 @@ const SEED_PASSWORD = 'Password123!';
  * amounts that are sane for those markets rather than a currency conversion of the rupee
  * figures. They are STARTING POINTS for QA, not commercially agreed pricing — expect finance
  * to set the real numbers through the admin console before any of these markets goes live.
+ *
+ * ── EACH BAND NAMES ITS COUNTRY ────────────────────────────────────────────────────
+ * These used to seed with the wildcard scope, so the admin console listed every band as
+ * applying "Everywhere". Each of these currencies belongs to exactly one of the platform's
+ * markets, so "everywhere" was never true — and the moment somebody added one India-scoped
+ * band beside them, the console showed a schedule half of which no longer applied in India.
+ * The country is written down instead, in the spelling the scope dropdown offers.
  */
 const FEE_TIERS_BY_CURRENCY: Record<
   string,
@@ -70,6 +78,16 @@ const FEE_TIERS_BY_CURRENCY: Record<
     { label: 'A$50+', minMinor: 5_000, maxMinor: null, feeMinor: 239 },
   ],
 };
+
+/**
+ * The market a currency belongs to, named the way a fee band's scope names it.
+ *
+ * Read from MARKETS rather than written out again here: the platform already decides which
+ * country uses which currency in one place, and a second copy is a second answer.
+ */
+function countryForCurrency(currency: string): string {
+  return MARKETS.find((m) => m.currency === currency)?.name ?? '*';
+}
 
 /** The seed's own price maths is INR-only; keep that path pointed at the INR bands. */
 const FEE_TIERS = FEE_TIERS_BY_CURRENCY.INR;
@@ -249,7 +267,7 @@ async function main() {
   console.log('Seeding fee rules & coupons...');
   await prisma.feeRule.createMany({
     data: Object.entries(FEE_TIERS_BY_CURRENCY).flatMap(([currency, tiers]) =>
-      tiers.map((t) => ({ ...t, currency })),
+      tiers.map((t) => ({ ...t, currency, country: countryForCurrency(currency) })),
     ),
   });
 

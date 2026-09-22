@@ -77,11 +77,10 @@ describe('fee bands by location', () => {
     expect(r.bookingFeeMinor).toBe(2_000);
   });
 
-  it('takes the winning specificity WHOLESALE, never a blend', async () => {
+  it('lets a state band win every range it covers', async () => {
     /*
-      A state schedule replaces the national one rather than merging with it. Mixing a
-      Telangana ₹5 band with a national ₹20 band would produce a schedule nobody wrote, where
-      the charge depends on which band an order happens to land in.
+      A state band replaces the national one wherever the two overlap, so an order in
+      Telangana is charged Telangana's number and never the national one above it.
     */
     const svc = service([
       band({ country: 'India', minMinor: 0, maxMinor: 19_900, feeMinor: 500 }),
@@ -94,6 +93,67 @@ describe('fee bands by location', () => {
       region: 'TG',
     });
     expect(big.bookingFeeMinor).toBe(300);
+  });
+
+  it('does not delete the schedule around a band added for one place', async () => {
+    /*
+      ── THE DEFECT THIS EXISTS FOR ───────────────────────────────────────────────────
+      The resolver used to keep ONLY the most specific bands and throw the rest away, so
+      adding one band for one place silently deleted the schedule around it. On QA the INR
+      table held the national bands plus two India-scoped ones; the two shadowed the rest,
+      an order of ₹700 matched nothing, and the resolver fell through to the LAST band in
+      the list — "3% above ₹2,000" — charging ₹21 where the console said ₹15.
+
+      Specificity now decides which band wins an amount both cover. A range only the broader
+      schedule covers keeps the broader band.
+    */
+    const svc = service([
+      band({ country: 'India', minMinor: 0, maxMinor: 19_900, feeMinor: 500 }),
+      band({ country: 'India', minMinor: 20_000, maxMinor: 99_900, feeMinor: 1_500 }),
+      band({ country: 'India', minMinor: 100_000, maxMinor: null, feeMinor: 2_000 }),
+      // Telangana caps ONE range. The rest of India's schedule still applies there.
+      band({ country: 'India', region: 'TG', minMinor: 0, maxMinor: 19_900, feeMinor: 300 }),
+    ]);
+    const place = { country: 'India', region: 'TG' };
+
+    expect((await svc.quote(10_000, 'CUSTOMER_PAYS', 0, 'INR', place)).bookingFeeMinor).toBe(300);
+    expect((await svc.quote(70_000, 'CUSTOMER_PAYS', 0, 'INR', place)).bookingFeeMinor).toBe(1_500);
+    expect((await svc.quote(500_000, 'CUSTOMER_PAYS', 0, 'INR', place)).bookingFeeMinor).toBe(
+      2_000,
+    );
+  });
+
+  it('never charges a small order under a band written for large ones', async () => {
+    /*
+      The way the QA mispricing actually reached money: with no band matching, the resolver
+      took the last row in the list. Ordered by scope rather than by amount, that row was
+      "3% of orders above ₹2,000" — charged on an order of ₹100.
+    */
+    const svc = service([
+      band({
+        country: 'India',
+        region: 'TG',
+        minMinor: 200_000,
+        maxMinor: null,
+        feeType: 'PERCENT',
+        feePercentBps: 300,
+        feeMinor: 0,
+      }),
+      band({ country: 'India', minMinor: 0, maxMinor: 19_900, feeMinor: 500 }),
+    ]);
+    const r = await svc.quote(10_000, 'CUSTOMER_PAYS', 0, 'INR', {
+      country: 'India',
+      region: 'TG',
+    });
+    expect(r.bookingFeeMinor).toBe(500);
+  });
+
+  it('matches a country however the venue spells it', async () => {
+    // Bands are scoped from a dropdown of market names; venue countries are free text that
+    // has been 'IN' and 'India' in the same database.
+    const svc = service([band({ country: 'India', feeMinor: 1_234 })]);
+    const r = await svc.quote(50_000, 'CUSTOMER_PAYS', 0, 'INR', { country: 'IN' });
+    expect(r.bookingFeeMinor).toBe(1_234);
   });
 
   it('falls back to the built-in defaults when nothing matches', async () => {
