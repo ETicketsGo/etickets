@@ -42,6 +42,7 @@ export * from './coordinates';
 export * from './workspace-theme';
 export * from './logo';
 export * from './printable-tickets';
+export * from './event-details';
 export * from './safe-next';
 export * from './showtimes';
 export * from './ratings';

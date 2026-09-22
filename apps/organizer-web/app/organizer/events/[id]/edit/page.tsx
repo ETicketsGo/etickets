@@ -23,6 +23,13 @@ import {
   prepareEventImage,
   type GalleryTile,
 } from '@/components/event-image-picker';
+import {
+  EMPTY_EVENT_DETAILS,
+  EventDetailsFields,
+  eventDetailsBody,
+  eventDetailsFrom,
+  type EventDetailsValue,
+} from '@/components/event-details-fields';
 
 const EDITABLE = ['DRAFT', 'UNDER_REVIEW', 'PAUSED'];
 /*
@@ -56,6 +63,7 @@ export default function EditEvent() {
   });
   /* Typed rather than picked, when the stored value is not one of the offered options. */
   const [categoryMode, setCategoryMode] = useState<'list' | 'other'>('list');
+  const [details, setDetails] = useState<EventDetailsValue>(EMPTY_EVENT_DETAILS);
 
   useEffect(() => {
     if (event)
@@ -68,6 +76,7 @@ export default function EditEvent() {
         isFree: event.isFree,
       });
     if (event) setCategoryMode(isListedCategory(event.category) ? 'list' : 'other');
+    if (event) setDetails(eventDetailsFrom(event));
   }, [event]);
 
   const save = useMutation({
@@ -79,6 +88,7 @@ export default function EditEvent() {
         refundPolicy: form.refundPolicy || undefined,
         feeMode: form.feeMode,
         isFree: form.isFree,
+        ...eventDetailsBody(details),
       }),
     onSuccess: () => {
       toast.push('Event updated.', 'success');
@@ -280,6 +290,7 @@ export default function EditEvent() {
           }}
           onReorder={(imageIds) => reorderImages.mutate(imageIds)}
         />
+        <EventDetailsFields value={details} onChange={setDetails} disabled={!editable} />
         <Textarea
           id="refund"
           label="Refund policy"

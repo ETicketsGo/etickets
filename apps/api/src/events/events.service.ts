@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma, Prisma as PrismaNamespace } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import { randomBytes } from 'node:crypto';
@@ -76,8 +76,11 @@ const DEFAULT_CURRENCY = 'INR';
  * sets on the event itself. What it is, where, what it costs a buyer and what they can get back.
  *
  * Images are deliberately absent — the owner decided a picture changes without review — and
- * they are not written through `update` anyway. There are no age or content-rating fields on
- * an event yet; one added to the schema belongs in this list.
+ * they are not written through `update` anyway.
+ *
+ * The age limit, terms and artists are here because a buyer decides on them: raising an age
+ * limit or adding "no refunds for late arrival" to the terms after a reviewer approved the
+ * event is exactly the kind of change review exists to see.
  */
 const REVIEWED_EVENT_FIELDS = [
   'title',
@@ -89,6 +92,9 @@ const REVIEWED_EVENT_FIELDS = [
   'refundCutoffHours',
   'feeMode',
   'isFree',
+  'ageLimit',
+  'termsAndConditions',
+  'artists',
 ] as const satisfies readonly (keyof CreateEventInput)[];
 
 /**
@@ -102,10 +108,47 @@ function changedReviewedFields(
   event: Record<(typeof REVIEWED_EVENT_FIELDS)[number], unknown>,
   patch: Partial<CreateEventInput>,
 ): string[] {
-  const normalise = (value: unknown) => (value === '' || value === undefined ? null : value);
+  /*
+    A list (the artists) is compared by content: two arrays are never `===`, so without this a
+    Save that changed nothing would count as a change and send the event to review. An empty
+    list, an empty string and a missing value are all "nothing".
+  */
+  const normalise = (value: unknown) => {
+    if (value === '' || value === undefined || value === null) return null;
+    if (Array.isArray(value)) return value.length ? JSON.stringify(value) : null;
+    return value;
+  };
   return REVIEWED_EVENT_FIELDS.filter(
     (field) => patch[field] !== undefined && normalise(patch[field]) !== normalise(event[field]),
   );
+}
+
+/**
+ * The new event details, in the form the database stores them.
+ *
+ * Only keys the caller sent are returned, so an edit that leaves them out leaves them alone.
+ * "Cleared" is stored as NULL whatever shape it arrived in - an empty list, an empty string, or
+ * null - so the event page has one question to ask ("is there anything?") rather than three.
+ * A JSON column is cleared with `Prisma.DbNull`; a plain `null` is refused by Prisma for JSON.
+ */
+interface EventDetailsData {
+  ageLimit?: number | null;
+  termsAndConditions?: string | null;
+  artists?: Prisma.InputJsonValue | typeof PrismaNamespace.DbNull;
+}
+
+function eventDetailsData(input: Partial<CreateEventInput>): EventDetailsData {
+  const data: EventDetailsData = {};
+  if (input.ageLimit !== undefined) data.ageLimit = input.ageLimit;
+  if (input.termsAndConditions !== undefined) {
+    data.termsAndConditions = input.termsAndConditions?.trim() || null;
+  }
+  if (input.artists !== undefined) {
+    data.artists = input.artists?.length
+      ? (input.artists as unknown as Prisma.InputJsonValue)
+      : PrismaNamespace.DbNull;
+  }
+  return data;
 }
 
 const PAUSED_BY_ADMIN_MESSAGE =
@@ -191,6 +234,7 @@ export class EventsService {
           : {}),
         feeMode: input.feeMode,
         isFree: input.isFree,
+        ...eventDetailsData(input),
         status: EventStatus.DRAFT,
       },
     });
@@ -459,12 +503,18 @@ export class EventsService {
     */
     const reviewedChanges =
       event.status === EventStatus.PAUSED ? changedReviewedFields(event, patch) : [];
+    // Everything else in the patch is a plain column; the three details need converting.
+    const { ageLimit: _age, termsAndConditions: _terms, artists: _artists, ...plain } = patch;
+    void _age;
+    void _terms;
+    void _artists;
+    const data = { ...plain, ...eventDetailsData(patch) };
     if (reviewedChanges.length === 0) {
-      return this.prisma.event.update({ where: { id }, data: patch });
+      return this.prisma.event.update({ where: { id }, data });
     }
     const updated = await this.prisma.event.update({
       where: { id },
-      data: { ...patch, needsReviewOnResume: true },
+      data: { ...data, needsReviewOnResume: true },
     });
     await this.audit.record({
       actorUserId: user.id,

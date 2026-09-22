@@ -39,6 +39,27 @@ export interface PublicEventFilters {
   pageSize: number;
 }
 
+/**
+ * The artists as the page shows them, whatever the stored JSON holds.
+ *
+ * Read defensively because a JSON column is only as well-formed as the last thing that wrote
+ * it: anything that is not a list of objects with a name is dropped rather than shown as
+ * "undefined" to a customer.
+ */
+function publicArtists(raw: unknown): { name: string; role: string | null; bio: string | null }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (a): a is Record<string, unknown> =>
+        !!a && typeof a === 'object' && typeof (a as Record<string, unknown>).name === 'string',
+    )
+    .map((a) => ({
+      name: String(a.name),
+      role: typeof a.role === 'string' && a.role ? a.role : null,
+      bio: typeof a.bio === 'string' && a.bio ? a.bio : null,
+    }));
+}
+
 @Injectable()
 export class PublicEventsService {
   constructor(
@@ -218,6 +239,17 @@ export class PublicEventsService {
               a buyer who fills in a form and is turned away at the last step.
             */
             cashPaymentsEnabled: true,
+            /*
+              Who is running this, beyond a name. The same fields the public organizer page
+              already shows, so the event page reveals nothing that page does not: a buyer
+              deciding whether to trust a stranger with money should not have to leave the page
+              to find out who they are.
+            */
+            verified: true,
+            logoUrl: true,
+            description: true,
+            website: true,
+            instagramUrl: true,
           },
         },
         sessions: {
@@ -270,7 +302,19 @@ export class PublicEventsService {
       // So the buyer is told "Free" rather than "₹0.00", and the checkout can skip itself.
       isFree: event.isFree,
       venue: event.venue,
-      organizer: { id: event.organization.id, name: event.organization.name },
+      organizer: {
+        id: event.organization.id,
+        name: event.organization.name,
+        verified: event.organization.verified,
+        logoUrl: event.organization.logoUrl,
+        description: event.organization.description,
+        website: event.organization.website,
+        instagramUrl: event.organization.instagramUrl,
+      },
+      // What a buyer checks before paying. Null when the organizer has not said.
+      ageLimit: event.ageLimit,
+      termsAndConditions: event.termsAndConditions,
+      artists: publicArtists(event.artists),
       // Surfaced on the event rather than nested in `organizer`, because it is a fact about
       // how you can pay for THIS event, not a detail of who is running it.
       cashAccepted: event.organization.cashPaymentsEnabled && !event.isFree,

@@ -93,6 +93,14 @@ export default function EventOverview() {
           <dd className="text-text-primary">
             {event.venue.name}, {event.venue.city}
           </dd>
+          <dt className="text-text-muted">Age limit</dt>
+          <dd className="text-text-primary">
+            {event.ageLimit ? `${event.ageLimit}+` : 'No age limit'}
+          </dd>
+          <dt className="text-text-muted">Artists</dt>
+          <dd className="text-text-primary">
+            {event.artists?.length ? event.artists.map((a) => a.name).join(', ') : 'None'}
+          </dd>
           <dt className="text-text-muted">Fee handling</dt>
           <dd className="text-text-primary">{titleCase(event.feeMode)}</dd>
           <dt className="text-text-muted">Sessions</dt>

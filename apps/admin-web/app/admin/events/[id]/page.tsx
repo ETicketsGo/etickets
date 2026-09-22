@@ -19,6 +19,7 @@ import {
   titleCase,
   dateTime,
   money,
+  termsList,
 } from '@eticketsgo/web-kit';
 
 export default function AdminEventDetail() {
@@ -122,10 +123,45 @@ export default function AdminEventDetail() {
             </dd>
             <dt className="text-text-muted">Fee handling</dt>
             <dd className="text-text-primary">{titleCase(event.feeMode)}</dd>
+            <dt className="text-text-muted">Age limit</dt>
+            <dd className="text-text-primary">
+              {event.ageLimit ? `${event.ageLimit}+` : 'No age limit'}
+            </dd>
           </dl>
           {event.description && (
             <p className="mt-4 text-sm text-text-secondary">{event.description}</p>
           )}
+          {/*
+            What a buyer will be told before paying, shown to the reviewer who approves it. The
+            age limit, the terms and the line-up are reviewed details: an organizer who changes
+            one on a live event sends it back here.
+          */}
+          {event.artists?.length ? (
+            <div className="mt-4 text-sm">
+              <p className="font-semibold text-text-primary">Artists</p>
+              <ul className="mt-1 space-y-1 text-text-secondary">
+                {event.artists.map((a, i) => (
+                  <li key={i}>
+                    <span className="text-text-primary">{a.name}</span>
+                    {a.role ? ` - ${a.role}` : ''}
+                    {a.bio ? (
+                      <span className="block text-caption text-text-muted">{a.bio}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {termsList(event.termsAndConditions).length ? (
+            <div className="mt-4 text-sm">
+              <p className="font-semibold text-text-primary">Terms and conditions</p>
+              <ol className="mt-1 list-decimal space-y-1 pl-5 text-text-secondary">
+                {termsList(event.termsAndConditions).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
 
           <h3 className="mt-6 text-sm font-semibold text-text-primary">Sessions & tickets</h3>
           <div className="mt-2 space-y-3">

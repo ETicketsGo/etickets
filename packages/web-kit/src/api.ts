@@ -2062,7 +2062,23 @@ export interface PublicEventCard {
   /** The organizer's image, as a path for `apiAssetUrl`. Absent on saved cards from before. */
   imagePath?: string | null;
 }
-export interface PublicEvent {
+/** A performer or presenter on an event. Name is required; the rest is optional. */
+export interface EventArtist {
+  name: string;
+  role?: string | null;
+  bio?: string | null;
+}
+
+/** The details a buyer checks before paying. All optional: an older API sends none of them. */
+export interface EventDetails {
+  /** The youngest age admitted: 16 means "16+". Null or absent: no age limit. */
+  ageLimit?: number | null;
+  /** The organizer's terms, one per line. */
+  termsAndConditions?: string | null;
+  artists?: EventArtist[] | null;
+}
+
+export interface PublicEvent extends EventDetails {
   id: string;
   title: string;
   slug: string;
@@ -2090,7 +2106,16 @@ export interface PublicEvent {
      */
     timezone?: string | null;
   };
-  organizer: { id: string; name: string };
+  organizer: {
+    id: string;
+    name: string;
+    /** Checked by the platform team. Absent on an older API. */
+    verified?: boolean;
+    logoUrl?: string | null;
+    description?: string | null;
+    website?: string | null;
+    instagramUrl?: string | null;
+  };
   sessions: {
     id: string;
     startsAt: string;
@@ -3345,7 +3370,7 @@ export interface TicketType {
   status: string;
   inventory?: { quantityTotal: number; quantitySold: number; quantityHeld: number } | null;
 }
-export interface OrgEventDetail {
+export interface OrgEventDetail extends EventDetails {
   id: string;
   title: string;
   slug: string;
@@ -3374,7 +3399,7 @@ export interface OrgEventDetail {
 }
 /** What resuming did: `sentForReview` when edits made while paused sent it to the review queue. */
 export type EventResumeResult = OrgEventDetail & { sentForReview: boolean };
-export interface CreateEventBody {
+export interface CreateEventBody extends EventDetails {
   organizationId: string;
   venueId: string;
   title: string;

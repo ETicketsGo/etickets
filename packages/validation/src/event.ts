@@ -46,6 +46,19 @@ export const createVenueSchema = z.object({
 });
 export type CreateVenueInput = z.infer<typeof createVenueSchema>;
 
+/**
+ * One performer or presenter, as buyers see them on the event page.
+ *
+ * Name is the only required part. Role says what they do there (Performer, Host, Organiser)
+ * and bio is a line or two about them - kept short because it sits in a card, not a profile.
+ */
+export const eventArtistSchema = z.object({
+  name: z.string().trim().min(1, 'Give the artist a name.').max(80),
+  role: z.string().trim().max(60).optional(),
+  bio: z.string().trim().max(300).optional(),
+});
+export type EventArtist = z.infer<typeof eventArtistSchema>;
+
 export const createEventSchema = z.object({
   title: z.string().trim().min(3).max(180),
   category: z.string().trim().min(2).max(80),
@@ -84,6 +97,20 @@ export const createEventSchema = z.object({
    * API holds the two in agreement by refusing a priced ticket type on a free event.
    */
   isFree: z.boolean().default(false),
+  /**
+   * The youngest age admitted, in years: 16 is "16+". Null clears it (no age limit).
+   *
+   * An upper bound of 21 because that is the highest age limit any market this platform sells
+   * in applies to an event; a larger number is a typo for something else.
+   */
+  ageLimit: z.number().int().min(1).max(21).nullable().optional(),
+  /**
+   * The organizer's terms, one per line; buyers see them as a numbered list. Their words, shown
+   * as written. Null or an empty string clears them.
+   */
+  termsAndConditions: z.string().trim().max(5000).nullable().optional(),
+  /** Who performs or presents, in the order to show them. Null or [] clears the list. */
+  artists: z.array(eventArtistSchema).max(20).nullable().optional(),
 });
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 
