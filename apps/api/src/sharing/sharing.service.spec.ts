@@ -57,7 +57,11 @@ function fakeResource(
 }
 
 function setup(
-  opts: { resource?: ShareableResource | null; invite?: Record<string, unknown> | null } = {},
+  opts: {
+    resource?: ShareableResource | null;
+    invite?: Record<string, unknown> | null;
+    env?: Record<string, string>;
+  } = {},
 ) {
   const created: Record<string, unknown>[] = [];
   const updated: Record<string, unknown>[] = [];
@@ -80,7 +84,9 @@ function setup(
   const notifications = {
     send: jest.fn().mockResolvedValue(undefined),
   } as unknown as NotificationService;
-  const config = { get: () => 'http://localhost:3000' } as never;
+  const config = (
+    opts.env ? { get: (key: string) => opts.env![key] } : { get: () => 'http://localhost:3000' }
+  ) as never;
   const registry = {
     resolve: jest
       .fn()
@@ -122,6 +128,41 @@ describe('SharingService', () => {
       expect(res.qrDataUrl.startsWith('data:image/png')).toBe(true);
       expect(created[0].permission).toBe('VIEW');
       expect(String(created[0].tokenHash)).not.toBe(res.token); // hashed at rest
+    });
+
+    it('puts the link on the customer site, not on the first CORS origin', async () => {
+      /*
+        The owner's report, exactly as QA is configured. CORS_ORIGINS lists the Railway host
+        first - it is a list of who may call the API, in no particular order - and the link
+        used to be built from that first entry, so a shared ticket arrived as
+        customer-web-qa.up.railway.app. The address a friend is asked to trust has to be the
+        one the customer site is actually served on.
+      */
+      const { svc } = setup({
+        env: {
+          APP_ENV: 'QA',
+          CUSTOMER_WEB_URL: 'https://qa.eticketsgo.com',
+          CORS_ORIGINS: 'https://customer-web-qa.up.railway.app,https://qa.eticketsgo.com',
+        },
+      });
+
+      const res = await svc.createShare(OWNER, 'TICKET', 'tk1', {
+        permission: 'VIEW',
+        expiry: '24h',
+      });
+
+      expect(res.shareUrl.startsWith('https://qa.eticketsgo.com/share/')).toBe(true);
+      expect(res.shareUrl).not.toContain('railway.app');
+    });
+
+    it('refuses to hand out a localhost link from a deployed environment', async () => {
+      // No customer site configured on QA: better to fail the share than to send a friend to
+      // somebody's laptop.
+      const { svc } = setup({ env: { APP_ENV: 'QA' } });
+
+      await expect(
+        svc.createShare(OWNER, 'TICKET', 'tk1', { permission: 'VIEW', expiry: '24h' }),
+      ).rejects.toThrow(/CUSTOMER_WEB_URL/);
     });
 
     it('rejects a non-owner', async () => {

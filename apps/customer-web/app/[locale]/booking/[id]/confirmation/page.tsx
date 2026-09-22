@@ -597,7 +597,7 @@ function GuestConfirmation({ id, anonSession }: { id: string; anonSession: strin
 
       {confirmed && (
         <>
-          <GuestTickets view={view} />
+          <GuestTickets view={view} printHref={`/booking/${view.id}/tickets/print`} />
           {/*
             The one thing a guest needs that an account holder does not: a way back to this
             page from a different device, or after this browser forgets the booking.

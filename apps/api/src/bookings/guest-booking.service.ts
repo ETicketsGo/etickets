@@ -124,6 +124,7 @@ const VIEW_SELECT = {
   tickets: {
     select: {
       id: true,
+      serial: true,
       ticketTypeId: true,
       seatLabel: true,
       ticketType: { select: { name: true } },
@@ -172,6 +173,7 @@ type BookingForView = {
   } | null;
   tickets: {
     id: string;
+    serial: string;
     ticketTypeId: string | null;
     seatLabel: string | null;
     ticketType: { name: string } | null;
@@ -821,6 +823,8 @@ export class GuestBookingService {
         const decorated = byTicketId.get(ticket.id);
         return {
           id: ticket.id,
+          // Printed on the ticket, and what the door types in when a QR will not scan.
+          serial: ticket.serial,
           seatLabel: seatLabelOf(ticket),
           ticketTypeName: ticket.ticketType?.name ?? null,
           // Null before confirmation, and null for a ticket that has been transferred away —

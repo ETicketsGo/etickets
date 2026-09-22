@@ -52,6 +52,30 @@ test.describe('guest checkout', () => {
     const body = await page.locator('body').innerText();
     reference = /ETG-[A-Z]+-\d{4}-\d+/.exec(body)?.[0] ?? '';
     expect(reference, 'the confirmation shows a booking reference').not.toBe('');
+
+    // In the same browser on purpose: a guest's booking belongs to the browser that bought it.
+    /*
+      Reported from QA: "booking as a guest, I see the confirmation and not a ticket". An
+      account holder opens each ticket on its own; a guest had a thumbnail and a promise that a
+      link was on its way by email - and with email not delivering, closing the tab lost the
+      tickets. The guest now gets the same printable sheet the box office uses, from the
+      confirmation, without waiting for anything.
+    */
+    await page.getByRole('link', { name: 'Show or print tickets' }).click();
+    await expect(page).toHaveURL(/\/booking\/.+\/tickets\/print/, { timeout: 20_000 });
+
+    await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible({
+      timeout: 30_000,
+    });
+    // The QR the door scans, full size, and the reference the door types in when it will not.
+    const fullSizeQr = page.locator('.print-ticket img[src^="data:image/"]');
+    await expect(fullSizeQr.first()).toBeVisible();
+    await expect(page.locator('.print-ticket').first()).toContainText(reference);
+    // A bare page: paper carries no site header, and hiding one at print time lost tickets.
+    await expect(page.getByRole('link', { name: 'Browse' })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Back to booking' }).click();
+    await expect(page).toHaveURL(/\/booking\/.+\/confirmation/);
   });
 
   test('2: the booking survives a browser that has forgotten it', async ({ browser }) => {

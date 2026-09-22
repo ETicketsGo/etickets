@@ -95,7 +95,7 @@ export default function BookingAccessPage() {
 
       {confirmed ? (
         <>
-          <GuestTickets view={view} />
+          <GuestTickets view={view} printHref={`/booking/access/${token}/print`} />
           {/*
             Everything else a booking needs after the tickets themselves, and only for a booking
             that is paid for: an unpaid one has no invoice to issue, nothing to refund, and
