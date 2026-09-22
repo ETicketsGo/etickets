@@ -70,6 +70,8 @@ export interface GuestBookingItem {
  */
 export interface GuestBookingTicket {
   id: string;
+  /** The ticket's serial, as printed and as typed in at the door when a QR will not scan. */
+  serial: string;
   seatLabel: string | null;
   ticketTypeName: string | null;
   qrToken: string | null;

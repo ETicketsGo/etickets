@@ -919,6 +919,11 @@
     "claimSavedBody": "Open it from your account on any device. You no longer need the emailed link.",
     "claimMyBookings": "Go to my bookings",
     "claimTakenTitle": "This booking is in another account",
-    "claimTakenBody": "Somebody has already saved it. Sign in with that account to open the booking."
+    "claimTakenBody": "Somebody has already saved it. Sign in with that account to open the booking.",
+    "openTickets": "Show or print tickets",
+    "printBack": "Back to booking",
+    "printButton": "Print or save as PDF",
+    "printLoading": "Preparing your tickets...",
+    "printError": "These tickets could not be loaded."
   }
 }

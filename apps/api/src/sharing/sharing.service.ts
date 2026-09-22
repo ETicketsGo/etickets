@@ -15,6 +15,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { redirectUrl } from '../common/console-urls';
 import { ShareableResourceRegistry } from './shareable-resource.registry';
 import { ACCEPTED_TRANSFERS, currentHolderUserId } from '../tickets/ticket-holder';
 
@@ -48,10 +49,22 @@ export class SharingService {
     return user.roles.includes('ADMIN' as never) || user.roles.includes('SUPER_ADMIN' as never);
   }
 
-  /** Front-end base URL for building share links (first configured CORS origin). */
-  private baseUrl(): string {
-    const origins = this.config.get<string>('CORS_ORIGINS') ?? 'http://localhost:3000';
-    return origins.split(',')[0].trim().replace(/\/$/, '');
+  /**
+   * The public address of a share link: the customer site, as configured.
+   *
+   * It used to take the first entry of CORS_ORIGINS, which is a list of who may CALL the API
+   * and is ordered by nothing in particular. On QA that first entry is the Railway host, so
+   * the owner shared a ticket and the link said customer-web-qa.up.railway.app instead of
+   * qa.eticketsgo.com - an address that looks like somebody else's site, sent to a friend
+   * asked to trust it. `redirectUrl` reads CUSTOMER_WEB_URL and fails loudly rather than
+   * hand out a localhost link, the rule every other outbound link already follows.
+   */
+  private shareLink(raw: string): string {
+    return redirectUrl(this.config, {
+      site: 'customer',
+      path: `/share/${raw}`,
+      purpose: 'share link',
+    });
   }
 
   private expiryToDate(expiry: ShareExpiry, endsAt: Date | null): Date {
@@ -123,7 +136,7 @@ export class SharingService {
       },
     });
 
-    const shareUrl = `${this.baseUrl()}/share/${raw}`;
+    const shareUrl = this.shareLink(raw);
     const qrDataUrl = await QRCode.toDataURL(shareUrl, { margin: 1, width: 320 });
 
     if (dto.email) {

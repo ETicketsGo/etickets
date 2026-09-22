@@ -919,6 +919,11 @@
     "claimSavedBody": "Ouvrez-la depuis votre compte sur n'importe quel appareil. Vous n'avez plus besoin du lien envoyé par courriel.",
     "claimMyBookings": "Aller à mes réservations",
     "claimTakenTitle": "Cette réservation est dans un autre compte",
-    "claimTakenBody": "Quelqu'un l'a déjà enregistrée. Connectez-vous avec ce compte pour ouvrir la réservation."
+    "claimTakenBody": "Quelqu'un l'a déjà enregistrée. Connectez-vous avec ce compte pour ouvrir la réservation.",
+    "openTickets": "Afficher ou imprimer les billets",
+    "printBack": "Retour à la réservation",
+    "printButton": "Imprimer ou enregistrer en PDF",
+    "printLoading": "Préparation de vos billets...",
+    "printError": "Impossible de charger ces billets."
   }
 }

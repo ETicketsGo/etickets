@@ -22,6 +22,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { redirectUrl } from '../common/console-urls';
 import { currencyForCountry } from '../common/country';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
@@ -130,10 +131,19 @@ export class EventsService {
     private readonly sellabilityService: EventSellabilityService,
   ) {}
 
-  /** First configured web origin, trailing slash trimmed (mirrors sharing.service). */
-  private siteBaseUrl(): string {
-    const origins = this.config.get<string>('CORS_ORIGINS') ?? 'http://localhost:3000';
-    return origins.split(',')[0].trim().replace(/\/$/, '');
+  /**
+   * An event's public page, on the customer site as configured.
+   *
+   * This goes onto organizers' posters and QR codes, so a wrong host is printed and cannot be
+   * taken back. It used to be the first CORS origin - the Railway host on QA - for the same
+   * reason as share links; see `SharingService.shareLink`.
+   */
+  private eventPublicUrl(slug: string): string {
+    return redirectUrl(this.config, {
+      site: 'customer',
+      path: `/events/${slug}`,
+      purpose: 'event public page',
+    });
   }
 
   private async loadOwnedEvent(user: RequestUser, id: string, roles = ORGANIZER_ROLES) {
@@ -346,7 +356,7 @@ export class EventsService {
    */
   async promotion(user: RequestUser, eventId: string) {
     const event = await this.loadOwnedEvent(user, eventId);
-    const publicUrl = `${this.siteBaseUrl()}/events/${event.slug}`;
+    const publicUrl = this.eventPublicUrl(event.slug);
     const qrDataUrl = await QRCode.toDataURL(publicUrl, { margin: 1, width: 512 });
     return {
       eventId: event.id,

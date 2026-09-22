@@ -42,8 +42,12 @@ const LOCAL_ORIGIN: Record<Site, string> = {
 };
 
 export interface RedirectUrlOptions {
-  /** The variable a deployment may set to override the derivation entirely. */
-  overrideVariable: string;
+  /**
+   * The variable a deployment may set to override the derivation entirely. Optional: a link
+   * that must always land on the site itself (a share link, an event's public page) has no
+   * reason to be pointed anywhere else.
+   */
+  overrideVariable?: string;
   /** Which site the person is going back to. */
   site: Site;
   /** Path on that site, with a leading slash. */
@@ -55,7 +59,9 @@ export interface RedirectUrlOptions {
 }
 
 export function redirectUrl(config: ConfigService, options: RedirectUrlOptions): string {
-  const explicit = config.get<string>(options.overrideVariable)?.trim();
+  const explicit = options.overrideVariable
+    ? config.get<string>(options.overrideVariable)?.trim()
+    : undefined;
   if (explicit) return explicit;
 
   const variable = SITE_VARIABLE[options.site];
@@ -73,8 +79,9 @@ export function redirectUrl(config: ConfigService, options: RedirectUrlOptions):
 
   throw new AppException(
     ErrorCodes.INTERNAL,
-    `Cannot build the ${options.purpose} URL: neither ${variable} nor ${options.overrideVariable} ` +
-      `is set, so the person would be sent to localhost.`,
+    `Cannot build the ${options.purpose} URL: ${variable}` +
+      `${options.overrideVariable ? ` (or ${options.overrideVariable})` : ''} is not set, ` +
+      `so the person would be sent to localhost.`,
     HttpStatus.INTERNAL_SERVER_ERROR,
     { appEnv, purpose: options.purpose },
   );
