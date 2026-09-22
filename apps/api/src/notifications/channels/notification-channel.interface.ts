@@ -16,6 +16,15 @@ export interface RenderedNotification {
   userId?: string | null;
   subject: string;
   body: string;
+  /**
+   * The HTML alternative, for email only.
+   *
+   * Set by the email channel just before delivery, never by a producer: SMS, push and the
+   * in-app list read `body`, and a message that carried markup in the field they read would
+   * put tags on somebody's lock screen. Absent means "send the text alone", which is what
+   * the log transport and every non-email channel do.
+   */
+  html?: string | null;
   payload: Record<string, unknown>;
   /**
    * The resolved E.164 destination for SMS/WhatsApp, put here by the channel from the

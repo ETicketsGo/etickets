@@ -102,7 +102,12 @@ function clockClause(locale: Locale, iso: string, timeZoneRaw: string): string {
  * and it knows that Canadian French writes `123,45 $` with the symbol trailing, which is the
  * kind of detail that makes a receipt look translated rather than written.
  */
-function money(locale: Locale, p: Payload, key: string, currencyKey = 'currency'): string {
+export function moneyValue(
+  locale: Locale,
+  p: Payload,
+  key: string,
+  currencyKey = 'currency',
+): string {
   const minor = Number(str(p, key, '0')) || 0;
   const currency = str(p, currencyKey, 'INR') || 'INR';
   /*
@@ -143,6 +148,16 @@ function money(locale: Locale, p: Payload, key: string, currencyKey = 'currency'
  * picking the server's zone, which would make the output depend on where it happens to run.
  */
 function whenClause(locale: Locale, p: Payload): string {
+  const when = whenValue(locale, p);
+  return when ? t(locale, 'emails.fragments.when', { when }) : '';
+}
+
+/**
+ * The same instant as a bare value - "25 Aug 2026, 9:28 pm (IST)" - with no sentence around
+ * it, for the HTML mail, which shows it as a row rather than inside a clause. One function
+ * produces both, so the row and the sentence can never disagree about the time or the zone.
+ */
+export function whenValue(locale: Locale, p: Payload): string {
   const raw = str(p, 'startsAt').trim();
   if (!raw) return '';
   const at = new Date(raw);
@@ -169,7 +184,7 @@ function whenClause(locale: Locale, p: Payload): string {
     when = at.toLocaleString(FORMAT_LOCALE[locale], { ...opts, timeZone: 'UTC' });
     zone = 'UTC';
   }
-  return t(locale, 'emails.fragments.when', { when: `${when} (${zone})` });
+  return `${when} (${zone})`;
 }
 
 /** A fragment, or nothing at all when the payload has no value for it. */
@@ -264,7 +279,7 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
         : t(l, 'emails.PAYMENT_FAILED.subject'),
       body: t(l, 'emails.PAYMENT_FAILED.body', {
         amount: hasAmount
-          ? t(l, 'emails.fragments.amountOf', { amount: money(l, p, 'amountMinor') })
+          ? t(l, 'emails.fragments.amountOf', { amount: moneyValue(l, p, 'amountMinor') })
           : '',
         forEvent: optional(l, 'forEvent', { event }),
         when: whenClause(l, p),
@@ -324,7 +339,7 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   [NotificationType.REFUND_COMPLETED]: (l, p) => ({
     subject: t(l, 'emails.REFUND_COMPLETED.subject'),
     body: t(l, 'emails.REFUND_COMPLETED.body', {
-      amount: money(l, p, 'amountMinor'),
+      amount: moneyValue(l, p, 'amountMinor'),
       reference: bookingName(l, p),
     }),
   }),
@@ -339,7 +354,7 @@ const BUILDERS: Partial<Record<NotificationType, Builder>> = {
   [NotificationType.REFUND_REQUESTED]: (l, p) => ({
     subject: t(l, 'emails.REFUND_REQUESTED.subject'),
     body: t(l, 'emails.REFUND_REQUESTED.body', {
-      amount: money(l, p, 'amountMinor'),
+      amount: moneyValue(l, p, 'amountMinor'),
       reference: bookingName(l, p),
     }),
   }),

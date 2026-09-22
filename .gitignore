@@ -53,3 +53,6 @@ Railway_UAT_Token.txt
 *_TOKEN.txt
 *_token.txt
 *.token
+
+# Rendered email previews (npm run email:preview)
+apps/api/.email-preview/

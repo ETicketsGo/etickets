@@ -55,7 +55,10 @@ export class SendGridEmailTransport implements EmailTransport {
       to: msg.toEmail,
       from: this.from,
       subject: msg.subject,
+      // Both parts, always in this order: a reader whose client prefers text still gets the
+      // message, and the HTML is an alternative to it rather than a replacement for it.
       text: msg.body,
+      ...(msg.html ? { html: msg.html } : {}),
     });
     // SendGrid returns its queue id in a response header; absent, the send still happened.
     const id = res?.headers?.['x-message-id'];
@@ -121,7 +124,13 @@ export class SesEmailTransport implements EmailTransport {
         Content: {
           Simple: {
             Subject: { Data: msg.subject },
-            Body: { Text: { Data: msg.body } },
+            // Text AND Html when there is HTML: SES sends a multipart/alternative message and
+            // the client picks. The text part is never dropped - it is what a text-only
+            // reader sees, and a genuine sender having both is also what spam filters expect.
+            Body: {
+              Text: { Data: msg.body },
+              ...(msg.html ? { Html: { Data: msg.html } } : {}),
+            },
           },
         },
       }),
