@@ -65,7 +65,10 @@ const CASES: [NotificationType, Record<string, unknown>][] = [
   ],
   [
     NotificationType.EVENT_APPROVED,
-    { eventTitle: 'Ilakathamafiliya', link: 'https://organizer-qa.eticketsgo.com/organizer/events' },
+    {
+      eventTitle: 'Ilakathamafiliya',
+      link: 'https://organizer-qa.eticketsgo.com/organizer/events',
+    },
   ],
   [
     NotificationType.EVENT_REJECTED,
