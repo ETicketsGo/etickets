@@ -57,6 +57,9 @@ const NOT_PRODUCERS = new Set(
     // A declaration of what each type must be TOLD before it can be composed. It names types
     // in order to describe them; it has no way to send one.
     'notifications/templates/template-contract.ts',
+    // The email layout: it names types to decide which facts each one shows and what its
+    // button says. It is handed a message that has already been composed and sent.
+    'notifications/templates/email-view.ts',
   ].map((p) => p.replace(/\//g, require('node:path').sep)),
 );
 

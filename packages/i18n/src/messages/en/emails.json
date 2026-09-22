@@ -139,5 +139,35 @@
   "PASSWORD_CHANGED": {
     "subject": "Your ETicketsGo password was changed",
     "body": "Your password was just changed and you have been signed out everywhere. If this was not you, reset your password immediately and contact support."
+  },
+  "labels": {
+    "eventTitle": "Event",
+    "when": "When",
+    "seats": "Seats",
+    "reference": "Booking reference",
+    "amount": "Amount",
+    "organizationName": "Organizer",
+    "reason": "Reason",
+    "attendee": "Attendee"
+  },
+  "cta": {
+    "viewTickets": "View my tickets",
+    "viewBooking": "View my booking",
+    "resetPassword": "Set a new password",
+    "completePayment": "Complete the payment",
+    "openConsole": "Open the console",
+    "openInvitation": "Open the invitation",
+    "openLink": "Open ETicketsGo"
+  },
+  "layout": {
+    "whyTransactional": "You are getting this email because of a booking or an account action on ETicketsGo.",
+    "whyMarketing": "You are getting this email because you agreed to hear from ETicketsGo.",
+    "helpPrompt": "Need help?",
+    "helpLabel": "Visit the help centre",
+    "legal": "ETicketsGo {year}"
+  },
+  "leads": {
+    "BOOKING_CONFIRMED": "Your booking is confirmed. Here are the details.",
+    "EVENT_REMINDER": "Your show is coming up."
   }
 }

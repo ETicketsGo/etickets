@@ -139,5 +139,35 @@
   "PASSWORD_CHANGED": {
     "subject": "Votre mot de passe ETicketsGo a été modifié",
     "body": "Votre mot de passe vient d'être modifié et vous avez été déconnecté partout. Si ce n'était pas vous, réinitialisez-le immédiatement et contactez le soutien."
+  },
+  "labels": {
+    "eventTitle": "Événement",
+    "when": "Date et heure",
+    "seats": "Sièges",
+    "reference": "Référence de réservation",
+    "amount": "Montant",
+    "organizationName": "Organisateur",
+    "reason": "Motif",
+    "attendee": "Participant"
+  },
+  "cta": {
+    "viewTickets": "Voir mes billets",
+    "viewBooking": "Voir ma réservation",
+    "resetPassword": "Créer un nouveau mot de passe",
+    "completePayment": "Terminer le paiement",
+    "openConsole": "Ouvrir la console",
+    "openInvitation": "Ouvrir l'invitation",
+    "openLink": "Ouvrir ETicketsGo"
+  },
+  "layout": {
+    "whyTransactional": "Vous recevez ce courriel en raison d'une réservation ou d'une action sur votre compte ETicketsGo.",
+    "whyMarketing": "Vous recevez ce courriel parce que vous avez accepté de recevoir des nouvelles d'ETicketsGo.",
+    "helpPrompt": "Besoin d'aide ?",
+    "helpLabel": "Consulter le centre d'aide",
+    "legal": "ETicketsGo {year}"
+  },
+  "leads": {
+    "BOOKING_CONFIRMED": "Votre réservation est confirmée. Voici les détails.",
+    "EVENT_REMINDER": "Votre représentation approche."
   }
 }
