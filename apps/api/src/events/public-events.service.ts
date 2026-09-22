@@ -60,6 +60,28 @@ function publicArtists(raw: unknown): { name: string; role: string | null; bio: 
     }));
 }
 
+/**
+ * The venue as a CARD shows it.
+ *
+ * The query also selects `region`, which no card displays - it is there so the advertised
+ * price is built from the fee bands that apply at the venue. Returning the row as selected
+ * would quietly widen the public response, so the card names its fields.
+ */
+function cardVenue(venue: {
+  name: string;
+  city: string;
+  country: string;
+  region: string | null;
+  timezone: string | null;
+}) {
+  return {
+    name: venue.name,
+    city: venue.city,
+    country: venue.country,
+    timezone: venue.timezone,
+  };
+}
+
 @Injectable()
 export class PublicEventsService {
   constructor(
@@ -142,7 +164,11 @@ export class PublicEventsService {
         include: {
           // The zone too, so the card shows the date at the venue rather than in the reader's
           // browser — on QA the cards and the event page disagreed about the same show.
-          venue: { select: { name: true, city: true, country: true, timezone: true } },
+          // `region` is not shown on a card; it is what a state-scoped fee band is matched on,
+          // so the advertised price quotes the fee the checkout will charge.
+          venue: {
+            select: { name: true, city: true, country: true, region: true, timezone: true },
+          },
           organization: { select: { name: true } },
           // The cover's id and hash only. A listing must never drag image bytes out of the database.
           images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
@@ -182,7 +208,7 @@ export class PublicEventsService {
           title: e.title,
           slug: e.slug,
           category: e.category,
-          venue: e.venue,
+          venue: cardVenue(e.venue),
           organizer: e.organization.name,
           imagePath: coverImagePath(e.id, e.images),
           nextSessionAt: e.sessions[0]?.startsAt ?? null,
@@ -190,6 +216,7 @@ export class PublicEventsService {
             e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
             e.feeMode as FeeMode,
             currency,
+            { country: e.venue.country, region: e.venue.region },
           ),
           currency,
         };
@@ -382,7 +409,7 @@ export class PublicEventsService {
       take: 24,
       include: {
         // With its zone, for the same reason as the browse listing: the card's date is the venue's.
-        venue: { select: { name: true, city: true, country: true, timezone: true } },
+        venue: { select: { name: true, city: true, country: true, region: true, timezone: true } },
         images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
         /*
           The same "still on" rule as the browse listing. This took each event's FIRST session
@@ -415,6 +442,7 @@ export class PublicEventsService {
                 e.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
                 e.feeMode as FeeMode,
                 e.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
+                { country: e.venue.country, region: e.venue.region },
               ),
             ] as const,
         ),
@@ -441,7 +469,7 @@ export class PublicEventsService {
         title: e.title,
         slug: e.slug,
         category: e.category,
-        venue: e.venue,
+        venue: cardVenue(e.venue),
         organizer: org.name,
         imagePath: coverImagePath(e.id, e.images),
         nextSessionAt: e.sessions[0]?.startsAt ?? null,

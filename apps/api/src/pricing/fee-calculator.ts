@@ -1,4 +1,4 @@
-import { FeeMode, type MaintenanceTreatment } from '@eticketsgo/shared-types';
+import { countryMatches, FeeMode, type MaintenanceTreatment } from '@eticketsgo/shared-types';
 import { computeTax, type TaxLine, type TaxPlace, type TaxRuleInput } from './tax-calculator';
 
 /** How a band charges: a fixed amount, or a share of the order. */
@@ -65,6 +65,70 @@ export function feeForTier(tier: FeeTier, amountMinor: number): number {
   if (tier.minFeeMinor != null) fee = Math.max(fee, tier.minFeeMinor);
   if (tier.maxFeeMinor != null) fee = Math.min(fee, tier.maxFeeMinor);
   return fee;
+}
+
+/** Where a sale happens, as a fee band is scoped: the VENUE's country and region. */
+export interface FeePlace {
+  country?: string | null;
+  region?: string | null;
+}
+
+/** A stored band's scope, as both fee loaders read it. */
+export interface ScopedRule extends FeePlace {
+  country: string;
+  region: string;
+  minMinor: number;
+}
+
+/** '*' (or blank) is "anywhere"; anything else must equal the place, ignoring case. */
+function scopeMatches(ruleValue: string, actual: string | null | undefined): boolean {
+  const value = (ruleValue ?? '*').trim();
+  if (value === '*' || value === '') return true;
+  if (actual == null || actual.trim() === '') return false;
+  return value.toUpperCase() === actual.trim().toUpperCase();
+}
+
+/**
+ * The same test for a country, in any spelling.
+ *
+ * A band is scoped from a dropdown of market names ("India"), and a venue's country is free
+ * text that has been "IN", "india" and "Bharat" in this database. A fee that applies or does
+ * not depending on how somebody typed a country is a fee nobody can predict.
+ */
+function countryScopeMatches(ruleValue: string, actual: string | null | undefined): boolean {
+  const value = (ruleValue ?? '*').trim();
+  if (value === '*' || value === '') return true;
+  if (actual == null || actual.trim() === '') return false;
+  return countryMatches(actual, value);
+}
+
+/** A named region counts for more than a named country, which counts for more than '*'. */
+function specificity(rule: { country: string; region: string }): number {
+  return (rule.region !== '*' ? 2 : 0) + (rule.country !== '*' ? 1 : 0);
+}
+
+/**
+ * The bands that apply where a sale happens, most specific first.
+ *
+ * ── WHY SPECIFICITY IS PER BAND AND NOT PER SET ────────────────────────────────────
+ * This used to keep ONLY the most specific bands and throw the rest away, so the winning
+ * scope replaced a broader schedule wholesale. It looked tidy and it mispriced real money:
+ * on QA the INR schedule was four national bands plus two India-scoped ones, and the two
+ * shadowed the four. An order of Rs 700 had no band left to match, fell through to the last
+ * band in the list - "3% of the order above Rs 2,000" - and was charged Rs 21 instead of the
+ * Rs 15 the admin console displayed.
+ *
+ * Adding one band for one place is the normal way an admin works, and it must not silently
+ * delete the schedule around it. So specificity decides WHICH band wins for an amount both
+ * cover, and ranges nobody covered more narrowly keep the broader band. Sorted most specific
+ * first and `resolveBookingFee` takes the first match, which is exactly that rule.
+ */
+export function applicableTiers<T extends ScopedRule>(rules: T[], place: FeePlace = {}): T[] {
+  return rules
+    .filter(
+      (r) => countryScopeMatches(r.country, place.country) && scopeMatches(r.region, place.region),
+    )
+    .sort((a, b) => specificity(b) - specificity(a) || a.minMinor - b.minMinor);
 }
 
 /** India seed defaults (section 13). Subtotal-tiered booking fee. */
@@ -138,13 +202,29 @@ export interface FeeCalcResult {
   totalMinor: number;
 }
 
+/**
+ * What the configured bands charge on this amount.
+ *
+ * First match wins, and the caller orders the bands so the most specific scope is tried
+ * first. When nothing matches - a schedule with a hole in it - the NEAREST band by amount is
+ * used: the highest band that starts at or below this order, or the lowest band when the
+ * order is smaller than every band.
+ *
+ * It used to take the last band in the list instead, which was the largest band only while
+ * the list happened to be sorted by amount. Once bands are ordered by scope it is not, and
+ * "last in the list" charged a Rs 100 order under a band written for orders above Rs 2,000.
+ */
 function resolveBookingFee(amountMinor: number, tiers: FeeTier[]): number {
   for (const tier of tiers) {
     const underMax = tier.maxMinor === null || amountMinor <= tier.maxMinor;
     if (amountMinor >= tier.minMinor && underMax) return feeForTier(tier, amountMinor);
   }
-  // Above all tiers -> use the last (highest) tier, charged the way that tier charges.
-  return tiers.length ? feeForTier(tiers[tiers.length - 1], amountMinor) : 0;
+  if (!tiers.length) return 0;
+  const atOrBelow = tiers.filter((t) => t.minMinor <= amountMinor);
+  const nearest = atOrBelow.length
+    ? atOrBelow.reduce((best, t) => (t.minMinor > best.minMinor ? t : best))
+    : tiers.reduce((best, t) => (t.minMinor < best.minMinor ? t : best));
+  return feeForTier(nearest, amountMinor);
 }
 
 /**

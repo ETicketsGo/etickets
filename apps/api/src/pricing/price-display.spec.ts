@@ -115,6 +115,34 @@ describe('AdvertisedPriceService', () => {
     expect(findMany).toHaveBeenCalledTimes(2);
   });
 
+  it('quotes the bands of the venue, not every band in the currency', async () => {
+    /*
+      ── THE CARD AND THE CHECKOUT MUST AGREE ─────────────────────────────────────────
+      This loader ignored where the sale happens, so a card added up every band configured
+      for the currency while the checkout used only the bands scoped to the venue. One
+      state-scoped band was enough to advertise one fee and charge another.
+    */
+    const rules = [
+      { minMinor: 0, maxMinor: null, feeMinor: 5_000, country: 'India', region: '*' },
+      { minMinor: 0, maxMinor: null, feeMinor: 100, country: 'India', region: 'TG' },
+    ];
+    const service = svc('all_in', rules);
+    // In Telangana the capped band applies: ₹1000 + ₹1 + 2% = ₹1020.42.
+    expect(
+      await service.forTicket(100_000, FeeMode.CUSTOMER_PAYS, 'INR', {
+        country: 'India',
+        region: 'TG',
+      }),
+    ).toBe(102_102);
+    // Everywhere else in India, the national band: ₹1000 + ₹50 + 2% = ₹1071.
+    expect(
+      await service.forTicket(100_000, FeeMode.CUSTOMER_PAYS, 'INR', {
+        country: 'India',
+        region: 'MH',
+      }),
+    ).toBe(107_100);
+  });
+
   it('refuses to construct on an unrecognised mode', () => {
     expect(() => svc('all-in')).toThrow(/Unknown PRICE_DISPLAY_MODE/);
   });

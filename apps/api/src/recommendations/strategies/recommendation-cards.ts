@@ -72,7 +72,8 @@ export async function fetchEventCards(
     include: {
       // The zone as well, so "You might also like" shows each date at its venue, as the
       // browse cards do — QA found these cards in the reader's browser time.
-      venue: { select: { name: true, city: true, country: true, timezone: true } },
+      // `region` is carried for the fee bands the advertised price is built from, not shown.
+      venue: { select: { name: true, city: true, country: true, region: true, timezone: true } },
       organization: { select: { name: true } },
       images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
       /*
@@ -103,12 +104,20 @@ export async function fetchEventCards(
         title: e.title,
         slug: e.slug,
         category: e.category,
-        venue: e.venue,
+        venue: {
+          name: e.venue.name,
+          city: e.venue.city,
+          country: e.venue.country,
+          timezone: e.venue.timezone,
+        },
         organizer: e.organization.name,
         imagePath: coverImagePath(e.id, e.images),
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertised
-          ? await advertised.forTicket(base, e.feeMode as FeeMode, currency)
+          ? await advertised.forTicket(base, e.feeMode as FeeMode, currency, {
+              country: e.venue.country,
+              region: e.venue.region,
+            })
           : base,
         currency,
       };

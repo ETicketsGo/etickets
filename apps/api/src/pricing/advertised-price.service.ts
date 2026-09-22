@@ -2,7 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_FEE_TIERS, feeTierFromRule, type FeeTier } from './fee-calculator';
+import {
+  applicableTiers,
+  DEFAULT_FEE_TIERS,
+  feeTierFromRule,
+  type FeePlace,
+  type FeeTier,
+} from './fee-calculator';
 import {
   advertisedPriceMinor,
   parsePriceDisplayMode,
@@ -44,15 +50,28 @@ export class AdvertisedPriceService {
     return this.mode === 'itemised';
   }
 
-  private async tiersFor(currency: string): Promise<FeeTier[]> {
-    const cached = this.tierCache.get(currency);
+  /**
+   * The bands this listing's price is built from - the ones that apply AT THE VENUE.
+   *
+   * The place used to be left out here, so a card added up every band configured for the
+   * currency while checkout used only the ones scoped to the venue. With one India-scoped
+   * band beside the national schedule the card advertised one fee and the checkout charged
+   * another, which is the exact thing this service exists to prevent.
+   *
+   * The cache is keyed by place as well, because two venues in the same currency can now
+   * legitimately resolve different bands.
+   */
+  private async tiersFor(currency: string, place: FeePlace = {}): Promise<FeeTier[]> {
+    const key = `${currency}|${place.country ?? '*'}|${place.region ?? '*'}`;
+    const cached = this.tierCache.get(key);
     if (cached) return cached;
     const rules = await this.prisma.feeRule.findMany({
       where: { active: true, currency },
       orderBy: { minMinor: 'asc' },
     });
-    const tiers = rules.length ? rules.map(feeTierFromRule) : DEFAULT_FEE_TIERS;
-    this.tierCache.set(currency, tiers);
+    const applicable = applicableTiers(rules, place);
+    const tiers = applicable.length ? applicable.map(feeTierFromRule) : DEFAULT_FEE_TIERS;
+    this.tierCache.set(key, tiers);
     return tiers;
   }
 
@@ -64,13 +83,15 @@ export class AdvertisedPriceService {
     basePriceMinor: number | null,
     feeMode: FeeMode,
     currency = 'INR',
+    /** The venue's country and region, so the card quotes the fee the checkout will charge. */
+    place: FeePlace = {},
   ): Promise<number | null> {
     if (basePriceMinor === null || this.isPassThrough) return basePriceMinor;
     return advertisedPriceMinor({
       basePriceMinor,
       mode: this.mode,
       feeMode,
-      tiers: await this.tiersFor(currency),
+      tiers: await this.tiersFor(currency, place),
       currency,
     });
   }

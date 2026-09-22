@@ -520,6 +520,10 @@ export class PublicMoviesService {
                 session.ticketTypes[0]?.priceMinor ?? null,
                 session.event.feeMode as FeeMode,
                 session.ticketTypes[0]?.currency ?? 'INR',
+                {
+                  country: session.event.venue.country,
+                  region: session.event.venue.region,
+                },
               ),
             ] as const,
         ),
