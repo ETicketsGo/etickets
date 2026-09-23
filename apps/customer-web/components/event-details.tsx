@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
+  apiAssetUrl,
   showDurationMinutes,
   splitMinutes,
   termsList,
@@ -168,7 +169,12 @@ function webLink(raw: string | null | undefined): string | null {
  */
 export function OrganizerCard({ organizer }: { organizer: PublicEvent['organizer'] }) {
   const t = useTranslations('storefront.event');
-  const logo = webLink(organizer.logoUrl);
+  /*
+    An uploaded logo is a PATH on our own API, which `webLink` rejects - it only admits
+    absolute http(s) URLs, which is right for the organizer's own website and instagram but
+    would silently drop every picture uploaded here. Resolved first, then checked.
+  */
+  const logo = webLink(apiAssetUrl(organizer.logoUrl));
   const website = webLink(organizer.website);
   const instagram = webLink(organizer.instagramUrl);
   return (

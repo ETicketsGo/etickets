@@ -32,7 +32,6 @@ const PROFILE_FIELDS: {
   // No example number: one country's format printed in the box tells every other country it
   // is the wrong form to be filling in. The label says what the field is.
   { key: 'contactPhone', label: 'Public contact phone' },
-  { key: 'coverImageUrl', label: 'Cover image URL', placeholder: 'https://…/cover.jpg' },
   { key: 'twitterUrl', label: 'X / Twitter', placeholder: 'https://x.com/…' },
   { key: 'instagramUrl', label: 'Instagram', placeholder: 'https://instagram.com/…' },
   { key: 'facebookUrl', label: 'Facebook', placeholder: 'https://facebook.com/…' },
@@ -394,7 +393,12 @@ export default function SettingsPage() {
             first thing a customer sees of an organizer, and because the field it replaced -
             "Logo URL" - was the one nobody could fill in.
           */}
-          <ProfilePicture orgId={activeOrg.id} name={activeOrg.name} logoUrl={activeOrg.logoUrl} />
+          <ProfilePicture
+            orgId={activeOrg.id}
+            name={activeOrg.name}
+            logoUrl={activeOrg.logoUrl}
+            coverImageUrl={activeOrg.coverImageUrl}
+          />
           <Textarea
             id="org-description"
             label="About"

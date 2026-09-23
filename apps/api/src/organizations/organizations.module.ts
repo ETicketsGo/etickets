@@ -6,7 +6,7 @@ import {
   PublicOrganizerLogoController,
 } from './organizations.controller';
 import { OrganizationsService } from './organizations.service';
-import { OrganizationLogoService } from './organization-logo.service';
+import { OrganizationImagesService } from './organization-images.service';
 
 @Module({
   controllers: [
@@ -15,7 +15,7 @@ import { OrganizationLogoService } from './organization-logo.service';
     PublicInvitationsController,
     PublicOrganizerLogoController,
   ],
-  providers: [OrganizationsService, OrganizationLogoService],
-  exports: [OrganizationsService, OrganizationLogoService],
+  providers: [OrganizationsService, OrganizationImagesService],
+  exports: [OrganizationsService, OrganizationImagesService],
 })
 export class OrganizationsModule {}

@@ -39,6 +39,19 @@ async function registerAndSignIn(page: Page, who: ReturnType<typeof disposable>)
   return tokens;
 }
 
+/**
+ * The identity the registration form now asks for.
+ *
+ * It used to ask for a trading name alone, and an admin then refused to approve the result
+ * for not having declared a legal identity. Both forms ask for country, legal form and
+ * registered name; this fills them the way a real organizer would.
+ */
+async function declareIdentity(page: Page, legalName: string) {
+  await page.getByLabel(/Country you are registered in/i).selectOption('India');
+  await page.getByLabel(/Registered as/i).selectOption('Sole proprietorship');
+  await page.getByLabel(/Registered legal name/i).fill(legalName);
+}
+
 test.describe('become an organizer', () => {
   test('1-3: the header shows who you are, not just a way out', async ({ page }) => {
     const who = disposable('hdr');
@@ -93,6 +106,7 @@ test.describe('become an organizer', () => {
 
     await expect(page).toHaveURL(/\/account\/become-organizer/);
     await page.getByLabel('Organization name').fill(`Asha Cinemas ${Date.now()}`);
+    await declareIdentity(page, 'Asha Cinemas');
     await page.getByRole('button', { name: 'Create my organization' }).click();
 
     await expect(page.getByTestId('open-organizer-console')).toBeVisible({ timeout: 20_000 });
@@ -134,6 +148,7 @@ test.describe('become an organizer', () => {
     const orgName = `Repeat Cinemas ${Date.now()}`;
     await page.goto(`${CUSTOMER}/account/become-organizer`);
     await page.getByLabel('Organization name').fill(orgName);
+    await declareIdentity(page, orgName);
     await page.getByRole('button', { name: 'Create my organization' }).click();
     await expect(page.getByTestId('open-organizer-console')).toBeVisible({ timeout: 20_000 });
 
@@ -155,6 +170,7 @@ test.describe('become an organizer', () => {
     await registerAndSignIn(page, who);
     await page.goto(`${CUSTOMER}/account/become-organizer`);
     await page.getByLabel('Organization name').fill(`Menon Screens ${Date.now()}`);
+    await declareIdentity(page, 'Menon Screens');
     await page.getByRole('button', { name: 'Create my organization' }).click();
 
     const link = page.getByTestId('open-organizer-console');
@@ -203,6 +219,7 @@ test.describe('become an organizer', () => {
       timeout: 20_000,
     });
     await page.getByLabel('Organization name').fill(`Start Co ${Date.now()}`);
+    await declareIdentity(page, 'Start Co');
     await page.getByRole('button', { name: 'Create organization' }).click();
 
     await expect(page).toHaveURL(/\/organizer/, { timeout: 30_000 });

@@ -37,7 +37,11 @@ import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { ORG_LOGO_MAX_BYTES, OrganizationLogoService } from './organization-logo.service';
+import {
+  ORG_COVER_MAX_BYTES,
+  ORG_LOGO_MAX_BYTES,
+  OrganizationImagesService,
+} from './organization-images.service';
 import type { UploadedImageFile } from '../events/event-image.service';
 
 @ApiTags('organizations')
@@ -46,7 +50,7 @@ import type { UploadedImageFile } from '../events/event-image.service';
 export class OrganizationsController {
   constructor(
     private readonly orgs: OrganizationsService,
-    private readonly logos: OrganizationLogoService,
+    private readonly logos: OrganizationImagesService,
   ) {}
 
   /*
@@ -88,13 +92,32 @@ export class OrganizationsController {
     @Param('id') id: string,
     @UploadedFile() file?: UploadedImageFile,
   ) {
-    return this.logos.upload(user, id, file);
+    return this.logos.upload(user, id, 'LOGO', file);
   }
 
   @Delete(':id/logo')
   @ApiOperation({ summary: 'Remove the organization profile picture.' })
   removeLogo(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.logos.remove(user, id);
+    return this.logos.remove(user, id, 'LOGO');
+  }
+
+  /* The cover banner. Same rules as the picture above, with a larger cap: it is a wide
+     image across the top of a profile rather than a small square. */
+  @Post(':id/cover')
+  @ApiOperation({ summary: 'Upload the organization cover image (JPG, PNG or WebP, 3 MB).' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ORG_COVER_MAX_BYTES, files: 1 } }))
+  uploadCover(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: UploadedImageFile,
+  ) {
+    return this.logos.upload(user, id, 'COVER', file);
+  }
+
+  @Delete(':id/cover')
+  @ApiOperation({ summary: 'Remove the organization cover image.' })
+  removeCover(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.logos.remove(user, id, 'COVER');
   }
 
   @Patch(':id')
@@ -308,7 +331,7 @@ export class AdminOrganizationsController {
 @ApiTags('public')
 @Controller('public/organizers')
 export class PublicOrganizerLogoController {
-  constructor(private readonly logos: OrganizationLogoService) {}
+  constructor(private readonly logos: OrganizationImagesService) {}
 
   @Public()
   @SkipThrottle()
@@ -320,9 +343,30 @@ export class PublicOrganizerLogoController {
     @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    const image = await this.logos.read(id);
+    return this.send(res, await this.logos.read(id, 'LOGO'), version, ifNoneMatch);
+  }
+
+  @Public()
+  @SkipThrottle()
+  @Get(':id/cover')
+  @ApiOperation({ summary: "An organization's cover image." })
+  async cover(
+    @Param('id') id: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.send(res, await this.logos.read(id, 'COVER'), version, ifNoneMatch);
+  }
+
+  private send(
+    res: Response,
+    image: { bytes: Uint8Array; contentType: string; sha256: string } | null,
+    version: string | undefined,
+    ifNoneMatch: string | undefined,
+  ): void {
     if (!image) {
-      res.status(404).json({ code: 'NOT_FOUND', message: 'This organizer has no logo.' });
+      res.status(404).json({ code: 'NOT_FOUND', message: 'This organizer has no such image.' });
       return;
     }
     const current = image.sha256.slice(0, 16);

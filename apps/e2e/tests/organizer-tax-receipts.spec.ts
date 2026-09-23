@@ -84,14 +84,20 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     await page.goto(`${ORGANIZER}/organizer/settings`);
     await page.getByLabel('Registered legal name').fill('Bengaluru Live Entertainment Pvt Ltd');
-    await page.getByLabel('Tax registration type').fill('GSTIN');
+    /*
+      Country first, and it now decides two lists below it: the legal forms this country
+      uses, and what its tax registration is called. The form asks in that order for the
+      same reason - a state box whose hint reads "pick a country first" is a box somebody
+      fills in twice.
+    */
+    await page.getByLabel('Country').selectOption({ label: 'India' });
+    await page.getByLabel(/Registered as/i).selectOption('Private limited company');
+    await page.getByLabel(/Tax registration type/i).fill('GSTIN');
     // A fixture identifier. The platform records it verbatim and asserts nothing about it.
-    await page.getByLabel('Tax registration number').fill('29AABCU9603R1ZM');
+    // The label follows the country, so an Indian organizer is asked for a GSTIN.
+    await page.getByLabel(/^GSTIN/).fill('29AABCU9603R1ZM');
     await page.getByLabel('Registered address', { exact: true }).fill('12 Residency Road');
     await page.getByLabel('City').fill('Bengaluru');
-    // A dropdown now, not a free-text box: country became a select so a venue cannot be
-    // given one the platform has no currency, tax or payment routing for.
-    await page.getByLabel('Country').selectOption({ label: 'India' });
     await page.getByLabel('Finance contact email').fill('finance@bengaluru-live.test');
     await page.getByRole('button', { name: 'Save legal and tax details' }).click();
 
@@ -101,7 +107,7 @@ test.describe('organizer: tax identity, receipts and refunds', () => {
 
     // The value survives a reload — it was persisted, not just held in form state.
     await page.reload();
-    await expect(page.getByLabel('Tax registration number')).toHaveValue('29AABCU9603R1ZM');
+    await expect(page.getByLabel(/^GSTIN/)).toHaveValue('29AABCU9603R1ZM');
   });
 
   test('7-8: a manager cannot change the tax identity, only the owner can', async ({ request }) => {

@@ -830,7 +830,7 @@ model Organization {
   payouts                 Payout[]
   payoutSetting           PayoutSetting?
   payoutAccounts          OrganizerPayoutAccount[]
-  logo                    OrganizationLogo?
+  images                  OrganizationImage[]
   refunds                 Refund[]
   movies                  Movie[]
   cinemas                 Cinema[]
@@ -4204,7 +4204,7 @@ model MarketingConsent {
   @@index([userId, channel, createdAt])
 }
 
-/// An organization's profile picture, as bytes.
+/// An organization's pictures, as bytes: the profile picture and the cover banner.
 ///
 /// ── WHY A TABLE AND NOT COLUMNS ON Organization ────────────────────────────────────
 /// `listMine` and half the console read the organization row whole. Bytes on that row would
@@ -4217,11 +4217,14 @@ model MarketingConsent {
 /// and paste a link. Most have nowhere to host one, the links that do arrive rot, and a
 /// third-party URL rendered under this platform's name is somebody else's server deciding
 /// what our customers see. Same decision as event images.
-model OrganizationLogo {
+model OrganizationImage {
   id             String       @id @default(cuid())
-  organizationId String       @unique
+  organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  /// LOGO or COVER. One table rather than two near-identical ones: the rules are the same
+  /// (same formats, same sniffing, same serving headers) and only the size cap differs.
+  kind             String   @default("LOGO")
   contentType      String
   bytes            Bytes
   sizeBytes        Int
@@ -4230,6 +4233,8 @@ model OrganizationLogo {
   uploadedByUserId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, kind])
 }
 
 /// Where an organizer's money is actually sent.

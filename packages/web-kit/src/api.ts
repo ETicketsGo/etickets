@@ -724,16 +724,16 @@ export const api = {
      * shows a logo already reads - the console masthead, the public organizer page and the
      * event page all render that field.
      */
-    uploadLogo: (id: string, image: Blob, filename = 'logo.png') => {
-      const form = new FormData();
-      form.append('file', image, filename);
-      return request<{ logoUrl: string | null }>(`/organizations/${id}/logo`, {
-        method: 'POST',
-        body: form,
-      });
-    },
-    removeLogo: (id: string) =>
-      request<{ logoUrl: string | null }>(`/organizations/${id}/logo`, { method: 'DELETE' }),
+    uploadLogo: (id: string, image: Blob, filename = 'logo.png') =>
+      uploadOrgImage(id, 'logo', image, filename),
+    removeLogo: (id: string) => removeOrgImage(id, 'logo'),
+    /**
+     * The cover banner across the top of the public profile. Same formats, 3 MB - it is a
+     * wide image rather than a small square.
+     */
+    uploadCover: (id: string, image: Blob, filename = 'cover.jpg') =>
+      uploadOrgImage(id, 'cover', image, filename),
+    removeCover: (id: string) => removeOrgImage(id, 'cover'),
     get: (id: string) => request<Organization>(`/organizations/${id}`),
     updateProfile: (id: string, body: OrganizationProfileInput) =>
       request<Organization>(`/organizations/${id}`, {
@@ -2642,6 +2642,22 @@ export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFiel
   missing: string[];
   /** A registration on file AND nothing missing. Below that, documents are plain receipts. */
   canIssueTaxInvoice: boolean;
+}
+
+/** Both organization pictures are uploaded the same way; only the path differs. */
+interface OrgImageUrls {
+  logoUrl: string | null;
+  coverImageUrl: string | null;
+}
+
+function uploadOrgImage(id: string, path: 'logo' | 'cover', image: Blob, filename: string) {
+  const form = new FormData();
+  form.append('file', image, filename);
+  return request<OrgImageUrls>(`/organizations/${id}/${path}`, { method: 'POST', body: form });
+}
+
+function removeOrgImage(id: string, path: 'logo' | 'cover') {
+  return request<OrgImageUrls>(`/organizations/${id}/${path}`, { method: 'DELETE' });
 }
 
 export interface Organization {

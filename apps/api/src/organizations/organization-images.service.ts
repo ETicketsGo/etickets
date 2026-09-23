@@ -10,7 +10,7 @@ import { sniffImageType } from '../events/event-image';
 import type { UploadedImageFile } from '../events/event-image.service';
 
 /**
- * An organization's profile picture.
+ * An organization's pictures: the profile picture, and the cover banner behind it.
  *
  * ── WHY THE PLATFORM HOLDS THE BYTES ───────────────────────────────────────────────
  * The field before this was a text box asking for a URL. Most organizers have nowhere to
@@ -26,16 +26,30 @@ import type { UploadedImageFile } from '../events/event-image.service';
  */
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
+/** Which picture. The rules are identical; only the size cap and the field differ. */
+export type OrgImageKind = 'LOGO' | 'COVER';
+
 /** A logo is a small square. Anything larger is a poster somebody dropped in by mistake. */
 export const ORG_LOGO_MAX_BYTES = 1024 * 1024;
+/** A cover is a wide banner across the top of a profile, so it is allowed to be bigger. */
+export const ORG_COVER_MAX_BYTES = 3 * 1024 * 1024;
 
-/** A stored logo's public path, versioned so a replacement is never served from a cache. */
-export function organizationLogoPath(organizationId: string, sha256: string): string {
-  return `/public/organizers/${organizationId}/logo?v=${sha256.slice(0, 16)}`;
+export function orgImageMaxBytes(kind: OrgImageKind): number {
+  return kind === 'COVER' ? ORG_COVER_MAX_BYTES : ORG_LOGO_MAX_BYTES;
+}
+
+/** A stored picture's public path, versioned so a replacement is never served from a cache. */
+export function organizationImagePath(
+  organizationId: string,
+  kind: OrgImageKind,
+  sha256: string,
+): string {
+  const path = kind === 'COVER' ? 'cover' : 'logo';
+  return `/public/organizers/${organizationId}/${path}?v=${sha256.slice(0, 16)}`;
 }
 
 @Injectable()
-export class OrganizationLogoService {
+export class OrganizationImagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
@@ -49,7 +63,12 @@ export class OrganizationLogoService {
    * masthead, the public organizer page and the event page all already render whatever that
    * field holds. This changes where the bytes live, not how anybody reads them.
    */
-  async upload(user: RequestUser, organizationId: string, file?: UploadedImageFile) {
+  async upload(
+    user: RequestUser,
+    organizationId: string,
+    kind: OrgImageKind,
+    file?: UploadedImageFile,
+  ) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
 
     if (!file?.buffer?.length) {
@@ -59,10 +78,11 @@ export class OrganizationLogoService {
         HttpStatus.BAD_REQUEST,
       );
     }
-    if (file.size > ORG_LOGO_MAX_BYTES) {
+    const maxBytes = orgImageMaxBytes(kind);
+    if (file.size > maxBytes) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
-        'That image is larger than 1 MB. A logo does not need to be.',
+        `That image is larger than ${Math.round(maxBytes / (1024 * 1024))} MB.`,
         HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
@@ -88,52 +108,60 @@ export class OrganizationLogoService {
       uploadedByUserId: user.id,
     };
 
+    const path = organizationImagePath(organizationId, kind, sha256);
     const organization = await this.prisma.$transaction(async (tx) => {
-      await tx.organizationLogo.upsert({
-        where: { organizationId },
-        create: { organizationId, ...data },
+      await tx.organizationImage.upsert({
+        where: { organizationId_kind: { organizationId, kind } },
+        create: { organizationId, kind, ...data },
         update: data,
       });
-      // Same transaction: a stored logo nobody points at is invisible, and a pointer to
-      // bytes that were never written is a broken image on every page that reads it.
+      /*
+        Same transaction, and writing the URL field is what makes every existing reader work
+        untouched: the console masthead, the public organizer page and the event page all
+        already render whatever these fields hold. A stored picture nobody points at is
+        invisible; a pointer to bytes that were never written is a broken image everywhere.
+      */
       return tx.organization.update({
         where: { id: organizationId },
-        data: { logoUrl: organizationLogoPath(organizationId, sha256) },
+        data: kind === 'COVER' ? { coverImageUrl: path } : { logoUrl: path },
       });
     });
 
     await this.audit.record({
       actorUserId: user.id,
       organizationId,
-      action: 'ORGANIZATION_LOGO_UPDATED',
+      action: kind === 'COVER' ? 'ORGANIZATION_COVER_UPDATED' : 'ORGANIZATION_LOGO_UPDATED',
       entityType: 'Organization',
       entityId: organizationId,
-      metadata: { contentType, sizeBytes: file.size },
+      metadata: { kind, contentType, sizeBytes: file.size },
     });
-    return { logoUrl: organization.logoUrl };
+    return { logoUrl: organization.logoUrl, coverImageUrl: organization.coverImageUrl };
   }
 
   /** Remove it, and stop pointing at what is no longer there. */
-  async remove(user: RequestUser, organizationId: string) {
+  async remove(user: RequestUser, organizationId: string, kind: OrgImageKind) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.organizationLogo.deleteMany({ where: { organizationId } });
-      await tx.organization.update({ where: { id: organizationId }, data: { logoUrl: null } });
+    const organization = await this.prisma.$transaction(async (tx) => {
+      await tx.organizationImage.deleteMany({ where: { organizationId, kind } });
+      return tx.organization.update({
+        where: { id: organizationId },
+        data: kind === 'COVER' ? { coverImageUrl: null } : { logoUrl: null },
+      });
     });
     await this.audit.record({
       actorUserId: user.id,
       organizationId,
-      action: 'ORGANIZATION_LOGO_REMOVED',
+      action: kind === 'COVER' ? 'ORGANIZATION_COVER_REMOVED' : 'ORGANIZATION_LOGO_REMOVED',
       entityType: 'Organization',
       entityId: organizationId,
     });
-    return { logoUrl: null };
+    return { logoUrl: organization.logoUrl, coverImageUrl: organization.coverImageUrl };
   }
 
   /** The bytes, for the public endpoint that serves them. */
-  async read(organizationId: string) {
-    const row = await this.prisma.organizationLogo.findUnique({
-      where: { organizationId },
+  async read(organizationId: string, kind: OrgImageKind) {
+    const row = await this.prisma.organizationImage.findUnique({
+      where: { organizationId_kind: { organizationId, kind } },
       select: { bytes: true, contentType: true, sha256: true },
     });
     return row ?? null;
