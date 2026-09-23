@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { PayoutsService } from './payouts.service';
 import { PayoutSettingsService } from './payout-settings.service';
+import { PayoutAccountsService } from './payout-accounts.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -14,6 +15,20 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 const SETTINGS_BODY = z.object({
   holdDays: z.number().int().min(0).max(365).nullable().optional(),
   minPayoutMinor: z.record(z.number().int().min(0)).nullable().optional(),
+  autoGenerate: z.boolean().nullable().optional(),
+  runFrequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']).nullable().optional(),
+  runAnchorDay: z.number().int().min(1).max(28).nullable().optional(),
+});
+
+/** Bank details an organizer enters. The number never comes back out of the API. */
+const ACCOUNT_BODY = z.object({
+  organizationId: z.string().cuid(),
+  currency: z.string().trim().length(3),
+  holderName: z.string().trim().min(2).max(140),
+  bankName: z.string().trim().min(2).max(140),
+  /** IFSC, routing number or SWIFT/BIC. Not a secret, and not validated per country here. */
+  bankCode: z.string().trim().min(4).max(34),
+  accountNumber: z.string().trim().min(6).max(34),
 });
 type SettingsBody = z.infer<typeof SETTINGS_BODY>;
 
@@ -21,7 +36,10 @@ type SettingsBody = z.infer<typeof SETTINGS_BODY>;
 @ApiBearerAuth()
 @Controller('payouts')
 export class PayoutsController {
-  constructor(private readonly payouts: PayoutsService) {}
+  constructor(
+    private readonly payouts: PayoutsService,
+    private readonly accounts_: PayoutAccountsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List payouts for an organization.' })
@@ -31,6 +49,33 @@ export class PayoutsController {
     q: { organizationId: string },
   ) {
     return this.payouts.listForOrg(user, q.organizationId);
+  }
+
+  /**
+   * The organizer's own bank details.
+   *
+   * Entered by the owner, shown back masked. The full number is never returned here - see
+   * the admin reveal, which is audited.
+   */
+  @Get('accounts')
+  @ApiOperation({ summary: 'Payout bank accounts for an organization (masked).' })
+  accounts(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ organizationId: z.string().cuid() })))
+    q: { organizationId: string },
+  ) {
+    return this.accounts_.listForOrg(user, q.organizationId);
+  }
+
+  @Post('accounts')
+  @Roles(Role.ORGANIZER_OWNER, Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Add or replace the payout bank account for one currency.' })
+  saveAccount(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(ACCOUNT_BODY)) body: z.infer<typeof ACCOUNT_BODY>,
+  ) {
+    const { organizationId, ...rest } = body;
+    return this.accounts_.save(user, organizationId, rest);
   }
 
   @Post('generate')
@@ -55,7 +100,10 @@ export class PayoutsController {
 @RequiresAdmin(AdminPermission.PAYOUT_MANAGE)
 @Controller('admin/payouts')
 export class AdminPayoutsController {
-  constructor(private readonly payouts: PayoutsService) {}
+  constructor(
+    private readonly payouts: PayoutsService,
+    private readonly accounts_: PayoutAccountsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all payouts (admin).' })
@@ -81,6 +129,35 @@ export class AdminPayoutsController {
     body: { reference?: string; note?: string } = {},
   ) {
     return this.payouts.markPaid(admin, id, body);
+  }
+
+  @Get('accounts')
+  @ApiOperation({ summary: 'Every payout bank account, masked (admin).' })
+  accounts() {
+    return this.accounts_.adminList();
+  }
+
+  /**
+   * The full account number, once, for the person about to make the transfer.
+   *
+   * A reveal is somebody taking a bank account number out of the system, so it is recorded
+   * with who asked and why - the same shape as the SNS confirmation reveal.
+   */
+  @Post('accounts/:id/reveal')
+  @ApiOperation({ summary: 'Reveal one account number, recorded in the audit log (admin).' })
+  revealAccount(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ reason: z.string().trim().min(1).max(200) })))
+    body: { reason: string },
+  ) {
+    return this.accounts_.reveal(admin, id, body.reason);
+  }
+
+  @Post('accounts/:id/verified')
+  @ApiOperation({ summary: 'Record that the account has been checked (admin).' })
+  verifyAccount(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
+    return this.accounts_.markVerified(admin, id);
   }
 
   @Post(':id/fail')

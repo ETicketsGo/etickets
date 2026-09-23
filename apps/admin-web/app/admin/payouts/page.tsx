@@ -23,6 +23,7 @@ import {
   type Payout,
 } from '@eticketsgo/web-kit';
 import { SettlementTerms } from './settlement-terms';
+import { BankAccounts } from './bank-accounts';
 
 const STATUSES = ['PENDING', 'SCHEDULED', 'PAID', 'FAILED'];
 const PAGE_SIZE = 15;
@@ -181,6 +182,8 @@ export default function AdminPayouts() {
       <PageHeader title="Payouts" description="Organizer settlements across the platform." />
 
       <SettlementTerms openFor={termsFor} onOpenHandled={() => setTermsFor(null)} />
+
+      <BankAccounts />
       <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
         <SearchInput
           value={q}

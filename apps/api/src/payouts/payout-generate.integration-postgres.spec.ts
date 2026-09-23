@@ -188,4 +188,34 @@ describe('integration-real-postgres: payout generation', () => {
     expect(next).toMatchObject({ eventId, grossMinor: 4_000 });
     expect(await db!.payout.count({ where: { organizationId: orgId } })).toBe(2);
   });
+
+  it('a settlement run raises a SCHEDULED payout with the date it will be paid', async () => {
+    if (!guard()) return;
+    /*
+      The automatic path, against a real database. PENDING is "somebody raised this and is
+      dealing with it"; SCHEDULED is "the platform raised this and it is queued for the run on
+      `scheduledAt`". The status has been in the schema since the beginning with nothing ever
+      writing it, which is how the difference stayed invisible.
+    */
+    // The tests above leave an open payout, and an open one blocks the currency by design.
+    for (const open of await db!.payout.findMany({
+      where: { organizationId: orgId, status: { in: ['PENDING', 'SCHEDULED'] } },
+    })) {
+      await payouts.markPaid(owner, open.id, { reference: 'UTR-ITEST' });
+    }
+
+    await sell(9_900);
+    const payDay = new Date('2026-10-05T00:00:00Z');
+    const [raised] = await payouts.generateAutomatically(orgId, payDay);
+
+    expect(raised).toMatchObject({
+      status: 'SCHEDULED',
+      grossMinor: 9_900,
+      currency: 'INR',
+    });
+    expect(raised.scheduledAt?.toISOString()).toBe(payDay.toISOString());
+
+    // And it settles the same money the manual path would: the next generate finds nothing.
+    await expect(payouts.generate(owner, orgId)).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
 });

@@ -9,7 +9,9 @@ import {
   DataTable,
   Dialog,
   Input,
+  Select,
   money,
+  dateOnly,
   useToast,
   errorMessage,
   type Column,
@@ -43,6 +45,11 @@ export function SettlementTerms({
   );
   const [holdDays, setHoldDays] = useState('');
   const [minimums, setMinimums] = useState('');
+  /* '' means inherit, 'off' and 'on' are decisions. Three states, because an override that
+     only turns automatic runs OFF for one organizer is a real thing to want. */
+  const [autoGenerate, setAutoGenerate] = useState('');
+  const [runFrequency, setRunFrequency] = useState('');
+  const [runAnchorDay, setRunAnchorDay] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'payout-settings'],
@@ -60,6 +67,9 @@ export function SettlementTerms({
       data?.organizations.find((row) => row.organizationId === openFor.organizationId) ?? null;
     setHoldDays(existing?.holdDays == null ? '' : String(existing.holdDays));
     setMinimums(formatMinimums(existing?.minPayoutMinor ?? null));
+    setAutoGenerate(existing?.autoGenerate == null ? '' : existing.autoGenerate ? 'on' : 'off');
+    setRunFrequency(existing?.runFrequency ?? '');
+    setRunAnchorDay(existing?.runAnchorDay == null ? '' : String(existing.runAnchorDay));
     setEditing({ organizationId: openFor.organizationId, name: openFor.name });
     onOpenHandled?.();
   }, [openFor, data, onOpenHandled]);
@@ -71,6 +81,9 @@ export function SettlementTerms({
         // "payable as soon as the show is over".
         holdDays: holdDays.trim() === '' ? null : Number(holdDays),
         minPayoutMinor: parseMinimums(minimums),
+        autoGenerate: autoGenerate === '' ? null : autoGenerate === 'on',
+        runFrequency: runFrequency === '' ? null : (runFrequency as 'DAILY' | 'WEEKLY' | 'MONTHLY'),
+        runAnchorDay: runAnchorDay.trim() === '' ? null : Number(runAnchorDay),
       }),
     onSuccess: () => {
       toast.push('Settlement terms saved.', 'success');
@@ -83,6 +96,9 @@ export function SettlementTerms({
   const open = (organizationId: string | null, name: string, row?: PayoutSetting | null) => {
     setHoldDays(row?.holdDays == null ? '' : String(row.holdDays));
     setMinimums(formatMinimums(row?.minPayoutMinor ?? null));
+    setAutoGenerate(row?.autoGenerate == null ? '' : row.autoGenerate ? 'on' : 'off');
+    setRunFrequency(row?.runFrequency ?? '');
+    setRunAnchorDay(row?.runAnchorDay == null ? '' : String(row.runAnchorDay));
     setEditing({ organizationId, name });
   };
 
@@ -112,6 +128,23 @@ export function SettlementTerms({
             .join(', ')
         ) : (
           <span className="text-text-muted">Inherited</span>
+        ),
+    },
+    {
+      key: 'run',
+      header: 'Settlement run',
+      render: (row) =>
+        row.autoGenerate == null ? (
+          <span className="text-text-muted">Inherited</span>
+        ) : row.autoGenerate ? (
+          <span>
+            {(row.runFrequency ?? 'WEEKLY').toLowerCase()}
+            {row.lastRunAt ? (
+              <span className="text-text-muted"> &middot; last {dateOnly(row.lastRunAt)}</span>
+            ) : null}
+          </span>
+        ) : (
+          <span className="text-text-muted">By hand</span>
         ),
     },
     {
@@ -201,6 +234,43 @@ export function SettlementTerms({
             hint="In minor units - paise, cents. Leave empty to inherit. A settlement below the minimum waits for the next one."
             onChange={(e) => setMinimums(e.target.value)}
           />
+          {/*
+            Automatic settlements are off everywhere until somebody turns them on: a payout
+            raised on a date nobody chose is money leaving unplanned.
+          */}
+          <Select
+            label="Settlement run"
+            value={autoGenerate}
+            hint="Raised automatically, or by hand in this console."
+            onChange={(e) => setAutoGenerate(e.target.value)}
+          >
+            <option value="">Inherit</option>
+            <option value="off">By hand only</option>
+            <option value="on">Automatically</option>
+          </Select>
+          {autoGenerate === 'on' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                label="How often"
+                value={runFrequency}
+                onChange={(e) => setRunFrequency(e.target.value)}
+              >
+                <option value="">Inherit</option>
+                <option value="DAILY">Daily</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </Select>
+              <Input
+                label="On which day"
+                type="number"
+                min={1}
+                max={28}
+                value={runAnchorDay}
+                hint="Weekly: 1 is Monday. Monthly: 1 to 28, never later - the 31st would skip February."
+                onChange={(e) => setRunAnchorDay(e.target.value)}
+              />
+            </div>
+          ) : null}
           <p className="text-caption text-text-muted">
             Every change is recorded in the audit log with the values before and after.
           </p>

@@ -26,8 +26,16 @@ export interface EffectivePayoutSettings {
   holdDays: number;
   /** Currency -> the smallest payout worth raising, in minor units. */
   minPayoutMinor: Record<string, number>;
+  /** Whether the platform raises this organizer's settlements by itself. Off unless set. */
+  autoGenerate: boolean;
+  /** DAILY | WEEKLY | MONTHLY. */
+  runFrequency: string;
+  /** WEEKLY: ISO weekday 1-7. MONTHLY: day of month 1-28. */
+  runAnchorDay: number;
+  /** When this organization's run last happened. Read from its OWN row, never inherited. */
+  lastRunAt: Date | null;
   /** Where each value came from, so an admin screen can say "inherited" rather than imply a choice. */
-  source: { holdDays: SettingSource; minPayoutMinor: SettingSource };
+  source: { holdDays: SettingSource; minPayoutMinor: SettingSource; autoGenerate: SettingSource };
 }
 
 export type SettingSource = 'organization' | 'platform' | 'default';
@@ -36,7 +44,13 @@ export type SettingSource = 'organization' | 'platform' | 'default';
 export interface PayoutSettingsInput {
   holdDays?: number | null;
   minPayoutMinor?: Record<string, number> | null;
+  autoGenerate?: boolean | null;
+  runFrequency?: string | null;
+  runAnchorDay?: number | null;
 }
+
+/** How often a settlement run comes round. */
+export const RUN_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
 
 /** The environment default, used until somebody configures the platform row. */
 const DEFAULT_HOLD_DAYS = 7;
@@ -66,7 +80,15 @@ export class PayoutSettingsService {
   ): Promise<EffectivePayoutSettings> {
     const rows = await client.payoutSetting.findMany({
       where: { OR: [{ organizationId }, { organizationId: null }] },
-      select: { organizationId: true, holdDays: true, minPayoutMinor: true },
+      select: {
+        organizationId: true,
+        holdDays: true,
+        minPayoutMinor: true,
+        autoGenerate: true,
+        runFrequency: true,
+        runAnchorDay: true,
+        lastRunAt: true,
+      },
     });
     const own = rows.find((row) => row.organizationId === organizationId);
     const platform = rows.find((row) => row.organizationId === null);
@@ -81,6 +103,14 @@ export class PayoutSettingsService {
     return {
       holdDays: Math.max(0, holdDays),
       minPayoutMinor: normaliseMinimums(minimums),
+      autoGenerate: own?.autoGenerate ?? platform?.autoGenerate ?? false,
+      runFrequency: (own?.runFrequency ?? platform?.runFrequency ?? 'WEEKLY').toUpperCase(),
+      runAnchorDay: own?.runAnchorDay ?? platform?.runAnchorDay ?? 1,
+      /*
+        The organization's OWN stamp, never the platform's. A shared cursor would mean the
+        first organization swept each day stopped every other one from running.
+      */
+      lastRunAt: own?.lastRunAt ?? null,
       source: {
         holdDays:
           own?.holdDays != null
@@ -92,6 +122,12 @@ export class PayoutSettingsService {
           own?.minPayoutMinor != null
             ? 'organization'
             : platform?.minPayoutMinor != null
+              ? 'platform'
+              : 'default',
+        autoGenerate:
+          own?.autoGenerate != null
+            ? 'organization'
+            : platform?.autoGenerate != null
               ? 'platform'
               : 'default',
       },
@@ -170,8 +206,43 @@ export class PayoutSettingsService {
       where: { organizationId: organizationId ?? null },
     });
 
+    if (input.runFrequency != null && !RUN_FREQUENCIES.includes(input.runFrequency as never)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `A settlement run is ${RUN_FREQUENCIES.join(', ')} - not "${input.runFrequency}".`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (
+      input.runAnchorDay != null &&
+      (!Number.isInteger(input.runAnchorDay) || input.runAnchorDay < 1)
+    ) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'The run day is a whole number: 1 to 7 for weekly, 1 to 28 for monthly.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (input.runAnchorDay != null && input.runAnchorDay > 28) {
+      /*
+        Never the 29th to the 31st. A monthly run anchored to the 31st would skip February
+        entirely, and nobody notices until an organizer asks where their money is.
+      */
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'A monthly run day above 28 would skip February. Pick 1 to 28.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const data = {
       holdDays: input.holdDays === undefined ? (before?.holdDays ?? null) : input.holdDays,
+      autoGenerate:
+        input.autoGenerate === undefined ? (before?.autoGenerate ?? null) : input.autoGenerate,
+      runFrequency:
+        input.runFrequency === undefined ? (before?.runFrequency ?? null) : input.runFrequency,
+      runAnchorDay:
+        input.runAnchorDay === undefined ? (before?.runAnchorDay ?? null) : input.runAnchorDay,
       minPayoutMinor:
         minimums === undefined
           ? ((before?.minPayoutMinor ?? Prisma.DbNull) as
@@ -197,8 +268,17 @@ export class PayoutSettingsService {
         before: {
           holdDays: before?.holdDays ?? null,
           minPayoutMinor: before?.minPayoutMinor ?? null,
+          autoGenerate: before?.autoGenerate ?? null,
+          runFrequency: before?.runFrequency ?? null,
+          runAnchorDay: before?.runAnchorDay ?? null,
         },
-        after: { holdDays: saved.holdDays, minPayoutMinor: saved.minPayoutMinor },
+        after: {
+          holdDays: saved.holdDays,
+          minPayoutMinor: saved.minPayoutMinor,
+          autoGenerate: saved.autoGenerate,
+          runFrequency: saved.runFrequency,
+          runAnchorDay: saved.runAnchorDay,
+        },
       },
     });
     return saved;

@@ -1445,6 +1445,18 @@ export const api = {
 
   payouts: {
     forOrg: (organizationId: string) => request<Payout[]>(`/payouts${qs({ organizationId })}`),
+    /** The organizer's own bank accounts, masked. */
+    accounts: (organizationId: string) =>
+      request<PayoutAccount[]>(`/payouts/accounts${qs({ organizationId })}`),
+    saveAccount: (body: {
+      organizationId: string;
+      currency: string;
+      holderName: string;
+      bankName: string;
+      bankCode: string;
+      accountNumber: string;
+    }) =>
+      request<PayoutAccount>('/payouts/accounts', { method: 'POST', body: JSON.stringify(body) }),
     /** One payout per currency the scope has money in. */
     generate: (organizationId: string, eventId?: string) =>
       request<Payout[]>('/payouts/generate', {
@@ -1683,6 +1695,15 @@ export const api = {
         body: JSON.stringify({ reason }),
       }),
     payoutSettings: () => request<PayoutSettings>('/admin/payout-settings'),
+    payoutAccounts: () => request<PayoutAccount[]>('/admin/payouts/accounts'),
+    /** Audited: the reason is stored with who asked. */
+    revealPayoutAccount: (id: string, reason: string) =>
+      request<RevealedPayoutAccount>(`/admin/payouts/accounts/${id}/reveal`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    verifyPayoutAccount: (id: string) =>
+      request<PayoutAccount>(`/admin/payouts/accounts/${id}/verified`, { method: 'POST' }),
     savePayoutSettings: (organizationId: string | null, body: PayoutSettingsInput) =>
       request<PayoutSetting>(
         organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
@@ -4059,6 +4080,10 @@ export interface PayoutSetting {
   /** Null means inherited: the platform row, then the environment default. */
   holdDays: number | null;
   minPayoutMinor: Record<string, number> | null;
+  autoGenerate: boolean | null;
+  runFrequency: string | null;
+  runAnchorDay: number | null;
+  lastRunAt: string | null;
   updatedByUserId: string | null;
   updatedAt: string;
   organization?: { id: string; name: string } | null;
@@ -4075,6 +4100,33 @@ export interface PayoutSettings {
 export interface PayoutSettingsInput {
   holdDays?: number | null;
   minPayoutMinor?: Record<string, number> | null;
+  /** Whether the platform raises this scope's settlements by itself. */
+  autoGenerate?: boolean | null;
+  runFrequency?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | null;
+  /** WEEKLY: ISO weekday 1-7. MONTHLY: day of month 1-28. */
+  runAnchorDay?: number | null;
+}
+
+/**
+ * Where an organizer's money is sent. The account number is NEVER in this shape - only the
+ * last four digits, which is what a person matches against a statement.
+ */
+export interface PayoutAccount {
+  id: string;
+  currency: string;
+  holderName: string;
+  bankName: string;
+  /** IFSC, routing number or SWIFT/BIC. */
+  bankCode: string;
+  accountLast4: string;
+  verifiedAt: string | null;
+  updatedAt: string;
+  organization?: { id: string; name: string };
+}
+
+/** The one reply that carries the full number, after an audited reveal. */
+export interface RevealedPayoutAccount extends PayoutAccount {
+  accountNumber: string;
 }
 
 // ─── Payment start (provider-aware) ───

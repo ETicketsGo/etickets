@@ -155,6 +155,15 @@ const envSchema = z.object({
     than an accident of an unset variable.
   */
   PAYOUT_HOLD_DAYS: z.coerce.number().int().min(0).max(90).default(7),
+  /*
+    The key organizer bank account numbers are encrypted with: 32 bytes, base64.
+
+    Optional, and its absence is a real state rather than an oversight: an environment
+    without it cannot store bank details at all, which is better than storing them weaker.
+    Never a literal in this repository or in a deployment template - it belongs in the
+    secret store beside the payment provider keys.
+  */
+  PAYOUT_BANK_ENCRYPTION_KEY: z.string().optional(),
 
   /**
    * Minimum gap between two shows on the same screen, in minutes.

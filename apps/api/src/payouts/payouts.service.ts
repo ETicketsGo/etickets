@@ -360,7 +360,31 @@ export class PayoutsService {
       Role.ORGANIZER_OWNER,
       Role.ORGANIZER_MANAGER,
     ]);
+    return this.raise(organizationId, eventId, { actorUserId: user.id, scheduledFor: null });
+  }
 
+  /**
+   * The settlement run raising a payout with nobody at a keyboard.
+   *
+   * ── WHY IT SHARES EVERY LINE WITH THE MANUAL PATH ──────────────────────────────────
+   * An automatic settlement that computed money differently from the one an organizer
+   * raises by hand would be two ledgers wearing one name. The only differences are that
+   * there is no member to check (the platform is acting, and it is audited as the platform)
+   * and that what it writes is SCHEDULED with the date of the payment run it belongs to.
+   *
+   * PENDING means "somebody raised this and is dealing with it". SCHEDULED means "the
+   * platform raised this and it is queued for the run on `scheduledAt`". Finance reads the
+   * difference; the status has been in the schema since the beginning with nothing writing it.
+   */
+  async generateAutomatically(organizationId: string, scheduledFor: Date) {
+    return this.raise(organizationId, undefined, { actorUserId: null, scheduledFor });
+  }
+
+  private async raise(
+    organizationId: string,
+    eventId: string | undefined,
+    run: { actorUserId: string | null; scheduledFor: Date | null },
+  ) {
     /*
       ── ONE GENERATE AT A TIME, AND BOTH SCOPES READ TOGETHER ──────────────────────────
       Two requests arriving together each read "no open payout" and each created one: the same
@@ -554,7 +578,13 @@ export class PayoutsService {
             paymentFeeMinor: s.paymentFee,
             refundMinor: s.refund,
             netMinor: s.net,
-            status: PayoutStatus.PENDING,
+            /*
+              A settlement run writes SCHEDULED with the date of the payment run it belongs
+              to; a person raising one by hand writes PENDING. That is the whole distinction
+              the status was carrying, and until the run existed nothing ever wrote it.
+            */
+            status: run.scheduledFor ? PayoutStatus.SCHEDULED : PayoutStatus.PENDING,
+            scheduledAt: run.scheduledFor,
           },
         });
         rows.push({ payout, settlement: s, periodStart, periodEnd: now });
@@ -565,7 +595,9 @@ export class PayoutsService {
     // Recorded once the payouts are committed, so the log never names a payout that rolled back.
     for (const { payout, settlement, periodStart, periodEnd } of written) {
       await this.audit.record({
-        actorUserId: user.id,
+        // Null for a settlement run: nobody pressed anything, and naming a person would be
+        // a lie the next time somebody reads the log to find out who decided this.
+        actorUserId: run.actorUserId,
         organizationId,
         action: 'PAYOUT_GENERATED',
         entityType: 'Payout',
