@@ -147,7 +147,7 @@ export function AdmitByEye({ sessionId }: { sessionId: string }) {
               {admitted ? (
                 <Badge tone="success">Admitted</Badge>
               ) : dead ? (
-                <Badge tone="danger">{r.status.toLowerCase()}</Badge>
+                <Badge tone="error">{r.status.toLowerCase()}</Badge>
               ) : (
                 <Button
                   size="sm"

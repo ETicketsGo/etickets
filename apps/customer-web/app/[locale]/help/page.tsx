@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, Mail, Bug, Lightbulb, Star } from 'lucide-react';
+import { ChevronRight, Mail, Bug, Lightbulb, MessageSquareWarning, Star } from 'lucide-react';
 import { Card, ButtonLink, RatingStars } from '@/components/ui';
 import { FeedbackForm } from '@/components/feedback-form';
 import { Link } from '@/i18n/navigation';
@@ -87,7 +87,7 @@ export default function HelpCenterPage() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link
           href="/help/contact"
           className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -118,6 +118,25 @@ export default function HelpCenterPage() {
           <p className="mt-3 font-semibold text-text-primary">Request a feature</p>
           <p className="mt-1 text-caption text-text-muted">
             Tell us what you would like us to add.
+          </p>
+        </Link>
+        {/*
+          A complaint is not a contact message, and it needs its own door.
+
+          Every grievance used to arrive as "Contact us", with nothing attaching it to the
+          organizer it was about - so nobody could answer how many were open against a seller,
+          which is the question that decides whether that seller keeps selling.
+        */}
+        <Link
+          href="/help/complaint"
+          className="flex flex-col rounded-lg border border-border bg-background-surface p-5 shadow-sm transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-status-warning/10 text-status-warning">
+            <MessageSquareWarning className="h-4 w-4" />
+          </span>
+          <p className="mt-3 font-semibold text-text-primary">Make a complaint</p>
+          <p className="mt-1 text-caption text-text-muted">
+            Something was wrong with an event you booked.
           </p>
         </Link>
       </div>

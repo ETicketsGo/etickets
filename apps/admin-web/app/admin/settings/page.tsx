@@ -328,7 +328,14 @@ export default function AdminSettings() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Settings" description="Platform fee configuration." />
+      {/*
+        Named for what it holds. "Settings" said nothing about the fee bands inside it, and
+        an admin looking for what the platform charges had no reason to open it.
+      */}
+      <PageHeader
+        title="Booking fees"
+        description="What this platform adds to a ticket price, per market."
+      />
 
       {isLoading && <Card title="Booking fee rules">Loading…</Card>}
 

@@ -30,6 +30,10 @@ const LEGAL = {
   financeContactName: 'Fin',
   financeContactEmail: 'fin@example.test',
   financeContactPhone: '+91 98765 43210',
+  // The named person who answers a complaint - part of the same editable set.
+  grievanceOfficerName: 'Grievance Officer',
+  grievanceOfficerEmail: 'complaints@example.test',
+  grievanceOfficerPhone: '+91 98765 43211',
 };
 
 function setup({ managedIds }: { managedIds: string[] | null }) {

@@ -8,6 +8,7 @@ import {
   Button,
   Card,
   DataTable,
+  EmptyState,
   MetricCard,
   PageHeader,
   money,
@@ -19,6 +20,32 @@ import {
   type DiscrepancyRow,
   type DiscrepancyStatusValue,
 } from '@eticketsgo/web-kit';
+
+/*
+  The queue is read by a finance person, not by the code that files the rows, so the row says
+  what happened rather than naming the constant. An unknown type still falls back to its raw
+  name - a new detector must be legible on the day it ships, not on the day somebody adds it
+  to this list.
+*/
+const TYPE_LABELS: Record<string, string> = {
+  PAYMENT_MISSING_INTERNALLY: 'Payment we have no record of',
+  PAYMENT_MISSING_AT_PROVIDER: 'Payment the provider has no record of',
+  AMOUNT_MISMATCH: 'Amount does not match',
+  CURRENCY_MISMATCH: 'Currency does not match',
+  DUPLICATE_CAPTURE: 'Charged twice',
+  REFUND_MISMATCH: 'Refund does not match',
+  CHARGEBACK: 'Chargeback',
+  SETTLEMENT_MISMATCH: 'Settlement does not match',
+  GATEWAY_FEE_MISMATCH: 'Provider fee does not match',
+  ORGANIZER_PAYABLE_MISMATCH: 'Organizer amount does not match',
+};
+
+const STATUS_LABELS: Record<DiscrepancyStatusValue, string> = {
+  OPEN: 'Open',
+  ASSIGNED: 'Being looked at',
+  RESOLVED: 'Resolved',
+  IGNORED: 'Ignored',
+};
 
 const STATUS_TONE: Record<DiscrepancyStatusValue, BadgeTone> = {
   OPEN: 'error',
@@ -73,24 +100,48 @@ export default function FinanceReconciliationPage() {
       })
       .catch((e) => push(errorMessage(e), 'error'));
 
+  /*
+    ── FOUR COLUMNS, NOT SEVEN ──────────────────────────────────────────────────────
+    This queue used to put type, provider, reference, amount, status, the free-text detail
+    and two buttons in seven columns side by side. The detail is a sentence, so the table was
+    always wider than the screen: the first column was cut in half and reading a row meant
+    dragging a horizontal scrollbar back and forth.
+
+    The facts that identify one discrepancy - what kind it is, which provider it came from,
+    what it points at, and what is wrong - belong together as one description, stacked. That
+    leaves the three things somebody scans down the page for: amount, status, and what to do.
+  */
   const columns: Column<DiscrepancyRow>[] = [
-    { key: 'type', header: 'Type', render: (r) => <strong>{r.type}</strong> },
-    { key: 'provider', header: 'Provider', render: (r) => r.provider },
-    { key: 'ref', header: 'Reference', render: (r) => r.entityRef },
+    {
+      key: 'type',
+      header: 'Discrepancy',
+      render: (r) => (
+        <div className="min-w-0 space-y-1">
+          <p className="font-semibold text-text-primary">{TYPE_LABELS[r.type] ?? r.type}</p>
+          <p className="text-caption text-text-secondary">{r.detail}</p>
+          <p className="text-caption text-text-muted">
+            {r.provider}
+            {r.entityRef ? ` · ${r.entityRef}` : ''}
+          </p>
+        </div>
+      ),
+    },
     {
       key: 'amount',
       header: 'Amount',
+      className: 'whitespace-nowrap tabular-nums',
       render: (r) => (r.amountMinor != null ? money(r.amountMinor, r.currency ?? undefined) : '—'),
     },
     {
       key: 'status',
       header: 'Status',
-      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>,
+      className: 'whitespace-nowrap',
+      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>,
     },
-    { key: 'detail', header: 'Detail', render: (r) => <span className="text-xs">{r.detail}</span> },
     {
       key: 'actions',
       header: '',
+      className: 'whitespace-nowrap',
       render: (r) =>
         r.status === 'OPEN' || r.status === 'ASSIGNED' ? (
           <div className="flex justify-end gap-2">
@@ -145,6 +196,12 @@ export default function FinanceReconciliationPage() {
           rows={list.data}
           loading={list.isLoading}
           rowKey={(r) => r.id}
+          empty={
+            <EmptyState
+              title="Nothing to reconcile"
+              hint="Everything the last detection run compared agreed. Run detection again to check now."
+            />
+          }
         />
       </Card>
     </div>

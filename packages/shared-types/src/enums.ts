@@ -492,6 +492,15 @@ export const FeedbackKind = {
   BUG: 'BUG',
   FEATURE: 'FEATURE',
   GENERAL: 'GENERAL',
+  /**
+   * Somebody says they have been wronged by an organizer, and wants it put right.
+   *
+   * Its own kind because it is not a contact message, and because it has to be COUNTABLE per
+   * organizer. A platform that sells other people's tickets has to be able to answer "how many
+   * complaints are open against this seller" before it decides whether to keep selling for them -
+   * and India's e-commerce rules require the marketplace to be able to answer it at all.
+   */
+  COMPLAINT: 'COMPLAINT',
   CSAT: 'CSAT',
   ORGANIZER_CSAT: 'ORGANIZER_CSAT',
 } as const;

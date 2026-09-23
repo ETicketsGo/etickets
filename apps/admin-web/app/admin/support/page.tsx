@@ -1,6 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import {
   api,
@@ -23,10 +25,18 @@ import {
   type FeedbackStatusValue,
 } from '@eticketsgo/web-kit';
 
-const KINDS = ['CONTACT', 'BUG', 'FEATURE', 'GENERAL', 'CSAT', 'ORGANIZER_CSAT'];
+/*
+  Complaint first, because it is the one a person has to act on.
+
+  A complaint is not a contact message: it is somebody saying an organizer wronged them, it is
+  recorded against that organizer, and how many are open decides whether that organizer keeps
+  selling. Before this it arrived as CONTACT with nothing attaching it to anybody.
+*/
+const KINDS = ['COMPLAINT', 'CONTACT', 'BUG', 'FEATURE', 'GENERAL', 'CSAT', 'ORGANIZER_CSAT'];
 const STATUSES: FeedbackStatusValue[] = ['OPEN', 'TRIAGED', 'CLOSED'];
 
 const KIND_TONE: Record<string, 'info' | 'error' | 'warning' | 'success' | 'neutral'> = {
+  COMPLAINT: 'error',
   CONTACT: 'info',
   BUG: 'error',
   FEATURE: 'warning',
@@ -45,15 +55,23 @@ function kindLabel(kind: string) {
 export default function AdminSupport() {
   const toast = useToast();
   const qc = useQueryClient();
+  /*
+    The organizer page links straight here with an organizer and a kind in the URL, so the link
+    lands on the complaints about that organizer rather than on the whole inbox. Read once as the
+    initial state: after that the selects own the filters, and a link that kept overriding them
+    would make the dropdowns look broken.
+  */
+  const params = useSearchParams();
+  const [organizationId, setOrganizationId] = useState(params.get('organizationId') ?? '');
   const [page, setPage] = useState(1);
-  const [kind, setKind] = useState('');
+  const [kind, setKind] = useState(params.get('kind') ?? '');
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
   const [selected, setSelected] = useState<FeedbackRow | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'support', page, kind, status, applied],
+    queryKey: ['admin', 'support', page, kind, status, applied, organizationId],
     queryFn: () =>
       api.admin.support({
         page,
@@ -61,6 +79,7 @@ export default function AdminSupport() {
         kind: kind || undefined,
         status: status || undefined,
         q: applied || undefined,
+        organizationId: organizationId || undefined,
       }),
   });
 
@@ -81,27 +100,39 @@ export default function AdminSupport() {
       header: 'Kind',
       render: (r) => <Badge tone={KIND_TONE[r.kind] ?? 'neutral'}>{kindLabel(r.kind)}</Badge>,
     },
+    /*
+      Sender, organizer and message in ONE cell.
+
+      They were three columns beside three more, which is what made this table - and most of the
+      admin console - wider than the screen. Read as a block they are the submission: what it
+      says, who said it, and who it is about.
+    */
     {
       key: 'message',
-      header: 'Subject / message',
+      header: 'Submission',
       render: (r) => (
-        <div className="max-w-md">
+        <div className="min-w-0 space-y-1">
           {r.subject && <p className="font-medium text-text-primary">{r.subject}</p>}
-          <p className="line-clamp-1 text-text-secondary">{r.message}</p>
+          <p className="line-clamp-2 text-text-secondary">{r.message}</p>
+          <p className="text-caption text-text-muted">
+            {r.user?.email ?? r.email ?? 'Anonymous'}
+            {r.organizationName ? ` · about ${r.organizationName}` : ''}
+            {r.bookingReference ? ` · ${r.bookingReference}` : ''}
+          </p>
+          {r.rating ? <RatingStars value={r.rating} size="sm" /> : null}
         </div>
       ),
     },
-    { key: 'email', header: 'From', render: (r) => r.user?.email ?? r.email ?? '—' },
     {
-      key: 'rating',
-      header: 'Rating',
-      render: (r) => (r.rating ? <RatingStars value={r.rating} size="sm" /> : '—'),
-    },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    {
-      key: 'date',
-      header: 'Received',
-      render: (r) => dateTime(r.createdAt),
+      key: 'status',
+      header: 'Status',
+      className: 'whitespace-nowrap',
+      render: (r) => (
+        <div className="space-y-1">
+          <StatusBadge status={r.status} />
+          <p className="text-caption text-text-muted">{dateTime(r.createdAt)}</p>
+        </div>
+      ),
       sortable: true,
       sortValue: (r) => r.createdAt,
     },
@@ -110,9 +141,26 @@ export default function AdminSupport() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Support"
-        description="Contact messages, bug reports, feature requests, and satisfaction surveys."
+        title="Support and complaints"
+        description="Complaints about organizers, contact messages, bug reports and satisfaction surveys."
       />
+      {organizationId && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background-subtle/50 p-3">
+          <p className="text-sm text-text-secondary">
+            Showing submissions about one organizer only.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setOrganizationId('');
+              setPage(1);
+            }}
+          >
+            Show every organizer
+          </Button>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px]">
         <SearchInput
           value={q}
@@ -209,6 +257,25 @@ export default function AdminSupport() {
               <dd className="text-text-primary">{selected.userId ? 'Signed-in user' : 'Guest'}</dd>
               <dt className="text-text-muted">Received</dt>
               <dd className="text-text-primary">{dateTime(selected.createdAt)}</dd>
+              {selected.organizationName && (
+                <>
+                  <dt className="text-text-muted">About</dt>
+                  <dd className="text-text-primary">
+                    <Link
+                      href={`/admin/organizers/${selected.organizationId}`}
+                      className="text-action-primary underline-offset-4 hover:underline"
+                    >
+                      {selected.organizationName}
+                    </Link>
+                  </dd>
+                </>
+              )}
+              {selected.bookingReference && (
+                <>
+                  <dt className="text-text-muted">Booking</dt>
+                  <dd className="font-mono text-text-primary">{selected.bookingReference}</dd>
+                </>
+              )}
             </dl>
             {selected.subject && (
               <div>

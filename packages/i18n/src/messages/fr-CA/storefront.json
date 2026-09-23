@@ -321,6 +321,7 @@
     "refundsNotOffered": "Aucun remboursement offert",
     "refundsNotOfferedBody": "L'organisateur n'offre pas de remboursement pour cet événement.",
     "contactOrganizer": "Communiquez directement avec lui en cas de problème.",
+    "reportProblem": "Signaler un problème avec cette réservation",
     "refundEligibility": "L'admissibilité suit la politique de remboursement de l'événement. Nous examinerons votre demande.",
     "refundReasonPlaceholder": "Raison du remboursement...",
     "requestRefundButton": "Demander le remboursement",

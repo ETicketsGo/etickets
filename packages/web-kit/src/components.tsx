@@ -321,7 +321,17 @@ export function Card({
   );
 }
 
-const badgeTone: Record<string, string> = {
+/*
+  Not `Record<string, string>`.
+
+  Typed that way, `BadgeTone` was `string` and every misspelling compiled: `tone="danger"` -
+  there is no danger tone, the one that exists is `error` - produced a badge with no background
+  and no colour at all. Two of those shipped, on an organizer's standing and on a ticket admitted
+  by eye, and a status badge that renders as plain text is exactly as useful as no badge.
+
+  Keyed to its own literals, the union is the real set of tones and a wrong one will not build.
+*/
+const badgeTone = {
   /*
     Opaque tints, never `bg-status-warning/12`.
 
@@ -553,7 +563,15 @@ export function DataTable<T>({
       tabIndex={0}
       className="overflow-x-auto rounded-lg border border-border bg-background-surface shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <table className="w-full min-w-[640px] text-left text-[0.9375rem]">
+      {/*
+        ── THE FLOOR IS FOR PHONES, NOT FOR DESKTOPS ────────────────────────────────
+        A 640px floor on every table meant admin screens scrolled sideways on a laptop the
+        moment a column held a sentence - the reconciliation queue cut its first column in
+        half, and reading a row meant dragging a scrollbar. The floor still exists so a
+        table does not collapse into columns one word wide on a phone, but it is well under
+        a phone's width, and cells wrap instead of forcing the table wider.
+      */}
+      <table className="w-full min-w-[22rem] text-left text-[0.9375rem]">
         <thead>
           <tr className="border-b border-border">
             {columns.map((c) => {

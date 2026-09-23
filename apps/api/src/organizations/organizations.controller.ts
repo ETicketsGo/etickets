@@ -32,6 +32,7 @@ import {
   type UpdateOrganizationProfileInput,
 } from '@eticketsgo/validation';
 import { OrganizationsService } from './organizations.service';
+import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -51,6 +52,7 @@ export class OrganizationsController {
   constructor(
     private readonly orgs: OrganizationsService,
     private readonly logos: OrganizationImagesService,
+    private readonly lifecycle: OrganizationLifecycleService,
   ) {}
 
   /*
@@ -84,6 +86,21 @@ export class OrganizationsController {
     was there. The size cap is enforced where multer reads the stream, so an oversized
     upload is refused before it is buffered in full.
   */
+  /**
+   * What this organizer still has to do, and what each gap costs them.
+   *
+   * The same list the admin console reads, so the two never disagree about whether an
+   * organizer is ready.
+   */
+  @Get(':id/readiness')
+  @ApiOperation({ summary: 'What this organizer still has to complete.' })
+  async readiness(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    // `get` asserts membership (and lets a platform admin through), so the readiness of an
+    // organization somebody does not belong to is not readable by asking for it directly.
+    await this.orgs.get(user, id);
+    return this.lifecycle.readiness(id);
+  }
+
   @Post(':id/logo')
   @ApiOperation({ summary: 'Upload the organization profile picture (JPG, PNG or WebP, 1 MB).' })
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ORG_LOGO_MAX_BYTES, files: 1 } }))
@@ -240,7 +257,10 @@ export class PublicInvitationsController {
 @RequiresAdmin(AdminPermission.ORGANIZER_REVIEW)
 @Controller('admin/organizers')
 export class AdminOrganizationsController {
-  constructor(private readonly orgs: OrganizationsService) {}
+  constructor(
+    private readonly orgs: OrganizationsService,
+    private readonly lifecycle: OrganizationLifecycleService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List organizations for review (admin).' })
@@ -284,6 +304,48 @@ export class AdminOrganizationsController {
     @Body(new ZodValidationPipe(reviewDecisionSchema)) body: ReviewDecisionInput,
   ) {
     return this.orgs.review(admin, id, body);
+  }
+
+  /*
+    Stopping an organizer, and removing one.
+
+    Most organizers somebody wants gone cannot be deleted: they have taken money and issued
+    tickets, and those records answer a chargeback months later. Suspension is the real
+    answer in that case, and it stops new sales the moment it is set - see the booking path.
+  */
+  @Post(':id/suspension')
+  @ApiOperation({ summary: 'Suspend an organizer, or reinstate one (admin).' })
+  setSuspension(
+    @CurrentUser() admin: RequestUser,
+    @Param('id') id: string,
+    @Body(
+      new ZodValidationPipe(
+        z.object({ suspended: z.boolean(), reason: z.string().trim().max(500).optional() }),
+      ),
+    )
+    body: { suspended: boolean; reason?: string },
+  ) {
+    return this.lifecycle.setSuspended(admin, id, body.suspended, body.reason);
+  }
+
+  @Get(':id/readiness')
+  @ApiOperation({ summary: 'What this organizer still has to complete (admin).' })
+  adminReadiness(@Param('id') id: string) {
+    return this.lifecycle.readiness(id);
+  }
+
+  @Get(':id/deletion-blockers')
+  @ApiOperation({ summary: 'What stands in the way of deleting this organizer (admin).' })
+  deletionBlockers(@Param('id') id: string) {
+    return this.lifecycle
+      .deletionBlockers(id)
+      .then((blockers) => ({ blockers, deletable: blockers.length === 0 }));
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete an organizer that never traded (admin).' })
+  removeOrganization(@CurrentUser() admin: RequestUser, @Param('id') id: string) {
+    return this.lifecycle.remove(admin, id);
   }
 
   @Get(':id/legal-identity')

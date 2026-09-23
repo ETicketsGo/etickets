@@ -108,6 +108,18 @@ export const updateOrganizationLegalIdentitySchema = z.object({
   financeContactName: clearableText(160),
   financeContactEmail: z.union([emailSchema, z.literal('')]).optional(),
   financeContactPhone: clearableText(40),
+  /*
+    ── WHO ANSWERS A COMPLAINT ──────────────────────────────────────────────────────
+    A named person, not an inbox. A marketplace selling to the public has to be able to say who
+    handles a grievance and how to reach them; India requires it explicitly of an e-commerce
+    seller, and the substance is expected in every market this platform sells in.
+
+    Optional at this layer like everything else here, because an organizer fills this form in
+    over time and a half-saved form must not be refused. The readiness list is what chases it.
+  */
+  grievanceOfficerName: clearableText(160),
+  grievanceOfficerEmail: z.union([emailSchema, z.literal('')]).optional(),
+  grievanceOfficerPhone: clearableText(40),
 });
 export type UpdateOrganizationLegalIdentityInput = z.infer<
   typeof updateOrganizationLegalIdentitySchema

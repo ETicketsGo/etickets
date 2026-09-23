@@ -20,6 +20,7 @@ import {
   type OrgMember,
 } from '@eticketsgo/web-kit';
 import { LegalIdentityCard } from '@/components/legal-identity-card';
+import { OrganizerStandingCard } from '@/components/organizer-standing-card';
 
 export default function OrganizerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -177,6 +178,8 @@ export default function OrganizerDetail() {
 
       {/* Beside Review and Publishing, because recording a seller's registration is part of
           onboarding them — not a settings detail to be found later. */}
+      <OrganizerStandingCard organizationId={id} name={org.name} status={org.status} />
+
       <LegalIdentityCard organizationId={id} />
 
       <Card title="Team">

@@ -59,6 +59,26 @@ export class AdminBusinessReportsController {
     return this.reports.dailyRevenue(range.from, range.to);
   }
 
+  @Get('by-market')
+  @ApiOperation({
+    summary: 'Gross/fees/refunds/bookings per country, including configured markets with none.',
+  })
+  async byMarket(
+    @Query(new ZodValidationPipe(rangeQuery)) q: RangeQuery,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const range = resolveRange(q.from, q.to);
+    if (q.format === 'csv') {
+      return sendCsv(
+        res,
+        'by-market',
+        range,
+        await this.reports.marketRevenueCsv(range.from, range.to),
+      );
+    }
+    return this.reports.marketRevenue(range.from, range.to);
+  }
+
   @Get('organizer-revenue')
   @ApiOperation({ summary: 'Per-organization gross/net/refunds/bookings (Top Organizers).' })
   async organizerRevenue(
