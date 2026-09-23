@@ -505,6 +505,7 @@ model User {
   feedback                   Feedback[]
   checkIns                   CheckIn[]                   @relation("CheckInActor")
   auditLogs                  AuditLog[]
+  payoutSettingUpdates       PayoutSetting[]
   seatOverrides              ShowSeat[]                  @relation("SeatOverrideActor")
   reviews                    Review[]
   marketingConsents          MarketingConsent[]
@@ -815,6 +816,8 @@ model Organization {
   venues                  Venue[]
   events                  Event[]
   payouts                 Payout[]
+  payoutSetting           PayoutSetting?
+  payoutAccounts          OrganizerPayoutAccount[]
   refunds                 Refund[]
   movies                  Movie[]
   cinemas                 Cinema[]
@@ -1971,6 +1974,14 @@ model Refund {
   /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
   /// every refund where no tax was charged — which is the default.
   taxMinor          Int          @default(0)
+  /// The part of `taxMinor` that was ADDED to the price rather than already inside it.
+  ///
+  /// Whose money a refund returns depends on this. Tax inside the ticket price was the
+  /// organizer's revenue and comes off their settlement. Tax added on top was collected and
+  /// retained by the platform, and charging it back to the organizer takes money they never
+  /// received. Zero for every refund of an inclusive-tax market (India), which is why the
+  /// ledger's old "deduct the whole refund" was right there and wrong everywhere else.
+  taxAddedMinor     Int          @default(0)
   status            RefundStatus @default(REQUESTED)
   reason            String
   ticketIds         String[]     @default([])
@@ -2004,11 +2015,79 @@ model Payout {
   status          PayoutStatus @default(PENDING)
   scheduledAt     DateTime?
   paidAt          DateTime?
+
+  /// The bank's own reference for the transfer that settled this payout (UTR, wire ref).
+  ///
+  /// A payout marked PAID with nothing to point at cannot be reconciled against a bank
+  /// statement, which is the one thing an accountant has to do with it. Optional because a
+  /// correction posted by hand may genuinely have none, and refusing the finalize would leave
+  /// money paid and the ledger saying otherwise.
+  paidReference   String?
+  /// Free text recorded with the payment or the failure. Never a substitute for the reference.
+  note            String?
+  /// Why a payout FAILED - a returned transfer, a closed account, a wrong IFSC.
+  ///
+  /// Until this existed nothing could write FAILED at all, so a returned bank transfer had no
+  /// representation: the ledger said the organizer had been paid and the money was back in the
+  /// platform's account. A FAILED payout returns its revenue to the unsettled pool.
+  failureReason   String?
+
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
   @@index([organizationId])
   @@index([status])
+}
+
+/// How settlements are run, for the platform or for one organization.
+///
+/// ── WHY THIS IS A TABLE AND NOT ENVIRONMENT VARIABLES ──────────────────────────────
+/// The holding period and the minimum payout are commercial terms, not deployment settings.
+/// They are negotiated per organizer - a venue that sells out months ahead is not on the same
+/// terms as a promoter with one show - and they change without a release. Living in env vars
+/// meant one number for every organizer on the platform, changeable only by a deploy, with no
+/// record of who changed it or when.
+///
+/// A row with `organizationId` null is the platform default. A row with one is that
+/// organization's override. Every field is nullable and null means "inherit": an override that
+/// only changes the hold does not silently pin the minimum to whatever it was the day somebody
+/// created it.
+model PayoutSetting {
+  id             String        @id @default(cuid())
+  /// Null for the platform default. Unique, so one row decides per scope.
+  organizationId String?       @unique
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Days after an event's last show before its revenue may be settled. Null inherits.
+  holdDays       Int?
+  /// Currency code -> smallest payout worth raising, in minor units. Null or absent inherits.
+  ///
+  /// Per currency because a minimum is money: 50000 is Rs 500 and $500, and one of those is a
+  /// sensible floor for a bank transfer while the other holds an organizer's revenue hostage.
+  minPayoutMinor Json?
+
+  /// Whether the platform raises this organizer's settlements by itself. Null inherits.
+  ///
+  /// Off everywhere until somebody turns it on: an automatic run that nobody asked for is a
+  /// payout an organizer did not expect and finance did not plan a transfer for.
+  autoGenerate   Boolean?
+  /// DAILY | WEEKLY | MONTHLY. Null inherits; meaningless while `autoGenerate` is off.
+  runFrequency   String?
+  /// WEEKLY: ISO weekday, 1 (Monday) to 7. MONTHLY: day of month, 1 to 28 - never 29 to 31,
+  /// because a run anchored to the 31st would skip February and nobody would notice until the
+  /// organizer asked where their money was.
+  runAnchorDay   Int?
+  /// When the automatic run last raised (or tried to raise) a settlement for this scope.
+  ///
+  /// The due check reads this rather than the payouts themselves: a run that correctly raised
+  /// nothing - everything held, or below the minimum - still happened, and re-running it every
+  /// tick would hammer the ledger for no result.
+  lastRunAt      DateTime?
+
+  updatedByUserId String?
+  updatedBy       User?    @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 // ─────────── Offline gate check-in (ADR-035) — DISABLED by default ───────────
@@ -4110,6 +4189,46 @@ model MarketingConsent {
   /// Newest row per subject+channel is the current state, so the read is an index scan.
   @@index([email, channel, createdAt])
   @@index([userId, channel, createdAt])
+}
+
+/// Where an organizer's money is actually sent.
+///
+/// ── WHY THE NUMBER IS ENCRYPTED AND NOT JUST STORED ────────────────────────────────
+/// Until Route or Connect is switched on, somebody makes these transfers by hand, which
+/// means the platform has to hold the account number. A bank account number in a database
+/// column is readable by every future query, every backup, every support screen somebody
+/// adds in a hurry, and every person with a psql prompt. It is kept as ciphertext and shown
+/// to an admin once, on request, with the reveal recorded in the audit log - the same shape
+/// as the SNS confirmation reveal, and for the same reason.
+///
+/// What is stored in the clear is what a person needs to RECOGNISE the account - the holder,
+/// the bank, the last four digits - and never enough to move money.
+model OrganizerPayoutAccount {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// The currency this account receives. An organizer selling in two currencies needs two.
+  currency       String
+  /// The name the account is in, as the bank holds it. Compared by a person, not by code.
+  holderName     String
+  bankName       String
+  /// IFSC in India, routing number in the US, SWIFT/BIC elsewhere. Not a secret.
+  bankCode       String
+  /// The last four digits, for recognising the account on screen and on a statement.
+  accountLast4   String
+  /// AES-256-GCM ciphertext of the full account number, as iv:tag:ciphertext (base64).
+  accountCipher  String
+
+  /// Somebody has checked this against a document or a penny transfer.
+  verifiedAt        DateTime?
+  verifiedByUserId  String?
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([organizationId, currency])
+  @@index([organizationId])
 }
 
 /// One back-office capability held by one account.

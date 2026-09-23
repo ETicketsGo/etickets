@@ -88,6 +88,14 @@ describe('integration-real-postgres: payout generation', () => {
       db as never,
       { assertMember: async () => undefined } as never,
       { record: async () => undefined } as never,
+      // Settled immediately and with no minimum: these tests are about racing generates.
+      {
+        effectiveFor: async () => ({
+          holdDays: 0,
+          minPayoutMinor: {},
+          source: { holdDays: 'default', minPayoutMinor: 'default' },
+        }),
+      } as never,
     );
 
     const org = await db.organization.create({
@@ -104,16 +112,18 @@ describe('integration-real-postgres: payout generation', () => {
         title: `Payout night ${suffix}`,
         slug: `payout-night-${suffix}`,
         category: 'Music',
-        status: 'PUBLISHED',
+        // Finished, because revenue is only payable once the show is over (PAYOUT_HOLD_DAYS,
+        // zero for this suite). These tests are about racing generates, not eligibility.
+        status: 'COMPLETED',
       },
     });
     eventId = event.id;
     const session = await db.eventSession.create({
       data: {
         eventId,
-        startsAt: new Date(Date.now() + 86_400_000),
-        endsAt: new Date(Date.now() + 90_000_000),
-        status: 'SCHEDULED',
+        startsAt: new Date(Date.now() - 90_000_000),
+        endsAt: new Date(Date.now() - 86_400_000),
+        status: 'COMPLETED',
       },
     });
     sessionId = session.id;
@@ -177,5 +187,35 @@ describe('integration-real-postgres: payout generation', () => {
     const [next] = await payouts.generate(owner, orgId, eventId);
     expect(next).toMatchObject({ eventId, grossMinor: 4_000 });
     expect(await db!.payout.count({ where: { organizationId: orgId } })).toBe(2);
+  });
+
+  it('a settlement run raises a SCHEDULED payout with the date it will be paid', async () => {
+    if (!guard()) return;
+    /*
+      The automatic path, against a real database. PENDING is "somebody raised this and is
+      dealing with it"; SCHEDULED is "the platform raised this and it is queued for the run on
+      `scheduledAt`". The status has been in the schema since the beginning with nothing ever
+      writing it, which is how the difference stayed invisible.
+    */
+    // The tests above leave an open payout, and an open one blocks the currency by design.
+    for (const open of await db!.payout.findMany({
+      where: { organizationId: orgId, status: { in: ['PENDING', 'SCHEDULED'] } },
+    })) {
+      await payouts.markPaid(owner, open.id, { reference: 'UTR-ITEST' });
+    }
+
+    await sell(9_900);
+    const payDay = new Date('2026-10-05T00:00:00Z');
+    const [raised] = await payouts.generateAutomatically(orgId, payDay);
+
+    expect(raised).toMatchObject({
+      status: 'SCHEDULED',
+      grossMinor: 9_900,
+      currency: 'INR',
+    });
+    expect(raised.scheduledAt?.toISOString()).toBe(payDay.toISOString());
+
+    // And it settles the same money the manual path would: the next generate finds nothing.
+    await expect(payouts.generate(owner, orgId)).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 });

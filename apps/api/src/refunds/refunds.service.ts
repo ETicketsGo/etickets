@@ -394,6 +394,13 @@ export class RefundsService {
           organizationId: booking.organizationId,
           amountMinor,
           taxMinor,
+          /*
+            The part of that tax which was ADDED to the price rather than sitting inside it.
+            Recorded because it decides WHOSE money the refund returns: tax inside the ticket
+            price was the organizer's revenue and comes off their settlement, while tax added
+            on top was collected and kept by the platform. Zero in an inclusive-tax market.
+          */
+          taxAddedMinor: tax.addedMinor,
           reason: input.reason,
           status: RefundStatus.REQUESTED,
           ticketIds: targetTickets.map((t) => t.id),

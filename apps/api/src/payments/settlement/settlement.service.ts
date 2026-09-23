@@ -300,6 +300,40 @@ export class SettlementService {
       );
     }
 
+    /*
+      ── THE OTHER WAY AN ORGANIZER CAN ALREADY HAVE BEEN PAID ──────────────────────────
+      This platform pays two ways: a provider transfer (here) and the `Payout` ledger, which
+      records what is owed and is settled by a bank transfer somebody makes by hand. Nothing
+      connected them, so an event's revenue could be transferred here AND recorded as owed
+      there - and the second payment looks exactly like the first.
+
+      A standing payout is a claim on this event's money: PENDING means somebody is about to
+      transfer it by hand, PAID means they already have. Either way it is not ours to move
+      again, so the release is refused with the payout named rather than blocked silently or
+      transferred on top. An org-wide payout (`eventId: null`) covers every event the
+      organization has, so it blocks this one too.
+
+      Checked BEFORE the atomic claim below: a refusal must leave the settlement exactly as
+      it was, not parked in TRANSFER_PROCESSING for an operator to unpick.
+    */
+    const claimedByLedger = await this.prisma.payout.findMany({
+      where: {
+        organizationId: settlement.organizationId,
+        currency: settlement.currency,
+        OR: [{ eventId: settlement.eventId }, { eventId: null }],
+        status: { in: ['PENDING', 'SCHEDULED', 'PAID'] },
+      },
+      select: { id: true, status: true, eventId: true, netMinor: true },
+    });
+    if (claimedByLedger.length > 0) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'A payout already covers this revenue on the ledger. Settle or cancel it before releasing a transfer, or the organizer is paid twice.',
+        HttpStatus.CONFLICT,
+        { payoutIds: claimedByLedger.map((payout) => payout.id) },
+      );
+    }
+
     // Atomic claim so concurrent releases cannot both transfer.
     const claim = await this.prisma.settlement.updateMany({
       where: { id, status: { in: ['APPROVED', 'FAILED'] } },

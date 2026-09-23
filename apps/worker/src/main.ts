@@ -20,6 +20,7 @@ import {
   PrismaService,
   RazorpayWebhookProcessor,
   SeatOverridesService,
+  PayoutRunService,
   SettlementService,
   StripeWebhookProcessor,
   SyncEventProcessor,
@@ -232,6 +233,7 @@ async function main(): Promise<void> {
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
+  const payoutRuns = app.get(PayoutRunService);
   const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
   const syncPolling = app.get(SyncPollingService);
@@ -249,6 +251,11 @@ async function main(): Promise<void> {
   const RECONCILE_EVERY_MS =
     Number.isFinite(RAW_RECONCILE_MS) && RAW_RECONCILE_MS > 0 ? RAW_RECONCILE_MS : DAY_MS;
   const RAW_TOKEN_PRUNE_MS = Number(process.env.TOKEN_PRUNE_INTERVAL_MS ?? DAY_MS);
+  /** How often the settlement run asks whether anybody's payouts are due. */
+  const RAW_PAYOUT_RUN_MS = Number(process.env.PAYOUT_RUN_EVERY_MS ?? '');
+  const PAYOUT_RUN_EVERY_MS =
+    Number.isFinite(RAW_PAYOUT_RUN_MS) && RAW_PAYOUT_RUN_MS > 0 ? RAW_PAYOUT_RUN_MS : 60 * 60_000;
+
   const TOKEN_PRUNE_EVERY_MS =
     Number.isFinite(RAW_TOKEN_PRUNE_MS) && RAW_TOKEN_PRUNE_MS > 0 ? RAW_TOKEN_PRUNE_MS : DAY_MS;
 
@@ -458,6 +465,29 @@ async function main(): Promise<void> {
     },
   );
 
+  /*
+    ── THE SETTLEMENT RUN ─────────────────────────────────────────────────────────────
+    Hourly, because "is this organizer's run due" is a question per organization - every one
+    settles on its own terms - and an hourly tick answers it without a scheduler entry per
+    organizer. The run itself does almost nothing unless somebody has turned automatic
+    settlements on, which is nowhere by default.
+
+    Hourly rather than daily so that a monthly run anchored to the 1st happens early on the
+    1st rather than whenever the daily tick last landed.
+  */
+  await queue.add(
+    'payout-runs',
+    {},
+    {
+      repeat: { every: PAYOUT_RUN_EVERY_MS },
+      jobId: 'payout-runs',
+      removeOnComplete: 20,
+      removeOnFail: 20,
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 60_000 },
+    },
+  );
+
   // Daily retention sweep — prune dead (expired/old-revoked) refresh tokens so the
   // PII-bearing table stays bounded. Idempotent: deleting already-gone rows is a no-op.
   await queue.add(
@@ -476,6 +506,13 @@ async function main(): Promise<void> {
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
+      if (job.name === 'payout-runs') {
+        const run = await payoutRuns.runDue();
+        if (run.raised > 0 || run.considered > 0) {
+          log('info', 'settlement run', run);
+        }
+        return run;
+      }
       if (job.name === 'prune-tokens') {
         const pruned = await auth.pruneExpiredRefreshTokens();
         if (pruned > 0) log('info', 'pruned expired refresh tokens', { pruned });

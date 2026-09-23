@@ -25,6 +25,7 @@ import {
   type Payout,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { BankAccount } from './bank-account';
 
 export default function PayoutsPage() {
   return (
@@ -93,6 +94,7 @@ function PayoutsInner() {
         description="Connect your payout account and review settlement records for your organization."
       />
 
+      <BankAccount orgId={activeOrg.id} />
       <StripePayoutSetup orgId={activeOrg.id} />
       <RazorpayPayoutSetup orgId={activeOrg.id} />
 
@@ -103,6 +105,15 @@ function PayoutsInner() {
             Generate settlement
           </Button>
         </div>
+        {/*
+          Said here rather than only in the refusal. An organizer who can see the sales on
+          their dashboard and cannot settle them reads that as a fault; the holding period is
+          a rule, and a rule people know about is not a surprise.
+        */}
+        <p className="text-caption text-text-muted">
+          An event&rsquo;s revenue can be settled once the event has finished and its holding period
+          has passed. Refunds from that event come off the settlement that covers it.
+        </p>
         <DataTable
           columns={columns}
           rows={data}
@@ -280,7 +291,8 @@ function StripePayoutSetup({ orgId }: { orgId: string }) {
 
         <p className="text-caption text-text-muted">
           Payouts are handled by Stripe ({status.country?.toUpperCase()} ·{' '}
-          {status.currency?.toUpperCase()}). ETicketsGo never stores your bank details.
+          {status.currency?.toUpperCase()}). Stripe holds the bank details you give them and we
+          never see them.
         </p>
       </div>
     </Card>
@@ -425,8 +437,8 @@ function RazorpayPayoutSetup({ orgId }: { orgId: string }) {
 
         <p className="text-caption text-text-muted">
           Payouts are settled via Razorpay Route ({status.country?.toUpperCase()} ·{' '}
-          {status.currency?.toUpperCase()}). ETicketsGo never stores your bank details or API
-          secrets.
+          {status.currency?.toUpperCase()}). Razorpay holds the bank details you give them, and we
+          never hold API secrets for your account.
         </p>
       </div>
     </Card>

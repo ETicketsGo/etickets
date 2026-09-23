@@ -1,4 +1,4 @@
-import { PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
+import { EventStatus, PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
 import { PayoutsService } from './payouts.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -40,6 +40,10 @@ function makeService(
 ) {
   let created = 0;
   const prisma = withTransaction({
+    // Read by `generate` to leave out events a provider transfer has already claimed, and by
+    // the "why is nothing due" path. Empty is the ordinary case: no transfers, nothing held.
+    settlement: { findMany: jest.fn().mockResolvedValue([]) },
+    event: { findMany: jest.fn().mockResolvedValue([]) },
     booking: { groupBy: jest.fn().mockResolvedValue(paid) },
     refund: {
       findMany: jest
@@ -65,9 +69,26 @@ function makeService(
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
-    service: new PayoutsService(prisma as never, access as never, audit as never),
+    audit,
+    service: new PayoutsService(prisma as never, access as never, audit as never, holdDays(0)),
   };
 }
+
+/**
+ * The settlement terms a test runs under.
+ *
+ * Zero hold and no minimum in the specs that are about the money arithmetic: they fix
+ * bookings and refunds and assert sums, and either rule would silently empty every window.
+ * Both have tests of their own.
+ */
+const holdDays = (days: number, minPayoutMinor: Record<string, number> = {}) =>
+  ({
+    effectiveFor: async () => ({
+      holdDays: days,
+      minPayoutMinor,
+      source: { holdDays: 'platform', minPayoutMinor: 'platform' },
+    }),
+  }) as never;
 
 describe('PayoutsService (double-payout guards)', () => {
   it('generate refuses when an open payout already exists for the scope', async () => {
@@ -204,6 +225,8 @@ describe('PayoutsService.generate — only money the platform actually took', ()
     Object.assign(prisma, {
       booking: { groupBy },
       refund: { findMany: jest.fn().mockResolvedValue([]) },
+      settlement: { findMany: jest.fn().mockResolvedValue([]) },
+      event: { findMany: jest.fn().mockResolvedValue([]) },
     });
     await expect(service.generate(asUser(), 'org-1')).rejects.toMatchObject({
       code: ErrorCodes.TENANT_FORBIDDEN,
@@ -222,19 +245,34 @@ describe('PayoutsService.generate — only money the platform actually took', ()
 describe('PayoutsService.generate — never pays the same revenue twice', () => {
   type Row = Record<string, unknown>;
   const OPERATORS = new Set(['in', 'notIn', 'gt', 'lte', 'not']);
+  const LIST_PREDICATES = new Set(['some', 'none', 'every']);
   const time = (v: unknown) => (v instanceof Date ? v.getTime() : v);
 
   /** Whether `row` satisfies the parts of a Prisma `where` the payout queries use. */
   function matches(row: Row, where: Row): boolean {
     return Object.entries(where).every(([key, condition]) => {
       if (key === 'OR') return (condition as Row[]).some((branch) => matches(row, branch));
-      if (key === 'NOT') return (condition as Row[]).every((branch) => !matches(row, branch));
+      // Prisma takes NOT as one filter or a list of them; the payout queries use both.
+      if (key === 'NOT') {
+        const branches = Array.isArray(condition) ? (condition as Row[]) : [condition as Row];
+        return branches.every((branch) => !matches(row, branch));
+      }
       const value = row[key];
       if (condition === null || typeof condition !== 'object' || condition instanceof Date) {
         return time(value) === time(condition);
       }
       const ops = condition as Row;
       const keys = Object.keys(ops);
+      // A predicate on a list of related rows, e.g. `sessions: { none: { endsAt: { gt } } }`.
+      if (keys.length > 0 && keys.every((k) => LIST_PREDICATES.has(k))) {
+        const list = Array.isArray(value) ? (value as Row[]) : [];
+        return keys.every((k) => {
+          const predicate = ops[k] as Row;
+          if (k === 'some') return list.some((item) => matches(item, predicate));
+          if (k === 'none') return !list.some((item) => matches(item, predicate));
+          return list.every((item) => matches(item, predicate));
+        });
+      }
       // Not an operator object: a filter on a related row, e.g. `booking: { currency }`.
       if (!keys.every((k) => OPERATORS.has(k))) return matches((value ?? {}) as Row, ops);
       return keys.every((op) => {
@@ -255,21 +293,42 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     });
   }
 
-  function ledger() {
+  function ledger(holdDaysForTest = 0, minimums: Record<string, number> = {}) {
     const bookings: Row[] = [];
     const refunds: Row[] = [];
     const payouts: Row[] = [];
+    const settlements: Row[] = [];
     const prisma = withTransaction({
+      settlement: {
+        findMany: jest.fn(async ({ where }: { where: Row }) =>
+          settlements.filter((row) => matches(row, where)),
+        ),
+      },
+      event: {
+        findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+          [...events.values()].filter((row) => where.id.in.includes(row.id as string)),
+        ),
+      },
       booking: {
-        groupBy: jest.fn(async ({ where, _sum }: { where: Row; _sum: Record<string, true> }) => {
-          const sums = new Map<string, Record<string, number>>();
-          for (const b of bookings.filter((row) => matches(row, where))) {
-            const s = sums.get(b.currency as string) ?? {};
-            for (const key of Object.keys(_sum)) s[key] = (s[key] ?? 0) + (b[key] as number);
-            sums.set(b.currency as string, s);
-          }
-          return [...sums].map(([currency, s]) => ({ currency, _sum: s }));
-        }),
+        /*
+          Grouped by whatever `by` asks for, because `generate` sums per currency and the
+          "what is held" query sums per event AND currency.
+        */
+        groupBy: jest.fn(
+          async ({ where, by, _sum }: { where: Row; by: string[]; _sum: Record<string, true> }) => {
+            const keys = by ?? ['currency'];
+            const sums = new Map<string, Record<string, number>>();
+            const grouped = new Map<string, Row>();
+            for (const b of bookings.filter((row) => matches(row, where))) {
+              const id = keys.map((k) => String(b[k])).join('|');
+              const s = sums.get(id) ?? {};
+              for (const key of Object.keys(_sum)) s[key] = (s[key] ?? 0) + (b[key] as number);
+              sums.set(id, s);
+              grouped.set(id, Object.fromEntries(keys.map((k) => [k, b[k]])));
+            }
+            return [...sums].map(([id, s]) => ({ ...grouped.get(id), _sum: s }) as Row);
+          },
+        ),
       },
       refund: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
@@ -277,6 +336,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
             .filter((row) => matches(row, where))
             .map((row) => ({
               amountMinor: row.amountMinor,
+              taxAddedMinor: row.taxAddedMinor ?? 0,
               booking: { currency: (row.booking as Row).currency },
             })),
         ),
@@ -310,12 +370,31 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       prisma as never,
       { assertMember: jest.fn().mockResolvedValue(undefined) } as never,
       { record: jest.fn().mockResolvedValue(undefined) } as never,
+      holdDays(holdDaysForTest, minimums),
     );
+
+    /*
+      Events, because a booking's money is only payable once its event is over. Each one is
+      COMPLETED and ended in 2000 unless a test says otherwise, so the arithmetic tests below
+      are about the arithmetic and the hold tests are about the hold.
+    */
+    const events = new Map<string, Row>();
+    const event = (id: string, over: { status?: string; lastEndsAt?: string } = {}) => {
+      const row = {
+        id,
+        title: `Event ${id}`,
+        status: over.status ?? EventStatus.COMPLETED,
+        sessions: [{ endsAt: new Date(over.lastEndsAt ?? '2000-01-01T00:00:00Z') }],
+      };
+      events.set(id, row);
+      return row;
+    };
 
     const book = (currency: string, subtotalMinor: number, confirmedAt: string, eventId = 'e1') => {
       const booking = {
         organizationId: 'o1',
         eventId,
+        event: events.get(eventId) ?? event(eventId),
         currency,
         paymentMethod: 'ONLINE',
         confirmedAt: new Date(confirmedAt),
@@ -328,11 +407,18 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       bookings.push(booking);
       return booking;
     };
-    const refund = (booking: Row, amountMinor: number, completedAt: string) =>
+    const refund = (
+      booking: Row,
+      amountMinor: number,
+      completedAt: string,
+      /** The part of the refund that is tax the PLATFORM added and keeps liability for. */
+      taxAddedMinor = 0,
+    ) =>
       refunds.push({
         organizationId: 'o1',
         status: RefundStatus.COMPLETED,
         amountMinor,
+        taxAddedMinor,
         updatedAt: new Date(completedAt),
         booking,
       });
@@ -345,7 +431,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       jest.setSystemTime(new Date(iso));
       return service.markPaid(user, id);
     };
-    return { prisma, payouts, book, refund, generateAt, payAt };
+    return { prisma, payouts, settlements, event, book, refund, generateAt, payAt };
   }
 
   beforeEach(() => {
@@ -531,6 +617,234 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       code: ErrorCodes.CONFLICT,
     });
   });
+
+  /*
+    ── MONEY WAITS FOR THE SHOW ───────────────────────────────────────────────────────
+    The ledger had no time rule at all: revenue was settleable the moment a booking was
+    confirmed, for an event months away. An organizer could take the gate money for a
+    festival and then not put it on, and a customer refunded after a payout is money the
+    platform has to chase back from somebody who has already spent it.
+  */
+  it('will not settle an event that has not happened yet', async () => {
+    const { book, event, generateAt } = ledger(7);
+    event('future', { status: EventStatus.PUBLISHED, lastEndsAt: '2026-12-01T20:00:00Z' });
+    book('INR', 100_000, '2026-09-01T10:00:00Z', 'future');
+
+    await expect(generateAt('2026-09-02T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+  });
+
+  it('still will not, the day after the show, while the hold runs', async () => {
+    const { book, event, generateAt } = ledger(7);
+    event('done', { lastEndsAt: '2026-09-10T20:00:00Z' });
+    book('INR', 100_000, '2026-09-01T10:00:00Z', 'done');
+
+    await expect(generateAt('2026-09-11T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+  });
+
+  it('settles it once the hold has run', async () => {
+    const { book, event, generateAt } = ledger(7);
+    event('done', { lastEndsAt: '2026-09-10T20:00:00Z' });
+    book('INR', 100_000, '2026-09-01T10:00:00Z', 'done');
+
+    const [payout] = await generateAt('2026-09-17T21:00:00Z');
+    expect(payout.netMinor).toBe(100_000);
+  });
+
+  it('says what is held and when it becomes payable, rather than "no revenue"', async () => {
+    // An organizer who can see the sales on their dashboard reads a flat refusal as a bug.
+    const { book, event, generateAt } = ledger(7);
+    event('gig', { lastEndsAt: '2026-09-10T20:00:00Z' });
+    book('INR', 250_000, '2026-09-01T10:00:00Z', 'gig');
+
+    const failure = await generateAt('2026-09-11T10:00:00Z').catch((e) => e);
+    expect(failure).toBeInstanceOf(AppException);
+    expect(failure.details.held).toEqual([
+      expect.objectContaining({ eventTitle: 'Event gig', grossMinor: 250_000 }),
+    ]);
+    expect(failure.message).toContain('2026-09-17');
+  });
+
+  it('holds the whole run when a date is added to it', async () => {
+    // A run is over when its LAST show is over, so an added date extends the hold by itself.
+    const { book, event, generateAt } = ledger(0);
+    const run = event('run', { lastEndsAt: '2026-09-10T20:00:00Z' });
+    book('INR', 100_000, '2026-09-01T10:00:00Z', 'run');
+    (run.sessions as { endsAt: Date }[]).push({ endsAt: new Date('2026-10-05T20:00:00Z') });
+
+    await expect(generateAt('2026-09-12T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+  });
+
+  it('never settles a cancelled event, whose money is owed back to customers', async () => {
+    const { book, event, generateAt } = ledger(0);
+    event('off', { status: EventStatus.CANCELLED, lastEndsAt: '2026-09-10T20:00:00Z' });
+    book('INR', 100_000, '2026-09-01T10:00:00Z', 'off');
+
+    const failure = await generateAt('2026-09-20T10:00:00Z').catch((e) => e);
+    expect(failure).toBeInstanceOf(AppException);
+    // Not even listed as held: that would promise money which is never coming.
+    expect(failure.details?.held ?? []).toHaveLength(0);
+  });
+
+  it('settles the events that are ready and leaves the rest', async () => {
+    const { book, event, generateAt } = ledger(0);
+    event('over', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    event('soon', { status: EventStatus.PUBLISHED, lastEndsAt: '2026-12-01T20:00:00Z' });
+    book('INR', 60_000, '2026-08-20T10:00:00Z', 'over');
+    book('INR', 90_000, '2026-08-21T10:00:00Z', 'soon');
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.netMinor).toBe(60_000);
+  });
+
+  it('leaves a held event refund out too, rather than clawing back money never paid', async () => {
+    /*
+      Deducting a refund for revenue this payout did not include would leave the organizer
+      short by the refund, and the ledger with no way to explain the difference.
+    */
+    const { book, event, refund, generateAt } = ledger(0);
+    event('over', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    event('soon', { status: EventStatus.PUBLISHED, lastEndsAt: '2026-12-01T20:00:00Z' });
+    book('INR', 60_000, '2026-08-20T10:00:00Z', 'over');
+    const held = book('INR', 90_000, '2026-08-21T10:00:00Z', 'soon');
+    refund(held, 90_000, '2026-09-04T10:00:00Z');
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.refundMinor).toBe(0);
+    expect(payout.netMinor).toBe(60_000);
+  });
+
+  /*
+    ── AND NEVER TWICE THROUGH TWO SYSTEMS ────────────────────────────────────────────
+    A provider transfer (Stripe / Razorpay Route) pays the organizer directly; this ledger
+    records what is owed and is settled by a bank transfer somebody makes by hand. Nothing
+    connected the two, so one event's revenue could go out both ways and the second payment
+    would look exactly like the first.
+  */
+  it('leaves out an event whose money a transfer has already moved', async () => {
+    const { book, event, settlements, generateAt } = ledger(0);
+    event('paid', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    event('unpaid', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 70_000, '2026-08-20T10:00:00Z', 'paid');
+    book('INR', 40_000, '2026-08-20T10:00:00Z', 'unpaid');
+    settlements.push({ organizationId: 'o1', eventId: 'paid', status: 'TRANSFERRED' });
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.netMinor).toBe(40_000);
+  });
+
+  it('leaves it out while the transfer is still in flight', async () => {
+    // TRANSFER_PROCESSING is money already handed to the provider. Waiting for the webhook
+    // before excluding it is a window in which both systems would pay.
+    const { book, event, settlements, generateAt } = ledger(0);
+    event('paid', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 70_000, '2026-08-20T10:00:00Z', 'paid');
+    settlements.push({ organizationId: 'o1', eventId: 'paid', status: 'TRANSFER_PROCESSING' });
+
+    await expect(generateAt('2026-09-05T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+    });
+  });
+
+  it('still settles an event whose transfer was only approved, not sent', async () => {
+    // APPROVED has moved no money. Excluding it would strand the revenue in neither system.
+    const { book, event, settlements, generateAt } = ledger(0);
+    event('ready', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 70_000, '2026-08-20T10:00:00Z', 'ready');
+    settlements.push({ organizationId: 'o1', eventId: 'ready', status: 'APPROVED' });
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.netMinor).toBe(70_000);
+  });
+
+  /*
+    ── WHOSE MONEY A REFUND RETURNS ───────────────────────────────────────────────────
+    The ledger deducted the WHOLE refund from the organizer. A refund returns the ticket
+    money, which was theirs, plus any tax ADDED on top of the price, which the platform
+    collected and keeps the liability for. Charging that tax back to the organizer takes
+    money they never received.
+  */
+  it('deducts the ticket money from the organizer, not the tax the platform added', async () => {
+    const { book, event, refund, generateAt } = ledger(0);
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('USD', 100_000, '2026-08-20T10:00:00Z', 'gig');
+    // $1,000 ticket refunded with $80 of sales tax that was added at checkout.
+    refund(booking, 108_000, '2026-09-02T10:00:00Z', 8_000);
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.refundMinor).toBe(100_000);
+    expect(payout.netMinor).toBe(0);
+  });
+
+  it('still deducts the whole refund where tax sits inside the price', async () => {
+    // India: GST is inside the ticket price, so the whole refund really is the organizer's.
+    const { book, event, refund, generateAt } = ledger(0);
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('INR', 100_000, '2026-08-20T10:00:00Z', 'gig');
+    refund(booking, 100_000, '2026-09-02T10:00:00Z', 0);
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.refundMinor).toBe(100_000);
+    expect(payout.netMinor).toBe(0);
+  });
+
+  /*
+    ── TOO SMALL TO BANK ──────────────────────────────────────────────────────────────
+    A payout whose bank charge costs more than the money in it is not worth raising. The
+    revenue is not lost: nothing marks it settled, so it rolls into the next one.
+  */
+  it('does not raise a payout below the minimum', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+
+    await expect(generateAt('2026-09-05T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+      details: { belowMinimum: [{ currency: 'INR', netMinor: 20_000, minimumMinor: 50_000 }] },
+    });
+  });
+
+  it('carries that revenue into the next payout rather than losing it', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+    await generateAt('2026-09-05T10:00:00Z').catch(() => undefined);
+
+    book('INR', 40_000, '2026-09-06T10:00:00Z', 'gig');
+    const [payout] = await generateAt('2026-09-07T10:00:00Z');
+    expect(payout.netMinor).toBe(60_000);
+  });
+
+  it('settles the currency that clears the minimum and holds the one that does not', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000, USD: 5_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 80_000, '2026-08-20T10:00:00Z', 'gig');
+    book('USD', 1_000, '2026-08-20T10:00:00Z', 'gig');
+
+    const payouts = await generateAt('2026-09-05T10:00:00Z');
+    expect(payouts).toHaveLength(1);
+    expect(payouts[0]).toMatchObject({ currency: 'INR', netMinor: 80_000 });
+  });
+
+  it('records a clawback however small it is', async () => {
+    /*
+      A minimum applies to money going OUT. A period that owes money back to the platform is
+      recorded whatever its size, because a clawback nobody recorded is a clawback nobody
+      collects.
+    */
+    const { book, event, refund, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+    refund(booking, 25_000, '2026-09-02T10:00:00Z');
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.netMinor).toBe(-5_000);
+  });
 });
 
 describe('PayoutsService (markPaid)', () => {
@@ -551,6 +865,74 @@ describe('PayoutsService (markPaid)', () => {
     await service.markPaid(user, 'p1');
     expect(prisma.payout.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: PayoutStatus.PAID }) }),
+    );
+  });
+
+  it("records the bank's reference, which is what reconciles it to a statement", async () => {
+    const { service, prisma, audit } = makeService();
+    await service.markPaid(user, 'p1', { reference: ' UTR12345 ', note: 'Paid by NEFT' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ paidReference: 'UTR12345', note: 'Paid by NEFT' }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_PAID',
+        metadata: expect.objectContaining({ paidReference: 'UTR12345' }),
+      }),
+    );
+  });
+
+  it('stores an empty reference as none rather than as an empty string', async () => {
+    const { service, prisma } = makeService();
+    await service.markPaid(user, 'p1', { reference: '   ' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ paidReference: null }) }),
+    );
+  });
+});
+
+describe('PayoutsService (markFailed)', () => {
+  /*
+    ── WHY A PAYOUT HAS TO BE ABLE TO FAIL ────────────────────────────────────────────
+    Nothing could write FAILED, so a returned bank transfer had no representation at all:
+    the ledger said the organizer had been paid while the money sat back in the platform's
+    account. The cursor has always skipped FAILED payouts on purpose - the revenue they
+    cover is still owed - so that logic was unreachable until now.
+  */
+  it('records the reason and takes the paid date back off', async () => {
+    const { service, prisma, audit } = makeService();
+    await service.markFailed(user, 'p1', 'Bank returned it: account closed');
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: PayoutStatus.FAILED,
+          failureReason: 'Bank returned it: account closed',
+          paidAt: null,
+        }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'PAYOUT_FAILED' }));
+  });
+
+  it('can fail a payout that was already marked paid, which is what a bank return is', async () => {
+    const { service, prisma } = makeService();
+    await service.markFailed(user, 'p1', 'Returned by the beneficiary bank');
+    const where = prisma.payout.updateMany.mock.calls[0][0].where;
+    expect(where.status.in).toContain(PayoutStatus.PAID);
+  });
+
+  it('refuses a failure with no reason, which nobody can act on', async () => {
+    const { service } = makeService();
+    await expect(service.markFailed(user, 'p1', '   ')).rejects.toBeInstanceOf(AppException);
+  });
+
+  it('clears a stale failure reason when the retry succeeds', async () => {
+    const { service, prisma } = makeService();
+    await service.markPaid(user, 'p1', { reference: 'UTR999' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failureReason: null }) }),
     );
   });
 });
@@ -575,7 +957,7 @@ function makeServiceWithAccess(membership: { status: string; role: string } | nu
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
-    service: new PayoutsService(prisma as never, access, audit as never),
+    service: new PayoutsService(prisma as never, access, audit as never, holdDays(0)),
   };
 }
 
