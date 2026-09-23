@@ -7,6 +7,7 @@ function makeDeps(overrides: {
   reverseTransfer?: jest.Mock;
   claimCount?: number;
   reserveBps?: number;
+  ledgerPayouts?: Array<Record<string, unknown>>;
 }) {
   const settlementRow = overrides.settlement ?? null;
   const updated: Array<Record<string, unknown>> = [];
@@ -20,6 +21,9 @@ function makeDeps(overrides: {
         return { ...(settlementRow ?? {}), ...data };
       }),
     },
+    // Read by `release` to refuse a transfer the PAYOUT LEDGER has already claimed. Empty is
+    // the ordinary case: no ledger payout covers this event.
+    payout: { findMany: jest.fn().mockResolvedValue(overrides.ledgerPayouts ?? []) },
     organizationMember: { findMany: jest.fn().mockResolvedValue([]) },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     // The release and the organizer being told about it are now one transaction, so the
@@ -141,6 +145,38 @@ describe('SettlementService.release', () => {
     const { service, updated } = makeDeps({ settlement: approved(), createTransfer });
     await expect(service.release(actor, 's1')).rejects.toThrow(/transfer failed/i);
     expect(updated.some((d) => d.status === 'FAILED')).toBe(true);
+  });
+
+  it('refuses when the payout ledger has already claimed this revenue', async () => {
+    /*
+      ── THE DOUBLE PAYMENT THIS PREVENTS ─────────────────────────────────────────────
+      This platform can pay an organizer twice over: a provider transfer here, and the
+      `Payout` ledger, which is settled by a bank transfer somebody makes by hand. Nothing
+      connected the two, so an event could be transferred AND recorded as owed, and the
+      second payment would look exactly like the first.
+    */
+    const createTransfer = jest.fn();
+    const { service, prisma } = makeDeps({
+      settlement: approved(),
+      createTransfer,
+      ledgerPayouts: [{ id: 'po_1', status: 'PAID', eventId: 'e1', netMinor: 100000 }],
+    });
+
+    await expect(service.release(actor, 's1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { payoutIds: ['po_1'] },
+    });
+    expect(createTransfer).not.toHaveBeenCalled();
+    // Refused BEFORE the atomic claim, so the settlement is not left in TRANSFER_PROCESSING
+    // for an operator to unpick.
+    expect(prisma.settlement.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('transfers when no payout covers it', async () => {
+    const createTransfer = jest.fn().mockResolvedValue({ transferId: 'tr_9', status: 'COMPLETED' });
+    const { service } = makeDeps({ settlement: approved(), createTransfer, ledgerPayouts: [] });
+    await service.release(actor, 's1');
+    expect(createTransfer).toHaveBeenCalledTimes(1);
   });
 });
 

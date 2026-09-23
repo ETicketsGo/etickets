@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
+import { EventStatus, PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -39,13 +40,76 @@ interface EventSettled {
   until: Date;
 }
 
+/**
+ * An event whose revenue is finished but not yet releasable, and when it will be.
+ *
+ * Reported rather than silently dropped: "there is no new revenue to settle" is a lie when
+ * the organizer can see the sales on their dashboard, and an organizer who is not told why
+ * opens a support ticket instead.
+ */
+export interface HeldRevenue {
+  eventId: string;
+  eventTitle: string;
+  currency: string;
+  grossMinor: number;
+  /** When the hold expires: the last session's end plus PAYOUT_HOLD_DAYS. */
+  payableFrom: Date;
+}
+
+/**
+ * Settlement statuses that have CLAIMED an event's money on the provider-transfer path.
+ *
+ * ── WHY THE TWO SYSTEMS HAVE TO KNOW ABOUT EACH OTHER ──────────────────────────────
+ * This platform can pay an organizer two ways: this ledger, which records what is owed and
+ * is settled by a bank transfer somebody makes by hand, and `Settlement`, which moves money
+ * through Stripe or Razorpay Route. Nothing connected them. With both live, an event's
+ * revenue could be transferred by the provider AND recorded as owed here, and the second
+ * payment would look exactly like the first.
+ *
+ * Route is off by default, so today only this ledger runs — which is precisely when the
+ * guard is cheap to add. Once money has moved through a provider, it is off the table here.
+ */
+const SETTLEMENT_CLAIMED_STATUSES = ['TRANSFER_PROCESSING', 'TRANSFERRED', 'PARTIALLY_REFUNDED'];
+
 @Injectable()
 export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Days after a show before its money may be settled. See PAYOUT_HOLD_DAYS. */
+  private holdDays(): number {
+    const raw = this.config?.get<number>('PAYOUT_HOLD_DAYS');
+    return Number.isFinite(raw) ? Math.max(0, Number(raw)) : 7;
+  }
+
+  /**
+   * Which events' revenue may be paid out at `until`, as a Prisma filter.
+   *
+   * ── WHY MONEY WAITS FOR THE SHOW ───────────────────────────────────────────────────
+   * The ledger had no time rule of any kind: revenue was settleable the moment a booking
+   * was confirmed. An organizer could take the gate money for a festival three months out
+   * and then not hold it, and a customer refunded after a payout is money the platform has
+   * to chase back from somebody who already spent it. The provider-transfer path has always
+   * held funds until the event completed; this makes the ledger agree with it, plus a few
+   * days for refunds and disputes to surface.
+   *
+   * CANCELLED is excluded on purpose, and not because it is unfinished: that money is owed
+   * back to customers, and paying it to the organizer is the one outcome nobody can undo.
+   */
+  private payableEventFilter(until: Date): Prisma.EventWhereInput {
+    const cutoff = new Date(until.getTime() - this.holdDays() * 24 * 60 * 60 * 1000);
+    return {
+      status: { in: [EventStatus.COMPLETED, EventStatus.ARCHIVED] },
+      // No session ending after the cutoff: the run is over AND the hold has expired. Written
+      // as `none` rather than comparing a stored "last session" so an added date extends the
+      // hold by itself.
+      sessions: { none: { endsAt: { gt: cutoff } } },
+    };
+  }
 
   /**
    * Settlement figures for an org (optionally a single event), per currency, for the period
@@ -90,6 +154,8 @@ export class PayoutsService {
     settledUntil: Map<string, Date>,
     eventSettled: EventSettled[],
     until: Date,
+    /** Events whose money a provider transfer has already claimed. See the constant. */
+    transferredEventIds: string[],
   ): Promise<CurrencySettlement[]> {
     const settledCurrencies = [...settledUntil.keys()];
     const bookingWindows: Prisma.BookingWhereInput[] = [
@@ -122,6 +188,11 @@ export class PayoutsService {
           organizationId,
           paymentMethod: 'ONLINE',
           ...(eventId ? { eventId } : {}),
+          // The show has happened and the hold has expired, and no provider transfer has
+          // claimed this event's money. Both rules are on the BOOKING's event, so an org-wide
+          // payout leaves out the events that are not ready and settles the ones that are.
+          event: this.payableEventFilter(until),
+          ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
           OR: bookingWindows,
           ...(eventSettled.length > 0
             ? {
@@ -146,7 +217,17 @@ export class PayoutsService {
         where: {
           organizationId,
           status: RefundStatus.COMPLETED,
-          booking: { paymentMethod: 'ONLINE', ...(eventId ? { eventId } : {}) },
+          /*
+            The same population as the revenue above. Deducting a refund for an event whose
+            money is still held would claw back revenue this payout never included, leaving
+            the organizer short by the refund and the ledger unable to explain why.
+          */
+          booking: {
+            paymentMethod: 'ONLINE',
+            ...(eventId ? { eventId } : {}),
+            event: this.payableEventFilter(until),
+            ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
+          },
           OR: refundWindows,
           ...(eventSettled.length > 0
             ? {
@@ -189,6 +270,67 @@ export class PayoutsService {
         net: gross - discount - organizerFee - refund,
       };
     });
+  }
+
+  /**
+   * Revenue that exists, is not yet payable, and when it will be.
+   *
+   * Only reached when a generate found nothing, so it costs nothing on the normal path. It
+   * answers the organizer's actual question - "where is my money" - with the event, the
+   * amount and a date, rather than a refusal they have to ask somebody about.
+   */
+  private async heldRevenue(
+    client: Prisma.TransactionClient,
+    organizationId: string,
+    eventId: string | undefined,
+    until: Date,
+    transferredEventIds: string[],
+  ): Promise<HeldRevenue[]> {
+    const holdMs = this.holdDays() * 24 * 60 * 60 * 1000;
+    const rows = await client.booking.groupBy({
+      by: ['eventId', 'currency'],
+      where: {
+        organizationId,
+        paymentMethod: 'ONLINE',
+        ...(eventId ? { eventId } : {}),
+        confirmedAt: { lte: until },
+        // Everything the payable filter above leaves out, minus the events that are simply
+        // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
+        // "held" would promise money that is never coming.
+        NOT: { event: this.payableEventFilter(until) },
+        event: { status: { not: EventStatus.CANCELLED } },
+        ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
+      },
+      _sum: { subtotalMinor: true },
+    });
+    if (rows.length === 0) return [];
+
+    const events = await client.event.findMany({
+      where: { id: { in: [...new Set(rows.map((row) => row.eventId))] } },
+      select: {
+        id: true,
+        title: true,
+        sessions: { select: { endsAt: true }, orderBy: { endsAt: 'desc' }, take: 1 },
+      },
+    });
+    const byId = new Map(events.map((event) => [event.id, event]));
+
+    return rows
+      .map((row) => {
+        const event = byId.get(row.eventId);
+        const lastEnd = event?.sessions[0]?.endsAt;
+        return {
+          eventId: row.eventId,
+          eventTitle: event?.title ?? row.eventId,
+          currency: row.currency.toUpperCase(),
+          grossMinor: row._sum.subtotalMinor ?? 0,
+          // No session at all should not be possible for a booked event; treated as "not yet"
+          // rather than "payable now", because the safe answer to an unknown end is to wait.
+          payableFrom: new Date((lastEnd ? lastEnd.getTime() : until.getTime()) + holdMs),
+        };
+      })
+      .filter((row) => row.grossMinor !== 0)
+      .sort((a, b) => a.payableFrom.getTime() - b.payableFrom.getTime());
   }
 
   /**
@@ -274,10 +416,49 @@ export class PayoutsService {
         DOES produce one, with a negative net: that is money to claw back from the organizer, and
         dropping it would quietly forgive the deduction rather than recover it.
       */
+      /*
+        Events whose money a provider transfer has already claimed. Read inside the same
+        transaction as the sums, so a release that lands mid-generate cannot slip past it.
+      */
+      const transferred = await tx.settlement.findMany({
+        where: {
+          organizationId,
+          ...(eventId ? { eventId } : {}),
+          status: { in: SETTLEMENT_CLAIMED_STATUSES as never[] },
+        },
+        select: { eventId: true },
+      });
+      const transferredEventIds = [...new Set(transferred.map((row) => row.eventId))];
+
       const settlements = (
-        await this.settle(tx, organizationId, eventId, settledUntil, eventSettled, now)
+        await this.settle(
+          tx,
+          organizationId,
+          eventId,
+          settledUntil,
+          eventSettled,
+          now,
+          transferredEventIds,
+        )
       ).filter((s) => s.gross !== 0 || s.refund !== 0);
       if (settlements.length === 0) {
+        /*
+          "No new revenue" is the wrong answer when there IS revenue and it is simply not due
+          yet. The organizer can see those sales on their dashboard, so a flat refusal reads
+          as a bug and arrives as a support ticket. Name the events and the date instead.
+        */
+        const held = await this.heldRevenue(tx, organizationId, eventId, now, transferredEventIds);
+        if (held.length > 0) {
+          const soonest = held.reduce((a, b) => (a.payableFrom <= b.payableFrom ? a : b));
+          throw new AppException(
+            ErrorCodes.CONFLICT,
+            `This revenue is held until each event has finished. The next ${
+              held.length === 1 ? 'event becomes' : 'of them becomes'
+            } payable on ${soonest.payableFrom.toISOString().slice(0, 10)}.`,
+            HttpStatus.CONFLICT,
+            { held },
+          );
+        }
         throw new AppException(
           ErrorCodes.CONFLICT,
           'There is no new paid revenue to settle.',

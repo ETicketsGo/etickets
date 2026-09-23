@@ -88,6 +88,7 @@ describe('integration-real-postgres: payout generation', () => {
       db as never,
       { assertMember: async () => undefined } as never,
       { record: async () => undefined } as never,
+      { get: () => 0 } as never,
     );
 
     const org = await db.organization.create({
@@ -104,16 +105,18 @@ describe('integration-real-postgres: payout generation', () => {
         title: `Payout night ${suffix}`,
         slug: `payout-night-${suffix}`,
         category: 'Music',
-        status: 'PUBLISHED',
+        // Finished, because revenue is only payable once the show is over (PAYOUT_HOLD_DAYS,
+        // zero for this suite). These tests are about racing generates, not eligibility.
+        status: 'COMPLETED',
       },
     });
     eventId = event.id;
     const session = await db.eventSession.create({
       data: {
         eventId,
-        startsAt: new Date(Date.now() + 86_400_000),
-        endsAt: new Date(Date.now() + 90_000_000),
-        status: 'SCHEDULED',
+        startsAt: new Date(Date.now() - 90_000_000),
+        endsAt: new Date(Date.now() - 86_400_000),
+        status: 'COMPLETED',
       },
     });
     sessionId = session.id;

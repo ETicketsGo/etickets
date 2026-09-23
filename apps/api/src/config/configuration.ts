@@ -139,6 +139,22 @@ const envSchema = z.object({
    * paying customers, and beyond an hour lets abandoned carts sterilise a sold-out show.
    */
   BOOKING_HOLD_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+  /*
+    ── HOW LONG ORGANIZER MONEY IS HELD AFTER A SHOW ──────────────────────────────────
+    Days after an event's LAST session ends before its revenue may be settled to the
+    organizer. Until then the money is the platform's to return: a customer who is refunded
+    after the organizer has been paid is money we have to chase, and an organizer paid before
+    the show has no reason left to put it on.
+
+    The ledger used to hold nothing at all - revenue was settleable the moment a booking was
+    confirmed, for an event months away. Seven days covers the refund window every seeded
+    market uses (48 hours) with room for a card dispute to surface.
+
+    Zero is allowed and means "payable as soon as the event is over", which is what the
+    provider-transfer path does. It is not the default, and it is a deliberate choice rather
+    than an accident of an unset variable.
+  */
+  PAYOUT_HOLD_DAYS: z.coerce.number().int().min(0).max(90).default(7),
 
   /**
    * Minimum gap between two shows on the same screen, in minutes.

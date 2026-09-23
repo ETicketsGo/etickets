@@ -103,6 +103,15 @@ function PayoutsInner() {
             Generate settlement
           </Button>
         </div>
+        {/*
+          Said here rather than only in the refusal. An organizer who can see the sales on
+          their dashboard and cannot settle them reads that as a fault; the holding period is
+          a rule, and a rule people know about is not a surprise.
+        */}
+        <p className="text-caption text-text-muted">
+          An event&rsquo;s revenue can be settled once the event has finished and its holding period
+          has passed. Refunds from that event come off the settlement that covers it.
+        </p>
         <DataTable
           columns={columns}
           rows={data}
