@@ -98,6 +98,18 @@ export class OrganizationsService {
           name: input.name,
           slug: slugify(input.name),
           contactEmail: input.contactEmail,
+          /*
+            Recorded at registration now. The approval gate has always required a declared
+            identity, and until the form asked for one, an admin's first act on every new
+            organizer was to go back and ask - the platform failing its own onboarding.
+            Absent is still allowed here: a seed or a support-created shell is legitimate,
+            and approval is where the requirement bites.
+          */
+          legalName: input.legalName || null,
+          legalEntityType: input.legalEntityType || null,
+          registeredCountry: input.registeredCountry || null,
+          taxRegistrationKind: input.taxRegistrationKind || null,
+          taxRegistrationNumber: input.taxRegistrationNumber || null,
           status: OrganizationStatus.PENDING,
           members: { create: { userId: user.id, role: Role.ORGANIZER_OWNER } },
         },
@@ -236,7 +248,12 @@ export class OrganizationsService {
     await this.access.assertMember(user, id, [Role.ORGANIZER_OWNER]);
     const before = await this.prisma.organization.findUnique({
       where: { id },
-      select: { legalName: true, taxRegistrationKind: true, taxRegistrationNumber: true },
+      select: {
+        legalName: true,
+        legalEntityType: true,
+        taxRegistrationKind: true,
+        taxRegistrationNumber: true,
+      },
     });
     const data: Record<string, string | null> = {};
     for (const [key, value] of Object.entries(input) as [string, string | undefined][]) {
@@ -289,7 +306,12 @@ export class OrganizationsService {
   ) {
     const before = await this.prisma.organization.findUnique({
       where: { id },
-      select: { legalName: true, taxRegistrationKind: true, taxRegistrationNumber: true },
+      select: {
+        legalName: true,
+        legalEntityType: true,
+        taxRegistrationKind: true,
+        taxRegistrationNumber: true,
+      },
     });
     if (!before) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
@@ -326,6 +348,7 @@ export class OrganizationsService {
       where: { id },
       select: {
         legalName: true,
+        legalEntityType: true,
         taxRegistrationKind: true,
         taxRegistrationNumber: true,
         registeredAddressLine1: true,
@@ -381,6 +404,7 @@ export class OrganizationsService {
       */
       select: {
         legalName: true,
+        legalEntityType: true,
         taxRegistrationKind: true,
         taxRegistrationNumber: true,
         registeredAddressLine1: true,

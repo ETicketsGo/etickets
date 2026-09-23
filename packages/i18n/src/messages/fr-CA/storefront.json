@@ -762,7 +762,16 @@
     "supportEmail": "Courriel du soutien (facultatif)",
     "create": "Créer mon organisation",
     "changedMind": "Vous avez changé d'avis?",
-    "backToAccount": "Retour à votre compte"
+    "backToAccount": "Retour à votre compte",
+    "country": "Pays où vous êtes enregistré",
+    "countryHint": "Où l'entreprise est enregistrée, pas où se tiennent vos événements.",
+    "countryPlaceholder": "Choisissez un pays...",
+    "entityType": "Forme juridique",
+    "entityTypeHint": "Entreprise individuelle, société, fiducie - ce que vous avez enregistré.",
+    "entityTypePlaceholder": "Choisissez...",
+    "entityTypeNeedsCountry": "Choisissez d'abord un pays",
+    "legalName": "Dénomination légale",
+    "legalNameHint": "Le nom figurant sur votre enregistrement, s'il diffère du nom ci-dessus."
   },
   "notificationSettings": {
     "loadError": "Nous n'avons pas pu charger vos paramètres de notification.",

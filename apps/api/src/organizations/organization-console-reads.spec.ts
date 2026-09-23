@@ -17,6 +17,8 @@ const MEMBER = {
 
 const LEGAL = {
   legalName: 'Aurora Live Pvt Ltd',
+  // What they registered AS, which approval asks for instead of a tax number.
+  legalEntityType: 'Private limited company',
   taxRegistrationKind: 'GSTIN',
   taxRegistrationNumber: '36AAAAA0000A1Z5',
   registeredAddressLine1: '1 Road',
@@ -97,7 +99,7 @@ describe('the organizations a member can work in', () => {
 });
 
 describe('the legal identity read that seeds the settings form', () => {
-  it('returns all twelve editable fields, not only the ones that decide a tax invoice', async () => {
+  it('returns every editable field, not only the ones that decide a tax invoice', async () => {
     const { service, prisma } = setup({ managedIds: ['org-a'] });
     const result = await service.legalIdentityStatus(MEMBER, 'org-a');
 

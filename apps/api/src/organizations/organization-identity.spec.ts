@@ -17,6 +17,8 @@ import { checkLegalIdentity, findNameCollisions, normalizeOrgName } from './orga
 describe('the legal identity an organization must declare', () => {
   const complete = {
     legalName: 'DeepTrics Entertainment Private Limited',
+    legalEntityType: 'Private limited company',
+    registeredCountry: 'India',
     taxRegistrationKind: 'GSTIN',
     taxRegistrationNumber: '36AABCU9603R1ZM',
   };
@@ -25,25 +27,48 @@ describe('the legal identity an organization must declare', () => {
     expect(checkLegalIdentity(complete)).toEqual({ complete: true, missing: [] });
   });
 
+  it('approves a seller too small to have a tax registration', () => {
+    /*
+      ── THE ORGANIZER THIS USED TO EXCLUDE ───────────────────────────────────────────
+      Approval required a tax registration number. A business in India below the GST
+      threshold has no GSTIN and cannot obtain one, and the same is true of a sole trader
+      under the VAT threshold almost anywhere. The rule turned "you are too small to be
+      registered" into "you may not sell", while anybody willing to type fifteen characters
+      passed it.
+
+      What approval needs is a party that can be identified. Whether they can be issued a
+      TAX INVOICE rather than a receipt is a different question, asked separately.
+    */
+    const soleProprietor = {
+      legalName: 'Venkat Blaze',
+      legalEntityType: 'Sole proprietorship',
+      registeredCountry: 'India',
+    };
+    expect(checkLegalIdentity(soleProprietor)).toEqual({ complete: true, missing: [] });
+  });
+
   it('names every missing field, so a reviewer can ask for all of them at once', () => {
     const verdict = checkLegalIdentity({});
     expect(verdict.complete).toBe(false);
     // Not "identity incomplete". A reviewer forwarding this to an organizer needs the list.
-    expect(verdict.missing).toEqual([
-      'legal name',
-      'tax registration type',
-      'tax registration number',
-    ]);
+    expect(verdict.missing).toEqual(['legal name', 'legal entity type', 'country of registration']);
+  });
+
+  it('refuses a tax number that nobody labelled', () => {
+    // An invoice has to say what the number IS. A number with no kind is one no document
+    // can quote, and the organizer is the only person who knows which it is.
+    const verdict = checkLegalIdentity({ ...complete, taxRegistrationKind: '' });
+    expect(verdict.missing).toEqual(['tax registration type']);
   });
 
   it('treats whitespace as absent, because a space is not a declaration', () => {
     expect(checkLegalIdentity({ ...complete, legalName: '   ' }).complete).toBe(false);
-    expect(checkLegalIdentity({ ...complete, taxRegistrationNumber: '\t' }).complete).toBe(false);
+    expect(checkLegalIdentity({ ...complete, legalEntityType: '\t' }).complete).toBe(false);
   });
 
   it('treats null and undefined alike', () => {
     expect(
-      checkLegalIdentity({ legalName: null, taxRegistrationKind: undefined }).missing,
+      checkLegalIdentity({ legalName: null, legalEntityType: undefined }).missing,
     ).toHaveLength(3);
   });
 

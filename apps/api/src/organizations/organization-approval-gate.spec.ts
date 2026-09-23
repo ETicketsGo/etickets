@@ -18,6 +18,10 @@ const COMPLETE = {
   id: 'org-1',
   name: 'DeepTrics',
   legalName: 'DeepTrics Entertainment Private Limited',
+  // What approval needs: who they are and where. A tax registration is a separate
+  // question - most small organizers do not have one and cannot get one.
+  legalEntityType: 'Private limited company',
+  registeredCountry: 'India',
   taxRegistrationKind: 'GSTIN',
   taxRegistrationNumber: '36AABCU9603R1ZM',
 };
@@ -64,14 +68,33 @@ describe('approving an organization', () => {
     const { service } = serviceFor({ id: 'org-1', name: 'Anonymous Promotions' });
     await expect(service.review(admin, 'org-1', { decision: 'APPROVE' })).rejects.toMatchObject({
       details: {
-        missing: ['legal name', 'tax registration type', 'tax registration number'],
+        missing: ['legal name', 'legal entity type', 'country of registration'],
       },
     });
   });
 
   it('refuses on a partial declaration too', async () => {
-    const { service } = serviceFor({ ...COMPLETE, taxRegistrationNumber: null });
+    const { service } = serviceFor({ ...COMPLETE, legalEntityType: null });
     await expect(service.review(admin, 'org-1', { decision: 'APPROVE' })).rejects.toBeDefined();
+  });
+
+  it('approves an organizer with no tax registration at all', async () => {
+    /*
+      The case the old rule refused: a sole proprietor below the GST threshold, who has no
+      GSTIN and cannot get one. They are identifiable, so they can be approved; their
+      documents are receipts rather than tax invoices, which is a separate matter.
+    */
+    const { service, updates } = serviceFor({
+      id: 'org-1',
+      name: 'Venkat Blaze',
+      legalName: 'Venkat Blaze',
+      legalEntityType: 'Sole proprietorship',
+      registeredCountry: 'India',
+      taxRegistrationKind: null,
+      taxRegistrationNumber: null,
+    });
+    await service.review(admin, 'org-1', { decision: 'APPROVE' });
+    expect(updates).toEqual([{ status: 'APPROVED' }]);
   });
 
   it('approves when the declaration is complete', async () => {
@@ -126,7 +149,7 @@ describe('the override', () => {
     expect(approval!.metadata).toMatchObject({
       identityCheckOverridden: true,
       overrideReason: 'Verified the trust deed by email with the registrar.',
-      missingAtApproval: ['legal name', 'tax registration type', 'tax registration number'],
+      missingAtApproval: ['legal name', 'legal entity type', 'country of registration'],
     });
   });
 

@@ -762,7 +762,16 @@
     "supportEmail": "Support email (optional)",
     "create": "Create my organization",
     "changedMind": "Changed your mind?",
-    "backToAccount": "Back to your account"
+    "backToAccount": "Back to your account",
+    "country": "Country you are registered in",
+    "countryHint": "Where the business is registered, not where your events are.",
+    "countryPlaceholder": "Select a country...",
+    "entityType": "Registered as",
+    "entityTypeHint": "Sole proprietor, company, trust - whatever you registered as.",
+    "entityTypePlaceholder": "Select...",
+    "entityTypeNeedsCountry": "Pick a country first",
+    "legalName": "Registered legal name",
+    "legalNameHint": "The name on your registration, if it differs from the name above."
   },
   "notificationSettings": {
     "loadError": "We couldn't load your notification settings.",

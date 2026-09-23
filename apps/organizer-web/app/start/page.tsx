@@ -7,10 +7,13 @@ import {
   Button,
   Card,
   Input,
+  MARKETS,
   RequireAuth,
+  Select,
   Spinner,
   api,
   errorMessage,
+  marketFor,
   tokenStore,
   useAuthUser,
 } from '@eticketsgo/web-kit';
@@ -40,6 +43,15 @@ function StartInner() {
   const { user } = useAuthUser();
   const [name, setName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
+  /*
+    Asked here rather than discovered at approval. An admin cannot approve an organization
+    that has not said who it legally is, and until this form asked, their first act on every
+    new organizer was to go back and ask for it.
+  */
+  const [country, setCountry] = useState('');
+  const [legalName, setLegalName] = useState('');
+  const [entityType, setEntityType] = useState('');
+  const entityTypes = marketFor(country)?.legalEntityTypes ?? [];
   const [error, setError] = useState<string | null>(null);
 
   // Somebody who already has an organization does not need this page. Sent on rather than
@@ -58,6 +70,10 @@ function StartInner() {
       const org = await api.organizations.create({
         name: name.trim(),
         contactEmail: contactEmail.trim() || undefined,
+        // Who they legally are, asked here so approval is not the first time anybody asks.
+        legalName: legalName.trim(),
+        legalEntityType: entityType,
+        registeredCountry: country,
       });
       /*
         Refresh the session before navigating.
@@ -136,6 +152,61 @@ function StartInner() {
           onChange={(e) => setContactEmail(e.target.value)}
         />
 
+        {/*
+          Country first: it decides which legal forms exist below it, and asking afterwards
+          means filling the form in twice.
+        */}
+        <Select
+          id="org-country"
+          label="Country you are registered in"
+          value={country}
+          hint="Where the business is registered, not where your events are."
+          onChange={(e) => {
+            setCountry(e.target.value);
+            // A legal form belongs to a country: "Pvt Ltd" is not a thing in Canada.
+            setEntityType('');
+          }}
+        >
+          <option value="">Select a country…</option>
+          {MARKETS.map((m) => (
+            <option key={m.code} value={m.name}>
+              {m.name}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          id="org-entity"
+          label="Registered as"
+          value={entityType}
+          disabled={entityTypes.length === 0}
+          hint="Sole proprietor, company, trust - whatever you registered as."
+          onChange={(e) => setEntityType(e.target.value)}
+        >
+          <option value="">{country ? 'Select…' : 'Pick a country first'}</option>
+          {entityTypes.map((form) => (
+            <option key={form} value={form}>
+              {form}
+            </option>
+          ))}
+        </Select>
+
+        <Input
+          id="org-legal-name"
+          label="Registered legal name"
+          value={legalName}
+          hint="The name on your registration, if it differs from the name above."
+          onChange={(e) => setLegalName(e.target.value)}
+          required
+        />
+
+        {/*
+          No tax registration here, deliberately. Plenty of real organizers do not have one -
+          in India a business below the GST threshold cannot register - and asking on the way
+          in reads as a requirement. It is in Settings, where the consequence of having one
+          (tax invoices rather than receipts) can be explained properly.
+        */}
+
         {error ? (
           <p role="alert" className="text-caption text-status-error">
             {error}
@@ -146,7 +217,13 @@ function StartInner() {
           type="submit"
           className="w-full"
           loading={create.isPending}
-          disabled={create.isPending || name.trim().length < 2}
+          disabled={
+            create.isPending ||
+            name.trim().length < 2 ||
+            legalName.trim().length < 2 ||
+            !country ||
+            !entityType
+          }
         >
           Create organization
         </Button>

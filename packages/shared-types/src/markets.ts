@@ -56,6 +56,32 @@ export interface Market {
    */
   callingCode: string;
   /**
+   * The legal forms a business in this country actually takes.
+   *
+   * ── WHY THIS IS A LIST PER COUNTRY AND NOT FREE TEXT ───────────────────────────────
+   * "Registered legal name" alone does not say what somebody registered AS, and an admin
+   * approving an organizer is deciding whether a real, identifiable party may take money
+   * from the public. A sole proprietor in India and a Pvt Ltd are different things with
+   * different obligations, and a text box collects neither reliably - it collects "pvt",
+   * "Private Ltd.", "PVT LTD" and a blank.
+   *
+   * Per country because the forms are not the same anywhere: a US LLC does not exist in
+   * India, a Pty Ltd is Australian, and offering an organizer a list containing neither
+   * their own form nor an honest "other" teaches them to pick something wrong.
+   *
+   * The first entry is the one most small organizers are, which is what an empty form
+   * should not quietly assume but a reviewer should expect to see most.
+   */
+  legalEntityTypes: readonly string[];
+  /**
+   * What this country calls the tax registration an invoice quotes - GSTIN, EIN, VAT.
+   *
+   * A label, not a validator. Every authority owns its own format and changes it without
+   * consulting this repository, so the platform records what the organizer states and the
+   * authority decides whether it is valid.
+   */
+  taxRegistrationLabel: string;
+  /**
    * What this country calls its first-level subdivisions.
    *
    * Not cosmetic. Asking a Canadian for their "state" or an Emirati for their "province"
@@ -231,6 +257,18 @@ export const MARKETS: readonly Market[] = [
     name: 'India',
     currency: 'INR',
     callingCode: '91',
+    legalEntityTypes: [
+      'Sole proprietorship',
+      'Partnership firm',
+      'LLP',
+      'Private limited company',
+      'Public limited company',
+      'Trust',
+      'Society',
+      'Hindu undivided family',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'GSTIN',
     regionLabel: 'State',
     regions: IN_REGIONS,
     timezones: ['Asia/Kolkata'],
@@ -240,6 +278,17 @@ export const MARKETS: readonly Market[] = [
     name: 'United States',
     currency: 'USD',
     callingCode: '1',
+    legalEntityTypes: [
+      'Sole proprietor',
+      'Single-member LLC',
+      'LLC',
+      'S corporation',
+      'C corporation',
+      'Partnership',
+      'Non-profit',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'EIN',
     regionLabel: 'State',
     regions: US_REGIONS,
     timezones: [
@@ -257,6 +306,15 @@ export const MARKETS: readonly Market[] = [
     name: 'Canada',
     currency: 'CAD',
     callingCode: '1',
+    legalEntityTypes: [
+      'Sole proprietorship',
+      'Partnership',
+      'Corporation',
+      'Co-operative',
+      'Non-profit',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'GST/HST number',
     regionLabel: 'Province or territory',
     regions: CA_REGIONS,
     timezones: [
@@ -274,6 +332,16 @@ export const MARKETS: readonly Market[] = [
     name: 'United Kingdom',
     currency: 'GBP',
     callingCode: '44',
+    legalEntityTypes: [
+      'Sole trader',
+      'Partnership',
+      'LLP',
+      'Private limited company',
+      'Public limited company',
+      'Charity',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'VAT number',
     regionLabel: 'Nation',
     regions: GB_REGIONS,
     timezones: ['Europe/London'],
@@ -283,6 +351,15 @@ export const MARKETS: readonly Market[] = [
     name: 'United Arab Emirates',
     currency: 'AED',
     callingCode: '971',
+    legalEntityTypes: [
+      'Sole establishment',
+      'LLC',
+      'Free zone company',
+      'Civil company',
+      'Branch of a foreign company',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'TRN',
     regionLabel: 'Emirate',
     regions: AE_REGIONS,
     timezones: ['Asia/Dubai'],
@@ -292,6 +369,14 @@ export const MARKETS: readonly Market[] = [
     name: 'Singapore',
     currency: 'SGD',
     callingCode: '65',
+    legalEntityTypes: [
+      'Sole proprietorship',
+      'Partnership',
+      'LLP',
+      'Private limited company',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'GST registration number',
     regionLabel: 'Region',
     // A Singapore address has no state, province or equivalent. Asking would be asking for
     // something with no answer, so the field is simply not shown.
@@ -303,6 +388,15 @@ export const MARKETS: readonly Market[] = [
     name: 'Australia',
     currency: 'AUD',
     callingCode: '61',
+    legalEntityTypes: [
+      'Sole trader',
+      'Partnership',
+      'Company (Pty Ltd)',
+      'Trust',
+      'Not-for-profit',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'ABN',
     regionLabel: 'State or territory',
     regions: AU_REGIONS,
     timezones: [
@@ -320,6 +414,15 @@ export const MARKETS: readonly Market[] = [
     name: 'New Zealand',
     currency: 'NZD',
     callingCode: '64',
+    legalEntityTypes: [
+      'Sole trader',
+      'Partnership',
+      'Limited company',
+      'Trust',
+      'Incorporated society',
+      'Individual',
+    ],
+    taxRegistrationLabel: 'GST number',
     regionLabel: 'Region',
     regions: NZ_REGIONS,
     timezones: ['Pacific/Auckland', 'Pacific/Chatham'],

@@ -1,0 +1,141 @@
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Role } from '@eticketsgo/shared-types';
+import { PrismaService } from '../prisma/prisma.service';
+import { OrgAccessService } from '../tenancy/org-access.service';
+import { AuditService } from '../audit/audit.service';
+import { AppException, ErrorCodes } from '../common/errors';
+import type { RequestUser } from '../common/decorators';
+import { sniffImageType } from '../events/event-image';
+import type { UploadedImageFile } from '../events/event-image.service';
+
+/**
+ * An organization's profile picture.
+ *
+ * ── WHY THE PLATFORM HOLDS THE BYTES ───────────────────────────────────────────────
+ * The field before this was a text box asking for a URL. Most organizers have nowhere to
+ * host an image, the links that did arrive rotted, and a third-party URL rendered under this
+ * platform's name is somebody else's server deciding what our customers see - including
+ * after they change what is at that address. Event posters were moved into the database for
+ * exactly these reasons; a logo is the same problem at a smaller size.
+ *
+ * ── WHAT IS ACCEPTED ───────────────────────────────────────────────────────────────
+ * JPEG, PNG or WebP, recognised by the file's own first bytes rather than the content type
+ * the client claims. SVG is refused: it is a document that can carry script, and this is
+ * served to every visitor's browser.
+ */
+const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+
+/** A logo is a small square. Anything larger is a poster somebody dropped in by mistake. */
+export const ORG_LOGO_MAX_BYTES = 1024 * 1024;
+
+/** A stored logo's public path, versioned so a replacement is never served from a cache. */
+export function organizationLogoPath(organizationId: string, sha256: string): string {
+  return `/public/organizers/${organizationId}/logo?v=${sha256.slice(0, 16)}`;
+}
+
+@Injectable()
+export class OrganizationLogoService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: OrgAccessService,
+    private readonly audit: AuditService,
+  ) {}
+
+  /**
+   * Store (or replace) the logo, and point the organization's `logoUrl` at it.
+   *
+   * Writing `logoUrl` is what makes every existing reader work untouched: the console
+   * masthead, the public organizer page and the event page all already render whatever that
+   * field holds. This changes where the bytes live, not how anybody reads them.
+   */
+  async upload(user: RequestUser, organizationId: string, file?: UploadedImageFile) {
+    await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+
+    if (!file?.buffer?.length) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Choose an image to upload.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (file.size > ORG_LOGO_MAX_BYTES) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'That image is larger than 1 MB. A logo does not need to be.',
+        HttpStatus.PAYLOAD_TOO_LARGE,
+      );
+    }
+    const contentType = sniffImageType(file.buffer);
+    if (!contentType) {
+      /*
+        Judged by the bytes, never by the upload's content type - that header is whatever
+        the client says, and this endpoint serves what it stores to every visitor's browser.
+      */
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Upload a JPG, PNG or WebP image.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const sha256 = createHash('sha256').update(file.buffer).digest('hex');
+    const data = {
+      contentType,
+      bytes: file.buffer,
+      sizeBytes: file.size,
+      sha256,
+      uploadedByUserId: user.id,
+    };
+
+    const organization = await this.prisma.$transaction(async (tx) => {
+      await tx.organizationLogo.upsert({
+        where: { organizationId },
+        create: { organizationId, ...data },
+        update: data,
+      });
+      // Same transaction: a stored logo nobody points at is invisible, and a pointer to
+      // bytes that were never written is a broken image on every page that reads it.
+      return tx.organization.update({
+        where: { id: organizationId },
+        data: { logoUrl: organizationLogoPath(organizationId, sha256) },
+      });
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId,
+      action: 'ORGANIZATION_LOGO_UPDATED',
+      entityType: 'Organization',
+      entityId: organizationId,
+      metadata: { contentType, sizeBytes: file.size },
+    });
+    return { logoUrl: organization.logoUrl };
+  }
+
+  /** Remove it, and stop pointing at what is no longer there. */
+  async remove(user: RequestUser, organizationId: string) {
+    await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.organizationLogo.deleteMany({ where: { organizationId } });
+      await tx.organization.update({ where: { id: organizationId }, data: { logoUrl: null } });
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId,
+      action: 'ORGANIZATION_LOGO_REMOVED',
+      entityType: 'Organization',
+      entityId: organizationId,
+    });
+    return { logoUrl: null };
+  }
+
+  /** The bytes, for the public endpoint that serves them. */
+  async read(organizationId: string) {
+    const row = await this.prisma.organizationLogo.findUnique({
+      where: { organizationId },
+      select: { bytes: true, contentType: true, sha256: true },
+    });
+    return row ?? null;
+  }
+}

@@ -23,6 +23,7 @@ import {
   errorMessage,
   type Column,
   type Payout,
+  marketFor,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { BankAccount } from './bank-account';
@@ -40,6 +41,25 @@ function PayoutsInner() {
   const qc = useQueryClient();
   const toast = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  /*
+    Which provider settles this organizer, from where they are registered: India is Razorpay
+    Route, everywhere else is Stripe Connect. A second provider is offered only when the
+    markets they actually sell in include one it serves.
+  */
+  const home = marketFor(activeOrg.registeredCountry ?? '');
+  // The markets they have actually sold in, which is what makes a second provider relevant.
+  const analyticsQ = useQuery({
+    queryKey: ['organizer', 'analytics-markets', activeOrg.id],
+    queryFn: () => api.analytics.organizer(activeOrg.id),
+    staleTime: 60_000,
+  });
+  const sellingMarkets = analyticsQ.data?.markets ?? [];
+  const sellsInIndia = sellingMarkets.some((m) => m.currency === 'INR');
+  const sellsOutsideIndia = sellingMarkets.some((m) => m.currency !== 'INR');
+  const homeIsIndia = home?.code === 'IN';
+  const showRazorpay = homeIsIndia || sellsInIndia;
+  const showStripe = (!!home && !homeIsIndia) || sellsOutsideIndia;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['payouts', activeOrg.id],
@@ -95,8 +115,31 @@ function PayoutsInner() {
       />
 
       <BankAccount orgId={activeOrg.id} />
-      <StripePayoutSetup orgId={activeOrg.id} />
-      <RazorpayPayoutSetup orgId={activeOrg.id} />
+
+      {/*
+        ── ONE PROVIDER, THE ONE THEY CAN ACTUALLY USE ────────────────────────────────
+        Both cards used to be shown to everybody. An Indian organizer was offered Stripe
+        Connect, which does not settle to them, and a US one was offered Razorpay Route,
+        which does not exist for them - each reading as a setup step they had failed to
+        complete. Which provider settles an organizer's money is decided by where they are
+        registered, so that is what decides the card.
+
+        The other appears only when they are genuinely selling in its market, which the
+        dashboard's own market list is the evidence for. Nothing is hidden that anybody can
+        use; what is hidden is a dead end.
+      */}
+      {showStripe ? <StripePayoutSetup orgId={activeOrg.id} /> : null}
+      {showRazorpay ? <RazorpayPayoutSetup orgId={activeOrg.id} /> : null}
+      {!showStripe && !showRazorpay ? (
+        <Card title="Payout provider">
+          <p className="text-sm text-text-secondary">
+            Tell us where your business is registered in{' '}
+            <strong>Settings &rarr; Legal and tax details</strong> and the right payout setup
+            appears here. Until then your settlements are paid by bank transfer to the account
+            above.
+          </p>
+        </Card>
+      ) : null}
 
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">

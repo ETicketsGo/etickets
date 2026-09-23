@@ -2,9 +2,26 @@ import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
 import { emailSchema, passwordSchema, registrableEmailSchema } from './common';
 
+/*
+  ── WHY REGISTRATION ASKS WHO YOU ARE ──────────────────────────────────────────────
+  It used to ask for a trading name and an optional support address, and nothing else. The
+  approval gate then refused every one of them for not having declared a legal identity,
+  so an admin's first act on a new organizer was to ask for facts the form never requested.
+  That is the platform making its own onboarding fail.
+
+  These stay OPTIONAL at this layer on purpose. The registration FORM asks for them and
+  will not submit without them; the API tolerates their absence because a seed, an import
+  or a support call that creates a shell to fill in later is legitimate, and approval is
+  where the requirement actually bites.
+*/
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(160),
   contactEmail: emailSchema.optional(),
+  legalName: z.string().trim().max(200).optional(),
+  legalEntityType: z.string().trim().max(80).optional(),
+  registeredCountry: z.string().trim().max(80).optional(),
+  taxRegistrationKind: z.string().trim().max(40).optional(),
+  taxRegistrationNumber: z.string().trim().max(64).optional(),
 });
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 
@@ -66,6 +83,13 @@ const clearableText = (max: number) => z.string().trim().max(max).optional();
  */
 export const updateOrganizationLegalIdentitySchema = z.object({
   legalName: clearableText(200),
+  /*
+    What the organizer registered AS. Free text at this layer even though the forms offer a
+    per-country list, for the same reason the rest of this object is: the list lives in
+    MARKETS and grows with each market, and an enum here would mean a release to admit a
+    legal form that already exists in a country we already sell in.
+  */
+  legalEntityType: clearableText(80),
   taxRegistrationKind: clearableText(40),
   taxRegistrationNumber: z
     .string()
