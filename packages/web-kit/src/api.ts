@@ -1675,7 +1675,19 @@ export const api = {
     /** One refund by id — the detail page used to search the newest hundred for it. */
     refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
     payouts: () => request<Payout[]>('/admin/payouts'),
-    markPayoutPaid: (id: string) => request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST' }),
+    markPayoutPaid: (id: string, body: { reference?: string; note?: string } = {}) =>
+      request<Payout>(`/admin/payouts/${id}/pay`, { method: 'POST', body: JSON.stringify(body) }),
+    markPayoutFailed: (id: string, reason: string) =>
+      request<Payout>(`/admin/payouts/${id}/fail`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    payoutSettings: () => request<PayoutSettings>('/admin/payout-settings'),
+    savePayoutSettings: (organizationId: string | null, body: PayoutSettingsInput) =>
+      request<PayoutSetting>(
+        organizationId ? `/admin/payout-settings/${organizationId}` : '/admin/payout-settings',
+        { method: 'POST', body: JSON.stringify(body) },
+      ),
     feeRules: () => request<FeeRule[]>('/admin/fee-rules'),
 
     /** Every tax rule, with whether each is in force right now. */
@@ -4031,8 +4043,38 @@ export interface Payout {
   status: string;
   scheduledAt: string | null;
   paidAt: string | null;
+  /** The bank's own reference for the transfer that settled it, when there is one. */
+  paidReference?: string | null;
+  note?: string | null;
+  /** Why it did not reach the organizer. Set on a FAILED payout. */
+  failureReason?: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+/** The terms settlements run under, for the platform or for one organization. */
+export interface PayoutSetting {
+  id: string;
+  organizationId: string | null;
+  /** Null means inherited: the platform row, then the environment default. */
+  holdDays: number | null;
+  minPayoutMinor: Record<string, number> | null;
+  updatedByUserId: string | null;
+  updatedAt: string;
+  organization?: { id: string; name: string } | null;
+}
+
+export interface PayoutSettings {
+  /** What applies when nothing is configured at all. */
+  environmentHoldDays: number;
+  platform: PayoutSetting | null;
+  organizations: PayoutSetting[];
+}
+
+/** What an admin may write. Null clears an override back to inherited. */
+export interface PayoutSettingsInput {
+  holdDays?: number | null;
+  minPayoutMinor?: Record<string, number> | null;
 }
 
 // ─── Payment start (provider-aware) ───

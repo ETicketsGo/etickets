@@ -88,7 +88,14 @@ describe('integration-real-postgres: payout generation', () => {
       db as never,
       { assertMember: async () => undefined } as never,
       { record: async () => undefined } as never,
-      { get: () => 0 } as never,
+      // Settled immediately and with no minimum: these tests are about racing generates.
+      {
+        effectiveFor: async () => ({
+          holdDays: 0,
+          minPayoutMinor: {},
+          source: { holdDays: 'default', minPayoutMinor: 'default' },
+        }),
+      } as never,
     );
 
     const org = await db.organization.create({

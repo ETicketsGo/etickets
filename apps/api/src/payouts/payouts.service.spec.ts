@@ -69,17 +69,26 @@ function makeService(
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   return {
     prisma,
+    audit,
     service: new PayoutsService(prisma as never, access as never, audit as never, holdDays(0)),
   };
 }
 
 /**
- * PAYOUT_HOLD_DAYS for a test.
+ * The settlement terms a test runs under.
  *
- * Zero in the specs that are about the money arithmetic: they fix bookings and refunds and
- * assert sums, and a hold would silently empty every window. The hold has its own tests.
+ * Zero hold and no minimum in the specs that are about the money arithmetic: they fix
+ * bookings and refunds and assert sums, and either rule would silently empty every window.
+ * Both have tests of their own.
  */
-const holdDays = (days: number) => ({ get: () => days }) as never;
+const holdDays = (days: number, minPayoutMinor: Record<string, number> = {}) =>
+  ({
+    effectiveFor: async () => ({
+      holdDays: days,
+      minPayoutMinor,
+      source: { holdDays: 'platform', minPayoutMinor: 'platform' },
+    }),
+  }) as never;
 
 describe('PayoutsService (double-payout guards)', () => {
   it('generate refuses when an open payout already exists for the scope', async () => {
@@ -284,7 +293,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     });
   }
 
-  function ledger(holdDaysForTest = 0) {
+  function ledger(holdDaysForTest = 0, minimums: Record<string, number> = {}) {
     const bookings: Row[] = [];
     const refunds: Row[] = [];
     const payouts: Row[] = [];
@@ -327,6 +336,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
             .filter((row) => matches(row, where))
             .map((row) => ({
               amountMinor: row.amountMinor,
+              taxAddedMinor: row.taxAddedMinor ?? 0,
               booking: { currency: (row.booking as Row).currency },
             })),
         ),
@@ -360,7 +370,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       prisma as never,
       { assertMember: jest.fn().mockResolvedValue(undefined) } as never,
       { record: jest.fn().mockResolvedValue(undefined) } as never,
-      holdDays(holdDaysForTest),
+      holdDays(holdDaysForTest, minimums),
     );
 
     /*
@@ -397,11 +407,18 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       bookings.push(booking);
       return booking;
     };
-    const refund = (booking: Row, amountMinor: number, completedAt: string) =>
+    const refund = (
+      booking: Row,
+      amountMinor: number,
+      completedAt: string,
+      /** The part of the refund that is tax the PLATFORM added and keeps liability for. */
+      taxAddedMinor = 0,
+    ) =>
       refunds.push({
         organizationId: 'o1',
         status: RefundStatus.COMPLETED,
         amountMinor,
+        taxAddedMinor,
         updatedAt: new Date(completedAt),
         booking,
       });
@@ -744,6 +761,90 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     const [payout] = await generateAt('2026-09-05T10:00:00Z');
     expect(payout.netMinor).toBe(70_000);
   });
+
+  /*
+    ── WHOSE MONEY A REFUND RETURNS ───────────────────────────────────────────────────
+    The ledger deducted the WHOLE refund from the organizer. A refund returns the ticket
+    money, which was theirs, plus any tax ADDED on top of the price, which the platform
+    collected and keeps the liability for. Charging that tax back to the organizer takes
+    money they never received.
+  */
+  it('deducts the ticket money from the organizer, not the tax the platform added', async () => {
+    const { book, event, refund, generateAt } = ledger(0);
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('USD', 100_000, '2026-08-20T10:00:00Z', 'gig');
+    // $1,000 ticket refunded with $80 of sales tax that was added at checkout.
+    refund(booking, 108_000, '2026-09-02T10:00:00Z', 8_000);
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.refundMinor).toBe(100_000);
+    expect(payout.netMinor).toBe(0);
+  });
+
+  it('still deducts the whole refund where tax sits inside the price', async () => {
+    // India: GST is inside the ticket price, so the whole refund really is the organizer's.
+    const { book, event, refund, generateAt } = ledger(0);
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('INR', 100_000, '2026-08-20T10:00:00Z', 'gig');
+    refund(booking, 100_000, '2026-09-02T10:00:00Z', 0);
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.refundMinor).toBe(100_000);
+    expect(payout.netMinor).toBe(0);
+  });
+
+  /*
+    ── TOO SMALL TO BANK ──────────────────────────────────────────────────────────────
+    A payout whose bank charge costs more than the money in it is not worth raising. The
+    revenue is not lost: nothing marks it settled, so it rolls into the next one.
+  */
+  it('does not raise a payout below the minimum', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+
+    await expect(generateAt('2026-09-05T10:00:00Z')).rejects.toMatchObject({
+      code: ErrorCodes.CONFLICT,
+      details: { belowMinimum: [{ currency: 'INR', netMinor: 20_000, minimumMinor: 50_000 }] },
+    });
+  });
+
+  it('carries that revenue into the next payout rather than losing it', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+    await generateAt('2026-09-05T10:00:00Z').catch(() => undefined);
+
+    book('INR', 40_000, '2026-09-06T10:00:00Z', 'gig');
+    const [payout] = await generateAt('2026-09-07T10:00:00Z');
+    expect(payout.netMinor).toBe(60_000);
+  });
+
+  it('settles the currency that clears the minimum and holds the one that does not', async () => {
+    const { book, event, generateAt } = ledger(0, { INR: 50_000, USD: 5_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    book('INR', 80_000, '2026-08-20T10:00:00Z', 'gig');
+    book('USD', 1_000, '2026-08-20T10:00:00Z', 'gig');
+
+    const payouts = await generateAt('2026-09-05T10:00:00Z');
+    expect(payouts).toHaveLength(1);
+    expect(payouts[0]).toMatchObject({ currency: 'INR', netMinor: 80_000 });
+  });
+
+  it('records a clawback however small it is', async () => {
+    /*
+      A minimum applies to money going OUT. A period that owes money back to the platform is
+      recorded whatever its size, because a clawback nobody recorded is a clawback nobody
+      collects.
+    */
+    const { book, event, refund, generateAt } = ledger(0, { INR: 50_000 });
+    event('gig', { lastEndsAt: '2026-09-01T20:00:00Z' });
+    const booking = book('INR', 20_000, '2026-08-20T10:00:00Z', 'gig');
+    refund(booking, 25_000, '2026-09-02T10:00:00Z');
+
+    const [payout] = await generateAt('2026-09-05T10:00:00Z');
+    expect(payout.netMinor).toBe(-5_000);
+  });
 });
 
 describe('PayoutsService (markPaid)', () => {
@@ -764,6 +865,74 @@ describe('PayoutsService (markPaid)', () => {
     await service.markPaid(user, 'p1');
     expect(prisma.payout.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: PayoutStatus.PAID }) }),
+    );
+  });
+
+  it("records the bank's reference, which is what reconciles it to a statement", async () => {
+    const { service, prisma, audit } = makeService();
+    await service.markPaid(user, 'p1', { reference: ' UTR12345 ', note: 'Paid by NEFT' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ paidReference: 'UTR12345', note: 'Paid by NEFT' }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'PAYOUT_PAID',
+        metadata: expect.objectContaining({ paidReference: 'UTR12345' }),
+      }),
+    );
+  });
+
+  it('stores an empty reference as none rather than as an empty string', async () => {
+    const { service, prisma } = makeService();
+    await service.markPaid(user, 'p1', { reference: '   ' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ paidReference: null }) }),
+    );
+  });
+});
+
+describe('PayoutsService (markFailed)', () => {
+  /*
+    ── WHY A PAYOUT HAS TO BE ABLE TO FAIL ────────────────────────────────────────────
+    Nothing could write FAILED, so a returned bank transfer had no representation at all:
+    the ledger said the organizer had been paid while the money sat back in the platform's
+    account. The cursor has always skipped FAILED payouts on purpose - the revenue they
+    cover is still owed - so that logic was unreachable until now.
+  */
+  it('records the reason and takes the paid date back off', async () => {
+    const { service, prisma, audit } = makeService();
+    await service.markFailed(user, 'p1', 'Bank returned it: account closed');
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: PayoutStatus.FAILED,
+          failureReason: 'Bank returned it: account closed',
+          paidAt: null,
+        }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'PAYOUT_FAILED' }));
+  });
+
+  it('can fail a payout that was already marked paid, which is what a bank return is', async () => {
+    const { service, prisma } = makeService();
+    await service.markFailed(user, 'p1', 'Returned by the beneficiary bank');
+    const where = prisma.payout.updateMany.mock.calls[0][0].where;
+    expect(where.status.in).toContain(PayoutStatus.PAID);
+  });
+
+  it('refuses a failure with no reason, which nobody can act on', async () => {
+    const { service } = makeService();
+    await expect(service.markFailed(user, 'p1', '   ')).rejects.toBeInstanceOf(AppException);
+  });
+
+  it('clears a stale failure reason when the retry succeeds', async () => {
+    const { service, prisma } = makeService();
+    await service.markPaid(user, 'p1', { reference: 'UTR999' });
+    expect(prisma.payout.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failureReason: null }) }),
     );
   });
 });

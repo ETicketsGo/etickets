@@ -1,5 +1,4 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { EventStatus, PayoutStatus, RefundStatus, Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +6,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { PayoutSettingsService } from './payout-settings.service';
 
 /** One currency's settlement figures. */
 export interface CurrencySettlement {
@@ -77,14 +77,8 @@ export class PayoutsService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
-    private readonly config: ConfigService,
+    private readonly settings: PayoutSettingsService,
   ) {}
-
-  /** Days after a show before its money may be settled. See PAYOUT_HOLD_DAYS. */
-  private holdDays(): number {
-    const raw = this.config?.get<number>('PAYOUT_HOLD_DAYS');
-    return Number.isFinite(raw) ? Math.max(0, Number(raw)) : 7;
-  }
 
   /**
    * Which events' revenue may be paid out at `until`, as a Prisma filter.
@@ -100,8 +94,8 @@ export class PayoutsService {
    * CANCELLED is excluded on purpose, and not because it is unfinished: that money is owed
    * back to customers, and paying it to the organizer is the one outcome nobody can undo.
    */
-  private payableEventFilter(until: Date): Prisma.EventWhereInput {
-    const cutoff = new Date(until.getTime() - this.holdDays() * 24 * 60 * 60 * 1000);
+  private payableEventFilter(until: Date, holdDays: number): Prisma.EventWhereInput {
+    const cutoff = new Date(until.getTime() - holdDays * 24 * 60 * 60 * 1000);
     return {
       status: { in: [EventStatus.COMPLETED, EventStatus.ARCHIVED] },
       // No session ending after the cutoff: the run is over AND the hold has expired. Written
@@ -156,6 +150,7 @@ export class PayoutsService {
     until: Date,
     /** Events whose money a provider transfer has already claimed. See the constant. */
     transferredEventIds: string[],
+    holdDays: number,
   ): Promise<CurrencySettlement[]> {
     const settledCurrencies = [...settledUntil.keys()];
     const bookingWindows: Prisma.BookingWhereInput[] = [
@@ -191,7 +186,7 @@ export class PayoutsService {
           // The show has happened and the hold has expired, and no provider transfer has
           // claimed this event's money. Both rules are on the BOOKING's event, so an org-wide
           // payout leaves out the events that are not ready and settles the ones that are.
-          event: this.payableEventFilter(until),
+          event: this.payableEventFilter(until, holdDays),
           ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
           OR: bookingWindows,
           ...(eventSettled.length > 0
@@ -225,7 +220,7 @@ export class PayoutsService {
           booking: {
             paymentMethod: 'ONLINE',
             ...(eventId ? { eventId } : {}),
-            event: this.payableEventFilter(until),
+            event: this.payableEventFilter(until, holdDays),
             ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
           },
           OR: refundWindows,
@@ -238,14 +233,30 @@ export class PayoutsService {
               }
             : {}),
         },
-        select: { amountMinor: true, booking: { select: { currency: true } } },
+        /*
+          ── WHOSE MONEY A REFUND RETURNS ──────────────────────────────────────────────
+          The ledger used to deduct the WHOLE refund from the organizer. A refund returns
+          the ticket money - which was the organizer's revenue - plus any tax that was ADDED
+          on top of the price, which the platform collected and kept to remit. Charging that
+          tax back to the organizer takes money they never received.
+
+          Zero for an inclusive-tax market like India, where tax sits inside the ticket price
+          and the whole refund really is the organizer's. That is why the old sum was right
+          here and wrong everywhere the platform adds tax on top.
+        */
+        select: {
+          amountMinor: true,
+          taxAddedMinor: true,
+          booking: { select: { currency: true } },
+        },
       }),
     ]);
 
     const refundByCurrency = new Map<string, number>();
     for (const row of refunds) {
       const currency = row.booking.currency.toUpperCase();
-      refundByCurrency.set(currency, (refundByCurrency.get(currency) ?? 0) + row.amountMinor);
+      const organizerShare = Math.max(0, row.amountMinor - (row.taxAddedMinor ?? 0));
+      refundByCurrency.set(currency, (refundByCurrency.get(currency) ?? 0) + organizerShare);
     }
     const currencies = new Set([
       ...paid.map((row) => row.currency.toUpperCase()),
@@ -285,8 +296,9 @@ export class PayoutsService {
     eventId: string | undefined,
     until: Date,
     transferredEventIds: string[],
+    holdDays: number,
   ): Promise<HeldRevenue[]> {
-    const holdMs = this.holdDays() * 24 * 60 * 60 * 1000;
+    const holdMs = holdDays * 24 * 60 * 60 * 1000;
     const rows = await client.booking.groupBy({
       by: ['eventId', 'currency'],
       where: {
@@ -297,7 +309,7 @@ export class PayoutsService {
         // Everything the payable filter above leaves out, minus the events that are simply
         // not going ahead: a cancelled show owes refunds, not a payout, and listing it as
         // "held" would promise money that is never coming.
-        NOT: { event: this.payableEventFilter(until) },
+        NOT: { event: this.payableEventFilter(until, holdDays) },
         event: { status: { not: EventStatus.CANCELLED } },
         ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
       },
@@ -430,6 +442,10 @@ export class PayoutsService {
       });
       const transferredEventIds = [...new Set(transferred.map((row) => row.eventId))];
 
+      // The terms this organization settles on, read inside the transaction so a change made
+      // while a generate is in flight cannot apply to half of it.
+      const terms = await this.settings.effectiveFor(organizationId, tx);
+
       const settlements = (
         await this.settle(
           tx,
@@ -439,6 +455,7 @@ export class PayoutsService {
           eventSettled,
           now,
           transferredEventIds,
+          terms.holdDays,
         )
       ).filter((s) => s.gross !== 0 || s.refund !== 0);
       if (settlements.length === 0) {
@@ -447,7 +464,14 @@ export class PayoutsService {
           yet. The organizer can see those sales on their dashboard, so a flat refusal reads
           as a bug and arrives as a support ticket. Name the events and the date instead.
         */
-        const held = await this.heldRevenue(tx, organizationId, eventId, now, transferredEventIds);
+        const held = await this.heldRevenue(
+          tx,
+          organizationId,
+          eventId,
+          now,
+          transferredEventIds,
+          terms.holdDays,
+        );
         if (held.length > 0) {
           const soonest = held.reduce((a, b) => (a.payableFrom <= b.payableFrom ? a : b));
           throw new AppException(
@@ -466,6 +490,36 @@ export class PayoutsService {
         );
       }
 
+      /*
+        ── TOO SMALL TO BANK ──────────────────────────────────────────────────────────────
+        A minimum stops the ledger raising a payout whose bank charge costs more than the
+        money in it. It applies only to a POSITIVE net: a period that owes money back to the
+        platform is recorded whatever its size, because a clawback nobody recorded is a
+        clawback nobody collects.
+
+        The revenue is not lost. Nothing marks it settled, so it rolls into the next payout.
+      */
+      const belowMinimum = settlements.filter((s) => {
+        const minimum = terms.minPayoutMinor[s.currency] ?? 0;
+        return s.net > 0 && s.net < minimum;
+      });
+      const overMinimum = settlements.filter((s) => !belowMinimum.includes(s));
+      if (overMinimum.length === 0) {
+        const smallest = belowMinimum[0];
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          `This settlement is below the minimum payout for ${smallest.currency}. It stays with the next one.`,
+          HttpStatus.CONFLICT,
+          {
+            belowMinimum: belowMinimum.map((s) => ({
+              currency: s.currency,
+              netMinor: s.net,
+              minimumMinor: terms.minPayoutMinor[s.currency] ?? 0,
+            })),
+          },
+        );
+      }
+
       // Guard against duplicate payouts: only one open (PENDING/SCHEDULED) payout may cover a
       // currency's revenue at a time, in this scope or an overlapping one. Together with the
       // settled cursor above and the atomic markPaid guard below, the same revenue is never paid
@@ -475,7 +529,7 @@ export class PayoutsService {
           payout.status === PayoutStatus.PENDING || payout.status === PayoutStatus.SCHEDULED,
       );
       const openCurrencies = new Set(open.map((payout) => payout.currency.toUpperCase()));
-      const due = settlements.filter((s) => !openCurrencies.has(s.currency));
+      const due = overMinimum.filter((s) => !openCurrencies.has(s.currency));
       if (due.length === 0) {
         throw new AppException(
           ErrorCodes.CONFLICT,
@@ -548,7 +602,11 @@ export class PayoutsService {
     });
   }
 
-  async markPaid(admin: RequestUser, payoutId: string) {
+  async markPaid(
+    admin: RequestUser,
+    payoutId: string,
+    evidence: { reference?: string | null; note?: string | null } = {},
+  ) {
     const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Payout not found.', HttpStatus.NOT_FOUND);
@@ -557,7 +615,20 @@ export class PayoutsService {
     // payout can never be paid twice (idempotent under concurrent admins).
     const claim = await this.prisma.payout.updateMany({
       where: { id: payoutId, status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED] } },
-      data: { status: PayoutStatus.PAID, paidAt: new Date() },
+      data: {
+        status: PayoutStatus.PAID,
+        paidAt: new Date(),
+        /*
+          The bank's own reference for the transfer. A payout marked PAID with nothing to
+          point at cannot be reconciled against a statement, which is the one thing anybody
+          has to do with it afterwards. Optional, because a correction posted by hand may
+          genuinely have none and refusing would leave money paid and the ledger disagreeing.
+        */
+        paidReference: trimmed(evidence.reference),
+        note: trimmed(evidence.note),
+        // A payout that failed and was retried successfully must not keep the old reason.
+        failureReason: null,
+      },
     });
     if (claim.count !== 1) {
       throw new AppException(
@@ -572,7 +643,74 @@ export class PayoutsService {
       action: 'PAYOUT_PAID',
       entityType: 'Payout',
       entityId: payoutId,
+      metadata: {
+        netMinor: payout.netMinor,
+        currency: payout.currency,
+        paidReference: trimmed(evidence.reference),
+      },
     });
     return this.prisma.payout.findUnique({ where: { id: payoutId } });
   }
+
+  /**
+   * Record that a payout did not reach the organizer.
+   *
+   * ── WHY THIS HAD TO EXIST ──────────────────────────────────────────────────────────
+   * Nothing could write FAILED, so a returned bank transfer had no representation at all:
+   * the ledger said the organizer had been paid while the money sat back in the platform's
+   * account. The de-duplication cursor has always skipped FAILED payouts deliberately - the
+   * revenue they cover is still owed - so that logic was unreachable, and marking a payout
+   * failed is what makes the revenue roll into the next one by itself.
+   *
+   * A PAID payout can be failed too: that is exactly the case a bank return produces, and it
+   * is the only honest way to record one. It is audited with the reason.
+   */
+  async markFailed(admin: RequestUser, payoutId: string, reason: string) {
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Say why the payout failed. A failure with no reason cannot be acted on.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
+    if (!payout)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Payout not found.', HttpStatus.NOT_FOUND);
+
+    const claim = await this.prisma.payout.updateMany({
+      where: {
+        id: payoutId,
+        status: { in: [PayoutStatus.PENDING, PayoutStatus.SCHEDULED, PayoutStatus.PAID] },
+      },
+      data: { status: PayoutStatus.FAILED, failureReason: trimmedReason, paidAt: null },
+    });
+    if (claim.count !== 1) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `Payout is already ${payout.status}.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+    await this.audit.record({
+      actorUserId: admin.id,
+      organizationId: payout.organizationId,
+      action: 'PAYOUT_FAILED',
+      entityType: 'Payout',
+      entityId: payoutId,
+      metadata: {
+        netMinor: payout.netMinor,
+        currency: payout.currency,
+        previousStatus: payout.status,
+        reason: trimmedReason,
+      },
+    });
+    return this.prisma.payout.findUnique({ where: { id: payoutId } });
+  }
+}
+
+/** Free text as it should be stored: trimmed, and absent rather than empty. */
+function trimmed(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
 }
