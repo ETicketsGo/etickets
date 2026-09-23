@@ -40,18 +40,30 @@ import {
  * what the organizer states is the platform's job. The authority's job is deciding whether
  * it is valid.
  */
+/*
+  ── WHY COUNTRY COMES FIRST ────────────────────────────────────────────────────────
+  It used to sit below the state, whose hint reads "pick a country first". A form that asks
+  for something and then tells you it needed an earlier answer is a form somebody fills in
+  twice, and the earlier answer decides both the state list and which legal forms exist.
+*/
 const FIELDS: { key: keyof OrganizationLegalIdentityFields; label: string; hint?: string }[] = [
   {
     key: 'legalName',
     label: 'Registered legal name',
     hint: 'The entity an invoice names, if it differs from the trading name.',
   },
+  { key: 'registeredCountry', label: 'Country', hint: 'Decides the legal forms and states below.' },
+  {
+    key: 'legalEntityType',
+    label: 'Registered as',
+    hint: 'What the organizer registered as. Needed before they can be approved.',
+  },
   {
     key: 'taxRegistrationKind',
-    label: 'Registration type',
-    hint: 'GSTIN, EIN, GST/HST — this labels the number below.',
+    label: 'Registration type (optional)',
+    hint: 'Labels the number below. Leave both empty if they are not registered.',
   },
-  { key: 'taxRegistrationNumber', label: 'Registration number' },
+  { key: 'taxRegistrationNumber', label: 'Registration number (optional)' },
   { key: 'registeredAddressLine1', label: 'Registered address' },
   { key: 'registeredAddressLine2', label: 'Address line 2' },
   { key: 'registeredCity', label: 'City' },
@@ -61,7 +73,6 @@ const FIELDS: { key: keyof OrganizationLegalIdentityFields; label: string; hint?
     hint: 'Also what a regional tax rule matches on.',
   },
   { key: 'registeredPostalCode', label: 'Postal code' },
-  { key: 'registeredCountry', label: 'Country' },
   { key: 'financeContactName', label: 'Finance contact name' },
   { key: 'financeContactEmail', label: 'Finance contact email' },
   { key: 'financeContactPhone', label: 'Finance contact phone' },
@@ -152,6 +163,35 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
             on. Typed, a mismatch does not fail — it matches nothing, and the seller is taxed
             under a rule nobody picked.
           */
+          /*
+            What the organizer registered AS, from the list their country actually uses: a
+            US LLC does not exist in India and a Pty Ltd is Australian. Offering a list with
+            neither their form nor an honest "other" teaches people to pick something wrong.
+          */
+          if (f.key === 'legalEntityType') {
+            const forms = marketFor(draft.registeredCountry ?? '')?.legalEntityTypes ?? [];
+            return (
+              <div key={f.key}>
+                <Select
+                  label={f.label}
+                  value={draft[f.key] ?? ''}
+                  disabled={forms.length === 0}
+                  onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                >
+                  <option value="">
+                    {forms.length === 0 ? 'Pick a country first' : 'Select…'}
+                  </option>
+                  {forms.map((form) => (
+                    <option key={form} value={form}>
+                      {form}
+                    </option>
+                  ))}
+                </Select>
+                {f.hint && <p className="mt-1 text-caption text-text-muted">{f.hint}</p>}
+              </div>
+            );
+          }
+
           if (f.key === 'registeredCountry') {
             return (
               <div key={f.key}>
@@ -159,7 +199,14 @@ export function LegalIdentityCard({ organizationId }: { organizationId: string }
                   label={f.label}
                   value={draft[f.key] ?? ''}
                   onChange={(e) =>
-                    setDraft({ ...draft, [f.key]: e.target.value, registeredRegion: '' })
+                    setDraft({
+                      ...draft,
+                      [f.key]: e.target.value,
+                      // Both belong to the old country: a state it does not have, and a
+                      // legal form that may not exist there.
+                      registeredRegion: '',
+                      legalEntityType: '',
+                    })
                   }
                 >
                   <option value="">Select a country…</option>

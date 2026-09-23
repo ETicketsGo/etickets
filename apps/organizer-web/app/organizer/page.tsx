@@ -17,6 +17,7 @@ import {
   dateOnly,
   MARKETS,
   type AnalyticsOrganizerMarket,
+  marketFor,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { WelcomeCard } from '@/components/onboarding-checklist';
@@ -96,7 +97,22 @@ export default function OrganizerDashboard() {
           label: `${countries.find((c) => c.currency === r.currency)?.country ?? r.currency} · ${r.currency}`,
         }));
   const [market, setMarket] = useState<string | null>(null);
-  const activeCurrency = market ?? choices[0]?.currency ?? null;
+  /*
+    ── THE ORGANIZER'S OWN COUNTRY IS THE DEFAULT ─────────────────────────────────────
+    Reported by the owner: every organizer was shown every market the platform has, and
+    opened on whichever currency happened to come back first. An Indian promoter has no use
+    for a Canadian dollar column, and a switcher offering one implies a decision they are
+    supposed to make.
+
+    So the dashboard opens on the market of the country they registered in, and the switcher
+    appears only when there is genuinely more than one - which happens when they sell abroad.
+  */
+  const homeCurrency = marketFor(activeOrg.registeredCountry ?? '')?.currency ?? null;
+  const activeCurrency =
+    market ??
+    (homeCurrency && choices.some((c) => c.currency === homeCurrency)
+      ? homeCurrency
+      : (choices[0]?.currency ?? null));
   const activeMarket = markets.find((m) => m.currency === activeCurrency);
   const revenue = revenues.find((r) => r.currency === activeCurrency);
   const refundsFor = analytics?.refunds?.find((r) => r.currency === activeCurrency);

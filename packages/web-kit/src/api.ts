@@ -708,9 +708,32 @@ export const api = {
   },
 
   organizations: {
-    create: (body: { name: string; contactEmail?: string }) =>
-      request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
+    create: (body: {
+      name: string;
+      contactEmail?: string;
+      /** Who the organization legally is. The registration form asks; approval requires. */
+      legalName?: string;
+      legalEntityType?: string;
+      registeredCountry?: string;
+    }) => request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
     listMine: () => request<Organization[]>('/organizations'),
+    /**
+     * The organization's profile picture. JPG, PNG or WebP, at most 1 MB.
+     *
+     * Replaces whatever is there and returns the new `logoUrl`, which every surface that
+     * shows a logo already reads - the console masthead, the public organizer page and the
+     * event page all render that field.
+     */
+    uploadLogo: (id: string, image: Blob, filename = 'logo.png') =>
+      uploadOrgImage(id, 'logo', image, filename),
+    removeLogo: (id: string) => removeOrgImage(id, 'logo'),
+    /**
+     * The cover banner across the top of the public profile. Same formats, 3 MB - it is a
+     * wide image rather than a small square.
+     */
+    uploadCover: (id: string, image: Blob, filename = 'cover.jpg') =>
+      uploadOrgImage(id, 'cover', image, filename),
+    removeCover: (id: string) => removeOrgImage(id, 'cover'),
     get: (id: string) => request<Organization>(`/organizations/${id}`),
     updateProfile: (id: string, body: OrganizationProfileInput) =>
       request<Organization>(`/organizations/${id}`, {
@@ -2598,6 +2621,8 @@ export interface CinemaComplianceView {
 
 export interface OrganizationLegalIdentityFields {
   legalName: string | null;
+  /** What they registered AS, from their country's own list. */
+  legalEntityType: string | null;
   /** LABELS the number — "GSTIN", "EIN", "GST/HST" — so a reader knows what they are seeing. */
   taxRegistrationKind: string | null;
   taxRegistrationNumber: string | null;
@@ -2619,6 +2644,22 @@ export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFiel
   canIssueTaxInvoice: boolean;
 }
 
+/** Both organization pictures are uploaded the same way; only the path differs. */
+interface OrgImageUrls {
+  logoUrl: string | null;
+  coverImageUrl: string | null;
+}
+
+function uploadOrgImage(id: string, path: 'logo' | 'cover', image: Blob, filename: string) {
+  const form = new FormData();
+  form.append('file', image, filename);
+  return request<OrgImageUrls>(`/organizations/${id}/${path}`, { method: 'POST', body: form });
+}
+
+function removeOrgImage(id: string, path: 'logo' | 'cover') {
+  return request<OrgImageUrls>(`/organizations/${id}/${path}`, { method: 'DELETE' });
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -2626,6 +2667,16 @@ export interface Organization {
   status: string;
   contactEmail: string | null;
   createdAt: string;
+  /**
+   * Where the business is registered, and therefore its HOME market.
+   *
+   * The console uses it to stop showing every organizer every country: a payout provider
+   * they cannot use, and a market switcher over currencies they have never sold in, are
+   * both noise that reads as something the reader has to understand.
+   */
+  registeredCountry?: string | null;
+  /** What they registered as: sole proprietorship, Pvt Ltd, LLC. */
+  legalEntityType?: string | null;
   /** Whether this organizer takes cash at the venue. Off unless deliberately turned on. */
   cashPaymentsEnabled?: boolean;
   // Public organizer profile (v1.2 WS6).
@@ -3816,6 +3867,8 @@ export interface RefundRow {
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
 export interface OrganizationLegalIdentity {
   legalName: string | null;
+  /** Sole proprietorship, Pvt Ltd, LLC - from the country's own list. */
+  legalEntityType: string | null;
   taxRegistrationKind: string | null;
   taxRegistrationNumber: string | null;
   registeredAddressLine1: string | null;
@@ -3829,6 +3882,7 @@ export interface OrganizationLegalIdentity {
 
 export interface OrganizationLegalIdentityInput {
   legalName?: string;
+  legalEntityType?: string;
   taxRegistrationKind?: string;
   taxRegistrationNumber?: string;
   registeredAddressLine1?: string;

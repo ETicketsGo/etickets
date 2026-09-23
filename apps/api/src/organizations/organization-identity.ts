@@ -23,6 +23,9 @@
 /** The legal facts an organization must have declared before it may be approved. */
 export interface LegalIdentity {
   legalName?: string | null;
+  /** Sole proprietorship, Pvt Ltd, LLC - from the country's own list. */
+  legalEntityType?: string | null;
+  registeredCountry?: string | null;
   taxRegistrationKind?: string | null;
   taxRegistrationNumber?: string | null;
 }
@@ -44,8 +47,25 @@ export interface IdentityVerdict {
 export function checkLegalIdentity(org: LegalIdentity): IdentityVerdict {
   const missing: string[] = [];
   if (!org.legalName?.trim()) missing.push('legal name');
-  if (!org.taxRegistrationKind?.trim()) missing.push('tax registration type');
-  if (!org.taxRegistrationNumber?.trim()) missing.push('tax registration number');
+  if (!org.legalEntityType?.trim()) missing.push('legal entity type');
+  if (!org.registeredCountry?.trim()) missing.push('country of registration');
+  /*
+    ── WHY A TAX REGISTRATION IS NOT REQUIRED HERE ────────────────────────────────────
+    It used to be, and that quietly excluded most of the organizers this platform is for.
+    A business in India below the GST threshold has no GSTIN and cannot obtain one; the
+    same is true of a sole trader under the VAT threshold in the UK and small sellers
+    almost everywhere. Requiring one turned "you are too small to be registered" into "you
+    may not sell", while anybody willing to type fifteen characters passed the check.
+
+    What approval needs is a party that can be identified: a legal name, what they are
+    registered as, and where. A tax number changes what DOCUMENT we can issue - a tax
+    invoice rather than a receipt - which is a separate question answered separately, and
+    an organizer without one still gets valid receipts.
+  */
+  if (org.taxRegistrationNumber?.trim() && !org.taxRegistrationKind?.trim()) {
+    // A number nobody labelled is a number nobody can use: an invoice has to say what it is.
+    missing.push('tax registration type');
+  }
   return { complete: missing.length === 0, missing };
 }
 

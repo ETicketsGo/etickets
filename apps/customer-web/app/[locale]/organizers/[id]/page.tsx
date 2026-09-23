@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { BadgeCheck, CalendarDays, Globe, Mail, Phone } from 'lucide-react';
-import { useToast } from '@eticketsgo/web-kit';
+import { apiAssetUrl, useToast } from '@eticketsgo/web-kit';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { EventCard } from '@/components/event-card';
@@ -70,18 +70,27 @@ export default function OrganizerProfilePage() {
     <div className="space-y-8">
       {/* Profile header */}
       <div className="overflow-hidden rounded-lg border border-border shadow-sm">
-        {org.coverImageUrl ? (
+        {apiAssetUrl(org.coverImageUrl) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={org.coverImageUrl} alt="" className="h-40 w-full object-cover" />
+          <img
+            /*
+              Through `apiAssetUrl`, because these are now paths on the API rather than
+              somebody else's absolute URL. It passes an absolute URL through untouched, so
+              an organizer who pasted a link years ago still renders.
+            */
+            src={apiAssetUrl(org.coverImageUrl)!}
+            alt=""
+            className="h-40 w-full object-cover"
+          />
         ) : (
           <div className="h-28 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle" />
         )}
         <div className="flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex items-end gap-4">
-            {org.logoUrl ? (
+            {apiAssetUrl(org.logoUrl) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={org.logoUrl}
+                src={apiAssetUrl(org.logoUrl)!}
                 alt={`${org.name} logo`}
                 className="-mt-12 h-20 w-20 rounded-2xl border-4 border-background-surface object-cover shadow-md"
               />

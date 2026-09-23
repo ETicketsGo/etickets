@@ -1,5 +1,18 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, OrganizationStatus, Role } from '@eticketsgo/shared-types';
@@ -22,12 +35,23 @@ import { OrganizationsService } from './organizations.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import {
+  ORG_COVER_MAX_BYTES,
+  ORG_LOGO_MAX_BYTES,
+  OrganizationImagesService,
+} from './organization-images.service';
+import type { UploadedImageFile } from '../events/event-image.service';
 
 @ApiTags('organizations')
 @ApiBearerAuth()
 @Controller('organizations')
 export class OrganizationsController {
-  constructor(private readonly orgs: OrganizationsService) {}
+  constructor(
+    private readonly orgs: OrganizationsService,
+    private readonly logos: OrganizationImagesService,
+  ) {}
 
   /*
     A handful an hour from one source. The per-account cap stops one account flooding the
@@ -53,6 +77,47 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Get an organization the user can access.' })
   get(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.orgs.get(user, id);
+  }
+
+  /*
+    The organization's profile picture. One file per request, multipart, replacing whatever
+    was there. The size cap is enforced where multer reads the stream, so an oversized
+    upload is refused before it is buffered in full.
+  */
+  @Post(':id/logo')
+  @ApiOperation({ summary: 'Upload the organization profile picture (JPG, PNG or WebP, 1 MB).' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ORG_LOGO_MAX_BYTES, files: 1 } }))
+  uploadLogo(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: UploadedImageFile,
+  ) {
+    return this.logos.upload(user, id, 'LOGO', file);
+  }
+
+  @Delete(':id/logo')
+  @ApiOperation({ summary: 'Remove the organization profile picture.' })
+  removeLogo(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.logos.remove(user, id, 'LOGO');
+  }
+
+  /* The cover banner. Same rules as the picture above, with a larger cap: it is a wide
+     image across the top of a profile rather than a small square. */
+  @Post(':id/cover')
+  @ApiOperation({ summary: 'Upload the organization cover image (JPG, PNG or WebP, 3 MB).' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ORG_COVER_MAX_BYTES, files: 1 } }))
+  uploadCover(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @UploadedFile() file?: UploadedImageFile,
+  ) {
+    return this.logos.upload(user, id, 'COVER', file);
+  }
+
+  @Delete(':id/cover')
+  @ApiOperation({ summary: 'Remove the organization cover image.' })
+  removeCover(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.logos.remove(user, id, 'COVER');
   }
 
   @Patch(':id')
@@ -251,5 +316,76 @@ export class AdminOrganizationsController {
     body: { enabled: boolean },
   ) {
     return this.orgs.setAutoApprove(admin, id, body.enabled);
+  }
+}
+
+/**
+ * The organization's profile picture, for anybody's browser.
+ *
+ * Public and unthrottled for the same reason an event poster is: it is an `<img>` on pages
+ * that render many of them, and a throttle here shows customers broken images. The headers
+ * are the poster's headers - cross-origin so the console and storefront can render it, a
+ * locked-down CSP and `nosniff` so the bytes can only ever be treated as an image, and an
+ * ETag so a repeat visit is a 304.
+ */
+@ApiTags('public')
+@Controller('public/organizers')
+export class PublicOrganizerLogoController {
+  constructor(private readonly logos: OrganizationImagesService) {}
+
+  @Public()
+  @SkipThrottle()
+  @Get(':id/logo')
+  @ApiOperation({ summary: "An organization's profile picture." })
+  async logo(
+    @Param('id') id: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.send(res, await this.logos.read(id, 'LOGO'), version, ifNoneMatch);
+  }
+
+  @Public()
+  @SkipThrottle()
+  @Get(':id/cover')
+  @ApiOperation({ summary: "An organization's cover image." })
+  async cover(
+    @Param('id') id: string,
+    @Query('v') version: string | undefined,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.send(res, await this.logos.read(id, 'COVER'), version, ifNoneMatch);
+  }
+
+  private send(
+    res: Response,
+    image: { bytes: Uint8Array; contentType: string; sha256: string } | null,
+    version: string | undefined,
+    ifNoneMatch: string | undefined,
+  ): void {
+    if (!image) {
+      res.status(404).json({ code: 'NOT_FOUND', message: 'This organizer has no such image.' });
+      return;
+    }
+    const current = image.sha256.slice(0, 16);
+    const etag = `"${current}"`;
+    res.setHeader('ETag', etag);
+    res.setHeader(
+      'Cache-Control',
+      version === current ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+    );
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (ifNoneMatch === etag) {
+      res.status(304).end();
+      return;
+    }
+    const bytes = Buffer.from(image.bytes);
+    res.setHeader('Content-Type', image.contentType);
+    res.setHeader('Content-Length', String(bytes.length));
+    res.status(200).end(bytes);
   }
 }

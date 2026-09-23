@@ -785,6 +785,18 @@ model Organization {
   /// The registered legal entity, when it differs from the trading name customers see.
   /// An invoice names this one.
   legalName             String?
+  /// What the organizer registered AS: sole proprietorship, Pvt Ltd, LLC, charity.
+  ///
+  /// ── WHY THIS AND NOT ONLY A TAX NUMBER ─────────────────────────────────────────
+  /// Approval used to require a tax registration, which quietly excluded most of the people
+  /// this platform is for: in India a business under the GST threshold has no GSTIN and
+  /// cannot get one, so an honest sole proprietor could not be approved at all while anybody
+  /// could type fifteen characters and pass. The legal FORM is a fact every organizer has;
+  /// the tax number is one only some of them have.
+  ///
+  /// Options come from the country's own list in MARKETS, so nobody is asked to pick a form
+  /// that does not exist where they registered.
+  legalEntityType       String?
   /// Tax registration: GSTIN in India, sales-tax permit or EIN in the US, GST/HST number
   /// in Canada. Deliberately ONE free-text field plus a kind, rather than a column per
   /// country — the format is a jurisdiction's business and hardcoding a regex here would
@@ -818,6 +830,7 @@ model Organization {
   payouts                 Payout[]
   payoutSetting           PayoutSetting?
   payoutAccounts          OrganizerPayoutAccount[]
+  images                  OrganizationImage[]
   refunds                 Refund[]
   movies                  Movie[]
   cinemas                 Cinema[]
@@ -4189,6 +4202,39 @@ model MarketingConsent {
   /// Newest row per subject+channel is the current state, so the read is an index scan.
   @@index([email, channel, createdAt])
   @@index([userId, channel, createdAt])
+}
+
+/// An organization's pictures, as bytes: the profile picture and the cover banner.
+///
+/// ── WHY A TABLE AND NOT COLUMNS ON Organization ────────────────────────────────────
+/// `listMine` and half the console read the organization row whole. Bytes on that row would
+/// be dragged into every one of those reads - a logo per organization, on every page load,
+/// for a picture most of them never look at. Here they are fetched only by the endpoint that
+/// serves them.
+///
+/// ── WHY THE PLATFORM HOLDS THE BYTES AT ALL ────────────────────────────────────────
+/// The field before this was a URL box, which asked an organizer to host an image somewhere
+/// and paste a link. Most have nowhere to host one, the links that do arrive rot, and a
+/// third-party URL rendered under this platform's name is somebody else's server deciding
+/// what our customers see. Same decision as event images.
+model OrganizationImage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// LOGO or COVER. One table rather than two near-identical ones: the rules are the same
+  /// (same formats, same sniffing, same serving headers) and only the size cap differs.
+  kind             String   @default("LOGO")
+  contentType      String
+  bytes            Bytes
+  sizeBytes        Int
+  /// Content hash, used to version the URL so a replaced logo is never served from a cache.
+  sha256           String
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, kind])
 }
 
 /// Where an organizer's money is actually sent.

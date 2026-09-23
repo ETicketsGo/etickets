@@ -20,6 +20,7 @@ import {
 import { ACCENT_THEMES, MARKETS, marketFor, Select } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { ColorSchemeSwitch } from '@/components/workspace-chrome';
+import { ProfilePicture } from './profile-picture';
 
 const PROFILE_FIELDS: {
   key: keyof OrganizationProfileInput;
@@ -31,8 +32,6 @@ const PROFILE_FIELDS: {
   // No example number: one country's format printed in the box tells every other country it
   // is the wrong form to be filling in. The label says what the field is.
   { key: 'contactPhone', label: 'Public contact phone' },
-  { key: 'logoUrl', label: 'Logo URL', placeholder: 'https://…/logo.png' },
-  { key: 'coverImageUrl', label: 'Cover image URL', placeholder: 'https://…/cover.jpg' },
   { key: 'twitterUrl', label: 'X / Twitter', placeholder: 'https://x.com/…' },
   { key: 'instagramUrl', label: 'Instagram', placeholder: 'https://instagram.com/…' },
   { key: 'facebookUrl', label: 'Facebook', placeholder: 'https://facebook.com/…' },
@@ -59,22 +58,42 @@ const LEGAL_FIELDS: {
     hint: 'The entity name as registered. Printed on every invoice.',
     wide: true,
   },
+  /*
+    ── COUNTRY BEFORE THE THINGS IT DECIDES ─────────────────────────────────────────
+    It used to sit at the bottom, under a state whose hint reads "pick a country first".
+    The country decides both the state list and which legal forms exist, so asking for it
+    last is asking somebody to fill the form in twice.
+  */
+  { key: 'registeredCountry', label: 'Country' },
+  {
+    key: 'legalEntityType',
+    label: 'Registered as',
+    hint: 'Your legal form. Needed before the platform can approve you.',
+  },
+  /*
+    ── WHY THE TAX FIELDS SAY "IF YOU HAVE ONE" ─────────────────────────────────────
+    Plenty of real organizers have no tax registration and cannot get one: in India a
+    business below the GST threshold is not eligible to register. Approval asks who you are,
+    not whether you are registered. Having one means your buyers get tax invoices instead of
+    plain receipts, which is what the hint says and all it says - the platform does not give
+    anybody tax advice about whether they should register.
+  */
   {
     key: 'taxRegistrationKind',
-    label: 'Tax registration type',
+    label: 'Tax registration type (if you have one)',
     placeholder: 'GSTIN / EIN / GST-HST',
   },
   {
     key: 'taxRegistrationNumber',
-    label: 'Tax registration number',
+    label: 'Tax registration number (if you have one)',
     placeholder: 'As issued to you',
+    hint: 'With a registration on file, buyers get tax invoices. Without it, plain receipts.',
   },
   { key: 'registeredAddressLine1', label: 'Registered address', wide: true },
   { key: 'registeredAddressLine2', label: 'Address line 2', wide: true },
   { key: 'registeredCity', label: 'City' },
   { key: 'registeredRegion', label: 'State / province' },
   { key: 'registeredPostalCode', label: 'Postal code' },
-  { key: 'registeredCountry', label: 'Country', placeholder: 'India' },
   { key: 'financeContactName', label: 'Finance contact name' },
   {
     key: 'financeContactEmail',
@@ -369,6 +388,17 @@ export default function SettingsPage() {
           Shown on your organizer page and event listings. Leave a field blank to hide it.
         </p>
         <div className="space-y-4">
+          {/*
+            The picture is uploaded, not linked. It sits above the text because it is the
+            first thing a customer sees of an organizer, and because the field it replaced -
+            "Logo URL" - was the one nobody could fill in.
+          */}
+          <ProfilePicture
+            orgId={activeOrg.id}
+            name={activeOrg.name}
+            logoUrl={activeOrg.logoUrl}
+            coverImageUrl={activeOrg.coverImageUrl}
+          />
           <Textarea
             id="org-description"
             label="About"
@@ -457,14 +487,38 @@ export default function SettingsPage() {
                     onChange={(e) => {
                       setLegalField(f.key, e.target.value);
                       // A region belongs to a country; keeping the old one would leave a
-                      // Telangana registration on a Canadian entity.
+                      // Telangana registration on a Canadian entity. So does a legal form:
+                      // "Pvt Ltd" is not something you can be in Canada.
                       setLegalField('registeredRegion', '');
+                      setLegalField('legalEntityType', '');
                     }}
                   >
                     <option value="">Select a country…</option>
                     {MARKETS.map((m) => (
                       <option key={m.code} value={m.name}>
                         {m.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            }
+            if (f.key === 'legalEntityType') {
+              const forms = marketFor((legal.registeredCountry as string) ?? '')?.legalEntityTypes;
+              return (
+                <div key={f.key}>
+                  <Select
+                    id={`legal-${f.key}`}
+                    label={f.label}
+                    hint={f.hint}
+                    disabled={!forms || forms.length === 0}
+                    value={(legal[f.key] as string) ?? ''}
+                    onChange={(e) => setLegalField(f.key, e.target.value)}
+                  >
+                    <option value="">{forms ? 'Select…' : 'Pick a country first'}</option>
+                    {(forms ?? []).map((form) => (
+                      <option key={form} value={form}>
+                        {form}
                       </option>
                     ))}
                   </Select>
@@ -493,11 +547,18 @@ export default function SettingsPage() {
                 </div>
               );
             }
+            const market = marketFor((legal.registeredCountry as string) ?? '');
+            // "Tax registration number" is what the platform calls it; "GSTIN" is what the
+            // organizer calls it, and they are looking for the one on their own certificate.
+            const label =
+              f.key === 'taxRegistrationNumber' && market
+                ? `${market.taxRegistrationLabel} (if you have one)`
+                : f.label;
             return (
               <div key={f.key} className={f.wide ? 'sm:col-span-2' : undefined}>
                 <Input
                   id={`legal-${f.key}`}
-                  label={f.label}
+                  label={label}
                   placeholder={f.placeholder}
                   value={(legal[f.key] as string) ?? ''}
                   onChange={(e) => setLegalField(f.key, e.target.value)}

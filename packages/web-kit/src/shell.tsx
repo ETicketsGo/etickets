@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { LogOut, Menu, type LucideIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useAuthUser, useLogout } from './hooks';
+import { apiAssetUrl } from './api';
 
 export interface NavItem {
   label: string;
@@ -174,10 +175,15 @@ export function AppShell({
           {workspace && (
             <div className="pointer-events-none absolute inset-x-0 flex justify-center">
               <div className="pointer-events-auto flex max-w-[min(50vw,28rem)] items-center gap-2.5">
-                {workspace.logoUrl && (
+                {apiAssetUrl(workspace.logoUrl ?? null) && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={workspace.logoUrl}
+                    /*
+                      Through `apiAssetUrl`: an uploaded picture is a path on the API, and
+                      rendered raw it resolves against the console's own origin and 404s.
+                      An absolute URL passes through untouched.
+                    */
+                    src={apiAssetUrl(workspace.logoUrl ?? null)!}
                     alt=""
                     className="h-7 w-7 shrink-0 rounded-md object-cover"
                   />
