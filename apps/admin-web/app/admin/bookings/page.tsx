@@ -46,33 +46,51 @@ export default function AdminBookings() {
       }),
   });
 
+  /*
+    ── WHO BOUGHT WHAT, THEN WHAT IT COST, THEN WHERE IT GOT TO ─────────────────────
+    Reference, buyer, event, total, status, payment and date made seven columns, two of them
+    free text, so this queue was one of the two admin tables still wider than its box. A booking
+    reads as three facts, not seven: the sale, the money, and how far it got.
+  */
   const columns: Column<AdminBookingRow>[] = [
     {
-      key: 'reference',
-      header: 'Reference',
+      key: 'sale',
+      header: 'Booking',
       render: (b) => (
-        <span className="font-mono text-caption text-text-muted">{b.reference ?? '—'}</span>
+        <div className="min-w-0 space-y-1">
+          <p className="font-medium text-text-primary">{b.event.title}</p>
+          <p className="text-caption text-text-secondary">{b.buyerEmail}</p>
+          <p className="font-mono text-caption text-text-muted">{b.reference ?? 'no reference'}</p>
+        </div>
       ),
     },
-    { key: 'buyer', header: 'Buyer', render: (b) => b.buyerEmail },
-    { key: 'event', header: 'Event', render: (b) => b.event.title },
     {
       key: 'total',
       header: 'Total',
+      className: 'whitespace-nowrap tabular-nums',
       render: (b) => money(b.totalMinor, b.currency),
       sortable: true,
       sortValue: (b) => b.totalMinor,
     },
-    { key: 'status', header: 'Status', render: (b) => <StatusBadge status={b.status} /> },
     {
-      key: 'payment',
-      header: 'Payment',
-      render: (b) => (b.paymentStatus ? <StatusBadge status={b.paymentStatus} /> : '—'),
-    },
-    {
-      key: 'date',
-      header: 'Date',
-      render: (b) => dateTime(b.createdAt),
+      key: 'status',
+      header: 'Status',
+      className: 'whitespace-nowrap',
+      render: (b) => (
+        <div className="space-y-1">
+          <StatusBadge status={b.status} />
+          {/* The payment is the booking's other half, and it can disagree with it. */}
+          {b.paymentStatus ? (
+            <p className="text-caption text-text-muted">
+              {/* "requires_payment" is a machine's word for it, and this line is read by a person. */}
+              Payment: {b.paymentStatus.toLowerCase().replaceAll('_', ' ')}
+            </p>
+          ) : (
+            <p className="text-caption text-text-muted">No payment</p>
+          )}
+          <p className="text-caption text-text-muted">{dateTime(b.createdAt)}</p>
+        </div>
+      ),
       sortable: true,
       sortValue: (b) => b.createdAt,
     },

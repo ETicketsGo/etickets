@@ -164,25 +164,43 @@ export default function AdminOps() {
     }
   }
 
+  /*
+    The job, then what went wrong, then the one thing to do about it.
+
+    Six columns - id, name, reason, attempts, when, button - with a stack trace in the middle
+    made this the widest table in the console. The failure IS the row, so it reads as one.
+  */
   const failedColumns: Column<OpsFailedJob>[] = [
     {
-      key: 'id',
-      header: 'Job ID',
-      render: (r) => <span className="font-mono text-xs">{r.id ?? '—'}</span>,
-    },
-    { key: 'name', header: 'Name', render: (r) => r.name },
-    {
-      key: 'reason',
-      header: 'Failed reason',
+      key: 'job',
+      header: 'Failed job',
       render: (r) => (
-        <span className="line-clamp-2 text-status-error">{r.failedReason ?? '—'}</span>
+        <div className="min-w-0 space-y-1">
+          <p className="font-medium text-text-primary">{r.name}</p>
+          <p className="line-clamp-2 text-caption text-status-error">
+            {r.failedReason ?? 'No reason recorded'}
+          </p>
+          <p className="font-mono text-caption text-text-muted">{r.id ?? 'no id'}</p>
+        </div>
       ),
     },
-    { key: 'attempts', header: 'Attempts', render: (r) => r.attemptsMade },
-    { key: 'when', header: 'When', render: (r) => (r.timestamp ? dateTime(r.timestamp) : '—') },
+    {
+      key: 'attempts',
+      header: 'Attempts',
+      className: 'whitespace-nowrap',
+      render: (r) => (
+        <div className="space-y-1">
+          <p className="tabular-nums text-text-primary">{r.attemptsMade}</p>
+          <p className="text-caption text-text-muted">
+            {r.timestamp ? dateTime(r.timestamp) : 'no timestamp'}
+          </p>
+        </div>
+      ),
+    },
     {
       key: 'action',
       header: '',
+      className: 'whitespace-nowrap',
       render: (r) => (
         <Button variant="outline" size="sm" loading={busy} onClick={() => void doRetryJob(r.id)}>
           Retry
