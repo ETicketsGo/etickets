@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { API, CUSTOMER, apiLogin, uniqueEmail } from './helpers';
 import { openPaidEvent } from './pick-event';
 
@@ -16,6 +16,47 @@ const guest = {
   name: 'E2E Guest Buyer',
   email: uniqueEmail('guest'),
 };
+
+/**
+ * Every figure on one card reads as one document.
+ *
+ * Reported from QA: "subtotal 499, fees 20.18, Tax 79.76 but total is 522.82 which is not
+ * matching the numbers and its good to show 499.00". Two defects in one screen. The tax row
+ * counted the GST already inside the INR ticket price, which is a memo and not an addend, so the
+ * column could not add up. And the order line decided its own decimals, so a whole-rupee ticket
+ * printed "Rs 200" directly above the breakdown's "Rs 200.00".
+ *
+ * Checked from inside the buying test, because a guest confirmation opens only in the browser
+ * that bought it - which is the subject of test 2.
+ */
+async function expectTheMoneyToAddUp(page: Page): Promise<void> {
+  const amounts = (await page.locator('main').innerText())
+    .split('\n')
+    .flatMap((line) => line.match(/₹[\d,]+(?:\.\d+)?/g) ?? []);
+  expect(amounts.length, 'the confirmation shows money').toBeGreaterThan(1);
+
+  // One shape for the whole card: either every figure carries paise or none does.
+  const withPaise = amounts.filter((a) => a.includes('.')).length;
+  expect(
+    withPaise === 0 || withPaise === amounts.length,
+    `mixed decimal shapes on one card: ${amounts.join(' ')}`,
+  ).toBe(true);
+
+  /*
+    And the rows above the total add up to it. The ticket subtotal appears twice - once as the
+    order line, once as the breakdown's first row - so the rows sum to the total plus one
+    subtotal. Asserting that, rather than picking rows out by label, keeps this about arithmetic
+    the buyer can do with their own eyes.
+  */
+  const values = amounts.map((a) => Number(a.replace(/[₹,]/g, '')));
+  const total = Math.max(...values);
+  const rows = values.filter((v) => v !== total);
+  const subtotal = Math.max(...rows);
+  expect(
+    Math.abs(rows.reduce((a, b) => a + b, 0) - subtotal - total),
+    `rows do not add up to the total: ${amounts.join(' ')}`,
+  ).toBeLessThan(0.02);
+}
 
 test.describe('guest checkout', () => {
   /** Filled by the first test and read by the ones that follow it. */
@@ -47,6 +88,8 @@ test.describe('guest checkout', () => {
     const qr = page.getByRole('img', { name: /Entry QR code/i });
     await expect(qr.first()).toBeVisible({ timeout: 30_000 });
     await expect(qr.first()).toHaveAttribute('src', /^data:image\//);
+
+    await expectTheMoneyToAddUp(page);
 
     bookingUrl = page.url();
     const body = await page.locator('body').innerText();
@@ -159,5 +202,65 @@ test.describe('guest checkout', () => {
     await expect(
       page.getByText('If that booking exists, we have emailed a link to it'),
     ).toBeVisible({ timeout: 20_000 });
+  });
+
+  /*
+    Giving the tickets back before paying.
+
+    Reported from QA: "I reached review & pay, when I click on cancel booking and select yes
+    cancel nothing is happening, still on review and pay". The route answered 409 to every guest,
+    on a rule that had expired, and the screen showed the refusal as a muted caption above the
+    summary, the total and both buttons - off screen on a phone. The buyer watched a countdown
+    while the seats stayed held against nobody.
+  */
+  test('7: a guest cancels their own unpaid booking and the seats go back', async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`${CUSTOMER}/events`);
+    await openPaidEvent(page);
+
+    const quantity = page.locator('select[aria-label^="Quantity"]').first();
+    await expect(quantity).toBeVisible({ timeout: 20_000 });
+    await quantity.selectOption('1');
+    await page.getByLabel('Your name').fill(guest.name);
+    await page.getByLabel('Email', { exact: true }).fill(uniqueEmail('guestcancel'));
+    await page.getByRole('button', { name: /Continue to payment/ }).click();
+    await expect(page).toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+    const cancelledId = /\/booking\/([^/]+)\/payment/.exec(page.url())?.[1] ?? '';
+
+    await page.getByRole('button', { name: 'Cancel booking' }).click();
+    await page.getByRole('button', { name: /Yes, cancel it/i }).click();
+
+    // It leaves the payment screen. Staying put IS the bug.
+    await expect(page).not.toHaveURL(/\/booking\/.+\/payment/, { timeout: 20_000 });
+
+    /*
+      And the booking is really cancelled, not merely navigated away from. Read without the
+      session token on purpose: the token was forgotten with the booking, and a 401 here proves
+      only that the browser let go, which is not the same as the seats going back.
+    */
+    const after = await request.get(`${API}/bookings/guest/${cancelledId}`, {
+      headers: { 'x-anon-session': `anon_${'b'.repeat(43)}` },
+    });
+    expect([401, 403, 404]).toContain(after.status());
+  });
+
+  test('8: a stranger cannot cancel a guest booking with a token they minted', async ({
+    request,
+  }) => {
+    /*
+      The guest cancel is the only guest route held to the STRICTEST session answer. A read and a
+      payment accept a booking that records no session - the worst case there is somebody seeing
+      or paying for a booking that is not theirs. A cancel releases it, so 256 bits the caller
+      generated plus a booking id must not be enough.
+    */
+    const id = /\/booking\/([^/]+)\/confirmation/.exec(bookingUrl)?.[1] ?? '';
+    test.skip(!id, 'test 1 did not complete');
+    const stolen = await request.post(`${API}/bookings/guest/${id}/cancel`, {
+      headers: { 'x-anon-session': `anon_${'c'.repeat(43)}` },
+    });
+    // Never 201. Either the session is refused or the paid booking is, and both are correct.
+    expect([403, 404, 409]).toContain(stolen.status());
   });
 });

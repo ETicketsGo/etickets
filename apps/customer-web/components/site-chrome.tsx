@@ -57,6 +57,25 @@ function isPrintRoute(path: string): boolean {
   return path.endsWith('/print') || path.includes('/print/');
 }
 
+/**
+ * The step where somebody is about to pay.
+ *
+ * ── WHY THIS ROUTE IS SINGLED OUT ──────────────────────────────────────────────────
+ * Measured on a phone: the Review & pay screen was about 1900px tall, and a little under half
+ * of it was the site footer - three columns of links whose whole purpose is to send the reader
+ * somewhere else. A buyer who has entered their details and is looking for the Pay button
+ * instead scrolls past "Browse events" and "Movies". The footer's own comment already makes the
+ * argument: "a footer that repeats a sales menu under a checkout is noise at the exact moment
+ * attention matters most" - it was written about the marketing footer and is just as true here.
+ *
+ * Only the columns go, and only on a phone. Help, the terms, the privacy notice and the refund
+ * policy stay, in one line: somebody deciding whether to pay is exactly who needs the refund
+ * policy to hand, and hiding it at the till would be the wrong kind of tidy.
+ */
+function isCheckoutRoute(path: string): boolean {
+  return /\/booking\/[^/]+\/payment$/.test(path);
+}
+
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const f = useTranslations('common.footer');
   const pathname = usePathname();
@@ -112,6 +131,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       */}
       <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <SiteFooter
+          compact={isCheckoutRoute(pathname)}
           environmentNotice={
             (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
             !process.env.NEXT_PUBLIC_APP_ENV

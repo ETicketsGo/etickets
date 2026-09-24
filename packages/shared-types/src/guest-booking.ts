@@ -44,13 +44,41 @@ export interface GuestBookingBuyer {
   emailMasked: string;
 }
 
-/** The money, in integer minor units, exactly as the booking recorded it. */
+/**
+ * The money, in integer minor units, exactly as the booking recorded it.
+ *
+ * ── WHY FOUR NUMBERS WERE NOT ENOUGH ───────────────────────────────────────────────
+ * This used to be subtotal, fees, tax and total, and the guest screen printed them as a column.
+ * They do not add up, and cannot: an Indian ticket price is GST-INCLUSIVE, so `taxMinor` counts
+ * the tax already sitting inside `subtotalMinor` as well as the tax added on top of the fees.
+ * A buyer saw 499 + 20.18 + 79.76 over a total of 522.82 and reported it, correctly, as wrong.
+ *
+ * There is no way to draw that honestly from four numbers, because the split between "already
+ * inside the ticket" and "added to the fee" is not recoverable from their sum. So the guest is
+ * sent the same fields the account holder's screen has always had, and both render through the
+ * one `PriceBreakdown` that knows an inclusive tax is a memo and not an addend.
+ */
 export interface GuestBookingTotals {
   subtotalMinor: number;
   /** What the customer pays in fees, all in — not the platform's or the organizer's share. */
   feesMinor: number;
+  /** Every tax on the booking, INCLUDING the part already inside the ticket price. */
   taxMinor: number;
   totalMinor: number;
+  discountMinor: number;
+  bookingFeeMinor: number;
+  paymentFeeMinor: number;
+  /** Whether the customer's fee figure already has its tax inside it. */
+  customerFeeInclusiveMinor: number;
+  feeTaxRateBasisPoints: number;
+  /** The tax added ON TOP of the fees - the only part of `taxMinor` that is an addend. */
+  feeTaxMinor: number;
+  maintenanceMinor: number;
+  /* The same union the breakdown takes: how the statutory charge relates to the ticket price. */
+  maintenanceTreatment:
+    'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
+  /** The tax contained within the ticket price, per rate, as the booking recorded it. */
+  taxLines: { label: string; rateBasisPoints: number; amountMinor: number }[];
 }
 
 /** One line of the order as it was priced. */

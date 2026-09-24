@@ -22,6 +22,10 @@ function makeService(opts: {
   bookingRow?: Record<string, unknown> | null;
   verifyResult?: boolean;
   upiEnabled?: boolean;
+  /** The account row behind `booking.userId`, for the Razorpay contact prefill. */
+  user?: { phone: string | null; phoneVerifiedAt: Date | null } | null;
+  /** A database that will not answer, to prove a prefill cannot stop a payment. */
+  userLookupFails?: boolean;
 }) {
   const updates: Array<Record<string, unknown>> = [];
   const attempts: Array<Record<string, unknown>> = [];
@@ -42,6 +46,12 @@ function makeService(opts: {
       }),
     },
     booking: { findUnique: jest.fn().mockResolvedValue(opts.bookingRow ?? null) },
+    user: {
+      findUnique: jest.fn(async () => {
+        if (opts.userLookupFails) throw new Error('database unavailable');
+        return opts.user ?? null;
+      }),
+    },
     paymentAttempt: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         attempts.push(data);
@@ -175,5 +185,64 @@ describe('RazorpayOrderService.verify', () => {
       status: 'confirmed',
       bookingId: 'b1',
     });
+  });
+});
+
+/**
+ * The phone number Razorpay insists on.
+ *
+ * Asked by the owner after a QA purchase: "razorpay is asking mobile and email is mandatory
+ * details, I hope it is not from our end right?". It is Razorpay Checkout's own rule and we
+ * cannot switch it off - but we were prefilling only the name and the email, so a signed-in
+ * buyer typed a number they had already proved to us, on the last screen before paying.
+ *
+ * What may be prefilled is narrow on purpose. Only the account's stored `phone`, which exists
+ * only after an OTP was answered. Never the booking's own contact fields: a guest types those,
+ * and prefilling a payment screen with an unproved number is how a stranger's phone gets onto
+ * somebody's payment.
+ */
+describe('the Razorpay contact prefill', () => {
+  const verified = { phone: '+919876500000', phoneVerifiedAt: new Date('2026-01-01') };
+
+  it('prefills the account’s verified phone', async () => {
+    const { service } = makeService({ payment: { status: 'REQUIRES_PAYMENT' }, user: verified });
+    const out = await service.createOrder(booking, split, { eventId: 'e1', organizerId: 'org1' });
+    expect(out.razorpay.prefill).toEqual({
+      name: 'Asha',
+      email: 'asha@example.test',
+      contact: '+919876500000',
+    });
+  });
+
+  it('sends no contact when the number was never verified', async () => {
+    // An unverified number is not stored at all, so this is the shape of a half-written row.
+    const { service } = makeService({
+      payment: { status: 'REQUIRES_PAYMENT' },
+      user: { phone: '+919876500000', phoneVerifiedAt: null },
+    });
+    const out = await service.createOrder(booking, split, { eventId: 'e1', organizerId: 'org1' });
+    expect(out.razorpay.prefill).not.toHaveProperty('contact');
+  });
+
+  it('sends no contact for a guest, who has no account to read one from', async () => {
+    const { service, prisma } = makeService({ payment: { status: 'REQUIRES_PAYMENT' } });
+    const out = await service.createOrder({ ...booking, userId: null }, split, {
+      eventId: 'e1',
+      organizerId: 'org1',
+    });
+    expect(out.razorpay.prefill).not.toHaveProperty('contact');
+    // And no pointless query: there is nobody to look up.
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('still opens the checkout when the account cannot be read at all', async () => {
+    // A convenience must never be able to stop somebody paying.
+    const { service } = makeService({
+      payment: { status: 'REQUIRES_PAYMENT' },
+      userLookupFails: true,
+    });
+    const out = await service.createOrder(booking, split, { eventId: 'e1', organizerId: 'org1' });
+    expect(out.razorpay.orderId).toBe('order_new');
+    expect(out.razorpay.prefill).not.toHaveProperty('contact');
   });
 });

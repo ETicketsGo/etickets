@@ -9,6 +9,7 @@ import {
   type GuestReceiptsView,
 } from '@eticketsgo/shared-types';
 import { resolveLocale } from '@eticketsgo/i18n';
+import { feeTaxSummary } from '../pricing/fee-tax';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { TicketsService } from '../tickets/tickets.service';
@@ -96,6 +97,30 @@ const VIEW_SELECT = {
   customerFeeMinor: true,
   taxMinor: true,
   totalMinor: true,
+  /*
+    ── THE REST OF THE MONEY, SO THE COLUMN CAN ADD UP ──────────────────────────────
+    A guest used to be sent four numbers - subtotal, fees, tax, total - and the screen printed
+    them one under another. They cannot add up: an Indian ticket price is GST-inclusive, so
+    `taxMinor` counts the tax already inside `subtotalMinor` as well as the tax added on the
+    fees. A buyer read 499 + 20.18 + 79.76 against a total of 522.82 and reported it.
+
+    These are the same fields the account holder's booking has always carried, so both screens
+    can render through the one breakdown that knows an inclusive tax is a memo, not an addend.
+  */
+  discountMinor: true,
+  bookingFeeMinor: true,
+  paymentFeeMinor: true,
+  maintenanceMinor: true,
+  maintenanceTreatment: true,
+  taxLines: {
+    select: {
+      label: true,
+      rateBasisPoints: true,
+      amountMinor: true,
+      basis: true,
+      inclusive: true,
+    },
+  },
   items: {
     select: {
       label: true,
@@ -157,6 +182,20 @@ type BookingForView = {
   customerFeeMinor: number;
   taxMinor: number;
   totalMinor: number;
+  // The rest of the money snapshot, so the guest's column can add up. See the select above.
+  discountMinor: number;
+  bookingFeeMinor: number;
+  paymentFeeMinor: number;
+  maintenanceMinor: number;
+  maintenanceTreatment:
+    'NOT_APPLICABLE' | 'INCLUDED_IN_TICKET_PRICE' | 'ADDED_TO_TICKET_PRICE' | 'UNCONFIRMED';
+  taxLines: {
+    label: string;
+    rateBasisPoints: number;
+    amountMinor: number;
+    basis: string | null;
+    inclusive: boolean | null;
+  }[];
   items: {
     label: string | null;
     quantity: number;
@@ -803,14 +842,29 @@ export class GuestBookingService {
       /*
         Read, never recalculated. `feesMinor` is the customer's own fee column — not the
         organizer's share and not the platform's revenue, neither of which is any of this
-        reader's business, and both of which would make these four numbers fail to add up to
-        what the card was charged.
+        reader's business.
+
+        `feeTaxSummary` splits the stored tax lines into the part levied ON the fees, which is
+        an addend, and leaves the rest where it belongs: inside the ticket price. It is the same
+        call the account holder's booking makes, so the two screens cannot disagree about what
+        was charged.
       */
       totals: {
         subtotalMinor: booking.subtotalMinor,
         feesMinor: booking.customerFeeMinor,
         taxMinor: booking.taxMinor,
         totalMinor: booking.totalMinor,
+        discountMinor: booking.discountMinor,
+        bookingFeeMinor: booking.bookingFeeMinor,
+        paymentFeeMinor: booking.paymentFeeMinor,
+        maintenanceMinor: booking.maintenanceMinor,
+        maintenanceTreatment: booking.maintenanceTreatment,
+        taxLines: booking.taxLines.map((line) => ({
+          label: line.label,
+          rateBasisPoints: line.rateBasisPoints,
+          amountMinor: line.amountMinor,
+        })),
+        ...feeTaxSummary(booking.taxLines, booking.customerFeeMinor),
       },
       items: booking.items.map((item) => ({
         label:

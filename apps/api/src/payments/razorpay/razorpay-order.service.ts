@@ -35,7 +35,7 @@ export interface RazorpayCheckoutPayload {
     currency: string;
     name: string;
     description: string;
-    prefill: { name: string; email: string };
+    prefill: { name: string; email: string; contact?: string };
     callbackUrl: string;
     /**
      * The account currently offers UPI, so the storefront may lead Checkout with "Pay by any
@@ -199,6 +199,9 @@ export class RazorpayOrderService {
     const keyId = this.config.getOrThrow<string>('RAZORPAY_KEY_ID');
     // Resolved first, so a misconfigured environment refuses before any network call.
     const callbackUrl = this.checkoutCallbackUrl();
+    // Never rejects, exactly like `upiEnabled` below: a prefill is a convenience, and a
+    // convenience must not be able to stop somebody paying.
+    const contact = await this.buyerPhone(booking.userId);
     // Never rejects: any failure answers false, and Checkout opens with its default methods.
     const upiEnabled = await this.methods.upiEnabled(keyId, booking.currency);
     return {
@@ -214,11 +217,54 @@ export class RazorpayOrderService {
         name: this.config.get<string>('RAZORPAY_CHECKOUT_NAME') ?? 'ETicketsGo',
         description:
           this.config.get<string>('RAZORPAY_CHECKOUT_DESCRIPTION') ?? 'Event ticket purchase',
-        prefill: { name: booking.buyerName, email: booking.buyerEmail },
+        /*
+          ── THE PHONE FIELD RAZORPAY INSISTS ON ─────────────────────────────────────
+          Razorpay Checkout requires a contact number and an email before it will take a
+          payment. That is their rule, not ours - we cannot switch it off - but we were only
+          prefilling the name and the email, so every buyer typed their own phone number again
+          on a screen they had already given it to us on.
+
+          Filled from the account's VERIFIED phone, which is the only one stored: an unverified
+          number is never kept, so anything here has been proved to reach this person. A guest
+          has no account and no stored number, so Razorpay asks - which is correct, because
+          nobody has told us one.
+        */
+        prefill: {
+          name: booking.buyerName,
+          email: booking.buyerEmail,
+          ...(contact ? { contact } : {}),
+        },
         callbackUrl,
         upiEnabled,
       },
     };
+  }
+
+  /**
+   * The buyer's own phone number, when the platform has a proved one.
+   *
+   * Only ever the account's stored `phone`, which is written only after an OTP has been
+   * answered - see the account-integrity rules. Never the booking's contact fields, which a
+   * guest can type as anything, and never guessed from anywhere else: prefilling a payment
+   * screen with a number somebody has not proved is how a stranger's phone ends up on a
+   * payment. Null for a guest, and Razorpay asks them for it.
+   *
+   * Never throws. Everything this saves the buyer is one field of typing, and the cost of
+   * getting it wrong would be a checkout that will not open - so a lookup that fails for any
+   * reason answers "we do not know", and Razorpay asks, which is what it did before this existed.
+   */
+  private async buyerPhone(userId: string | null): Promise<string | undefined> {
+    if (!userId) return undefined;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { phone: true, phoneVerifiedAt: true },
+      });
+      if (!user?.phone || !user.phoneVerifiedAt) return undefined;
+      return user.phone;
+    } catch {
+      return undefined;
+    }
   }
 
   /**

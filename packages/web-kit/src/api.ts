@@ -4287,7 +4287,9 @@ export interface RazorpayCheckout {
   currency: string;
   name: string;
   description: string;
-  prefill: { name: string; email: string };
+  /* `contact` is the account's verified phone when there is one; a guest has none and
+     Razorpay asks them for it, which is Razorpay's own requirement and not ours. */
+  prefill: { name: string; email: string; contact?: string };
   callbackUrl: string;
   /**
    * The Razorpay account currently offers UPI, so Checkout may lead with "Pay by any UPI

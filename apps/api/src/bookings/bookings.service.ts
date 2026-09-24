@@ -1914,8 +1914,8 @@ export class BookingsService {
    * Only PENDING_PAYMENT. A confirmed booking has taken money and issued tickets; undoing that
    * is a refund, with the organizer's terms and the gateway involved, and it goes through the
    * refund path rather than being re-implemented here. Platform staff may cancel on a buyer's
-   * behalf; nobody else may cancel somebody else's booking, and a guest booking has no owner
-   * this can check, so it is left to expire.
+   * behalf; nobody else may cancel somebody else's booking. A guest cancels through
+   * `cancelUnpaidAsGuest`, which proves ownership a different way - see there.
    *
    * ── EXACTLY ONCE ──────────────────────────────────────────────────────────────────
    * The release is the claim-first helper the expiry sweep uses: a conditional update from
@@ -1950,6 +1950,75 @@ export class BookingsService {
         HttpStatus.FORBIDDEN,
       );
     }
+    return this.releaseUnpaid(booking, {
+      actorUserId: user.id,
+      cancelledBy: booking.userId === user.id ? 'BUYER' : 'PLATFORM_STAFF',
+    });
+  }
+
+  /**
+   * A guest cancels their own unpaid booking.
+   *
+   * WHY A GUEST CAN DO THIS NOW
+   * This used to answer "Booking cancellation is not available." on the grounds that nothing tied
+   * a guest booking to the browser that made it. That stopped being true when `guestSessionHash`
+   * was added: the create path writes the hash of the checkout token onto the booking in EVERY
+   * orchestration mode, and `GuestSessionVerifier` is what reads it. So there is a real credential
+   * to check, and a buyer who changes their mind at the payment screen no longer has to watch a
+   * countdown run out while everybody else waits for those seats.
+   *
+   * The caller checks that proof, because the caller holds the request headers, and it must be
+   * `BOUND` rather than merely `UNBOUND`. Cancelling takes tickets away, so it is graded like
+   * `claim` and not like a read: a booking id plus a token the caller minted for itself is not
+   * enough. Bookings that read `UNBOUND` predate the hash column and their holds expired long ago.
+   *
+   * Everything after the proof is the signed-in buyer's path exactly - the same claim-first
+   * release, the same refusals, the same audit action. It is shared rather than copied so a guest
+   * cancel cannot drift into releasing stock differently from an account cancel.
+   */
+  async cancelUnpaidAsGuest(
+    bookingId: string,
+  ): Promise<{ id: string; status: string; refundPending: false }> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { items: true, payment: { select: { status: true } } },
+    });
+    if (!booking) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
+    }
+    /*
+      A booking that belongs to an ACCOUNT is never cancellable through the guest door, however
+      good the token looks. `verifyByBookingId` answers about the session hash alone, and an
+      account holder's booking carries none - so it reads `UNBOUND`, which the caller already
+      refuses. This states the rule at the door instead of resting on that coincidence.
+    */
+    if (booking.userId) {
+      throw new AppException(
+        ErrorCodes.FORBIDDEN,
+        'You cannot cancel this booking.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return this.releaseUnpaid(booking, { actorUserId: null, cancelledBy: 'GUEST' });
+  }
+
+  /**
+   * Give back what an unpaid booking holds, exactly once.
+   *
+   * The claim-first helper the expiry sweep uses: a conditional update from PENDING_PAYMENT to
+   * CANCELLED runs first, and only the transaction that won it hands the stock back. A
+   * double-click, a sweep expiring the same hold, or a webhook confirming the booking all leave
+   * this claiming nothing, and it reports what the booking became instead.
+   */
+  private async releaseUnpaid(
+    booking: Parameters<typeof cancelPendingBooking>[1] & {
+      id: string;
+      status: string;
+      organizationId: string;
+      payment: { status: string } | null;
+    },
+    by: { actorUserId: string | null; cancelledBy: 'BUYER' | 'PLATFORM_STAFF' | 'GUEST' },
+  ): Promise<{ id: string; status: string; refundPending: false }> {
     if (booking.status !== BookingStatus.PENDING_PAYMENT) {
       throw this.notCancellable(booking.status);
     }
@@ -1963,20 +2032,20 @@ export class BookingsService {
     if (!cancelled) {
       // Lost the claim: something moved the booking between the read and the update.
       const now = await this.prisma.booking.findUnique({
-        where: { id: bookingId },
+        where: { id: booking.id },
         select: { status: true },
       });
       throw this.notCancellable(now?.status ?? booking.status);
     }
 
     await this.audit.record({
-      actorUserId: user.id,
+      actorUserId: by.actorUserId,
       organizationId: booking.organizationId,
       action: 'BOOKING_CANCELLED',
       entityType: 'Booking',
       entityId: booking.id,
       metadata: {
-        cancelledBy: booking.userId === user.id ? 'BUYER' : 'PLATFORM_STAFF',
+        cancelledBy: by.cancelledBy,
         paymentStatus: booking.payment?.status ?? null,
       },
     });
