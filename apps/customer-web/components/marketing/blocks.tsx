@@ -22,7 +22,7 @@ export function PageHero({
           <div className="flex justify-center">
             <Eyebrow>{eyebrow}</Eyebrow>
           </div>
-          <h1 className="mt-5 text-balance text-4xl font-bold leading-[1.1] tracking-tight text-text-primary sm:text-5xl">
+          <h1 className="mt-5 text-balance text-3xl font-bold leading-[1.1] tracking-tight text-text-primary sm:text-5xl">
             {title}
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-text-secondary">

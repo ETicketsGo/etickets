@@ -51,14 +51,55 @@ export const radius = {
   full: '9999px',
 } as const;
 
-/** Type scale — Inter. Large, comfortable, never tiny. */
+/**
+ * Type scale — Inter. Large and comfortable on a desktop, and sized for the screen on a phone.
+ *
+ * ── WHY THE HEADINGS ARE FLUID AND THE READING SIZES ARE NOT ───────────────────────
+ * Every size here used to be one fixed number, so a page heading was 32px on a 1280px desktop
+ * and 32px on a 411px phone. A heading that takes a third of the width of the screen it is on
+ * is not emphasis, it is an obstacle - measured on the installed app, "Browse events" alone
+ * pushed the first result most of a screen down.
+ *
+ * Each display size is now `clamp(min, a·rem + b·vw, max)`, and the middle term is tuned so it
+ * reaches `max` at EXACTLY 640px. At and above the `sm` breakpoint the computed value is the
+ * same number it has always been, so every desktop and tablet rendering is unchanged to the
+ * pixel; below it the heading scales down with the viewport.
+ *
+ * `body`, `caption` and `button` are deliberately fixed. They are what somebody READS, 16px is
+ * already the floor for comfortable reading, and shrinking running text on a small screen is
+ * how a phone ends up needing a pinch-zoom. The complaint was never that the text was too big -
+ * it was that the headings were.
+ *
+ * The preferred term keeps a `rem` component rather than being pure `vw`, so the scale still
+ * responds to the reader's own font-size setting (WCAG 1.4.4).
+ */
 type FontSizeValue = [string, { lineHeight?: string; letterSpacing?: string; fontWeight?: string }];
 export const typeScale: Record<string, FontSizeValue> = {
-  hero: ['3rem', { lineHeight: '1.05', letterSpacing: '-0.02em', fontWeight: '700' }],
-  h1: ['2.5rem', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' }],
-  h2: ['2rem', { lineHeight: '1.15', letterSpacing: '-0.015em', fontWeight: '650' }],
-  h3: ['1.5rem', { lineHeight: '1.25', letterSpacing: '-0.01em', fontWeight: '600' }],
-  title: ['1.25rem', { lineHeight: '1.35', letterSpacing: '-0.005em', fontWeight: '600' }],
+  // 30px at 360px wide → 48px from 640px up (was a flat 48px).
+  hero: [
+    'clamp(1.875rem, 0.4286rem + 6.4286vw, 3rem)',
+    { lineHeight: '1.05', letterSpacing: '-0.02em', fontWeight: '700' },
+  ],
+  // 27px → 40px.
+  h1: [
+    'clamp(1.6875rem, 0.6429rem + 4.6429vw, 2.5rem)',
+    { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '700' },
+  ],
+  // 23px → 32px. This is the one page headings use, and the one that was reported.
+  h2: [
+    'clamp(1.4375rem, 0.7143rem + 3.2143vw, 2rem)',
+    { lineHeight: '1.15', letterSpacing: '-0.015em', fontWeight: '650' },
+  ],
+  // 19px → 24px.
+  h3: [
+    'clamp(1.1875rem, 0.7857rem + 1.7857vw, 1.5rem)',
+    { lineHeight: '1.25', letterSpacing: '-0.01em', fontWeight: '600' },
+  ],
+  // 17px → 20px.
+  title: [
+    'clamp(1.0625rem, 0.8214rem + 1.0714vw, 1.25rem)',
+    { lineHeight: '1.35', letterSpacing: '-0.005em', fontWeight: '600' },
+  ],
   body: ['1rem', { lineHeight: '1.6' }],
   caption: ['0.8125rem', { lineHeight: '1.45' }],
   button: ['0.9375rem', { lineHeight: '1', letterSpacing: '0.005em', fontWeight: '600' }],
