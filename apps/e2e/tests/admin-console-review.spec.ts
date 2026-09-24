@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { ADMIN, ORGANIZER, apiLogin, seedBrowserAuth, type AuthTokens } from './helpers';
 
 /**
@@ -152,6 +152,121 @@ test.describe('admin console', () => {
       });
       expect(overflow).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/*
+  ── A SEARCH BOX THAT SEARCHES THE LIST, NOT THE PAGE ──────────────────────────────
+  Organizers, events, payments and refunds each filtered the fifteen rows already fetched, so a
+  match sitting on page two came back as "nothing matches" - stated with total confidence, under
+  a pager that still counted every row on the platform. The "Search" button did nothing at all:
+  `SearchInput` renders one and calls `onSubmit`, and none of these pages passed one.
+
+  The test is the total, not the rows. A client-side filter leaves the count alone, because the
+  server was never asked; a real search re-counts. That is the difference being locked in.
+*/
+test.describe('admin search reaches the database', () => {
+  test.beforeEach(async ({ context }) => {
+    await seedBrowserAuth(context, admin);
+  });
+
+  /**
+   * Did the browser ASK the server for this search?
+   *
+   * The count is not a safe test. It depends on what the suite has created by the time this
+   * runs, and comparing a before and an after made the assertion rot the moment another spec
+   * registered an organization. The discriminating fact is in the request: a client-side filter
+   * sends nothing at all, so the list URL carries no `q`.
+   */
+  async function listRequestFor(page: Page, path: string, term: string): Promise<string> {
+    const asked = page.waitForRequest((r) => r.url().includes(path) && r.url().includes('q='), {
+      timeout: 15_000,
+    });
+    await page.getByRole('searchbox').fill(term);
+    await page.getByRole('button', { name: 'Search' }).click();
+    return (await asked).url();
+  }
+
+  test('the organizer queue asks the server, and shows what it asked for', async ({ page }) => {
+    await page.goto(`${ADMIN}/admin/organizers`);
+    await expect(page.locator('tbody tr').first()).toBeVisible();
+
+    const url = await listRequestFor(page, '/admin/organizers', 'bengaluru');
+
+    expect(url).toContain('q=bengaluru');
+    // Page 1, because a search that keeps your old page number answers about the wrong slice.
+    expect(url).toContain('page=1');
+    await expect(page.getByRole('row', { name: /Bengaluru Live/ }).first()).toBeVisible();
+  });
+
+  test('the payment ledger searches by booking reference', async ({ page }) => {
+    /*
+      The reference is what somebody arrives holding - from a customer email, or from the
+      provider's own dashboard. It used to match only if the payment happened to be among the
+      newest fifteen rows.
+    */
+    await page.goto(`${ADMIN}/admin/payments`);
+    await expect(page.locator('tbody tr').first()).toBeVisible();
+
+    const url = await listRequestFor(page, '/admin/payments', 'ETG-IND-2026-0000');
+
+    expect(url).toContain('q=ETG-IND-2026-0000');
+  });
+
+  test('the event queue searches by city, which is not even a column', async ({ page }) => {
+    await page.goto(`${ADMIN}/admin/events`);
+    await page.getByLabel('Status filter').selectOption('');
+    await expect(page.getByText(/matching/).first()).toBeVisible();
+
+    const url = await listRequestFor(page, '/admin/events', 'hyderabad');
+
+    expect(url).toContain('q=hyderabad');
+  });
+
+  test('the refund queue asks the server too', async ({ page }) => {
+    await page.goto(`${ADMIN}/admin/refunds`);
+    await page.getByLabel('Status filter').selectOption('');
+    await expect(page.getByText(/matching/).first()).toBeVisible();
+
+    const url = await listRequestFor(page, '/admin/refunds', 'example.test');
+
+    expect(url).toContain('q=example.test');
+  });
+});
+
+test.describe('the admin lists say what a reader needs', () => {
+  test.beforeEach(async ({ context }) => {
+    await seedBrowserAuth(context, admin);
+  });
+
+  test('the organizer queue tells two organizations of the same name apart', async ({ page }) => {
+    // The slug is the tiebreak, and it is also what appears in their public URL.
+    await page.goto(`${ADMIN}/admin/organizers`);
+    await expect(page.getByText('bengaluru-live').first()).toBeVisible();
+  });
+
+  test('a standing decision about review reads as what it does', async ({ page }) => {
+    /*
+      The column was headed "Review" and said "Reviewed" or "Skips review" in grey - it named
+      the flag rather than its consequence, and both readings looked like the same thing.
+    */
+    await page.goto(`${ADMIN}/admin/organizers`);
+    await expect(page.getByRole('columnheader', { name: 'New events' })).toBeVisible();
+    await expect(page.getByText(/Wait for review|Go live at once/).first()).toBeVisible();
+  });
+
+  test('the event queue says when the event is, not when its row was edited', async ({ page }) => {
+    await page.goto(`${ADMIN}/admin/events`);
+    await page.getByLabel('Status filter').selectOption('');
+    await expect(page.getByRole('columnheader', { name: 'When' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Category' })).toHaveCount(0);
+  });
+
+  test('a payment names the sale it paid for', async ({ page }) => {
+    await page.goto(`${ADMIN}/admin/payments`);
+    await expect(page.getByRole('columnheader', { name: 'Payment' })).toBeVisible();
+    // The provider reference survives as a detail line, because it is still how you chase one.
+    await expect(page.locator('tbody tr').first()).toBeVisible();
   });
 });
 

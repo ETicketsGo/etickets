@@ -152,11 +152,20 @@ export class AdminController {
   @Get('payments')
   @ApiOperation({ summary: 'List payments (admin).' })
   payments(
-    @Query(new ZodValidationPipe(paginationSchema.extend({ status: z.string().optional() })))
+    @Query(
+      new ZodValidationPipe(
+        paginationSchema.extend({
+          status: z.string().optional(),
+          // Searched in the DATABASE: buyer email, booking reference or provider reference.
+          q: z.string().trim().optional(),
+        }),
+      ),
+    )
     q: {
       page: number;
       pageSize: number;
       status?: string;
+      q?: string;
     },
   ) {
     return this.admin.payments(q);
