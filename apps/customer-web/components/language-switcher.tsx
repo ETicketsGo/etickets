@@ -42,12 +42,18 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
           router.replace(pathname, { locale: next });
         }}
         /*
-          Capped on small screens: a native select is as wide as its longest option, and
-          "Français" made this the second-widest thing in a 320px header. The option text
-          clips; the accessible name does not, and the current language is announced
-          separately below.
+          ── A CONTROL THAT SHOWS "ENGLIS" LOOKS BROKEN ────────────────────────────────
+          This was capped at 4.5rem so it could not be the widest thing in a 320px header. The
+          cap is narrower than the word inside it, so on every screen of the installed app the
+          control read "Englis" with the arrow eating the rest - measured at 72px wide on the
+          device. A truncated language name is worse than a wide control: it is the one thing on
+          the page whose whole job is to be recognised by somebody who cannot read the rest.
+
+          It sizes to its content now. The header wraps rather than overflows - that is what
+          `flex-wrap` above is for - so the 320px case reflows to a second row instead of
+          clipping a word, which is what WCAG 1.4.10 asks for in the first place.
         */
-        className="max-w-[4.5rem] rounded-md border border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50 sm:max-w-none"
+        className="rounded-md border border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50"
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>

@@ -42,9 +42,21 @@ const ITEMS: Item[] = [
 ];
 
 /**
- * Mobile bottom navigation (v1.4 WS2). Shown only on small screens for signed-in
- * users; desktop keeps the top header. Fixed to the bottom with safe-area padding
- * so it clears the iOS home indicator in the installed PWA.
+ * The navigation, on a phone.
+ *
+ * ── WHY IT IS THERE BEFORE YOU SIGN IN ─────────────────────────────────────────────
+ * It used to render only for signed-in visitors. Installed to a home screen and opened, the
+ * app therefore had no tabs at all until you signed in - a page with a header, which is a
+ * website. The bar is how an app is navigated, and it is the first thing that says this is
+ * one, so it is there from the first launch.
+ *
+ * Signed out, the destinations still work: Home and Browse are public, and Tickets, Alerts
+ * and Account lead to sign-in with a `next` that returns you to the tab you picked. That is
+ * a better answer than hiding them, which leaves somebody looking for their tickets with
+ * nothing on screen that mentions tickets.
+ *
+ * Fixed to the bottom with safe-area padding so it clears the gesture bar in the installed
+ * app - which only reports a real inset now that the viewport opts into covering it.
  */
 export function BottomNav() {
   const t = useTranslations('common.nav');
@@ -56,7 +68,7 @@ export function BottomNav() {
     and the pay button — and a navigation bar under it would put five ways to leave the booking
     beneath the one thing the buyer came to press.
   */
-  if (!authed || pathname.startsWith('/shows/')) return null;
+  if (pathname.startsWith('/shows/')) return null;
 
   return (
     <nav
@@ -70,7 +82,16 @@ export function BottomNav() {
           return (
             <li key={item.href} className="flex-1">
               <Link
-                href={item.href}
+                /*
+                  Signed out, the account tabs go to sign-in and come BACK here. Sending
+                  somebody to a bare login screen and dropping the tab they asked for is how a
+                  sign-in turns into "where was I going again".
+                */
+                href={
+                  authed || !item.href.startsWith('/account')
+                    ? item.href
+                    : `/login?next=${encodeURIComponent(item.href)}`
+                }
                 aria-current={active ? 'page' : undefined}
                 className={`flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[0.6875rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
                   active ? 'text-action-primary' : 'text-text-muted hover:text-text-primary'

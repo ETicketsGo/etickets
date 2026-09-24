@@ -101,14 +101,24 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
         are simulated. The old footer said so unconditionally, which would have been a lie
         on the first real sale.
       */}
-      <SiteFooter
-        environmentNotice={
-          (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
-          !process.env.NEXT_PUBLIC_APP_ENV
-            ? null
-            : f('testEnvironment')
-        }
-      />
+      {/*
+        The footer clears the bottom bar too.
+
+        `main` reserved room for it and the footer did not, so on every screen the last line of
+        the footer sat underneath the fixed navigation - measured on the device, the bar covered
+        the environment notice and the feedback button entirely. A fixed bar has to be paid for
+        by everything in the column, not by the one element that remembered.
+      */}
+      <div className="pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0">
+        <SiteFooter
+          environmentNotice={
+            (process.env.NEXT_PUBLIC_APP_ENV ?? '').toUpperCase() === 'PRODUCTION' ||
+            !process.env.NEXT_PUBLIC_APP_ENV
+              ? null
+              : f('testEnvironment')
+          }
+        />
+      </div>
       <FeedbackWidget />
       <BottomNav />
       <InstallPrompt />

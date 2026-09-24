@@ -59,6 +59,22 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#0B0E15' },
   ],
+  /*
+    ── WITHOUT THIS, EVERY SAFE-AREA INSET IS ZERO ──────────────────────────────────
+    The header, the bottom bar, the install prompt and the seat-selection pay bar all reserve
+    room with `env(safe-area-inset-*)`. Measured in the installed app on a real phone, every
+    one of those resolved to `0px`, because a viewport that has not opted into covering the
+    display cutout is never given insets to report. The padding was dead code.
+
+    It also cost the app the screen it was installed to fill: the window measured 873px inside
+    a 915px display, and the 42px difference was a black band under the gesture bar. An app
+    letterboxed inside its own window does not read as an app.
+
+    Opting in means content can now reach under the status bar and the gesture bar, which is
+    exactly why the insets above have to be honoured - and they are, everywhere something is
+    pinned to an edge.
+  */
+  viewportFit: 'cover',
 };
 
 /**

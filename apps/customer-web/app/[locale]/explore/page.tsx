@@ -125,12 +125,20 @@ function SpotlightTile({
   return (
     <Link
       href={href}
-      className="group flex items-center gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
+      /*
+        `min-w-0` on the LINK, not only on the text inside it.
+
+        Without it this tile was 423px wide inside a 379px column on a phone - the 44px icon
+        added on top of a text block that never agreed to shrink - and Explore was the one
+        storefront page that scrolled sideways. A flex row only lets its children shrink when
+        the row itself is allowed to.
+      */
+      className="group flex min-w-0 items-center gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
     >
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tint-primary text-action-primary">
         <Icon className="h-5 w-5" />
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block truncate text-title font-semibold text-text-primary transition-colors group-hover:text-action-primary">
           {title}
         </span>
