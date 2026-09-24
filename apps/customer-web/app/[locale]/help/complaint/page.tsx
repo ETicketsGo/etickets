@@ -41,8 +41,8 @@ export default function ComplaintPage() {
           Make a complaint
         </h1>
         <p className="mt-1 text-[0.9375rem] text-text-muted">
-          Tell us what went wrong with an event you booked. We record it against the organizer,
-          pass it to the person they have named to answer complaints, and follow it up ourselves.
+          Tell us what went wrong with an event you booked. We record it against the organizer, pass
+          it to the person they have named to answer complaints, and follow it up ourselves.
         </p>
       </div>
       {/*

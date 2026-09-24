@@ -22,14 +22,12 @@ function makeService(over: Record<string, unknown> = {}) {
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const prisma = {
     organization: {
-      findUnique: jest
-        .fn()
-        .mockResolvedValue({
-          id: 'org-1',
-          name: 'Aurora Live',
-          slug: 'aurora',
-          status: 'APPROVED',
-        }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'org-1',
+        name: 'Aurora Live',
+        slug: 'aurora',
+        status: 'APPROVED',
+      }),
       update: jest.fn().mockResolvedValue({ id: 'org-1', status: 'SUSPENDED' }),
       delete: jest.fn().mockResolvedValue({ id: 'org-1' }),
     },
