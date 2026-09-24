@@ -24,8 +24,9 @@ export function Section({
   className?: string;
   id?: string;
 }) {
+  // 64px of air above and below every section is a desktop rhythm on a phone.
   return (
-    <section id={id} className={`py-16 sm:py-24 ${className}`}>
+    <section id={id} className={`py-10 sm:py-24 ${className}`}>
       {children}
     </section>
   );
@@ -67,7 +68,7 @@ export function SectionHeading({
           {<Eyebrow>{eyebrow}</Eyebrow>}
         </div>
       )}
-      <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight text-text-primary sm:text-4xl">
+      <h2 className="mt-4 text-balance text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
         {title}
       </h2>
       {lead && (
@@ -115,7 +116,7 @@ export function FeatureCard({
 export function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div className="text-center">
-      <div className="text-3xl font-bold tracking-tight text-text-primary sm:text-4xl">{value}</div>
+      <div className="text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">{value}</div>
       <div className="mt-1 text-caption font-medium uppercase tracking-wide text-text-muted">
         {label}
       </div>
@@ -141,9 +142,9 @@ export function CtaBand({
 }) {
   return (
     <Container>
-      <div className="relative overflow-hidden rounded-3xl border border-action-primary/20 bg-gradient-to-br from-action-primary/10 via-background-surface to-status-info/10 px-6 py-14 text-center shadow-sm sm:px-16">
+      <div className="relative overflow-hidden rounded-3xl border border-action-primary/20 bg-gradient-to-br from-action-primary/10 via-background-surface to-status-info/10 px-6 py-10 text-center shadow-sm sm:px-16 sm:py-14">
         <GradientBackdrop />
-        <h2 className="text-balance text-3xl font-bold tracking-tight text-text-primary sm:text-4xl">
+        <h2 className="text-balance text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
           {title}
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-lg text-text-secondary">{lead}</p>

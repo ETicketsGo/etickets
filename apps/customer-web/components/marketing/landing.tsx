@@ -47,15 +47,25 @@ export function MarketingLanding() {
       {/* ── Hero ── */}
       <div className="relative overflow-hidden border-b border-border">
         <GradientBackdrop />
-        <Container className="pb-16 pt-16 sm:pb-24 sm:pt-24">
+        {/* Tighter above and below the fold on a phone; unchanged from `sm` up. */}
+        <Container className="pb-10 pt-10 sm:pb-24 sm:pt-24">
           <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <Eyebrow>Ticketing platform</Eyebrow>
-              <h1 className="mt-5 text-balance text-4xl font-bold leading-[1.08] tracking-tight text-text-primary sm:text-5xl lg:text-6xl">
+              <h1 className="mt-5 text-balance text-3xl font-bold leading-[1.08] tracking-tight text-text-primary sm:text-5xl lg:text-6xl">
                 Sell tickets. Check in guests.{' '}
                 <span className="text-action-primary">Grow every event.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-text-secondary">
+              {/*
+                `sm:text-lg` keeps the 18px lead from 640px up; only the phone step drops.
+
+                `sm:leading-relaxed` is not decoration. A Tailwind `text-*` utility sets a
+                line-height as well as a size, and the responsive variant is emitted AFTER the
+                plain `leading-relaxed` - so adding `sm:text-lg` silently took the desktop lead
+                from 29.25px leading to 28px and moved the whole page up 4px. Re-asserting the
+                leading at the same breakpoint keeps the desktop rendering exactly as it was.
+              */}
+              <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-text-secondary sm:text-lg sm:leading-relaxed">
                 ETicketsGo runs your box office. Sell tickets, reserve seats, take payments, and
                 scan people in at the gate. Buyers get a clear checkout and a QR ticket on their
                 phone.
@@ -72,7 +82,7 @@ export function MarketingLanding() {
             </div>
             <HeroPreview />
           </div>
-          <div className="mt-16 grid grid-cols-2 gap-6 border-t border-border pt-10 sm:grid-cols-4">
+          <div className="mt-10 grid grid-cols-2 gap-6 border-t border-border pt-8 sm:mt-16 sm:grid-cols-4 sm:pt-10">
             <Stat value="Seat maps" label="Reserved seating" />
             <Stat value="4 providers" label="Payment gateways" />
             <Stat value="Offline" label="Check-in at the gate" />
@@ -186,7 +196,7 @@ export function MarketingLanding() {
           <div className="grid items-center gap-12 lg:grid-cols-2">
             <div>
               <Eyebrow>Never miss a scan</Eyebrow>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-text-primary sm:text-4xl">
+              <h2 className="mt-4 text-2xl font-bold tracking-tight text-text-primary sm:text-4xl">
                 Check people in without a network
               </h2>
               <p className="mt-4 text-lg leading-relaxed text-text-secondary">

@@ -92,7 +92,8 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       <Header />
       <CitySuggestionBar />
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
-      <main className="mx-auto w-full max-w-shell flex-1 px-4 py-10 pb-24 sm:px-6 lg:px-8 lg:pb-10">
+      {/* 40px top and bottom is a desktop rhythm; a phone gets 24 and keeps the rest. */}
+      <main className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10">
         {children}
       </main>
       {/*
