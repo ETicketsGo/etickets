@@ -339,6 +339,19 @@ export default function EventsPage() {
 
   const dateLabel = DATE_WINDOWS.find((w) => w.value === dateWindow)?.label ?? 'Dates';
 
+  /*
+    ── ON A PHONE, THE FILTERS WERE THE WHOLE FIRST SCREEN ──────────────────────────
+    Search, city, category, date and a button, stacked: measured on the device, the first event
+    card began 755px down a 873px screen. Every visit to Browse started by scrolling past a form
+    to reach the thing the page is for.
+
+    So on a phone the search box stays - it is the one field people actually use - and the other
+    three fold behind a Filters button that says how many are applied. Nothing is removed and
+    nothing moves on a larger screen, where the row fits across and costs nothing.
+  */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const narrowingCount = [applied.city, applied.category, applied.dateFrom].filter(Boolean).length;
+
   return (
     <div className="space-y-8">
       <div>
@@ -352,6 +365,7 @@ export default function EventsPage() {
         className="grid gap-3 rounded-lg border border-border bg-background-surface p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto]"
         onSubmit={(e) => {
           e.preventDefault();
+          setFiltersOpen(false);
           void applyFilters();
         }}
       >
@@ -363,8 +377,27 @@ export default function EventsPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <CityField value={city} onChange={setCity} search={preference.searchCities} />
-        {/*
+
+        {/* The way into the other three on a phone. It is a row, not a screenful. */}
+        <div className="flex items-center gap-2 sm:hidden">
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((v) => !v)}
+          >
+            {filtersOpen ? 'Hide filters' : 'Filters'}
+            {narrowingCount > 0 ? ` (${narrowingCount})` : ''}
+          </Button>
+          <Button type="submit" className="flex-1">
+            Search
+          </Button>
+        </div>
+
+        <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 sm:contents`}>
+          <CityField value={city} onChange={setCity} search={preference.searchCities} />
+          {/*
           A list, not a text box.
 
           City and category were both free-text inputs matched with `equals` at the API, so
@@ -373,32 +406,34 @@ export default function EventsPage() {
           set is small, known, and comes with counts — there is no reason to make anyone
           guess at it.
         */}
-        <Select
-          id="category"
-          label="Category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          <option value="">Any category</option>
-          {(catQ.data ?? []).map((c) => (
-            <option key={c.category} value={c.category}>
-              {c.category} ({c.count})
-            </option>
-          ))}
-        </Select>
-        <Select
-          id="dates"
-          label="When"
-          value={dateWindow}
-          onChange={(e) => setDateWindow(e.target.value as DateWindow)}
-        >
-          {DATE_WINDOWS.map((w) => (
-            <option key={w.value} value={w.value}>
-              {w.label}
-            </option>
-          ))}
-        </Select>
-        <div className="flex items-end">
+          <Select
+            id="category"
+            label="Category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="">Any category</option>
+            {(catQ.data ?? []).map((c) => (
+              <option key={c.category} value={c.category}>
+                {c.category} ({c.count})
+              </option>
+            ))}
+          </Select>
+          <Select
+            id="dates"
+            label="When"
+            value={dateWindow}
+            onChange={(e) => setDateWindow(e.target.value as DateWindow)}
+          >
+            {DATE_WINDOWS.map((w) => (
+              <option key={w.value} value={w.value}>
+                {w.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {/* The wide layout keeps its own Search button in the last column. */}
+        <div className="hidden items-end sm:flex">
           <Button type="submit" className="w-full">
             Search
           </Button>
@@ -485,7 +520,10 @@ export default function EventsPage() {
       ) : items.length > 0 ? (
         <>
           <p className="text-caption text-text-muted">
-            Showing {items.length} of {data?.meta.total ?? items.length} event(s)
+            {/* Not "event(s)". A reader gets one number and one word for it. */}
+            {items.length === (data?.meta.total ?? items.length)
+              ? `${items.length} ${items.length === 1 ? 'event' : 'events'}`
+              : `Showing ${items.length} of ${data?.meta.total ?? items.length} events`}
           </p>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {items.map((e) => (

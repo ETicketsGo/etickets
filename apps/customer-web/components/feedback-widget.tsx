@@ -69,7 +69,18 @@ export function FeedbackWidget() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Send feedback"
-        className={`fixed bottom-5 left-5 z-40 ${onSeatPage ? 'hidden lg:flex' : 'flex'} print:hidden items-center gap-2 rounded-full border border-border bg-background-elevated px-4 py-2.5 text-[0.9375rem] font-medium text-text-secondary shadow-lg transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:text-text-primary hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas`}
+        /*
+          ── IT WAS SITTING BEHIND THE NAVIGATION BAR ──────────────────────────────────
+          Pinned 20px from the bottom, under a bar 56px tall. Measured on the device: the
+          button was completely covered on every screen of the signed-in app, so the one
+          control whose job is to let somebody report a problem could not be pressed. While
+          scrolling it was the other way round - it floated over the content, covering the
+          category badge on the first event card.
+
+          It clears the bar and the gesture area now, and sits on the right where a thumb
+          rests rather than over the start of each card.
+        */
+        className={`fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] right-4 z-30 lg:bottom-5 lg:left-5 lg:right-auto ${onSeatPage ? 'hidden lg:flex' : 'flex'} print:hidden items-center gap-2 rounded-full border border-border bg-background-elevated px-4 py-2.5 text-[0.9375rem] font-medium text-text-secondary shadow-lg transition-all duration-200 ease-premium hover:-translate-y-0.5 hover:text-text-primary hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas`}
       >
         <MessageSquarePlus className="h-4 w-4" aria-hidden />
         <span className="hidden sm:inline">Feedback</span>

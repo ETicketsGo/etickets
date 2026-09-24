@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPin, Check, Crosshair, Globe, Search, X, Loader2 } from 'lucide-react';
 import { MARKETS, countryMatches } from '@eticketsgo/shared-types';
 import { api, type ResolvedLocation, type SellableCity } from './api';
@@ -512,6 +513,22 @@ export function CityPicker({
   allCitiesLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  /*
+    ── WHY THIS PANEL CANNOT SIMPLY BE `position: fixed` ────────────────────────────
+    The picker lives in the site header, and that header has `backdrop-blur`. A
+    `backdrop-filter` makes an element a CONTAINING BLOCK for fixed-position descendants, so a
+    "fixed to the bottom of the screen" sheet declared in here is fixed to the bottom of the
+    60px header instead - measured at top:-237px, almost entirely above the fold.
+
+    The same trap had already caught the click-away overlay: `fixed inset-0` covered the header
+    and nothing else, so tapping the page below it never closed the panel.
+
+    On a phone the sheet is therefore portalled to `document.body`, outside the blur, where
+    fixed means fixed. On a wider screen it stays an ordinary dropdown next to the chip, which
+    needs no portal and keeps the panel tied to the control that opened it.
+  */
+  const [isPhone, setIsPhone] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<SellableCity[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -529,6 +546,16 @@ export function CityPicker({
     pickerRequests,
     searchCities,
   } = preference ?? fromContext;
+
+  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const mq = globalThis.matchMedia?.('(max-width: 639px)');
+    if (!mq) return;
+    const sync = () => setIsPhone(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   /*
     An empty page elsewhere can ask this panel to open — see `requestPicker`. Skipped on the
@@ -606,6 +633,16 @@ export function CityPicker({
     setOpen(false);
   };
 
+  /**
+   * Where the open panel is mounted.
+   *
+   * On a phone: `document.body`, so `position: fixed` means the screen rather than the blurred
+   * header it is declared inside. Anywhere wider: right here beside the chip, as an ordinary
+   * dropdown, because that is what ties it to the control that opened it.
+   */
+  const placePanel = (node: React.ReactNode) =>
+    isPhone && mounted ? createPortal(node, document.body) : node;
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       setOpen(false);
@@ -646,62 +683,94 @@ export function CityPicker({
         <span className="max-w-[5.5rem] truncate sm:max-w-[9rem]">{label}</span>
       </button>
 
-      {open ? (
-        <>
-          {/* Click-away, not a focus trap: this is a filter, not a decision to defend. */}
-          <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setOpen(false)} />
-          <div
-            role="dialog"
-            aria-label="Choose your location"
-            onKeyDown={onKeyDown}
-            className="absolute right-0 z-50 mt-2 w-[19rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-background-surface shadow-lg"
-          >
-            {/* Where you are now, stated before anything asks you to change it. */}
-            <div className="flex items-center gap-2 border-b border-border bg-background-subtle px-3 py-2.5">
-              <MapPin className="h-4 w-4 shrink-0 text-action-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[0.9375rem] font-medium text-text-primary">{label}</p>
-                <p className="truncate text-caption text-text-muted">
-                  {city
-                    ? 'Showing events near you'
-                    : country
-                      ? `Showing events across ${countryPhrase(country)}`
-                      : 'Showing events everywhere'}
-                </p>
-              </div>
-              {city ? (
-                <button
-                  type="button"
-                  onClick={() => choose(null)}
-                  aria-label="Clear location and show all cities"
-                  className="rounded-md p-1 text-text-muted transition-colors hover:bg-background-surface hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
+      {open
+        ? placePanel(
+            <>
+              {/*
+            Click-away, not a focus trap: this is a filter, not a decision to defend.
 
-            {typeof navigator !== 'undefined' && navigator.geolocation ? (
-              <button
-                type="button"
-                disabled={locating}
-                onClick={async () => {
-                  // Closed only when the answer changed something. Closing on a refusal hides
-                  // the explanation the person needs and looks exactly like a dead button.
-                  if ((await useMyLocation()) === 'applied') setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-[0.9375rem] font-medium text-action-primary transition-colors hover:bg-background-subtle disabled:opacity-60"
+            Dimmed on a phone, where the panel is a sheet over the page rather than a dropdown
+            hanging off a chip - an undimmed sheet reads as part of the page underneath it.
+          */}
+              <div
+                className="fixed inset-0 z-40 bg-black/40 sm:bg-transparent"
+                aria-hidden="true"
+                onClick={() => setOpen(false)}
+              />
+              <div
+                role="dialog"
+                aria-label="Choose your location"
+                onKeyDown={onKeyDown}
+                /*
+              ── ON A PHONE THIS OPENED 60% OFF THE LEFT EDGE ──────────────────────────
+              It was `absolute right-0`, which aligns the panel's RIGHT edge with the chip's.
+              The chip sits next to the logo at the far left, so a 304px panel hung 181px off
+              the left of a 411px screen and only 40% of it could be read. Measured in the
+              installed app on the device, which is exactly how it was reported.
+
+              Anchoring it left instead would fix this screen and break a 320px one, because
+              the panel is wider than the space to the right of the chip. So on a phone it is
+              not a dropdown at all: it is a bottom sheet, pinned to the edges, thumb-reachable,
+              and impossible to position off-screen. That is also what every app this one sits
+              beside on a home screen does for choosing a city.
+
+              From `sm` up it goes back to being a dropdown under the chip, anchored LEFT
+              because that is the side the chip is on.
+            */
+                className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-hidden rounded-t-2xl border border-border bg-background-surface pb-[env(safe-area-inset-bottom)] shadow-lg sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-2 sm:w-[19rem] sm:max-w-[calc(100vw-2rem)] sm:rounded-lg sm:pb-0"
               >
-                {locating ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                ) : (
-                  <Crosshair className="h-4 w-4 shrink-0" />
-                )}
-                {locating ? 'Finding you…' : 'Use my current location'}
-              </button>
-            ) : null}
+                {/* A handle, because a sheet that can be dismissed should look like one. */}
+                <div className="flex justify-center pt-2 sm:hidden" aria-hidden="true">
+                  <span className="h-1 w-10 rounded-full bg-border" />
+                </div>
+                {/* Where you are now, stated before anything asks you to change it. */}
+                <div className="flex items-center gap-2 border-b border-border bg-background-subtle px-3 py-2.5">
+                  <MapPin className="h-4 w-4 shrink-0 text-action-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[0.9375rem] font-medium text-text-primary">
+                      {label}
+                    </p>
+                    <p className="truncate text-caption text-text-muted">
+                      {city
+                        ? 'Showing events near you'
+                        : country
+                          ? `Showing events across ${countryPhrase(country)}`
+                          : 'Showing events everywhere'}
+                    </p>
+                  </div>
+                  {city ? (
+                    <button
+                      type="button"
+                      onClick={() => choose(null)}
+                      aria-label="Clear location and show all cities"
+                      className="rounded-md p-1 text-text-muted transition-colors hover:bg-background-surface hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
 
-            {/*
+                {typeof navigator !== 'undefined' && navigator.geolocation ? (
+                  <button
+                    type="button"
+                    disabled={locating}
+                    onClick={async () => {
+                      // Closed only when the answer changed something. Closing on a refusal hides
+                      // the explanation the person needs and looks exactly like a dead button.
+                      if ((await useMyLocation()) === 'applied') setOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-[0.9375rem] font-medium text-action-primary transition-colors hover:bg-background-subtle disabled:opacity-60"
+                  >
+                    {locating ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    ) : (
+                      <Crosshair className="h-4 w-4 shrink-0" />
+                    )}
+                    {locating ? 'Finding you…' : 'Use my current location'}
+                  </button>
+                ) : null}
+
+                {/*
               What happened, in the panel that is still open because of it.
 
               Stated and no more. What to do next is already on screen — the search box sits
@@ -709,105 +778,115 @@ export function CityPicker({
               and names the box. Repeating "search for a city" twice in four inches is how a
               panel starts to sound like it is apologising.
             */}
-            {locateError && !locating ? (
-              <p
-                role="status"
-                className="border-b border-border bg-background-subtle px-3 py-2.5 text-caption text-text-secondary"
-              >
-                {locateError === 'refused'
-                  ? 'Your browser did not share your location.'
-                  : 'We could not find one of our cities near you.'}
-              </p>
-            ) : null}
+                {locateError && !locating ? (
+                  <p
+                    role="status"
+                    className="border-b border-border bg-background-subtle px-3 py-2.5 text-caption text-text-secondary"
+                  >
+                    {locateError === 'refused'
+                      ? 'Your browser did not share your location.'
+                      : 'We could not find one of our cities near you.'}
+                  </p>
+                ) : null}
 
-            <div className="relative border-b border-border">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-              <input
-                ref={inputRef}
-                type="text"
-                role="combobox"
-                aria-expanded="true"
-                aria-controls="city-results"
-                aria-autocomplete="list"
-                aria-label="Search for a city"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search for a city…"
-                className="w-full bg-transparent py-2.5 pl-9 pr-3 text-[0.9375rem] text-text-primary placeholder:text-text-muted focus:outline-none"
-              />
-            </div>
+                <div className="relative border-b border-border">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    role="combobox"
+                    aria-expanded="true"
+                    aria-controls="city-results"
+                    aria-autocomplete="list"
+                    aria-label="Search for a city"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search for a city…"
+                    className="w-full bg-transparent py-2.5 pl-9 pr-3 text-[0.9375rem] text-text-primary placeholder:text-text-muted focus:outline-none"
+                  />
+                </div>
 
-            <ul id="city-results" role="listbox" className="max-h-64 overflow-auto p-1.5">
-              {/* Named, so the shortlist before you type is not mistaken for all of them. */}
-              {!results && shown.length > 0 ? (
-                <li
-                  aria-hidden="true"
-                  className="px-2.5 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-text-muted"
+                <ul
+                  id="city-results"
+                  role="listbox"
+                  className="max-h-[45vh] overflow-auto p-1.5 sm:max-h-64"
                 >
-                  Popular near you
-                </li>
-              ) : null}
+                  {/* Named, so the shortlist before you type is not mistaken for all of them. */}
+                  {!results && shown.length > 0 ? (
+                    <li
+                      aria-hidden="true"
+                      className="px-2.5 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-text-muted"
+                    >
+                      Popular near you
+                    </li>
+                  ) : null}
 
-              {/*
+                  {/*
                 Said plainly, because the alternative is a panel that looks like it failed to
                 load. Scoping to a country we do not sell in yet is correct and it is not
                 obvious, so the picker says so and points at the box directly above it.
               */}
-              {!results && shown.length === 0 && country ? (
-                <li className="px-2.5 py-3 text-[0.9375rem] text-text-secondary">
-                  We have nothing on sale in {countryPhrase(country)} yet. To look somewhere else,
-                  search for the city above.
-                </li>
-              ) : null}
+                  {!results && shown.length === 0 && country ? (
+                    <li className="px-2.5 py-3 text-[0.9375rem] text-text-secondary">
+                      We have nothing on sale in {countryPhrase(country)} yet. To look somewhere
+                      else, search for the city above.
+                    </li>
+                  ) : null}
 
-              {shown.map((c, i) => (
-                <li key={`${c.country}-${c.city}`} role="option" aria-selected={city === c.city}>
-                  <button
-                    type="button"
-                    onClick={() => choose(c.city)}
-                    onMouseEnter={() => setActive(i)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
-                      i === active ? 'bg-background-subtle' : ''
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {c.city}
-                      {/* The country disambiguates: more than one place is called Springfield. */}
-                      <span className="ml-1.5 text-caption text-text-muted">{c.country}</span>
-                    </span>
-                    {/* The count is the honest reason to pick one city over another. */}
-                    <span className="shrink-0 text-caption text-text-muted">{c.eventCount}</span>
-                    {city === c.city ? (
-                      <Check className="h-4 w-4 shrink-0 text-action-primary" />
-                    ) : null}
-                  </button>
-                </li>
-              ))}
+                  {shown.map((c, i) => (
+                    <li
+                      key={`${c.country}-${c.city}`}
+                      role="option"
+                      aria-selected={city === c.city}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => choose(c.city)}
+                        onMouseEnter={() => setActive(i)}
+                        className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
+                          i === active ? 'bg-background-subtle' : ''
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {c.city}
+                          {/* The country disambiguates: more than one place is called Springfield. */}
+                          <span className="ml-1.5 text-caption text-text-muted">{c.country}</span>
+                        </span>
+                        {/* The count is the honest reason to pick one city over another. */}
+                        <span className="shrink-0 text-caption text-text-muted">
+                          {c.eventCount}
+                        </span>
+                        {city === c.city ? (
+                          <Check className="h-4 w-4 shrink-0 text-action-primary" />
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
 
-              {q.trim() && !searching && shown.length === 0 ? (
-                <li className="px-2.5 py-3 text-caption text-text-muted">
-                  {/*
+                  {q.trim() && !searching && shown.length === 0 ? (
+                    <li className="px-2.5 py-3 text-caption text-text-muted">
+                      {/*
                     Names the reason. A city with nothing on sale is not a city we are
                     hiding — it is a city with nothing on sale, and saying so stops the
                     customer retyping it.
                   */}
-                  No cities matching &ldquo;{q.trim()}&rdquo; have events on sale.
-                </li>
-              ) : null}
+                      No cities matching &ldquo;{q.trim()}&rdquo; have events on sale.
+                    </li>
+                  ) : null}
 
-              {/*
+                  {/*
                 Only when there is no country to blame it on. With one, the line above has
                 already explained the same emptiness in more useful words, and printing both
                 reads as the panel arguing with itself.
               */}
-              {!q.trim() && shown.length === 0 && !country ? (
-                <li className="px-2.5 py-3 text-caption text-text-muted">
-                  No cities with events on sale yet.
-                </li>
-              ) : null}
-            </ul>
+                  {!q.trim() && shown.length === 0 && !country ? (
+                    <li className="px-2.5 py-3 text-caption text-text-muted">
+                      No cities with events on sale yet.
+                    </li>
+                  ) : null}
+                </ul>
 
-            {/*
+                {/*
               ONE way out, last and quiet — never the headline.
 
               It widens to the country and stops there. There is deliberately no "every
@@ -816,20 +895,21 @@ export function CityPicker({
               somewhere they cannot buy a ticket. Looking abroad is a deliberate act with a
               place already in mind, which is what the search box above is for.
             */}
-            <button
-              type="button"
-              onClick={() => choose(null)}
-              className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle"
-            >
-              <Globe className="h-4 w-4 shrink-0 text-text-muted" />
-              <span className="flex-1">
-                {country ? `All cities in ${countryPhrase(country)}` : 'All cities'}
-              </span>
-              {city === null ? <Check className="h-4 w-4 text-action-primary" /> : null}
-            </button>
-          </div>
-        </>
-      ) : null}
+                <button
+                  type="button"
+                  onClick={() => choose(null)}
+                  className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[0.9375rem] text-text-secondary transition-colors hover:bg-background-subtle"
+                >
+                  <Globe className="h-4 w-4 shrink-0 text-text-muted" />
+                  <span className="flex-1">
+                    {country ? `All cities in ${countryPhrase(country)}` : 'All cities'}
+                  </span>
+                  {city === null ? <Check className="h-4 w-4 text-action-primary" /> : null}
+                </button>
+              </div>
+            </>,
+          )
+        : null}
     </div>
   );
 }
