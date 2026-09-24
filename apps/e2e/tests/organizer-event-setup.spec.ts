@@ -132,6 +132,8 @@ test.describe('creating an event', () => {
 test.describe('trusting an organizer to publish without review', () => {
   let adminTokens: Awaited<ReturnType<typeof apiLogin>>;
   let orgId = '';
+  /** Kept so the admin list can be asked for THIS organization rather than paged through. */
+  let orgName = '';
 
   test.beforeAll(async ({ request }) => {
     adminTokens = await tokens(request, ADMIN_EMAIL);
@@ -151,7 +153,9 @@ test.describe('trusting an organizer to publish without review', () => {
         headers: { Authorization: `Bearer ${orgTokens.accessToken}` },
       })
     ).json();
-    orgId = (Array.isArray(mine) ? mine : mine.data)[0].id;
+    const own = (Array.isArray(mine) ? mine : mine.data)[0];
+    orgId = own.id;
+    orgName = own.name;
   });
 
   test.beforeEach(async ({ context }) => {
@@ -190,13 +194,26 @@ test.describe('trusting an organizer to publish without review', () => {
       timeout: 30_000,
     });
 
-    // Left as it was found, so this suite can run twice.
+    /*
+      Left as it was found, so this suite can run twice - and read back by SEARCHING for this
+      organization rather than asking for the first fifty and hoping.
+
+      `pageSize=50` was a bet on the platform never holding more than fifty organizations. On a
+      database that had been used it held 53, this one was not among the first fifty, and the
+      assertion failed on `undefined.autoApproveEvents` - a null-dereference that said nothing
+      about the flag it was checking.
+    */
     const after = await (
-      await request.get(`${API}/admin/organizers?page=1&pageSize=50`, {
-        headers: { Authorization: `Bearer ${adminTokens.accessToken}` },
-      })
+      await request.get(
+        `${API}/admin/organizers?page=1&pageSize=25&q=${encodeURIComponent(orgName)}`,
+        { headers: { Authorization: `Bearer ${adminTokens.accessToken}` } },
+      )
     ).json();
     const row = after.data.find((o: { id: string }) => o.id === orgId);
+    expect(
+      row,
+      `the organization this test created was not returned for "${orgName}"`,
+    ).toBeTruthy();
     expect(row.autoApproveEvents).toBe(false);
   });
 
