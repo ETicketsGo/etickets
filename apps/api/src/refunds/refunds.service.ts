@@ -581,8 +581,30 @@ export class RefundsService {
     return this.prisma.refund.findMany({ where: { bookingId }, orderBy: { createdAt: 'desc' } });
   }
 
-  async adminList(status: RefundStatus | undefined, page: number, pageSize: number) {
-    const where = status ? { status } : {};
+  /**
+   * The platform refund queue.
+   *
+   * Search reaches the database. It used to filter the fetched page in the browser, so a buyer
+   * chasing their money was findable only if their request happened to be among the newest
+   * fifteen - which is the opposite of who needs chasing.
+   */
+  async adminList(
+    status: RefundStatus | undefined,
+    page: number,
+    pageSize: number,
+    query?: string,
+  ) {
+    const where: Prisma.RefundWhereInput = {
+      ...(status ? { status } : {}),
+      ...(query
+        ? {
+            OR: [
+              { booking: { buyerEmail: { contains: query, mode: 'insensitive' } } },
+              { booking: { reference: { contains: query, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.refund.count({ where }),
       this.prisma.refund.findMany({
@@ -592,7 +614,17 @@ export class RefundsService {
         orderBy: { createdAt: 'desc' },
         // A Refund has no currency column; it is paid back in its booking's. Without it the
         // queue formatted every amount as rupees.
-        include: { booking: { select: { buyerEmail: true, eventId: true, currency: true } } },
+        include: {
+          booking: {
+            select: {
+              buyerEmail: true,
+              eventId: true,
+              currency: true,
+              reference: true,
+              event: { select: { title: true } },
+            },
+          },
+        },
       }),
     ]);
     return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };

@@ -53,8 +53,30 @@ export class AdminService {
     };
   }
 
-  async payments(params: { page: number; pageSize: number; status?: string }) {
-    const where = params.status ? { status: params.status as never } : {};
+  /**
+   * The payment ledger.
+   *
+   * Search reaches the database, like the booking queue beside it already did: it used to filter
+   * the fetched page in the browser, so looking for a buyer found them only if they were already
+   * on screen. A provider reference is searchable too, because that is what a provider's own
+   * dashboard gives you when you are chasing one charge.
+   *
+   * The booking's reference and event come back as well. A payment on its own is an amount and
+   * an opaque id; what somebody actually needs is which sale it was.
+   */
+  async payments(params: { page: number; pageSize: number; status?: string; q?: string }) {
+    const where = {
+      ...(params.status ? { status: params.status as never } : {}),
+      ...(params.q
+        ? {
+            OR: [
+              { providerRef: { contains: params.q, mode: 'insensitive' as const } },
+              { booking: { buyerEmail: { contains: params.q, mode: 'insensitive' as const } } },
+              { booking: { reference: { contains: params.q, mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}),
+    };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.payment.count({ where }),
       this.prisma.payment.findMany({
@@ -62,7 +84,11 @@ export class AdminService {
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
         orderBy: { createdAt: 'desc' },
-        include: { booking: { select: { buyerEmail: true } } },
+        include: {
+          booking: {
+            select: { buyerEmail: true, reference: true, event: { select: { title: true } } },
+          },
+        },
       }),
     ]);
     return {
@@ -77,6 +103,8 @@ export class AdminService {
         createdAt: p.createdAt,
         bookingId: p.bookingId,
         buyerEmail: p.booking.buyerEmail,
+        bookingReference: p.booking.reference,
+        eventTitle: p.booking.event.title,
       })),
       meta: paginate(params.page, params.pageSize, total),
     };

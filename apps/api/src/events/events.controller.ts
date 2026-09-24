@@ -468,16 +468,21 @@ export class AdminEventsController {
   list(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({ status: z.nativeEnum(EventStatus).optional() }),
+        paginationSchema.extend({
+          status: z.nativeEnum(EventStatus).optional(),
+          // Searched in the DATABASE, across title, organizer and city.
+          q: z.string().trim().optional(),
+        }),
       ),
     )
     q: {
       page: number;
       pageSize: number;
       status?: EventStatus;
+      q?: string;
     },
   ) {
-    return this.events.adminList(q.status, q.page, q.pageSize);
+    return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined);
   }
 
   @Post(':id/review')

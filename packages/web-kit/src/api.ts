@@ -1630,7 +1630,8 @@ export const api = {
       request<Paged<AuditRow>>(`/admin/audit${qs(params)}`),
     auditSummary: (params?: AuditFilters) =>
       request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
-    organizers: (params: PageParams & { status?: string }) =>
+    /* Every one of these searches in the DATABASE. They used to filter the fetched page. */
+    organizers: (params: PageParams & { status?: string; q?: string }) =>
       request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
     reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
@@ -1694,7 +1695,7 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }),
-    events: (params: PageParams & { status?: string }) =>
+    events: (params: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/review`, {
@@ -1708,9 +1709,9 @@ export const api = {
       }),
     bookings: (params: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
-    payments: (params: PageParams & { status?: string }) =>
+    payments: (params: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
-    refunds: (params: PageParams & { status?: string }) =>
+    refunds: (params: PageParams & { status?: string; q?: string }) =>
       request<Paged<RefundRow>>(`/admin/refunds${qs(params)}`),
     /** One refund by id — the detail page used to search the newest hundred for it. */
     refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
@@ -2728,6 +2729,13 @@ export interface Organization {
   name: string;
   slug: string;
   status: string;
+  /**
+   * Open complaints against this organizer, on the admin list only.
+   *
+   * In the queue because "should this seller keep selling" is the decision the queue exists for,
+   * and it cannot be made from a name and a join date.
+   */
+  openComplaints?: number;
   contactEmail: string | null;
   createdAt: string;
   /**
@@ -3924,7 +3932,13 @@ export interface RefundRow {
   ticketIds: string[];
   createdAt: string;
   /** `currency` is the booking's: a refund is paid back in it and has no column of its own. */
-  booking?: { buyerEmail: string; eventId: string; currency: string };
+  booking?: {
+    buyerEmail: string;
+    eventId: string;
+    currency: string;
+    reference?: string | null;
+    event?: { title: string };
+  };
 }
 
 /** The seller's legal + tax identity, plus what is still missing to issue a tax invoice. */
@@ -4696,6 +4710,16 @@ export interface AdminEventRow {
   updatedAt: string;
   organization: { name: string };
   venue: { name: string; city: string };
+  /**
+   * When the event actually happens, as opposed to when its row was last edited.
+   *
+   * A moderator is deciding about something that takes place on a date, and "updated 19
+   * September" does not say whether the show has already been and gone. Null where the event has
+   * no session at all - which means nobody can buy a ticket to it, and is worth seeing.
+   */
+  firstSessionAt: string | null;
+  lastSessionAt: string | null;
+  sessionCount: number;
 }
 export interface AdminBookingRow {
   id: string;
@@ -4720,6 +4744,9 @@ export interface AdminPaymentRow {
   createdAt: string;
   bookingId: string;
   buyerEmail: string;
+  /** Which sale this paid for. A payment on its own is an amount and an opaque id. */
+  bookingReference: string | null;
+  eventTitle: string;
 }
 export interface AuditRow {
   id: string;

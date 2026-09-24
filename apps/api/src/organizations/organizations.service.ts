@@ -2,7 +2,8 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
-import { NotificationType, OrganizationStatus, Role } from '@eticketsgo/shared-types';
+import { Prisma } from '@prisma/client';
+import { FeedbackKind, NotificationType, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
   AcceptInvitationInput,
@@ -902,8 +903,39 @@ export class OrganizationsService {
 
   // ─── Admin ───
 
-  async adminList(status: OrganizationStatus | undefined, page: number, pageSize: number) {
-    const where = status ? { status } : {};
+  /**
+   * The organizer queue.
+   *
+   * ── SEARCH REACHES THE DATABASE ────────────────────────────────────────────────────
+   * The console used to fetch a page and filter it in the browser, so typing a name found it
+   * only if it happened to be among the fifteen rows already on screen - under a pager that
+   * still counted every organization. A search box that silently searches one page is worse
+   * than no search box, because it answers "no such organizer" with confidence.
+   *
+   * ── AND THE QUEUE CARRIES WHAT THE DECISION NEEDS ─────────────────────────────────
+   * The slug, because two organizations can be called the same thing and the list had nothing
+   * to tell them apart, and the count of open complaints, because "should this seller keep
+   * selling" is the decision this page exists for. Both come from one extra query for the
+   * page, not one per row.
+   */
+  async adminList(
+    status: OrganizationStatus | undefined,
+    page: number,
+    pageSize: number,
+    query?: string,
+  ) {
+    const where: Prisma.OrganizationWhereInput = {
+      ...(status ? { status } : {}),
+      ...(query
+        ? {
+            OR: [
+              { name: { contains: query, mode: 'insensitive' } },
+              { slug: { contains: query, mode: 'insensitive' } },
+              { legalName: { contains: query, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.organization.count({ where }),
       this.prisma.organization.findMany({
@@ -916,7 +948,32 @@ export class OrganizationsService {
         include: { _count: { select: { members: true, events: true } } },
       }),
     ]);
-    return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
+
+    /*
+      Complaints in one grouped query for the whole page. `Feedback.organizationId` carries no
+      foreign key on purpose - a complaint outlives the organization it was about - so this is
+      a plain grouping rather than a relation count.
+    */
+    const ids = data.map((o) => o.id);
+    const complaints = ids.length
+      ? await this.prisma.feedback.groupBy({
+          by: ['organizationId'],
+          where: {
+            organizationId: { in: ids },
+            kind: FeedbackKind.COMPLAINT,
+            status: { not: 'CLOSED' },
+          },
+          _count: { _all: true },
+        })
+      : [];
+    const openByOrg = new Map(
+      complaints.map((c) => [c.organizationId as string, c._count._all] as const),
+    );
+
+    return {
+      data: data.map((o) => ({ ...o, openComplaints: openByOrg.get(o.id) ?? 0 })),
+      meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
   }
 
   /**

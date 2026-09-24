@@ -267,16 +267,21 @@ export class AdminOrganizationsController {
   list(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({ status: z.nativeEnum(OrganizationStatus).optional() }),
+        paginationSchema.extend({
+          status: z.nativeEnum(OrganizationStatus).optional(),
+          // Searched in the DATABASE. The console used to filter the fetched page.
+          q: z.string().trim().optional(),
+        }),
       ),
     )
     q: {
       page: number;
       pageSize: number;
       status?: OrganizationStatus;
+      q?: string;
     },
   ) {
-    return this.orgs.adminList(q.status, q.page, q.pageSize);
+    return this.orgs.adminList(q.status, q.page, q.pageSize, q.q || undefined);
   }
 
   /**

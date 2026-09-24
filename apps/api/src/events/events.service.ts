@@ -1416,8 +1416,32 @@ export class EventsService {
 
   // ─── Admin ───
 
-  async adminList(status: EventStatus | undefined, page: number, pageSize: number) {
-    const where = status ? { status } : {};
+  /**
+   * The moderation queue.
+   *
+   * ── SEARCH REACHES THE DATABASE ────────────────────────────────────────────────────
+   * It used to filter the fetched page in the browser, so searching for an event found it only
+   * if it was already on screen, under a pager counting every event on the platform.
+   *
+   * ── AND THE ROW SAYS WHEN THE EVENT IS ────────────────────────────────────────────
+   * The list showed the category and the date the ROW was last edited. Neither is what a
+   * moderator needs: they are deciding about something that happens on a date, and "updated 19
+   * September" says nothing about whether the show has already been and gone. The first and
+   * last session come from one grouped query for the page.
+   */
+  async adminList(status: EventStatus | undefined, page: number, pageSize: number, query?: string) {
+    const where: Prisma.EventWhereInput = {
+      ...(status ? { status } : {}),
+      ...(query
+        ? {
+            OR: [
+              { title: { contains: query, mode: 'insensitive' } },
+              { organization: { name: { contains: query, mode: 'insensitive' } } },
+              { venue: { city: { contains: query, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.event.count({ where }),
       this.prisma.event.findMany({
@@ -1431,7 +1455,32 @@ export class EventsService {
         },
       }),
     ]);
-    return { data, meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
+
+    const ids = data.map((e) => e.id);
+    const schedule = ids.length
+      ? await this.prisma.eventSession.groupBy({
+          by: ['eventId'],
+          where: { eventId: { in: ids } },
+          _min: { startsAt: true },
+          _max: { startsAt: true },
+          _count: { _all: true },
+        })
+      : [];
+    const byEvent = new Map(schedule.map((s) => [s.eventId, s] as const));
+
+    return {
+      data: data.map((e) => {
+        const s = byEvent.get(e.id);
+        return {
+          ...e,
+          firstSessionAt: s?._min.startsAt ?? null,
+          lastSessionAt: s?._max.startsAt ?? null,
+          // An event with no session cannot be bought at all, which is worth seeing in a queue.
+          sessionCount: s?._count._all ?? 0,
+        };
+      }),
+      meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+    };
   }
 
   async review(admin: RequestUser, id: string, input: ReviewDecisionInput) {

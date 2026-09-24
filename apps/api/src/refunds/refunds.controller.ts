@@ -93,16 +93,21 @@ export class AdminRefundsController {
   list(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({ status: z.nativeEnum(RefundStatus).optional() }),
+        paginationSchema.extend({
+          status: z.nativeEnum(RefundStatus).optional(),
+          // Searched in the DATABASE: buyer email or booking reference.
+          q: z.string().trim().optional(),
+        }),
       ),
     )
     q: {
       page: number;
       pageSize: number;
       status?: RefundStatus;
+      q?: string;
     },
   ) {
-    return this.refunds.adminList(q.status, q.page, q.pageSize);
+    return this.refunds.adminList(q.status, q.page, q.pageSize, q.q || undefined);
   }
 
   /*
