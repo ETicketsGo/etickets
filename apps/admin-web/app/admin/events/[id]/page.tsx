@@ -28,6 +28,20 @@ export default function AdminEventDetail() {
   const toast = useToast();
   const [note, setNote] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const remove = useMutation({
+    mutationFn: () => api.events.remove(id),
+    onSuccess: () => {
+      toast.push('Event deleted.', 'success');
+      // Nothing left on this page to look at.
+      window.location.href = '/admin/events';
+    },
+    onError: (e) => {
+      setConfirmDelete(false);
+      toast.push(errorMessage(e), 'error');
+    },
+  });
 
   const {
     data: event,
@@ -240,6 +254,16 @@ export default function AdminEventDetail() {
                 Cancel event
               </Button>
             )}
+            {/*
+              Delete, which the console had no way to do at all - an admin could cancel an
+              event and nothing more, so a duplicate or a test event stayed on the books
+              forever. The API refuses one that has ANY booking against it, including an
+              expired hold, and says so; this surfaces that refusal rather than hiding the
+              button, because "why can I not delete this" is the question worth answering.
+            */}
+            <Button variant="ghost" className="w-full" onClick={() => setConfirmDelete(true)}>
+              Delete event
+            </Button>
           </div>
         </Card>
       </div>
@@ -264,6 +288,29 @@ export default function AdminEventDetail() {
         }
       >
         This will set the event to CANCELLED. Existing bookings are not automatically refunded.
+      </Dialog>
+
+      <Dialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title={`Delete ${event.title}?`}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>
+              Delete permanently
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          This removes the event, its sessions and its ticket types. It is refused if anybody has
+          ever booked against it - even a cancelled booking or an expired hold - because those
+          records outlive the event. Cancel it instead in that case, which keeps the record and
+          stops the sales.
+        </p>
       </Dialog>
     </div>
   );

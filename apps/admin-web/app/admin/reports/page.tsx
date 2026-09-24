@@ -4,12 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   api,
+  Badge,
   Button,
   Card,
   DataTable,
   EmptyState,
   ErrorState,
   Input,
+  MARKETS,
   MetricCard,
   PageHeader,
   Skeleton,
@@ -19,6 +21,7 @@ import {
   useToast,
   errorMessage,
   type Column,
+  type MarketRevenueRow,
   type ReportCsvName,
   type ReportRange,
   type OrganizerRevenueRow,
@@ -33,18 +36,30 @@ function isoDaysAgo(days: number): string {
 }
 const TODAY = new Date().toISOString().slice(0, 10);
 
+/*
+  ── TEN EQUAL BUTTONS ARE NOT A MENU ─────────────────────────────────────────────────
+  Every report was a button in one undifferentiated row, so finding "who owes us money" meant
+  reading all ten. They are three different jobs - what was sold, what is owed, and how the
+  platform is doing - and the strip now says so.
+
+  "By market" comes first and opens by default. It is the question somebody arrives with, and
+  it is the one the page used to answer only by implication: a single INR block, with no way to
+  tell a platform that sells nowhere else from a report that had dropped the other markets.
+*/
 const TABS = [
-  { key: 'daily-revenue', label: 'Daily Revenue' },
-  { key: 'organizer-revenue', label: 'Organizer Revenue' },
-  { key: 'settlement', label: 'Settlement' },
-  { key: 'refunds', label: 'Refund Report' },
-  { key: 'platform-fees', label: 'Platform Fees' },
-  { key: 'tax', label: 'Tax' },
-  { key: 'top-experiences', label: 'Top Experiences' },
-  { key: 'growth', label: 'Growth & Retention' },
-  { key: 'payment-health', label: 'Payment Health' },
+  { key: 'by-market', label: 'By market', group: 'Sales' },
+  { key: 'daily-revenue', label: 'Day by day', group: 'Sales' },
+  { key: 'organizer-revenue', label: 'By organizer', group: 'Sales' },
+  { key: 'top-experiences', label: 'Top experiences', group: 'Sales' },
+  { key: 'settlement', label: 'Settlement', group: 'Money owed' },
+  { key: 'refunds', label: 'Refunds', group: 'Money owed' },
+  { key: 'platform-fees', label: 'Platform fees', group: 'Money owed' },
+  { key: 'tax', label: 'Tax', group: 'Money owed' },
+  { key: 'growth', label: 'Growth', group: 'Platform health' },
+  { key: 'payment-health', label: 'Payments', group: 'Platform health' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
+const TAB_GROUPS = ['Sales', 'Money owed', 'Platform health'] as const;
 
 function BarRow({
   label,
@@ -133,11 +148,144 @@ function Section<T>({
  *
  * A single-currency platform renders exactly one block and reads as it always did.
  */
+/**
+ * Which countries price in a currency, so a block can say "India" and not only "INR".
+ *
+ * A currency is not a country. INR is India alone, and USD is the United States today and one
+ * of several dollar markets the day a second is configured - so the label is built from the
+ * market list rather than assumed, and a shared currency names every country that uses it.
+ */
+const COUNTRIES_BY_CURRENCY = new Map<string, string[]>();
+for (const m of MARKETS) {
+  COUNTRIES_BY_CURRENCY.set(m.currency, [...(COUNTRIES_BY_CURRENCY.get(m.currency) ?? []), m.name]);
+}
+function currencyLabel(currency: string): string {
+  const countries = COUNTRIES_BY_CURRENCY.get(currency);
+  return countries?.length ? `${countries.join(' / ')} - ${currency}` : currency;
+}
+
+/*
+  Shown even when there is only ONE block.
+
+  It used to be hidden for a single-currency platform, on the reasoning that a heading over one
+  thing says nothing. It says the most important thing: WHICH market these figures are. A page
+  of rupee totals with no heading reads as "the platform", and an operator cannot tell it from a
+  report that has silently lost every other market.
+*/
 function CurrencyHeading({ currency }: { currency: string }) {
   return (
     <h3 className="text-caption font-semibold uppercase tracking-wide text-text-muted">
-      {currency}
+      {currencyLabel(currency)}
     </h3>
+  );
+}
+
+/**
+ * One card per country, and a named line for every market that sold nothing.
+ *
+ * ── WHY CARDS AND NOT A TABLE ──────────────────────────────────────────────────────
+ * The figures are gross, fees, refunds, net, bookings, organizers and events - seven columns,
+ * which is how the admin console came to scroll sideways everywhere. A market is also not a row
+ * somebody scans past: there are a handful of them, and each one is a small report. So each
+ * gets a card, and the currency symbol sits on every amount inside it, because two cards on the
+ * same screen are in two different currencies.
+ */
+function MarketCard({ row }: { row: MarketRevenueRow }) {
+  return (
+    <Card
+      title={row.country}
+      action={
+        <div className="flex items-center gap-2">
+          {!row.configured && <Badge tone="warning">Not a configured market</Badge>}
+          <Badge tone="neutral">{row.currency}</Badge>
+        </div>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          label="Gross ticket sales"
+          value={money(row.grossMinor, row.currency)}
+          tone="success"
+        />
+        <MetricCard
+          label="Platform fees"
+          value={money(row.platformFeesMinor, row.currency)}
+          tone="info"
+        />
+        <MetricCard
+          label="Refunds"
+          value={money(row.refundsMinor, row.currency)}
+          tone={row.refundsMinor > 0 ? 'warning' : 'neutral'}
+        />
+        <MetricCard label="Net" value={money(row.netMinor, row.currency)} />
+      </div>
+      <p className="mt-4 text-caption text-text-muted">
+        {row.bookings} booking{row.bookings === 1 ? '' : 's'} · {row.organizers} organizer
+        {row.organizers === 1 ? '' : 's'} · {row.events} event{row.events === 1 ? '' : 's'}
+      </p>
+      {!row.configured && (
+        <p className="mt-2 text-caption text-status-warning">
+          A venue here holds a country the platform has no currency, payment routing or fee
+          configuration for. Check the venue address.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function ByMarketSection({ range }: { range: ReportRange }) {
+  const query = useQuery({
+    queryKey: ['admin', 'reports', 'by-market', range],
+    queryFn: () => api.admin.reports.byMarket(range),
+  });
+  return (
+    <Section query={query}>
+      {(d) => {
+        const trading = d.markets.filter((m) => m.bookings > 0 || m.refundsMinor > 0);
+        const idle = d.markets.filter((m) => m.bookings === 0 && m.refundsMinor === 0);
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-text-secondary">
+                {trading.length === 0
+                  ? 'No market sold a ticket in this range.'
+                  : `Selling in ${trading.length} of ${MARKETS.length} configured market${
+                      MARKETS.length === 1 ? '' : 's'
+                    }. Each amount is in that market's own currency - nothing on this page adds two currencies together.`}
+              </p>
+              <ExportCsvButton report="by-market" params={range} />
+            </div>
+
+            {trading.map((m) => (
+              <MarketCard key={`${m.country}:${m.currency}`} row={m} />
+            ))}
+
+            {idle.length > 0 && (
+              <Card title="Configured, with nothing sold in this range">
+                {/*
+                  The point of the whole section. A market with no sales used to be absent, and an
+                  absent market is indistinguishable from a broken report - which is exactly the
+                  question that got asked about a page showing only rupees.
+                */}
+                <ul className="divide-y divide-border">
+                  {idle.map((m) => (
+                    <li
+                      key={`${m.country}:${m.currency}`}
+                      className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"
+                    >
+                      <span className="font-medium text-text-primary">{m.country}</span>
+                      <span className="text-caption text-text-muted">
+                        {m.currency} · nothing sold
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+          </div>
+        );
+      }}
+    </Section>
   );
 }
 
@@ -155,7 +303,7 @@ function DailyRevenueSection({ range }: { range: ReportRange }) {
             const maxGross = Math.max(1, ...c.series.map((s) => s.grossMinor));
             return (
               <div key={c.currency} className="space-y-5">
-                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <CurrencyHeading currency={c.currency} />
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <MetricCard
                     label="Gross ticket sales"
@@ -175,7 +323,7 @@ function DailyRevenueSection({ range }: { range: ReportRange }) {
                   <MetricCard label="Net GMV" value={money(c.totals.netMinor, c.currency)} />
                 </div>
                 <Card
-                  title={`Gross by day — ${c.currency}`}
+                  title={`Gross by day - ${currencyLabel(c.currency)}`}
                   action={<ExportCsvButton report="daily-revenue" params={range} />}
                 >
                   <div className="space-y-2.5">
@@ -297,7 +445,7 @@ function SettlementSection() {
         <div className="space-y-8">
           {d.byCurrency.map((c) => (
             <div key={c.currency} className="space-y-5">
-              {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+              <CurrencyHeading currency={c.currency} />
               <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard
                   label="Outstanding (unpaid)"
@@ -312,7 +460,7 @@ function SettlementSection() {
                 <MetricCard label="Total payouts" value={c.totals.payoutCount} />
               </div>
               <Card
-                title={`Settlement by organizer — ${c.currency}`}
+                title={`Settlement by organizer - ${currencyLabel(c.currency)}`}
                 action={<ExportCsvButton report="settlement" />}
               >
                 <DataTable columns={columns} rows={c.byOrg} rowKey={(o) => o.organizationId} />
@@ -339,7 +487,7 @@ function RefundsSection({ range }: { range: ReportRange }) {
             const maxDay = Math.max(1, ...c.byDay.map((r) => r.amountMinor));
             return (
               <div key={c.currency} className="space-y-5">
-                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <CurrencyHeading currency={c.currency} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <MetricCard label="Refunds completed" value={c.totals.count} />
                   <MetricCard
@@ -349,7 +497,7 @@ function RefundsSection({ range }: { range: ReportRange }) {
                   />
                 </div>
                 <div className="grid gap-5 lg:grid-cols-2">
-                  <Card title={`By status — ${c.currency}`}>
+                  <Card title={`By status - ${c.currency}`}>
                     {c.byStatus.length === 0 ? (
                       <EmptyState title="No refunds in this range" />
                     ) : (
@@ -366,7 +514,7 @@ function RefundsSection({ range }: { range: ReportRange }) {
                     )}
                   </Card>
                   <Card
-                    title={`Completed by day — ${c.currency}`}
+                    title={`Completed by day - ${c.currency}`}
                     action={<ExportCsvButton report="refunds" params={range} />}
                   >
                     {c.byDay.length === 0 ? (
@@ -408,7 +556,7 @@ function PlatformFeesSection({ range }: { range: ReportRange }) {
             const maxDay = Math.max(1, ...c.series.map((s) => s.feesMinor));
             return (
               <div key={c.currency} className="space-y-5">
-                {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+                <CurrencyHeading currency={c.currency} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <MetricCard
                     label="Platform fee revenue"
@@ -416,7 +564,7 @@ function PlatformFeesSection({ range }: { range: ReportRange }) {
                     tone="info"
                   />
                 </div>
-                <Card title={`Fees by day — ${c.currency}`}>
+                <Card title={`Fees by day - ${c.currency}`}>
                   <div className="space-y-2.5">
                     {c.series.map((s) => (
                       <BarRow
@@ -459,7 +607,7 @@ function TaxSection({ range }: { range: ReportRange }) {
           {/* One block per currency: GST in rupees and sales tax in dollars are two figures. */}
           {d.byCurrency.map((c) => (
             <div key={c.currency} className="space-y-3">
-              {d.byCurrency.length > 1 && <CurrencyHeading currency={c.currency} />}
+              <CurrencyHeading currency={c.currency} />
               <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard label="Gross ticket sales" value={money(c.grossMinor, c.currency)} />
                 <MetricCard label="Platform fees" value={money(c.platformFeesMinor, c.currency)} />
@@ -652,7 +800,7 @@ function PaymentHealthSection({ range }: { range: ReportRange }) {
 // ─────────────────────────── Page ───────────────────────────
 
 export default function AdminReports() {
-  const [tab, setTab] = useState<TabKey>('daily-revenue');
+  const [tab, setTab] = useState<TabKey>('by-market');
   const [draftFrom, setDraftFrom] = useState(isoDaysAgo(30));
   const [draftTo, setDraftTo] = useState(TODAY);
   const [range, setRange] = useState<ReportRange>({ from: isoDaysAgo(30), to: TODAY });
@@ -702,27 +850,37 @@ export default function AdminReports() {
       )}
 
       <div
-        className="flex flex-wrap gap-1.5 border-b border-border pb-2"
+        className="flex flex-wrap gap-x-6 gap-y-3 border-b border-border pb-3"
         role="tablist"
         aria-label="Report sections"
       >
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              tab === t.key
-                ? 'bg-action-primary text-action-primary-foreground'
-                : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
-            }`}
-          >
-            {t.label}
-          </button>
+        {TAB_GROUPS.map((groupName) => (
+          <div key={groupName} className="space-y-1.5">
+            <p className="text-caption font-semibold uppercase tracking-wide text-text-muted">
+              {groupName}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {TABS.filter((t) => t.group === groupName).map((t) => (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    tab === t.key
+                      ? 'bg-action-primary text-action-primary-foreground'
+                      : 'text-text-secondary hover:bg-background-subtle hover:text-text-primary'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
+      {tab === 'by-market' && <ByMarketSection range={range} />}
       {tab === 'daily-revenue' && <DailyRevenueSection range={range} />}
       {tab === 'organizer-revenue' && <OrganizerRevenueSection range={range} />}
       {tab === 'settlement' && <SettlementSection />}

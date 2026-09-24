@@ -360,6 +360,9 @@ export class OrganizationsService {
         financeContactName: true,
         financeContactEmail: true,
         financeContactPhone: true,
+        grievanceOfficerName: true,
+        grievanceOfficerEmail: true,
+        grievanceOfficerPhone: true,
       },
     });
     if (!org) {
@@ -416,6 +419,9 @@ export class OrganizationsService {
         financeContactName: true,
         financeContactEmail: true,
         financeContactPhone: true,
+        grievanceOfficerName: true,
+        grievanceOfficerEmail: true,
+        grievanceOfficerPhone: true,
       },
     });
     if (!org) {

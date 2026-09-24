@@ -26,7 +26,14 @@ function coupon(organizationId: string | null) {
   };
 }
 
-function setup(over: { startsAt?: Date; ticketStatus?: string; coupon?: unknown } = {}) {
+function setup(
+  over: {
+    startsAt?: Date;
+    ticketStatus?: string;
+    coupon?: unknown;
+    organizationStatus?: string;
+  } = {},
+) {
   const session = {
     id: 'sess-1',
     eventId: 'ev-1',
@@ -46,6 +53,8 @@ function setup(over: { startsAt?: Date; ticketStatus?: string; coupon?: unknown 
         registeredCountry: 'India',
         registeredRegion: 'Karnataka',
         cashPaymentsEnabled: false,
+        name: 'Aurora Live',
+        status: over.organizationStatus ?? 'APPROVED',
       },
     },
     screen: null,
@@ -149,6 +158,35 @@ describe('a session that has already started', () => {
 
   it('a future session still quotes', async () => {
     const { service } = setup();
+    await expect(service.quote(cart())).resolves.toMatchObject({ fees: { totalMinor: 100_000 } });
+  });
+});
+
+describe('a suspended organizer', () => {
+  /*
+    `SUSPENDED` sat in the schema for the whole life of this codebase with nothing writing it and
+    nothing reading it. An admin had a status that meant nothing, and a suspend button that left
+    the organizer's events on sale would have been a promise the platform did not keep.
+  */
+  it('cannot sell a ticket', async () => {
+    const { service, prisma } = setup({ organizationStatus: 'SUSPENDED' });
+
+    await expect(service.create(null, cart())).rejects.toThrow(
+      /Aurora Live is not selling tickets at the moment/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('cannot even be quoted, so nothing quotes a price it will not honour', async () => {
+    const { service, pricing } = setup({ organizationStatus: 'SUSPENDED' });
+
+    await expect(service.quote(cart())).rejects.toThrow(/not selling tickets at the moment/);
+    expect(pricing.quote).not.toHaveBeenCalled();
+  });
+
+  it('sells again the moment it is reinstated, with nothing to undo', async () => {
+    const { service } = setup({ organizationStatus: 'APPROVED' });
+
     await expect(service.quote(cart())).resolves.toMatchObject({ fees: { totalMinor: 100_000 } });
   });
 });

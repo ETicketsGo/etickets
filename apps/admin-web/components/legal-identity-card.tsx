@@ -75,6 +75,9 @@ const FIELDS: { key: keyof OrganizationLegalIdentityFields; label: string; hint?
   { key: 'registeredPostalCode', label: 'Postal code' },
   { key: 'financeContactName', label: 'Finance contact name' },
   { key: 'financeContactEmail', label: 'Finance contact email' },
+  { key: 'grievanceOfficerName', label: 'Complaints contact name' },
+  { key: 'grievanceOfficerEmail', label: 'Complaints contact email' },
+  { key: 'grievanceOfficerPhone', label: 'Complaints contact phone' },
   { key: 'financeContactPhone', label: 'Finance contact phone' },
 ];
 

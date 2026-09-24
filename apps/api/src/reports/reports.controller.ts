@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { ReportsService } from './reports.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { AuditQueryService, type AuditFilters } from '../audit/audit-query.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -67,7 +67,7 @@ export class ReportsController {
 export class AdminReportsController {
   constructor(
     private readonly reports: ReportsService,
-    private readonly prisma: PrismaService,
+    private readonly auditQuery: AuditQueryService,
   ) {}
 
   @Get('dashboard')
@@ -76,35 +76,53 @@ export class AdminReportsController {
     return this.reports.adminDashboard();
   }
 
+  /*
+    ── THE AUDIT LOG NEEDED A WAY IN, NOT A REWRITE ──────────────────────────────────
+    The filter used to be the action alone, and the console listed twenty rows of everything the
+    platform did, newest first. Finding one organizer's week meant paging through the other
+    thousands. So the filter now takes the organization, the entity type and a date window, and a
+    second route says WHO and WHAT is in that window before anybody has to pick.
+
+    The rows themselves are untouched. An audit record is one action, and grouping rows away
+    would destroy the thing the log exists for.
+  */
   @Get('audit')
-  @ApiOperation({ summary: 'Search the audit log (admin).' })
-  async audit(
-    @Query(new ZodValidationPipe(paginationSchema.extend({ action: z.string().optional() })))
-    q: {
-      page: number;
-      pageSize: number;
-      action?: string;
-    },
+  @ApiOperation({ summary: 'Search the audit log (admin), filtered by action, organizer or date.' })
+  audit(
+    @Query(
+      new ZodValidationPipe(
+        paginationSchema.extend({
+          action: z.string().optional(),
+          organizationId: z.string().optional(),
+          entityType: z.string().optional(),
+          from: z.string().optional(),
+          to: z.string().optional(),
+        }),
+      ),
+    )
+    q: { page: number; pageSize: number } & AuditFilters,
   ) {
-    const where = q.action ? { action: q.action } : {};
-    const [total, data] = await this.prisma.$transaction([
-      this.prisma.auditLog.count({ where }),
-      this.prisma.auditLog.findMany({
-        where,
-        skip: (q.page - 1) * q.pageSize,
-        take: q.pageSize,
-        orderBy: { createdAt: 'desc' },
-        include: { actor: { select: { email: true, fullName: true } } },
-      }),
-    ]);
-    return {
-      data,
-      meta: {
-        page: q.page,
-        pageSize: q.pageSize,
-        total,
-        totalPages: Math.ceil(total / q.pageSize),
-      },
-    };
+    return this.auditQuery.list(q, q.page, q.pageSize);
+  }
+
+  @Get('audit/summary')
+  @ApiOperation({
+    summary: 'Audit activity grouped by organizer (with country) and by action, for a window.',
+  })
+  auditSummary(
+    @Query(
+      new ZodValidationPipe(
+        z.object({
+          action: z.string().optional(),
+          organizationId: z.string().optional(),
+          entityType: z.string().optional(),
+          from: z.string().optional(),
+          to: z.string().optional(),
+        }),
+      ),
+    )
+    q: AuditFilters,
+  ) {
+    return this.auditQuery.summary(q);
   }
 }

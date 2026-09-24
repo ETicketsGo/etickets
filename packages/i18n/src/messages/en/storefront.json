@@ -321,6 +321,7 @@
     "refundsNotOffered": "Refunds not offered",
     "refundsNotOfferedBody": "The organizer does not offer refunds for this event.",
     "contactOrganizer": "Contact them directly if something has gone wrong.",
+    "reportProblem": "Report a problem with this booking",
     "refundEligibility": "Eligibility follows the event's refund policy. We'll review your request.",
     "refundReasonPlaceholder": "Reason for the refund...",
     "requestRefundButton": "Request refund",

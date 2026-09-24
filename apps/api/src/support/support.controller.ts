@@ -47,6 +47,12 @@ export class AdminSupportController {
     return this.support.list(q);
   }
 
+  @Get('complaints/:organizationId')
+  @ApiOperation({ summary: 'Open and total complaint counts for one organizer (admin).' })
+  complaintCounts(@Param('organizationId') organizationId: string) {
+    return this.support.complaintCounts(organizationId);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update a support submission status (admin).' })
   update(

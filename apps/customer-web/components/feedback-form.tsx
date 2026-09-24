@@ -21,6 +21,7 @@ export function FeedbackForm({
   successMessage = 'Thanks - your message has been sent.',
   messageLabel = 'Message',
   messagePlaceholder,
+  bookingId,
 }: {
   kind: Kind;
   showSubject?: boolean;
@@ -29,6 +30,13 @@ export function FeedbackForm({
   successMessage?: string;
   messageLabel?: string;
   messagePlaceholder?: string;
+  /**
+   * The booking a complaint is about, where the person arrived from one.
+   *
+   * Sent on its own. The organizer is never sent: the API looks up who sold this booking, which
+   * is what stops somebody filing complaints against a seller they never bought from.
+   */
+  bookingId?: string;
 }) {
   const toast = useToast();
   const { user } = useAuthUser();
@@ -64,6 +72,7 @@ export function FeedbackForm({
         ...(showSubject && subject ? { subject } : {}),
         ...(showRating ? { rating } : {}),
         ...(metadata ? { metadata } : {}),
+        ...(bookingId ? { bookingId } : {}),
       });
       setDone(true);
       setMessage('');

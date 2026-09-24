@@ -386,8 +386,9 @@ export const api = {
     profile: () => request<UserProfile>('/users/me'),
     updateProfile: (fullName: string) =>
       request<AuthUser>('/users/me', { method: 'PATCH', body: JSON.stringify({ fullName }) }),
-    adminList: (params: PageParams & { q?: string }) =>
+    adminList: (params: PageParams & UserDirectoryFilters) =>
       request<Paged<AdminUser>>(`/users${qs(params)}`),
+    directorySummary: () => request<UserDirectorySummary>('/users/directory-summary'),
   },
 
   publicEvents: {
@@ -717,6 +718,8 @@ export const api = {
       registeredCountry?: string;
     }) => request<Organization>('/organizations', { method: 'POST', body: JSON.stringify(body) }),
     listMine: () => request<Organization[]>('/organizations'),
+    /** What this organizer still has to complete. The same list the admin console reads. */
+    readiness: (id: string) => request<OrganizationReadiness>(`/organizations/${id}/readiness`),
     /**
      * The organization's profile picture. JPG, PNG or WebP, at most 1 MB.
      *
@@ -1623,8 +1626,10 @@ export const api = {
     aiRisk: () => request<AiRiskReport>('/admin/ai/risk'),
     movies: (params?: PageParams & { status?: string; q?: string }) =>
       request<Paged<AdminMovieRow>>(`/admin/movies${qs(params ?? {})}`),
-    audit: (params: PageParams & { action?: string }) =>
+    audit: (params: PageParams & AuditFilters) =>
       request<Paged<AuditRow>>(`/admin/audit${qs(params)}`),
+    auditSummary: (params?: AuditFilters) =>
+      request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
     organizers: (params: PageParams & { status?: string }) =>
       request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
     reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
@@ -1719,6 +1724,22 @@ export const api = {
       }),
     payoutSettings: () => request<PayoutSettings>('/admin/payout-settings'),
     payoutAccounts: () => request<PayoutAccount[]>('/admin/payouts/accounts'),
+    /** What an organizer still has to complete, as the organizer's own console shows it. */
+    organizerReadiness: (id: string) =>
+      request<OrganizationReadiness>(`/admin/organizers/${id}/readiness`),
+    /** Stop an organizer selling, or let them start again. A reason is required to suspend. */
+    setOrganizerSuspension: (id: string, suspended: boolean, reason?: string) =>
+      request<Organization>(`/admin/organizers/${id}/suspension`, {
+        method: 'POST',
+        body: JSON.stringify({ suspended, reason }),
+      }),
+    organizerDeletionBlockers: (id: string) =>
+      request<{ blockers: string[]; deletable: boolean }>(
+        `/admin/organizers/${id}/deletion-blockers`,
+      ),
+    /** Only an organizer that never traded. Refused with its reasons otherwise. */
+    deleteOrganizer: (id: string) =>
+      request<{ deleted: boolean; name: string }>(`/admin/organizers/${id}`, { method: 'DELETE' }),
     /** Audited: the reason is stored with who asked. */
     revealPayoutAccount: (id: string, reason: string) =>
       request<RevealedPayoutAccount>(`/admin/payouts/accounts/${id}/reveal`, {
@@ -1966,8 +1987,17 @@ export const api = {
         }),
       csvUrl: () => `${API_URL}/admin/payments/finance/discrepancies.csv`,
     },
-    support: (params?: PageParams & { kind?: string; status?: string; q?: string }) =>
-      request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
+    support: (
+      params?: PageParams & {
+        kind?: string;
+        status?: string;
+        q?: string;
+        organizationId?: string;
+      },
+    ) => request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
+    /** Open and total complaints against one organizer, for the decision to keep selling. */
+    complaintCounts: (organizationId: string) =>
+      request<{ open: number; total: number }>(`/admin/support/complaints/${organizationId}`),
     updateSupport: (id: string, status: FeedbackStatusValue) =>
       request<{ id: string; status: FeedbackStatusValue }>(`/admin/support/${id}`, {
         method: 'PATCH',
@@ -1999,6 +2029,8 @@ export const api = {
     reports: {
       dailyRevenue: (params?: ReportRange) =>
         request<DailyRevenueReport>(`/admin/reports/daily-revenue${qs(params ?? {})}`),
+      byMarket: (params?: ReportRange) =>
+        request<MarketRevenueReport>(`/admin/reports/by-market${qs(params ?? {})}`),
       organizerRevenue: (params?: ReportRange & { limit?: number }) =>
         request<OrganizerRevenueReport>(`/admin/reports/organizer-revenue${qs(params ?? {})}`),
       settlement: () => request<SettlementReport>('/admin/reports/settlement'),
@@ -2079,7 +2111,34 @@ export interface AdminUser {
   roles: string[];
   status: string;
   createdAt: string;
+  /**
+   * The countries this account belongs to, derived from what it did.
+   *
+   * A `User` has no country column and should not get one: nobody is asked at sign-up, a locale
+   * is a language setting, and a calling code cannot tell the United States from Canada. These
+   * are the countries of the venues the account bought at, plus the countries of the
+   * organizations it belongs to. Empty means we do not know, which is a real answer.
+   */
+  countries: string[];
 }
+
+/** Account counts by country, role and status, for the directory overview. */
+export interface UserDirectorySummary {
+  total: number;
+  /** Accounts no country could be derived for - the same rows the list shows as unknown. */
+  withoutCountry: number;
+  /** An account active in two countries is counted in both, so these exceed `total`. */
+  byCountry: { country: string; count: number }[];
+  byRole: { role: string; count: number }[];
+  byStatus: { status: string; count: number }[];
+}
+
+export type UserDirectoryFilters = {
+  q?: string;
+  role?: string;
+  status?: string;
+  country?: string;
+};
 
 /** One of an event's images, as a path for `apiAssetUrl`. */
 export interface EventImageView {
@@ -2635,6 +2694,10 @@ export interface OrganizationLegalIdentityFields {
   financeContactName: string | null;
   financeContactEmail: string | null;
   financeContactPhone: string | null;
+  /** The named person who answers a customer complaint about this organizer. */
+  grievanceOfficerName: string | null;
+  grievanceOfficerEmail: string | null;
+  grievanceOfficerPhone: string | null;
 }
 
 export interface OrganizationLegalIdentity extends OrganizationLegalIdentityFields {
@@ -3894,6 +3957,9 @@ export interface OrganizationLegalIdentityInput {
   financeContactName?: string;
   financeContactEmail?: string;
   financeContactPhone?: string;
+  grievanceOfficerName?: string;
+  grievanceOfficerEmail?: string;
+  grievanceOfficerPhone?: string;
 }
 
 export type ReceiptKind = 'RECEIPT' | 'TAX_INVOICE' | 'CREDIT_NOTE';
@@ -4125,6 +4191,21 @@ export interface Payout {
   failureReason?: string | null;
   createdAt: string;
   organization?: { name: string };
+}
+
+/** One thing an organizer still has to complete, and what it costs them until they do. */
+export interface ReadinessItem {
+  key: string;
+  severity: 'BLOCKING' | 'IMPORTANT' | 'SUGGESTED';
+  title: string;
+  consequence: string;
+  /** Where to fix it, relative to the organizer console. */
+  fixPath: string;
+}
+
+export interface OrganizationReadiness {
+  items: ReadinessItem[];
+  summary: { blocking: number; important: number; suggested: number };
 }
 
 /** The terms settlements run under, for the platform or for one organization. */
@@ -4645,9 +4726,41 @@ export interface AuditRow {
   action: string;
   entityType: string;
   entityId: string | null;
+  organizationId: string | null;
+  /** Named rather than shown as an id. Null for a platform-wide action. */
+  organizationName: string | null;
   correlationId: string | null;
   createdAt: string;
   actor: { email: string; fullName: string } | null;
+}
+
+/* A type alias, not an interface: `qs` takes a `Record<string, unknown>`, and an interface is
+   not assignable to one. */
+export type AuditFilters = {
+  action?: string;
+  organizationId?: string;
+  entityType?: string;
+  from?: string;
+  to?: string;
+};
+
+/**
+ * Who and what is in an audit window, so the console can offer a way in before it lists rows.
+ *
+ * The country is the ORGANIZER's registered country. An audit row records an action, not a sale,
+ * so it has no place of supply and nothing financial may be derived from this.
+ */
+export interface AuditSummary {
+  total: number;
+  byOrganization: {
+    organizationId: string | null;
+    name: string;
+    country: string | null;
+    count: number;
+  }[];
+  byAction: { action: string; count: number }[];
+  /** Every action the log actually holds, for the filter - not a list typed into a page. */
+  actions: string[];
 }
 /**
  * A tax rule as the admin console edits it.
@@ -5040,7 +5153,14 @@ export interface MyMovieReview {
 // ─── Support / Customer Success ───
 
 export type FeedbackKindValue =
-  'CONTACT' | 'BUG' | 'FEATURE' | 'GENERAL' | 'CSAT' | 'ORGANIZER_CSAT';
+  | 'CONTACT'
+  | 'BUG'
+  | 'FEATURE'
+  | 'GENERAL'
+  /** Somebody says an organizer wronged them. Countable per organizer, unlike CONTACT. */
+  | 'COMPLAINT'
+  | 'CSAT'
+  | 'ORGANIZER_CSAT';
 export type FeedbackStatusValue = 'OPEN' | 'TRIAGED' | 'CLOSED';
 
 /** Payload for `api.support.submit`. */
@@ -5051,6 +5171,13 @@ export interface FeedbackSubmission {
   message: string;
   rating?: number;
   metadata?: Record<string, unknown>;
+  /**
+   * The booking a complaint is about.
+   *
+   * The organizer is NOT sent and is not accepted: the server derives it from this booking, so
+   * nobody can file a complaint against a seller they never bought from.
+   */
+  bookingId?: string;
 }
 
 /** A support submission row as returned by the admin inbox. */
@@ -5065,6 +5192,11 @@ export interface FeedbackRow {
   metadata: Record<string, unknown> | null;
   userId: string | null;
   user: { email: string; fullName: string } | null;
+  /** Which organizer it is about, where the server could attribute it. */
+  organizationId: string | null;
+  organizationName: string | null;
+  bookingId: string | null;
+  bookingReference: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -5160,7 +5292,8 @@ export type ReportRange = {
   to?: string;
 };
 /** Reports that support a `?format=csv` export. */
-export type ReportCsvName = 'daily-revenue' | 'organizer-revenue' | 'refunds' | 'settlement';
+export type ReportCsvName =
+  'daily-revenue' | 'by-market' | 'organizer-revenue' | 'refunds' | 'settlement';
 
 export interface DailyRevenuePoint {
   day: string;
@@ -5182,6 +5315,37 @@ export interface CurrencyRevenueReport {
   };
   series: DailyRevenuePoint[];
 }
+/**
+ * One country the platform sells in, and what it did in the range.
+ *
+ * Money stays grouped by currency everywhere else on the reports page, because a rupee and a
+ * dollar cannot be added. This is the country view an operator actually asks for, read from the
+ * venue of the event - the same fact the platform prices, taxes and routes payment on.
+ *
+ * Configured markets with no sales are in the list with their zeros. Leaving them out is what
+ * made "the reports only show INR" a question rather than a statement.
+ */
+export interface MarketRevenueRow {
+  code: string | null;
+  country: string;
+  currency: string;
+  /** False where a venue holds a country the platform has no market configuration for. */
+  configured: boolean;
+  grossMinor: number;
+  platformFeesMinor: number;
+  refundsMinor: number;
+  netMinor: number;
+  bookings: number;
+  organizers: number;
+  events: number;
+}
+
+export interface MarketRevenueReport {
+  from: string;
+  to: string;
+  markets: MarketRevenueRow[];
+}
+
 export interface DailyRevenueReport {
   from: string;
   to: string;

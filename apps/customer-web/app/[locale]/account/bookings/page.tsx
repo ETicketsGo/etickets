@@ -3,8 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ReferenceCode } from '@/components/reference-code';
 import { useEffect, useState } from 'react';
-import { useRouter } from '@/i18n/navigation';
-import { CalendarDays, Receipt } from 'lucide-react';
+import { Link, useRouter } from '@/i18n/navigation';
+import { CalendarDays, MessageSquareWarning, Receipt } from 'lucide-react';
 import {
   Button,
   Card,
@@ -458,6 +458,26 @@ export default function BookingsPage() {
                 </div>
               );
             })()}
+
+            {/*
+              Where a complaint starts.
+
+              Not the same thing as a refund. A refund asks for money back and goes to the
+              organizer to approve; a complaint says something was wrong and is recorded against
+              the seller for the platform to act on. There was no way to raise one at all, so
+              every grievance arrived as a general contact message that could not be attributed
+              to anybody - which is also why we could not answer how many were open against a
+              given organizer.
+
+              The booking id goes with it, and the API derives the organizer from that.
+            */}
+            <Link
+              href={`/help/complaint?booking=${b.id}`}
+              className="inline-flex items-center gap-1.5 text-[0.9375rem] text-text-muted underline-offset-4 transition-colors hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <MessageSquareWarning className="h-4 w-4" aria-hidden />
+              {a('reportProblem')}
+            </Link>
           </div>
         )}
       </Drawer>

@@ -25,8 +25,12 @@ test('admin reviews an event, then inspects refunds and audit', async ({ page })
   await page.goto(`${ADMIN}/admin/refunds`);
   await expect(page.getByRole('heading', { name: 'Refunds' })).toBeVisible();
 
-  // Audit log has entries
+  // Audit log has entries.
+  //
+  // No longer a table: five columns - action, entity, actor, correlation id, time - were what
+  // made this page wider than the screen, and the entries now read as lines grouped under the day
+  // they happened on. The claim is the same one: there is something in the log.
   await page.goto(`${ADMIN}/admin/audit`);
   await expect(page.getByRole('heading', { name: 'Audit log' })).toBeVisible();
-  await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('listitem').first()).toBeVisible({ timeout: 20_000 });
 });

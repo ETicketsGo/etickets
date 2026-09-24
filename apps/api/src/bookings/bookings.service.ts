@@ -15,6 +15,7 @@ import {
   type CinemaFormat,
   type ClimateType,
   type LocalBodyType,
+  OrganizationStatus,
 } from '@eticketsgo/shared-types';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
@@ -195,6 +196,9 @@ export class BookingsService {
                 // Whether this organizer takes cash at the venue. Read from the org, never
                 // trusted from the request — otherwise anybody could reserve seats for free.
                 cashPaymentsEnabled: true,
+                // Suspended means stop selling; see the guard below.
+                status: true,
+                name: true,
               },
             },
           },
@@ -230,6 +234,20 @@ export class BookingsService {
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
     }
+    /*
+      ── A SUSPENDED ORGANIZER STOPS SELLING, HERE ──────────────────────────────────────
+      `SUSPENDED` has been in the schema since the beginning with nothing writing it and
+      nothing reading it, so an admin had no way to stop an organizer at all - and a suspend
+      button that left their events on sale would have been worse than no button.
+
+      Checked at the booking rather than by unpublishing their events: unpublishing loses
+      what the organizer set up and has to be undone event by event, while this stops the
+      money the moment the decision is made and resumes it the moment it is reversed.
+
+      Deliberately not EVENT_NOT_PUBLISHED. The event is fine; the customer is told the
+      organizer is not selling right now, which is true and is not the customer's fault.
+    */
+    this.assertOrganizerSelling(session.event.organization);
     if (
       session.event.status !== EventStatus.PUBLISHED ||
       session.status !== SessionStatus.SCHEDULED
@@ -1151,6 +1169,8 @@ export class BookingsService {
                 // Whether this organizer takes cash at the venue. Read from the org, never
                 // trusted from the request — otherwise anybody could reserve seats for free.
                 cashPaymentsEnabled: true,
+                status: true,
+                name: true,
               },
             },
           },
@@ -1179,8 +1199,15 @@ export class BookingsService {
     if (!session) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Session not found.', HttpStatus.NOT_FOUND);
     }
-    // The same refusal `create` makes: a quote for a show that has started prices something
-    // nobody can then buy.
+    /*
+      The same two refusals `create` makes.
+
+      A quote is a price shown to somebody about to pay. Quoting for a suspended organizer would
+      put a total on the screen that the very next request refuses - the customer would read the
+      refusal as the platform failing at the last step, rather than as an organizer who is not
+      selling. Both paths read the same guard so they cannot drift apart.
+    */
+    this.assertOrganizerSelling(session.event.organization);
     this.assertSessionNotStarted(session.startsAt);
 
     const ticketTypes = await this.prisma.ticketType.findMany({
@@ -1978,6 +2005,30 @@ export class BookingsService {
    * Status alone cannot answer this: nothing marks a session COMPLETED when it starts, so a
    * past date of a multi-date run still reads SCHEDULED.
    */
+  /**
+   * A suspended organizer sells nothing, from the moment an admin decides it.
+   *
+   * ── WHY IT IS HERE AND NOT IN THEIR EVENTS ─────────────────────────────────────────
+   * `SUSPENDED` sat in the schema for the whole life of this codebase with nothing writing it and
+   * nothing reading it, so an admin had a status that meant nothing and no way to stop a seller at
+   * all. Checked at the booking rather than by unpublishing their events: unpublishing destroys
+   * what the organizer set up and has to be undone event by event, while this stops the money the
+   * moment the decision is made and resumes it the moment it is reversed.
+   *
+   * Deliberately not EVENT_NOT_PUBLISHED. The event is fine. The customer is told the organizer is
+   * not selling right now, which is true and is not the customer's fault.
+   */
+  private assertOrganizerSelling(
+    organization: { status?: string | null; name?: string | null } | null | undefined,
+  ) {
+    if (organization?.status !== OrganizationStatus.SUSPENDED) return;
+    throw new AppException(
+      ErrorCodes.CONFLICT,
+      `${organization.name ?? 'This organizer'} is not selling tickets at the moment. Please try again later.`,
+      HttpStatus.CONFLICT,
+    );
+  }
+
   private assertSessionNotStarted(startsAt: Date) {
     if (startsAt <= new Date()) {
       throw new AppException(

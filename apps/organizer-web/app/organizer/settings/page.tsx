@@ -101,6 +101,19 @@ const LEGAL_FIELDS: {
     placeholder: 'finance@example.com',
   },
   { key: 'financeContactPhone', label: 'Finance contact phone' },
+  /*
+    The person who answers a complaint, which is not the same person as either of the other two.
+    `contactEmail` is where a ticket holder asks about a show and the finance contact is where we
+    ask about money; a complaint is somebody saying they were wronged, and it needs a name.
+  */
+  { key: 'grievanceOfficerName', label: 'Complaints contact name' },
+  {
+    key: 'grievanceOfficerEmail',
+    label: 'Complaints contact email',
+    placeholder: 'complaints@example.com',
+    hint: 'Where a customer complaint about your events is sent. Shown to us, and to them on request.',
+  },
+  { key: 'grievanceOfficerPhone', label: 'Complaints contact phone' },
 ];
 
 export default function SettingsPage() {
@@ -205,6 +218,9 @@ export default function SettingsPage() {
       registeredCountry: d.registeredCountry ?? '',
       financeContactName: d.financeContactName ?? '',
       financeContactEmail: d.financeContactEmail ?? '',
+      grievanceOfficerName: d.grievanceOfficerName ?? '',
+      grievanceOfficerEmail: d.grievanceOfficerEmail ?? '',
+      grievanceOfficerPhone: d.grievanceOfficerPhone ?? '',
       financeContactPhone: d.financeContactPhone ?? '',
     });
   }, [legalQuery.data, legalTouched]);

@@ -207,22 +207,49 @@ function ProvidersTable({
   onTest: (id: string) => void;
   testingId?: string;
 }) {
+  /*
+    ── THE KEYS BELONG UNDER THE PROVIDER, NOT BESIDE IT ────────────────────────────
+    Provider, enabled, mode, public key, secret reference, priority and two buttons made eight
+    columns, two of which hold long opaque identifiers. The table was always wider than the
+    screen, so reading one row meant dragging sideways past the key to reach the Edit button.
+
+    The keys are what a provider IS configured with, so they read as its detail lines. What is
+    left are the two things somebody scans for - whether it is on, and in what order it is tried.
+  */
   const columns: Column<PaymentProviderConfigRow>[] = [
-    { key: 'provider', header: 'Provider', render: (r) => <strong>{r.provider}</strong> },
+    {
+      key: 'provider',
+      header: 'Provider',
+      render: (r) => (
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="text-text-primary">{r.provider}</strong>
+            <Badge tone={modeTone(r.mode)}>{r.mode}</Badge>
+          </div>
+          <p className="break-all text-caption text-text-muted">
+            Public key: {r.publicKey ?? 'not set'}
+          </p>
+          <p className="break-all text-caption text-text-muted">
+            Secret: {r.secretKeyRef ?? 'not set'}
+          </p>
+        </div>
+      ),
+    },
     {
       key: 'enabled',
       header: 'Enabled',
+      className: 'whitespace-nowrap',
       render: (r) => (
-        <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? 'On' : 'Off'}</Badge>
+        <div className="space-y-1">
+          <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? 'On' : 'Off'}</Badge>
+          <PriorityNote priority={r.priority} />
+        </div>
       ),
     },
-    { key: 'mode', header: 'Mode', render: (r) => <Badge tone={modeTone(r.mode)}>{r.mode}</Badge> },
-    { key: 'publicKey', header: 'Public key', render: (r) => r.publicKey ?? '—' },
-    { key: 'secretKeyRef', header: 'Secret ref', render: (r) => r.secretKeyRef ?? '—' },
-    { key: 'priority', header: 'Priority', render: (r) => r.priority },
     {
       key: 'actions',
       header: '',
+      className: 'whitespace-nowrap',
       render: (r) => (
         <div className="flex justify-end gap-2">
           <Button
@@ -243,6 +270,24 @@ function ProvidersTable({
   return <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />;
 }
 
+/**
+ * The priority number, with what it means attached.
+ *
+ * The column said `1` and nothing said whether 1 wins or loses. It is sorted ascending, so the
+ * lowest number is tried first - which is the opposite of what most people assume a "priority"
+ * does, and is exactly the kind of thing somebody guesses wrong while editing payment routing.
+ *
+ * Not rendered as an ordinal: these are sort keys, not positions, and "Tried 100th" is a lie
+ * about a list with one entry in it.
+ */
+function PriorityNote({ priority }: { priority: number }) {
+  return (
+    <p className="text-caption text-text-muted" title="The lowest number is tried first.">
+      Priority {priority} · lowest first
+    </p>
+  );
+}
+
 function RoutesTable({
   rows,
   onEdit,
@@ -252,25 +297,38 @@ function RoutesTable({
   onEdit: (r: PaymentRouteRow) => void;
   onDelete: (id: string) => void;
 }) {
+  /* Same fold: the route is one fact read as a sentence, not five columns. */
   const columns: Column<PaymentRouteRow>[] = [
     {
       key: 'match',
-      header: 'Country / Currency / Method',
-      render: (r) => `${r.country} / ${r.currency} / ${r.method}`,
+      header: 'When somebody pays',
+      render: (r) => (
+        <div className="min-w-0 space-y-1">
+          <p className="text-text-primary">
+            {r.country} · {r.currency} · {r.method}
+          </p>
+          <p className="text-caption text-text-muted">
+            Goes to <strong className="font-medium text-text-secondary">{r.provider}</strong>
+            {r.failoverProvider ? `, or ${r.failoverProvider} if that fails` : ', with no failover'}
+          </p>
+        </div>
+      ),
     },
-    { key: 'provider', header: 'Provider', render: (r) => <strong>{r.provider}</strong> },
-    { key: 'failover', header: 'Failover', render: (r) => r.failoverProvider ?? '—' },
-    { key: 'priority', header: 'Priority', render: (r) => r.priority },
     {
       key: 'active',
       header: 'Active',
+      className: 'whitespace-nowrap',
       render: (r) => (
-        <Badge tone={r.active ? 'success' : 'neutral'}>{r.active ? 'Yes' : 'No'}</Badge>
+        <div className="space-y-1">
+          <Badge tone={r.active ? 'success' : 'neutral'}>{r.active ? 'Yes' : 'No'}</Badge>
+          <PriorityNote priority={r.priority} />
+        </div>
       ),
     },
     {
       key: 'actions',
       header: '',
+      className: 'whitespace-nowrap',
       render: (r) => (
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="secondary" onClick={() => onEdit(r)}>

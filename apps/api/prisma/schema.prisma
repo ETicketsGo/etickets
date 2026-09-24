@@ -819,6 +819,24 @@ model Organization {
   financeContactEmail String?
   financeContactPhone String?
 
+  /// Who answers a customer complaint about this organizer, by name.
+  ///
+  /// ── WHY A NAMED PERSON AND NOT AN INBOX ────────────────────────────────────────────
+  /// A marketplace that sells to the public has to be able to say who handles a complaint and
+  /// how to reach them. India requires it in as many words - the e-commerce rules make a
+  /// grievance officer, named and contactable, a condition of operating - and every other
+  /// market this platform sells in expects the substance of it.
+  ///
+  /// Separate from `contactEmail`, which is where a ticket holder asks about a show, and from
+  /// the finance contact, which is where we ask about money. A complaint is neither: it is
+  /// somebody saying they have been wronged, and it is answered by a person who can act.
+  ///
+  /// Nullable because organizers registered before this existed have none on file, and the
+  /// platform asks for it rather than inventing one. The readiness list chases it.
+  grievanceOfficerName  String?
+  grievanceOfficerEmail String?
+  grievanceOfficerPhone String?
+
   // Verification badge is a manual/admin placeholder for now (no automated flow).
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -2782,6 +2800,8 @@ enum FeedbackKind {
   BUG
   FEATURE
   GENERAL
+  /// A customer says an organizer wronged them. Countable per organizer, unlike CONTACT.
+  COMPLAINT
   CSAT // customer satisfaction (rating)
   ORGANIZER_CSAT // organizer satisfaction (rating)
 }
@@ -2791,6 +2811,23 @@ model Feedback {
   kind      FeedbackKind
   userId    String?
   user      User?        @relation(fields: [userId], references: [id])
+
+  /// Which organizer this is about, where it is about one.
+  ///
+  /// ── WHY IT IS A PLAIN COLUMN AND NOT A RELATION ────────────────────────────────────
+  /// Deliberately no foreign key, exactly as `AuditLog.organizationId` has none. A complaint is
+  /// a record of somebody's grievance and it must outlive the booking, the event and even the
+  /// organization it was about - those are the cases where the record matters most. A cascade
+  /// would delete the evidence with the subject, and a restrict would make the complaint a
+  /// reason the platform cannot tidy up a test organization.
+  ///
+  /// Written by the SERVER, never by the client: it is derived from the booking the complaint
+  /// names, so a customer cannot file a complaint against an organizer they never bought from.
+  organizationId String?
+
+  /// The booking complained about, where the complaint came from one. Same reasoning: no FK.
+  bookingId String?
+
   email     String?
   subject   String?
   message   String
@@ -2804,6 +2841,7 @@ model Feedback {
   @@index([status])
   @@index([createdAt])
   @@index([userId])
+  @@index([organizationId])
 }
 
 model AuditLog {

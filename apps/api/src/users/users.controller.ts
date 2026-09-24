@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Patch, Query, Req } from '@nestjs/common
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { AdminPermission, Role } from '@eticketsgo/shared-types';
+import { AdminPermission, Role, UserStatus } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { UsersService } from './users.service';
 import { AccountDeletionService } from './account-deletion.service';
@@ -88,13 +88,52 @@ export class UsersController {
   @RequiresAdmin(AdminPermission.BOOKING_READ)
   @ApiOperation({ summary: 'List users (admin).' })
   list(
-    @Query(new ZodValidationPipe(paginationSchema.extend({ q: z.string().optional() })))
+    @Query(
+      new ZodValidationPipe(
+        paginationSchema.extend({
+          q: z.string().optional(),
+          /*
+            Role, status and country are filtered in the DATABASE now.
+
+            The console used to fetch a page and then hide the rows that did not match, so
+            "suspended accounts" showed the suspended ones among the first twenty - usually none -
+            under a pager that still counted the whole directory.
+          */
+          role: z.nativeEnum(Role).optional(),
+          status: z.nativeEnum(UserStatus).optional(),
+          /** A country in any spelling. Matched against where the account bought or belongs. */
+          country: z.string().optional(),
+        }),
+      ),
+    )
     q: {
       page: number;
       pageSize: number;
       q?: string;
+      role?: Role;
+      status?: UserStatus;
+      country?: string;
     },
   ) {
-    return this.users.list(q.page, q.pageSize, q.q);
+    return this.users.list(q.page, q.pageSize, {
+      query: q.q,
+      role: q.role,
+      status: q.status,
+      country: q.country,
+    });
+  }
+
+  /*
+    The shape of the directory, so the console can show what is there before somebody filters.
+
+    Same capability as the list: it is a count of the same records, and a count of customers per
+    country is not a lesser fact than their names.
+  */
+  @Get('directory-summary')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequiresAdmin(AdminPermission.BOOKING_READ)
+  @ApiOperation({ summary: 'Account counts by country, role and status (admin).' })
+  directorySummary() {
+    return this.users.directorySummary();
   }
 }

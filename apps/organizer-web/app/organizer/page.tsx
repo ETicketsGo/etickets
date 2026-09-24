@@ -21,6 +21,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { WelcomeCard } from '@/components/onboarding-checklist';
+import { NeedsAttention } from './needs-attention';
 import { isForbidden } from '@/lib/org-permissions';
 
 /**
@@ -167,6 +168,13 @@ export default function OrganizerDashboard() {
       />
 
       <WelcomeCard orgId={activeOrg.id} orgName={activeOrg.name} />
+
+      {/*
+        What the platform still needs from them, before the numbers. An organizer whose
+        settlements cannot be paid should read that first, not after scrolling past a chart.
+        It renders nothing when there is nothing outstanding.
+      */}
+      <NeedsAttention orgId={activeOrg.id} />
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

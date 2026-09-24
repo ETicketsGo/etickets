@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { ExperienceType, PayoutStatus } from '@eticketsgo/shared-types';
+import { ExperienceType, MARKETS, PayoutStatus, marketFor } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { PayoutsService } from '../payouts/payouts.service';
 import { AnalyticsService } from './analytics.service';
@@ -80,6 +80,56 @@ export interface DailyRevenueReport {
   to: Date;
   /** One entry per currency traded in the window, largest gross first. */
   byCurrency: CurrencyRevenueReport[];
+}
+
+/**
+ * One country the platform sells in, and what it did in the range.
+ *
+ * ── WHY A COUNTRY REPORT EXISTS WHEN THE MONEY IS PER CURRENCY ──────────────────────
+ * Every money figure on this page is grouped by currency, because a rupee and a dollar cannot
+ * be added. That is correct, and it is also not what an operator asks: they ask how India did,
+ * or whether the United States has started. A currency block answers that only by accident -
+ * it happens to be true that INR means India, and it is NOT true that USD means the United
+ * States once a second dollar market exists.
+ *
+ * So the country is read from where the sale happened: the venue of the event. That is the same
+ * fact the platform already prices, taxes and routes payment on, so a country report and a tax
+ * return cannot disagree about which market a booking belonged to.
+ *
+ * ── WHY MARKETS WITH NO SALES ARE STILL LISTED ─────────────────────────────────────
+ * A report that omits a market with nothing in it cannot be told apart from a report that is
+ * broken. "Business reports show only INR" was exactly that question, and the answer - there
+ * are no sales outside India yet - was not on the screen. Every configured market appears,
+ * with its zeros, so the absence is a stated fact rather than a gap.
+ */
+export interface MarketRevenueRow {
+  /** ISO-3166 alpha-2 where the country is a configured market, else null. */
+  code: string | null;
+  /** The country, as the platform names it, or as the venue row spells it. */
+  country: string;
+  /** ISO-4217 for the sales counted here. One row per country AND currency. */
+  currency: string;
+  /**
+   * Whether this country is one of the platform's configured markets.
+   *
+   * False means a venue holds a country the platform has no currency, payment routing or fee
+   * configuration for - which is a data problem worth seeing, not a row to hide.
+   */
+  configured: boolean;
+  grossMinor: number;
+  platformFeesMinor: number;
+  refundsMinor: number;
+  netMinor: number;
+  bookings: number;
+  organizers: number;
+  events: number;
+}
+
+export interface MarketRevenueReport {
+  from: Date;
+  to: Date;
+  /** Markets with sales first, largest gross first; then the configured markets with none. */
+  markets: MarketRevenueRow[];
 }
 
 export interface OrganizerRevenueRow {
@@ -407,6 +457,169 @@ export class BusinessReportsService {
         })),
       payouts,
     };
+  }
+
+  // ─────────────────────── 3b. By market (country) ───────────────────────
+
+  /**
+   * What each country did in the range, and which countries did nothing.
+   *
+   * Country comes from the venue of the event, joined through the booking. Not from the
+   * organizer's registered country: an Indian company running a show in Dubai sold that ticket
+   * in the Emirates, and it is the Emirates that decides the currency, the tax and the provider
+   * that took the money.
+   */
+  async marketRevenue(from: Date, to: Date): Promise<MarketRevenueReport> {
+    const [sales, refunds] = await Promise.all([
+      this.prisma.$queryRaw<
+        {
+          country: string | null;
+          currency: string;
+          gross: bigint;
+          bookingfee: bigint;
+          paymentfee: bigint;
+          bookings: bigint;
+          organizers: bigint;
+          events: bigint;
+        }[]
+      >`
+        SELECT v."country" AS country,
+               b."currency" AS currency,
+               SUM(b."subtotalMinor")::bigint AS gross,
+               SUM(b."bookingFeeMinor")::bigint AS bookingfee,
+               SUM(b."paymentFeeMinor")::bigint AS paymentfee,
+               COUNT(*)::bigint AS bookings,
+               COUNT(DISTINCT b."organizationId")::bigint AS organizers,
+               COUNT(DISTINCT b."eventId")::bigint AS events
+        FROM "Booking" b
+        JOIN "Event" e ON e."id" = b."eventId"
+        JOIN "Venue" v ON v."id" = e."venueId"
+        WHERE b."confirmedAt" IS NOT NULL
+          AND b."confirmedAt" >= ${from} AND b."confirmedAt" <= ${to}
+        GROUP BY 1, 2
+      `,
+      this.prisma.$queryRaw<{ country: string | null; currency: string; refunds: bigint }[]>`
+        SELECT v."country" AS country,
+               b."currency" AS currency,
+               SUM(r."amountMinor")::bigint AS refunds
+        FROM "Refund" r
+        JOIN "Booking" b ON b."id" = r."bookingId"
+        JOIN "Event" e ON e."id" = b."eventId"
+        JOIN "Venue" v ON v."id" = e."venueId"
+        WHERE r."status" = 'COMPLETED'
+          AND r."createdAt" >= ${from} AND r."createdAt" <= ${to}
+        GROUP BY 1, 2
+      `,
+    ]);
+
+    const rows = new Map<string, MarketRevenueRow>();
+    const rowFor = (country: string | null, currency: string): MarketRevenueRow => {
+      const market = marketFor(country);
+      // A venue with no country at all is still a sale somebody made. It is named as such.
+      const name = market?.name ?? country?.trim() ?? 'Country not recorded';
+      const key = `${name}|${currency}`;
+      const found = rows.get(key);
+      if (found) return found;
+      const created: MarketRevenueRow = {
+        code: market?.code ?? null,
+        country: name,
+        currency,
+        configured: market !== null,
+        grossMinor: 0,
+        platformFeesMinor: 0,
+        refundsMinor: 0,
+        netMinor: 0,
+        bookings: 0,
+        organizers: 0,
+        events: 0,
+      };
+      rows.set(key, created);
+      return created;
+    };
+
+    for (const r of sales) {
+      const row = rowFor(r.country, r.currency);
+      row.grossMinor += Number(r.gross);
+      row.platformFeesMinor += Number(r.bookingfee) + Number(r.paymentfee);
+      row.bookings += Number(r.bookings);
+      /*
+        Summed, not assigned. Two spellings of the same country - "India" and "IN" - fold into
+        one row here, and each brought its own organizer and event counts. The counts are an
+        upper bound where that happens: an organizer selling under both spellings is counted
+        twice. A DISTINCT per folded name would need a second query per row, and an operator
+        reading "3 organizers" against a market with 2 is a smaller lie than a report that
+        splits India in half.
+      */
+      row.organizers += Number(r.organizers);
+      row.events += Number(r.events);
+    }
+    for (const r of refunds) {
+      rowFor(r.country, r.currency).refundsMinor += Number(r.refunds);
+    }
+    for (const row of rows.values()) {
+      row.netMinor = row.grossMinor - row.refundsMinor;
+    }
+
+    /*
+      Then every configured market that did not appear, with its zeros. This is the half that
+      answers "why do I only see India" without anybody having to ask.
+    */
+    const traded = new Set([...rows.values()].map((r) => r.country));
+    const idle: MarketRevenueRow[] = MARKETS.filter((m) => !traded.has(m.name)).map((m) => ({
+      code: m.code,
+      country: m.name,
+      currency: m.currency,
+      configured: true,
+      grossMinor: 0,
+      platformFeesMinor: 0,
+      refundsMinor: 0,
+      netMinor: 0,
+      bookings: 0,
+      organizers: 0,
+      events: 0,
+    }));
+
+    return {
+      from,
+      to,
+      markets: [
+        ...[...rows.values()].sort((a, b) => b.grossMinor - a.grossMinor),
+        ...idle.sort((a, b) => a.country.localeCompare(b.country)),
+      ],
+    };
+  }
+
+  /** The same rows as a spreadsheet, for somebody who has to add a column of their own. */
+  async marketRevenueCsv(from: Date, to: Date): Promise<string> {
+    const report = await this.marketRevenue(from, to);
+    return toCsv(
+      [
+        'country',
+        'countryCode',
+        'currency',
+        'configuredMarket',
+        'grossMinor',
+        'platformFeesMinor',
+        'refundsMinor',
+        'netMinor',
+        'bookings',
+        'organizers',
+        'events',
+      ],
+      report.markets.map((m) => [
+        m.country,
+        m.code ?? '',
+        m.currency,
+        m.configured ? 'yes' : 'no',
+        m.grossMinor,
+        m.platformFeesMinor,
+        m.refundsMinor,
+        m.netMinor,
+        m.bookings,
+        m.organizers,
+        m.events,
+      ]),
+    );
   }
 
   // ─────────────────────── 4. Refund report ───────────────────────
