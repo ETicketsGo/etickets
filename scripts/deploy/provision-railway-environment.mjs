@@ -332,6 +332,24 @@ Project "${project.name}"  ·  environment "${envName}"${DRY ? '   [DRY RUN]' : 
     }
   }
 
+  /*
+    Automatic deploys, which this script CANNOT set.
+
+    `serviceInstanceAutoDeployUpdate` answers "Bad Access" to a project token, and the state is
+    not readable either: `ServiceSource` exposes only `image` and `repo`, with no branch. So
+    there is nothing to check and nothing to change from here.
+
+    It is printed rather than passed over because production auto-deploying from a push is a
+    thing this project has already done once, and a provisioning run that said nothing about it
+    would read as though it had been handled.
+  */
+  if (policy.isProduction) {
+    log('\nAutomatic deploys  (dashboard only - a project token cannot read or set this)');
+    log('  Railway -> each service -> Settings -> Source -> disconnect the branch, or set');
+    log('  "Wait for CI" / disable "Deploy on push". Production ships when somebody decides,');
+    log('  not when somebody merges. Deploy it with scripts/deploy/railway-deploy-and-wait.mjs.');
+  }
+
   // ── Summary ─────────────────────────────────────────────────────────────────────
   const final = await gql(
     `query($id:String!){ project(id:$id){ services{edges{node{id name serviceInstances{edges{node{environmentId railwayConfigFile}}}}}} volumes{edges{node{name}}} } }`,
