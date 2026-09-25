@@ -429,3 +429,90 @@ describe('one mobile number, one account', () => {
     );
   });
 });
+
+/**
+ * Adding a number to an account somebody is already signed into.
+ *
+ * ── THE DEAD END THIS EXISTS FOR ───────────────────────────────────────────────────
+ * Notification settings offers WhatsApp for booking updates, disables the switch until the
+ * account has a phone number, and says "Add a phone number" with a link to the profile. The
+ * profile had no phone field and no way to add one, so the link went to a page that could not
+ * do what it promised and the switch could never be turned on by anybody at all.
+ *
+ * ── WHY IT IS NOT verifyCode ───────────────────────────────────────────────────────
+ * `verifyCode` answers "whose account is this number?" and CREATES one when the answer is
+ * nobody. Here the account exists and the person is already in it, so a second account must
+ * never appear because somebody filled in their profile.
+ */
+describe('PhoneOtpService.attachToAccount', () => {
+  const liveOtp = async (code: string, over: Record<string, unknown> = {}) => ({
+    id: 'otp-1',
+    phone: '+919704464007',
+    codeHash: await bcrypt.hash(code, 10),
+    expiresAt: new Date(Date.now() + 60_000),
+    consumedAt: null,
+    attempts: 0,
+    ...over,
+  });
+
+  it('attaches the proven number to the signed-in account and marks it verified', async () => {
+    const { service, prisma } = setup({ otpRow: await liveOtp('123456') });
+
+    await expect(service.attachToAccount('user-1', '+91 97044 64007', '123456')).resolves.toEqual({
+      phone: '+919704464007',
+    });
+
+    const update = (prisma.user.update as jest.Mock).mock.calls[0][0];
+    expect(update.where).toEqual({ id: 'user-1' });
+    // Normalised on the way in, so "+91 97044 64007" and "+919704464007" are one number.
+    expect(update.data.phone).toBe('+919704464007');
+    expect(update.data.phoneVerifiedAt).toBeInstanceOf(Date);
+    // Never creates: the account is the one the caller is already in.
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a number that belongs to somebody else, and changes nothing', async () => {
+    /*
+      The account-takeover case. A number proves who you are here, so moving one between
+      accounts on the strength of a single code is exactly how an account is stolen. Refused
+      and sent to a human, because the legitimate version - somebody changing their number -
+      is rare and worth looking at.
+    */
+    const { service, prisma } = setup({
+      otpRow: await liveOtp('123456'),
+      existingUser: { id: 'someone-else' },
+    });
+
+    await expect(
+      service.attachToAccount('user-1', '+919704464007', '123456'),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent for the number the account already holds', async () => {
+    // Re-proving your own number is a no-op that re-stamps the verification date, not a clash.
+    const { service, prisma } = setup({
+      otpRow: await liveOtp('123456'),
+      existingUser: { id: 'user-1' },
+    });
+
+    await expect(service.attachToAccount('user-1', '+919704464007', '123456')).resolves.toEqual({
+      phone: '+919704464007',
+    });
+    expect(prisma.user.update).toHaveBeenCalled();
+  });
+
+  it('spends the code, so it cannot be used a second time', async () => {
+    const { service, row } = setup({ otpRow: await liveOtp('123456') });
+    await service.attachToAccount('user-1', '+919704464007', '123456');
+    expect((row as { consumedAt: Date | null }).consumedAt).toBeInstanceOf(Date);
+  });
+
+  it('refuses a wrong code with the same answer every other caller gets', async () => {
+    const { service, prisma } = setup({ otpRow: await liveOtp('123456') });
+    await expect(
+      service.attachToAccount('user-1', '+919704464007', '000000'),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/not valid/i) });
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});

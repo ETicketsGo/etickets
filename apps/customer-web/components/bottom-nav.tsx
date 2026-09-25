@@ -62,7 +62,20 @@ export function BottomNav() {
   const t = useTranslations('common.nav');
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
-  useEffect(() => setAuthed(!!tokenStore.access), []);
+  /*
+    Re-checked on every navigation, not once on mount.
+
+    The dependency array was empty, so this bar learned whether the visitor was signed in when
+    it first rendered and never asked again. Signing in is a client-side navigation - the bar
+    is never unmounted - so after a real sign-in it still believed the visitor was a stranger
+    and sent Tickets, Alerts and Account to the login screen. Reported from the installed app
+    as "I have signed in, and when I click on account it is still showing sign in".
+
+    `pathname` is the right trigger because every way of becoming signed in ends in a
+    navigation, and it is what `SiteChrome` two components away has always used - the two were
+    answering the same question with different answers.
+  */
+  useEffect(() => setAuthed(!!tokenStore.access), [pathname]);
   /*
     Not while choosing seats. That screen has its own bar at the bottom — the seats, the amount
     and the pay button — and a navigation bar under it would put five ways to leave the booking

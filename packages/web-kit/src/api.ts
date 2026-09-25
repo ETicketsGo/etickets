@@ -339,6 +339,23 @@ export const api = {
         auth: false,
       }),
     /**
+     * Send a code to a number the SIGNED-IN customer wants to add to their account.
+     *
+     * `auth: true`, unlike the sign-in pair above: these two attach a number to the account the
+     * token names, and the account is never taken from the body.
+     */
+    requestAttachPhoneCode: (phone: string) =>
+      request<{ sent: true; expiresInMinutes: number }>('/auth/phone/attach/request-code', {
+        method: 'POST',
+        body: JSON.stringify({ phone }),
+      }),
+    /** Prove the code and attach the number. Refuses a number already on another account. */
+    attachPhone: (phone: string, code: string) =>
+      request<{ phone: string }>('/auth/phone/attach/verify', {
+        method: 'POST',
+        body: JSON.stringify({ phone, code }),
+      }),
+    /**
      * Ask for a reset link. The reply is identical whether or not the address is known —
      * anything else would make this a way to discover who holds an account here.
      */
@@ -2099,6 +2116,17 @@ export interface AuthUser {
    * is not put to them on every purchase. Absent for a first-time buyer.
    */
   lastBuyerRegion?: string | null;
+  /**
+   * The number that receives sign-in codes and WhatsApp booking updates, when there is one.
+   *
+   * Read at request time rather than carried in the token: a number added a moment ago would
+   * otherwise not appear until the token was refreshed, so the profile would still say "no
+   * phone number" to somebody who had just added one.
+   */
+  phone?: string | null;
+  phoneVerified?: boolean;
+  memberSince?: string;
+  locale?: string | null;
 }
 export interface UserProfile extends AuthUser {
   status: string;

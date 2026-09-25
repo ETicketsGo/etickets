@@ -92,6 +92,38 @@ export class AuthController {
     return { ...tokens, isNewAccount };
   }
 
+  /*
+    Adding a number to an account somebody is already signed into.
+
+    Separate from the two routes above, which are `@Public()` and exist to CREATE a session.
+    These require one: the account is known from the token, never from the body, so nobody can
+    attach a number to an account that is not theirs by naming it.
+
+    Throttled the same way, because the cost of the request is still somebody else's SMS bill.
+  */
+  @Throttle(AUTH_THROTTLE)
+  @Post('phone/attach/request-code')
+  @ApiOperation({ summary: 'Send a code to a number the signed-in customer wants to add.' })
+  requestAttachCode(
+    // No @CurrentUser: the account is not needed to SEND a code, only to attach one, and an
+    // unused parameter reads as though it were being checked. What makes this route safe is
+    // the absence of @Public() - a caller with no session never reaches it.
+    @Body(new ZodValidationPipe(phoneRequestSchema)) body: { phone: string },
+    @Req() req: Request,
+  ) {
+    return this.otp.requestCode(body.phone, meta(req).ip);
+  }
+
+  @Throttle(AUTH_THROTTLE)
+  @Post('phone/attach/verify')
+  @ApiOperation({ summary: 'Prove the code and attach the number to the signed-in account.' })
+  attachPhone(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(phoneVerifySchema)) body: { phone: string; code: string },
+  ) {
+    return this.otp.attachToAccount(user.id, body.phone, body.code);
+  }
+
   @Public()
   @Throttle(AUTH_THROTTLE)
   @Post('register')
@@ -178,6 +210,10 @@ export class AuthController {
       it look like a setting, and settings imply the platform will keep using it — which is
       exactly the promise a place-of-supply field should not make.
     */
-    return { ...user, lastBuyerRegion: await this.auth.lastBuyerRegion(user.id) };
+    const [lastBuyerRegion, details] = await Promise.all([
+      this.auth.lastBuyerRegion(user.id),
+      this.auth.accountDetails(user.id),
+    ]);
+    return { ...user, lastBuyerRegion, ...details };
   }
 }

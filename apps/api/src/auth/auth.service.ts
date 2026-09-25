@@ -461,6 +461,35 @@ export class AuthService {
     });
     return last?.customerRegion ?? null;
   }
+
+  /**
+   * The facts about an account that the profile screen shows and the token does not carry.
+   *
+   * ── WHY NOT PUT THEM IN THE TOKEN ──────────────────────────────────────────────────
+   * A JWT is a claim about identity, cached for as long as it lives. A phone number that was
+   * just added, or a verification that just happened, would not appear until the token was
+   * refreshed - so the screen would say "no phone number" straight after somebody added one.
+   * These are read at request time precisely because they change.
+   */
+  async accountDetails(userId: string): Promise<{
+    phone: string | null;
+    phoneVerified: boolean;
+    memberSince: string;
+    locale: string | null;
+  }> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, phoneVerifiedAt: true, createdAt: true, locale: true },
+    });
+    return {
+      phone: row?.phone ?? null,
+      // An unverified number is never stored, so this is belt and braces - but the screen
+      // states it, and a screen that states something must read it rather than assume it.
+      phoneVerified: Boolean(row?.phoneVerifiedAt),
+      memberSince: (row?.createdAt ?? new Date()).toISOString(),
+      locale: row?.locale ?? null,
+    };
+  }
 }
 
 function parseTtlDays(ttl: string): number {

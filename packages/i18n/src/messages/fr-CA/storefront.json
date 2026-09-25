@@ -342,7 +342,7 @@
     "current": "Langue actuelle : {language}"
   },
   "wallet": {
-    "heading": "Mes expériences",
+    "heading": "Mes billets",
     "empty": "Vous n'avez pas encore de billets.",
     "upcoming": "À venir",
     "past": "Passés",
@@ -747,7 +747,22 @@
     "fullName": "Nom complet",
     "email": "Courriel",
     "save": "Enregistrer les modifications",
-    "updated": "Profil mis à jour."
+    "updated": "Profil mis à jour.",
+    "phoneHeading": "Numero de mobile",
+    "phoneLead": "Sert aux codes de connexion et, si vous le demandez, aux mises a jour WhatsApp.",
+    "phoneNone": "Aucun numero de mobile sur ce compte.",
+    "phoneVerified": "Verifie",
+    "phoneAdd": "Ajouter un numero de mobile",
+    "phoneChange": "Modifier",
+    "phoneLabel": "Numero de mobile",
+    "phoneSend": "Envoyer le code",
+    "phoneCodeLabel": "Code a six chiffres",
+    "phoneConfirm": "Confirmer",
+    "phoneCancel": "Annuler",
+    "phoneSent": "Nous avons envoye un code a ce numero.",
+    "phoneSaved": "Numero de mobile enregistre.",
+    "detailsHeading": "Compte",
+    "memberSince": "Membre depuis"
   },
   "becomeOrganizer": {
     "rateLimited": "Plusieurs organisations ont été créées d'ici récemment. Réessayez dans une heure.",

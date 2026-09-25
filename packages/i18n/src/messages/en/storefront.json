@@ -342,7 +342,7 @@
     "current": "Current language: {language}"
   },
   "wallet": {
-    "heading": "My experiences",
+    "heading": "My tickets",
     "empty": "You don't have any tickets yet.",
     "upcoming": "Upcoming",
     "past": "Past",
@@ -747,7 +747,22 @@
     "fullName": "Full name",
     "email": "Email",
     "save": "Save changes",
-    "updated": "Profile updated."
+    "updated": "Profile updated.",
+    "phoneHeading": "Mobile number",
+    "phoneLead": "Used for sign-in codes and, if you ask for them, WhatsApp booking updates.",
+    "phoneNone": "No mobile number on this account.",
+    "phoneVerified": "Verified",
+    "phoneAdd": "Add a mobile number",
+    "phoneChange": "Change",
+    "phoneLabel": "Mobile number",
+    "phoneSend": "Send code",
+    "phoneCodeLabel": "Six-digit code",
+    "phoneConfirm": "Confirm",
+    "phoneCancel": "Cancel",
+    "phoneSent": "We sent a code to that number.",
+    "phoneSaved": "Mobile number saved.",
+    "detailsHeading": "Account",
+    "memberSince": "Member since"
   },
   "becomeOrganizer": {
     "rateLimited": "Several organizations have been set up from here recently. Try again in an hour.",

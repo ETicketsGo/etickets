@@ -66,6 +66,11 @@ export const api = {
   register: wk.auth.register,
   login: wk.auth.login,
   requestPhoneCode: wk.auth.requestPhoneCode,
+  // Adding a number to an account somebody is already signed into - the profile screen. Not
+  // the same as the sign-in pair: these carry the session and never take the account from the
+  // body. See `attachToAccount` for why a number is never moved between accounts.
+  requestAttachPhoneCode: wk.auth.requestAttachPhoneCode,
+  attachPhone: wk.auth.attachPhone,
   verifyPhoneCode: wk.auth.verifyPhoneCode,
   forgotPassword: wk.auth.forgotPassword,
   resetPassword: wk.auth.resetPassword,
