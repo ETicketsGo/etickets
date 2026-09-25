@@ -22,14 +22,14 @@ Cloudflare dashboard → **R2 Object Storage** → **Enable**. Add a payment met
 
 **R2 → Create bucket**, twice:
 
-| Bucket | Suggested name | Public? |
-| --- | --- | --- |
-| Things customers see: posters, logos, cover banners | `eticketsgo-public` | **Yes** |
-| Things only an admin sees: identity documents | `eticketsgo-private` | **No, never** |
+| Bucket                                              | Suggested name       | Public?       |
+| --------------------------------------------------- | -------------------- | ------------- |
+| Things customers see: posters, logos, cover banners | `eticketsgo-public`  | **Yes**       |
+| Things only an admin sees: identity documents       | `eticketsgo-private` | **No, never** |
 
 Location: **Asia-Pacific (APAC)** for an India launch. Leave the default storage class.
 
-**Two buckets, not one with two folders.** R2 grants public access per *bucket*, so a single
+**Two buckets, not one with two folders.** R2 grants public access per _bucket_, so a single
 bucket would have to be either wholly public or wholly private. An organizer's identity
 document behind a guessable public URL is the one outcome this design makes impossible: the
 code refuses to write a `private/` key to the public bucket, and vice versa.
@@ -61,11 +61,11 @@ Leave the private bucket's public access **disabled**. Check this twice.
 
 Cloudflare then shows you three things **once**:
 
-| Shown as | Goes into |
-| --- | --- |
-| Access Key ID | `R2_ACCESS_KEY_ID` |
-| Secret Access Key | `R2_SECRET_ACCESS_KEY` |
-| Account ID (top-right of the R2 page, or in the endpoint URL) | `R2_ACCOUNT_ID` |
+| Shown as                                                      | Goes into              |
+| ------------------------------------------------------------- | ---------------------- |
+| Access Key ID                                                 | `R2_ACCESS_KEY_ID`     |
+| Secret Access Key                                             | `R2_SECRET_ACCESS_KEY` |
+| Account ID (top-right of the R2 page, or in the endpoint URL) | `R2_ACCOUNT_ID`        |
 
 Copy the secret before you close the dialog; it is not shown again.
 
@@ -144,7 +144,7 @@ Three things are deliberate:
   prefix, and a misfiled object is obvious from its key rather than buried in a config file.
 - **Owner second.** Everything for one event or one organization is under a single prefix, so a
   deletion or an export is one call.
-- **The content hash as the filename.** Replacing a picture writes a *different* key, so no CDN,
+- **The content hash as the filename.** Replacing a picture writes a _different_ key, so no CDN,
   browser or proxy anywhere can be holding a stale answer at the new address. That is why the
   objects are served `immutable` with a one-year cache.
 
@@ -154,10 +154,10 @@ Three things are deliberate:
 
 A 400 KB poster, 5,000 events, 10 images each = about 20 GB stored. Reads are free.
 
-| | R2 | S3 + CloudFront |
-| --- | --- | --- |
-| 20 GB stored | ~$0.30/mo | ~$0.46/mo |
-| 500 GB read | **$0** | ~$40/mo |
+|              | R2        | S3 + CloudFront |
+| ------------ | --------- | --------------- |
+| 20 GB stored | ~$0.30/mo | ~$0.46/mo       |
+| 500 GB read  | **$0**    | ~$40/mo         |
 
 The storage line is a rounding error either way. Egress is the whole bill, and it is the line
 R2 does not have.
