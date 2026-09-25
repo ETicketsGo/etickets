@@ -1409,6 +1409,8 @@ model EventImage {
   updatedAt        DateTime @updatedAt
 
   @@index([eventId, position])
+  /// Finding what the object-storage backfill has not moved yet, without reading any bytes.
+  @@index([storageKey])
 }
 
 /// One binary object, when the active object-store driver is the database.
@@ -4307,6 +4309,8 @@ model OrganizationImage {
   updatedAt        DateTime @updatedAt
 
   @@unique([organizationId, kind])
+  /// Same reason as EventImage: the backfill asks "which rows still hold their own bytes?".
+  @@index([storageKey])
 }
 
 /// Where an organizer's money is actually sent.
