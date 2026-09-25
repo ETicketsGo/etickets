@@ -28,7 +28,7 @@ const ENGLISH = new Set([
   'Review & pay',
   'Discount code',
   'No hidden fees',
-  'My experiences',
+  'My tickets',
   'Browse events',
   'Search your wallet',
   'No account?',
