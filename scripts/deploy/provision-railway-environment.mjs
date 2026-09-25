@@ -347,6 +347,27 @@ Project "${project.name}"  ·  environment "${envName}"${DRY ? '   [DRY RUN]' : 
 }
 
 main().catch((e) => {
+  /*
+    One failure is worth explaining rather than reporting.
+
+    A Railway SERVICE belongs to the project; a service INSTANCE is that service inside one
+    environment. Every mutation here addresses an instance, and a project token cannot create
+    one - serviceInstanceUpdate, serviceInstanceDeploy and serviceInstanceAutoDeployUpdate all
+    refuse, the last with a bare "Bad Access". So an environment created EMPTY in the dashboard
+    cannot be populated from here at all, and the raw error says none of that.
+  */
+  if (/Service ?Instance not found|Bad Access/i.test(e.message)) {
+    console.error(
+      '\nThis environment has no service instances, and a project token cannot create them.\n\n' +
+        'In the Railway dashboard, create the environment by DUPLICATING an existing one\n' +
+        '(the environment menu -> Duplicate) rather than creating it empty. That gives it\n' +
+        'every service with its config-as-code already set, and this script is then safe to\n' +
+        're-run: it applies the environment policy and never rotates an existing credential.\n\n' +
+        'A duplicate also copies the SOURCE environment variables, so every secret must be\n' +
+        'replaced afterwards. Nothing is live until that is done.\n',
+    );
+    process.exit(1);
+  }
   console.error(`\nprovisioning failed: ${e.message}\n`);
   process.exit(1);
 });
