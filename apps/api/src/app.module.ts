@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { loadConfig } from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
+import { StorageModule } from './storage/storage.module';
 import { SecretsModule } from './secrets/secrets.module';
 import { RedisModule } from './redis/redis.module';
 import { CacheModule } from './cache/cache.module';
@@ -90,6 +91,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
       },
     ]),
     PrismaModule,
+    StorageModule,
     SecretsModule,
     RedisModule,
     CacheModule,

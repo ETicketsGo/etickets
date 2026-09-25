@@ -60,17 +60,29 @@ export const Toggle = forwardRef<HTMLInputElement, ToggleProps>(function Toggle(
           // on it has to do what a click on a label would.
           if (!disabled) onChange(!checked);
         }}
+        /*
+          Every colour here has to be a token this project actually defines.
+
+          It used to say `peer-checked:bg-accent` and `outline-accent`, and there is no `accent`
+          colour - the palette is `action-primary`, `background-*`, `text-*`, `status-*`. Tailwind
+          does not warn about a class it cannot resolve; it simply generates nothing. So the ON
+          state was the same grey as the OFF state, the knob below was invisible, and the control
+          looked dead: reported as "unable to select notification preferences". The click was
+          working the whole time and saving the preference - there was just nothing to see.
+        */
         className={[
           'relative h-6 w-11 shrink-0 rounded-full transition-colors',
-          'bg-border peer-checked:bg-accent',
+          'bg-border peer-checked:bg-action-primary',
           'peer-focus-visible:outline peer-focus-visible:outline-2',
-          'peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent',
+          'peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring',
           disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
         ].join(' ')}
       >
         <span
           className={[
-            'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform',
+            // `bg-surface` is not a token either, so the knob had no colour at all - which is
+            // why the track looked like an empty pill rather than a switch.
+            'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-background-surface shadow transition-transform',
             checked ? 'translate-x-5' : 'translate-x-0',
           ].join(' ')}
         />

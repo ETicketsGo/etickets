@@ -230,7 +230,7 @@ test('experience wallet: placeholder items appear behind a feature flag and filt
 
   // Wallet with placeholder items enabled via feature flag
   await page.goto(`${CUSTOMER}/account/tickets?preview=memberships,coupons`);
-  await expect(page.getByRole('heading', { name: 'My experiences' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My tickets' })).toBeVisible();
   await expect(page.getByText('ETicketsGo Gold')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText('10% Welcome Coupon')).toBeVisible();
   // The real ticket item is present too (generic card, no type branching)

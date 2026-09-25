@@ -213,7 +213,17 @@ export class PhoneOtpService {
    * keeping it there means phone sign-in produces exactly the same session as every other
    * route rather than a second, subtly different one.
    */
-  async verifyCode(rawPhone: string, code: string): Promise<{ id: string; isNewAccount: boolean }> {
+  /**
+   * Prove a code, burn it, and answer with the number it proved.
+   *
+   * ── WHY THIS IS ITS OWN METHOD ─────────────────────────────────────────────────────
+   * Two callers now need a proven number: signing in, and attaching a number to an account
+   * somebody is already signed into. What they do afterwards is completely different; how the
+   * code is checked must be identical, because that is where the single-use guarantee, the
+   * attempt budget and the constant answer live. A second copy of this would be a second place
+   * for those to drift, and the drift would be silent.
+   */
+  private async consumeCode(rawPhone: string, code: string): Promise<string> {
     const phone = normalisePhone(rawPhone);
 
     const otp = await this.prisma.phoneOtp.findFirst({
@@ -272,6 +282,61 @@ export class PhoneOtpService {
       data: { consumedAt: new Date() },
     });
     if (spent.count === 0) throw rejected();
+
+    return phone;
+  }
+
+  /**
+   * Attach a proven number to the account somebody is already signed into.
+   *
+   * ── WHY THIS IS NOT verifyCode ────────────────────────────────────────────────────
+   * `verifyCode` answers "whose account is this number?" and will CREATE one if the answer is
+   * nobody. That is right for signing in and wrong here: the account already exists, the person
+   * is already in it, and a second account must never appear because somebody added a phone
+   * number to their profile.
+   *
+   * ── THE DEAD END THIS FIXES ───────────────────────────────────────────────────────
+   * Notification settings offers WhatsApp for booking updates and disables the switch until the
+   * account has a phone number, with a line reading "Add a phone number to receive WhatsApp
+   * updates" that links to the profile. The profile had no phone field and no way to add one, so
+   * the link went to a page that could not do the thing it promised, and the switch could never
+   * be turned on by anybody.
+   *
+   * ── ONE NUMBER, ONE ACCOUNT ───────────────────────────────────────────────────────
+   * Refused if the number is already on someone else's account. Not merged, not transferred:
+   * a number proves who you are here, and moving one between accounts on the strength of a
+   * single code is how an account is taken over. The person is told plainly and sent to support,
+   * because the legitimate version of this - somebody changing their number - is rare and worth
+   * a human looking at.
+   */
+  async attachToAccount(
+    userId: string,
+    rawPhone: string,
+    code: string,
+  ): Promise<{ phone: string }> {
+    const phone = await this.consumeCode(rawPhone, code);
+
+    const holder = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+    if (holder && holder.id !== userId) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That number is already on another account. Contact support if it is yours.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { phone, phoneVerifiedAt: new Date() },
+    });
+    return { phone };
+  }
+
+  async verifyCode(rawPhone: string, code: string): Promise<{ id: string; isNewAccount: boolean }> {
+    const phone = await this.consumeCode(rawPhone, code);
 
     const existing = await this.prisma.user.findUnique({ where: { phone } });
     if (existing) {

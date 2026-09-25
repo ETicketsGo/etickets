@@ -57,7 +57,13 @@ const reorderImagesBody = z.object({
  */
 function sendEventImage(
   res: Response,
-  image: { bytes: Uint8Array; contentType: string; sha256: string } | null,
+  image: {
+    bytes?: Uint8Array;
+    /** Set when the object is in a public bucket with a reachable CDN address. */
+    redirectTo?: string;
+    contentType: string;
+    sha256: string;
+  } | null,
   version: string | undefined,
   ifNoneMatch: string | undefined,
 ): void {
@@ -66,6 +72,19 @@ function sendEventImage(
     return;
   }
   const current = eventImageVersion(image.sha256);
+  /*
+    Once the object is on a CDN, stop proxying it.
+
+    301 rather than 302: the content hash is in the URL on both sides, so this address will
+    always answer with this image, and a permanent redirect lets a browser skip the round trip
+    entirely next time. The link a customer already has in an email keeps working either way,
+    which is why the old URL is redirected rather than retired.
+  */
+  if (image.redirectTo) {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.redirect(301, image.redirectTo);
+    return;
+  }
   const etag = `"${current}"`;
   res.setHeader('ETag', etag);
   res.setHeader(
@@ -79,7 +98,9 @@ function sendEventImage(
     res.status(304).end();
     return;
   }
-  const bytes = Buffer.from(image.bytes);
+  // Reached only when there is no CDN address, so the bytes are always present here: the
+  // resolver returns null rather than a row with neither.
+  const bytes = Buffer.from(image.bytes ?? new Uint8Array());
   res.setHeader('Content-Type', image.contentType);
   res.setHeader('Content-Length', String(bytes.length));
   res.status(200).end(bytes);

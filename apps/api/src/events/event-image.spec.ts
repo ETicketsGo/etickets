@@ -24,6 +24,26 @@ const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('W
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 const HTML = Buffer.from('<!doctype html><script>alert(1)</script>');
 
+/**
+ * The object store, as these tests need it: the database driver, which is the default and what
+ * every environment runs. `write` is never called while the driver is `postgres`, and a read
+ * hands back whatever bytes the row holds — which is exactly the behaviour these tests predate
+ * and must keep.
+ */
+const objectStore = {
+  driver: 'postgres' as const,
+  write: async () => {
+    throw new Error('the postgres driver never writes through the store');
+  },
+  read: async (row: { bytes: Uint8Array | null; contentType: string }) =>
+    row.bytes
+      ? { body: Buffer.from(row.bytes), contentType: row.contentType, sizeBytes: row.bytes.length }
+      : null,
+  publicUrl: () => null,
+  remove: async () => undefined,
+  health: async () => ({ healthy: true }),
+};
+
 describe('sniffImageType', () => {
   it.each([
     ['PNG', PNG, 'image/png'],
@@ -68,6 +88,9 @@ type Row = {
   contentType: string;
   sizeBytes: number;
   createdAt: Date;
+  /** Exactly one of these, as the database enforces. These rows predate object storage. */
+  bytes: Uint8Array | null;
+  storageKey: string | null;
 };
 
 describe('EventImageService', () => {
@@ -85,6 +108,10 @@ describe('EventImageService', () => {
       contentType: 'image/jpeg',
       sizeBytes: 10,
       createdAt: new Date(2026, 0, 1, 0, i),
+      // Bytes in the row: these stand for images stored before the object store existed, which
+      // is every image on the platform today and the case that must keep working.
+      bytes: Uint8Array.from([i + 1]),
+      storageKey: null,
       ...row,
     }));
     let created = 0;
@@ -133,7 +160,12 @@ describe('EventImageService', () => {
     };
     const access = { assertMember: jest.fn().mockResolvedValue(undefined) };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
-    const service = new EventImageService(prisma as never, access as never, audit as never);
+    const service = new EventImageService(
+      prisma as never,
+      access as never,
+      audit as never,
+      objectStore as never,
+    );
     return { service, prisma, access, audit, rows: () => ordered() };
   }
 
@@ -255,8 +287,14 @@ describe('EventImageService', () => {
 
   it('reads one image only within its own event, and the cover by order', async () => {
     const { service } = setup(EventStatus.DRAFT, [{ position: 1 }, { position: 0 }]);
-    await expect(service.read('ev1', 'img1')).resolves.toMatchObject({ id: 'img1' });
+    /*
+      Identified by content hash rather than by row id: a read now returns the IMAGE - its bytes
+      and what they are - rather than the database row it came from, because the bytes may not
+      be in the database at all. The hashes are distinct per seeded row, so they still say which
+      image was selected, which is what this test is about.
+    */
+    await expect(service.read('ev1', 'img1')).resolves.toMatchObject({ sha256: '1'.repeat(64) });
     await expect(service.read('other-event', 'img1')).resolves.toBeNull();
-    await expect(service.readCover('ev1')).resolves.toMatchObject({ id: 'img2' });
+    await expect(service.readCover('ev1')).resolves.toMatchObject({ sha256: '2'.repeat(64) });
   });
 });

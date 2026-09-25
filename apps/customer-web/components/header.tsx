@@ -120,11 +120,32 @@ export function Header() {
           </Link>
           {authed ? (
             <>
-              <Link href="/account/bookings" aria-label={t('bookings')} className={navLink}>
+              {/*
+                Hidden below `lg` for exactly the reason the four public links above are.
+
+                These three were left on `navLink` with no breakpoint, so they only appeared
+                once somebody SIGNED IN - and then Tickets and Alerts were on screen twice at
+                once, in the header and in the bottom bar. Reported from the installed app as
+                "we are duplicating the icons and bottom option twice". It never showed in a
+                signed-out sweep, which is how it survived a review that measured every public
+                page at phone width.
+
+                On a small screen the bottom bar carries Tickets and Alerts, and the account
+                menu carries Bookings, so nothing here is lost by hiding it.
+              */}
+              <Link
+                href="/account/bookings"
+                aria-label={t('bookings')}
+                className={`hidden lg:flex ${navLink}`}
+              >
                 <Receipt className="h-4 w-4" />
                 <span className="hidden sm:inline">{t('bookings')}</span>
               </Link>
-              <Link href="/account/tickets" aria-label={t('tickets')} className={navLink}>
+              <Link
+                href="/account/tickets"
+                aria-label={t('tickets')}
+                className={`hidden lg:flex ${navLink}`}
+              >
                 <Ticket className="h-4 w-4" />
                 <span className="hidden sm:inline">{t('tickets')}</span>
               </Link>
@@ -133,7 +154,7 @@ export function Header() {
                 aria-label={
                   unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
                 }
-                className={`relative ${navLink}`}
+                className={`relative hidden lg:flex ${navLink}`}
               >
                 <Bell className="h-4 w-4" />
                 <span className="hidden sm:inline">{t('alerts')}</span>

@@ -428,12 +428,28 @@ export class PublicOrganizerLogoController {
 
   private send(
     res: Response,
-    image: { bytes: Uint8Array; contentType: string; sha256: string } | null,
+    image: {
+      bytes?: Uint8Array;
+      /** Set when the object is in a public bucket with a reachable CDN address. */
+      redirectTo?: string;
+      contentType: string;
+      sha256: string;
+    } | null,
     version: string | undefined,
     ifNoneMatch: string | undefined,
   ): void {
     if (!image) {
       res.status(404).json({ code: 'NOT_FOUND', message: 'This organizer has no such image.' });
+      return;
+    }
+    /*
+      Once the object is on a CDN, stop proxying it. 301 because the content hash is in the URL
+      on both sides, so this address will always answer with this picture - and the link an
+      organizer already pasted somewhere keeps working.
+    */
+    if (image.redirectTo) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.redirect(301, image.redirectTo);
       return;
     }
     const current = image.sha256.slice(0, 16);
@@ -450,7 +466,8 @@ export class PublicOrganizerLogoController {
       res.status(304).end();
       return;
     }
-    const bytes = Buffer.from(image.bytes);
+    // Reached only when there is no CDN address, so the bytes are always present here.
+    const bytes = Buffer.from(image.bytes ?? new Uint8Array());
     res.setHeader('Content-Type', image.contentType);
     res.setHeader('Content-Length', String(bytes.length));
     res.status(200).end(bytes);

@@ -378,7 +378,7 @@ test.describe('the storefront in French', () => {
   test('7: the ticket wallet is French', async ({ page }) => {
     // Where somebody goes to find the ticket they are about to show at a door.
     await page.goto(`${CUSTOMER}/fr-CA/account/tickets`, { waitUntil: 'networkidle' });
-    await expect(page.getByRole('heading', { name: 'Mes expériences' })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Mes billets' })).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByLabel('Rechercher dans votre portefeuille')).toBeVisible();

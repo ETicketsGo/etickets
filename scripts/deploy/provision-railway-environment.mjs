@@ -1,24 +1,30 @@
 #!/usr/bin/env node
 /**
- * Provision the ETicketsGo QA environment on Railway, idempotently.
+ * Provision one ETicketsGo environment on Railway, idempotently.
  *
- * Written as a script rather than a sequence of dashboard clicks because the QA environment
- * has to be reproducible: if it is torn down, or UAT is built next, the answer should be
+ * Written as a script rather than a sequence of dashboard clicks because an environment has
+ * to be reproducible: if it is torn down, or the next one is built, the answer should be
  * "re-run this", not "remember what you clicked". Every step is a no-op when the desired
  * state already holds, so it is safe to re-run at any time.
  *
- * Auth: a Railway PROJECT token, read from ~/.railway-qa-token (36-char UUID). A project
- * token is scoped to one project + environment and cannot see any other project — which is
- * exactly the isolation the deployment design depends on. The token is never printed.
+ * ── IT PROVISIONS WHICHEVER ENVIRONMENT THE TOKEN BELONGS TO ───────────────────────
+ * A Railway project token is scoped to one project AND one environment, so the token IS the
+ * target: there is no environment argument to get wrong, and no way to point this at
+ * production by mistyping a flag. It reads back the environment's name and applies that
+ * environment's policy — see `policyFor`, where production differs from the rest in ways
+ * that matter.
+ *
+ * Auth: `RAILWAY_TOKEN`, or a file named by `RAILWAY_TOKEN_FILE`. Never printed.
  *
  * What it does NOT do, deliberately:
  *   - delete anything (no service, volume or variable is ever removed)
- *   - trigger a deployment (that is GitHub Actions' job — this only prepares the target)
- *   - set payment credentials (they are provider-issued; see QA_FIRST_DEPLOYMENT.md)
+ *   - rotate a credential that already exists
+ *   - trigger a deployment (this only prepares the target)
+ *   - set payment credentials (they are provider-issued)
  *
  * Usage:
- *   node scripts/deploy/provision-qa-railway.mjs            # apply
- *   node scripts/deploy/provision-qa-railway.mjs --dry-run  # report only, change nothing
+ *   RAILWAY_TOKEN=... node scripts/deploy/provision-railway-environment.mjs --dry-run
+ *   RAILWAY_TOKEN=... node scripts/deploy/provision-railway-environment.mjs
  */
 
 import { readFileSync } from 'node:fs';
@@ -30,12 +36,14 @@ const API = 'https://backboard.railway.app/graphql/v2';
 const DRY = process.argv.includes('--dry-run');
 const TOKEN_FILE = process.env.RAILWAY_TOKEN_FILE ?? join(homedir(), '.railway-qa-token');
 
-let TOKEN;
-try {
-  TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
-} catch {
-  console.error(`Cannot read a Railway project token from ${TOKEN_FILE}`);
-  process.exit(1);
+let TOKEN = (process.env.RAILWAY_TOKEN ?? '').trim();
+if (!TOKEN) {
+  try {
+    TOKEN = readFileSync(TOKEN_FILE, 'utf8').trim();
+  } catch {
+    console.error(`Set RAILWAY_TOKEN, or put a project token in ${TOKEN_FILE}`);
+    process.exit(1);
+  }
 }
 if (!/^[0-9a-f-]{36}$/i.test(TOKEN)) {
   console.error(`${TOKEN_FILE} does not contain a bare 36-character token.`);
@@ -86,6 +94,36 @@ const APP_SERVICES = [
 
 const REPO = 'ETicketsGo/etickets';
 
+/**
+ * What differs between a test environment and the one customers use.
+ *
+ * SLEEPING IS A TEST-ENVIRONMENT LUXURY
+ * Sleeping idle services is the right call in QA and UAT: nobody is waiting, and the few
+ * dollars a month are worth having. In production it is two separate faults.
+ *
+ * A sleeping API makes the first customer of the day wait for a cold start, on the page where
+ * they are deciding whether to trust us with a card. Worse, a payment PROVIDER does not retry
+ * forever: Razorpay posts a webhook when money moves, and a webhook that arrives at a service
+ * still waking up is a payment the platform may never hear about - a customer charged with no
+ * ticket, found days later in a reconciliation report. Nothing about that is worth saving a
+ * few dollars a month on.
+ *
+ * AUTOMATIC DEPLOYS ARE OFF IN PRODUCTION
+ * This project has already had main auto-deploy to an unapproved production environment once.
+ * A merge is a decision to have code reviewed; it is not a decision to put it in front of
+ * paying customers. Production is deployed on purpose, by somebody, with the deploy script.
+ */
+function policyFor(environmentName) {
+  const isProduction = /^prod/i.test(environmentName);
+  return {
+    isProduction,
+    /** Only test environments sleep. See above for what it costs in production. */
+    allowSleep: !isProduction,
+    /** Deploys are triggered deliberately in production, never by a push. */
+    autoDeploy: !isProduction,
+  };
+}
+
 async function main() {
   // ── Identify the project this token belongs to ──────────────────────────────────
   const { projectToken } = await gql('{ projectToken { projectId environmentId } }');
@@ -98,7 +136,14 @@ async function main() {
   const envName =
     project.environments.edges.find((e) => e.node.id === environmentId)?.node.name ?? '?';
 
-  log(`\nProject "${project.name}"  ·  environment "${envName}"${DRY ? '   [DRY RUN]' : ''}\n`);
+  const policy = policyFor(envName);
+  log(`
+Project "${project.name}"  ·  environment "${envName}"${DRY ? '   [DRY RUN]' : ''}`);
+  log(
+    policy.isProduction
+      ? '  PRODUCTION policy: nothing sleeps, and pushes do not deploy.\n'
+      : '  Test-environment policy: idle services sleep; the worker never does.\n',
+  );
 
   const byName = new Map(project.services.edges.map((e) => [e.node.name, e.node.id]));
 
@@ -133,7 +178,9 @@ async function main() {
     if (inst?.railwayConfigFile === svc.config) {
       ok(`${svc.name}: config-as-code = ${svc.config}`);
     } else if (DRY) {
-      act(`${svc.name}: set config-as-code = ${svc.config} (was ${inst?.railwayConfigFile ?? 'unset'})`);
+      act(
+        `${svc.name}: set config-as-code = ${svc.config} (was ${inst?.railwayConfigFile ?? 'unset'})`,
+      );
     } else {
       await gql(
         `mutation($e:String!,$s:String!,$in:ServiceInstanceUpdateInput!){ serviceInstanceUpdate(environmentId:$e, serviceId:$s, input:$in) }`,
@@ -142,17 +189,28 @@ async function main() {
       act(`${svc.name}: config-as-code = ${svc.config}`);
     }
 
-    // Cost control: sleep when idle, and never more than one replica in QA.
+    /*
+      Cost control in a test environment; a correctness setting in production.
+
+      The worker never sleeps anywhere - it owns the `expire-holds` repeatable job, and a
+      sleeping worker does not release expired seat holds, so inventory stays locked and the
+      symptom presents as phantom overselling. In production NOTHING sleeps, for the reasons
+      set out in `policyFor`.
+    */
+    const sleep = policy.allowSleep && svc.sleep;
+    const why = !svc.sleep
+      ? '  <- must stay awake: owns expire-holds'
+      : policy.isProduction
+        ? '  <- production never sleeps: cold starts and missed payment webhooks'
+        : '';
     if (DRY) {
-      act(`${svc.name}: sleepApplication=${svc.sleep}, numReplicas=1`);
+      act(`${svc.name}: sleepApplication=${sleep}, numReplicas=1${why}`);
     } else {
       await gql(
         `mutation($e:String!,$s:String!,$in:ServiceInstanceUpdateInput!){ serviceInstanceUpdate(environmentId:$e, serviceId:$s, input:$in) }`,
-        { e: environmentId, s: id, in: { sleepApplication: svc.sleep, numReplicas: 1 } },
+        { e: environmentId, s: id, in: { sleepApplication: sleep, numReplicas: 1 } },
       );
-      act(
-        `${svc.name}: sleep=${svc.sleep}${svc.sleep ? '' : '  <- must stay awake: owns expire-holds'}, replicas=1`,
-      );
+      act(`${svc.name}: sleep=${sleep}, replicas=1${why}`);
     }
 
     // Root directory must stay empty: every Dockerfile builds from the repository root
@@ -225,16 +283,27 @@ async function main() {
       ok(`${store.name}: exists`);
     }
 
-    // Volume — durability. Creating a second one errors, so check first.
-    const vols = await gql(`query($id:String!){ project(id:$id){ volumes{edges{node{id name}}} } }`, {
-      id: projectId,
-    });
-    const wanted = `${store.name.toLowerCase()}-volume`;
-    const hasVol = vols.project.volumes.edges.some((e) => e.node.name === wanted);
+    /*
+      Volume - durability, and the check has to be per ENVIRONMENT.
+
+      This asked the PROJECT whether a volume of this name existed anywhere, which is the same
+      question for every environment in the project. Once QA had `postgres-volume`, a run
+      against PROD reported "volume present (durable)" and created none - and a Postgres with
+      no volume loses everything on the next redeploy. Caught on a dry run before production
+      was provisioned; the report was reassuring and wrong, which is the worst kind.
+
+      A volume INSTANCE is the thing that is per-environment, so that is what is counted.
+    */
+    const vols = await gql(
+      `query($e:String!){ environment(id:$e){ volumeInstances{edges{node{ volume{ name } service{ id } }}} } }`,
+      { e: environmentId },
+    );
+    const here = (vols.environment.volumeInstances?.edges ?? []).map((n) => n.node);
+    const hasVol = here.some((v) => v.service?.id === id);
     if (hasVol) {
-      ok(`${store.name}: volume present (durable)`);
+      ok(`${store.name}: volume present in this environment (durable)`);
     } else if (DRY) {
-      act(`${store.name}: create volume at ${store.mount}`);
+      act(`${store.name}: create volume at ${store.mount}  <- NONE in this environment`);
     } else {
       await gql(`mutation($in:VolumeCreateInput!){ volumeCreate(input:$in){ id name } }`, {
         in: { projectId, environmentId, serviceId: id, mountPath: store.mount },
@@ -255,13 +324,30 @@ async function main() {
     } else {
       const vars = store.vars();
       for (const [name, value] of Object.entries(vars)) {
-        await gql(
-          `mutation($in:VariableUpsertInput!){ variableUpsert(input:$in) }`,
-          { in: { projectId, environmentId, serviceId: id, name, value } },
-        );
+        await gql(`mutation($in:VariableUpsertInput!){ variableUpsert(input:$in) }`, {
+          in: { projectId, environmentId, serviceId: id, name, value },
+        });
       }
       act(`${store.name}: generated credentials (${Object.keys(vars).join(', ')})`);
     }
+  }
+
+  /*
+    Automatic deploys, which this script CANNOT set.
+
+    `serviceInstanceAutoDeployUpdate` answers "Bad Access" to a project token, and the state is
+    not readable either: `ServiceSource` exposes only `image` and `repo`, with no branch. So
+    there is nothing to check and nothing to change from here.
+
+    It is printed rather than passed over because production auto-deploying from a push is a
+    thing this project has already done once, and a provisioning run that said nothing about it
+    would read as though it had been handled.
+  */
+  if (policy.isProduction) {
+    log('\nAutomatic deploys  (dashboard only - a project token cannot read or set this)');
+    log('  Railway -> each service -> Settings -> Source -> disconnect the branch, or set');
+    log('  "Wait for CI" / disable "Deploy on push". Production ships when somebody decides,');
+    log('  not when somebody merges. Deploy it with scripts/deploy/railway-deploy-and-wait.mjs.');
   }
 
   // ── Summary ─────────────────────────────────────────────────────────────────────
@@ -279,6 +365,27 @@ async function main() {
 }
 
 main().catch((e) => {
+  /*
+    One failure is worth explaining rather than reporting.
+
+    A Railway SERVICE belongs to the project; a service INSTANCE is that service inside one
+    environment. Every mutation here addresses an instance, and a project token cannot create
+    one - serviceInstanceUpdate, serviceInstanceDeploy and serviceInstanceAutoDeployUpdate all
+    refuse, the last with a bare "Bad Access". So an environment created EMPTY in the dashboard
+    cannot be populated from here at all, and the raw error says none of that.
+  */
+  if (/Service ?Instance not found|Bad Access/i.test(e.message)) {
+    console.error(
+      '\nThis environment has no service instances, and a project token cannot create them.\n\n' +
+        'In the Railway dashboard, create the environment by DUPLICATING an existing one\n' +
+        '(the environment menu -> Duplicate) rather than creating it empty. That gives it\n' +
+        'every service with its config-as-code already set, and this script is then safe to\n' +
+        're-run: it applies the environment policy and never rotates an existing credential.\n\n' +
+        'A duplicate also copies the SOURCE environment variables, so every secret must be\n' +
+        'replaced afterwards. Nothing is live until that is done.\n',
+    );
+    process.exit(1);
+  }
   console.error(`\nprovisioning failed: ${e.message}\n`);
   process.exit(1);
 });

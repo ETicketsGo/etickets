@@ -18,6 +18,7 @@
  *
  *   node scripts/deploy/run-seed-operation.mjs status
  *   node scripts/deploy/run-seed-operation.mjs india-cinema
+ *   node scripts/deploy/run-seed-operation.mjs payment-routes
  *   node scripts/deploy/run-seed-operation.mjs full-reset --yes-empty-the-database
  */
 const TOKEN = process.env.RAILWAY_TOKEN;
@@ -32,6 +33,8 @@ const VALID = [
   'india-gst',
   'india-gst-activate',
   'india-cinema',
+  'payment-routes',
+  'backfill-objects',
   'full-reset',
 ];
 if (!VALID.includes(operation)) {

@@ -179,6 +179,20 @@ const session = () => new AnonymousSessionService().issueToken();
  * stored hash in constant time even though it located the row by that same hash, and a stub
  * with a made-up hash would make that check untestable.
  */
+/**
+ * An expiry that is always in the future.
+ *
+ * Two tests pinned it to a literal `2026-09-25T10:00:00Z`, and the service correctly treats a
+ * link whose expiry has passed as a link that opens nothing. So they passed until that instant
+ * arrived and then failed for the rest of time - on 25 September 2026, which is a Friday nobody
+ * planned to spend on this. A date in a fixture is a fact about WHEN the suite runs unless it is
+ * written relative to now.
+ */
+const STILL_LIVE = () => new Date(Date.now() + 60 * 60_000);
+
+/** One instant, shared by the row and the assertion, so the two cannot disagree. */
+const ACCESS_EXPIRES = STILL_LIVE();
+
 const live = (rawToken: string, expiresAt: Date) => ({
   id: 'ga-1',
   bookingId: 'bk-1',
@@ -475,7 +489,7 @@ describe('an emailed link stops working when it should', () => {
   });
 
   it('tells the reader when the link expires', async () => {
-    const expiresAt = new Date('2026-09-25T10:00:00.000Z');
+    const expiresAt = STILL_LIVE();
     const { service } = setup({
       access: live('live', expiresAt),
       booking: CONFIRMED_BOOKING,
@@ -763,7 +777,7 @@ describe('the shape a guest is handed', () => {
     */
     const { service } = setup({
       booking: CONFIRMED_BOOKING,
-      access: live('live-token', new Date('2026-09-25T09:50:00.000Z')),
+      access: live('live-token', ACCESS_EXPIRES),
       presented: [
         { id: 'tk-1', qrToken: 'qr-token-1', qrDataUrl: 'data:image/png;base64,AAA' },
         { id: 'tk-2', qrToken: 'qr-token-2', qrDataUrl: 'data:image/png;base64,BBB' },
@@ -820,7 +834,7 @@ describe('the shape a guest is handed', () => {
           checkedInAt: '2026-09-20T13:05:00.000Z',
         },
       ],
-      accessExpiresAt: '2026-09-25T09:50:00.000Z',
+      accessExpiresAt: ACCESS_EXPIRES.toISOString(),
     });
   });
 

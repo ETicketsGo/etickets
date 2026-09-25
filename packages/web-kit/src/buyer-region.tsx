@@ -88,7 +88,7 @@ export function BuyerRegionField({
           not what fixes this one: removing it changes nothing, removing `w-full` brings the
           sideways scroll straight back, and `mobile-storefront.spec.ts` measures exactly that.
         */
-        className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-[0.9375rem] text-text-primary"
+        className="w-full min-w-0 rounded-md border border-border bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary"
       >
         <option value="">{noneLabel}</option>
         {/*

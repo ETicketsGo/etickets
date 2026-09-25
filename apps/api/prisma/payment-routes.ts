@@ -1,5 +1,5 @@
 import { PaymentEnv, PrismaClient } from '@prisma/client';
-import { routesFor } from './payment-routing-policy';
+import { providersFromEnvironment, routesFor } from './payment-routing-policy';
 
 /**
  * Bootstrap the payment routing rows for ONE environment, idempotently.
@@ -45,7 +45,17 @@ async function main() {
   const changes: string[] = [];
 
   try {
-    for (const route of routesFor(env)) {
+    const available = providersFromEnvironment(env);
+    // eslint-disable-next-line no-console
+    console.log(
+      `Providers reachable in ${env}: ` +
+        (Object.entries(available)
+          .filter(([, yes]) => yes)
+          .map(([name]) => name)
+          .join(', ') || 'none'),
+    );
+
+    for (const route of routesFor(env, available)) {
       const key = {
         env: route.env,
         country: route.country,
@@ -67,6 +77,31 @@ async function main() {
       else if (before.provider !== route.provider || before.active !== true)
         changes.push(`updated  ${label}`);
       else changes.push(`unchanged ${label}`);
+    }
+
+    /*
+      Retire the rows the policy no longer specifies.
+
+      The upsert above can only add and correct; it cannot remove. That was enough while the
+      policy was a fixed list per environment, and stopped being enough once the rows follow
+      what the environment is actually wired with: UAT held INR → razorpay and a stripe
+      wildcard while holding no keys for either, and no amount of upserting would take them
+      away. A route to a gateway we cannot authenticate against is worse than no route, because
+      the failure moves from readiness, where somebody would see it, to the gateway, where a
+      customer does.
+
+      Deactivated rather than deleted. A payment already taken names the route that chose its
+      provider, and a report of yesterday's settlements has to still be able to read it.
+    */
+    const wanted = new Set(routesFor(env).map((r) => `${r.country}|${r.currency}|${r.method}`));
+    const stale = (await prisma.paymentRoute.findMany({ where: { env, active: true } })).filter(
+      (r) => !wanted.has(`${r.country}|${r.currency}|${r.method}`),
+    );
+    for (const r of stale) {
+      await prisma.paymentRoute.update({ where: { id: r.id }, data: { active: false } });
+      changes.push(
+        `retired  ${r.currency} → ${r.provider} (this environment holds no usable credential for it)`,
+      );
     }
 
     // eslint-disable-next-line no-console

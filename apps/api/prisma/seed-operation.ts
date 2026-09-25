@@ -26,6 +26,8 @@ import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './back
  *
  *   SEED_OPERATION=status         (default)  read-only census
  *   SEED_OPERATION=india-cinema              write AP + TG policies, all DRAFT, idempotent
+ *   SEED_OPERATION=payment-routes            match payment routes to this env's real credentials
+ *   SEED_OPERATION=backfill-objects          move images from the database into object storage
  *   SEED_OPERATION=full-reset                EMPTY EVERY TABLE and reseed demo data
  *
  * `full-reset` additionally requires SEED_ALLOW_DESTRUCTIVE=yes-until-<ISO timestamp>, no more
@@ -173,6 +175,32 @@ switch (operation) {
     require('./seed-india-cinema-policy');
     break;
 
+  case 'backfill-objects': {
+    /*
+      Moves images out of the database and into the object store, in batches, safely
+      restartable. Needs to run inside the private network because that is where the database
+      is, and it is long-running by nature - which is exactly why it is not a migration.
+    */
+    require('./backfill-object-storage');
+    break;
+  }
+
+  case 'payment-routes': {
+    /*
+      Bring the payment route rows into line with what this environment can actually charge
+      with. Touches nothing but `PaymentRoute`, and deactivates rather than deletes, so a
+      settlement report can still read the route that chose yesterday's provider.
+
+      Needed from inside the private network for the same reason every other operation here
+      is: the database has no public proxy, which is correct. It exists as its own operation
+      rather than riding along with a seed because it is the one thing that decides where
+      real money is taken, and it should be possible to fix routing without touching a single
+      other row.
+    */
+    require('./payment-routes');
+    break;
+  }
+
   case 'full-reset': {
     /*
       Order matters here, and it is the whole point.
@@ -240,7 +268,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, backfill-objects, full-reset.`,
     );
     process.exit(1);
 }

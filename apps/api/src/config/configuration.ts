@@ -646,6 +646,39 @@ const envSchema = z.object({
    * configured and the subscription confirmed.
    */
   SES_CONFIGURATION_SET: z.string().optional(),
+
+  /*
+    ── OBJECT STORAGE (Cloudflare R2, through the S3 API) ────────────────────────────
+    Where posters, organization pictures and uploaded documents live. Unset everywhere means
+    `postgres`, which is what every environment runs today and is a perfectly good answer at
+    pilot volume - see `object-store.interface.ts` for what makes it stop being one.
+
+    `OBJECT_STORE_DRIVER=r2` is the only switch. Everything else is the account it points at,
+    and `assertObjectStoreConsistency` refuses a half-filled set rather than letting the API
+    boot and fail on the first upload.
+  */
+  OBJECT_STORE_DRIVER: z.enum(['postgres', 'r2']).default('postgres'),
+  R2_ACCOUNT_ID: z.string().trim().optional(),
+  R2_ACCESS_KEY_ID: z.string().trim().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().trim().optional(),
+  /** Bucket for objects the world may read: posters, logos, cover banners. */
+  R2_PUBLIC_BUCKET: z.string().trim().optional(),
+  /**
+   * Bucket for objects nobody but an admin may read: identity documents.
+   *
+   * A SECOND bucket, not a prefix, because R2 grants public access per bucket. One bucket
+   * would have to be wholly public or wholly private, and an organizer's identity document
+   * behind a guessable public URL is the one outcome this must make impossible.
+   */
+  R2_PRIVATE_BUCKET: z.string().trim().optional(),
+  /**
+   * Where a browser fetches public objects, e.g. `https://assets.eticketsgo.com`.
+   *
+   * Optional on purpose. Without it the API serves the bytes itself, which is correct and
+   * merely slower; with it the API stops proxying images. Requiring it would mean no R2 until
+   * a custom domain exists, and getting the bytes out of the database is the urgent half.
+   */
+  R2_PUBLIC_BASE_URL: z.string().trim().url().optional(),
   /**
    * The markets this deployment deliberately sends notifications into, e.g. `IN,US,CA`.
    *
@@ -1368,6 +1401,44 @@ function assertNotificationConfigConsistency(cfg: AppConfig): void {
   }
 }
 
+/**
+ * Object storage is configured completely, or not at all.
+ *
+ * A half-filled set is the failure this prevents: `OBJECT_STORE_DRIVER=r2` with no bucket name
+ * boots happily and then throws on the first poster somebody uploads, which is a long way from
+ * the person who set the variable. The same applies in reverse - credentials left behind after
+ * a driver is switched back are a live key sitting in an environment that does not use it.
+ */
+function assertObjectStoreConsistency(cfg: AppConfig): void {
+  const required = [
+    'R2_ACCOUNT_ID',
+    'R2_ACCESS_KEY_ID',
+    'R2_SECRET_ACCESS_KEY',
+    'R2_PUBLIC_BUCKET',
+    'R2_PRIVATE_BUCKET',
+  ] as const;
+  const missing = required.filter((k) => !(cfg[k] ?? '').toString().trim());
+
+  if (cfg.OBJECT_STORE_DRIVER === 'r2' && missing.length > 0) {
+    throw new Error(
+      `OBJECT_STORE_DRIVER=r2 needs the whole R2 account, and these are unset:\n` +
+        missing.map((k) => `  - ${k}`).join('\n') +
+        `\n\nSet them, or leave OBJECT_STORE_DRIVER unset to keep objects in the database.`,
+    );
+  }
+
+  if (
+    cfg.OBJECT_STORE_DRIVER === 'r2' &&
+    cfg.R2_PUBLIC_BUCKET &&
+    cfg.R2_PUBLIC_BUCKET === cfg.R2_PRIVATE_BUCKET
+  ) {
+    throw new Error(
+      'R2_PUBLIC_BUCKET and R2_PRIVATE_BUCKET must be DIFFERENT buckets. R2 grants public ' +
+        'access per bucket, so one bucket for both would publish every identity document.',
+    );
+  }
+}
+
 export function loadConfig(): AppConfig {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -1382,5 +1453,6 @@ export function loadConfig(): AppConfig {
   assertPaymentEnvironmentKeySafety(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
+  assertObjectStoreConsistency(parsed.data);
   return parsed.data;
 }

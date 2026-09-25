@@ -1393,8 +1393,15 @@ model EventImage {
   position         Int      @default(0)
   /// Detected from the file's own bytes, never taken from the upload's claim.
   contentType      String
-  bytes            Bytes
+  bytes            Bytes?
   sizeBytes        Int
+  /// Where the bytes actually are.
+  ///
+  /// Exactly one of `bytes` and `storageKey` is set. A row written before object storage was
+  /// switched on keeps its bytes and still reads correctly afterwards, which is what makes the
+  /// switch safe: nothing has to move for the next request to work, and the backfill can take
+  /// as long as it likes. See `ObjectStoreService.read`.
+  storageKey       String?
   /// Of the bytes; its prefix versions the public URL so a replaced image is fetched afresh.
   sha256           String
   uploadedByUserId String?
@@ -1402,6 +1409,28 @@ model EventImage {
   updatedAt        DateTime @updatedAt
 
   @@index([eventId, position])
+  /// Finding what the object-storage backfill has not moved yet, without reading any bytes.
+  @@index([storageKey])
+}
+
+/// One binary object, when the active object-store driver is the database.
+///
+/// ── WHY THIS EXISTS BESIDE EventImage AND OrganizationImage ────────────────────────
+/// Those two tables own their own bytes and are read directly by code that predates the
+/// storage seam. Quietly moving their bytes here would break those reads for no benefit; the
+/// move worth making is to R2, and the backfill does that. This table is for objects written
+/// THROUGH the seam while `OBJECT_STORE_DRIVER=postgres`, so that the default driver is a real
+/// driver exercised by the whole test suite rather than a special case nobody runs.
+///
+/// The key is content-addressed (see `object-keys.ts`), so the same bytes always land on the
+/// same key and a retried upload is a harmless rewrite rather than a constraint violation.
+model StoredObject {
+  key         String   @id
+  bytes       Bytes
+  contentType String
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Review {
@@ -2053,18 +2082,18 @@ model Payout {
   /// statement, which is the one thing an accountant has to do with it. Optional because a
   /// correction posted by hand may genuinely have none, and refusing the finalize would leave
   /// money paid and the ledger saying otherwise.
-  paidReference   String?
+  paidReference String?
   /// Free text recorded with the payment or the failure. Never a substitute for the reference.
-  note            String?
+  note          String?
   /// Why a payout FAILED - a returned transfer, a closed account, a wrong IFSC.
   ///
   /// Until this existed nothing could write FAILED at all, so a returned bank transfer had no
   /// representation: the ledger said the organizer had been paid and the money was back in the
   /// platform's account. A FAILED payout returns its revenue to the unsettled pool.
-  failureReason   String?
+  failureReason String?
 
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
   @@index([status])
@@ -2101,19 +2130,19 @@ model PayoutSetting {
   ///
   /// Off everywhere until somebody turns it on: an automatic run that nobody asked for is a
   /// payout an organizer did not expect and finance did not plan a transfer for.
-  autoGenerate   Boolean?
+  autoGenerate Boolean?
   /// DAILY | WEEKLY | MONTHLY. Null inherits; meaningless while `autoGenerate` is off.
-  runFrequency   String?
+  runFrequency String?
   /// WEEKLY: ISO weekday, 1 (Monday) to 7. MONTHLY: day of month, 1 to 28 - never 29 to 31,
   /// because a run anchored to the 31st would skip February and nobody would notice until the
   /// organizer asked where their money was.
-  runAnchorDay   Int?
+  runAnchorDay Int?
   /// When the automatic run last raised (or tried to raise) a settlement for this scope.
   ///
   /// The due check reads this rather than the payouts themselves: a run that correctly raised
   /// nothing - everything held, or below the minimum - still happened, and re-running it every
   /// tick would hammer the ledger for no result.
-  lastRunAt      DateTime?
+  lastRunAt    DateTime?
 
   updatedByUserId String?
   updatedBy       User?    @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -2648,11 +2677,11 @@ model NotificationCertification {
 /// guard) rather than by cryptography. In QA the database already holds test bookings and
 /// notification payloads; a 72-hour SNS token is not the most sensitive thing in it.
 model SnsPendingConfirmation {
-  id       String @id @default(cuid())
-  topicArn String
+  id           String                @id @default(cuid())
+  topicArn     String
   /// SNS MessageId — the idempotency key. A retried delivery carries the same one, so the
   /// unique index makes a redelivery a no-op rather than a second row.
-  messageId String @unique
+  messageId    String                @unique
   /// Never logged, never returned by an unauthenticated route, never put in metrics or audit
   /// metadata. Read exactly once through the admin reveal route.
   subscribeUrl String
@@ -2660,12 +2689,12 @@ model SnsPendingConfirmation {
   receivedAt   DateTime              @default(now())
   /// SNS confirmation tokens are valid for three days; after that the row is useless and the
   /// operator must ask AWS to send a new one.
-  expiresAt DateTime
+  expiresAt    DateTime
   /// Stamped by the one-time reveal. A second read returns metadata WITHOUT the URL.
-  revealedAt DateTime?
-  revealedBy String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  revealedAt   DateTime?
+  revealedBy   String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
 
   @@index([status, receivedAt])
   @@index([topicArn, status])
@@ -2807,10 +2836,10 @@ enum FeedbackKind {
 }
 
 model Feedback {
-  id        String       @id @default(cuid())
-  kind      FeedbackKind
-  userId    String?
-  user      User?        @relation(fields: [userId], references: [id])
+  id     String       @id @default(cuid())
+  kind   FeedbackKind
+  userId String?
+  user   User?        @relation(fields: [userId], references: [id])
 
   /// Which organizer this is about, where it is about one.
   ///
@@ -2833,9 +2862,9 @@ model Feedback {
   message   String
   rating    Int? // 1..5 for CSAT/ORGANIZER_CSAT
   metadata  Json? // url, userAgent, appVersion, etc.
-  status    String       @default("OPEN") // OPEN | TRIAGED | CLOSED
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  status    String   @default("OPEN") // OPEN | TRIAGED | CLOSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([kind])
   @@index([status])
@@ -4264,8 +4293,15 @@ model OrganizationImage {
   /// (same formats, same sniffing, same serving headers) and only the size cap differs.
   kind             String   @default("LOGO")
   contentType      String
-  bytes            Bytes
+  bytes            Bytes?
   sizeBytes        Int
+  /// Where the bytes actually are.
+  ///
+  /// Exactly one of `bytes` and `storageKey` is set. A row written before object storage was
+  /// switched on keeps its bytes and still reads correctly afterwards, which is what makes the
+  /// switch safe: nothing has to move for the next request to work, and the backfill can take
+  /// as long as it likes. See `ObjectStoreService.read`.
+  storageKey       String?
   /// Content hash, used to version the URL so a replaced logo is never served from a cache.
   sha256           String
   uploadedByUserId String?
@@ -4273,6 +4309,8 @@ model OrganizationImage {
   updatedAt        DateTime @updatedAt
 
   @@unique([organizationId, kind])
+  /// Same reason as EventImage: the backfill asks "which rows still hold their own bytes?".
+  @@index([storageKey])
 }
 
 /// Where an organizer's money is actually sent.
@@ -4293,23 +4331,23 @@ model OrganizerPayoutAccount {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   /// The currency this account receives. An organizer selling in two currencies needs two.
-  currency       String
+  currency      String
   /// The name the account is in, as the bank holds it. Compared by a person, not by code.
-  holderName     String
-  bankName       String
+  holderName    String
+  bankName      String
   /// IFSC in India, routing number in the US, SWIFT/BIC elsewhere. Not a secret.
-  bankCode       String
+  bankCode      String
   /// The last four digits, for recognising the account on screen and on a statement.
-  accountLast4   String
+  accountLast4  String
   /// AES-256-GCM ciphertext of the full account number, as iv:tag:ciphertext (base64).
-  accountCipher  String
+  accountCipher String
 
   /// Somebody has checked this against a document or a penny transfer.
-  verifiedAt        DateTime?
-  verifiedByUserId  String?
-  updatedByUserId   String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  verifiedAt       DateTime?
+  verifiedByUserId String?
+  updatedByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([organizationId, currency])
   @@index([organizationId])
