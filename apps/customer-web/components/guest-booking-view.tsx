@@ -2,8 +2,9 @@
 
 import { ArrowLeft, CalendarDays, MapPin, Printer } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { PrintableTickets, type WalletTicket } from '@eticketsgo/web-kit';
+import { PrintableTickets, moneyFractionDigits, type WalletTicket } from '@eticketsgo/web-kit';
 import type { GuestBookingView } from '@/lib/api';
+import { PriceBreakdown } from '@/components/price-breakdown';
 import { Link } from '@/i18n/navigation';
 import { useFormat } from '@/lib/format';
 import { ButtonLink, Card, StatusBadge } from '@/components/ui';
@@ -19,11 +20,14 @@ import { useStatusLabel } from '@/lib/status-label';
  * ticket comes to say one thing in the browser and another in the email link -- and this is
  * the screen somebody holds up at the door, so the two must agree.
  *
- * ── WHY NOT `PriceBreakdown` ───────────────────────────────────────────────────────
- * That component itemises fees row by row, and a guest view carries four totals rather than
- * the fee-by-fee detail an account gets. Feeding it numbers it does not have would make it
- * print rows that do not add up to the total, which is the one thing it exists to prevent.
- * The receipt in the buyer's email carries the full detail.
+ * ── WHY `PriceBreakdown` NOW ───────────────────────────────────────────────────────
+ * This used to say the opposite: the guest payload carried four totals rather than the
+ * fee-by-fee detail an account gets, so feeding those four to `PriceBreakdown` would have made
+ * it print rows that did not add up. The answer was to print the four as a column, and they did
+ * not add up either -- 499 + 20.18 + 79.76 against a total of 522.82, reported from QA. The
+ * missing piece was not the component, it was the payload: the guest was not told which part of
+ * the tax was already inside the ticket price. It is told now, so the guest and the account
+ * holder read the same breakdown.
  */
 export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
   const g = useTranslations('storefront.guest');
@@ -36,6 +40,30 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
     [view.event.cinemaName, view.event.screenName].filter(Boolean).join(' - ') ||
     view.event.venueName;
   const items = view.items.filter((item) => item.quantity > 0);
+  /*
+    One decision about decimals for the whole card.
+
+    The order lines above and the breakdown below are one document, and each used to decide for
+    itself: a whole-rupee ticket printed "Rs 200" directly above the breakdown's "Rs 200.00" --
+    the same figure, twice, in two shapes. Everything the card shows goes into the decision, and
+    both halves are handed the answer.
+  */
+  const t = view.totals;
+  const fractionDigits = moneyFractionDigits(
+    [
+      ...items.map((item) => item.unitPriceMinor * item.quantity),
+      t.subtotalMinor,
+      t.discountMinor,
+      t.bookingFeeMinor,
+      t.paymentFeeMinor,
+      t.feesMinor,
+      t.feeTaxMinor,
+      t.maintenanceMinor,
+      ...t.taxLines.map((line) => line.amountMinor),
+      t.totalMinor,
+    ],
+    view.currency,
+  );
   const seatLabels = view.tickets
     .map((ticket) => ticket.seatLabel)
     .filter((label): label is string => Boolean(label));
@@ -85,7 +113,12 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
                 {c('itemLine', { name: item.label, quantity: item.quantity })}
               </span>
               <span className="tabular-nums text-text-secondary">
-                {money(item.unitPriceMinor * item.quantity, view.currency)}
+                {money(
+                  item.unitPriceMinor * item.quantity,
+                  view.currency,
+                  undefined,
+                  fractionDigits,
+                )}
               </span>
             </div>
           ))}
@@ -102,7 +135,7 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
         </div>
       ) : null}
 
-      <GuestTotals view={view} />
+      <GuestTotals view={view} fractionDigits={fractionDigits} />
 
       <p className="border-t border-border pt-3 text-caption text-text-muted">
         {g('bookedBy', { name: view.buyer.name, email: view.buyer.emailMasked })}
@@ -111,35 +144,51 @@ export function GuestBookingSummary({ view }: { view: GuestBookingView }) {
   );
 }
 
-/** Subtotal, fees, tax and total. Four numbers, all in the currency the booking was priced in. */
-export function GuestTotals({ view }: { view: GuestBookingView }) {
-  const g = useTranslations('storefront.guest');
-  const { money } = useFormat();
-  const rows: { label: string; minor: number }[] = [
-    { label: g('subtotal'), minor: view.totals.subtotalMinor },
-    { label: g('fees'), minor: view.totals.feesMinor },
-    { label: g('tax'), minor: view.totals.taxMinor },
-  ];
-
+/**
+ * What the guest was charged, through the one breakdown the whole product uses.
+ *
+ * ── WHY THIS IS NOT ITS OWN COLUMN ANY MORE ────────────────────────────────────────
+ * It printed subtotal, fees, tax and total one under another. Those four cannot add up: an
+ * Indian ticket price is GST-INCLUSIVE, so the tax row counted the GST already sitting inside
+ * the subtotal as well as the GST added to the fees. A buyer read 499 + 20.18 + 79.76 over a
+ * total of 522.82 and reported it, correctly, as not matching.
+ *
+ * `PriceBreakdown` already knows the difference - it shows the ticket line with its tax stated
+ * as INCLUDED, and only the tax actually levied on the fees as a row of its own. The account
+ * holder's screens have used it all along; this one was the odd one out, and it was the one a
+ * guest sees straight after paying.
+ */
+export function GuestTotals({
+  view,
+  /** Decided by the card that owns both halves, so one figure cannot print two ways. */
+  fractionDigits,
+}: {
+  view: GuestBookingView;
+  fractionDigits?: number;
+}) {
+  const t = view.totals;
   return (
-    <div className="space-y-1.5 border-t border-border pt-3">
-      {rows
-        // A zero fee row and a zero tax row say nothing; the subtotal is always shown.
-        .filter((row, index) => index === 0 || row.minor !== 0)
-        .map((row) => (
-          <div key={row.label} className="flex justify-between gap-4 text-[0.9375rem]">
-            <span className="text-text-secondary">{row.label}</span>
-            <span className="tabular-nums text-text-secondary">
-              {money(row.minor, view.currency)}
-            </span>
-          </div>
-        ))}
-      <div className="flex justify-between gap-4 border-t border-border pt-1.5 text-title font-semibold">
-        <span className="text-text-primary">{g('total')}</span>
-        <span className="tabular-nums text-text-primary">
-          {money(view.totals.totalMinor, view.currency)}
-        </span>
-      </div>
+    <div className="border-t border-border pt-3">
+      <PriceBreakdown
+        quote={{
+          currency: view.currency,
+          subtotalMinor: t.subtotalMinor,
+          discountMinor: t.discountMinor,
+          bookingFeeMinor: t.bookingFeeMinor,
+          paymentFeeMinor: t.paymentFeeMinor,
+          customerFeeInclusiveMinor: t.customerFeeInclusiveMinor,
+          customerFeeMinor: t.feesMinor,
+          feeTaxRateBasisPoints: t.feeTaxRateBasisPoints,
+          feeTaxMinor: t.feeTaxMinor,
+          maintenanceMinor: t.maintenanceMinor,
+          maintenanceTreatment: t.maintenanceTreatment,
+          taxLines: t.taxLines,
+          totalMinor: t.totalMinor,
+        }}
+        free={t.totalMinor === 0}
+        note={null}
+        fractionDigits={fractionDigits}
+      />
     </div>
   );
 }

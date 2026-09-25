@@ -30,6 +30,26 @@ const CONFIRMED_BOOKING = {
   customerFeeMinor: 3000,
   taxMinor: 1500,
   totalMinor: 54500,
+  /*
+    The rest of the money the guest screen needs to draw a column that adds up. `customerFeeMinor`
+    is the sum of the two fee lines below it, and `taxMinor` here is tax levied ON those fees - a
+    real addend. A GST-inclusive ticket, where most of `taxMinor` sits INSIDE `subtotalMinor` and
+    must not be added again, has its own test further down.
+  */
+  discountMinor: 0,
+  bookingFeeMinor: 2000,
+  paymentFeeMinor: 1000,
+  maintenanceMinor: 0,
+  maintenanceTreatment: 'NOT_APPLICABLE',
+  taxLines: [
+    {
+      label: 'GST on fees',
+      rateBasisPoints: 1800,
+      amountMinor: 1500,
+      basis: 'FEES',
+      inclusive: false,
+    },
+  ],
   items: [
     {
       label: null,
@@ -536,7 +556,7 @@ describe('the QR is only ever handed over when there is something to admit', () 
 });
 
 describe('the money is read, never recalculated', () => {
-  it('reports the four totals the booking stored, in minor units', async () => {
+  it('reports the money the booking stored, in minor units', async () => {
     const { service } = setup({ booking: CONFIRMED_BOOKING });
     const view = await service.viewBySession('bk-1', session());
     expect(view.totals).toEqual({
@@ -544,19 +564,106 @@ describe('the money is read, never recalculated', () => {
       feesMinor: 3000,
       taxMinor: 1500,
       totalMinor: 54500,
+      discountMinor: 0,
+      bookingFeeMinor: 2000,
+      paymentFeeMinor: 1000,
+      maintenanceMinor: 0,
+      maintenanceTreatment: 'NOT_APPLICABLE',
+      taxLines: [{ label: 'GST on fees', rateBasisPoints: 1800, amountMinor: 1500 }],
+      customerFeeInclusiveMinor: 4500,
+      feeTaxMinor: 1500,
+      feeTaxRateBasisPoints: 1800,
     });
     // Integers, all of them. A float here is a rounding bug waiting for a currency with no
     // minor unit.
-    for (const value of Object.values(view.totals)) expect(Number.isInteger(value)).toBe(true);
+    for (const [key, value] of Object.entries(view.totals)) {
+      if (typeof value === 'number')
+        expect(`${key}:${Number.isInteger(value)}`).toBe(`${key}:true`);
+    }
   });
 
-  it('never exposes the organizer or platform fee columns', async () => {
+  /**
+   * The screen a guest lands on straight after paying, and the numbers on it.
+   *
+   * Reported from QA: "after payment the screen is showing the amounts like subtotal 499, fees
+   * 20.18, Tax 79.76 but total is 522.82 which is not matching the numbers". They were right, and
+   * no arrangement of those four numbers could be made to add up: an Indian ticket price is
+   * GST-INCLUSIVE, so 79.76 is 76.12 already inside the 499 plus 3.64 levied on the fees. Only the
+   * 3.64 is an addend - 499 + 20.18 + 3.64 = 522.82, exactly what the card was charged.
+   *
+   * The fix was not arithmetic on this side. It was telling the guest which part is which, so the
+   * one breakdown the rest of the product uses can draw it. This pins that split at the numbers
+   * the buyer actually reported.
+   */
+  it('splits an inclusive GST so the guest screen can show what was really added', async () => {
     const { service } = setup({
-      booking: { ...CONFIRMED_BOOKING, organizerFeeMinor: 999, bookingFeeMinor: 777 },
+      booking: {
+        ...CONFIRMED_BOOKING,
+        subtotalMinor: 49_900,
+        customerFeeMinor: 2_018,
+        bookingFeeMinor: 1_500,
+        paymentFeeMinor: 518,
+        taxMinor: 7_976,
+        totalMinor: 52_282,
+        taxLines: [
+          // Inside the ticket price already. A memo on the screen, never a row that adds.
+          {
+            label: 'CGST',
+            rateBasisPoints: 900,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          {
+            label: 'SGST',
+            rateBasisPoints: 900,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          // Levied on the fees, and the only part of the 79.76 that is added to anything.
+          {
+            label: 'GST on fees',
+            rateBasisPoints: 1800,
+            amountMinor: 364,
+            basis: 'FEES',
+            inclusive: false,
+          },
+        ],
+      },
+    });
+    const view = await service.viewBySession('bk-1', session());
+
+    expect(view.totals.feeTaxMinor).toBe(364);
+    expect(view.totals.taxMinor).toBe(7_976);
+    // What the buyer can add up with their eyes: 499.00 + 20.18 + 3.64 = 522.82.
+    expect(view.totals.subtotalMinor + view.totals.feesMinor + view.totals.feeTaxMinor).toBe(
+      view.totals.totalMinor,
+    );
+    // And the rest of the tax is accounted for, inside the ticket price, not lost.
+    const insideTheTicket = view.totals.taxMinor - view.totals.feeTaxMinor;
+    expect(insideTheTicket).toBe(7_612);
+  });
+
+  /*
+    What a guest may see is their OWN money, itemised - and nobody else's.
+
+    This used to refuse `bookingFeeMinor` as well, which was right while a guest was handed four
+    totals and nothing else. It is wrong now: the booking fee and the payment fee are the two
+    halves of the customer's own fee, they are what the breakdown names as separate lines, and the
+    account holder's screen has always shown them. The organizer's share is the thing that is
+    nobody's business but the organizer's, and it still never leaves this service.
+  */
+  it('never exposes the organizer’s share, while itemising the customer’s own fee', async () => {
+    const { service } = setup({
+      booking: { ...CONFIRMED_BOOKING, organizerFeeMinor: 999 },
     });
     const view = await service.viewBySession('bk-1', session());
     expect(JSON.stringify(view)).not.toContain('999');
-    expect(JSON.stringify(view)).not.toContain('777');
+    expect(JSON.stringify(view)).not.toContain('organizerFee');
+    // The customer's own two fee lines are there, because the buyer is entitled to the detail.
+    expect(view.totals.bookingFeeMinor).toBe(2000);
+    expect(view.totals.paymentFeeMinor).toBe(1000);
   });
 });
 
@@ -583,11 +690,24 @@ describe('the shape a guest is handed', () => {
         'totals',
       ].sort(),
     );
-    // Nothing a forwarded link has any business carrying.
-    const serialised = JSON.stringify(view);
+    /*
+      Nothing a forwarded link has any business carrying, checked by KEY and not by substring.
+
+      It was a substring search, which reads as stricter and is in fact both looser and more
+      fragile: it never said at what depth the thing was found, and it failed the moment a legitimate
+      key happened to contain a forbidden one - `paymentFeeMinor`, the customer's own payment fee,
+      contains "payment". Walking the keys says what is actually meant.
+    */
+    const keys = (value: unknown): string[] =>
+      value && typeof value === 'object'
+        ? Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => [k, ...keys(v)])
+        : [];
+    const everyKey = keys(JSON.parse(JSON.stringify(view)) as unknown);
     for (const forbidden of ['userId', 'buyerEmail', 'idempotencyKey', 'payment', 'couponId']) {
-      expect(serialised).not.toContain(forbidden);
+      expect(everyKey).not.toContain(forbidden);
     }
+    // The email is masked wherever it appears, so the raw address is nowhere in the payload.
+    expect(JSON.stringify(view)).not.toContain(CONFIRMED_BOOKING.buyerEmail);
   });
 
   it('names the show in the venue’s clock, not the reader’s', async () => {
@@ -666,7 +786,21 @@ describe('the shape a guest is handed', () => {
         screenName: 'Screen 3',
       },
       buyer: { name: 'Bobby Tables', emailMasked: 'bo***@example.com' },
-      totals: { subtotalMinor: 50000, feesMinor: 3000, taxMinor: 1500, totalMinor: 54500 },
+      totals: {
+        subtotalMinor: 50000,
+        feesMinor: 3000,
+        taxMinor: 1500,
+        totalMinor: 54500,
+        discountMinor: 0,
+        bookingFeeMinor: 2000,
+        paymentFeeMinor: 1000,
+        maintenanceMinor: 0,
+        maintenanceTreatment: 'NOT_APPLICABLE',
+        taxLines: [{ label: 'GST on fees', rateBasisPoints: 1800, amountMinor: 1500 }],
+        customerFeeInclusiveMinor: 4500,
+        feeTaxMinor: 1500,
+        feeTaxRateBasisPoints: 1800,
+      },
       items: [{ label: 'Gold', quantity: 2, unitPriceMinor: 25000, seatLabel: null }],
       tickets: [
         {

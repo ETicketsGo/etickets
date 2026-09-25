@@ -74,6 +74,9 @@ function make(mode: 'disabled' | 'shadow' | 'active', sessionHash: string | null
     cancelUnpaid: jest
       .fn()
       .mockResolvedValue({ id: 'b1', status: 'CANCELLED', refundPending: false }),
+    cancelUnpaidAsGuest: jest
+      .fn()
+      .mockResolvedValue({ id: 'b1', status: 'CANCELLED', refundPending: false }),
   } as unknown as BookingsService;
   const payments = {
     createIntent: jest.fn().mockResolvedValue({ provider: 'mock', clientActionUrl: 'x' }),
@@ -350,14 +353,67 @@ describe('BookingExecutionRouter.beginPayment / cancel / status', () => {
     }
   });
 
-  it('cancel refuses a guest in disabled/shadow, where nothing proves the booking is theirs', async () => {
+  /*
+    The guest cancel, which used to be refused outright in every mode a real environment runs.
+
+    Reported from QA: "I click on cancel booking and select yes cancel nothing is happening, still
+    on review and pay". The refusal reasoned that nothing tied a guest booking to the browser that
+    made it, and that had stopped being true: `guestSessionHash` is written on the booking in EVERY
+    mode, so the verifier the guest payment route already uses can answer here too.
+
+    It is held to the STRICTEST answer, unlike the read and the payment. Those accept `UNBOUND`
+    because the worst case is somebody seeing or paying for a booking that is not theirs.
+    Cancelling gives the seats back and sends the real buyer to a dead hold, so it is graded like
+    `claim`: the hash has to match.
+  */
+  // Hashing is a plain digest of the token, so any instance answers for any other.
+  const sessions = new AnonymousSessionService();
+
+  it('cancel accepts the guest session that created the booking in disabled/shadow', async () => {
     for (const mode of ['disabled', 'shadow'] as const) {
-      const { router, bookings, anon } = make(mode);
+      const token = sessions.issueToken();
+      const { router, bookings, orchestrator } = make(mode, sessions.hash(token));
+      const res = (await router.cancel({
+        user: null,
+        bookingId: 'b1',
+        anonymousToken: token,
+      })) as Record<string, unknown>;
+      expect(bookings.cancelUnpaidAsGuest).toHaveBeenCalledWith('b1');
+      // Never the signed-in path: that one would have to invent a user to check.
+      expect(bookings.cancelUnpaid).not.toHaveBeenCalled();
+      expect(orchestrator.cancel).not.toHaveBeenCalled();
+      expect(res.status).toBe('CANCELLED');
+    }
+  });
+
+  it('cancel refuses a different well-formed session on a bound booking', async () => {
+    // 256 bits the caller generated themselves plus a booking id must not release somebody's seats.
+    for (const mode of ['disabled', 'shadow'] as const) {
+      const { router, bookings, anon } = make(mode, sessions.hash('other'));
       await expect(
         router.cancel({ user: null, bookingId: 'b1', anonymousToken: anon.issueToken() }),
-      ).rejects.toBeInstanceOf(AppException);
-      expect(bookings.cancelUnpaid).not.toHaveBeenCalled();
+      ).rejects.toMatchObject({ status: 403 });
+      expect(bookings.cancelUnpaidAsGuest).not.toHaveBeenCalled();
     }
+  });
+
+  it('cancel refuses a guest with no token at all', async () => {
+    const token = sessions.issueToken();
+    const { router, bookings } = make('shadow', sessions.hash(token));
+    await expect(router.cancel({ user: null, bookingId: 'b1' })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(bookings.cancelUnpaidAsGuest).not.toHaveBeenCalled();
+  });
+
+  it('cancel refuses a guest on a booking that records no session, unlike read and pay', async () => {
+    // An UNBOUND booking predates the hash column. Its hold expired long ago, so refusing costs
+    // nobody anything, and accepting would mean a booking id alone could release seats.
+    const { router, bookings, anon } = make('shadow');
+    await expect(
+      router.cancel({ user: null, bookingId: 'b1', anonymousToken: anon.issueToken() }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(bookings.cancelUnpaidAsGuest).not.toHaveBeenCalled();
   });
 
   it('cancel is coordinated by the orchestrator in active mode', async () => {

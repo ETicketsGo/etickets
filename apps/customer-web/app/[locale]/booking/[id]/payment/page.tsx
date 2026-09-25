@@ -643,7 +643,17 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
   const router = useRouter();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  /*
+    Why cancellation being unavailable is STATE and not just a message.
+
+    Reported from QA: "I click on cancel booking and select yes cancel nothing is happening, still
+    on review and pay". The server was refusing the cancel (fixed on its side), but the screen was
+    also at fault: the refusal was written as one muted caption ABOVE the summary, the total and
+    both buttons. On a phone the buyer is looking at the button they just pressed, so the message
+    was off screen, and the button that had done nothing was still sitting there inviting a second
+    try. Holding it as state lets the answer replace the button, in the button's own place.
+  */
+  const [cancelUnavailable, setCancelUnavailable] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const {
@@ -728,13 +738,7 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     },
   });
 
-  /*
-    Giving the tickets back early.
-
-    A 409 means guest cancel is not available for this booking. That is not a failure worth
-    alarming anybody about: the hold runs out by itself and the seats go back on sale, so the
-    screen says exactly that and stops offering the button.
-  */
+  // Giving the tickets back early, with the session token that is the guest's only credential.
   const cancelBooking = useMutation({
     mutationFn: () => api.cancelGuestBooking(id, anonSession),
     onSuccess: () => {
@@ -745,8 +749,13 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
     },
     onError: (err: unknown) => {
       setConfirmingCancel(false);
+      /*
+        A 409 here is not a failure worth alarming anybody about: the hold runs out by itself and
+        the seats go back on sale. But it does mean this button can never work for this booking, so
+        it stops being offered and says why, where the button was.
+      */
       const unavailable = err instanceof ApiRequestError && err.status === 409;
-      setNotice(unavailable ? g('cancelUnavailable') : null);
+      setCancelUnavailable(unavailable);
       if (!unavailable) setError(k('cancelFailed'));
       qc.invalidateQueries({ queryKey: ['guest-booking', id] });
     },
@@ -812,7 +821,6 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
           {error}
         </p>
       )}
-      {notice && <p className="text-caption text-text-muted">{notice}</p>}
 
       {expired ? (
         <div className="space-y-3 text-center">
@@ -828,14 +836,23 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
               ? k('processing')
               : k('payAmount', { amount: money(view.totals.totalMinor, view.currency) })}
           </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            disabled={pay.isPending}
-            onClick={() => setConfirmingCancel(true)}
-          >
-            {k('cancelBooking')}
-          </Button>
+          {cancelUnavailable ? (
+            <p
+              role="status"
+              className="rounded-md border border-border bg-background-subtle/60 px-4 py-3 text-[0.9375rem] text-text-secondary"
+            >
+              {g('cancelUnavailable')}
+            </p>
+          ) : (
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={pay.isPending}
+              onClick={() => setConfirmingCancel(true)}
+            >
+              {k('cancelBooking')}
+            </Button>
+          )}
           <Dialog
             open={confirmingCancel}
             onClose={() => setConfirmingCancel(false)}

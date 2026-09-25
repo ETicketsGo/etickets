@@ -36,7 +36,7 @@ import { nextStepAfterBooking } from '@/lib/after-booking';
 import { GuestBuyerFields, useGuestBuyer } from '@/components/guest-buyer';
 import { startGuestBooking } from '@/lib/guest-session';
 import { useTranslations } from 'next-intl';
-import { BuyerRegionField, useAuthUser } from '@eticketsgo/web-kit';
+import { BuyerRegionField, moneyFractionDigits, useAuthUser } from '@eticketsgo/web-kit';
 import { currentPageUrl } from '@/lib/site-url';
 import {
   ArtistsCard,
@@ -258,6 +258,45 @@ export default function EventDetailPage() {
     // A stale price is worse than a brief spinner: this is the number they are agreeing to.
     staleTime: 0,
   });
+
+  /*
+    One decision about decimals for the whole booking card.
+
+    The ticket rows and the breakdown under them each decided for themselves, so the card printed
+    "General / Rs 120" directly above "Tickets / Rs 120.00" - one figure, twice, in two shapes. The
+    same defect was reported on the confirmation screen ("subtotal 499 ... its good to show
+    499.00"); this is the screen it starts on.
+
+    Every amount the card shows goes into the decision, priced items and quoted totals alike, and
+    both halves are handed the answer. `moneyFractionDigits` only has anything to decide for INR,
+    where a whole-rupee price stays whole until something in the same card carries paise - which a
+    percentage fee usually does.
+  */
+  const cardFractionDigits = useMemo(() => {
+    const fees = quoteQ.data?.fees;
+    return moneyFractionDigits(
+      [
+        ...(session?.ticketTypes ?? []).map((t) => t.priceMinor),
+        ...addOns.map((a) => a.priceMinor),
+        ...bundles.flatMap((b) => [b.priceFromMinor, b.savingsMinor]),
+        subtotal,
+        ...(fees
+          ? [
+              fees.subtotalMinor,
+              fees.discountMinor,
+              fees.bookingFeeMinor,
+              fees.paymentFeeMinor,
+              fees.customerFeeMinor,
+              fees.feeTaxMinor,
+              fees.maintenanceMinor,
+              ...(fees.taxLines ?? []).map((l) => l.amountMinor),
+              fees.totalMinor,
+            ]
+          : []),
+      ],
+      session?.ticketTypes[0]?.currency ?? quoteQ.data?.fees?.currency,
+    );
+  }, [session, addOns, bundles, subtotal, quoteQ.data]);
 
   // Track for "Recently viewed" and restore any saved ticket selection.
   useEffect(() => {
@@ -593,9 +632,32 @@ export default function EventDetailPage() {
         onClose={() => setLightbox(null)}
       />
 
-      <div className="grid gap-8 lg:grid-cols-3">
+      {/*
+        ── ON A PHONE THE TICKETS CAME AFTER THE FAQ ────────────────────────────────────
+        The booking card is the second child of this grid, so on one column it landed last:
+        below the description, the artists, the sessions, every review and the whole FAQ. A
+        buyer who came to buy a ticket had to scroll past everything the page could tell them
+        first - reported as "I need to scroll a lot to reach select no of tickets".
+
+        `contents` dissolves the left column on a phone so its cards become items of this grid
+        directly, and each one is then ordered by what a buyer needs it for:
+
+          0  what is on, and when   - the description, the artists, the sessions
+          0  the booking card       - last in the DOM, so it lands directly after them
+          1  where and who          - the venue and the organizer
+          2  what others thought    - the reviews and the FAQ
+
+        The showtime and the tickets are one decision and now sit together. The venue and the
+        organizer are worth reading, but after choosing, not before - and the reviews and the
+        FAQ are what somebody scrolls to when they are undecided, which is why they used to be
+        in the way of everybody who was not.
+
+        From `lg` the wrapper is an ordinary column again and every `order` is dropped, so the
+        two-column layout is exactly what it has always been.
+      */}
+      <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
         {/* Left column */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="contents lg:block lg:space-y-6 lg:col-span-2">
           {/*
             On a phone the booking card comes after everything in this column, so the facts it
             opens with would sit below the reviews and the FAQ. The same facts open the page
@@ -657,7 +719,7 @@ export default function EventDetailPage() {
             </div>
           </Card>
 
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="order-1 grid gap-6 sm:grid-cols-2 lg:order-none">
             <Card title={sf('event.venueHeading')}>
               <p className="font-medium text-text-primary">{event.venue.name}</p>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
@@ -709,7 +771,7 @@ export default function EventDetailPage() {
           {terms.dialog}
 
           {/* Reviews */}
-          <Card title={sf('event.reviews')}>
+          <Card title={sf('event.reviews')} className="order-2 lg:order-none">
             {reviews.isLoading ? (
               <div className="space-y-3">
                 <Skeleton className="h-16 w-40" />
@@ -798,7 +860,7 @@ export default function EventDetailPage() {
           </Card>
 
           {/* FAQ */}
-          <Card title={sf('event.faq')}>
+          <Card title={sf('event.faq')} className="order-2 lg:order-none">
             <div className="divide-y divide-border">
               {[
                 { q: sf('event.faqReceiveQ'), a: sf('event.faqReceiveA') },
@@ -874,7 +936,10 @@ export default function EventDetailPage() {
                           price that failed to load, and it is the one thing about this event a
                           buyer most wants confirmed before they commit to a seat.
                         */}
-                            {event.isFree ? tx('state.free') : money(t.priceMinor, t.currency)} -{' '}
+                            {event.isFree
+                              ? tx('state.free')
+                              : money(t.priceMinor, t.currency, undefined, cardFractionDigits)}{' '}
+                            -{' '}
                             {soldOut ? (
                               <span className="text-status-error">{tx('state.soldOut')}</span>
                             ) : (
@@ -924,7 +989,7 @@ export default function EventDetailPage() {
                             <div className="min-w-0">
                               <p className="truncate font-medium text-text-primary">{a.name}</p>
                               <p className="text-caption text-text-muted">
-                                {money(a.priceMinor, a.currency)}
+                                {money(a.priceMinor, a.currency, undefined, cardFractionDigits)}
                                 {a.soldOut && (
                                   <span className="text-status-error">
                                     {' '}
@@ -968,13 +1033,18 @@ export default function EventDetailPage() {
                             <div className="min-w-0">
                               <p className="truncate font-medium text-text-primary">{b.name}</p>
                               <p className="text-caption text-text-muted">
-                                {money(b.priceFromMinor, b.currency)}
+                                {money(b.priceFromMinor, b.currency, undefined, cardFractionDigits)}
                                 {b.savingsMinor > 0 && (
                                   <span className="text-status-success">
                                     {' '}
                                     -{' '}
                                     {sf('event.bundleSave', {
-                                      amount: money(b.savingsMinor, b.currency),
+                                      amount: money(
+                                        b.savingsMinor,
+                                        b.currency,
+                                        undefined,
+                                        cardFractionDigits,
+                                      ),
                                     })}
                                   </span>
                                 )}
@@ -1045,6 +1115,8 @@ export default function EventDetailPage() {
                     fallbackCurrency={
                       event.sessions.flatMap((s) => s.ticketTypes)[0]?.currency ?? undefined
                     }
+                    // Decided above, from everything on this card - see `cardFractionDigits`.
+                    fractionDigits={cardFractionDigits}
                   />
                 </div>
 

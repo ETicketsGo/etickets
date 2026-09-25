@@ -147,6 +147,22 @@ const viewable = (guestSessionHash: string | null) => ({
   customerFeeMinor: 3000,
   taxMinor: 1500,
   totalMinor: 54500,
+  // The rest of the money the view carries, so the guest screen can draw a column that adds up.
+  // What each field means, and why four numbers were not enough, is in `guest-booking.service.spec`.
+  discountMinor: 0,
+  bookingFeeMinor: 2000,
+  paymentFeeMinor: 1000,
+  maintenanceMinor: 0,
+  maintenanceTreatment: 'NOT_APPLICABLE',
+  taxLines: [
+    {
+      label: 'GST on fees',
+      rateBasisPoints: 1800,
+      amountMinor: 1500,
+      basis: 'FEES',
+      inclusive: false,
+    },
+  ],
   items: [],
   event: { title: 'Kantara', slug: 'kantara', venue: { name: 'PVR', timezone: 'Asia/Kolkata' } },
   eventSession: { startsAt: new Date('2026-09-20T13:30:00.000Z'), screen: null },

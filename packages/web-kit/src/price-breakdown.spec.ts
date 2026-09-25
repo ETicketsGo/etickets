@@ -65,6 +65,52 @@ describe('the rows foot', () => {
     ).toBe(true);
   });
 
+  it('with the numbers a guest actually reported', () => {
+    /*
+      ₹499 inclusive of 18% GST (₹76.12 inside it), a ₹20.18 fee with ₹3.64 of GST added, and a
+      ₹522.82 total. The guest confirmation screen had its own column instead of this component
+      and printed 499 + 20.18 + 79.76 - the 79.76 being the ticket's own GST added to the fee's
+      - against a total of 522.82. The buyer noticed before we did.
+    */
+    const b = priceBreakdown(
+      quote({
+        subtotalMinor: 49_900,
+        bookingFeeMinor: 1_018,
+        paymentFeeMinor: 1_000,
+        customerFeeMinor: 2_018,
+        customerFeeInclusiveMinor: 2_382,
+        feeTaxMinor: 364,
+        taxLines: [
+          {
+            label: 'CGST',
+            rateBasisPoints: 900,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          {
+            label: 'SGST',
+            rateBasisPoints: 900,
+            amountMinor: 3_806,
+            basis: 'TICKETS',
+            inclusive: true,
+          },
+          {
+            label: 'IGST',
+            rateBasisPoints: 1_800,
+            amountMinor: 364,
+            basis: 'FEES',
+            inclusive: false,
+          },
+        ],
+        totalMinor: 52_282,
+      }),
+    );
+    expect(b.rows.reduce((sum, r) => sum + r.amountMinor, 0)).toBe(52_282);
+    // And the ticket's own GST is stated as included rather than counted again.
+    expect(b.includedTax.reduce((sum, t) => sum + t.amountMinor, 0)).toBe(7_612);
+  });
+
   it('with ADDED ticket tax — a US-style sales tax genuinely on top', () => {
     // The other model, and the reason inclusive tax could not simply be dropped for everyone.
     expect(

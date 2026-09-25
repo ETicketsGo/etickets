@@ -158,3 +158,80 @@ describe('BookingsService.cancelUnpaid', () => {
     );
   });
 });
+
+/**
+ * A guest cancelling their own unpaid booking.
+ *
+ * Reported from QA: "I click on cancel booking and select yes cancel nothing is happening, still on
+ * review and pay". The route answered 409 for every guest, on the reasoning that nothing tied a
+ * guest booking to the browser that made it. `guestSessionHash` is that tie, and it is written in
+ * every orchestration mode - so the reason had expired, and the buyer was left watching a countdown
+ * while the seats stayed held against nobody.
+ *
+ * Who may cancel is the router's question, because the credential arrives in a header: it demands
+ * `BOUND` from the same verifier the guest payment route uses, and its own spec covers that. These
+ * are about the service half - that a guest's release is the account holder's release, and that the
+ * guest door does not open onto an account holder's booking.
+ */
+describe('BookingsService.cancelUnpaidAsGuest', () => {
+  it('releases the hold exactly as an account holder’s cancel does', async () => {
+    const { service, tx, strategy, inventory } = setup({ userId: null });
+    await expect(service.cancelUnpaidAsGuest('bk-1')).resolves.toEqual({
+      id: 'bk-1',
+      status: BookingStatus.CANCELLED,
+      refundPending: false,
+    });
+
+    // Claim first, release second - the same order, because it is the same code path.
+    expect(tx.booking.updateMany).toHaveBeenCalledWith({
+      where: { id: 'bk-1', status: BookingStatus.PENDING_PAYMENT },
+      data: expect.objectContaining({ status: BookingStatus.CANCELLED }),
+    });
+    expect(inventory.forSeating).toHaveBeenCalledWith(true);
+    expect(strategy.release).toHaveBeenCalledTimes(1);
+    expect(tx.booking.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      strategy.release.mock.invocationCallOrder[0],
+    );
+    expect(tx.payment.updateMany).toHaveBeenCalledWith({
+      where: { bookingId: 'bk-1', status: PaymentStatus.REQUIRES_PAYMENT },
+      data: { status: PaymentStatus.FAILED },
+    });
+  });
+
+  it('records the cancel with no actor, because a guest is not a user', async () => {
+    const { service, audit } = setup({ userId: null });
+    await service.cancelUnpaidAsGuest('bk-1');
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'BOOKING_CANCELLED',
+        entityId: 'bk-1',
+        actorUserId: null,
+        metadata: expect.objectContaining({ cancelledBy: 'GUEST' }),
+      }),
+    );
+  });
+
+  it('refuses an account holder’s booking, whatever token was presented', async () => {
+    // The token is checked before this is reached; the point here is that a booking with an owner
+    // is not a guest booking, so this door is shut on it regardless.
+    const { service, prisma } = setup({ userId: 'u-1' });
+    await expect(service.cancelUnpaidAsGuest('bk-1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a booking that is already paid for and points at refunds', async () => {
+    const { service, prisma } = setup({ userId: null, status: BookingStatus.CONFIRMED });
+    await expect(service.cancelUnpaidAsGuest('bk-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringMatching(/refund/i),
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('releases nothing when a sweep or confirmation claimed the booking first', async () => {
+    const { service, strategy, audit } = setup({ userId: null, claimCount: 0 });
+    await expect(service.cancelUnpaidAsGuest('bk-1')).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(strategy.release).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+});

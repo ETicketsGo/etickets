@@ -70,7 +70,35 @@ const COLUMNS: {
   },
 ];
 
-export function SiteFooter({ environmentNotice }: { environmentNotice?: string | null }) {
+/**
+ * The links a person at the payment step still needs.
+ *
+ * Deliberately not "the important ones from each column". Somebody about to pay needs help if
+ * something has gone wrong, and the three documents that say what they are agreeing to. Anything
+ * that sends them shopping again is what the compact footer exists to remove.
+ */
+const CHECKOUT_LINKS: { href: string; label: string }[] = [
+  { href: '/help', label: 'help' },
+  { href: '/terms', label: 'terms' },
+  { href: '/privacy', label: 'privacy' },
+  { href: '/refunds', label: 'refunds' },
+];
+
+export function SiteFooter({
+  environmentNotice,
+  /**
+   * Drop the link columns ON A PHONE, keeping help and the legal documents.
+   *
+   * Desktop is untouched at any value: the columns are hidden with `max-lg:hidden` and the one-line
+   * replacement with `lg:hidden`, so from `lg` up this renders exactly what it always did. That is
+   * the owner's standing instruction for this round of work - fix the phone, do not move the web -
+   * and it is asserted in `mobile-storefront.spec.ts` rather than left as an intention.
+   */
+  compact = false,
+}: {
+  environmentNotice?: string | null;
+  compact?: boolean;
+}) {
   const f = useTranslations('common.footer');
   const g = useTranslations('storefront.guest');
 
@@ -81,7 +109,11 @@ export function SiteFooter({ environmentNotice }: { environmentNotice?: string |
     */
     <footer className="mt-auto border-t border-border bg-background-subtle/50">
       <div className="mx-auto max-w-shell px-4 py-12 sm:px-6 lg:px-8">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_repeat(3,1fr)]">
+        <div
+          className={`grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.6fr_repeat(3,1fr)] ${
+            compact ? 'max-lg:hidden' : ''
+          }`}
+        >
           <div>
             <Link
               href="/"
@@ -122,7 +154,26 @@ export function SiteFooter({ environmentNotice }: { environmentNotice?: string |
           ))}
         </div>
 
-        <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-border pt-6 text-caption text-text-muted sm:flex-row sm:items-center">
+        {compact && (
+          <ul className="flex flex-wrap gap-x-6 gap-y-3 lg:hidden">
+            {CHECKOUT_LINKS.map((l) => (
+              <li key={l.href}>
+                <Link
+                  href={l.href}
+                  className="rounded-sm text-[0.9375rem] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  {f(`links.${l.label}`)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div
+          className={`flex flex-col items-start justify-between gap-3 border-t border-border pt-6 text-caption text-text-muted sm:flex-row sm:items-center ${
+            compact ? 'mt-6 lg:mt-10' : 'mt-10'
+          }`}
+        >
           {/* The year is read at render rather than typed. A literal `2026` in the markup
               is wrong on the first of January and nobody is watching the footer then. */}
           <p>{f('rights', { year: new Date().getFullYear() })}</p>

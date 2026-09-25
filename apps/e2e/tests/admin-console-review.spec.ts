@@ -31,6 +31,28 @@ test.describe('admin console', () => {
     await page.goto(`${ADMIN}/admin`);
   });
 
+  /**
+   * Open a named organizer, wherever in the list it now is.
+   *
+   * These tests already knew not to take "the first row" - they name the seeded organizer. That
+   * was not enough. The list is PAGED, and every run of this suite registers more organizations,
+   * so the named row kept sliding off page one: on a database with 53 organizations the seeded
+   * "Bengaluru Live" was the 53rd newest-first and simply was not on screen to be clicked.
+   *
+   * Searching for it is what a person would do, costs one request, and cannot rot with the row
+   * count. It also means these tests keep working on a database that has been used.
+   */
+  async function openOrganizer(page: Page, name: string): Promise<void> {
+    await page.goto(`${ADMIN}/admin/organizers`);
+    await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('searchbox').fill(name);
+    await page.getByRole('button', { name: 'Search' }).click();
+    const row = page.getByRole('row', { name: new RegExp(name, 'i') }).first();
+    await expect(row, `no organizer matching "${name}"`).toBeVisible({ timeout: 20_000 });
+    await row.click();
+    await expect(page).toHaveURL(/\/admin\/organizers\/.+/, { timeout: 20_000 });
+  }
+
   test('an organizer can be suspended or deleted, and says what stands in the way', async ({
     page,
   }) => {
@@ -42,12 +64,7 @@ test.describe('admin console', () => {
       that has never sold anything, and the refusal it is checking for correctly does not appear.
       This organizer has bookings against it in the seed, which is the case worth asserting.
     */
-    await page.goto(`${ADMIN}/admin/organizers`);
-    await page
-      .getByRole('row', { name: /Bengaluru Live/ })
-      .first()
-      .click();
-    await expect(page).toHaveURL(/\/admin\/organizers\/.+/, { timeout: 20_000 });
+    await openOrganizer(page, 'Bengaluru Live');
 
     // The controls that did not exist at all before.
     await expect(
@@ -64,11 +81,7 @@ test.describe('admin console', () => {
   });
 
   test('suspending needs a reason, and the dialog says what it does', async ({ page }) => {
-    await page.goto(`${ADMIN}/admin/organizers`);
-    await page
-      .getByRole('row', { name: /Bengaluru Live/ })
-      .first()
-      .click();
+    await openOrganizer(page, 'Bengaluru Live');
     await page.getByRole('button', { name: 'Suspend' }).click();
 
     await expect(page.getByText(/checkout is refused/)).toBeVisible();
@@ -240,9 +253,13 @@ test.describe('the admin lists say what a reader needs', () => {
   });
 
   test('the organizer queue tells two organizations of the same name apart', async ({ page }) => {
-    // The slug is the tiebreak, and it is also what appears in their public URL.
+    // The slug is the tiebreak, and it is also what appears in their public URL. Searched for
+    // rather than expected on page one - see `openOrganizer` for what that cost before.
     await page.goto(`${ADMIN}/admin/organizers`);
-    await expect(page.getByText('bengaluru-live').first()).toBeVisible();
+    await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('searchbox').fill('Bengaluru Live');
+    await page.getByRole('button', { name: 'Search' }).click();
+    await expect(page.getByText('bengaluru-live').first()).toBeVisible({ timeout: 20_000 });
   });
 
   test('a standing decision about review reads as what it does', async ({ page }) => {

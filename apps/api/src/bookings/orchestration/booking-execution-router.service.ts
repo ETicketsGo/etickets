@@ -319,18 +319,44 @@ export class BookingExecutionRouter {
         The signed-in buyer's own unpaid booking, cancelled on the legacy path — see
         `BookingsService.cancelUnpaid` for what that does and refuses.
 
-        A guest is still refused. On this path nothing ties a guest booking to the browser that
-        made it: the anonymous checkout token is bound to a booking only by the orchestration
-        workflow, which the legacy path never creates, so accepting a guest here would let anyone
-        holding a booking id release somebody else's seats. A guest's unpaid hold still expires
-        through the durable sweep.
+        A guest is accepted here too, and was not always. The old refusal reasoned that the
+        anonymous checkout token is bound to a booking only by the orchestration workflow, which
+        this path never creates - so anyone holding a booking id could have released somebody
+        else's seats. That is no longer how the binding works: `guestSessionHash` is written onto
+        the booking in every mode, so the same verifier the payment route uses can answer here,
+        and it is held to its strictest answer. Reported from QA: a guest pressed "Yes, cancel
+        it" and the screen sat on Review & pay, because this threw a 409 the buyer never saw.
       */
       if (!ctx.user) {
-        throw new AppException(
-          ErrorCodes.CONFLICT,
-          'Booking cancellation is not available.',
-          HttpStatus.CONFLICT,
+        const proof = await this.sessions.verifyByBookingId(
+          ctx.bookingId,
+          ctx.anonymousToken ?? '',
         );
+        /*
+          BOUND only, unlike the read and the payment above. Those two grade `UNBOUND` as good
+          enough because the worst case is somebody seeing, or paying for, a booking that is not
+          theirs. Cancelling RELEASES it: the seats go back on sale and the buyer arrives at a
+          screen saying their hold is gone. So this is graded like `claim` - the session hash on
+          the booking has to match, and a self-minted token proves nothing.
+        */
+        if (proof !== 'BOUND') {
+          // Three different things, counted separately: a caller with no token at all, one whose
+          // token does not match, and a booking that records no session to match against.
+          this.metrics.recordBookingOwnerRejection(
+            'cancel',
+            !ctx.anonymousToken
+              ? 'session_missing'
+              : proof === null
+                ? 'session_mismatch'
+                : 'session_not_bound',
+          );
+          throw new AppException(
+            ErrorCodes.FORBIDDEN,
+            'This booking was not started in this browser.',
+            HttpStatus.FORBIDDEN,
+          );
+        }
+        return this.bookings.cancelUnpaidAsGuest(ctx.bookingId);
       }
       return this.bookings.cancelUnpaid(ctx.user, ctx.bookingId);
     }

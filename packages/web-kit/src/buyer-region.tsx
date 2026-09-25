@@ -67,7 +67,28 @@ export function BuyerRegionField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-describedby={`${id}-hint`}
-        className="rounded-md border border-border bg-background px-3 py-2 text-[0.9375rem] text-text-primary"
+        /*
+          `w-full` is load-bearing, not tidying.
+
+          A `<select>` sized `auto` is as wide as its WIDEST OPTION, and option text cannot wrap.
+          This list contains "Andaman and Nicobar Islands", so the select told the layout it could
+          never be narrower than about 357px - and that minimum propagated up through the card and
+          the grid item around it: on a 411px phone the whole event page became 423px wide and
+          scrolled sideways under the reader's thumb.
+
+          Asking for the container's width instead stops the widest option deciding how wide an
+          ancestor must be. It costs nothing to look at, because this is a block-level control that
+          already filled its container - measured before and after, it renders at exactly the same
+          size on a desktop event page. A long option now ellipsizes in the closed control, which is
+          what every native picker does, and the open list is drawn by the platform at whatever
+          width it needs.
+
+          `min-w-0` is there for the case where a future caller puts this inside a flex row, where
+          the automatic minimum size would bring the same problem back by a different route. It is
+          not what fixes this one: removing it changes nothing, removing `w-full` brings the
+          sideways scroll straight back, and `mobile-storefront.spec.ts` measures exactly that.
+        */
+        className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-[0.9375rem] text-text-primary"
       >
         <option value="">{noneLabel}</option>
         {/*

@@ -339,6 +339,16 @@ export function PriceBreakdown({
    * HAS been taken, it answers a question nobody is asking.
    */
   note,
+  /**
+   * Decimals for the whole card, when this breakdown is not the whole card.
+   *
+   * Left off, the breakdown decides from its own amounts, which is right when it stands alone.
+   * A caller that prints money of its own ABOVE it - the guest confirmation lists each ticket
+   * line - has to decide for both, or the card prints "Standing x1  Rs 200" directly above
+   * "Tickets  Rs 200.00" and the same figure appears twice in two shapes. The caller passes
+   * `moneyFractionDigits` over everything the card shows, and both halves use that answer.
+   */
+  fractionDigits,
 }: {
   quote?: QuotedFees | null;
   loading?: boolean;
@@ -348,6 +358,7 @@ export function PriceBreakdown({
   free?: boolean;
   fallbackCurrency?: string;
   note?: string | null;
+  fractionDigits?: number;
 }) {
   const t = useTranslations('storefront.event');
   const { money } = useFormat();
@@ -372,20 +383,23 @@ export function PriceBreakdown({
     fees with ₹9 of GST are whole-rupee rows, but each fee's ₹4.50 share is not, and deciding
     from the rows alone would print it as "₹5".
   */
-  const digits = breakdown
-    ? moneyFractionDigits(
-        [
-          ...breakdown.rows.map((r) => r.amountMinor),
-          ...breakdown.feeGroups.flatMap((g) => [
-            g.totalMinor,
-            g.baseMinor,
-            ...g.taxLines.map((t) => t.amountMinor),
-          ]),
-          breakdown.totalMinor,
-        ],
-        currency,
-      )
-    : undefined;
+  const digits =
+    fractionDigits !== undefined
+      ? fractionDigits
+      : breakdown
+        ? moneyFractionDigits(
+            [
+              ...breakdown.rows.map((r) => r.amountMinor),
+              ...breakdown.feeGroups.flatMap((g) => [
+                g.totalMinor,
+                g.baseMinor,
+                ...g.taxLines.map((t) => t.amountMinor),
+              ]),
+              breakdown.totalMinor,
+            ],
+            currency,
+          )
+        : undefined;
 
   if (free) {
     return (
