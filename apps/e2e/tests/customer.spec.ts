@@ -185,7 +185,17 @@ test('secure sharing: owner creates a guest link, recipient opens it, then it is
 
   // Recipient opens the guest link — sees the live QR
   await page.goto(shareLink);
-  await expect(page.getByText('Shared with you')).toBeVisible({ timeout: 20_000 });
+  /*
+    Scoped to `main`, because `<head>` can satisfy a bare `getByText`.
+
+    This page is now titled "A ticket shared with you", and `getByText` matches a substring
+    case-insensitively - so the assertion found two elements, the badge on the page and the
+    `<title>`, and failed on the hidden one. Naming the region says what was meant all along:
+    a person opening this link can SEE that it was shared with them.
+  */
+  await expect(page.locator('main').getByText('Shared with you')).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.locator('img[alt="Ticket QR code"]')).toBeVisible();
 
   // Owner revokes the share
