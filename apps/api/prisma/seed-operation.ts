@@ -27,6 +27,7 @@ import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './back
  *   SEED_OPERATION=status         (default)  read-only census
  *   SEED_OPERATION=india-cinema              write AP + TG policies, all DRAFT, idempotent
  *   SEED_OPERATION=payment-routes            match payment routes to this env's real credentials
+ *   SEED_OPERATION=backfill-objects          move images from the database into object storage
  *   SEED_OPERATION=full-reset                EMPTY EVERY TABLE and reseed demo data
  *
  * `full-reset` additionally requires SEED_ALLOW_DESTRUCTIVE=yes-until-<ISO timestamp>, no more
@@ -174,6 +175,16 @@ switch (operation) {
     require('./seed-india-cinema-policy');
     break;
 
+  case 'backfill-objects': {
+    /*
+      Moves images out of the database and into the object store, in batches, safely
+      restartable. Needs to run inside the private network because that is where the database
+      is, and it is long-running by nature - which is exactly why it is not a migration.
+    */
+    require('./backfill-object-storage');
+    break;
+  }
+
   case 'payment-routes': {
     /*
       Bring the payment route rows into line with what this environment can actually charge
@@ -257,7 +268,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, backfill-objects, full-reset.`,
     );
     process.exit(1);
 }

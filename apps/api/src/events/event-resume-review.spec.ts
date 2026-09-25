@@ -155,6 +155,9 @@ describe('editing a paused event', () => {
       prisma as never,
       { assertMember: async () => undefined } as never,
       { record: async () => undefined } as never,
+      // The database driver, which is the default: nothing is written through the store, and a
+      // read hands back whatever bytes the row holds.
+      { driver: 'postgres', publicUrl: () => null, read: async () => null } as never,
     );
 
     await images.add(ORGANIZER, 'ev-1', { buffer: PNG, size: PNG.length });

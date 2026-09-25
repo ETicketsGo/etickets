@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { ObjectStoreService } from '../storage/object-store.service';
+import { eventImageKey } from '../storage/object-keys';
 import type { RequestUser } from '../common/decorators';
 import {
   EVENT_IMAGE_MAX_BYTES,
@@ -44,6 +46,7 @@ export class EventImageService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly objects: ObjectStoreService,
   ) {}
 
   /** Adds one image at the end of the event's images. The first image ever added is the cover. */
@@ -75,6 +78,23 @@ export class EventImageService {
     const sha256 = createHash('sha256').update(file.buffer).digest('hex');
 
     /*
+      The object goes to the store BEFORE the row is written, and deliberately outside the
+      transaction below.
+
+      An orphaned object costs a few kilobytes nobody ever reads; an orphaned ROW is a broken
+      image on a live event page. The key is the content's own hash, so a retry writes the same
+      object to the same key and the waste is bounded at one copy however many times this runs.
+    */
+    const stored =
+      this.objects.driver === 'postgres'
+        ? null
+        : await this.objects.write({
+            key: eventImageKey({ eventId, sha256, contentType }),
+            body: file.buffer,
+            contentType,
+          });
+
+    /*
       The count and the new position are read and written together, so two uploads landing at
       once cannot both see nine images and make twelve, or both take the same position.
     */
@@ -96,7 +116,10 @@ export class EventImageService {
           eventId,
           position,
           contentType,
-          bytes: file.buffer,
+          // One of these two, never both - the database enforces it. `stored` is null while
+          // the driver is the database, which is what every environment runs by default.
+          bytes: stored ? null : file.buffer,
+          storageKey: stored,
           sizeBytes: file.buffer.length,
           sha256,
           uploadedByUserId: user.id,
@@ -197,21 +220,53 @@ export class EventImageService {
     };
   }
 
-  /** One image's bytes, for the public image route. Scoped to its event. */
+  /** One image, for the public image route. Scoped to its event. */
   read(eventId: string, imageId: string) {
-    return this.prisma.eventImage.findFirst({
-      where: { id: imageId, eventId },
-      select: { bytes: true, contentType: true, sha256: true },
-    });
+    return this.resolve({ id: imageId, eventId });
   }
 
-  /** The cover's bytes — for links issued before an event could hold more than one image. */
+  /** The cover — for links issued before an event could hold more than one image. */
   readCover(eventId: string) {
-    return this.prisma.eventImage.findFirst({
-      where: { eventId },
-      orderBy: eventImageOrder(),
-      select: { bytes: true, contentType: true, sha256: true },
+    return this.resolve({ eventId }, eventImageOrder());
+  }
+
+  /**
+   * An image's bytes, from wherever they are, or the address a browser should fetch instead.
+   *
+   * ── WHY THE ROW DECIDES AND NOT THE CONFIGURATION ──────────────────────────────────
+   * During a backfill both answers are live at once: a poster uploaded last week has its bytes
+   * in this database and one uploaded after the switch has a key into the bucket. Asking the
+   * configuration which to use would be wrong for half the rows on any day the backfill is
+   * still running, which is every day for a while.
+   *
+   * `redirectTo` is set only when the object is in a public bucket AND a reachable base URL is
+   * configured. Until then the API serves the bytes exactly as it always has, which is correct
+   * and merely slower - so switching the driver on never has to wait for a custom domain.
+   */
+  private async resolve(
+    where: { id?: string; eventId: string },
+    orderBy?: ReturnType<typeof eventImageOrder>,
+  ): Promise<{
+    bytes?: Uint8Array;
+    redirectTo?: string;
+    contentType: string;
+    sha256: string;
+  } | null> {
+    const row = await this.prisma.eventImage.findFirst({
+      where,
+      ...(orderBy ? { orderBy } : {}),
+      select: { bytes: true, storageKey: true, contentType: true, sha256: true },
     });
+    if (!row) return null;
+
+    const redirectTo = this.objects.publicUrl(row);
+    if (redirectTo) return { redirectTo, contentType: row.contentType, sha256: row.sha256 };
+
+    const object = await this.objects.read(row);
+    // A row pointing at an object the store does not have is data loss, and the caller turns
+    // it into a 404. A placeholder here would hide that behind a grey rectangle.
+    if (!object) return null;
+    return { bytes: object.body, contentType: row.contentType, sha256: row.sha256 };
   }
 
   private async changeableEvent(user: RequestUser, eventId: string) {

@@ -8,6 +8,8 @@ import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { sniffImageType } from '../events/event-image';
 import type { UploadedImageFile } from '../events/event-image.service';
+import { ObjectStoreService } from '../storage/object-store.service';
+import { organizationImageKey } from '../storage/object-keys';
 
 /**
  * An organization's pictures: the profile picture, and the cover banner behind it.
@@ -54,6 +56,7 @@ export class OrganizationImagesService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly audit: AuditService,
+    private readonly objects: ObjectStoreService,
   ) {}
 
   /**
@@ -100,9 +103,27 @@ export class OrganizationImagesService {
     }
 
     const sha256 = createHash('sha256').update(file.buffer).digest('hex');
+
+    /*
+      Written to the store before the row, and outside the transaction below, for the same
+      reason as an event image: an orphaned object is a few unread kilobytes, an orphaned row
+      is a broken picture on a live page. The key contains the content hash, so a retry writes
+      the same object to the same key.
+    */
+    const storageKey =
+      this.objects.driver === 'postgres'
+        ? null
+        : await this.objects.write({
+            key: organizationImageKey({ organizationId, kind, sha256, contentType }),
+            body: file.buffer,
+            contentType,
+          });
+
     const data = {
       contentType,
-      bytes: file.buffer,
+      // One of these two, never both - the database enforces it.
+      bytes: storageKey ? null : file.buffer,
+      storageKey,
       sizeBytes: file.size,
       sha256,
       uploadedByUserId: user.id,
@@ -141,6 +162,13 @@ export class OrganizationImagesService {
   /** Remove it, and stop pointing at what is no longer there. */
   async remove(user: RequestUser, organizationId: string, kind: OrgImageKind) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    // Read the key before the row goes, so the object can be removed after. Done after the
+    // transaction commits: a bucket delete that fails must not roll back the row the user
+    // asked to remove, and an object nobody points at is harmless.
+    const existing = await this.prisma.organizationImage.findUnique({
+      where: { organizationId_kind: { organizationId, kind } },
+      select: { bytes: true, storageKey: true, contentType: true },
+    });
     const organization = await this.prisma.$transaction(async (tx) => {
       await tx.organizationImage.deleteMany({ where: { organizationId, kind } });
       return tx.organization.update({
@@ -148,6 +176,7 @@ export class OrganizationImagesService {
         data: kind === 'COVER' ? { coverImageUrl: null } : { logoUrl: null },
       });
     });
+    if (existing) await this.objects.remove(existing).catch(() => undefined);
     await this.audit.record({
       actorUserId: user.id,
       organizationId,
@@ -158,12 +187,25 @@ export class OrganizationImagesService {
     return { logoUrl: organization.logoUrl, coverImageUrl: organization.coverImageUrl };
   }
 
-  /** The bytes, for the public endpoint that serves them. */
+  /**
+   * The picture, from wherever it is, for the public endpoint that serves it.
+   *
+   * `redirectTo` is set only when the object is in a public bucket with a reachable CDN
+   * address; otherwise the API serves the bytes exactly as it always has. The ROW decides,
+   * not the configuration, because during a backfill both answers are live at once.
+   */
   async read(organizationId: string, kind: OrgImageKind) {
     const row = await this.prisma.organizationImage.findUnique({
       where: { organizationId_kind: { organizationId, kind } },
-      select: { bytes: true, contentType: true, sha256: true },
+      select: { bytes: true, storageKey: true, contentType: true, sha256: true },
     });
-    return row ?? null;
+    if (!row) return null;
+
+    const redirectTo = this.objects.publicUrl(row);
+    if (redirectTo) return { redirectTo, contentType: row.contentType, sha256: row.sha256 };
+
+    const object = await this.objects.read(row);
+    if (!object) return null;
+    return { bytes: object.body, contentType: row.contentType, sha256: row.sha256 };
   }
 }

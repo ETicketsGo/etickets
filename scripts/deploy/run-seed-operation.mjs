@@ -34,6 +34,7 @@ const VALID = [
   'india-gst-activate',
   'india-cinema',
   'payment-routes',
+  'backfill-objects',
   'full-reset',
 ];
 if (!VALID.includes(operation)) {
