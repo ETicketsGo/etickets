@@ -23,6 +23,7 @@ import { refundTax, ticketNetPrices } from './refund-tax';
 import { ACCEPTED_TRANSFERS, currentHolderUserId, isTransferred } from '../tickets/ticket-holder';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
+import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 
 /** Refund rows that hold or consume a ticket's refund allocation. */
 const OPEN_REFUND_STATUSES = [
@@ -593,8 +594,14 @@ export class RefundsService {
     page: number,
     pageSize: number,
     query?: string,
+    scope: GroupScope = {},
   ) {
     const where: Prisma.RefundWhereInput = {
+      /*
+      Spread before the search so the scope cannot be overwritten by it. A list that quietly
+      dropped its scope would show every row while the summary above it named one group.
+    */
+      ...groupScopeWhere('refunds', scope),
       ...(status ? { status } : {}),
       ...(query
         ? {

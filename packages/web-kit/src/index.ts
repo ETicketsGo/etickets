@@ -11,6 +11,7 @@ export * from './components';
 export * from './hooks';
 export * from './shell';
 export * from './toggle';
+export * from './admin-grouping';
 export * from './providers';
 export * from './login';
 export * from './password-field';
