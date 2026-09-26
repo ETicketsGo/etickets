@@ -36,6 +36,7 @@ import { OrganizationLifecycleService } from './organization-lifecycle.service';
 import { ORG_REGISTRATION_THROTTLE } from './organization-limits';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import {
@@ -271,6 +272,8 @@ export class AdminOrganizationsController {
           status: z.nativeEnum(OrganizationStatus).optional(),
           // Searched in the DATABASE. The console used to filter the fetched page.
           q: z.string().trim().optional(),
+          // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
+          ...groupScopeFields,
         }),
       ),
     )
@@ -279,9 +282,9 @@ export class AdminOrganizationsController {
       pageSize: number;
       status?: OrganizationStatus;
       q?: string;
-    },
+    } & GroupScope,
   ) {
-    return this.orgs.adminList(q.status, q.page, q.pageSize, q.q || undefined);
+    return this.orgs.adminList(q.status, q.page, q.pageSize, q.q || undefined, q);
   }
 
   /**

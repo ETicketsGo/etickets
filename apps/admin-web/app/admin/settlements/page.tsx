@@ -11,6 +11,8 @@ import {
   Select,
   Pagination,
   PageHeader,
+  GroupedSummary,
+  type GroupSelection,
   EmptyState,
   Skeleton,
   ErrorState,
@@ -40,15 +42,17 @@ const PAGE_SIZE = 15;
 
 export default function AdminSettlements() {
   const [page, setPage] = useState(1);
+  const [group, setGroup] = useState<GroupSelection>({});
   const [status, setStatus] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'settlements', page, status],
+    queryKey: ['admin', 'settlements', page, status, group.groupBy, group.groupKey],
     queryFn: () =>
       api.admin.settlements.list({
         page,
         pageSize: PAGE_SIZE,
+        ...group,
         status: status || undefined,
       }),
   });
@@ -115,6 +119,19 @@ export default function AdminSettlements() {
           ))}
         </Select>
       </div>
+
+      <GroupedSummary
+        resource="settlements"
+        options={['country', 'organizer', 'event', 'currency']}
+        value={group}
+        status={status || undefined}
+        onChange={(next) => {
+          // Page 1: the page number belonged to the previous scope, and page 4 of a group with
+          // two rows is an empty table that looks like "no results".
+          setGroup(next);
+          setPage(1);
+        }}
+      />
       <DataTable
         columns={columns}
         rows={data?.data}

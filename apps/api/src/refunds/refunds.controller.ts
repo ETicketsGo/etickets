@@ -11,6 +11,7 @@ import { RefundsService } from './refunds.service';
 import { AdminPermission } from '@eticketsgo/shared-types';
 import { CurrentUser, RequiresAdmin, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 
 @ApiTags('refunds')
 @ApiBearerAuth()
@@ -97,6 +98,8 @@ export class AdminRefundsController {
           status: z.nativeEnum(RefundStatus).optional(),
           // Searched in the DATABASE: buyer email or booking reference.
           q: z.string().trim().optional(),
+          // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
+          ...groupScopeFields,
         }),
       ),
     )
@@ -105,9 +108,9 @@ export class AdminRefundsController {
       pageSize: number;
       status?: RefundStatus;
       q?: string;
-    },
+    } & GroupScope,
   ) {
-    return this.refunds.adminList(q.status, q.page, q.pageSize, q.q || undefined);
+    return this.refunds.adminList(q.status, q.page, q.pageSize, q.q || undefined, q);
   }
 
   /*

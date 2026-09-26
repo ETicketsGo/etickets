@@ -12,6 +12,7 @@ import {
 import { SettlementService } from './settlement.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
+import { groupScopeFields, type GroupScope } from '../../admin/group-scope';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -21,9 +22,16 @@ import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 export class SettlementController {
   constructor(private readonly settlements: SettlementService) {}
 
+  /*
+    Extended here rather than in `@eticketsgo/validation` because the two grouping parameters are
+    an admin-console concern, not part of the settlement contract other callers share.
+  */
   @Get()
   @ApiOperation({ summary: 'List organizer settlements (admin/finance).' })
-  list(@Query(new ZodValidationPipe(settlementListSchema)) q: SettlementListInput) {
+  list(
+    @Query(new ZodValidationPipe(settlementListSchema.extend({ ...groupScopeFields })))
+    q: SettlementListInput & GroupScope,
+  ) {
     return this.settlements.list(q);
   }
 

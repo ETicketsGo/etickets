@@ -28,6 +28,7 @@ import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
+import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -1429,8 +1430,19 @@ export class EventsService {
    * September" says nothing about whether the show has already been and gone. The first and
    * last session come from one grouped query for the page.
    */
-  async adminList(status: EventStatus | undefined, page: number, pageSize: number, query?: string) {
+  async adminList(
+    status: EventStatus | undefined,
+    page: number,
+    pageSize: number,
+    query?: string,
+    scope: GroupScope = {},
+  ) {
     const where: Prisma.EventWhereInput = {
+      /*
+      Spread before the search so the scope cannot be overwritten by it. A list that quietly
+      dropped its scope would show every row while the summary above it named one group.
+    */
+      ...groupScopeWhere('events', scope),
       ...(status ? { status } : {}),
       ...(query
         ? {

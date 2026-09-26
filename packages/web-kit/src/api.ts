@@ -1681,7 +1681,7 @@ export const api = {
     auditSummary: (params?: AuditFilters) =>
       request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
     /* Every one of these searches in the DATABASE. They used to filter the fetched page. */
-    organizers: (params: PageParams & { status?: string; q?: string }) =>
+    organizers: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
     reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
@@ -1745,7 +1745,7 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }),
-    events: (params: PageParams & { status?: string; q?: string }) =>
+    events: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/review`, {
@@ -1757,12 +1757,33 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
-    bookings: (params: PageParams & { status?: string; q?: string }) =>
+    bookings: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
-    payments: (params: PageParams & { status?: string; q?: string }) =>
+    payments: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
-    refunds: (params: PageParams & { status?: string; q?: string }) =>
+    refunds: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<RefundRow>>(`/admin/refunds${qs(params)}`),
+    /**
+     * One row per group for an admin queue.
+     *
+     * A separate call per resource because each one is authorised separately on the server; a
+     * console showing a summary the operator may not see would be a console that 403s on the
+     * grouping toggle. `groupBy` is validated there too, and a refusal names what IS supported.
+     */
+    grouped: {
+      bookings: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/bookings${qs(params)}`),
+      payments: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/payments${qs(params)}`),
+      refunds: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/refunds${qs(params)}`),
+      settlements: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/settlements${qs(params)}`),
+      events: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/events${qs(params)}`),
+      organizers: (params: AdminGroupQuery) =>
+        request<AdminGroupedSummary>(`/admin/grouped/organizers${qs(params)}`),
+    },
     /** One refund by id — the detail page used to search the newest hundred for it. */
     refund: (id: string) => request<RefundRow>(`/admin/refunds/${id}`),
     payouts: () => request<Payout[]>('/admin/payouts'),
@@ -1868,7 +1889,11 @@ export const api = {
     // ─── Marketplace settlements (admin/finance) ───
     settlements: {
       list: (
-        params?: PageParams & { status?: string; organizationId?: string; eventId?: string },
+        params?: PageParams & {
+          status?: string;
+          organizationId?: string;
+          eventId?: string;
+        } & AdminGroupFilter,
       ) => request<Paged<SettlementRow>>(`/admin/settlements${qs(params ?? {})}`),
       get: (id: string) => request<SettlementDetail>(`/admin/settlements/${id}`),
       approve: (id: string) =>
@@ -4784,6 +4809,76 @@ export interface AdminEventRow {
   lastSessionAt: string | null;
   sessionCount: number;
 }
+/** What an admin queue can be grouped by. Which ones a given queue accepts is server-side. */
+export type AdminGroupBy = 'country' | 'organizer' | 'event' | 'currency';
+
+export interface AdminGroupRow {
+  /**
+   * What to filter the list by to see this group's rows, or null when the group is "not recorded".
+   *
+   * For a country grouping this is the country itself; for an organizer or event it is the id,
+   * because a name is not unique and a filter built on one would quietly merge two organizations
+   * that happen to share it.
+   */
+  key: string | null;
+  label: string;
+  count: number;
+  /**
+   * Money in the group, one entry PER CURRENCY, never summed together.
+   *
+   * A group selling in INR and USD has two entries. Adding them would be the defect that once
+   * showed a payout total of rupees and dollars as rupees.
+   */
+  totals: { currency: string; totalMinor: number }[];
+}
+
+/**
+ * Narrows an admin list to one row of its grouped summary.
+ *
+ * `groupBy` on its own narrows nothing: it says which summary is on screen while no group has
+ * been clicked. `groupKey` is what narrows, and `ADMIN_GROUP_KEY_NONE` selects the group with no
+ * value - the "Not recorded" row.
+ */
+/**
+ * The group whose key is null, as a value that survives the wire.
+ *
+ * Not the empty string: `qs()` above drops empty parameters, so an empty key would leave the
+ * browser as no key at all and the request would be refused. Mirrors `GROUP_KEY_NONE` on the API.
+ */
+export const ADMIN_GROUP_KEY_NONE = '__none__';
+
+/**
+ * What to count, and over which rows.
+ *
+ * `status` and `q` are the SAME filters the list under the summary is showing, and sending them is
+ * not optional in practice: a summary counted over every row sits above a list that is filtered,
+ * and the two numbers disagree with nothing on screen to say which is right.
+ */
+export type AdminGroupQuery = {
+  groupBy: AdminGroupBy;
+  status?: string;
+  q?: string;
+};
+
+export type AdminGroupFilter = {
+  groupBy?: AdminGroupBy;
+  /*
+    A type alias rather than an `interface` on purpose. `qs()` takes `Record<string, unknown>`,
+    and TypeScript gives an object-literal type an implicit index signature while an interface
+    gets none - so as an interface this compiled everywhere except the six call sites that
+    actually serialise it.
+  */
+  groupKey?: string;
+};
+
+export interface AdminGroupedSummary {
+  resource: string;
+  groupBy: string;
+  groups: AdminGroupRow[];
+  /** True when there were more groups than the summary returns. The list below is still whole. */
+  truncated: boolean;
+}
+
 export interface AdminBookingRow {
   id: string;
   reference: string | null;

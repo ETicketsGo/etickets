@@ -39,6 +39,7 @@ import { EventImageService, type UploadedImageFile } from './event-image.service
 import { EVENT_IMAGE_MAX_BYTES, EVENT_IMAGE_MAX_COUNT, eventImageVersion } from './event-image';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { groupScopeFields, type GroupScope } from '../admin/group-scope';
 
 const createEventBody = createEventSchema.extend({ organizationId: z.string().cuid() });
 const updateEventBody = createEventSchema.partial();
@@ -493,6 +494,8 @@ export class AdminEventsController {
           status: z.nativeEnum(EventStatus).optional(),
           // Searched in the DATABASE, across title, organizer and city.
           q: z.string().trim().optional(),
+          // Scope to one row of the grouped summary. See `admin/group-scope.ts`.
+          ...groupScopeFields,
         }),
       ),
     )
@@ -501,9 +504,9 @@ export class AdminEventsController {
       pageSize: number;
       status?: EventStatus;
       q?: string;
-    },
+    } & GroupScope,
   ) {
-    return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined);
+    return this.events.adminList(q.status, q.page, q.pageSize, q.q || undefined, q);
   }
 
   @Post(':id/review')

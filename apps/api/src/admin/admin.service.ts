@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { groupScopeWhere, type GroupScope } from './group-scope';
 
 function paginate(page: number, pageSize: number, total: number) {
   return { page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
@@ -14,8 +15,18 @@ export class AdminService {
     private readonly audit: AuditService,
   ) {}
 
-  async bookings(params: { page: number; pageSize: number; status?: string; q?: string }) {
+  async bookings(
+    params: { page: number; pageSize: number; status?: string; q?: string } & GroupScope,
+  ) {
     const where = {
+      /*
+        The group scope is spread FIRST and the search after it, because both can produce a
+        top-level key and only one of them may be lost. The scope is a set of AND-ed relation
+        filters and the search is an `OR` - they cannot collide - but the order says which is
+        load-bearing: a list that dropped its scope would show every country while the summary
+        above it said India.
+      */
+      ...groupScopeWhere('bookings', params),
       ...(params.status ? { status: params.status as never } : {}),
       ...(params.q
         ? {
@@ -64,8 +75,11 @@ export class AdminService {
    * The booking's reference and event come back as well. A payment on its own is an amount and
    * an opaque id; what somebody actually needs is which sale it was.
    */
-  async payments(params: { page: number; pageSize: number; status?: string; q?: string }) {
+  async payments(
+    params: { page: number; pageSize: number; status?: string; q?: string } & GroupScope,
+  ) {
     const where = {
+      ...groupScopeWhere('payments', params),
       ...(params.status ? { status: params.status as never } : {}),
       ...(params.q
         ? {

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { AdminPermission, MovieStatus, Role } from '@eticketsgo/shared-types';
 import { paginationSchema } from '@eticketsgo/validation';
 import { AdminService } from './admin.service';
+import { AdminGroupingService } from './admin-grouping.service';
+import { groupScopeFields, type GroupScope } from './group-scope';
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
@@ -117,6 +119,28 @@ const taxRuleSupersedeSchema = z.object({
 });
 type TaxRuleSupersedeBody = z.infer<typeof taxRuleSupersedeSchema>;
 
+/**
+ * Which grouping a summary is being asked for.
+ *
+ * Deliberately a bare string here rather than a `z.enum`: the resource is fixed by the route, so
+ * the valid groupings differ per route, and `AdminGroupingService` refuses an unsupported one
+ * with a message that names the ones that ARE supported. A schema per route would state the same
+ * list twice and let the two drift.
+ */
+const groupQuerySchema = z.object({
+  groupBy: z.string().trim().min(1),
+  /*
+    The same two filters the list below the summary is showing.
+
+    Without them the summary counted every row of the resource while the list was filtered, so the
+    refund queue - which opens on REQUESTED - read "India, 1 row" above an empty table. A summary
+    that does not add up to the list it sits on is worse than no summary.
+  */
+  status: z.string().trim().optional(),
+  q: z.string().trim().optional(),
+});
+type GroupQuery = z.infer<typeof groupQuerySchema>;
+
 @ApiTags('admin')
 @ApiBearerAuth()
 @Roles(Role.ADMIN, Role.SUPER_ADMIN)
@@ -129,6 +153,7 @@ export class AdminController {
     // Underscored because `taxRules` is the route handler's name on this class.
     private readonly taxRules_: TaxRulesService,
     private readonly cinemaPolicies: CinemaPricingPoliciesService,
+    private readonly grouping: AdminGroupingService,
   ) {}
 
   @Get('bookings')
@@ -136,7 +161,12 @@ export class AdminController {
   bookings(
     @Query(
       new ZodValidationPipe(
-        paginationSchema.extend({ status: z.string().optional(), q: z.string().optional() }),
+        paginationSchema.extend({
+          status: z.string().optional(),
+          q: z.string().optional(),
+          // Scope to one row of the grouped summary. See `group-scope.ts`.
+          ...groupScopeFields,
+        }),
       ),
     )
     q: {
@@ -144,7 +174,7 @@ export class AdminController {
       pageSize: number;
       status?: string;
       q?: string;
-    },
+    } & GroupScope,
   ) {
     return this.admin.bookings(q);
   }
@@ -158,6 +188,7 @@ export class AdminController {
           status: z.string().optional(),
           // Searched in the DATABASE: buyer email, booking reference or provider reference.
           q: z.string().trim().optional(),
+          ...groupScopeFields,
         }),
       ),
     )
@@ -166,9 +197,71 @@ export class AdminController {
       pageSize: number;
       status?: string;
       q?: string;
-    },
+    } & GroupScope,
   ) {
     return this.admin.payments(q);
+  }
+
+  /*
+    ── THE GROUPED SUMMARIES ──────────────────────────────────────────────────────────
+    One route per resource rather than one route taking the resource as a path segment.
+
+    That looks like repetition and is the opposite: each queue answers to a DIFFERENT
+    capability, and only a static decorator can say which. `AdminPermissionGuard` reads
+    `@RequiresAdmin` off the handler, so a single `grouped/:resource` route could carry only one
+    permission for all six - either the support desk's `BOOKING_READ`, which would hand it every
+    organizer's settlement payable, or `PAYOUT_MANAGE`, which would stop the support desk grouping
+    the bookings it is already allowed to read one at a time.
+
+    Each summary carries the SAME capability as the list it summarises, taken from that list's own
+    controller - `admin/settlements` is `PAYOUT_MANAGE`, `admin/events` is `EVENT_REVIEW`,
+    `admin/organizers` is `ORGANIZER_REVIEW`, and `admin/payments` is this class's `BOOKING_READ`.
+    Stricter would be worse, not safer: a console that offers a grouping control beside a list the
+    operator can already read, and answers it with 403, is a bug wearing a permission's clothes.
+
+    Each body is one line because the query lives in `AdminGroupingService`; what is being
+    repeated here is the authorisation, which is exactly the thing that must not be shared.
+  */
+  @Get('grouped/bookings')
+  @RequiresAdmin(AdminPermission.BOOKING_READ)
+  @ApiOperation({ summary: 'Bookings grouped by country, organizer or event (admin).' })
+  groupedBookings(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('bookings', q.groupBy, q);
+  }
+
+  @Get('grouped/payments')
+  @RequiresAdmin(AdminPermission.BOOKING_READ)
+  @ApiOperation({ summary: 'Payments grouped by country, organizer or event (admin).' })
+  groupedPayments(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('payments', q.groupBy, q);
+  }
+
+  @Get('grouped/refunds')
+  @RequiresAdmin(AdminPermission.REFUND_REVIEW)
+  @ApiOperation({ summary: 'Refunds grouped by country, organizer or event (admin).' })
+  groupedRefunds(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('refunds', q.groupBy, q);
+  }
+
+  @Get('grouped/settlements')
+  @RequiresAdmin(AdminPermission.PAYOUT_MANAGE)
+  @ApiOperation({ summary: 'Settlements grouped by country, organizer, event or currency.' })
+  groupedSettlements(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('settlements', q.groupBy, q);
+  }
+
+  @Get('grouped/events')
+  @RequiresAdmin(AdminPermission.EVENT_REVIEW)
+  @ApiOperation({ summary: 'Events grouped by country or organizer (admin).' })
+  groupedEvents(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('events', q.groupBy, q);
+  }
+
+  @Get('grouped/organizers')
+  @RequiresAdmin(AdminPermission.ORGANIZER_REVIEW)
+  @ApiOperation({ summary: 'Organizers grouped by country (admin).' })
+  groupedOrganizers(@Query(new ZodValidationPipe(groupQuerySchema)) q: GroupQuery) {
+    return this.grouping.grouped('organizers', q.groupBy, q);
   }
 
   @Get('fee-rules')

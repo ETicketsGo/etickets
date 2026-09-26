@@ -16,6 +16,7 @@ import { AppException, ErrorCodes } from '../../common/errors';
 import type { RequestUser } from '../../common/decorators';
 import type { PaymentProvider } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
+import { groupScopeWhere, type GroupScope } from '../../admin/group-scope';
 
 const DEFAULT_CURRENCY = 'usd';
 
@@ -172,16 +173,24 @@ export class SettlementService {
 
   // ─── Admin actions ───
 
-  async list(filter: {
-    status?: SettlementStatus;
-    organizationId?: string;
-    eventId?: string;
-    page?: number;
-    pageSize?: number;
-  }) {
+  async list(
+    filter: {
+      status?: SettlementStatus;
+      organizationId?: string;
+      eventId?: string;
+      page?: number;
+      pageSize?: number;
+    } & GroupScope,
+  ) {
     const page = filter.page ?? 1;
     const pageSize = Math.min(filter.pageSize ?? 25, 100);
     const where = {
+      /*
+        Spread first so an explicit `organizationId`/`eventId` filter, which this queue already
+        had, WINS over a grouping that names the same column. The two are the same question asked
+        twice and the narrower answer is the one already on screen.
+      */
+      ...groupScopeWhere('settlements', filter),
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.organizationId ? { organizationId: filter.organizationId } : {}),
       ...(filter.eventId ? { eventId: filter.eventId } : {}),

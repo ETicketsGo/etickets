@@ -13,6 +13,8 @@ import {
   SearchInput,
   Pagination,
   PageHeader,
+  GroupedSummary,
+  type GroupSelection,
   EmptyState,
   dateOnly,
   titleCase,
@@ -40,16 +42,18 @@ const STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
 export default function OrganizersPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
+  const [group, setGroup] = useState<GroupSelection>({});
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'organizers', page, status, applied],
+    queryKey: ['admin', 'organizers', page, status, applied, group.groupBy, group.groupKey],
     queryFn: () =>
       api.admin.organizers({
         page,
         pageSize: 15,
+        ...group,
         status: status || undefined,
         q: applied || undefined,
       }),
@@ -161,6 +165,19 @@ export default function OrganizersPage() {
         title={status ? `${titleCase(status)} organizers` : 'All organizers'}
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
+        <GroupedSummary
+          resource="organizers"
+          options={['country']}
+          value={group}
+          status={status || undefined}
+          q={applied || undefined}
+          onChange={(next) => {
+            // Page 1: the page number belonged to the previous scope, and page 4 of a group with
+            // two rows is an empty table that looks like "no results".
+            setGroup(next);
+            setPage(1);
+          }}
+        />
         <DataTable
           columns={columns}
           rows={data?.data}

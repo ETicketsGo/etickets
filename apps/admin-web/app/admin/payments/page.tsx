@@ -13,6 +13,8 @@ import {
   SearchInput,
   Pagination,
   PageHeader,
+  GroupedSummary,
+  type GroupSelection,
   EmptyState,
   money,
   dateTime,
@@ -44,16 +46,18 @@ const STATUSES = [
 export default function AdminPayments() {
   const router = useRouter();
   const [page, setPage] = useState(1);
+  const [group, setGroup] = useState<GroupSelection>({});
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'payments', page, status, applied],
+    queryKey: ['admin', 'payments', page, status, applied, group.groupBy, group.groupKey],
     queryFn: () =>
       api.admin.payments({
         page,
         pageSize: 15,
+        ...group,
         status: status || undefined,
         q: applied || undefined,
       }),
@@ -142,6 +146,19 @@ export default function AdminPayments() {
         title="Payments"
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
+        <GroupedSummary
+          resource="payments"
+          options={['country', 'organizer', 'event']}
+          value={group}
+          status={status || undefined}
+          q={applied || undefined}
+          onChange={(next) => {
+            // Page 1: the page number belonged to the previous scope, and page 4 of a group with
+            // two rows is an empty table that looks like "no results".
+            setGroup(next);
+            setPage(1);
+          }}
+        />
         <DataTable
           columns={columns}
           rows={data?.data}

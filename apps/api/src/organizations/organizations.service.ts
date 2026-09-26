@@ -25,6 +25,7 @@ import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
+import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 
 /**
  * How long an invitation stays valid: seven days.
@@ -923,8 +924,14 @@ export class OrganizationsService {
     page: number,
     pageSize: number,
     query?: string,
+    scope: GroupScope = {},
   ) {
     const where: Prisma.OrganizationWhereInput = {
+      /*
+      Spread before the search so the scope cannot be overwritten by it. A list that quietly
+      dropped its scope would show every row while the summary above it named one group.
+    */
+      ...groupScopeWhere('organizers', scope),
       ...(status ? { status } : {}),
       ...(query
         ? {
