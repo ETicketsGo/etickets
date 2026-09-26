@@ -10,6 +10,7 @@ import { Providers } from '../providers';
 import { SiteChrome } from '@/components/site-chrome';
 import { SkipToContent } from '@/components/skip-to-content';
 import { SwRegister } from '@/components/sw-register';
+import { serverSessionHint } from '@/lib/session-hint';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 
@@ -103,6 +104,14 @@ export default async function LocaleLayout({
     surfacing it.
   */
   if (!hasLocale(routing.locales, locale)) notFound();
+  /*
+    Which shell to draw, decided before the first byte leaves.
+
+    A hint, never a credential - see `serverSessionHint`. It exists so a signed-in customer
+    does not get the marketing header and landing page on first paint and a corrective render a
+    moment later, which is what "I can see the regular landing page for just micro seconds" was.
+  */
+  const signedInHint = await serverSessionHint();
   setRequestLocale(locale);
 
   return (
@@ -116,7 +125,7 @@ export default async function LocaleLayout({
         <NextIntlClientProvider>
           <SkipToContent />
           <Providers>
-            <SiteChrome>{children}</SiteChrome>
+            <SiteChrome initialSignedIn={signedInHint}>{children}</SiteChrome>
             <SwRegister />
           </Providers>
         </NextIntlClientProvider>

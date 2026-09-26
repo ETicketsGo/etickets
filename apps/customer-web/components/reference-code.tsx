@@ -60,7 +60,7 @@ export function ReferenceCode({
           type="button"
           onClick={copy}
           aria-label={`${label}: ${copied ? t('copied') : t('copy')}`}
-          className="rounded p-0.5 text-text-muted transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+          className="rounded p-0.5 text-text-muted transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {copied ? (
             <Check className="h-3.5 w-3.5 text-status-success" aria-hidden />

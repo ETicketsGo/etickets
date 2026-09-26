@@ -116,7 +116,7 @@ export default function ProfilePage() {
       {mounted && !me.isLoading && !me.isError && (
         <>
           <Card>
-            <h2 className="text-h5 font-semibold text-text-primary">{t('phoneHeading')}</h2>
+            <h2 className="text-title font-semibold text-text-primary">{t('phoneHeading')}</h2>
             <p className="mt-1 text-[0.9375rem] text-text-muted">{t('phoneLead')}</p>
 
             {me.data?.phone ? (
@@ -209,7 +209,7 @@ export default function ProfilePage() {
               of text. */}
           {me.data?.memberSince && (
             <Card>
-              <h2 className="text-h5 font-semibold text-text-primary">{t('detailsHeading')}</h2>
+              <h2 className="text-title font-semibold text-text-primary">{t('detailsHeading')}</h2>
               <dl className="mt-3 flex items-baseline justify-between gap-4 text-[0.9375rem]">
                 <dt className="text-text-secondary">{t('memberSince')}</dt>
                 <dd className="text-text-primary">{dateOnly(me.data.memberSince)}</dd>

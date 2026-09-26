@@ -48,7 +48,7 @@ export default function BoxOfficePrintPage() {
     <>
       {/*
         A way back, because this page has no console chrome. And a button that can be seen: its
-        colour class was `bg-brand-primary`, which the design tokens do not define, so it
+        colour class was `bg-action-primary-primary`, which the design tokens do not define, so it
         rendered white text on a white page — the same defect the customer's print page had.
       */}
       <div className="no-print mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 p-6">

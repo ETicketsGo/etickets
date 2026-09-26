@@ -124,7 +124,7 @@ export default function RefundsPage() {
                 .openHtml(r.creditNote!.id)
                 .catch((e) => toast.push(errorMessage(e), 'error'))
             }
-            className="inline-flex items-center gap-1 text-caption text-brand hover:underline"
+            className="inline-flex items-center gap-1 text-caption text-action-primary hover:underline"
           >
             {r.creditNote.number} <ExternalLink className="h-3.5 w-3.5" />
           </button>
@@ -180,8 +180,8 @@ export default function RefundsPage() {
             }}
             className={`rounded-full border px-3 py-1 text-caption transition ${
               status === f
-                ? 'border-brand bg-brand/10 text-text-primary'
-                : 'border-border text-text-secondary hover:border-brand/40'
+                ? 'border-action-primary bg-action-primary/10 text-text-primary'
+                : 'border-border text-text-secondary hover:border-action-primary/40'
             }`}
           >
             {f.charAt(0) + f.slice(1).toLowerCase()}
@@ -270,7 +270,7 @@ export default function RefundsPage() {
                 The request is closed and no money moves. Your customer keeps their tickets.
               </p>
             )}
-            <div className="rounded-md border border-border bg-surface-muted px-3 py-2 text-caption">
+            <div className="rounded-md border border-border bg-background-subtle px-3 py-2 text-caption">
               <div className="text-text-muted">Their reason</div>
               <div className="text-text-primary">{pending.row.reason}</div>
             </div>

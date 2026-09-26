@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Ticket, Compass, Receipt, Film, Sparkles, LifeBuoy, Bell } from 'lucide-react';
@@ -17,12 +18,35 @@ import { Logo } from '@eticketsgo/web-kit';
 const navLink =
   'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-text-secondary transition-colors hover:bg-background-subtle hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas';
 
-export function Header() {
+export function Header({
+  /*
+    What the server believed, from the session-hint cookie.
+
+    `useIsAuthenticated` reads the token, which lives in `localStorage` and therefore does not
+    exist during a server render - its server snapshot is `false`, always. So a signed-in
+    customer was served "Sign in / Create account" in the header of every page and watched it
+    become their account menu a moment later. That is the header half of "I can see the regular
+    landing page for just micro seconds".
+  */
+  initialSignedIn = false,
+}: {
+  initialSignedIn?: boolean;
+}) {
   const router = useRouter();
   // Subscribed, not read-once. The previous `useEffect(..., [])` ran only on mount, and
   // Next.js keeps this layout mounted across client-side navigation — so signing in never
   // updated the header and signed-in users kept seeing "Sign in / Sign up".
-  const authed = useIsAuthenticated();
+  const live = useIsAuthenticated();
+  /*
+    The hint is used ONLY until this component has mounted, and the token decides for ever
+    after. Both halves matter: the server and the first client paint read the same prop, so the
+    markup they produce is identical and hydration has nothing to reconcile; and the moment
+    React is running, the real token takes over, so a stale cookie is corrected rather than
+    believed.
+  */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const authed = mounted ? live : initialSignedIn;
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],

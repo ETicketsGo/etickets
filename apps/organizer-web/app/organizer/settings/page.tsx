@@ -452,8 +452,8 @@ export default function SettingsPage() {
           <div
             className={`mb-4 rounded-md border px-3 py-2 text-caption ${
               legalQuery.data.canIssueTaxInvoice
-                ? 'border-success/40 bg-success/10 text-text-primary'
-                : 'border-warning/40 bg-warning/10 text-text-primary'
+                ? 'border-status-success/40 bg-status-success/10 text-text-primary'
+                : 'border-status-warning/40 bg-status-warning/10 text-text-primary'
             }`}
           >
             {legalQuery.data.canIssueTaxInvoice ? (
