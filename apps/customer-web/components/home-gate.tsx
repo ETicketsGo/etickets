@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { isSignedIn } from '@/lib/auth-flag';
+import { backfillSessionHint, isSignedIn } from '@/lib/auth-flag';
 import { MarketingLanding } from '@/components/marketing/landing';
 
 // Load the signed-in discovery experience on demand so the marketing landing (the
@@ -25,8 +25,25 @@ const DiscoverHome = dynamic(
  * is one home URL (/) with one hero per user. SiteChrome swaps to the app header for the
  * signed-in case using the same token check, so both stay in sync.
  */
-export function HomeGate() {
-  const [authed, setAuthed] = useState(false);
-  useEffect(() => setAuthed(isSignedIn()), []);
+export function HomeGate({
+  /*
+    What the SERVER believed, from the session-hint cookie.
+
+    This used to start at `false` unconditionally, so a signed-in customer was served the
+    MARKETING LANDING - hero, pitch and all - and swapped to discovery once an effect ran.
+    Reported as "I can see the regular landing page for just micro seconds". It is the most
+    visible instance of the problem because the two pages look nothing like each other.
+
+    The effect still corrects a stale hint; starting from it is what removes the flash.
+  */
+  initialSignedIn = false,
+}: {
+  initialSignedIn?: boolean;
+}) {
+  const [authed, setAuthed] = useState(initialSignedIn);
+  useEffect(() => {
+    setAuthed(isSignedIn());
+    backfillSessionHint();
+  }, []);
   return authed ? <DiscoverHome /> : <MarketingLanding />;
 }

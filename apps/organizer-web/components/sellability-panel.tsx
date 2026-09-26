@@ -44,7 +44,7 @@ function Issue({ issue, tone }: { issue: SellabilityIssue; tone: 'blocker' | 'wa
         <span
           className={`rounded-full px-2 py-0.5 text-caption font-medium ${
             platform
-              ? 'bg-surface-muted text-text-secondary'
+              ? 'bg-background-subtle text-text-secondary'
               : 'bg-status-error/15 text-status-error'
           }`}
         >
@@ -72,7 +72,7 @@ function Issue({ issue, tone }: { issue: SellabilityIssue; tone: 'blocker' | 'wa
       {issue.fixPath && (
         <Link
           href={issue.fixPath}
-          className="mt-2 inline-block rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+          className="mt-2 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Go and fix this
         </Link>

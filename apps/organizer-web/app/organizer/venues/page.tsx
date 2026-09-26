@@ -49,11 +49,11 @@ const EMPTY = { name: '', city: '', address: '', capacity: '' };
 function RoomRow({ room }: { room: Cinema }) {
   const screens = screenCount(room);
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle px-3 py-2">
+    <li className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
       <div className="min-w-0">
         <Link
           href={`/organizer/cinemas/${room.id}`}
-          className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+          className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {room.name}
         </Link>
@@ -272,7 +272,7 @@ export default function VenuesPage() {
                 */}
                 <Link
                   href={`/organizer/cinemas/new?venueId=${venue.id}`}
-                  className="mt-3 inline-block rounded text-caption text-brand-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+                  className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   Add a room here
                 </Link>

@@ -92,7 +92,7 @@ export default function NotificationSettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-h3 font-bold tracking-tight text-text-primary">{t('heading')}</h1>
-        <p className="mt-1 text-body-sm text-text-secondary">{t('lead')}</p>
+        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('lead')}</p>
       </div>
 
       {/* Browser push registration lives with the existing component; one place asks for the
@@ -100,10 +100,10 @@ export default function NotificationSettingsPage() {
       <PushToggle />
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">{t('whatsappHeading')}</h2>
-        <p className="mt-1 text-body-sm text-text-secondary">{t('whatsappLead')}</p>
+        <h2 className="text-title font-semibold text-text-primary">{t('whatsappHeading')}</h2>
+        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('whatsappLead')}</p>
         <div className="mt-4 flex items-center justify-between gap-4">
-          <span className="inline-flex items-center gap-2 text-body-sm text-text-primary">
+          <span className="inline-flex items-center gap-2 text-[0.9375rem] text-text-primary">
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             {t('whatsappToggleText')}
           </span>
@@ -135,7 +135,7 @@ export default function NotificationSettingsPage() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">{t('whatWeSend')}</h2>
+        <h2 className="text-title font-semibold text-text-primary">{t('whatWeSend')}</h2>
         {prefs.isLoading ? (
           <div className="mt-4 space-y-4">
             <Skeleton className="h-16" />
@@ -149,7 +149,7 @@ export default function NotificationSettingsPage() {
               return (
                 <li key={entry.type} className="py-4 first:pt-0 last:pb-0">
                   <p className="text-body font-medium text-text-primary">{title}</p>
-                  <p className="mt-0.5 text-body-sm text-text-secondary">
+                  <p className="mt-0.5 text-[0.9375rem] text-text-secondary">
                     {t(`types.${entry.type}.description`)}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-3">
@@ -173,7 +173,7 @@ export default function NotificationSettingsPage() {
                       return (
                         <label
                           key={c.channel}
-                          className="inline-flex items-center gap-2 text-body-sm text-text-primary"
+                          className="inline-flex items-center gap-2 text-[0.9375rem] text-text-primary"
                         >
                           <Toggle
                             checked={c.enabled}
@@ -207,13 +207,13 @@ export default function NotificationSettingsPage() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="text-h5 font-semibold text-text-primary">{t('offersHeading')}</h2>
-        <p className="mt-1 text-body-sm text-text-secondary">{t('offersLead')}</p>
+        <h2 className="text-title font-semibold text-text-primary">{t('offersHeading')}</h2>
+        <p className="mt-1 text-[0.9375rem] text-text-secondary">{t('offersLead')}</p>
         <div className="mt-4 space-y-3">
           {(['email', 'push', 'whatsapp'] as const).map((channel) => (
             <label
               key={channel}
-              className="flex items-center justify-between gap-4 text-body-sm text-text-primary"
+              className="flex items-center justify-between gap-4 text-[0.9375rem] text-text-primary"
             >
               <span>{channelLabel(channel)}</span>
               <Toggle

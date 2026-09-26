@@ -667,7 +667,7 @@ function BundlesSection({ eventId, currency }: { eventId: string; currency: stri
                     <input
                       type="number"
                       min={0}
-                      className="w-20 rounded-lg border border-border-strong bg-surface-muted px-2 py-1 text-sm"
+                      className="w-20 rounded-lg border border-border-strong bg-background-subtle px-2 py-1 text-sm"
                       aria-label={`Quantity of ${o.label}`}
                       value={qty[o.refId] ?? 0}
                       onChange={(e) =>

@@ -67,6 +67,36 @@ const notifyTokenChange = (): void => {
   for (const listener of tokenListeners) listener();
 };
 
+/**
+ * A cookie that says only "somebody is signed in here". Never a credential.
+ *
+ * ── WHY THE SERVER NEEDS TO KNOW AT ALL ────────────────────────────────────────────
+ * Tokens live in `localStorage`, which a server render cannot see, so the shell and the home
+ * page both started from `useState(false)` and corrected themselves in an effect. A signed-in
+ * customer therefore got the marketing landing and the signed-out header on the FIRST PAINT of
+ * every page load, for as long as hydration took - reported as "I can see the regular landing
+ * page for just micro seconds".
+ *
+ * ── WHY A COOKIE AND WHY THIS ONE ──────────────────────────────────────────────────
+ * A cookie is the only thing the client holds that a server render is given. This one carries
+ * `1` and nothing else: no token, no id, no email. It is a HINT used to pick which shell to
+ * draw, never to authorise anything - every request is still judged on the bearer token, and a
+ * forged hint buys an attacker a different-looking header and no access whatsoever.
+ *
+ * Not `HttpOnly`, because the code that knows the session changed is this file, in the browser.
+ * `SameSite=Lax` so it is not sent on cross-site requests, and no `Secure` on localhost because
+ * a cookie that will not set in development is a cookie nobody tests.
+ */
+const SESSION_HINT = 'etg_session';
+
+function writeSessionHint(signedIn: boolean): void {
+  if (typeof document === 'undefined') return;
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = signedIn
+    ? `${SESSION_HINT}=1; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
+    : `${SESSION_HINT}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+}
+
 export const tokenStore = {
   get access() {
     return typeof window === 'undefined' ? null : localStorage.getItem(ACCESS_KEY);
@@ -77,11 +107,14 @@ export const tokenStore = {
   set(tokens: AuthTokens) {
     localStorage.setItem(ACCESS_KEY, tokens.accessToken);
     localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
+    // Written beside the tokens, so the hint cannot drift from the thing it hints at.
+    writeSessionHint(true);
     notifyTokenChange();
   },
   clear() {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    writeSessionHint(false);
     notifyTokenChange();
   },
   /**

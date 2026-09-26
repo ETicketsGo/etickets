@@ -366,7 +366,7 @@ function AccountConfirmation() {
           <button
             type="button"
             onClick={() => void api.openReceipt(receipt.id)}
-            className="flex w-full items-center justify-between border-t border-border pt-3 text-left text-[0.9375rem] text-brand hover:underline"
+            className="flex w-full items-center justify-between border-t border-border pt-3 text-left text-[0.9375rem] text-action-primary hover:underline"
           >
             <span className="inline-flex items-center gap-2">
               <ReceiptText className="h-4 w-4" />
@@ -423,7 +423,7 @@ function AccountConfirmation() {
                     <p className="font-mono text-caption text-text-muted">{t.serial}</p>
                     <Link
                       href={`/account/tickets/${t.id}`}
-                      className="inline-flex items-center gap-1 text-[0.9375rem] font-medium text-brand hover:underline"
+                      className="inline-flex items-center gap-1 text-[0.9375rem] font-medium text-action-primary hover:underline"
                     >
                       {c('openTicket')}
                       <ChevronRight className="h-4 w-4" aria-hidden />

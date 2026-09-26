@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { HomeGate } from '@/components/home-gate';
+import { serverSessionHint } from '@/lib/session-hint';
 
 export const metadata: Metadata = {
   title: 'ETicketsGo - Sell tickets, check in guests, understand your events',
@@ -10,6 +11,10 @@ export const metadata: Metadata = {
 
 // One home for everyone: marketing landing for signed-out visitors, the in-app
 // discovery experience for signed-in users (see HomeGate + SiteChrome).
-export default function HomePage() {
-  return <HomeGate />;
+//
+// The hint is read HERE, on the server, so the right one of those two is in the first byte
+// rather than swapped in after hydration. It is a cookie carrying `1` and authorises nothing;
+// see `serverSessionHint`.
+export default async function HomePage() {
+  return <HomeGate initialSignedIn={await serverSessionHint()} />;
 }

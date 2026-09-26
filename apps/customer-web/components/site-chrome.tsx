@@ -2,7 +2,7 @@
 
 import { usePathname } from '@/i18n/navigation';
 import { useEffect, useState } from 'react';
-import { isSignedIn } from '@/lib/auth-flag';
+import { backfillSessionHint, isSignedIn } from '@/lib/auth-flag';
 import { CitySuggestionBar } from '@eticketsgo/web-kit';
 import { Header } from '@/components/header';
 import { FeedbackWidget } from '@/components/feedback-widget';
@@ -76,15 +76,32 @@ function isCheckoutRoute(path: string): boolean {
   return /\/booking\/[^/]+\/payment$/.test(path);
 }
 
-export function SiteChrome({ children }: { children: React.ReactNode }) {
+export function SiteChrome({
+  children,
+  /*
+    What the SERVER believed when it drew this, from the session-hint cookie.
+
+    The state starts here instead of at `false`, so the first paint already matches the person
+    looking at it. The effect below still runs and still wins - the hint can be stale, and
+    localStorage is the truth - but being right to begin with is what removes the flash.
+  */
+  initialSignedIn = false,
+}: {
+  children: React.ReactNode;
+  initialSignedIn?: boolean;
+}) {
   const f = useTranslations('common.footer');
   const pathname = usePathname();
   // The home page (/) is adaptive: signed-in visitors see the app (discovery) there,
   // so it needs the app chrome; signed-out visitors get the marketing shell. Every
   // other marketing route always uses the marketing shell. Defaults to signed-out on
   // the server so crawlers + first paint get the marketing landing.
-  const [authed, setAuthed] = useState(false);
-  useEffect(() => setAuthed(isSignedIn()), [pathname]);
+  const [authed, setAuthed] = useState(initialSignedIn);
+  useEffect(() => {
+    setAuthed(isSignedIn());
+    // Repairs a session that predates the cookie; only ever writes the true direction.
+    backfillSessionHint();
+  }, [pathname]);
 
   const useMarketingShell = isMarketing(pathname) && !(pathname === '/' && authed);
 
@@ -108,7 +125,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       the middle of the screen with grey below it.
     */
     <div className="flex min-h-screen flex-col">
-      <Header />
+      <Header initialSignedIn={initialSignedIn} />
       <CitySuggestionBar />
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
       {/* 40px top and bottom is a desktop rhythm; a phone gets 24 and keeps the rest. */}

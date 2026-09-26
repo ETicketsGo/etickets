@@ -53,7 +53,7 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
           `flex-wrap` above is for - so the 320px case reflows to a second row instead of
           clipping a word, which is what WCAG 1.4.10 asks for in the first place.
         */
-        className="rounded-md border border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50"
+        className="rounded-md border border-border-input bg-background-surface px-2 py-1 text-caption text-text-secondary focus:outline-none focus:ring-2 focus:ring-ring/50"
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>

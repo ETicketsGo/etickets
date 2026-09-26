@@ -49,9 +49,9 @@ const variants = {
     'bg-action-primary text-action-primary-foreground shadow-sm hover:bg-action-primary-hover hover:shadow-md',
   secondary: 'bg-action-secondary text-action-secondary-foreground hover:bg-action-secondary/70',
   danger: 'bg-action-danger text-action-danger-foreground shadow-sm hover:brightness-105',
-  // Also a control, so also `border-input`: an outline button IS its outline.
+  // Also a control, so also `border-border-input`: an outline button IS its outline.
   outline:
-    'border border-input bg-background-surface text-text-primary hover:bg-background-subtle hover:border-text-secondary',
+    'border border-border-input bg-background-surface text-text-primary hover:bg-background-subtle hover:border-text-secondary',
   ghost: 'text-text-secondary hover:bg-background-subtle hover:text-text-primary',
 };
 export type ButtonVariant = keyof typeof variants;
@@ -127,7 +127,7 @@ export function ButtonLink({
 }
 
 /*
-  `border-input` rather than `border-border`.
+  `border-border-input` rather than `border-border`.
 
   The old border measured 1.24:1 against the card behind it. WCAG 1.4.11 asks for 3:1 on the
   visual information that identifies a control, and for a text field that information is the
@@ -136,7 +136,7 @@ export function ButtonLink({
   decoration and exempt.
 */
 const fieldBase =
-  'w-full rounded-md border border-input bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
+  'w-full rounded-md border border-border-input bg-background-surface px-3.5 py-2.5 text-[0.9375rem] text-text-primary placeholder:text-text-muted transition-[box-shadow,border-color] duration-150 focus:outline-none focus:border-ring focus:ring-4 focus:ring-ring/15 disabled:opacity-60 disabled:cursor-not-allowed';
 
 function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNode }) {
   return (

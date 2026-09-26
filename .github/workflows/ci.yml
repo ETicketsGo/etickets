@@ -97,6 +97,12 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # Tailwind emits nothing for a class it cannot resolve - no error, no warning, nothing a
+      # type checker sees - so a wrong colour is invisible until somebody notices a control
+      # looks dead. That is exactly how every switch on the platform shipped unstyled.
+      - name: Design tokens resolve
+        run: node scripts/check-design-tokens.mjs
+
       - name: Circular dependency check
         run: npm run deps:check
 

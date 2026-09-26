@@ -169,7 +169,7 @@ Hope to see you there!`;
             <input
               readOnly
               value={publicUrl}
-              className="flex-1 rounded-lg border border-border-strong bg-surface-muted px-3 py-2 text-sm text-text-primary"
+              className="flex-1 rounded-lg border border-border-strong bg-background-subtle px-3 py-2 text-sm text-text-primary"
               onFocus={(e) => e.currentTarget.select()}
             />
             <div className="flex gap-2">
@@ -214,7 +214,7 @@ Hope to see you there!`;
               <img
                 src={qrDataUrl}
                 alt={`QR code linking to ${title}`}
-                className="h-48 w-48 rounded-lg border border-border-subtle bg-white p-2"
+                className="h-48 w-48 rounded-lg border border-border bg-white p-2"
               />
             ) : (
               <EmptyState icon={QrCode} title="No QR code" hint="Try refreshing." />
@@ -238,7 +238,7 @@ Hope to see you there!`;
 
         <Card title="Email invitation">
           <div className="space-y-3">
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border-subtle bg-surface-muted p-3 text-caption text-text-secondary">
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-background-subtle p-3 text-caption text-text-secondary">
               {emailTemplate}
             </pre>
             <div className="flex flex-wrap gap-2">

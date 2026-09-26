@@ -98,7 +98,7 @@ export default function ReceiptsPage() {
           onClick={() =>
             api.receipts.openHtml(r.id).catch((e) => toast.push(errorMessage(e), 'error'))
           }
-          className="inline-flex items-center gap-1 text-caption text-brand hover:underline"
+          className="inline-flex items-center gap-1 text-caption text-action-primary hover:underline"
         >
           Open <ExternalLink className="h-3.5 w-3.5" />
         </button>
