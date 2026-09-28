@@ -20,7 +20,7 @@ const GROUPS: FaqGroup[] = [
       },
       {
         q: 'Is it free to start?',
-        a: 'Yes. You can create events and look around. To take real payments you finish payment onboarding first. The demo uses mock payments.',
+        a: 'Yes. You can create events and look around. To take real payments you finish payment onboarding first.',
       },
     ],
   },

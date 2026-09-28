@@ -19,6 +19,7 @@
  *   node scripts/deploy/run-seed-operation.mjs status
  *   node scripts/deploy/run-seed-operation.mjs india-cinema
  *   node scripts/deploy/run-seed-operation.mjs payment-routes
+ *   node scripts/deploy/run-seed-operation.mjs review-catalogue
  *   node scripts/deploy/run-seed-operation.mjs full-reset --yes-empty-the-database
  */
 const TOKEN = process.env.RAILWAY_TOKEN;
@@ -34,6 +35,9 @@ const VALID = [
   'india-gst-activate',
   'india-cinema',
   'payment-routes',
+  // Additive and idempotent: inserts its own rows by slug and deletes nothing, which is what
+  // makes it safe where 'full-reset' is refused.
+  'review-catalogue',
   'backfill-objects',
   'full-reset',
 ];
