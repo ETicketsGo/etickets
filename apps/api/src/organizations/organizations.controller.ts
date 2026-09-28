@@ -450,7 +450,20 @@ export class PublicOrganizerLogoController {
       on both sides, so this address will always answer with this picture - and the link an
       organizer already pasted somewhere keeps working.
     */
+    /*
+      The redirect needs the cross-origin policy too, and that is not obvious.
+
+      `Cross-Origin-Resource-Policy` is checked against EVERY response in the chain, not just the
+      one carrying the bytes. This branch set only `Cache-Control`, so helmet's default
+      `same-origin` went out on the 301 - and the browser refused the image before it ever
+      followed the redirect to the bucket. The object was in R2, the bucket was public, curl
+      fetched it happily, and every `<img>` on the storefront was broken.
+
+      `curl` does not enforce CORP, which is why this survived an end-to-end check that looked
+      thorough. Only a browser shows it.
+    */
     if (image.redirectTo) {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       res.setHeader('Cache-Control', 'public, max-age=86400');
       res.redirect(301, image.redirectTo);
       return;
