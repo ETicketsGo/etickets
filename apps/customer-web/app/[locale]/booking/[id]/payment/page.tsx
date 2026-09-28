@@ -680,6 +680,15 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   /*
+    The same declared state as the signed-in view above, because a guest reaches the same refusal.
+
+    This was missed the first time and only a walkthrough of the LIVE site found it: buying without
+    an account is the path a payment gateway's reviewer actually takes, and it still answered a
+    503 with a red "Payment could not be completed. Please try again." - telling the one person we
+    most needed to inform that our checkout was broken.
+  */
+  const [paymentsActivating, setPaymentsActivating] = useState(false);
+  /*
     Why cancellation being unavailable is STATE and not just a message.
 
     Reported from QA: "I click on cancel booking and select yes cancel nothing is happening, still
@@ -769,6 +778,12 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
       router.push(`/booking/${id}/confirmation`);
     },
     onError: (err: unknown) => {
+      // No gateway can take this currency yet: state, not a failure. See the signed-in view.
+      if (err instanceof ApiRequestError && err.code === 'PAYMENT_PROVIDER_UNAVAILABLE') {
+        setPaymentsActivating(true);
+        setError(null);
+        return;
+      }
       const status = (err as { status?: number }).status;
       setError(status === 402 ? k('failure.CARD_DECLINED') : k('paymentFailed'));
     },
@@ -852,6 +867,16 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
 
       <GuestBookingSummary view={view} />
 
+      {paymentsActivating && (
+        <div
+          role="status"
+          className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
+        >
+          <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
+          <p className="text-[0.9375rem] text-text-secondary">{k('paymentsActivatingBody')}</p>
+          <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+        </div>
+      )}
       {error && (
         <p role="alert" className="text-caption text-status-error">
           {error}
