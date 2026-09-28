@@ -64,11 +64,15 @@ export class PaymentConfigService implements OnModuleInit {
   private readonly logger = new Logger(PaymentConfigService.name);
   private readonly env: PaymentEnvName;
 
+  /** Declared in configuration, so it is read once at construction like `env` beside it. */
+  private readonly activationPending: boolean;
+
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
     this.env = resolvePaymentEnv(config.get<string>('APP_ENV'));
+    this.activationPending = config.get<string>('PAYMENTS_ACTIVATION_PENDING') === 'true';
   }
 
   /** The active deployment environment. */
@@ -129,7 +133,13 @@ export class PaymentConfigService implements OnModuleInit {
       webhookSecretRef: c.webhookSecretRef,
     }));
     const routeViews: RouteView[] = routes.map(toRouteView);
-    return validatePaymentConfig({ env: this.env, providers: providerViews, routes: routeViews });
+    return validatePaymentConfig({
+      env: this.env,
+      providers: providerViews,
+      routes: routeViews,
+      // Declared in configuration, not inferred from the empty tables it produces.
+      activationPending: this.activationPending,
+    });
   }
 
   /**
