@@ -13,6 +13,7 @@ import { RazorpayPaymentProvider } from './razorpay-payment.provider';
 import { StripePaymentProvider } from './stripe-payment.provider';
 import { PayPalPaymentProvider } from './paypal-payment.provider';
 import { SquarePaymentProvider } from './square-payment.provider';
+import { UnavailablePaymentProvider } from './unavailable-payment.provider';
 import type { PaymentProvider } from './payment-provider.interface';
 
 /**
@@ -63,6 +64,18 @@ export class PaymentProviderResolver {
   }
 
   private construct(name: string): PaymentProvider {
+    /*
+      The declared not-activated state, honoured HERE as well as in the boot factory.
+
+      This is the path a booking actually takes - `selectPaymentProvider` builds the single
+      configured adapter, while the orchestrator resolves per currency through this resolver. With
+      only the factory changed, a paid booking still constructed the real adapter, which threw for
+      want of credentials, and the orchestrator then failed over to the next provider in the chain.
+      Both places have to agree or the state is a claim the money path does not honour.
+    */
+    if (this.config.get<string>('PAYMENTS_ACTIVATION_PENDING') === 'true' && name !== 'mock') {
+      return new UnavailablePaymentProvider(name);
+    }
     switch (name) {
       case 'stripe':
         return new StripePaymentProvider(this.config);
