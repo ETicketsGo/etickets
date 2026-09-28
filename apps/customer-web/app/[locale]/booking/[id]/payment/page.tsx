@@ -102,6 +102,16 @@ function AccountPayment() {
   const router = useRouter();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  /*
+    Payments not being available yet is STATE, not an error message - the same distinction the
+    cancel button below already makes.
+
+    A red "Payment failed" would be a lie: nothing was attempted, nothing was declined, and there
+    is nothing the buyer can do differently. The platform is waiting on its payment gateway, which
+    is a fact about us and is worth saying plainly to whoever is standing at the payment step -
+    including the gateway's own reviewer, who will be.
+  */
+  const [paymentsActivating, setPaymentsActivating] = useState(false);
   const [code, setCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
 
@@ -301,6 +311,16 @@ function AccountPayment() {
       router.push(`/booking/${id}/confirmation`);
     },
     onError: (err: unknown) => {
+      /*
+        PAYMENT_PROVIDER_UNAVAILABLE means no gateway can take this currency at all - the
+        platform has no credentials for it yet. That is not a failed payment and must not be
+        dressed as one; it is answered with the notice below instead.
+      */
+      if (err instanceof ApiRequestError && err.code === 'PAYMENT_PROVIDER_UNAVAILABLE') {
+        setPaymentsActivating(true);
+        setError(null);
+        return;
+      }
       // The API returns 402 for a declined/insufficient-funds payment — tell the
       // buyer specifically so they can try another method (see all-exceptions.filter).
       const status = (err as { status?: number }).status;
@@ -541,6 +561,22 @@ function AccountPayment() {
           totalLabel={k('totalPayable')}
         />
       </Card>
+
+      {paymentsActivating && (
+        /*
+          Deliberately an INFO tint, not the error red: nothing went wrong for this buyer. The
+          operator line names the legal entity, because the person most likely to read this first
+          is the payment gateway's own reviewer opening the site we gave them.
+        */
+        <div
+          role="status"
+          className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
+        >
+          <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
+          <p className="text-[0.9375rem] text-text-secondary">{k('paymentsActivatingBody')}</p>
+          <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+        </div>
+      )}
 
       {error && (
         <p role="alert" className="text-caption text-status-error">
