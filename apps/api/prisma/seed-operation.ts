@@ -175,6 +175,19 @@ switch (operation) {
     require('./seed-india-cinema-policy');
     break;
 
+  case 'review-catalogue': {
+    /*
+      A small, real catalogue for a production environment that has nothing in it yet. Additive
+      and idempotent - it matches its own rows by slug, never deletes, and leaves anything it did
+      not create alone, which is what makes it safe to run where the ordinary seed is refused.
+
+      A freshly provisioned production storefront is empty, and an empty storefront is not
+      something a payment gateway will approve.
+    */
+    require('./seed-review-catalogue');
+    break;
+  }
+
   case 'backfill-objects': {
     /*
       Moves images out of the database and into the object store, in batches, safely
@@ -268,7 +281,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, backfill-objects, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, review-catalogue, backfill-objects, full-reset.`,
     );
     process.exit(1);
 }
