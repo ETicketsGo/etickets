@@ -76,9 +76,14 @@ export function MarketingLanding() {
                 </PrimaryLink>
                 <SecondaryLink href="/events">Browse live events</SecondaryLink>
               </div>
-              <p className="mt-5 text-caption text-text-muted">
-                No setup fee. The demo uses mock payments. Cancel anytime.
-              </p>
+              {/*
+                "The demo uses mock payments" used to be here, and it was written when this ran as
+                a demo. On the production site it is both stale and untrue - production refuses to
+                start on the simulated gateway at all - and it is the first thing a payment
+                gateway's reviewer reads on the page they were given. What IS true about payments
+                is said where it matters, on the payment step.
+              */}
+              <p className="mt-5 text-caption text-text-muted">No setup fee. Cancel anytime.</p>
             </div>
             <HeroPreview />
           </div>
@@ -372,7 +377,7 @@ export function MarketingLanding() {
             {[
               [
                 'Is ETicketsGo free to start?',
-                'Yes. You can create events and look around. To take real payments you finish payment onboarding first. The demo uses mock payments.',
+                'Yes. You can create events and look around. To take real payments you finish payment onboarding first.',
               ],
               [
                 'Do I need internet to check people in?',
