@@ -180,6 +180,53 @@ describe('every grouped summary the console can ask for', () => {
     expect(total(lower)).toBeGreaterThan(0);
   });
 
+  it('labels a settlement currency the way a person writes one, and still filters by it', async () => {
+    /*
+      `Settlement.currency` is stored lower-case because it is half of the `eventId_currency`
+      unique key. That is right for the data and wrong for a chip: "usd" beside "India" reads as
+      unfinished. So the label is upper-cased and the KEY is not - upper-casing the key would make
+      every chip filter to nothing, because the list compares it against the stored value.
+
+      The row is CREATED here rather than assumed. The first version of this test returned early
+      when there were no settlements, which is the state of most databases - so upper-casing the
+      key as well, the exact bug it is meant to catch, left it green.
+    */
+    const event = await prisma.event.findFirst({ select: { id: true, organizationId: true } });
+    if (!event) return;
+
+    const currency = 'usd';
+    const settlement = await prisma.settlement.upsert({
+      where: { eventId_currency: { eventId: event.id, currency } },
+      create: { eventId: event.id, organizationId: event.organizationId, currency },
+      update: {},
+      select: { id: true },
+    });
+    const mine = (await prisma.settlement.findUnique({ where: { id: settlement.id } }))!;
+
+    try {
+      const summary = await service.grouped('settlements', 'currency');
+      const group = summary.groups.find((g) => g.key === currency);
+      // jest's expect takes no message, so the context goes in the value being compared.
+      expect({ found: Boolean(group), currency }).toEqual({ found: true, currency });
+      expect(group!.label).toBe('USD');
+      expect(group!.key).toBe('usd');
+
+      // The key is what the console sends back, so it has to still select the same rows.
+      const listed = await prisma.settlement.count({
+        where: groupScopeWhere('settlements', { groupBy: 'currency', groupKey: group!.key ?? '' }),
+      });
+      expect({ label: group!.label, listed }).toEqual({
+        label: group!.label,
+        listed: group!.count,
+      });
+    } finally {
+      // Only if this test created it; an upsert that found an existing row must not delete it.
+      if (mine.createdAt.getTime() > Date.now() - 60_000) {
+        await prisma.settlement.delete({ where: { id: settlement.id } }).catch(() => {});
+      }
+    }
+  });
+
   it('refuses a resource it does not group', async () => {
     await expect(service.grouped('users', 'country')).rejects.toThrow(/Cannot group "users"/);
   });
