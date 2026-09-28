@@ -97,3 +97,55 @@ describe('validatePaymentConfig — fail closed', () => {
     expect(res.ok).toBe(true);
   });
 });
+
+/**
+ * The declared "payments not activated yet" state, seen from the validator.
+ *
+ * ── WHY THIS MATTERS ───────────────────────────────────────────────────────────────
+ * A fail-closed environment refuses to start when nothing can process a payment, which is right
+ * almost always and wrong for the one state the platform is deliberately put into before its
+ * gateway is approved. PROD hit exactly that: it cleared the secret-store gate and the provider
+ * gate, then refused to boot because its payment tables were empty - which is precisely what
+ * `PAYMENTS_ACTIVATION_PENDING` means.
+ *
+ * The relaxation is narrow on purpose. Only "nothing is enabled" and "nothing is routed" are
+ * excused; every other error still fires, because a route naming a provider that is not enabled
+ * is wrong whatever we are waiting for.
+ */
+describe('a payment configuration that is empty on purpose', () => {
+  const empty = { providers: [], routes: [] } as const;
+
+  it('refuses an empty production configuration by default', () => {
+    const result = validatePaymentConfig({ env: 'PRODUCTION', ...empty });
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((i) => i.message).join(' ')).toMatch(/No payment provider is enabled/);
+  });
+
+  it('accepts it when payments are declared not activated', () => {
+    const result = validatePaymentConfig({ env: 'PRODUCTION', ...empty, activationPending: true });
+    expect(result.ok).toBe(true);
+  });
+
+  it('still refuses a route naming a provider that is not enabled', () => {
+    /*
+      The guard on the relaxation. "We are waiting on a gateway" excuses having nothing; it does
+      not excuse having something contradictory.
+    */
+    const result = validatePaymentConfig({
+      env: 'PRODUCTION',
+      providers: [],
+      routes: [
+        {
+          country: 'IN',
+          currency: 'INR',
+          method: 'CARD',
+          provider: 'razorpay',
+          active: true,
+        } as never,
+      ],
+      activationPending: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((i) => i.message).join(' ')).toMatch(/not enabled in PRODUCTION/);
+  });
+});

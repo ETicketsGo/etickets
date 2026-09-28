@@ -65,8 +65,17 @@ export function validatePaymentConfig(input: {
   env: PaymentEnvName;
   providers: readonly ProviderConfigView[];
   routes: readonly RouteView[];
+  /**
+   * Payments are DECLARED not activated yet (`PAYMENTS_ACTIVATION_PENDING`).
+   *
+   * Having no enabled provider and no route is then the intended state rather than a
+   * misconfiguration, so the fail-closed check below does not fire. Every other check still
+   * does: a route that names a provider which is not enabled is still wrong, whatever we are
+   * waiting for.
+   */
+  activationPending?: boolean;
 }): ValidationResult {
-  const { env, providers, routes } = input;
+  const { env, providers, routes, activationPending = false } = input;
   const issues: ValidationIssue[] = [];
   const err = (message: string, provider?: string) =>
     issues.push({ severity: 'ERROR', message, provider });
@@ -140,8 +149,17 @@ export function validatePaymentConfig(input: {
     }
   }
 
-  // A fail-closed environment must have something able to process payments.
-  if (isFailClosed(env)) {
+  /*
+    A fail-closed environment must have something able to process payments - UNLESS it has said
+    outright that it does not yet.
+
+    This is the third component that had to be taught the declared state, after the boot factory
+    and the provider resolver, and the lesson is the same each time: a cross-cutting state is only
+    real if everything that asks the question gets the same answer. Without this the platform
+    refuses to start for the exact condition it was configured to be in, which reads as a crash
+    rather than as the policy it is.
+  */
+  if (isFailClosed(env) && !activationPending) {
     if (enabled.length === 0) {
       err(`No payment provider is enabled in ${env}; payments cannot be processed.`);
     }
