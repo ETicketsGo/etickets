@@ -402,6 +402,19 @@ const envSchema = z.object({
   // dev/test/mock boots without any gateway keys. Only the selected provider is
   // constructed (see payments.module.ts), and it fails fast if its keys are unset.
   PAYMENT_PROVIDER_NAME: z.enum(['mock', 'razorpay', 'stripe', 'paypal', 'square']).default('mock'),
+  /**
+   * We are open as a catalogue and cannot take money yet.
+   *
+   * A gateway will not issue live keys until it can open a live product URL, and this platform
+   * refuses to serve a production storefront on a simulated gateway. This is the state between
+   * the two: the configured provider is replaced by one that refuses every payment, and the
+   * storefront tells buyers that online payment is being activated.
+   *
+   * DECLARED, never inferred from an absent key - a mistyped credential must still fail at boot,
+   * and `assertPaymentActivationPending` below refuses this flag when credentials are present so
+   * it can never quietly switch off a working gateway.
+   */
+  PAYMENTS_ACTIVATION_PENDING: z.enum(['true', 'false']).default('false'),
 
   // --- Razorpay (India). Sandbox vs production is purely test vs live keys. ---
   // KEY_ID is public (may be sent to approved clients). KEY_SECRET + WEBHOOK_SECRET are
@@ -997,6 +1010,45 @@ function classifyKey(value: string | undefined, testPrefix: string, livePrefix: 
  * Keys whose prefix we cannot classify (secret-manager references resolved later) are left to
  * the factory's runtime validation — this check never guesses.
  */
+/**
+ * `PAYMENTS_ACTIVATION_PENDING` means what it says, or it is refused.
+ *
+ * The flag exists so a storefront can be live before its gateway is. It must not become a way to
+ * turn off a gateway that works: with credentials present, "pending" is not true, and a
+ * deployment that believed it was taking payments would silently be refusing them all.
+ *
+ * It is also meaningless on the simulated gateway, which is always available, so that is refused
+ * too rather than quietly ignored.
+ */
+function assertPaymentActivationPending(cfg: AppConfig): void {
+  if (cfg.PAYMENTS_ACTIVATION_PENDING !== 'true') return;
+
+  const errors: string[] = [];
+  const configured = [
+    ['RAZORPAY_KEY_ID', cfg.RAZORPAY_KEY_ID],
+    ['STRIPE_SECRET_KEY', cfg.STRIPE_SECRET_KEY],
+  ].filter(([, v]) => Boolean(v));
+
+  if (configured.length > 0) {
+    errors.push(
+      `  - PAYMENTS_ACTIVATION_PENDING=true but ${configured
+        .map(([n]) => n)
+        .join(' and ')} is set — payments cannot be "pending activation" while a credential is ` +
+        'present. Remove the credential, or remove the flag.',
+    );
+  }
+  if (cfg.PAYMENT_PROVIDER_NAME === 'mock') {
+    errors.push(
+      '  - PAYMENTS_ACTIVATION_PENDING=true has no meaning with PAYMENT_PROVIDER_NAME=mock (the ' +
+        'simulated gateway is always available). Name the gateway you are waiting on.',
+    );
+  }
+
+  if (errors.length) {
+    throw new Error(`Payment activation state is contradictory:\n${errors.join('\n')}`);
+  }
+}
+
 function assertPaymentEnvironmentKeySafety(cfg: AppConfig): void {
   const env = cfg.APP_ENV;
   const allowLiveInLowerEnv = cfg.PAYMENT_ALLOW_LIVE_KEYS_LOWER_ENV === 'true';
@@ -1451,6 +1503,7 @@ export function loadConfig(): AppConfig {
   assertDeliverabilityHardening(parsed.data);
   assertRazorpayConsistency(parsed.data);
   assertPaymentEnvironmentKeySafety(parsed.data);
+  assertPaymentActivationPending(parsed.data);
   assertPlatformConfigConsistency(parsed.data);
   assertNotificationConfigConsistency(parsed.data);
   assertObjectStoreConsistency(parsed.data);
