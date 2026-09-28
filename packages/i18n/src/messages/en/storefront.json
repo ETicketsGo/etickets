@@ -250,7 +250,10 @@
       "BANK_UNAVAILABLE": "Your bank isn't responding right now. Try again shortly, or use another payment method.",
       "METHOD_NOT_AVAILABLE": "That payment method isn't available for this booking. Choose another one.",
       "UNKNOWN": "The payment didn't go through. Try again, or use another payment method."
-    }
+    },
+    "paymentsActivatingTitle": "Online payment is being activated",
+    "paymentsActivatingBody": "Card, UPI and netbanking will be available here as soon as our payment gateway is approved. Your seats are not charged and no payment has been taken.",
+    "paymentsActivatingOperator": "ETicketsGo is operated by DeepTrics Software Solutions, Hyderabad, Telangana, India. Our payment gateway application is in progress."
   },
   "confirmation": {
     "steps": {

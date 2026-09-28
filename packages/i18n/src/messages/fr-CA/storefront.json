@@ -250,7 +250,10 @@
       "BANK_UNAVAILABLE": "Votre banque ne répond pas pour le moment. Réessayez sous peu ou utilisez un autre mode de paiement.",
       "METHOD_NOT_AVAILABLE": "Ce mode de paiement n'est pas offert pour cette réservation. Choisissez-en un autre.",
       "UNKNOWN": "Le paiement n'a pas abouti. Réessayez ou utilisez un autre mode de paiement."
-    }
+    },
+    "paymentsActivatingTitle": "Le paiement en ligne est en cours d'activation",
+    "paymentsActivatingBody": "La carte, UPI et les virements bancaires seront disponibles ici des que notre passerelle de paiement sera approuvee. Vos places ne sont pas facturees et aucun paiement n'a ete pris.",
+    "paymentsActivatingOperator": "ETicketsGo est exploite par DeepTrics Software Solutions, Hyderabad, Telangana, Inde. Notre demande de passerelle de paiement est en cours."
   },
   "confirmation": {
     "steps": {
