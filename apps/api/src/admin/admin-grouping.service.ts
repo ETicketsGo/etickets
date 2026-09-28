@@ -211,10 +211,23 @@ const SHAPES: Record<
     label: 'e.title',
     money: { amount: 's."payableMinor"', currency: 's.currency' },
   },
+  /*
+    The KEY stays raw and only the LABEL is upper-cased, and the two must not be swapped.
+
+    `Settlement.currency` is stored lower-case on purpose: it is half of the `eventId_currency`
+    unique key, so normalising it is what stops `INR` and `inr` becoming two settlement rows for
+    one event. That makes it correct data and a poor label - an ISO 4217 code is written upper-case
+    wherever a person reads it, and a chip saying "usd" beside one saying "India" looks unfinished.
+
+    Upper-casing the key as well would be the quiet kind of bug: the list scopes with
+    `{ currency: key }` against the stored value, so every chip would filter to nothing at all.
+    The key/label split already exists for organizer id versus organizer name; this is the same
+    split for the same reason.
+  */
   'settlements:currency': {
     from: SETTLEMENT_FROM,
     key: 's.currency',
-    label: 's.currency',
+    label: 'UPPER(s.currency)',
     money: { amount: 's."payableMinor"', currency: 's.currency' },
   },
 };
