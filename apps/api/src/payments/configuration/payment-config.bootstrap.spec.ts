@@ -64,7 +64,12 @@ describe('bootstrapPaymentConfig', () => {
       cannot authenticate against.
     */
     const f = fakePrisma();
-    const result = await bootstrapPaymentConfig(f.prisma as never, 'PRODUCTION', envReader({}), logger);
+    const result = await bootstrapPaymentConfig(
+      f.prisma as never,
+      'PRODUCTION',
+      envReader({}),
+      logger,
+    );
     expect(result.skipped).toBe('no-credentials');
     expect(f.providerUpserts).toHaveLength(0);
   });
@@ -126,7 +131,13 @@ describe('bootstrapPaymentConfig', () => {
     );
     expect(result.routes).toEqual(['INR->razorpay']);
     const create = f.routeUpserts[0].create as Record<string, unknown>;
-    expect(create).toMatchObject({ country: '*', currency: 'INR', method: '*', provider: 'razorpay', active: true });
+    expect(create).toMatchObject({
+      country: '*',
+      currency: 'INR',
+      method: '*',
+      provider: 'razorpay',
+      active: true,
+    });
     expect(create.failoverProvider).toBeNull();
   });
 

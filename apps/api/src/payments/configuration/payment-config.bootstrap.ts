@@ -142,7 +142,11 @@ export async function bootstrapPaymentConfig(
         priority: spec.priority,
         active: true,
       },
-      update: { provider: spec.provider, failoverProvider: spec.failoverProvider ?? null, active: true },
+      update: {
+        provider: spec.provider,
+        failoverProvider: spec.failoverProvider ?? null,
+        active: true,
+      },
     });
     routes.push(`${spec.currency}->${spec.provider}`);
   }

@@ -83,9 +83,7 @@ function reachable(
   preference: readonly string[] | undefined,
   available: AvailablePaymentProviders,
 ): string[] {
-  return (preference ?? []).filter(
-    (p) => available[p as keyof AvailablePaymentProviders] === true,
-  );
+  return (preference ?? []).filter((p) => available[p as keyof AvailablePaymentProviders] === true);
 }
 
 /**
@@ -125,7 +123,14 @@ export function paymentRoutesFor(
   const [wildcard] = reachable(WILDCARD_PROVIDERS, available);
   const chosenWildcard = wildcard ?? (available.dummy ? 'dummy' : undefined);
   if (chosenWildcard) {
-    routes.push({ env, country: '*', currency: '*', method: '*', provider: chosenWildcard, priority: 100 });
+    routes.push({
+      env,
+      country: '*',
+      currency: '*',
+      method: '*',
+      provider: chosenWildcard,
+      priority: 100,
+    });
   }
 
   return routes;
