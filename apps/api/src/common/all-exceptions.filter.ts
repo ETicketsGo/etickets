@@ -57,7 +57,14 @@ export function describeThrown(exception: unknown): string {
   if (exception instanceof Error)
     return exception.stack ?? `${exception.name}: ${exception.message}`;
   try {
-    return JSON.stringify(redact(exception));
+    const json = JSON.stringify(redact(exception));
+    /*
+      `JSON.stringify(undefined)` returns undefined, not a string, and the logger prints that as a
+      blank line - which is how the first version of this fix reported a real 500: better than
+      `[object Object]`, and still nothing to act on. Something DID throw undefined, so the SHAPE
+      of the value has to be reported even when it carries no content.
+    */
+    return json ?? `threw ${exception === undefined ? 'undefined' : typeof exception}`;
   } catch {
     // Circular, or something that refuses to serialise. Say what it was rather than nothing.
     return `unserialisable ${Object.prototype.toString.call(exception)}`;

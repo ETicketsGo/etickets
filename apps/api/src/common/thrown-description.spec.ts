@@ -50,6 +50,13 @@ describe('describing what was thrown', () => {
     expect(typeof describeThrown(circular)).toBe('string');
   });
 
+  it('names the shape when there is no content to serialise', () => {
+    // JSON.stringify(undefined) is undefined, not a string, and the logger prints that blank -
+    // the first version of this fix reported a real 500 as an empty line.
+    expect(describeThrown(undefined)).toContain('undefined');
+    expect(describeThrown(undefined).length).toBeGreaterThan(0);
+  });
+
   it('handles a thrown string or null', () => {
     expect(describeThrown('just a string')).toContain('just a string');
     expect(typeof describeThrown(null)).toBe('string');
