@@ -196,6 +196,21 @@ function capture(error: unknown, tags?: Record<string, string>): void {
   }
 }
 
+/**
+ * What was thrown, when it is not an Error.
+ *
+ * `String(value)` on a plain object is `[object Object]`, which is what the API's exception filter
+ * used to log and what cost two separate debugging sessions there. A startup throw is the worst
+ * place to repeat it, so the SHAPE is reported even when there is no message to report.
+ */
+function describeThrownValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? `threw ${value === undefined ? 'undefined' : typeof value}`;
+  } catch {
+    return `unserialisable ${Object.prototype.toString.call(value)}`;
+  }
+}
+
 function log(
   level: 'info' | 'warn' | 'error',
   msg: string,
@@ -209,7 +224,24 @@ function log(
 async function main(): Promise<void> {
   // Before anything else, so a refusal is logged and captured through main()'s catch below.
   const REDIS_URL = redisUrlForEnvironment();
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  /*
+    ── WHY NOT `logger: false` ──────────────────────────────────────────────────────
+    It was `false`, to keep Nest's per-module chatter out of a log stream that is otherwise one
+    JSON object per line. The cost was paid in full on production: the worker refused to boot for
+    two days and said only `worker crashed`, because every reason a module has for refusing is
+    written through the Nest logger.
+
+    `PaymentConfigService` is the clearest case. It logs one line PER ISSUE -
+    `[payments:PRODUCTION] ERROR (razorpay) ...` - and then throws a summary that names none of
+    them. With the logger off, an operator gets "Payment configuration is invalid in PRODUCTION"
+    and no way at all to learn which part, on a service whose container start/stop is the only
+    other thing in the log.
+
+    'error' and 'warn' only: the reasons survive, the startup chatter does not.
+  */
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn'],
+  });
   const bookings = app.get(BookingsService);
   const bookingOrchestrator = app.get(LocalBookingOrchestrator);
   const events = app.get(EventsService);
@@ -777,7 +809,15 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  log('error', 'worker crashed', { error: err instanceof Error ? err.message : String(err) });
+  /*
+    The stack as well as the message. `String(err)` on a non-Error yields `[object Object]`, the
+    same defect fixed in the API's exception filter - and a startup failure is precisely where the
+    line number matters, because there is no request to correlate it with.
+  */
+  log('error', 'worker crashed', {
+    error: err instanceof Error ? err.message : describeThrownValue(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
   capture(err, { phase: 'startup' });
   process.exit(1);
 });
