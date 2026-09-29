@@ -7,6 +7,7 @@ export * from './event-insights';
 export * from './commerce';
 export * from './wallet-pass';
 export * from './marketplace';
+export * from './payment-routing-policy';
 export * from './country';
 export * from './india-states';
 export * from './markets';

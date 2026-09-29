@@ -8,6 +8,7 @@ import type {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../../common/errors';
+import { bootstrapPaymentConfig } from './payment-config.bootstrap';
 import { isFailClosed, resolvePaymentEnv, type PaymentEnvName } from './payment-environment';
 import { selectMerchant, selectRoute, type MerchantRow, type RouteRow } from './payment-routing';
 import {
@@ -86,6 +87,37 @@ export class PaymentConfigService implements OnModuleInit {
    * and CI (empty config, dummy default) boot unchanged.
    */
   async onModuleInit(): Promise<void> {
+    /*
+      Write the provider and route rows first, if this environment has credentials and no rows.
+
+      This runs BEFORE validation on purpose: the validator's job is to refuse a misconfigured
+      environment, and an environment that holds real keys and simply has never been bootstrapped
+      is not misconfigured - it is new. Refusing it made a fresh production unstartable by a
+      mechanism that only worked somewhere else. See `payment-config.bootstrap.ts` for why the
+      seed job could not be relied on.
+
+      A failure here is logged and swallowed: the validator immediately below is the thing that
+      decides whether this environment may serve, and it will refuse on its own terms with a
+      message that names the actual problem. Throwing here would replace that with a stack trace.
+    */
+    try {
+      const boot = await bootstrapPaymentConfig(
+        this.prisma,
+        this.env,
+        (key) => process.env[key],
+        this.logger,
+      );
+      if (boot.providers.length > 0) {
+        this.logger.log(
+          `[payments:${this.env}] bootstrapped ${boot.providers.join(', ')}; routes ${boot.routes.join(', ')}`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[payments:${this.env}] configuration bootstrap failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
+
     let result: ValidationResult;
     try {
       result = await this.validate();
