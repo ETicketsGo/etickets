@@ -43,6 +43,36 @@ export class PaymentProviderResolver {
     return provider;
   }
 
+  /**
+   * The adapter for a provider this deployment may simply not have keys for.
+   *
+   * ── WHY A MISSING KEY IS NOT AN ERROR HERE ─────────────────────────────────────────
+   * A deployment can legitimately serve one currency and not another: with Stripe live and
+   * Razorpay still in application, USD and CAD are payable and INR is not. The routing table
+   * still sends an INR booking to Razorpay - correctly, because Stripe settling rupees for an
+   * Indian seller is not the fallback anybody wants - and the adapter's constructor then throws
+   * for want of `RAZORPAY_KEY_ID`.
+   *
+   * Thrown from here that surfaces as a 500 on the payment step: the buyer sees a broken
+   * checkout, which is both alarming and untrue. It is the same fact the activation notice
+   * already exists to state, so it is answered the same way - a provider that refuses every
+   * operation, so the storefront says online payment is being activated and nothing is charged.
+   *
+   * Only a MISSING CREDENTIAL is treated this way. Any other construction failure is a real
+   * fault and is left to throw.
+   */
+  private getOrUnavailable(name: string): PaymentProvider {
+    try {
+      return this.get(name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (/requires [A-Z0-9_]+ to be set/.test(message)) {
+        return new UnavailablePaymentProvider(name);
+      }
+      throw err;
+    }
+  }
+
   /** Resolve the provider for a booking from trusted business data (never the client). */
   forBooking(ctx: ProviderRouteContext): { name: MarketplaceProvider; provider: PaymentProvider } {
     const name = routeProviderForBooking(ctx);
@@ -60,7 +90,9 @@ export class PaymentProviderResolver {
         HttpStatus.BAD_REQUEST,
       );
     }
-    return { name, provider: this.get(name) };
+    // Not `get`: a currency whose provider this deployment has no keys for is refused
+    // cleanly rather than crashing the payment step.
+    return { name, provider: this.getOrUnavailable(name) };
   }
 
   private construct(name: string): PaymentProvider {

@@ -194,21 +194,41 @@ export interface ProviderRouteContext {
 }
 
 /**
+ * Which provider settles each currency, best first.
+ *
+ * ── ONE TABLE, TWO READERS ─────────────────────────────────────────────────────────
+ * This decides the provider for a live booking, and `prisma/payment-routing-policy.ts` reads the
+ * same table to write the route rows. They used to hold separate lists and had already drifted:
+ * the seed knew INR, USD and CAD, while this function knew only USD and INR. A Canadian booking
+ * was therefore refused with "No payment provider supports currency CAD" against a route table
+ * that cheerfully listed one.
+ *
+ * Ordered, because which entry is REACHABLE depends on the keys an environment holds - the seed
+ * filters by that. Here the first is taken: a live booking cannot ask what keys exist without
+ * turning a routing decision into a configuration lookup.
+ */
+export const CURRENCY_PROVIDERS: Record<string, readonly MarketplaceProvider[]> = {
+  INR: ['razorpay', 'stripe'],
+  USD: ['stripe'],
+  CAD: ['stripe'],
+};
+
+/**
  * Choose the payment provider from TRUSTED business data (never a client-supplied name).
- * Currency is authoritative because stored country strings are inconsistent
- * (e.g. "India" vs "IN"). USD → Stripe (US marketplace), INR → Razorpay (India).
- * Returns null for an unsupported currency so the caller can reject explicitly.
+ *
+ * Currency is authoritative because stored country strings are inconsistent ("India" vs "IN").
+ * Returns null for a currency nobody settles, so the caller rejects explicitly rather than
+ * charging through whichever provider happened to be configured.
  */
 export function routeProviderForBooking(ctx: ProviderRouteContext): MarketplaceProvider | null {
-  const currency = ctx.currency.toUpperCase();
-  if (currency === 'USD') return 'stripe';
-  if (currency === 'INR') return 'razorpay';
-  return null;
+  return CURRENCY_PROVIDERS[ctx.currency.toUpperCase()]?.[0] ?? null;
 }
 
 /** Country tokens we accept as consistent with each provider's currency. */
 const PROVIDER_COUNTRIES: Record<MarketplaceProvider, string[]> = {
-  stripe: ['US', 'USA', 'UNITED STATES'],
+  // Canada belongs here with the United States: Stripe settles CAD, and without it a Toronto
+  // venue's booking routed to Stripe on its currency and was then refused on its country.
+  stripe: ['US', 'USA', 'UNITED STATES', 'CA', 'CAN', 'CANADA'],
   razorpay: ['IN', 'IND', 'INDIA'],
 };
 

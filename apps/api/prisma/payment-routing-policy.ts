@@ -1,4 +1,5 @@
 import { PaymentEnv } from '@prisma/client';
+import { CURRENCY_PROVIDERS } from '@eticketsgo/shared-types';
 
 /**
  * Which provider serves which currency, per environment.
@@ -42,19 +43,20 @@ export const REAL_ENVS = [PaymentEnv.UAT, PaymentEnv.STAGING, PaymentEnv.PRODUCT
 export const LAUNCH_CURRENCIES = ['INR', 'USD', 'CAD'] as const;
 export type LaunchCurrency = (typeof LAUNCH_CURRENCIES)[number];
 
-/**
- * Which providers can actually settle each launch currency, best first.
- *
- * An ordered list rather than a primary and a failover, because which of them is REACHABLE
- * depends on what the environment has been given keys for — see `routesFor`. Razorpay cannot
- * settle USD or CAD, so it never appears in those lists: naming a provider that cannot take
- * the payment turns a clean "provider unavailable" into a confusing decline at the gateway.
- */
-const CURRENCY_PROVIDERS: Record<LaunchCurrency, readonly string[]> = {
-  INR: ['razorpay', 'stripe'],
-  USD: ['stripe'],
-  CAD: ['stripe'],
-};
+/*
+  Which providers can actually settle each launch currency, best first - taken from
+  `@eticketsgo/shared-types` rather than restated here.
+
+  It used to be restated, and the two copies drifted: this file knew INR, USD and CAD while
+  `routeProviderForBooking`, which chooses the provider for a REAL booking, knew only USD and INR.
+  So the route table advertised a CAD row that no Canadian checkout could ever use. One table,
+  both readers.
+
+  Ordered rather than primary-and-failover, because which entry is REACHABLE depends on the keys
+  an environment holds - `routesFor` filters by that. Razorpay never appears under USD or CAD: it
+  cannot settle them, and naming a provider that cannot take the payment turns a clean "provider
+  unavailable" into a confusing decline at the gateway.
+*/
 
 /** The provider that takes anything outside the launch currencies, best first. */
 const WILDCARD_PROVIDERS: readonly string[] = ['stripe'];
