@@ -1,5 +1,10 @@
 import { PaymentEnv, PaymentProviderMode, PrismaClient } from '@prisma/client';
-import { providersFromEnvironment } from './payment-routing-policy';
+import {
+  PAYMENT_PUBLIC_KEY_ENV,
+  PAYMENT_SECRET_KEY_ENV,
+  paymentKeyMode,
+  providersFromEnvironment,
+} from './payment-routing-policy';
 
 /**
  * Enable the payment providers this environment actually holds credentials for.
@@ -36,24 +41,20 @@ function resolveEnv(raw: string | undefined): PaymentEnv {
 }
 
 /**
- * LIVE or TEST, from the credential rather than from the environment's name.
+ * LIVE or TEST, from the credentials rather than from the environment's name.
  *
- * An unrecognised prefix is TEST: of the two ways to be wrong, treating a live key as test is
- * caught immediately by the validator ("enabled in PRODUCTION but still in TEST mode"), while the
- * reverse would quietly assert that a sandbox key moves real money.
+ * Delegates to the shared policy, which reads EVERY key rather than just the secret. That detail
+ * was a real bug here: a Razorpay secret carries no mode marker - only `RAZORPAY_KEY_ID` does -
+ * so `modeOf(secret ?? publicKey)` classified a genuine live Razorpay credential as TEST, and the
+ * validator then refuses to start with "enabled in PRODUCTION but still in TEST mode". Stripe hid
+ * it, because `sk_live_` puts the marker on the secret.
  */
-function modeOf(key: string | undefined): PaymentProviderMode {
-  return /_live_/.test(key ?? '') ? PaymentProviderMode.LIVE : PaymentProviderMode.TEST;
+function modeOf(...keys: Array<string | undefined>): PaymentProviderMode {
+  return paymentKeyMode(...keys) === 'LIVE' ? PaymentProviderMode.LIVE : PaymentProviderMode.TEST;
 }
 
-const PUBLIC_KEY_ENV: Record<string, string> = {
-  stripe: 'STRIPE_PUBLISHABLE_KEY',
-  razorpay: 'RAZORPAY_KEY_ID',
-};
-const SECRET_KEY_ENV: Record<string, string> = {
-  stripe: 'STRIPE_SECRET_KEY',
-  razorpay: 'RAZORPAY_KEY_SECRET',
-};
+const PUBLIC_KEY_ENV = PAYMENT_PUBLIC_KEY_ENV;
+const SECRET_KEY_ENV = PAYMENT_SECRET_KEY_ENV;
 
 async function main(): Promise<void> {
   const env = resolveEnv(process.env.APP_ENV);
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
   for (const provider of reachable) {
     const secret = process.env[SECRET_KEY_ENV[provider] ?? ''];
     const publicKey = process.env[PUBLIC_KEY_ENV[provider] ?? ''];
-    const mode = modeOf(secret ?? publicKey);
+    const mode = modeOf(publicKey, secret);
     const slot = mode === PaymentProviderMode.LIVE ? 'live' : 'test';
 
     if (!publicKey) {
