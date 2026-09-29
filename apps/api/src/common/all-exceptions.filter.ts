@@ -20,6 +20,50 @@ interface ErrorEnvelope {
 }
 
 /** Renders every thrown error into the standard ETicketsGo error envelope. */
+/**
+ * What was actually thrown, in a form somebody can act on.
+ *
+ * ── THE BUG THIS FIXES ─────────────────────────────────────────────────────────────
+ * This used to be `exception instanceof Error ? exception.stack : String(exception)`, and a
+ * value that is not an Error stringifies to `[object Object]`. That is exactly what payment SDKs
+ * throw: Razorpay rejects with a plain `{statusCode, error: {code, description}}`, so every
+ * gateway failure logged six useless characters.
+ *
+ * The cost was not theoretical. A 500 on the QA payment endpoint, and a production API that
+ * crash-looped on boot, were both diagnosed by reading the request body back rather than the log
+ * - the log said `[object Object]` each time. An API that cannot say why it failed is one nobody
+ * can operate.
+ *
+ * ── WHY THE REDACTION ──────────────────────────────────────────────────────────────
+ * Serialising an unknown object means serialising whatever it carries, and a provider error can
+ * hold the request that produced it. Anything whose key looks like a credential is replaced
+ * before it reaches a log line that ships to a log service.
+ */
+const SENSITIVE = /key|secret|token|password|authorization|signature|cvv|card/i;
+
+function redact(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (depth > 4) return '[deep]';
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => redact(v, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 40)
+      .map(([k, v]) => [k, SENSITIVE.test(k) ? '[redacted]' : redact(v, depth + 1)]),
+  );
+}
+
+export function describeThrown(exception: unknown): string {
+  // An Error's stack already carries its message, and is what a reader wants first.
+  if (exception instanceof Error)
+    return exception.stack ?? `${exception.name}: ${exception.message}`;
+  try {
+    return JSON.stringify(redact(exception));
+  } catch {
+    // Circular, or something that refuses to serialise. Say what it was rather than nothing.
+    return `unserialisable ${Object.prototype.toString.call(exception)}`;
+  }
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('Exception');
@@ -84,7 +128,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (status >= 500) {
       this.logger.error(
         `[${correlationId}] ${req.method} ${path} -> ${status}`,
-        exception instanceof Error ? exception.stack : String(exception),
+        describeThrown(exception),
       );
       // Report only unexpected server errors to Sentry (no-op unless SENTRY_DSN
       // is set). Expected 4xx AppExceptions are filtered out above by status.
@@ -172,3 +216,6 @@ function mapStatusToCode(status: number): string {
       return ErrorCodes.INTERNAL;
   }
 }
+
+/** Exposed for the spec: the log line a 500 produces is the thing under test. */
+export const __testing = { describeThrown };
