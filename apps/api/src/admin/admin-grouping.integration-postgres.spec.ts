@@ -20,6 +20,25 @@ import { GROUP_KEY_NONE, groupScopeWhere } from './group-scope';
  * and nothing on screen says which is right. So every group's count is checked against a real
  * count through the real `where` builder.
  */
+/**
+ * Compares two queries that are taken a moment apart against a live database.
+ *
+ * The suite runs its files in parallel and several of them create bookings, so between reading a
+ * summary and counting the list underneath it the data can genuinely change - and it did: a group
+ * of 1 against a list of 2, on an event with exactly one confirmed booking by the time anyone
+ * looked. A real disagreement between the SQL and the Prisma `where` reproduces every time; a
+ * concurrent insert does not. So one retry tells them apart without weakening the assertion.
+ */
+async function agrees<T>(read: () => Promise<T>, expected: () => Promise<T>): Promise<void> {
+  const first = await read();
+  const firstExpected = await expected();
+  if (JSON.stringify(first) === JSON.stringify(firstExpected)) {
+    expect(first).toEqual(firstExpected);
+    return;
+  }
+  expect(await read()).toEqual(await expected());
+}
+
 const prisma = new PrismaClient();
 const service = new AdminGroupingService(prisma as never);
 
@@ -137,18 +156,24 @@ describe('every grouped summary the console can ask for', () => {
       if (summary.groups.length === 0) return;
 
       const group = summary.groups[0];
-      const listed = await COUNTS[resource]({
-        status: status as never,
-        ...groupScopeWhere(resource as never, {
-          groupBy,
-          groupKey: group.key ?? GROUP_KEY_NONE,
+      const scoped = () =>
+        COUNTS[resource]({
+          status: status as never,
+          ...groupScopeWhere(resource as never, {
+            groupBy,
+            groupKey: group.key ?? GROUP_KEY_NONE,
+          }),
+        });
+      await agrees(
+        async () => ({ status, group: group.label, listed: await scoped() }),
+        async () => ({
+          status,
+          group: group.label,
+          listed: (await service.grouped(resource, groupBy, { status })).groups.find(
+            (g) => g.key === group.key,
+          )?.count,
         }),
-      });
-      expect({ status, group: group.label, listed }).toEqual({
-        status,
-        group: group.label,
-        listed: group.count,
-      });
+      );
     });
   }
 

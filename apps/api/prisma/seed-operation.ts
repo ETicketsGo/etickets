@@ -175,6 +175,20 @@ switch (operation) {
     require('./seed-india-cinema-policy');
     break;
 
+  case 'payment-providers': {
+    /*
+      Enable the providers this environment holds credentials for, so a fail-closed environment
+      can start with payments at all. Additive and idempotent, and it writes REFERENCES rather
+      than credentials.
+
+      It exists because the rows that let payments start were written only by the destructive
+      seed - refused in production, correctly - or by a running API, which cannot start without
+      them. A fresh production could never break that circle.
+    */
+    require('./payment-providers');
+    break;
+  }
+
   case 'review-catalogue': {
     /*
       A small, real catalogue for a production environment that has nothing in it yet. Additive
@@ -281,7 +295,7 @@ ABORTING: could not take a recovery point, so nothing has been touched.
 
   default:
     console.error(
-      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, review-catalogue, backfill-objects, full-reset.`,
+      `Unknown SEED_OPERATION "${operation}". Expected one of: status, backups, backup, restore-drill, india-gst, india-gst-activate, india-cinema, payment-routes, payment-providers, review-catalogue, backfill-objects, full-reset.`,
     );
     process.exit(1);
 }
