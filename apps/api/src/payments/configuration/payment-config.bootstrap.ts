@@ -58,21 +58,46 @@ export async function bootstrapPaymentConfig(
   read: (key: string) => string | undefined,
   logger: Logger,
 ): Promise<PaymentConfigBootstrapResult> {
-  const enabledCount = await prisma.paymentProviderConfig.count({
-    where: { env: env as never, enabled: true },
-  });
-  const activeRoutes = await prisma.paymentRoute.count({
-    where: { env: env as never, active: true },
-  });
-  if (enabledCount > 0 && activeRoutes > 0) {
-    return { providers: [], routes: [], skipped: 'already-configured' };
-  }
-
   const available = providersFromEnvironment(env, read);
   // The simulated gateway is never bootstrapped: see the note above.
   const reachable = (['razorpay', 'stripe'] as const).filter((p) => available[p]);
   if (reachable.length === 0) {
     return { providers: [], routes: [], skipped: 'no-credentials' };
+  }
+
+  const activeRoutes = await prisma.paymentRoute.count({
+    where: { env: env as never, active: true },
+  });
+  const existing = await prisma.paymentProviderConfig.findMany({
+    where: { env: env as never, provider: { in: [...reachable] } },
+    select: { provider: true, enabled: true, mode: true },
+  });
+
+  /*
+    ── WHY A STORED MODE IS NOT LEFT ALONE ────────────────────────────────────────────
+    `mode` is DERIVED from the credential - `rzp_live_` is LIVE, `rzp_test_` is TEST - so a stored
+    mode that contradicts the key this environment actually holds is not somebody's configuration
+    to respect. It is drift, and in a fail-closed environment it is fatal: production refuses to
+    start with "enabled in PRODUCTION but still in TEST mode", which is exactly what happened here
+    hours after a working activation, on unchanged code and unchanged credentials.
+
+    Skipping on row COUNTS alone could not see that. A row can be present, enabled and routed and
+    still say the wrong thing, so the guard now compares what is stored against what the key says
+    and re-derives only where they disagree. That cannot promote a sandbox key: the mode comes from
+    the credential either way, and a test key in production is refused at config level before this
+    ever runs.
+  */
+  const needsMode = (provider: string, derived: 'LIVE' | 'TEST') => {
+    const row = existing.find((e) => e.provider === provider);
+    return !row || !row.enabled || String(row.mode) !== derived;
+  };
+
+  const modeOf = (provider: 'razorpay' | 'stripe') =>
+    paymentKeyMode(read(PAYMENT_PUBLIC_KEY_ENV[provider]), read(PAYMENT_SECRET_KEY_ENV[provider]));
+
+  const drifted = reachable.filter((p) => needsMode(p, modeOf(p)));
+  if (drifted.length === 0 && activeRoutes > 0) {
+    return { providers: [], routes: [], skipped: 'already-configured' };
   }
 
   const providers: string[] = [];

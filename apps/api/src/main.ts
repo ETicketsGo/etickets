@@ -8,10 +8,15 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { quietBootLogger } from './common/quiet-boot-logger';
 import { swaggerVisibility } from './common/swagger-visibility';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false, rawBody: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: false,
+    rawBody: true,
+    logger: quietBootLogger(),
+  });
   const config = app.get(ConfigService);
   const logger = new Logger('Bootstrap');
 

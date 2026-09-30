@@ -5,7 +5,19 @@ import { bootstrapPaymentConfig } from './payment-config.bootstrap';
  * The bootstrap writes the rows a fail-closed environment cannot start without - so what it
  * REFUSES to do matters more than what it writes. Each test below is one of those refusals.
  */
-function fakePrisma(overrides: { enabled?: number; activeRoutes?: number } = {}) {
+function fakePrisma(
+  overrides: {
+    enabled?: number;
+    activeRoutes?: number;
+    /*
+      The stored rows. "Already configured" now means a row that EXISTS, is enabled, and whose
+      mode matches the key - counting rows was not enough, because a row can be present, enabled
+      and routed and still say TEST while the environment holds a live key, which is what took
+      production down.
+    */
+    rows?: Array<{ provider: string; enabled: boolean; mode: string }>;
+  } = {},
+) {
   const providerUpserts: Array<Record<string, unknown>> = [];
   const routeUpserts: Array<Record<string, unknown>> = [];
   return {
@@ -14,6 +26,9 @@ function fakePrisma(overrides: { enabled?: number; activeRoutes?: number } = {})
     prisma: {
       paymentProviderConfig: {
         count: jest.fn().mockResolvedValue(overrides.enabled ?? 0),
+        // The guard reads the stored rows to compare their mode against the key, so an empty
+        // list is "no provider configured yet" - the bootstrap case these tests describe.
+        findMany: jest.fn().mockResolvedValue(overrides.rows ?? []),
         upsert: jest.fn(async (args: Record<string, unknown>) => {
           providerUpserts.push(args);
           return {};
@@ -45,7 +60,11 @@ const LIVE_RAZORPAY = {
 
 describe('bootstrapPaymentConfig', () => {
   it('does nothing when the environment is already configured', async () => {
-    const f = fakePrisma({ enabled: 1, activeRoutes: 2 });
+    const f = fakePrisma({
+      enabled: 1,
+      activeRoutes: 2,
+      rows: [{ provider: 'razorpay', enabled: true, mode: 'LIVE' }],
+    });
     const result = await bootstrapPaymentConfig(
       f.prisma as never,
       'PRODUCTION',
@@ -169,5 +188,94 @@ describe('bootstrapPaymentConfig', () => {
     );
     expect(result.providers).toEqual(['razorpay:LIVE', 'stripe:LIVE']);
     expect(result.routes).toEqual(['INR->razorpay', 'USD->stripe', 'CAD->stripe', '*->stripe']);
+  });
+});
+
+describe('bootstrapPaymentConfig and a mode that drifted', () => {
+  /*
+    The case that took production down hours after a working activation, on unchanged code and
+    unchanged credentials: the row was present, enabled and routed, and said TEST while the
+    environment held a live key. A guard that skipped on row COUNTS could not see it, so the API
+    refused to start and the reason was dropped by the log rate limit.
+  */
+  function prismaWithRow(row: { enabled: boolean; mode: string }, activeRoutes = 4) {
+    const providerUpserts: Array<Record<string, unknown>> = [];
+    const routeUpserts: Array<Record<string, unknown>> = [];
+    return {
+      providerUpserts,
+      routeUpserts,
+      prisma: {
+        paymentProviderConfig: {
+          count: jest.fn().mockResolvedValue(row.enabled ? 1 : 0),
+          findMany: jest.fn().mockResolvedValue([{ provider: 'razorpay', ...row }]),
+          upsert: jest.fn(async (args: Record<string, unknown>) => {
+            providerUpserts.push(args);
+            return {};
+          }),
+        },
+        paymentRoute: {
+          count: jest.fn().mockResolvedValue(activeRoutes),
+          upsert: jest.fn(async (args: Record<string, unknown>) => {
+            routeUpserts.push(args);
+            return {};
+          }),
+        },
+      },
+    };
+  }
+
+  const live = {
+    RAZORPAY_KEY_ID: 'rzp_live_AAAAAAAAAAAAAA',
+    RAZORPAY_KEY_SECRET: 'a'.repeat(24),
+  };
+  const reader = (vars: Record<string, string>) => (key: string) => vars[key];
+
+  it('corrects a TEST row when the environment holds a live key', async () => {
+    const f = prismaWithRow({ enabled: true, mode: 'TEST' });
+    const result = await bootstrapPaymentConfig(
+      f.prisma as never,
+      'PRODUCTION',
+      reader(live),
+      logger,
+    );
+    expect(result.skipped).toBeUndefined();
+    expect(result.providers).toEqual(['razorpay:LIVE']);
+    expect((f.providerUpserts[0].update as Record<string, unknown>).mode).toBe('LIVE');
+  });
+
+  it('leaves a row alone when the stored mode already matches the key', async () => {
+    const f = prismaWithRow({ enabled: true, mode: 'LIVE' });
+    const result = await bootstrapPaymentConfig(
+      f.prisma as never,
+      'PRODUCTION',
+      reader(live),
+      logger,
+    );
+    expect(result.skipped).toBe('already-configured');
+    expect(f.providerUpserts).toHaveLength(0);
+    expect(f.routeUpserts).toHaveLength(0);
+  });
+
+  it('re-enables a row somebody disabled while the key is still there', async () => {
+    // A disabled provider in a fail-closed environment is the same boot refusal by another name.
+    const f = prismaWithRow({ enabled: false, mode: 'LIVE' });
+    await bootstrapPaymentConfig(f.prisma as never, 'PRODUCTION', reader(live), logger);
+    expect((f.providerUpserts[0].update as Record<string, unknown>).enabled).toBe(true);
+  });
+
+  it('does not promote a TEST key to LIVE', async () => {
+    /*
+      The direction that must never happen. Mode comes from the credential, so a sandbox key stays
+      TEST - production then refuses it, which is correct and is checked elsewhere at config level.
+    */
+    const f = prismaWithRow({ enabled: true, mode: 'LIVE' });
+    const result = await bootstrapPaymentConfig(
+      f.prisma as never,
+      'PRODUCTION',
+      reader({ RAZORPAY_KEY_ID: 'rzp_test_AAAAAAAAAAAAAA', RAZORPAY_KEY_SECRET: 'b'.repeat(24) }),
+      logger,
+    );
+    expect(result.providers).toEqual(['razorpay:TEST']);
+    expect((f.providerUpserts[0].update as Record<string, unknown>).mode).toBe('TEST');
   });
 });
