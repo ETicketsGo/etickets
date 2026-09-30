@@ -6,6 +6,7 @@ import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService } from './cinema-pricing-policies.service';
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
+import { FirstAdminBootstrap } from './first-admin.bootstrap';
 import { MoviesModule } from '../movies/movies.module';
 // For the one invitation implementation — the staff screen must not grow its own.
 import { OrganizationsModule } from '../organizations/organizations.module';
@@ -17,6 +18,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     AdminService,
     AdminGroupingService,
     AdminStaffService,
+    FirstAdminBootstrap,
     TaxRulesService,
     CinemaPricingPoliciesService,
   ],
