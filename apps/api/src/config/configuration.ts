@@ -416,6 +416,20 @@ const envSchema = z.object({
    */
   PAYMENTS_ACTIVATION_PENDING: z.enum(['true', 'false']).default('false'),
 
+  /**
+   * The account that becomes this environment's FIRST administrator.
+   *
+   * A fresh environment has no back-office account and no way to make one: ADMIN is granted only
+   * by the destructive seed, which production refuses, or by an endpoint that already requires an
+   * administrator. So the admin console is reachable and nobody can sign in to it.
+   *
+   * `FirstAdminBootstrap` promotes this address at boot, and ONLY while the environment has no
+   * administrator at all - once one exists it does nothing, for ever, so this is not a standing
+   * grant of privilege. It never creates the account: the person registers themselves first,
+   * because a password chosen by an administrator is one the account holder never chose.
+   */
+  ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
+
   // --- Razorpay (India). Sandbox vs production is purely test vs live keys. ---
   // KEY_ID is public (may be sent to approved clients). KEY_SECRET + WEBHOOK_SECRET are
   // server-side only. The webhook secret is DISTINCT from the API key secret.
