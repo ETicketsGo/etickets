@@ -17,12 +17,14 @@ import {
   titleCase,
   dateTime,
 } from '@eticketsgo/web-kit';
+import { useOrg } from '@/components/org-context';
 import { SellabilityPanel } from '@/components/sellability-panel';
 
 export default function EventOverview() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const { orgSentenceName } = useOrg();
   const {
     data: event,
     isLoading,
@@ -32,6 +34,9 @@ export default function EventOverview() {
     queryKey: ['event', id],
     queryFn: () => api.events.get(id),
   });
+
+  // Named from the event's own organizationId, and only when the name needs qualifying.
+  const owningOrg = orgSentenceName(event?.organizationId);
 
   const onSuccess = (label: string) => () => {
     toast.push(`${label} succeeded.`, 'success');
@@ -224,8 +229,18 @@ export default function EventOverview() {
         }
       >
         <p>
-          <span className="font-medium text-text-primary">{event.title}</span> will be deleted, with
-          its sessions, ticket types and images. This cannot be undone.
+          <span className="font-medium text-text-primary">{event.title}</span>
+          {/*
+            The EVENT's own organization, not the switcher's.
+
+            They can differ - an organizer reaches this page by link as well as by browsing - so
+            naming the active organization here would state something false about what is being
+            deleted. Always named on a destructive action, qualified where the name is ambiguous;
+            null only when the event belongs to an organization this member cannot see, which
+            leaves the sentence as it was rather than printing a gap.
+          */}
+          {owningOrg ? <> in {owningOrg}</> : null} will be deleted, with its sessions, ticket types
+          and images. This cannot be undone.
         </p>
       </Dialog>
     </div>

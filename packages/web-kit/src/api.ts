@@ -2832,6 +2832,16 @@ export interface Organization {
    * both noise that reads as something the reader has to understand.
    */
   registeredCountry?: string | null;
+  /**
+   * The registered legal entity, where it differs from the trading name buyers see.
+   *
+   * Already sent by `GET /organizations` - `listMine` spreads the whole row - and simply not
+   * declared here, so the switcher could not tell two identically named organizations apart.
+   */
+  legalName?: string | null;
+  /** Where the business is registered. The first thing that tells two branches of one brand apart. */
+  registeredCity?: string | null;
+  registeredRegion?: string | null;
   /** What they registered as: sole proprietorship, Pvt Ltd, LLC. */
   legalEntityType?: string | null;
   /** Whether this organizer takes cash at the venue. Off unless deliberately turned on. */

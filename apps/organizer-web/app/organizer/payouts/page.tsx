@@ -37,7 +37,7 @@ export default function PayoutsPage() {
 }
 
 function PayoutsInner() {
-  const { activeOrg } = useOrg();
+  const { activeOrg, activeOrgSentenceName } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -191,8 +191,15 @@ function PayoutsInner() {
           </>
         }
       >
-        This creates settlement records for {activeOrg.name} covering all unsettled revenue — one
-        for each currency you have sold in. Continue?
+        {/*
+          The QUALIFIED name, not `activeOrg.name`.
+
+          Two organizations can share a display name, and this dialog creates the records that
+          decide who gets paid. A settlement raised against the wrong entity is not something the
+          organizer can take back, so this is the one sentence that must say exactly which.
+        */}
+        This creates settlement records for {activeOrgSentenceName} covering all unsettled revenue —
+        one for each currency you have sold in. Continue?
       </Dialog>
     </div>
   );
