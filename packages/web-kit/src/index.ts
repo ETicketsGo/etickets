@@ -1,5 +1,6 @@
 export * from './format';
 export * from './locale';
+export * from './organization-identity';
 export * from './utils';
 export * from './tickets';
 export * from './event-timing';
