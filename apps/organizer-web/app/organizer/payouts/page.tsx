@@ -27,6 +27,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { BankAccount } from './bank-account';
+import { PayoutStatus } from './payout-status';
 
 export default function PayoutsPage() {
   return (
@@ -113,6 +114,13 @@ function PayoutsInner() {
         title="Payouts"
         description="Connect your payout account and review settlement records for your organization."
       />
+
+      {/*
+        Status first, then the details. The question an organizer opens this page with is "can I
+        be paid, and is anybody waiting on me" - not "what are my bank details", which they
+        already know.
+      */}
+      <PayoutStatus orgId={activeOrg.id} />
 
       <BankAccount orgId={activeOrg.id} />
 

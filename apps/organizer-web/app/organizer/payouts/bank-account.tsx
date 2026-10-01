@@ -8,7 +8,6 @@ import {
   Card,
   Input,
   Select,
-  StatusBadge,
   useToast,
   errorMessage,
   MARKETS,
@@ -84,8 +83,17 @@ export function BankAccount({ orgId }: { orgId: string }) {
                   {account.accountLast4}
                 </p>
               </div>
-              {/* Verified means somebody here checked it against a document or a test transfer. */}
-              <StatusBadge status={account.verifiedAt ? 'VERIFIED' : 'UNVERIFIED'} />
+              {/*
+                No status badge here, deliberately.
+
+                This printed VERIFIED or UNVERIFIED, which said nothing about whether the
+                organizer could still sell, whether money could reach them, or whether anybody was
+                waiting on them - and UNVERIFIED implies the organizer is the one holding things
+                up when verification is ETicketsGo's job. The Payout status card above answers all
+                of that from the server's own state model, and a second badge interpreting
+                `verifiedAt` here would be exactly the duplicate reading that model exists to
+                prevent. This row identifies the account; the card says where things stand.
+              */}
             </li>
           ))}
         </ul>
