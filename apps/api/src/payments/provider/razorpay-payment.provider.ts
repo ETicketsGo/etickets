@@ -18,11 +18,12 @@ import type {
   TransferInput,
   TransferResult,
   TransferReversalInput,
-  TransferReversalResult,
+  ReversalOutcome,
   WebhookEnvelope,
   WebhookInput,
 } from './payment-provider.interface';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
+import { razorpayReversalFailure } from './reversal-outcome';
 
 /** Shape of the Razorpay webhook JSON we consume (only the fields we read). */
 interface RazorpayWebhookBody {
@@ -289,7 +290,24 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     }
   }
 
-  async reverseTransfer(input: TransferReversalInput): Promise<TransferReversalResult> {
+  /**
+   * Reverse a transfer, reporting only what Razorpay's answer proves.
+   *
+   * ── WHY THIS NEVER RETURNS CONFIRMED ───────────────────────────────────────────
+   * `RazorpayReversal` carries `id`, `transfer_id`, `amount`, `currency` and `created_at` - and
+   * NO status field, and nothing equivalent to Stripe's `balance_transaction`. So a successful
+   * call proves Razorpay ACCEPTED the operation and gave us a reference. It does not prove the
+   * money came back.
+   *
+   * This used to return a hardcoded `COMPLETED`, which wrote "money recovered" into the ledger
+   * on the strength of a response that cannot say so.
+   *
+   * Completion arrives later, from the `transfer.reversed` webhook or from reconciliation
+   * reading the transfer's cumulative `amount_reversed`, which IS authoritative. That is why not
+   * knowing whether Route reversals are synchronous does not block this: we never depended on
+   * the synchronous answer to prove completion.
+   */
+  async reverseTransfer(input: TransferReversalInput): Promise<ReversalOutcome> {
     if (input.amountMinor == null) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
@@ -297,11 +315,19 @@ export class RazorpayPaymentProvider implements PaymentProvider {
         HttpStatus.BAD_REQUEST,
       );
     }
-    // The SDK types reverse() as an overloaded promise|callback signature; cast the result.
-    const reversal = (await this.client.transfers.reverse(input.transferId, {
-      amount: input.amountMinor,
-    })) as { id: string };
-    return { reversalId: reversal.id, status: 'COMPLETED' };
+    try {
+      // The SDK types reverse() as an overloaded promise|callback signature; cast the result.
+      const reversal = (await this.client.transfers.reverse(input.transferId, {
+        amount: input.amountMinor,
+      })) as { id?: string };
+      if (typeof reversal?.id !== 'string' || reversal.id === '') {
+        // A 200 with no reference is not acceptance we can act on, or later reconcile by.
+        return { kind: 'INDETERMINATE', raw: { reason: 'no reversal id in response' } };
+      }
+      return { kind: 'ACCEPTED', reversalId: reversal.id, raw: reversal };
+    } catch (err) {
+      return razorpayReversalFailure(err);
+    }
   }
 
   /** Fetch a Linked Account and map its KYC/activation state to our snapshot. */

@@ -8,11 +8,14 @@ import {
   canTransitionSettlement,
   computeSettlementPayable,
   isReleasableSettlementStatus,
+  reversibleMinor,
 } from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { NotificationService } from '../../notifications/notification.service';
 import { AppException, ErrorCodes } from '../../common/errors';
+import type { ReversalOutcome } from '../provider/payment-provider.interface';
+import { redactProviderError } from '../provider/reversal-outcome';
 import type { RequestUser } from '../../common/decorators';
 import type { PaymentProvider } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
@@ -533,51 +536,196 @@ export class SettlementService {
    * (Stripe or Razorpay Route). Moves money only; the caller has already recorded WHY in
    * `refundsMinor` or `disputesMinor`, and recording it in both would deduct it twice.
    */
+  /**
+   * Claw money back, recording what we asked for and what the provider proved.
+   *
+   * ── THE ORDER, AND WHY IT CANNOT BE ONE TRANSACTION ─────────────────────────
+   * A database write and a provider HTTP call cannot be made atomic, and any design claiming
+   * otherwise is wrong. What IS achievable is that every outcome - including a crash - leaves a
+   * row somebody can find:
+   *
+   *   1. write the attempt as REQUESTED and COMMIT, before the provider is called
+   *   2. call the provider, with no transaction open
+   *   3. record what the answer proves
+   *   4. move money ONLY on confirmed evidence
+   *
+   * This replaced a method that called the provider inside a try and, on failure, logged a line,
+   * notified admins and returned normally - while `refundsMinor` had already been incremented.
+   * The ledger said the money was deducted, the money was still with the organizer, and nothing
+   * in the database recorded that an attempt had been made.
+   *
+   * ── CRASH WINDOWS ───────────────────────────────────────────────────
+   *   before (1) commits  - nothing written; the refund webhook is not marked processed, so it
+   *                         is redelivered.
+   *   after (1), before (2) - a REQUESTED row the sweeper finds.
+   *   DURING (2)          - a REQUESTED row, and the provider MAY have acted. The dangerous one,
+   *                         and the reason such a row is never blindly retried: reconciliation
+   *                         asks the provider what it did first.
+   *   after (2), before (3) - the same, and why UNKNOWN has to exist as a state.
+   *   after (3), before (4) - the attempt is COMPLETED and the settlement has not moved yet. The
+   *                         money mutation is guarded on the attempt status, so completing it
+   *                         later cannot double-count.
+   */
   private async reverseIfTransferred(
     settlement: Settlement,
     amountMinor: number,
     reason: 'refund' | 'dispute',
     idempotencyKey: string,
+    causeId?: string,
   ): Promise<void> {
     const adapter = this.adapterFor(settlement.provider);
-    if (
-      settlement.status === 'TRANSFERRED' &&
-      settlement.providerTransferId &&
-      adapter.reverseTransfer
-    ) {
-      const reverseMinor = Math.min(amountMinor, settlement.transferredMinor);
-      if (reverseMinor > 0) {
-        try {
-          await adapter.reverseTransfer({
-            transferId: settlement.providerTransferId,
-            amountMinor: reverseMinor,
-            idempotencyKey,
-          });
-          const fullyReversed = reverseMinor >= settlement.transferredMinor;
-          await this.prisma.settlement.update({
-            where: { id: settlement.id },
+    if (!adapter.reverseTransfer || !settlement.providerTransferId) return;
+
+    /*
+      Only money the organizer still holds may be asked for. `reversibleMinor` clamps against
+      released minus what reversals have already CONFIRMED, so an attempt cannot be created for
+      more than is outstanding - the invariant is enforced where the number is produced rather
+      than checked afterwards.
+
+      `releasedMinor` falls back to `transferredMinor` for settlements that predate the ledger:
+      those rows were never given a released figure, and reconstructing one from status is
+      exactly what the migration refused to do.
+    */
+    const prior = await this.prisma.settlementReversalAttempt.findMany({
+      where: { settlementId: settlement.id },
+      select: { status: true, requestedMinor: true, confirmedMinor: true },
+    });
+    const released = settlement.releasedMinor || settlement.transferredMinor;
+    const reverseMinor = reversibleMinor(amountMinor, released, prior as never);
+    if (reverseMinor <= 0) return;
+
+    // 1. durable intent, committed before anything leaves this process.
+    const attempt = await this.prisma.settlementReversalAttempt.create({
+      data: {
+        settlementId: settlement.id,
+        reason: reason === 'refund' ? 'REFUND' : 'DISPUTE',
+        refundId: reason === 'refund' ? (causeId ?? null) : null,
+        disputeId: reason === 'dispute' ? (causeId ?? null) : null,
+        requestedMinor: reverseMinor,
+        currency: settlement.currency,
+        provider: settlement.provider,
+        idempotencyKey,
+        status: 'REQUESTED',
+      },
+    });
+
+    // 2. the provider call, with NO transaction open.
+    let outcome: ReversalOutcome;
+    try {
+      outcome = await adapter.reverseTransfer({
+        transferId: settlement.providerTransferId,
+        amountMinor: reverseMinor,
+        idempotencyKey,
+      });
+    } catch (err) {
+      /*
+        An adapter that throws rather than returning an outcome tells us nothing about whether
+        the provider acted. INDETERMINATE, never FAILED: a failure invites a retry of an
+        operation that may have succeeded.
+      */
+      outcome = { kind: 'INDETERMINATE', raw: redactProviderError(err) };
+    }
+
+    // 3 and 4.
+    await this.recordReversalOutcome(settlement, attempt.id, outcome, reason);
+  }
+
+  /**
+   * Write what the provider proved, and move money only when that is "it came back".
+   *
+   * The union is exhausted deliberately. The compiler refuses a new outcome kind that nothing
+   * handles, which is what stops a result being quietly discarded the way the old `status` field
+   * was - it was never read at all.
+   */
+  private async recordReversalOutcome(
+    settlement: Settlement,
+    attemptId: string,
+    outcome: ReversalOutcome,
+    reason: 'refund' | 'dispute',
+  ): Promise<void> {
+    const now = new Date();
+    switch (outcome.kind) {
+      case 'CONFIRMED': {
+        /*
+          The only path that moves money, and it moves it in the SAME transaction that marks the
+          attempt COMPLETED, guarded on the attempt still being REQUESTED. So evidence arriving
+          twice cannot decrement twice.
+        */
+        await this.prisma.$transaction(async (tx) => {
+          const claimed = await tx.settlementReversalAttempt.updateMany({
+            where: { id: attemptId, status: 'REQUESTED' },
             data: {
-              status: fullyReversed ? 'REVERSED' : 'PARTIALLY_REFUNDED',
-              transferredMinor: { decrement: reverseMinor },
+              status: 'COMPLETED',
+              confirmedMinor: outcome.confirmedMinor,
+              providerReversalId: outcome.reversalId,
+              syncResponse: outcome.raw as never,
+              respondedAt: now,
+              settledAt: now,
             },
           });
-          await this.audit.record({
-            organizationId: settlement.organizationId,
-            action: 'SETTLEMENT_TRANSFER_REVERSED',
-            entityType: 'Settlement',
-            entityId: settlement.id,
-            metadata: { reverseMinor, reason },
+          if (claimed.count === 0) return;
+          await tx.settlement.update({
+            where: { id: settlement.id },
+            data: { transferredMinor: { decrement: outcome.confirmedMinor } },
           });
-        } catch (err) {
-          this.logger.error(
-            `Transfer reversal failed for settlement ${settlement.id}: ${err instanceof Error ? err.message : err}`,
-          );
-          await this.notifyAdmins({
-            type: NotificationType.TRANSFER_FAILED,
-            settlementId: settlement.id,
-            error: 'reversal-failed',
-          });
-        }
+        });
+        await this.audit.record({
+          organizationId: settlement.organizationId,
+          action: 'SETTLEMENT_TRANSFER_REVERSED',
+          entityType: 'Settlement',
+          entityId: settlement.id,
+          metadata: { attemptId, confirmedMinor: outcome.confirmedMinor, reason },
+        });
+        return;
+      }
+      case 'ACCEPTED': {
+        // The provider has it and gave us a reference. Completion is not proven; no money moves.
+        await this.prisma.settlementReversalAttempt.update({
+          where: { id: attemptId },
+          data: {
+            status: 'PROCESSING',
+            providerReversalId: outcome.reversalId,
+            syncResponse: outcome.raw as never,
+            respondedAt: now,
+          },
+        });
+        return;
+      }
+      case 'REFUSED': {
+        // Authoritative: the provider did not act. Queryable, and no money moves.
+        await this.prisma.settlementReversalAttempt.update({
+          where: { id: attemptId },
+          data: {
+            status: 'FAILED',
+            providerStatusRaw: outcome.code,
+            lastError: outcome.message,
+            syncResponse: outcome.raw as never,
+            respondedAt: now,
+            settledAt: now,
+          },
+        });
+        await this.notifyAdmins({
+          type: NotificationType.TRANSFER_FAILED,
+          settlementId: settlement.id,
+          error: 'reversal-refused',
+        });
+        return;
+      }
+      case 'INDETERMINATE': {
+        /*
+          We cannot say what happened. The row stays UNKNOWN and NON-terminal so reconciliation
+          asks the provider what it did. It is not a failure, and it must not invite a retry.
+        */
+        await this.prisma.settlementReversalAttempt.update({
+          where: { id: attemptId },
+          data: { status: 'UNKNOWN', syncResponse: outcome.raw as never, respondedAt: now },
+        });
+        await this.notifyAdmins({
+          type: NotificationType.TRANSFER_FAILED,
+          settlementId: settlement.id,
+          error: 'reversal-outcome-unknown',
+        });
+        return;
       }
     }
   }

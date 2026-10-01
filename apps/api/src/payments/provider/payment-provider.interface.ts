@@ -207,10 +207,38 @@ export interface TransferReversalInput {
   idempotencyKey: string;
 }
 
-export interface TransferReversalResult {
-  reversalId: string;
-  status: 'COMPLETED' | 'FAILED';
-}
+/**
+ * What a provider's answer to a reversal request actually proves.
+ *
+ * ── WHY A UNION AND NOT A STATUS STRING ────────────────────────────────────────────
+ * This replaced `{ reversalId, status: 'COMPLETED' | 'FAILED' }`, which had two faults that
+ * compounded. Both adapters hardcoded `COMPLETED` without reading any provider evidence, AND the
+ * caller never looked at the field anyway - it reacted only to thrown exceptions. So fixing one
+ * without the other would have changed nothing.
+ *
+ * A discriminated union fixes the second fault structurally: the caller must narrow before it
+ * can read anything, so a result cannot be discarded by accident. `CONFIRMED` carries
+ * `confirmedMinor` as a required field, which makes manufacturing completion without an amount
+ * impossible to write rather than merely discouraged.
+ *
+ * `raw` is always present so the attempt row can keep the provider's own words for diagnosis and
+ * reconciliation, rather than only our interpretation of them.
+ */
+export type ReversalOutcome =
+  /** The provider proved the money came back, and for how much. The ONLY outcome that moves money. */
+  | { kind: 'CONFIRMED'; reversalId: string; confirmedMinor: number; raw: unknown }
+  /** The provider has the operation and gave us a reference. Completion is NOT proven. */
+  | { kind: 'ACCEPTED'; reversalId: string; raw: unknown }
+  /** The provider refused, authoritatively. Not a transport failure. */
+  | { kind: 'REFUSED'; code: string; message: string; retryable: boolean; raw: unknown }
+  /**
+   * We cannot say what happened.
+   *
+   * A timeout, a connection error, or a response we cannot interpret. The provider may have
+   * moved money while our answer was lost, so this is NOT a failure and must never be retried
+   * blindly - the recovery is to ask the provider what it did.
+   */
+  | { kind: 'INDETERMINATE'; raw: unknown };
 
 /**
  * The provider contract. `createPayment`/`verifyWebhook`/`refund` and
@@ -262,7 +290,7 @@ export interface PaymentProvider {
   /** Move funds to a connected account (settlement). */
   createTransfer?(input: TransferInput): Promise<TransferResult>;
   /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
-  reverseTransfer?(input: TransferReversalInput): Promise<TransferReversalResult>;
+  reverseTransfer?(input: TransferReversalInput): Promise<ReversalOutcome>;
   /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */
   verifyCheckoutSignature?(input: CheckoutVerifyInput): boolean;
 }
