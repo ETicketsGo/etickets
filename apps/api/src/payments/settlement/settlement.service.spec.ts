@@ -218,6 +218,74 @@ describe('SettlementService.applyRefund', () => {
     await service.applyRefund('e1', 'usd', 0);
     expect(prisma.settlement.update).not.toHaveBeenCalled();
   });
+
+  /*
+    ── A DEFECT, RECORDED RATHER THAN FIXED ────────────────────────────────────────────
+    `reverseIfTransferred` reverses only while the status is EXACTLY 'TRANSFERRED'. The first
+    partial refund sets 'PARTIALLY_REFUNDED', so every refund after it is accrued into
+    `refundsMinor` and NO clawback is attempted: the ledger records a deduction the money never
+    follows, and the organizer keeps funds the ledger says were taken back.
+
+    Both providers support it. Stripe takes repeated `transfers.createReversal` calls up to the
+    transfer amount; Razorpay Route takes repeated `transfers.reverse` calls with an explicit
+    amount. The arithmetic here is ready for it too - `transferredMinor` is decremented on each
+    reversal and the next `Math.min` reads the decremented value. ONLY the status guard blocks it.
+
+    Unreachable today: RAZORPAY_ROUTE_ENABLED defaults false and Connect has never run against
+    Stripe. The owner has made it a release gate - Route and Connect transfer execution stay off
+    until this is fixed and integration-tested against the real provider lifecycle.
+
+    This test asserts what the code does TODAY so the defect is proven rather than argued, and so
+    that fixing it must be a deliberate act: the moment the behaviour changes, this fails and
+    whoever changed it has to come here and say so.
+  */
+  it('DEFECT: a refund after a partial reversal is accrued but never clawed back', async () => {
+    const reverseTransfer = jest.fn();
+    const { service, prisma } = makeDeps({
+      // Already partly reversed once, and real money is still with the organizer.
+      settlement: approved({
+        status: 'PARTIALLY_REFUNDED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 60000,
+        refundsMinor: 30000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 20000);
+
+    // The ledger records the deduction...
+    expect(prisma.settlement.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { refundsMinor: { increment: 20000 } } }),
+    );
+    // ...and the money is never asked back. This is the defect.
+    expect(reverseTransfer).not.toHaveBeenCalled();
+  });
+
+  it('DEFECT: the same refund on a still-TRANSFERRED settlement IS clawed back', async () => {
+    /*
+      The control for the test above. Same settlement, same amount, same funds with the
+      organizer - only the status differs. If the two ever agree, the defect is gone.
+    */
+    const reverseTransfer = jest
+      .fn()
+      .mockResolvedValue({ reversalId: 'trr_2', status: 'COMPLETED' });
+    const { service } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 60000,
+        refundsMinor: 30000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 20000);
+
+    expect(reverseTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({ transferId: 'tr_1', amountMinor: 20000 }),
+    );
+  });
 });
 
 /*
