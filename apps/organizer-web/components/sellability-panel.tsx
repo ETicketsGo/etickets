@@ -45,7 +45,7 @@ function Issue({ issue, tone }: { issue: SellabilityIssue; tone: 'blocker' | 'wa
           className={`rounded-full px-2 py-0.5 text-caption font-medium ${
             platform
               ? 'bg-background-subtle text-text-secondary'
-              : 'bg-status-error/15 text-status-error'
+              : 'bg-tint-error text-status-error'
           }`}
         >
           {platform ? 'We are fixing this' : 'You can fix this'}
