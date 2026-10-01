@@ -9,6 +9,7 @@ export * from './wallet-pass';
 export * from './marketplace';
 export * from './payment-routing-policy';
 export * from './finance-currency';
+export * from './finance-entry';
 export * from './country';
 export * from './india-states';
 export * from './markets';
