@@ -109,9 +109,9 @@ export function OnboardingChecklist({ progress }: { progress: OnboardingProgress
  * Dismissible welcome card for the dashboard. Hidden once every step is complete or
  * the organizer dismisses it (persisted in localStorage via `etg_onboarding_done`).
  */
-export function WelcomeCard({ orgId, orgName }: { orgId: string; orgName: string }) {
+export function WelcomeCard({ orgId }: { orgId: string }) {
   const dismissed = useOnboardingDismissed();
-  const progress = useOnboardingProgress(orgId, orgName);
+  const progress = useOnboardingProgress(orgId);
   const { completed, total, allComplete, isLoading, isError } = progress;
 
   // Nothing useful to show, or the organizer is done / has opted out.

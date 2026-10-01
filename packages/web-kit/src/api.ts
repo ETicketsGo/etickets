@@ -771,6 +771,13 @@ export const api = {
     /** What this organizer still has to complete. The same list the admin console reads. */
     readiness: (id: string) => request<OrganizationReadiness>(`/organizations/${id}/readiness`),
     /**
+     * One list of what this organizer still has to do.
+     *
+     * Composes readiness with the operational checks the console used to make for itself. Every
+     * setup surface reads this; none of them derives completion separately.
+     */
+    actions: (id: string) => request<OrganizerActionSummary>(`/organizations/${id}/actions`),
+    /**
      * The organization's profile picture. JPG, PNG or WebP, at most 1 MB.
      *
      * Replaces whatever is there and returns the new `logoUrl`, which every surface that
@@ -4318,6 +4325,39 @@ export interface ReadinessItem {
   consequence: string;
   /** Where to fix it, relative to the organizer console. */
   fixPath: string;
+}
+
+/**
+ * One thing an organizer still has to do.
+ *
+ * The dashboard, Get started and the setup card are filtered views of ONE list of these. They
+ * used to be three checklists - two of them derived in the browser from different endpoints -
+ * which could and did disagree about the same question.
+ */
+export interface OrganizerAction {
+  key: string;
+  category: 'BUSINESS' | 'MONEY' | 'OPERATIONS';
+  severity: 'BLOCKING' | 'IMPORTANT' | 'SUGGESTED';
+  /** Always ORGANIZATION from this endpoint; event sellability is answered against the event. */
+  scope: 'ORGANIZATION' | 'EVENT';
+  organizationId: string;
+  eventId?: string;
+  /** Whether something is actually prevented. Never true for an organization gap. */
+  blocking: boolean;
+  title: string;
+  consequence: string;
+  fixPath: string;
+  actionLabel: string;
+  done: boolean;
+  /** Shown, never counted against completion. */
+  optional?: boolean;
+}
+
+export interface OrganizerActionSummary {
+  organizationId: string;
+  actions: OrganizerAction[];
+  progress: { done: number; total: number };
+  counts: { blocking: number; important: number; suggested: number };
 }
 
 export interface OrganizationReadiness {

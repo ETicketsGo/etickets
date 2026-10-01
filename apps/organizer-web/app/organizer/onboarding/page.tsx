@@ -47,7 +47,7 @@ export default function OnboardingPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const router = useRouter();
-  const progress = useOnboardingProgress(activeOrg.id, activeOrg.name);
+  const progress = useOnboardingProgress(activeOrg.id);
 
   const venuesQ = useQuery({
     queryKey: ['venues', activeOrg.id],

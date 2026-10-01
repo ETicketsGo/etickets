@@ -167,7 +167,7 @@ export default function OrganizerDashboard() {
         action={<ButtonLink href="/organizer/events/new">Create event</ButtonLink>}
       />
 
-      <WelcomeCard orgId={activeOrg.id} orgName={activeOrg.name} />
+      <WelcomeCard orgId={activeOrg.id} />
 
       {/*
         What the platform still needs from them, before the numbers. An organizer whose

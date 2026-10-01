@@ -1,10 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { OrganizationStatus } from '@eticketsgo/shared-types';
+import { EventStatus, OrganizationStatus, Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { organizationReadiness, readinessSummary } from './organization-readiness';
+import { organizerActions, type OrganizerActionSummary } from './organizer-actions';
 
 /**
  * Stopping an organizer, and removing one.
@@ -127,6 +128,80 @@ export class OrganizationLifecycleService {
       payoutAccountVerified: accounts.some((a) => a.verifiedAt !== null),
     });
     return { items, summary: readinessSummary(items) };
+  }
+
+  /**
+   * Everything this organizer still has to do, as one list.
+   *
+   * Composes `organizationReadiness` with the operational checks the CONSOLE used to make from
+   * four separate list endpoints - which is how the dashboard and the Get-started page could
+   * disagree about the same question. Completion is decided here, once.
+   *
+   * Read only, and event sellability is deliberately not part of it: whether a particular event
+   * can be sold is answered against that event and stays that way.
+   */
+  async actions(orgId: string): Promise<OrganizerActionSummary> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: {
+        status: true,
+        legalName: true,
+        legalEntityType: true,
+        registeredCountry: true,
+        registeredAddressLine1: true,
+        registeredCity: true,
+        taxRegistrationNumber: true,
+        financeContactEmail: true,
+        grievanceOfficerName: true,
+        grievanceOfficerEmail: true,
+        contactEmail: true,
+        logoUrl: true,
+        description: true,
+      },
+    });
+    if (!org) {
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
+    }
+
+    const [accounts, venueCount, teamMemberCount, publishedEventCount, seatingRoomCount] =
+      await Promise.all([
+        this.prisma.organizerPayoutAccount.findMany({
+          where: { organizationId: orgId },
+          select: { verifiedAt: true },
+        }),
+        this.prisma.venue.count({ where: { organizationId: orgId } }),
+        // Beyond the sole owner: an organization of one is not a team.
+        this.prisma.organizationMember.count({
+          where: { organizationId: orgId, role: { not: Role.ORGANIZER_OWNER } },
+        }),
+        this.prisma.event.count({
+          where: { organizationId: orgId, status: EventStatus.PUBLISHED },
+        }),
+        /*
+          Rooms that could actually host reserved seating: the SAME condition
+          `EventsService.listSeatingRooms` uses - a screen whose cinema is this organization's,
+          with at least one PUBLISHED seat map. Counting a room without one would mark the step
+          done while the seating picker still shows nothing.
+        */
+        this.prisma.screen.count({
+          where: {
+            cinema: { organizationId: orgId },
+            seatMaps: { some: { status: 'PUBLISHED' } },
+          },
+        }),
+      ]);
+
+    return organizerActions(
+      orgId,
+      {
+        ...org,
+        hasPayoutAccount: accounts.length > 0,
+        payoutAccountVerified: accounts.some(
+          (a: { verifiedAt: Date | null }) => a.verifiedAt !== null,
+        ),
+      },
+      { venueCount, seatingRoomCount, teamMemberCount, publishedEventCount },
+    );
   }
 
   /**
