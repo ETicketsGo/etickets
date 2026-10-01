@@ -19,6 +19,7 @@ import {
   Bell,
   ReceiptText,
   Undo2,
+  Wallet,
 } from 'lucide-react';
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
@@ -87,7 +88,13 @@ function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] 
       ? [{ group: 'Films', label: 'Movies', href: '/organizer/movies', icon: Film } as NavItem]
       : []),
 
-    { group: 'Money', label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
+    /*
+      Finance leads the Money group: it is the question an organizer opens this section with -
+      what came in, what came off it, what is owed - and Payouts, Receipts and Refunds are the
+      detail under it. The three keep their own pages; nothing moved.
+    */
+    { group: 'Money', label: 'Finance', href: '/organizer/finance', icon: Wallet },
+    { label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
     { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
     { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
 
