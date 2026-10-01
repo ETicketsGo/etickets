@@ -34,7 +34,7 @@ function makeProcessor(opts: {
   const settlements = {
     applyRefund: jest.fn(),
     onTransferFailed: jest.fn(),
-    onTransferReversed: jest.fn(),
+    applyTransferEvidence: jest.fn().mockResolvedValue({ kind: 'AGREES' }),
   };
   const disputes = { syncFromWebhook: jest.fn() };
   const audit = { record: jest.fn() };
@@ -289,5 +289,109 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     payments.processVerifiedEvent.mockRejectedValueOnce(new Error('boom'));
     await processor.process('w1');
     expect(updates.at(-1)).toMatchObject({ processingStatus: 'DEAD_LETTER' });
+  });
+});
+
+/*
+  ── R4: THE WEBHOOK NO LONGER INVENTS ACCOUNTING ──────────────────────────────
+  `transfer.reversed` used to call `onTransferReversed(transferId)` - a transfer id and nothing
+  else. It set the settlement to REVERSED whatever amount had come back, never touched the money,
+  and discarded the cumulative `amount_reversed` the payload was already carrying.
+
+  There was no test for any of it. The stub existed and nothing ever sent the event, which is how
+  a path that wrote contradictory money facts stayed invisible.
+*/
+const reversedEvent = (entity: Record<string, unknown>) =>
+  rec({
+    providerEventId: 'evt_rev_1',
+    eventType: 'transfer.reversed',
+    payload: { object: { transfer: { entity } } },
+  });
+
+describe('RazorpayWebhookProcessor transfer.reversed carries the amount', () => {
+  it('passes the cumulative reversed figure to the one reconciliation engine', async () => {
+    const { processor, settlements } = makeProcessor({
+      record: reversedEvent({
+        id: 'trf_1',
+        amount: 100_000,
+        amount_reversed: 30_000,
+        currency: 'inr',
+        status: 'partially_reversed',
+      }),
+    });
+
+    await processor.process('w1');
+
+    expect(settlements.applyTransferEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'razorpay',
+        providerTransferId: 'trf_1',
+        currency: 'inr',
+        originalTransferredMinor: 100_000,
+        cumulativeReversedMinor: 30_000,
+        providerStatusRaw: 'partially_reversed',
+        source: 'WEBHOOK',
+      }),
+    );
+  });
+
+  it('does not treat a PARTIAL reversal as a full one', async () => {
+    /*
+      The old handler had no way to tell the difference - it set REVERSED either way. Now the
+      amount travels with the evidence and the engine decides, so a partial cannot present as a
+      full reversal.
+    */
+    const { processor, settlements } = makeProcessor({
+      record: reversedEvent({
+        id: 'trf_1',
+        amount: 100_000,
+        amount_reversed: 30_000,
+        currency: 'inr',
+        status: 'partially_reversed',
+      }),
+    });
+
+    await processor.process('w1');
+
+    const evidence = settlements.applyTransferEvidence.mock.calls[0][0];
+    expect(evidence.cumulativeReversedMinor).toBe(30_000);
+    expect(evidence.cumulativeReversedMinor).toBeLessThan(evidence.originalTransferredMinor);
+  });
+
+  it('reads nothing as zero rather than guessing when the payload omits the amount', async () => {
+    // A payload shape we have not met must not become a reversal of unknown size.
+    const { processor, settlements } = makeProcessor({
+      record: reversedEvent({ id: 'trf_1', currency: 'inr' }),
+    });
+
+    await processor.process('w1');
+
+    expect(settlements.applyTransferEvidence).toHaveBeenCalledWith(
+      expect.objectContaining({ cumulativeReversedMinor: 0, originalTransferredMinor: null }),
+    );
+  });
+
+  it('ignores an event with no transfer id rather than acting on it', async () => {
+    const { processor, settlements } = makeProcessor({
+      record: reversedEvent({ currency: 'inr' }),
+    });
+
+    await processor.process('w1');
+
+    expect(settlements.applyTransferEvidence).not.toHaveBeenCalled();
+  });
+
+  it('never sets a settlement status directly', async () => {
+    /*
+      The structural claim of R4: this processor has no path to a settlement write at all. It
+      produces evidence; the engine decides what that means.
+    */
+    const { processor, prisma } = makeProcessor({
+      record: reversedEvent({ id: 'trf_1', amount_reversed: 100_000, currency: 'inr' }),
+    });
+
+    await processor.process('w1');
+
+    expect((prisma as Record<string, unknown>).settlement).toBeUndefined();
   });
 });

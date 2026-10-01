@@ -16,6 +16,11 @@ import { NotificationService } from '../../notifications/notification.service';
 import { AppException, ErrorCodes } from '../../common/errors';
 import type { ReversalOutcome } from '../provider/payment-provider.interface';
 import { redactProviderError } from '../provider/reversal-outcome';
+import {
+  reconcileTransferEvidence,
+  type TransferEvidence,
+  type ReconciliationOutcome,
+} from './transfer-evidence';
 import type { RequestUser } from '../../common/decorators';
 import type { PaymentProvider } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
@@ -798,20 +803,171 @@ export class SettlementService {
     });
   }
 
-  /** A transfer.reversed webhook confirms/records a reversal (we usually initiate it). */
-  async onTransferReversed(providerTransferId: string): Promise<void> {
-    const settlement = await this.prisma.settlement.findFirst({ where: { providerTransferId } });
-    if (!settlement || settlement.status === 'REVERSED') return;
-    await this.prisma.settlement.update({
-      where: { id: settlement.id },
-      data: { status: 'REVERSED' },
+  /**
+   * Apply authoritative provider evidence about a transfer, from whatever saw it.
+   *
+   * ── WHAT THIS REPLACED (R4) ───────────────────────────────────────────
+   * `onTransferReversed(providerTransferId)` took a transfer id and NOTHING ELSE. It set the
+   * settlement to REVERSED whatever amount had come back, never touched the money, and threw
+   * away the cumulative figure the webhook payload was already carrying. So the webhook path and
+   * the orchestration path described the same provider movement two different ways.
+   *
+   * Now every path - synchronous response, webhook, provider lookup - normalizes to
+   * `TransferEvidence` and runs through `reconcileTransferEvidence`. There is one place where a
+   * provider fact becomes an internal money fact, and the source cannot change the arithmetic.
+   */
+  async applyTransferEvidence(evidence: TransferEvidence): Promise<ReconciliationOutcome> {
+    const settlement = await this.prisma.settlement.findFirst({
+      where: { providerTransferId: evidence.providerTransferId },
     });
+    if (!settlement) {
+      /*
+        Evidence about a transfer we do not hold. Recorded as a mismatch rather than ignored: a
+        reversal raised in a provider dashboard against an unknown transfer is exactly the kind
+        of thing somebody needs to see.
+      */
+      return {
+        kind: 'MISMATCH',
+        reason: 'no settlement holds this provider transfer',
+        detail: { providerTransferId: evidence.providerTransferId },
+      };
+    }
+
+    const attempts = await this.prisma.settlementReversalAttempt.findMany({
+      where: { settlementId: settlement.id },
+      select: { id: true, status: true, requestedMinor: true, confirmedMinor: true },
+    });
+    const confirmedReversedMinor = attempts
+      .filter((a) => a.status === 'COMPLETED')
+      .reduce((total, a) => total + a.confirmedMinor, 0);
+    const unresolvedAttempts = attempts.filter(
+      (a) => a.status === 'REQUESTED' || a.status === 'PROCESSING' || a.status === 'UNKNOWN',
+    ).length;
+
+    const outcome = reconcileTransferEvidence(
+      {
+        settlementId: settlement.id,
+        providerTransferId: settlement.providerTransferId,
+        currency: settlement.currency,
+        // Settlements written before the ledger have no released figure; see the migration.
+        releasedMinor: settlement.releasedMinor || settlement.transferredMinor,
+        confirmedReversedMinor,
+        unresolvedAttempts,
+      },
+      evidence,
+    );
+
+    await this.recordEvidenceOutcome(settlement, attempts, evidence, outcome);
+    return outcome;
+  }
+
+  /**
+   * Persist what the evidence proved.
+   *
+   * Only NEWLY_CONFIRMED moves money, and it moves exactly the delta - never the provider's
+   * cumulative figure, which already includes what we hold.
+   */
+  private async recordEvidenceOutcome(
+    settlement: Settlement,
+    attempts: Array<{ id: string; status: string; requestedMinor: number; confirmedMinor: number }>,
+    evidence: TransferEvidence,
+    outcome: ReconciliationOutcome,
+  ): Promise<void> {
+    const now = evidence.observedAt;
+
+    if (outcome.kind === 'MISMATCH') {
+      this.logger.error(
+        `transfer evidence mismatch for ${evidence.providerTransferId}: ${outcome.reason}`,
+      );
+      await this.audit.record({
+        organizationId: settlement.organizationId,
+        action: 'SETTLEMENT_EVIDENCE_MISMATCH',
+        entityType: 'Settlement',
+        entityId: settlement.id,
+        metadata: { reason: outcome.reason, ...outcome.detail, source: evidence.source },
+      });
+      await this.notifyAdmins({
+        type: NotificationType.TRANSFER_FAILED,
+        settlementId: settlement.id,
+        error: 'reversal-evidence-mismatch',
+      });
+      return;
+    }
+
+    if (outcome.kind === 'STALE' || outcome.kind === 'AGREES') {
+      // Nothing to change. Recorded only so a duplicate delivery is visibly a no-op.
+      return;
+    }
+
+    /*
+      Money came back that we had not confirmed. Attribute it to the oldest unresolved attempt
+      when one is waiting - that is the attempt this evidence is almost certainly about - and
+      otherwise record an ADJUSTMENT: a reversal somebody raised outside this system, which
+      previously had no representation at all.
+    */
+    const waiting = attempts.find(
+      (a) => a.status === 'REQUESTED' || a.status === 'PROCESSING' || a.status === 'UNKNOWN',
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      if (waiting && outcome.deltaMinor <= waiting.requestedMinor) {
+        const claimed = await tx.settlementReversalAttempt.updateMany({
+          where: { id: waiting.id, status: { in: ['REQUESTED', 'PROCESSING', 'UNKNOWN'] } },
+          data: {
+            status: 'COMPLETED',
+            confirmedMinor: outcome.deltaMinor,
+            providerStatusRaw: evidence.providerStatusRaw,
+            evidence: {
+              source: evidence.source,
+              cumulative: outcome.cumulativeReversedMinor,
+            } as never,
+            respondedAt: now,
+            settledAt: now,
+            lastReconciledAt: now,
+          },
+        });
+        if (claimed.count === 0) return;
+      } else {
+        await tx.settlementReversalAttempt.create({
+          data: {
+            settlementId: settlement.id,
+            reason: 'ADJUSTMENT',
+            requestedMinor: outcome.deltaMinor,
+            currency: settlement.currency,
+            provider: settlement.provider,
+            status: 'COMPLETED',
+            confirmedMinor: outcome.deltaMinor,
+            providerStatusRaw: evidence.providerStatusRaw,
+            evidence: {
+              source: evidence.source,
+              cumulative: outcome.cumulativeReversedMinor,
+            } as never,
+            // Not ours, so it carries no idempotency key of ours - the cumulative figure is the
+            // dedupe, because re-observing it yields AGREES rather than a second delta.
+            idempotencyKey: `evidence:${settlement.id}:${outcome.cumulativeReversedMinor}`,
+            respondedAt: now,
+            settledAt: now,
+            lastReconciledAt: now,
+          },
+        });
+      }
+
+      await tx.settlement.update({
+        where: { id: settlement.id },
+        data: { transferredMinor: { decrement: outcome.deltaMinor } },
+      });
+    });
+
     await this.audit.record({
       organizationId: settlement.organizationId,
       action: 'SETTLEMENT_TRANSFER_REVERSED',
       entityType: 'Settlement',
       entityId: settlement.id,
-      metadata: { source: 'webhook' },
+      metadata: {
+        deltaMinor: outcome.deltaMinor,
+        cumulativeReversedMinor: outcome.cumulativeReversedMinor,
+        source: evidence.source,
+      },
     });
   }
 

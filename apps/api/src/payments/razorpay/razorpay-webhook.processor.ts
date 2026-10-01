@@ -199,9 +199,36 @@ export class RazorpayWebhookProcessor {
       case 'transfer.failed':
         await this.settlements.onTransferFailed(p.transfer?.entity?.id ?? '');
         return 'processed';
-      case 'transfer.reversed':
-        await this.settlements.onTransferReversed(p.transfer?.entity?.id ?? '');
+      case 'transfer.reversed': {
+        /*
+          The payload carries the transfer's CUMULATIVE `amount_reversed`, and this used to throw
+          it away and set the settlement REVERSED on the strength of the event type alone. It now
+          goes through the one reconciliation engine, which compares the cumulative figure with
+          what we have already confirmed and applies only the difference.
+        */
+        const t = p.transfer?.entity as
+          | {
+              id?: string;
+              amount_reversed?: number;
+              currency?: string;
+              status?: string;
+              amount?: number | string;
+            }
+          | undefined;
+        if (!t?.id) return 'ignored';
+        await this.settlements.applyTransferEvidence({
+          provider: 'razorpay',
+          providerTransferId: t.id,
+          currency: t.currency ?? 'inr',
+          // Razorpay types `amount` as number | string, so a naive read would concatenate.
+          originalTransferredMinor: typeof t.amount === 'number' ? t.amount : null,
+          cumulativeReversedMinor: typeof t.amount_reversed === 'number' ? t.amount_reversed : 0,
+          providerStatusRaw: typeof t.status === 'string' ? t.status : null,
+          observedAt: new Date(),
+          source: 'WEBHOOK',
+        });
         return 'processed';
+      }
       case 'transfer.processed':
       case 'settlement.processed':
       case 'settlement.failed':

@@ -46,6 +46,11 @@ interface ChargeLike {
 }
 interface TransferLike {
   id: string;
+  /** Cumulative across every reversal on this transfer. See `transfer-evidence.ts`. */
+  amount_reversed?: number;
+  amount?: number;
+  currency?: string;
+  reversed?: boolean;
 }
 interface StoredPayload {
   account?: string | null;
@@ -210,9 +215,22 @@ export class StripeWebhookProcessor {
       case 'transfer.failed':
         await this.settlements.onTransferFailed((payload.object as TransferLike).id);
         return 'processed';
-      case 'transfer.reversed':
-        await this.settlements.onTransferReversed((payload.object as TransferLike).id);
+      case 'transfer.reversed': {
+        // Same engine as the synchronous path and the provider query. See the Razorpay note.
+        const t = payload.object as TransferLike;
+        if (!t?.id) return 'ignored';
+        await this.settlements.applyTransferEvidence({
+          provider: 'stripe',
+          providerTransferId: t.id,
+          currency: t.currency ?? 'usd',
+          originalTransferredMinor: typeof t.amount === 'number' ? t.amount : null,
+          cumulativeReversedMinor: typeof t.amount_reversed === 'number' ? t.amount_reversed : 0,
+          providerStatusRaw: t.reversed ? 'reversed' : null,
+          observedAt: new Date(),
+          source: 'WEBHOOK',
+        });
         return 'processed';
+      }
       case 'transfer.created':
       case 'transfer.updated':
       case 'payout.paid':
