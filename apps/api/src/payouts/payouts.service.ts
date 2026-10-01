@@ -118,8 +118,29 @@ export interface PayoutSummary {
  *
  * Route is off by default, so today only this ledger runs — which is precisely when the
  * guard is cheap to add. Once money has moved through a provider, it is off the table here.
+ *
+ * ── WHY `REVERSED` IS HERE, WHICH LOOKS WRONG ──────────────────────────────────────
+ * A reversed transfer means money went to the organizer and came back. The tempting reading is
+ * that the organizer is now unpaid, so this ledger should pay them — and that reading is how an
+ * ordinary partial refund could pay the same revenue twice.
+ *
+ * `REVERSED` says money came back. It does NOT say WHY. An administrative correction leaves the
+ * organizer genuinely unpaid; a customer refund means the revenue no longer exists and nobody
+ * should pay it again. The status cannot tell those apart, and the difference decides whether a
+ * payment is owed or duplicated.
+ *
+ * So the default is the conservative one: a reversed event stays claimed, this ledger will not
+ * pay it, and nobody is paid twice. The cost is that a genuinely unpaid organizer waits for a
+ * person to say so — which is the right way round when the alternative is paying twice by
+ * accident. Releasing it will require an explicit recorded disposition, never an inference from
+ * provider status.
  */
-const SETTLEMENT_CLAIMED_STATUSES = ['TRANSFER_PROCESSING', 'TRANSFERRED', 'PARTIALLY_REFUNDED'];
+export const SETTLEMENT_CLAIMED_STATUSES = [
+  'TRANSFER_PROCESSING',
+  'TRANSFERRED',
+  'PARTIALLY_REFUNDED',
+  'REVERSED',
+];
 
 @Injectable()
 export class PayoutsService {

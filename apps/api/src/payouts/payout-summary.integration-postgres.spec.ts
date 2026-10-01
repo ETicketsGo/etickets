@@ -290,6 +290,101 @@ describe('integration-real-postgres: payout summary read model', () => {
     expect(afterRelease.excluded.providerSettledEvents).toBe(0);
   });
 
+  /*
+    ── THE OWNERSHIP BOUNDARY, STATUS BY STATUS ────────────────────────────────────────
+    Every status in which a provider holds or held the money must take the event off this
+    ledger. `REVERSED` did not, so a transfer that went out and came back released the whole
+    event - and an ordinary partial refund can reach that state. The same revenue could then be
+    paid again from here, and the second payment would look exactly like the first.
+
+    The unit tests in `settlement-ownership.spec.ts` say what the rule is. These prove it is
+    applied, by running a real payout calculation against a real database.
+  */
+  it.each(['TRANSFER_PROCESSING', 'TRANSFERRED', 'PARTIALLY_REFUNDED', 'REVERSED'])(
+    'a settlement in %s keeps the event out of the platform payout calculation',
+    async (status) => {
+      if (guard()) return;
+      await sell({ currency: 'CAD', subtotalMinor: 40_000 });
+      const before = await payouts.summary(owner as never, orgId);
+      expect(before.currencies.find((c) => c.currency === 'CAD')!.gross).toBeGreaterThan(0);
+
+      const claimed = await db!.settlement.create({
+        data: { organizationId: orgId, eventId, currency: 'cad', status: status as never },
+      });
+      /*
+        Cleanup in `finally`. A failed assertion throws, so a delete placed after it never runs -
+        and the stray row then collides with @@unique([eventId, currency]) in the NEXT case,
+        turning one real failure into three. Found by falsifying these tests: reverting the fix
+        failed the partial-reversal case too, which was cascade noise rather than signal.
+      */
+      try {
+        const after = await payouts.summary(owner as never, orgId);
+        expect(after.currencies.find((c) => c.currency === 'CAD')?.gross ?? 0).toBe(0);
+        expect(after.excluded.providerSettledEvents).toBe(1);
+      } finally {
+        await db!.settlement.delete({ where: { id: claimed.id } });
+      }
+    },
+  );
+
+  it('a PARTIAL reversal does not release the event', async () => {
+    if (guard()) return;
+    await sell({ currency: 'CAD', subtotalMinor: 55_000 });
+
+    // Transferred, then partly reversed - money moved and some of it came back.
+    const s = await db!.settlement.create({
+      data: {
+        organizationId: orgId,
+        eventId,
+        currency: 'cad',
+        status: 'TRANSFERRED',
+        transferredMinor: 55_000,
+      },
+    });
+    await db!.settlement.update({
+      where: { id: s.id },
+      data: { status: 'PARTIALLY_REFUNDED', transferredMinor: 35_000, refundsMinor: 20_000 },
+    });
+
+    try {
+      const after = await payouts.summary(owner as never, orgId);
+      expect(after.currencies.find((c) => c.currency === 'CAD')?.gross ?? 0).toBe(0);
+      expect(after.excluded.providerSettledEvents).toBe(1);
+    } finally {
+      await db!.settlement.delete({ where: { id: s.id } });
+    }
+  });
+
+  it('a FULL reversal does not release the event either, absent an explicit disposition', async () => {
+    if (guard()) return;
+    await sell({ currency: 'CAD', subtotalMinor: 65_000 });
+
+    /*
+      The regression this PR closes. Money went out and came back in full. Whether the organizer
+      is owed it depends on WHY - an administrative reversal leaves them unpaid, a customer
+      refund means the revenue is gone - and `REVERSED` does not record which. So the event
+      stays claimed and a person decides later.
+    */
+    const s = await db!.settlement.create({
+      data: {
+        organizationId: orgId,
+        eventId,
+        currency: 'cad',
+        status: 'REVERSED',
+        transferredMinor: 0,
+        refundsMinor: 65_000,
+      },
+    });
+
+    try {
+      const after = await payouts.summary(owner as never, orgId);
+      expect(after.currencies.find((c) => c.currency === 'CAD')?.gross ?? 0).toBe(0);
+      expect(after.excluded.providerSettledEvents).toBe(1);
+    } finally {
+      await db!.settlement.delete({ where: { id: s.id } });
+    }
+  });
+
   it('refuses another organization’s money', async () => {
     if (guard()) return;
     await expect(payouts.summary(stranger as never, orgId)).rejects.toMatchObject({ status: 403 });
