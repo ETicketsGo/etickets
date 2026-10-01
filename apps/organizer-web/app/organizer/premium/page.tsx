@@ -10,6 +10,7 @@ import {
   Card,
   Dialog,
   PageHeader,
+  Textarea,
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
@@ -137,14 +138,25 @@ export default function PremiumPage() {
           We will read this and come back to you about <strong>{activeOrgSentenceName}</strong>.
           Tell us what you are trying to do, and we can say whether this is the right thing for it.
         </p>
-        <textarea
-          className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary"
-          rows={4}
-          aria-label="What are you trying to do?"
-          placeholder="What are you trying to do?"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
+        {/*
+          The shared Textarea, not a hand-rolled one.
+
+          This was a raw <textarea> carrying its own classes, and one of them - `bg-background` -
+          is not a token at all, so the box had no surface colour: invisible against an elevated
+          dialog in one theme and wrong in the other. The others were merely inconsistent
+          (`border-border` is for card edges; form controls use `border-border-input`, and the
+          focus ring differed from every other field on the platform). Reusing the component
+          settles all of it in one place and cannot drift again.
+        */}
+        <div className="mt-3">
+          <Textarea
+            rows={4}
+            aria-label="What are you trying to do?"
+            placeholder="What are you trying to do?"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </div>
       </Dialog>
     </div>
   );
