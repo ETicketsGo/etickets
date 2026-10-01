@@ -1533,6 +1533,13 @@ export const api = {
       accountNumber: string;
     }) =>
       request<PayoutAccount>('/payouts/accounts', { method: 'POST', body: JSON.stringify(body) }),
+    /**
+     * Where payout setup stands, decided by the server.
+     *
+     * The console renders this; it never re-derives a state from raw provider flags.
+     */
+    accountState: (organizationId: string) =>
+      request<PayoutAccountState>(`/payouts/account-state${qs({ organizationId })}`),
     /** One payout per currency the scope has money in. */
     generate: (organizationId: string, eventId?: string) =>
       request<Payout[]>('/payouts/generate', {
@@ -4316,6 +4323,54 @@ export interface ReadinessItem {
 export interface OrganizationReadiness {
   items: ReadinessItem[];
   summary: { blocking: number; important: number; suggested: number };
+}
+
+/**
+ * Where an organizer's payout setup stands, as the SERVER decides it.
+ *
+ * The console used to be handed `verifiedAt`, `chargesEnabled`, `payoutsEnabled`,
+ * `requirementsDue` and `disabledReason` and left to work out what they meant together - which is
+ * how it ended up showing the bare word UNVERIFIED with no indication of whether that stopped
+ * anything or whether anybody was waiting on the organizer. Every consumer that reconstructs that
+ * logic reconstructs it differently; this one does not reconstruct it at all.
+ */
+export type PayoutAccountStateCode =
+  | 'NO_ACCOUNT'
+  | 'DETAILS_REQUIRED'
+  | 'UNDER_REVIEW'
+  | 'ACTION_REQUIRED'
+  | 'RESTRICTED'
+  | 'VERIFIED'
+  | 'PAYOUTS_ENABLED';
+
+export interface PayoutAccountAction {
+  kind: 'ADD_BANK_ACCOUNT' | 'CONTINUE_PROVIDER_ONBOARDING' | 'CONTACT_SUPPORT';
+  label: string;
+  /** Relative to the organizer console. */
+  href: string;
+}
+
+export interface PayoutAccountState {
+  organizationId: string;
+  code: PayoutAccountStateCode;
+  /** Which facts decided it: the bank account, the provider account, or neither. */
+  basis: 'NONE' | 'BANK' | 'CONNECT';
+  /** Whether PAID ticket sales are affected. A boolean because selling is never "pending". */
+  salesAffected: boolean;
+  /**
+   * Whether money can reach the organizer.
+   *
+   * Three values, not two: VERIFIED means the bank account was checked and nothing yet proves
+   * money can leave, which is PENDING. A boolean forced that to read as "available".
+   */
+  payouts: 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE';
+  /** Whether anybody is waiting on the ORGANIZER. False when the wait is ours. */
+  organizerActionRequired: boolean;
+  /** Safe organizer-facing sentence. Never provider-internal text. */
+  explanation: string;
+  action: PayoutAccountAction | null;
+  /** A count, never the provider's requirement codes. */
+  outstandingRequirements: number;
 }
 
 /** The terms settlements run under, for the platform or for one organization. */
