@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useWorkspace } from '@/components/workspace-chrome';
 import {
   api,
   Button,
@@ -72,6 +73,7 @@ function RoomRow({ room }: { room: Cinema }) {
 
 export default function VenuesPage() {
   const { activeOrg } = useOrg();
+  const { doesFilmBusiness } = useWorkspace();
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -189,6 +191,30 @@ export default function VenuesPage() {
           </div>
         }
       />
+
+      {/*
+        The way in for somebody setting up a cinema.
+
+        Films left the sidebar for organizations that do no film business, which is most of them -
+        an unexplained "Movies" section read as something they had failed to set up. The risk in
+        hiding it was that a cinema operator on day one would have nowhere to begin, so the
+        beginning lives here, where anybody setting up screens and seat maps already is. It
+        disappears once they have a film, because by then the sidebar carries it.
+      */}
+      {!doesFilmBusiness && (
+        <Card>
+          <p className="text-sm text-text-secondary">
+            <span className="font-medium text-text-primary">Showing films?</span> Add a movie and
+            your screens become showtimes, with seat maps and film listings.{' '}
+            <Link
+              href="/organizer/movies"
+              className="font-medium text-action-primary underline-offset-2 hover:underline"
+            >
+              Set up films
+            </Link>
+          </p>
+        </Card>
+      )}
 
       {loading && <Skeleton className="h-40 w-full" />}
 

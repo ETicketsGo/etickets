@@ -2887,7 +2887,14 @@ export interface Organization {
    * the single-organization read. A hint for the UI, never a permission.
    */
   myRole?: string | null;
-  _count?: { members: number; events: number; venues?: number };
+  /**
+   * Counts the console uses to decide what is worth showing.
+   *
+   * `movies` drives film navigation. It is a count and not a classification: this domain has no
+   * organization type, and the `Cinema` model cannot stand in for one because it is the ROOM -
+   * any promoter who draws a seat map has one.
+   */
+  _count?: { members: number; events: number; venues?: number; movies?: number };
 }
 export interface OrganizationProfileInput {
   description?: string;

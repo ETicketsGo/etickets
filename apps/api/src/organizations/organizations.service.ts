@@ -183,7 +183,13 @@ export class OrganizationsService {
     const orgs = await this.prisma.organization.findMany({
       where: ids ? { id: { in: ids } } : {},
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { members: true, events: true, venues: true } } },
+      /*
+        `movies` is counted so the console can stop showing film navigation to organizers who do
+        no film business. A COUNT, not a classification: this domain has no organization type, and
+        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
+        seat map creates one.
+      */
+      include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
     if (ids === null) return orgs.map((org) => ({ ...org, myRole: null }));
 
@@ -199,7 +205,13 @@ export class OrganizationsService {
     await this.access.assertMember(user, id);
     const org = await this.prisma.organization.findUnique({
       where: { id },
-      include: { _count: { select: { members: true, events: true, venues: true } } },
+      /*
+        `movies` is counted so the console can stop showing film navigation to organizers who do
+        no film business. A COUNT, not a classification: this domain has no organization type, and
+        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
+        seat map creates one.
+      */
+      include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
     if (!org)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Organization not found.', HttpStatus.NOT_FOUND);
@@ -221,7 +233,13 @@ export class OrganizationsService {
     const updated = await this.prisma.organization.update({
       where: { id },
       data,
-      include: { _count: { select: { members: true, events: true, venues: true } } },
+      /*
+        `movies` is counted so the console can stop showing film navigation to organizers who do
+        no film business. A COUNT, not a classification: this domain has no organization type, and
+        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
+        seat map creates one.
+      */
+      include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
     await this.audit.record({
       actorUserId: user.id,
