@@ -34,7 +34,7 @@ describe('derivePayoutAccountState', () => {
     code: PayoutAccountStateCode;
     organizerActionRequired: boolean;
     salesAffected: boolean;
-    payoutsAffected: boolean;
+    payouts: 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE';
     basis: string;
   }[] = [
     {
@@ -44,7 +44,7 @@ describe('derivePayoutAccountState', () => {
       organizerActionRequired: true,
       // Selling is unaffected: the money just has nowhere to go yet.
       salesAffected: false,
-      payoutsAffected: true,
+      payouts: 'UNAVAILABLE',
       basis: 'NONE',
     },
     {
@@ -54,7 +54,8 @@ describe('derivePayoutAccountState', () => {
       // THE rule: verification is ours to do, so nobody is waiting on the organizer.
       organizerActionRequired: false,
       salesAffected: false,
-      payoutsAffected: true,
+      // Waiting, not blocked.
+      payouts: 'PENDING',
       basis: 'BANK',
     },
     {
@@ -63,7 +64,8 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.VERIFIED,
       organizerActionRequired: false,
       salesAffected: false,
-      payoutsAffected: false,
+      // The organizer's half is done; nothing yet proves money can leave.
+      payouts: 'PENDING',
       basis: 'BANK',
     },
     {
@@ -77,7 +79,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.VERIFIED,
       organizerActionRequired: false,
       salesAffected: false,
-      payoutsAffected: false,
+      payouts: 'PENDING',
       basis: 'BANK',
     },
     {
@@ -88,7 +90,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.UNDER_REVIEW,
       organizerActionRequired: false,
       salesAffected: false,
-      payoutsAffected: true,
+      payouts: 'PENDING',
       basis: 'CONNECT',
     },
     {
@@ -103,7 +105,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.ACTION_REQUIRED,
       organizerActionRequired: true,
       salesAffected: false,
-      payoutsAffected: true,
+      payouts: 'UNAVAILABLE',
       basis: 'CONNECT',
     },
     {
@@ -119,7 +121,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.RESTRICTED,
       organizerActionRequired: true,
       salesAffected: true,
-      payoutsAffected: true,
+      payouts: 'UNAVAILABLE',
       basis: 'CONNECT',
     },
     {
@@ -135,7 +137,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.DETAILS_REQUIRED,
       organizerActionRequired: true,
       salesAffected: true,
-      payoutsAffected: true,
+      payouts: 'UNAVAILABLE',
       basis: 'CONNECT',
     },
     {
@@ -144,7 +146,7 @@ describe('derivePayoutAccountState', () => {
       code: PayoutAccountStateCode.PAYOUTS_ENABLED,
       organizerActionRequired: false,
       salesAffected: false,
-      payoutsAffected: false,
+      payouts: 'AVAILABLE',
       basis: 'CONNECT',
     },
   ];
@@ -157,13 +159,13 @@ describe('derivePayoutAccountState', () => {
         basis: state.basis,
         organizerActionRequired: state.organizerActionRequired,
         salesAffected: state.salesAffected,
-        payoutsAffected: state.payoutsAffected,
+        payouts: state.payouts,
       }).toEqual({
         code: c.code,
         basis: c.basis,
         organizerActionRequired: c.organizerActionRequired,
         salesAffected: c.salesAffected,
-        payoutsAffected: c.payoutsAffected,
+        payouts: c.payouts,
       });
     });
   }
@@ -199,7 +201,7 @@ describe('derivePayoutAccountState', () => {
       }),
     );
     expect(cannotCharge.salesAffected).toBe(true);
-    expect(cannotCharge.payoutsAffected).toBe(false);
+    expect(cannotCharge.payouts).toBe('AVAILABLE');
 
     const cannotPayOut = derivePayoutAccountState(
       facts({
@@ -211,7 +213,42 @@ describe('derivePayoutAccountState', () => {
       }),
     );
     expect(cannotPayOut.salesAffected).toBe(false);
-    expect(cannotPayOut.payoutsAffected).toBe(true);
+    // Waiting on the provider's check, which is PENDING rather than blocked.
+    expect(cannotPayOut.payouts).toBe('PENDING');
+  });
+
+  it('VERIFIED reports payouts as PENDING, never AVAILABLE', () => {
+    /*
+      The defect this three-value type replaced. `payoutsAffected: false` on VERIFIED made the
+      payout page print "Receiving payouts: Available" for a state whose own description says
+      nothing yet proves money can leave. Waiting and working are different facts.
+    */
+    const state = derivePayoutAccountState(
+      facts({ bankAccounts: [{ currency: 'INR', verifiedAt: VERIFIED_AT }] }),
+    );
+    expect(state.code).toBe(PayoutAccountStateCode.VERIFIED);
+    expect(state.payouts).toBe('PENDING');
+    expect(state.payouts).not.toBe('AVAILABLE');
+  });
+
+  it('VERIFIED and PAYOUTS_ENABLED are not the same state', () => {
+    const verified = derivePayoutAccountState(
+      facts({ bankAccounts: [{ currency: 'INR', verifiedAt: VERIFIED_AT }] }),
+    );
+    const enabled = derivePayoutAccountState(facts({ connect: connect() }));
+    expect(verified.code).not.toBe(enabled.code);
+    expect(verified.payouts).not.toBe(enabled.payouts);
+    expect(enabled.payouts).toBe('AVAILABLE');
+  });
+
+  it('says payouts are AVAILABLE only where the provider proves it', () => {
+    // Every other state must be PENDING or UNAVAILABLE - never a promise nothing supports.
+    for (const c of CASES) {
+      const state = derivePayoutAccountState(c.facts);
+      if (state.payouts === 'AVAILABLE') {
+        expect(state.code).toBe(PayoutAccountStateCode.PAYOUTS_ENABLED);
+      }
+    }
   });
 
   it('does not call a verified bank account payouts-enabled', () => {
