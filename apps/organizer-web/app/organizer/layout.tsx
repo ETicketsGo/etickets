@@ -23,17 +23,39 @@ import {
 import { OrgProvider, OrgSwitcher } from '@/components/org-context';
 import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/workspace-chrome';
 
-const nav: NavItem[] = [
-  { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
-  { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
+/**
+ * The sidebar, minus anything this organization has no business with.
+ *
+ * ── WHY FILMS IS CONDITIONAL NOW ───────────────────────────────────────────────────
+ * It used to be a permanent top-level heading, on the reasoning that hiding it would leave a
+ * cinema operator with nowhere to add their first film. That reasoning was right about the risk
+ * and wrong about the remedy: every organizer who does no film business - which is most of them -
+ * read a whole section of the product as something they had failed to set up, and a 40-year
+ * promoter's first impression of the console was that it was cinema software.
+ *
+ * The remedy keeps the discoverability without the permanent section: Films appears once the
+ * organization HAS a film, and the way to add a first one is a line on Venues & rooms, where
+ * somebody setting up a cinema already is. Nothing is hidden that anyone can use - `/organizer/
+ * movies` still resolves, and the API still decides who may read it. Navigation visibility is
+ * UX; it is not and must never become the authorization.
+ *
+ * `movies > 0` is an imperfect signal and is knowingly used. This domain has no organization
+ * type, and the `Cinema` model cannot stand in for one because it is the ROOM - any promoter who
+ * draws a seat map has one. A durable organization capability is the right long-term answer and
+ * is deliberately not invented here.
+ */
+function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] {
+  return [
+    { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
+    { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
 
-  { group: 'Selling', label: 'Events', href: '/organizer/events', icon: CalendarDays },
-  /*
+    { group: 'Selling', label: 'Events', href: '/organizer/events', icon: CalendarDays },
+    /*
     Venues sits with Events because that is the relationship: every event happens at one. It
     had no page at all until now — a venue could only be created mid-wizard and never
     edited, while its name printed on every listing a customer saw.
   */
-  /*
+    /*
     Venues and rooms, in one place, because they were never separable in practice.
 
     "Cinemas" became "Rooms & seat maps" after a concert promoter read the sidebar, concluded
@@ -48,38 +70,34 @@ const nav: NavItem[] = [
     maps findable. The film-specific pages inside still say cinema and screen, where those
     words are accurate.
   */
-  { label: 'Venues & rooms', href: '/organizer/venues', icon: Building2 },
-  /*
+    { label: 'Venues & rooms', href: '/organizer/venues', icon: Building2 },
+    /*
     The box office counter's way in. Distinct from an event's order list, which answers "who
     bought for THIS show" — a counter is holding a phone call about a booking whose show it
     does not yet know.
   */
-  { label: 'Find a booking', href: '/organizer/bookings', icon: Ticket },
-  // A distinct icon from Payouts: they sit near each other and mean opposite things —
-  // money you hold in a tin, and money the platform sends you.
-  { label: 'Counter', href: '/organizer/counter', icon: Coins },
-  { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
+    { label: 'Find a booking', href: '/organizer/bookings', icon: Ticket },
+    // A distinct icon from Payouts: they sit near each other and mean opposite things —
+    // money you hold in a tin, and money the platform sends you.
+    { label: 'Counter', href: '/organizer/counter', icon: Coins },
+    { label: 'Promotions', href: '/organizer/promotions', icon: TicketPercent },
 
-  /*
-    Films get their own heading rather than being hidden when unused.
+    // Only for an organization that actually shows films. See the note above the function.
+    ...(doesFilmBusiness
+      ? [{ group: 'Films', label: 'Movies', href: '/organizer/movies', icon: Film } as NavItem]
+      : []),
 
-    Most organizers never show one, and an unexplained "Movies" among fifteen siblings reads
-    as something they have failed to set up. Hiding it until an organization has a film is
-    the obvious fix and the wrong one: a cinema operator on day one would have nowhere to
-    add their first. A heading says "skip this unless it is yours" and stays findable.
-  */
-  { group: 'Films', label: 'Movies', href: '/organizer/movies', icon: Film },
+    { group: 'Money', label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
+    { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
+    { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
 
-  { group: 'Money', label: 'Payouts', href: '/organizer/payouts', icon: Banknote },
-  { label: 'Receipts', href: '/organizer/receipts', icon: ReceiptText },
-  { label: 'Refunds', href: '/organizer/refunds', icon: Undo2 },
-
-  { group: 'Account', label: 'Notifications', href: '/organizer/notifications', icon: Bell },
-  { label: 'Team', href: '/organizer/team', icon: Users },
-  { label: 'Premium', href: '/organizer/premium', icon: Sparkles },
-  { label: 'Help', href: '/organizer/help', icon: LifeBuoy },
-  { label: 'Settings', href: '/organizer/settings', icon: Settings },
-];
+    { group: 'Account', label: 'Notifications', href: '/organizer/notifications', icon: Bell },
+    { label: 'Team', href: '/organizer/team', icon: Users },
+    { label: 'Premium', href: '/organizer/premium', icon: Sparkles },
+    { label: 'Help', href: '/organizer/help', icon: LifeBuoy },
+    { label: 'Settings', href: '/organizer/settings', icon: Settings },
+  ].filter(Boolean) as NavItem[];
+}
 
 /**
  * A page that exists to become paper gets no shell.
@@ -102,6 +120,12 @@ function isPrintRoute(path: string): boolean {
  */
 function OrganizerChrome({ children }: { children: React.ReactNode }) {
   const workspace = useWorkspace();
+  /*
+    Read from the shell, which sits OUTSIDE OrgProvider, so the organization list is reached
+    through the same small store the masthead uses. A nav that waited for a provider below it
+    would blank on every navigation.
+  */
+  const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness });
   return (
     <AppShell
       brand="Organizer"

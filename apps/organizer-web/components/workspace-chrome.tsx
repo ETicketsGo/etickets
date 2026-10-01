@@ -13,7 +13,19 @@ import { useActiveOrgId } from './org-context';
  * with a spinner while the list loads — useful inside the page, fatal for the header, which
  * would blank on every navigation.
  */
-export function useWorkspace(): { name: string; logoUrl?: string | null; accent?: string | null } {
+export function useWorkspace(): {
+  name: string;
+  logoUrl?: string | null;
+  accent?: string | null;
+  /**
+   * Whether this organization actually does film business.
+   *
+   * Drives whether the sidebar shows Films at all. False while the list is loading, which is the
+   * right way round: a section that appears a moment after the page is less jarring than one that
+   * appears and then vanishes.
+   */
+  doesFilmBusiness: boolean;
+} {
   const activeId = useActiveOrgId();
   const { data } = useQuery({
     queryKey: ['organizations', 'mine'],
@@ -25,7 +37,12 @@ export function useWorkspace(): { name: string; logoUrl?: string | null; accent?
     platform's name into the organizer's masthead and then swapping it a moment later is worse
     than a brief blank — it is the exact impression this header exists to remove.
   */
-  return { name: org?.name ?? ' ', logoUrl: org?.logoUrl, accent: org?.consoleTheme };
+  return {
+    name: org?.name ?? ' ',
+    logoUrl: org?.logoUrl,
+    accent: org?.consoleTheme,
+    doesFilmBusiness: (org?._count?.movies ?? 0) > 0,
+  };
 }
 
 /** Applies the organization's palette. Renders nothing. */
