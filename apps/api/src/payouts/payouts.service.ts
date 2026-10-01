@@ -80,6 +80,23 @@ export interface PayoutSummary {
   asOf: string;
   holdDays: number;
   currencies: PayoutSummaryCurrency[];
+  /**
+   * Money this summary deliberately does NOT account for.
+   *
+   * ── WHY A FINANCE SCREEN HAS TO SAY THIS ───────────────────────────────────────
+   * Events whose money a provider transfer has already claimed are excluded from every figure
+   * here, which is correct - counting them would pay the same revenue twice. But for an
+   * organization settled mainly through a connected provider, the honest consequence is that
+   * these totals understate what they have earned, possibly to zero.
+   *
+   * A finance page showing a confident zero to somebody who has been paid thousands is worse
+   * than showing nothing. So the exclusion is reported rather than left to be inferred, and the
+   * console says so in words.
+   */
+  excluded: {
+    /** Events settled on the provider-transfer path and therefore absent from the figures. */
+    providerSettledEvents: number;
+  };
   heldRevenue: {
     eventId: string;
     eventTitle: string;
@@ -610,6 +627,9 @@ export class PayoutsService {
         asOf: now.toISOString(),
         holdDays: scope.terms.holdDays,
         currencies,
+        // Counted, not described: "3 events are settled elsewhere" is something a person can go
+        // and check, and "some activity is excluded" is not.
+        excluded: { providerSettledEvents: scope.transferredEventIds.length },
         heldRevenue: held.map((h) => ({
           eventId: h.eventId,
           eventTitle: h.eventTitle,

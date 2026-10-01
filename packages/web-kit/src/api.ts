@@ -1545,6 +1545,14 @@ export const api = {
      *
      * The console renders this; it never re-derives a state from raw provider flags.
      */
+    /**
+     * What this organization is owed, has been paid and is waiting on, per currency.
+     *
+     * A read model: it reuses the payout ledger's own eligibility rules and the one settlement
+     * calculation, so a finance screen and the payout it would raise cannot disagree.
+     */
+    summary: (organizationId: string, eventId?: string) =>
+      request<PayoutSummary>(`/payouts/summary${qs({ organizationId, eventId })}`),
     accountState: (organizationId: string) =>
       request<PayoutAccountState>(`/payouts/account-state${qs({ organizationId })}`),
     /** One payout per currency the scope has money in. */
@@ -4418,6 +4426,48 @@ export interface PayoutAccountState {
   action: PayoutAccountAction | null;
   /** A count, never the provider's requirement codes. */
   outstandingRequirements: number;
+}
+
+/** One currency's settlement position. Currencies never combine into a total. */
+export interface PayoutSummaryCurrency {
+  currency: string;
+  gross: number;
+  discount: number;
+  bookingFee: number;
+  paymentFee: number;
+  organizerFee: number;
+  refund: number;
+  /** What a payout raised right now would come to. May be negative. */
+  net: number;
+  /** Already paid out. */
+  paid: number;
+  /** Committed but not yet paid. */
+  pending: number;
+  /** Revenue that exists and is not yet eligible. */
+  held: number;
+}
+
+/**
+ * The organizer's money, read only.
+ *
+ * Observational by contract: asking for it creates no payout, claims no revenue and contacts no
+ * provider.
+ */
+export interface PayoutSummary {
+  organizationId: string;
+  eventId: string | null;
+  asOf: string;
+  holdDays: number;
+  currencies: PayoutSummaryCurrency[];
+  heldRevenue: {
+    eventId: string;
+    eventTitle: string;
+    currency: string;
+    grossMinor: number;
+    payableFrom: string;
+  }[];
+  /** Money these figures deliberately do not account for. See the server contract. */
+  excluded: { providerSettledEvents: number };
 }
 
 /** The terms settlements run under, for the platform or for one organization. */

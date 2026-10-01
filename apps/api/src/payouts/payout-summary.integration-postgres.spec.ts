@@ -278,8 +278,16 @@ describe('integration-real-postgres: payout summary read model', () => {
     });
     const afterClaim = await payouts.summary(owner as never, orgId);
     expect(afterClaim.currencies.find((c) => c.currency === 'CAD')?.gross ?? 0).toBe(0);
+    /*
+      And it SAYS it excluded something. A finance screen showing a confident zero to an
+      organization settled through a connected provider is worse than showing nothing, so the
+      exclusion is reported rather than left to be inferred.
+    */
+    expect(afterClaim.excluded.providerSettledEvents).toBe(1);
 
     await db!.settlement.delete({ where: { id: claimed.id } });
+    const afterRelease = await payouts.summary(owner as never, orgId);
+    expect(afterRelease.excluded.providerSettledEvents).toBe(0);
   });
 
   it('refuses another organization’s money', async () => {
