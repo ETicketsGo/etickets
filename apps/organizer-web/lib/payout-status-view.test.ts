@@ -14,7 +14,7 @@ const state = (
   organizationId: 'org1',
   basis: 'BANK',
   salesAffected: false,
-  payoutsAffected: false,
+  payouts: 'AVAILABLE',
   organizerActionRequired: false,
   explanation: 'Something the server said.',
   action: null,
@@ -59,7 +59,7 @@ describe('payoutStatusView', () => {
       is no honest control to press.
     */
     const view = payoutStatusView(
-      state({ code: 'UNDER_REVIEW', payoutsAffected: true, organizerActionRequired: false }),
+      state({ code: 'UNDER_REVIEW', payouts: 'PENDING', organizerActionRequired: false }),
     );
     expect(view.cta).toBeNull();
     expect(view.noActionNotice).toBe('No action is required from you right now.');
@@ -69,7 +69,7 @@ describe('payoutStatusView', () => {
     const view = payoutStatusView(
       state({
         code: 'ACTION_REQUIRED',
-        payoutsAffected: true,
+        payouts: 'PENDING',
         organizerActionRequired: true,
         action: {
           kind: 'CONTINUE_PROVIDER_ONBOARDING',
@@ -86,7 +86,7 @@ describe('payoutStatusView', () => {
     const view = payoutStatusView(
       state({
         code: 'NO_ACCOUNT',
-        payoutsAffected: true,
+        payouts: 'PENDING',
         organizerActionRequired: true,
         action: {
           kind: 'ADD_BANK_ACCOUNT',
@@ -129,20 +129,20 @@ describe('payoutStatusView', () => {
   });
 
   it('says plainly when payouts are working', () => {
-    const view = payoutStatusView(state({ code: 'PAYOUTS_ENABLED' }));
+    const view = payoutStatusView(state({ code: 'PAYOUTS_ENABLED', payouts: 'AVAILABLE' }));
     expect(view.payoutWord).toBe('Available');
     expect(view.heading).toBe('Payouts are active');
   });
 
   it('keeps selling and payouts independent in both directions', () => {
     const sellingStopped = payoutStatusView(
-      state({ code: 'RESTRICTED', salesAffected: true, payoutsAffected: false }),
+      state({ code: 'RESTRICTED', salesAffected: true, payouts: 'AVAILABLE' }),
     );
     expect(sellingStopped.salesWord).toBe('Not available');
     expect(sellingStopped.payoutWord).toBe('Available');
 
     const payoutsWaiting = payoutStatusView(
-      state({ code: 'UNDER_REVIEW', salesAffected: false, payoutsAffected: true }),
+      state({ code: 'UNDER_REVIEW', salesAffected: false, payouts: 'PENDING' }),
     );
     expect(payoutsWaiting.salesWord).toBe('Available');
     expect(payoutsWaiting.payoutWord).toBe('Not ready yet');
@@ -151,15 +151,32 @@ describe('payoutStatusView', () => {
   it('never implies a missing bank account stops selling', () => {
     // The server says sales are unaffected; the page must not add a consequence of its own.
     const view = payoutStatusView(
-      state({ code: 'NO_ACCOUNT', salesAffected: false, payoutsAffected: true }),
+      state({ code: 'NO_ACCOUNT', salesAffected: false, payouts: 'PENDING' }),
     );
     expect(view.salesWord).toBe('Available');
   });
 
   it('distinguishes payouts not ready from payouts unavailable', () => {
-    const waiting = payoutStatusView(state({ code: 'UNDER_REVIEW', payoutsAffected: true }));
-    expect(waiting.payoutWord).toBe('Not ready yet');
-    expect(waiting.payoutWord).not.toBe('Not available');
+    /*
+      The three words the three-value contract exists for. A VERIFIED account is being got ready,
+      which is not the same as a RESTRICTED one where nothing is in flight at all.
+    */
+    expect(payoutStatusView(state({ code: 'UNDER_REVIEW', payouts: 'PENDING' })).payoutWord).toBe(
+      'Not ready yet',
+    );
+    expect(payoutStatusView(state({ code: 'RESTRICTED', payouts: 'UNAVAILABLE' })).payoutWord).toBe(
+      'Not available',
+    );
+    expect(
+      payoutStatusView(state({ code: 'PAYOUTS_ENABLED', payouts: 'AVAILABLE' })).payoutWord,
+    ).toBe('Available');
+  });
+
+  it('never says a VERIFIED account can receive payouts', () => {
+    // The whole point of the corrected contract, asserted at the surface an organizer reads.
+    const view = payoutStatusView(state({ code: 'VERIFIED', payouts: 'PENDING' }));
+    expect(view.payoutWord).toBe('Not ready yet');
+    expect(view.payoutWord).not.toBe('Available');
   });
 
   it('interrupts the journey rather than pretending an interruption is progress', () => {
@@ -184,7 +201,7 @@ describe('payoutStatusView', () => {
       state({
         code: 'RESTRICTED',
         salesAffected: true,
-        payoutsAffected: true,
+        payouts: 'PENDING',
         organizerActionRequired: true,
         explanation: 'Your payout account has been stopped by the payment provider.',
         action: { kind: 'CONTACT_SUPPORT', label: 'Contact ETicketsGo', href: '/organizer/help' },

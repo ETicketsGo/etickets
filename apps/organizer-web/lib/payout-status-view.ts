@@ -27,7 +27,7 @@ export interface PayoutStatusView {
   salesWord: string;
   salesAffected: boolean;
   payoutWord: string;
-  payoutsAffected: boolean;
+  payouts: PayoutAccountState['payouts'];
   /** A call to action appears only when the server says somebody is waiting on the organizer. */
   cta: { label: string; href: string } | null;
   /** Shown whenever there is no CTA: the absence of a button is not an answer by itself. */
@@ -69,13 +69,18 @@ export function payoutStatusView(state: PayoutAccountState): PayoutStatusView {
     explanation: state.explanation,
     salesAffected: state.salesAffected,
     salesWord: state.salesAffected ? 'Not available' : 'Available',
-    payoutsAffected: state.payoutsAffected,
+    payouts: state.payouts,
     /*
-      "Not ready yet" rather than "Not available". Payouts that are merely waiting are the common
-      case, and telling somebody their payouts are unavailable when they are simply being checked
-      is the wrong fact.
+      Three words for three states. "Not ready yet" is for PENDING - somebody is checking, and
+      telling an organizer their payouts are unavailable when they are merely being verified is
+      the wrong fact. UNAVAILABLE means nothing is in flight and something has to change.
     */
-    payoutWord: state.payoutsAffected ? 'Not ready yet' : 'Available',
+    payoutWord:
+      state.payouts === 'AVAILABLE'
+        ? 'Available'
+        : state.payouts === 'PENDING'
+          ? 'Not ready yet'
+          : 'Not available',
     cta:
       state.organizerActionRequired && state.action
         ? { label: state.action.label, href: state.action.href }

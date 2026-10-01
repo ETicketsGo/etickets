@@ -4355,10 +4355,15 @@ export interface PayoutAccountState {
   code: PayoutAccountStateCode;
   /** Which facts decided it: the bank account, the provider account, or neither. */
   basis: 'NONE' | 'BANK' | 'CONNECT';
-  /** Whether PAID ticket sales are affected. Independent of payouts. */
+  /** Whether PAID ticket sales are affected. A boolean because selling is never "pending". */
   salesAffected: boolean;
-  /** Whether money can currently leave to the organizer. */
-  payoutsAffected: boolean;
+  /**
+   * Whether money can reach the organizer.
+   *
+   * Three values, not two: VERIFIED means the bank account was checked and nothing yet proves
+   * money can leave, which is PENDING. A boolean forced that to read as "available".
+   */
+  payouts: 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE';
   /** Whether anybody is waiting on the ORGANIZER. False when the wait is ours. */
   organizerActionRequired: boolean;
   /** Safe organizer-facing sentence. Never provider-internal text. */

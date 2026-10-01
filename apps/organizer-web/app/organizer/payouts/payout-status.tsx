@@ -65,22 +65,28 @@ const TONE_CLASS: Record<PayoutStatusTone, string> = {
  * can, which is the more expensive of the two mistakes.
  *
  * The word carries the meaning; the colour only agrees with it. A reader who sees no colour at
- * all still reads "Available" or "Not ready yet".
+ * all still reads "Available", "Not ready yet" or "Not available".
  */
 function Availability({
   label,
   value,
-  affected,
+  tone,
 }: {
   label: string;
   value: string;
-  affected: boolean;
+  tone: 'good' | 'waiting' | 'bad';
 }) {
   return (
     <div className="rounded-md border border-border px-3 py-2">
       <dt className="text-caption text-text-muted">{label}</dt>
       <dd
-        className={`mt-0.5 font-medium ${affected ? 'text-status-warning' : 'text-status-success'}`}
+        className={`mt-0.5 font-medium ${
+          tone === 'good'
+            ? 'text-status-success'
+            : tone === 'waiting'
+              ? 'text-status-warning'
+              : 'text-status-error'
+        }`}
       >
         {value}
       </dd>
@@ -208,12 +214,18 @@ export function PayoutStatus({ orgId }: { orgId: string }) {
               <Availability
                 label="Paid ticket sales"
                 value={view.salesWord}
-                affected={view.salesAffected}
+                tone={view.salesAffected ? 'bad' : 'good'}
               />
               <Availability
                 label="Receiving payouts"
                 value={view.payoutWord}
-                affected={view.payoutsAffected}
+                tone={
+                  view.payouts === 'AVAILABLE'
+                    ? 'good'
+                    : view.payouts === 'PENDING'
+                      ? 'waiting'
+                      : 'bad'
+                }
               />
             </dl>
 
