@@ -7,19 +7,16 @@ import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
+import {
+  calculateCurrencySettlement,
+  type CurrencySettlement,
+} from './currency-settlement.calculator';
 
-/** One currency's settlement figures. */
-export interface CurrencySettlement {
-  currency: string;
-  gross: number;
-  /** Coupon discounts, which come out of the organizer's ticket revenue. */
-  discount: number;
-  bookingFee: number;
-  paymentFee: number;
-  organizerFee: number;
-  refund: number;
-  net: number;
-}
+/*
+  Re-exported from here because this is where it has always been imported from. The definition
+  moved to the calculator so the arithmetic and its result shape live together.
+*/
+export type { CurrencySettlement } from './currency-settlement.calculator';
 
 /**
  * Payouts that still stand, and so mark revenue as settled.
@@ -252,34 +249,26 @@ export class PayoutsService {
       }),
     ]);
 
-    const refundByCurrency = new Map<string, number>();
-    for (const row of refunds) {
-      const currency = row.booking.currency.toUpperCase();
-      const organizerShare = Math.max(0, row.amountMinor - (row.taxAddedMinor ?? 0));
-      refundByCurrency.set(currency, (refundByCurrency.get(currency) ?? 0) + organizerShare);
-    }
-    const currencies = new Set([
-      ...paid.map((row) => row.currency.toUpperCase()),
-      ...refundByCurrency.keys(),
-    ]);
-    return [...currencies].sort().map((currency) => {
-      const rows = paid.filter((row) => row.currency.toUpperCase() === currency);
-      const sum = (key: keyof (typeof rows)[number]['_sum']) =>
-        rows.reduce((total, row) => total + (row._sum[key] ?? 0), 0);
-      const gross = sum('subtotalMinor');
-      const discount = sum('discountMinor');
-      const organizerFee = sum('organizerFeeMinor');
-      const refund = refundByCurrency.get(currency) ?? 0;
-      return {
-        currency,
-        gross,
-        discount,
-        bookingFee: sum('bookingFeeMinor'),
-        paymentFee: sum('paymentFeeMinor'),
-        organizerFee,
-        refund,
-        net: gross - discount - organizerFee - refund,
-      };
+    /*
+      The queries above decided WHICH rows settle; the sum is `calculateCurrencySettlement`.
+      Prisma's `_sum` shape is flattened here rather than inside the calculator, so the calculator
+      owes nothing to the ORM and the same function serves a read-only finance summary.
+    */
+    return calculateCurrencySettlement({
+      revenue: paid.map((row) => ({
+        currency: row.currency,
+        subtotalMinor: row._sum.subtotalMinor ?? 0,
+        discountMinor: row._sum.discountMinor ?? 0,
+        bookingFeeMinor: row._sum.bookingFeeMinor ?? 0,
+        paymentFeeMinor: row._sum.paymentFeeMinor ?? 0,
+        organizerFeeMinor: row._sum.organizerFeeMinor ?? 0,
+      })),
+      // A refund has no currency of its own; it is in the currency of the booking it returns.
+      refunds: refunds.map((row) => ({
+        currency: row.booking.currency,
+        amountMinor: row.amountMinor,
+        taxAddedMinor: row.taxAddedMinor ?? 0,
+      })),
     });
   }
 
