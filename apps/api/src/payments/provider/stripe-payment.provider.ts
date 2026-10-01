@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { redirectUrl } from '../../common/console-urls';
+import { stripeReversalFailure } from './reversal-outcome';
 import type {
   ConnectedAccountSnapshot,
   CreateConnectedAccountInput,
@@ -20,7 +21,7 @@ import type {
   TransferInput,
   TransferResult,
   TransferReversalInput,
-  TransferReversalResult,
+  ReversalOutcome,
   WebhookEnvelope,
   WebhookInput,
 } from './payment-provider.interface';
@@ -387,13 +388,38 @@ export class StripePaymentProvider implements PaymentProvider {
     }
   }
 
-  async reverseTransfer(input: TransferReversalInput): Promise<TransferReversalResult> {
-    const reversal = await this.client.transfers.createReversal(
-      input.transferId,
-      { ...(input.amountMinor != null ? { amount: input.amountMinor } : {}) },
-      { idempotencyKey: input.idempotencyKey },
-    );
-    return { reversalId: reversal.id, status: 'COMPLETED' };
+  /**
+   * Reverse a transfer, reporting only what Stripe's answer proves.
+   *
+   * ── WHAT PROVES COMPLETION ─────────────────────────────────────────────────────
+   * `TransferReversal` has NO status field. What it has is `balance_transaction`, which Stripe
+   * documents as "Balance transaction that describes the impact on your account balance" - so a
+   * non-null value is evidence the money movement was recorded, and a null one is not.
+   *
+   * This used to return a hardcoded `COMPLETED` for any response at all, which is why a reversal
+   * that had not settled - or had not happened - was written into the ledger as money recovered.
+   */
+  async reverseTransfer(input: TransferReversalInput): Promise<ReversalOutcome> {
+    try {
+      const reversal = await this.client.transfers.createReversal(
+        input.transferId,
+        { ...(input.amountMinor != null ? { amount: input.amountMinor } : {}) },
+        { idempotencyKey: input.idempotencyKey },
+      );
+      if (reversal.balance_transaction != null) {
+        // The amount is Stripe's, not ours: it may confirm less than we asked for.
+        return {
+          kind: 'CONFIRMED',
+          reversalId: reversal.id,
+          confirmedMinor: reversal.amount,
+          raw: reversal,
+        };
+      }
+      // Stripe has it and gave us a reference, but the balance impact is not recorded yet.
+      return { kind: 'ACCEPTED', reversalId: reversal.id, raw: reversal };
+    } catch (err) {
+      return stripeReversalFailure(err);
+    }
   }
 
   private fromSession(session: Stripe.Checkout.Session, type: PaymentEvent['type']): PaymentEvent {

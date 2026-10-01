@@ -6,12 +6,39 @@ function makeDeps(overrides: {
   createTransfer?: jest.Mock;
   reverseTransfer?: jest.Mock;
   claimCount?: number;
+  /** Reversal attempts already on the settlement, as the clamp would read them. */
+  priorAttempts?: Array<{ status: string; requestedMinor: number; confirmedMinor: number }>;
+  /** 0 simulates another worker having already settled the attempt. */
+  attemptClaimCount?: number;
   reserveBps?: number;
   ledgerPayouts?: Array<Record<string, unknown>>;
 }) {
   const settlementRow = overrides.settlement ?? null;
   const updated: Array<Record<string, unknown>> = [];
+  /** Attempt rows the service creates, so a test can assert what was recorded. */
+  const attempts: Array<Record<string, unknown>> = [];
   const prisma = {
+    /*
+      The reversal ledger. The service now writes an attempt BEFORE calling the provider and
+      updates it from what the provider proved, so a stub without this model makes every
+      reversal path throw rather than exercise the behaviour under test.
+    */
+    settlementReversalAttempt: {
+      findMany: jest.fn(async () => overrides.priorAttempts ?? []),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `att_${attempts.length + 1}`, ...data };
+        attempts.push(row);
+        return row;
+      }),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        attempts.push({ op: 'update', ...data });
+        return data;
+      }),
+      updateMany: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        attempts.push({ op: 'updateMany', ...data });
+        return { count: overrides.attemptClaimCount ?? 1 };
+      }),
+    },
     settlement: {
       findUnique: jest.fn().mockResolvedValue(settlementRow),
       findFirst: jest.fn().mockResolvedValue(settlementRow),
@@ -54,7 +81,7 @@ function makeDeps(overrides: {
     config as never,
     resolver as never,
   );
-  return { service, prisma, provider, audit, updated };
+  return { service, prisma, provider, audit, updated, attempts };
 }
 
 const approved = (over: Record<string, unknown> = {}) => ({
@@ -181,23 +208,38 @@ describe('SettlementService.release', () => {
 });
 
 describe('SettlementService.applyRefund', () => {
-  it('reverses the organizer share when funds already transferred', async () => {
-    const reverseTransfer = jest
-      .fn()
-      .mockResolvedValue({ reversalId: 'trr_1', status: 'COMPLETED' });
-    const { service, updated } = makeDeps({
+  it('reverses the organizer share, and records what the provider confirmed', async () => {
+    const reverseTransfer = jest.fn().mockResolvedValue({
+      kind: 'CONFIRMED',
+      reversalId: 'trr_1',
+      confirmedMinor: 30000,
+      raw: { id: 'trr_1' },
+    });
+    const { service, updated, attempts } = makeDeps({
       settlement: approved({
         status: 'TRANSFERRED',
         providerTransferId: 'tr_1',
         transferredMinor: 90000,
+        releasedMinor: 90000,
       }),
       reverseTransfer,
     });
     await service.applyRefund('e1', 'usd', 30000);
+
     expect(reverseTransfer).toHaveBeenCalledWith(
       expect.objectContaining({ transferId: 'tr_1', amountMinor: 30000 }),
     );
-    expect(updated.some((d) => d.status === 'PARTIALLY_REFUNDED')).toBe(true);
+    // The attempt is written BEFORE the call, and settled from the answer.
+    expect(attempts[0]).toMatchObject({ status: 'REQUESTED', requestedMinor: 30000 });
+    expect(attempts.some((a) => a.status === 'COMPLETED' && a.confirmedMinor === 30000)).toBe(true);
+    // Money moves, and only here.
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(true);
+    /*
+      The settlement status is NOT set to PARTIALLY_REFUNDED any more. It is derived from
+      confirmed amounts, which is what makes a partial reversal structurally unable to read as a
+      full one.
+    */
+    expect(updated.some((d) => d.status === 'PARTIALLY_REFUNDED')).toBe(false);
   });
 
   it('only accrues refundsMinor when not yet transferred (no reversal)', async () => {
@@ -220,63 +262,33 @@ describe('SettlementService.applyRefund', () => {
   });
 
   /*
-    ── A DEFECT, RECORDED RATHER THAN FIXED ────────────────────────────────────────────
-    `reverseIfTransferred` reverses only while the status is EXACTLY 'TRANSFERRED'. The first
-    partial refund sets 'PARTIALLY_REFUNDED', so every refund after it is accrued into
-    `refundsMinor` and NO clawback is attempted: the ledger records a deduction the money never
-    follows, and the organizer keeps funds the ledger says were taken back.
+    ── THE DEFECT FROM #170, NOW FIXED ──────────────────────────────────────
+    These two tests used to assert the defect: a refund arriving after a partial reversal was
+    accrued into `refundsMinor` and never clawed back, because `reverseIfTransferred` reversed
+    only while the status was EXACTLY 'TRANSFERRED'. They were written to fail the moment the
+    behaviour changed, so that fixing it had to be deliberate.
 
-    Both providers support it. Stripe takes repeated `transfers.createReversal` calls up to the
-    transfer amount; Razorpay Route takes repeated `transfers.reverse` calls with an explicit
-    amount. The arithmetic here is ready for it too - `transferredMinor` is decremented on each
-    reversal and the next `Math.min` reads the decremented value. ONLY the status guard blocks it.
-
-    Unreachable today: RAZORPAY_ROUTE_ENABLED defaults false and Connect has never run against
-    Stripe. The owner has made it a release gate - Route and Connect transfer execution stay off
-    until this is fixed and integration-tested against the real provider lifecycle.
-
-    This test asserts what the code does TODAY so the defect is proven rather than argued, and so
-    that fixing it must be a deliberate act: the moment the behaviour changes, this fails and
-    whoever changed it has to come here and say so.
+    This is that moment. The guard is gone: what may be reversed is now decided by how much the
+    organizer still holds - released minus what reversals have CONFIRMED - not by a status
+    string. So a second refund is attempted like any other.
   */
-  it('DEFECT: a refund after a partial reversal is accrued but never clawed back', async () => {
-    const reverseTransfer = jest.fn();
-    const { service, prisma } = makeDeps({
-      // Already partly reversed once, and real money is still with the organizer.
+  it('reverses a refund that arrives AFTER a partial reversal', async () => {
+    const reverseTransfer = jest.fn().mockResolvedValue({
+      kind: 'CONFIRMED',
+      reversalId: 'trr_2',
+      confirmedMinor: 20000,
+      raw: {},
+    });
+    const { service, attempts } = makeDeps({
       settlement: approved({
         status: 'PARTIALLY_REFUNDED',
         providerTransferId: 'tr_1',
         transferredMinor: 60000,
+        releasedMinor: 90000,
         refundsMinor: 30000,
       }),
-      reverseTransfer,
-    });
-
-    await service.applyRefund('e1', 'usd', 20000);
-
-    // The ledger records the deduction...
-    expect(prisma.settlement.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { refundsMinor: { increment: 20000 } } }),
-    );
-    // ...and the money is never asked back. This is the defect.
-    expect(reverseTransfer).not.toHaveBeenCalled();
-  });
-
-  it('DEFECT: the same refund on a still-TRANSFERRED settlement IS clawed back', async () => {
-    /*
-      The control for the test above. Same settlement, same amount, same funds with the
-      organizer - only the status differs. If the two ever agree, the defect is gone.
-    */
-    const reverseTransfer = jest
-      .fn()
-      .mockResolvedValue({ reversalId: 'trr_2', status: 'COMPLETED' });
-    const { service } = makeDeps({
-      settlement: approved({
-        status: 'TRANSFERRED',
-        providerTransferId: 'tr_1',
-        transferredMinor: 60000,
-        refundsMinor: 30000,
-      }),
+      // 30000 already confirmed, so 60000 of the 90000 released is still with the organizer.
+      priorAttempts: [{ status: 'COMPLETED', requestedMinor: 30000, confirmedMinor: 30000 }],
       reverseTransfer,
     });
 
@@ -285,6 +297,174 @@ describe('SettlementService.applyRefund', () => {
     expect(reverseTransfer).toHaveBeenCalledWith(
       expect.objectContaining({ transferId: 'tr_1', amountMinor: 20000 }),
     );
+    expect(attempts[0]).toMatchObject({ status: 'REQUESTED', requestedMinor: 20000 });
+  });
+
+  it('cannot ask for more than the organizer still holds', async () => {
+    /*
+      The clamp that replaces the status guard. 90000 was released and 70000 is already
+      confirmed back, so only 20000 remains however large the refund is.
+    */
+    const reverseTransfer = jest.fn().mockResolvedValue({
+      kind: 'CONFIRMED',
+      reversalId: 'trr_3',
+      confirmedMinor: 20000,
+      raw: {},
+    });
+    const { service } = makeDeps({
+      settlement: approved({
+        status: 'PARTIALLY_REFUNDED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 20000,
+        releasedMinor: 90000,
+      }),
+      priorAttempts: [{ status: 'COMPLETED', requestedMinor: 70000, confirmedMinor: 70000 }],
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 50000);
+
+    expect(reverseTransfer).toHaveBeenCalledWith(expect.objectContaining({ amountMinor: 20000 }));
+  });
+
+  it('attempts nothing once everything has come back', async () => {
+    const reverseTransfer = jest.fn();
+    const { service } = makeDeps({
+      settlement: approved({
+        status: 'REVERSED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 0,
+        releasedMinor: 90000,
+      }),
+      priorAttempts: [{ status: 'COMPLETED', requestedMinor: 90000, confirmedMinor: 90000 }],
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 10000);
+
+    expect(reverseTransfer).not.toHaveBeenCalled();
+  });
+
+  /*
+    ── R3: A FAILED CLAWBACK IS NOW FINDABLE ──────────────────────────────────
+    Before, a failed reversal logged a line, notified admins and returned normally - while
+    `refundsMinor` had already been incremented. Nothing in the database recorded the attempt, so
+    reconciliation could not find it. These prove the row exists and that no money moved.
+  */
+  it('records an authoritative refusal as FAILED, and moves no money', async () => {
+    const reverseTransfer = jest.fn().mockResolvedValue({
+      kind: 'REFUSED',
+      code: 'balance_insufficient',
+      message: 'insufficient balance',
+      retryable: false,
+      raw: {},
+    });
+    const { service, updated, attempts } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90000,
+        releasedMinor: 90000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 30000);
+
+    expect(
+      attempts.some((a) => a.status === 'FAILED' && a.lastError === 'insufficient balance'),
+    ).toBe(true);
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(false);
+  });
+
+  it('records an ambiguous outcome as UNKNOWN, which is NOT a failure', async () => {
+    /*
+      A timeout is not a failure: the provider may have moved money while our answer was lost.
+      UNKNOWN is non-terminal so reconciliation asks what happened, and it must never be
+      confused with the authoritative refusal above.
+    */
+    const reverseTransfer = jest.fn().mockResolvedValue({ kind: 'INDETERMINATE', raw: {} });
+    const { service, updated, attempts } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90000,
+        releasedMinor: 90000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 30000);
+
+    expect(attempts.some((a) => a.status === 'UNKNOWN')).toBe(true);
+    expect(attempts.some((a) => a.status === 'FAILED')).toBe(false);
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(false);
+  });
+
+  it('treats an adapter that THROWS as unknown, never as failed', async () => {
+    // An exception says nothing about whether the provider acted.
+    const reverseTransfer = jest.fn().mockRejectedValue(new Error('socket hang up'));
+    const { service, updated, attempts } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90000,
+        releasedMinor: 90000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 30000);
+
+    expect(attempts.some((a) => a.status === 'UNKNOWN')).toBe(true);
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(false);
+  });
+
+  it('records an accepted-but-unproven reversal as PROCESSING, moving no money', async () => {
+    // Razorpay cannot prove completion synchronously - its reversal entity has no status field.
+    const reverseTransfer = jest
+      .fn()
+      .mockResolvedValue({ kind: 'ACCEPTED', reversalId: 'rvrsl_1', raw: {} });
+    const { service, updated, attempts } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90000,
+        releasedMinor: 90000,
+      }),
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 30000);
+
+    expect(
+      attempts.some((a) => a.status === 'PROCESSING' && a.providerReversalId === 'rvrsl_1'),
+    ).toBe(true);
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(false);
+  });
+
+  it('does not decrement twice when the attempt was already settled', async () => {
+    // The money move is guarded on the attempt still being REQUESTED.
+    const reverseTransfer = jest.fn().mockResolvedValue({
+      kind: 'CONFIRMED',
+      reversalId: 'trr_4',
+      confirmedMinor: 30000,
+      raw: {},
+    });
+    const { service, updated } = makeDeps({
+      settlement: approved({
+        status: 'TRANSFERRED',
+        providerTransferId: 'tr_1',
+        transferredMinor: 90000,
+        releasedMinor: 90000,
+      }),
+      attemptClaimCount: 0,
+      reverseTransfer,
+    });
+
+    await service.applyRefund('e1', 'usd', 30000);
+
+    expect(updated.some((d) => JSON.stringify(d).includes('decrement'))).toBe(false);
   });
 });
 
