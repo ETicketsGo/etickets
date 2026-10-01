@@ -9,6 +9,8 @@ import {
   ButtonLink,
   Select,
   Spinner,
+  activeOrganizationSentenceName,
+  organizationIdentities,
   type Organization,
 } from '@eticketsgo/web-kit';
 import { orgPermissions, type OrgPermissions } from '@/lib/org-permissions';
@@ -22,6 +24,24 @@ interface OrgCtx {
    * read it to hide or explain actions the API would refuse; the API still decides.
    */
   can: OrgPermissions;
+  /**
+   * The active organization, named for a sentence that is about to do something.
+   *
+   * Always carries its qualifier where one exists, even though the switcher leaves it off for
+   * an unambiguous name: a confirmation is a different risk from a dropdown. Reading a list
+   * wrongly costs a moment; settling, publishing or deleting against the wrong entity is not
+   * something the organizer can take back.
+   */
+  activeOrgSentenceName: string;
+  /**
+   * Any organization this member belongs to, named for a sentence.
+   *
+   * Event-scoped actions must name the event's OWN organization, not whichever one the switcher
+   * happens to be on - they can differ, and naming the active one in a delete confirmation would
+   * state something false about what is being deleted. Falls back to the id's absence rather
+   * than guessing: an organization this member cannot see has no name to print.
+   */
+  orgSentenceName: (organizationId: string | null | undefined) => string | null;
 }
 const Ctx = createContext<OrgCtx | null>(null);
 const KEY = 'etg_active_org';
@@ -115,7 +135,17 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   const activeOrg = orgs.find((o) => o.id === activeId) ?? orgs[0];
   return (
     <Ctx.Provider
-      value={{ orgs, activeOrg, setActiveOrgId, can: orgPermissions(activeOrg.myRole) }}
+      value={{
+        orgs,
+        activeOrg,
+        setActiveOrgId,
+        can: orgPermissions(activeOrg.myRole),
+        activeOrgSentenceName: activeOrganizationSentenceName(activeOrg, orgs),
+        orgSentenceName: (organizationId) => {
+          const found = orgs.find((o) => o.id === organizationId);
+          return found ? activeOrganizationSentenceName(found, orgs) : null;
+        },
+      }}
     >
       {children}
     </Ctx.Provider>
@@ -136,6 +166,23 @@ export function OrgSwitcher() {
     would be the same name twice on one screen.
   */
   if (orgs.length <= 1) return null;
+
+  /*
+    Labels that cannot collide.
+
+    This printed `o.name` alone, and a QA account holding two organizations both called
+    "DeepTrics" was offered two identical lines. Picking the wrong one is silent: the organizer
+    prices a show, publishes it, takes money and settles it against an entity they did not
+    intend, and every screen afterwards agrees with the mistake.
+
+    `organizationIdentities` qualifies a name only where it is ambiguous, and only with a value
+    that actually differs from its namesakes - so the ordinary single-name case is unchanged and
+    nobody reads a wall of repeated cities. A native `<option>` cannot hold two lines, which is
+    why the qualifier is folded into `label` rather than rendered as its own element.
+  */
+  const identities = organizationIdentities(orgs);
+  const labelOf = (id: string) => identities.find((i) => i.id === id)?.label ?? '';
+
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="text-text-muted">Organization</span>
@@ -146,7 +193,7 @@ export function OrgSwitcher() {
       >
         {orgs.map((o) => (
           <option key={o.id} value={o.id}>
-            {o.name}
+            {labelOf(o.id)}
           </option>
         ))}
       </Select>

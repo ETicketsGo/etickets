@@ -117,7 +117,7 @@ const LEGAL_FIELDS: {
 ];
 
 export default function SettingsPage() {
-  const { activeOrg, can } = useOrg();
+  const { activeOrg, can, activeOrgSentenceName } = useOrg();
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -353,7 +353,7 @@ export default function SettingsPage() {
 
         <fieldset className="space-y-3">
           <legend className="text-caption font-medium text-text-secondary">
-            Workspace colour — everyone in {activeOrg.name} sees this
+            Workspace colour — everyone in {activeOrgSentenceName} sees this
           </legend>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Workspace colour">
             {ACCENT_THEMES.map((t) => {
