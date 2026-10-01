@@ -186,8 +186,11 @@ export class OrganizationsService {
       /*
         `movies` is counted so the console can stop showing film navigation to organizers who do
         no film business. A COUNT, not a classification: this domain has no organization type, and
-        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
-        seat map creates one.
+        `Cinema` cannot stand in for one - but not for the reason first written here. `Screen` is
+        the room; `Cinema` is the SITE it belongs to. `Cinema` is unusable as a film signal
+        because the seat-map chain is mandatory - `SeatMap.screenId` and `Screen.cinemaId` are
+        both required - so any organizer who draws a seat map for ANY event creates a `Cinema`
+        row. Seated events made it mean "a seated venue", not "a film business".
       */
       include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
@@ -208,8 +211,11 @@ export class OrganizationsService {
       /*
         `movies` is counted so the console can stop showing film navigation to organizers who do
         no film business. A COUNT, not a classification: this domain has no organization type, and
-        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
-        seat map creates one.
+        `Cinema` cannot stand in for one - but not for the reason first written here. `Screen` is
+        the room; `Cinema` is the SITE it belongs to. `Cinema` is unusable as a film signal
+        because the seat-map chain is mandatory - `SeatMap.screenId` and `Screen.cinemaId` are
+        both required - so any organizer who draws a seat map for ANY event creates a `Cinema`
+        row. Seated events made it mean "a seated venue", not "a film business".
       */
       include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });
@@ -236,8 +242,11 @@ export class OrganizationsService {
       /*
         `movies` is counted so the console can stop showing film navigation to organizers who do
         no film business. A COUNT, not a classification: this domain has no organization type, and
-        `Cinema` cannot stand in for one because it is the ROOM model - any promoter who draws a
-        seat map creates one.
+        `Cinema` cannot stand in for one - but not for the reason first written here. `Screen` is
+        the room; `Cinema` is the SITE it belongs to. `Cinema` is unusable as a film signal
+        because the seat-map chain is mandatory - `SeatMap.screenId` and `Screen.cinemaId` are
+        both required - so any organizer who draws a seat map for ANY event creates a `Cinema`
+        row. Seated events made it mean "a seated venue", not "a film business".
       */
       include: { _count: { select: { members: true, events: true, venues: true, movies: true } } },
     });

@@ -41,9 +41,11 @@ import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/wo
  * UX; it is not and must never become the authorization.
  *
  * `movies > 0` is an imperfect signal and is knowingly used. This domain has no organization
- * type, and the `Cinema` model cannot stand in for one because it is the ROOM - any promoter who
- * draws a seat map has one. A durable organization capability is the right long-term answer and
- * is deliberately not invented here.
+ * type, and the `Cinema` model cannot stand in for one - though not because it is the room.
+ * `Screen` is the room; `Cinema` is the SITE. It is unusable as a film signal because every seat
+ * map requires a `Screen` and every `Screen` requires a `Cinema`, so any organizer who draws a
+ * seat map for ANY event creates one. Seated events made `Cinema` mean "a seated venue". A
+ * durable organization capability is the right long-term answer and is not invented here.
  */
 function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] {
   return [

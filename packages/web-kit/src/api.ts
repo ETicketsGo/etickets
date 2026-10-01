@@ -2899,8 +2899,10 @@ export interface Organization {
    * Counts the console uses to decide what is worth showing.
    *
    * `movies` drives film navigation. It is a count and not a classification: this domain has no
-   * organization type, and the `Cinema` model cannot stand in for one because it is the ROOM -
-   * any promoter who draws a seat map has one.
+   * organization type, and the `Cinema` model cannot stand in for one - though not because it is
+   * the room. `Screen` is the room; `Cinema` is the SITE. Every seat map requires a `Screen` and
+   * every `Screen` requires a `Cinema`, so any organizer who draws a seat map for ANY event
+   * creates one.
    */
   _count?: { members: number; events: number; venues?: number; movies?: number };
 }
