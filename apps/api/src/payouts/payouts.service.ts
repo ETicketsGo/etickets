@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { PayoutSettingsService } from './payout-settings.service';
+import { derivePayoutAccountState, type PayoutAccountState } from './payout-account-state';
 import {
   calculateCurrencySettlement,
   type CurrencySettlement,
@@ -51,6 +52,41 @@ export interface HeldRevenue {
   grossMinor: number;
   /** When the hold expires: the last session's end plus PAYOUT_HOLD_DAYS. */
   payableFrom: Date;
+}
+
+/** One currency's finance picture. Currencies never combine. */
+export interface PayoutSummaryCurrency {
+  currency: string;
+  gross: number;
+  discount: number;
+  bookingFee: number;
+  paymentFee: number;
+  organizerFee: number;
+  refund: number;
+  /** What a payout raised right now would come to. May be negative. */
+  net: number;
+  /** Already paid out, from Payout rows in PAID. */
+  paid: number;
+  /** Committed but not yet paid, from Payout rows in PENDING or SCHEDULED. */
+  pending: number;
+  /** Revenue that exists and is not yet eligible. */
+  held: number;
+}
+
+/** The organizer's money, read only. See `PayoutsService.summary`. */
+export interface PayoutSummary {
+  organizationId: string;
+  eventId: string | null;
+  asOf: string;
+  holdDays: number;
+  currencies: PayoutSummaryCurrency[];
+  heldRevenue: {
+    eventId: string;
+    eventTitle: string;
+    currency: string;
+    grossMinor: number;
+    payableFrom: string;
+  }[];
 }
 
 /**
@@ -138,6 +174,110 @@ export class PayoutsService {
    * Both queries go through Prisma's query API rather than raw SQL so that each currency's
    * window is one plain `where`, and the unit tests can hold the service to it.
    */
+  /**
+   * Which revenue is eligible to settle right now, and on what terms.
+   *
+   * ── WHY THIS IS SHARED ─────────────────────────────────────────────────────────────
+   * Eligibility is four separate rules: where each currency's last payout stopped, where each
+   * EVENT's own payouts stopped, which events a provider transfer has already claimed, and the
+   * organization's hold terms. A read model that re-derived them would agree with the payout
+   * ledger only until one of the four changed in one place and not the other - and the first
+   * anybody would know is an organizer being told two different numbers by two screens.
+   *
+   * So the payout writer and the read-only summary both call this. It READS ONLY: no lock, no
+   * writes, nothing claimed. The advisory lock stays in `raise`, because serialising generates is
+   * a property of writing, not of asking.
+   */
+  private async settlementScope(
+    client: Prisma.TransactionClient,
+    organizationId: string,
+    eventId: string | undefined,
+  ): Promise<{
+    /** Kept because `raise` needs it again for its duplicate-payout guard. */
+    standing: {
+      id: string;
+      currency: string;
+      status: PayoutStatus;
+      eventId: string | null;
+      periodEnd: Date | null;
+      createdAt: Date;
+    }[];
+    settledUntil: Map<string, Date>;
+    eventSettled: EventSettled[];
+    transferredEventIds: string[];
+    terms: Awaited<ReturnType<PayoutSettingsService['effectiveFor']>>;
+  }> {
+    const standing = await client.payout.findMany({
+      where: {
+        organizationId,
+        status: { in: [...STANDING_PAYOUT_STATUSES] },
+        // An event's revenue is covered by its own payouts and by org-wide ones; org-wide
+        // revenue by every payout the organization has.
+        ...(eventId ? { OR: [{ eventId }, { eventId: null }] } : {}),
+      },
+      select: {
+        id: true,
+        currency: true,
+        status: true,
+        eventId: true,
+        periodEnd: true,
+        createdAt: true,
+      },
+    });
+
+    // Where each currency's settled revenue ends: the latest standing payout's period end.
+    // A payout from before periods were recorded summed everything up to the moment it was
+    // created, so its creation time is where it stopped.
+    const settledUntil = new Map<string, Date>();
+    const byEvent = new Map<string, EventSettled>();
+    for (const payout of standing) {
+      const end = payout.periodEnd ?? payout.createdAt;
+      if (!end) continue;
+      const currency = payout.currency.toUpperCase();
+      if (eventId || payout.eventId === null) {
+        const previous = settledUntil.get(currency);
+        if (!previous || end > previous) settledUntil.set(currency, end);
+      } else {
+        const key = `${payout.eventId}|${currency}`;
+        const previous = byEvent.get(key);
+        if (!previous || end > previous.until) {
+          byEvent.set(key, { eventId: payout.eventId, currency, until: end });
+        }
+      }
+    }
+    // An event payout that stopped before the last org-wide one is already inside its window.
+    const eventSettled = [...byEvent.values()].filter((s) => {
+      const orgWide = settledUntil.get(s.currency);
+      return !orgWide || s.until > orgWide;
+    });
+
+    /*
+      A period with neither revenue nor refunds produces no payout — a row of zeros is noise an
+      admin has to open to discover it means nothing. A period whose refunds exceed its revenue
+      DOES produce one, with a negative net: that is money to claw back from the organizer, and
+      dropping it would quietly forgive the deduction rather than recover it.
+    */
+    /*
+      Events whose money a provider transfer has already claimed. Read inside the same
+      transaction as the sums, so a release that lands mid-generate cannot slip past it.
+    */
+    const transferred = await client.settlement.findMany({
+      where: {
+        organizationId,
+        ...(eventId ? { eventId } : {}),
+        status: { in: SETTLEMENT_CLAIMED_STATUSES as never[] },
+      },
+      select: { eventId: true },
+    });
+    const transferredEventIds = [...new Set(transferred.map((row) => row.eventId))];
+
+    // The terms this organization settles on, read inside the transaction so a change made
+    // while a generate is in flight cannot apply to half of it.
+    const terms = await this.settings.effectiveFor(organizationId, client);
+
+    return { standing, settledUntil, eventSettled, transferredEventIds, terms };
+  }
+
   private async settle(
     client: Prisma.TransactionClient,
     organizationId: string,
@@ -353,6 +493,190 @@ export class PayoutsService {
   }
 
   /**
+   * What this organization is owed, has been paid, and is still waiting on - read only.
+   *
+   * ── WHY THIS CANNOT JUST SUM BOOKINGS ──────────────────────────────────────────────
+   * "What am I owed" is not a sum over bookings. It is a sum over the bookings that are ELIGIBLE,
+   * and eligibility is four rules: where each currency's last payout stopped, where each event's
+   * own payouts stopped, which events a provider transfer has already claimed, and the hold
+   * terms. Re-deriving those for a read screen is how a finance page ends up disagreeing with the
+   * payout ledger. This calls `settlementScope` and `settle` - the same two the payout writer
+   * calls - and then `calculateCurrencySettlement`, which is the only settlement arithmetic there
+   * is.
+   *
+   * ── IT IS OBSERVATIONAL, AND THAT IS A GUARANTEE ───────────────────────────────────
+   * Opening a finance screen must not move money. Nothing here writes: no payout is created, no
+   * status changes, no revenue is claimed, no provider is contacted, no hold is altered. It takes
+   * no advisory lock either - serialising is a property of writing. The transaction is read-only
+   * and exists so the four eligibility reads and the sums see one consistent snapshot.
+   *
+   * ── WHAT EACH NUMBER MEANS ─────────────────────────────────────────────────────────
+   *   gross/discount/bookingFee/paymentFee/organizerFee/refund/net
+   *       `calculateCurrencySettlement` over the eligible, not-yet-settled window. This is what a
+   *       payout raised right now would contain.
+   *   paid
+   *       Payout rows already PAID. Historical fact, not a projection.
+   *   pending
+   *       Payout rows standing but not yet paid (PENDING/SCHEDULED): money committed to the
+   *       organizer that has not left yet.
+   *   held
+   *       Revenue that exists and is not yet eligible, with the date it becomes so. Excludes
+   *       cancelled events, which owe refunds rather than a payout.
+   *
+   * `net` can be negative when a period's refunds exceed its sales. That is a real balance owed
+   * back and is reported as it stands rather than clamped.
+   */
+  async summary(
+    user: RequestUser,
+    organizationId: string,
+    eventId?: string,
+  ): Promise<PayoutSummary> {
+    // The same membership rule as reading payouts and generating them. Check-in staff are not
+    // shown an organization's money.
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
+
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const scope = await this.settlementScope(tx, organizationId, eventId);
+      const [eligible, held, payouts] = await Promise.all([
+        this.settle(
+          tx,
+          organizationId,
+          eventId,
+          scope.settledUntil,
+          scope.eventSettled,
+          now,
+          scope.transferredEventIds,
+          scope.terms.holdDays,
+        ),
+        this.heldRevenue(
+          tx,
+          organizationId,
+          eventId,
+          now,
+          scope.transferredEventIds,
+          scope.terms.holdDays,
+        ),
+        tx.payout.findMany({
+          where: {
+            organizationId,
+            ...(eventId ? { OR: [{ eventId }, { eventId: null }] } : {}),
+            status: { in: [...STANDING_PAYOUT_STATUSES] },
+          },
+          select: { currency: true, netMinor: true, status: true },
+        }),
+      ]);
+
+      /*
+        Every currency any of the three sources mentions, so a currency that is only paid, or only
+        held, is not silently dropped from a finance screen.
+      */
+      const codes = new Set<string>([
+        ...eligible.map((e) => e.currency),
+        ...held.map((h) => h.currency.toUpperCase()),
+        ...payouts.map((p) => p.currency.toUpperCase()),
+      ]);
+
+      const currencies = [...codes].sort().map((currency) => {
+        const settlement = eligible.find((e) => e.currency === currency);
+        const mine = payouts.filter((p) => p.currency.toUpperCase() === currency);
+        const sumWhere = (match: (status: PayoutStatus) => boolean) =>
+          mine.filter((p) => match(p.status)).reduce((total, p) => total + p.netMinor, 0);
+        return {
+          currency,
+          gross: settlement?.gross ?? 0,
+          discount: settlement?.discount ?? 0,
+          bookingFee: settlement?.bookingFee ?? 0,
+          paymentFee: settlement?.paymentFee ?? 0,
+          organizerFee: settlement?.organizerFee ?? 0,
+          refund: settlement?.refund ?? 0,
+          net: settlement?.net ?? 0,
+          paid: sumWhere((status) => status === PayoutStatus.PAID),
+          pending: sumWhere(
+            (status) => status === PayoutStatus.PENDING || status === PayoutStatus.SCHEDULED,
+          ),
+          held: held
+            .filter((h) => h.currency.toUpperCase() === currency)
+            .reduce((total, h) => total + h.grossMinor, 0),
+        };
+      });
+
+      return {
+        organizationId,
+        eventId: eventId ?? null,
+        asOf: now.toISOString(),
+        holdDays: scope.terms.holdDays,
+        currencies,
+        heldRevenue: held.map((h) => ({
+          eventId: h.eventId,
+          eventTitle: h.eventTitle,
+          currency: h.currency.toUpperCase(),
+          grossMinor: h.grossMinor,
+          payableFrom: h.payableFrom.toISOString(),
+        })),
+      };
+    });
+  }
+
+  /**
+   * Where this organization's payout setup stands, as one state.
+   *
+   * The facts are read here and interpreted by `derivePayoutAccountState`, which is the only
+   * place that decides what a combination MEANS. The connect row is read directly rather than
+   * through the payments module: these are six raw columns, not a second derivation, and the
+   * interpretation they feed lives in exactly one function.
+   *
+   * Read only. Nothing about asking changes an account.
+   */
+  async accountState(
+    user: RequestUser,
+    organizationId: string,
+  ): Promise<PayoutAccountState & { organizationId: string }> {
+    await this.access.assertMember(user, organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
+
+    const [bankAccounts, connectRow] = await Promise.all([
+      this.prisma.organizerPayoutAccount.findMany({
+        where: { organizationId },
+        select: { currency: true, verifiedAt: true },
+      }),
+      this.prisma.organizerPaymentAccount.findFirst({
+        where: { organizationId },
+        select: {
+          providerAccountId: true,
+          onboardingStatus: true,
+          detailsSubmitted: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          requirementsDue: true,
+          disabledReason: true,
+        },
+      }),
+    ]);
+
+    const state = derivePayoutAccountState({
+      bankAccounts,
+      connect: connectRow
+        ? {
+            hasAccount: Boolean(connectRow.providerAccountId),
+            onboardingStatus: connectRow.onboardingStatus,
+            detailsSubmitted: connectRow.detailsSubmitted,
+            chargesEnabled: connectRow.chargesEnabled,
+            payoutsEnabled: connectRow.payoutsEnabled,
+            requirementsDue: connectRow.requirementsDue,
+            disabledReason: connectRow.disabledReason,
+          }
+        : null,
+    });
+    return { organizationId, ...state };
+  }
+
+  /**
    * The settlement run raising a payout with nobody at a keyboard.
    *
    * ── WHY IT SHARES EVERY LINE WITH THE MANUAL PATH ──────────────────────────────────
@@ -391,74 +715,9 @@ export class PayoutsService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payout-generate:${organizationId}`}))`;
       // Taken after the lock, so a generate that waited starts where the one before it stopped.
       const now = new Date();
-      const standing = await tx.payout.findMany({
-        where: {
-          organizationId,
-          status: { in: [...STANDING_PAYOUT_STATUSES] },
-          // An event's revenue is covered by its own payouts and by org-wide ones; org-wide
-          // revenue by every payout the organization has.
-          ...(eventId ? { OR: [{ eventId }, { eventId: null }] } : {}),
-        },
-        select: {
-          id: true,
-          currency: true,
-          status: true,
-          eventId: true,
-          periodEnd: true,
-          createdAt: true,
-        },
-      });
-
-      // Where each currency's settled revenue ends: the latest standing payout's period end.
-      // A payout from before periods were recorded summed everything up to the moment it was
-      // created, so its creation time is where it stopped.
-      const settledUntil = new Map<string, Date>();
-      const byEvent = new Map<string, EventSettled>();
-      for (const payout of standing) {
-        const end = payout.periodEnd ?? payout.createdAt;
-        if (!end) continue;
-        const currency = payout.currency.toUpperCase();
-        if (eventId || payout.eventId === null) {
-          const previous = settledUntil.get(currency);
-          if (!previous || end > previous) settledUntil.set(currency, end);
-        } else {
-          const key = `${payout.eventId}|${currency}`;
-          const previous = byEvent.get(key);
-          if (!previous || end > previous.until) {
-            byEvent.set(key, { eventId: payout.eventId, currency, until: end });
-          }
-        }
-      }
-      // An event payout that stopped before the last org-wide one is already inside its window.
-      const eventSettled = [...byEvent.values()].filter((s) => {
-        const orgWide = settledUntil.get(s.currency);
-        return !orgWide || s.until > orgWide;
-      });
-
-      /*
-        A period with neither revenue nor refunds produces no payout — a row of zeros is noise an
-        admin has to open to discover it means nothing. A period whose refunds exceed its revenue
-        DOES produce one, with a negative net: that is money to claw back from the organizer, and
-        dropping it would quietly forgive the deduction rather than recover it.
-      */
-      /*
-        Events whose money a provider transfer has already claimed. Read inside the same
-        transaction as the sums, so a release that lands mid-generate cannot slip past it.
-      */
-      const transferred = await tx.settlement.findMany({
-        where: {
-          organizationId,
-          ...(eventId ? { eventId } : {}),
-          status: { in: SETTLEMENT_CLAIMED_STATUSES as never[] },
-        },
-        select: { eventId: true },
-      });
-      const transferredEventIds = [...new Set(transferred.map((row) => row.eventId))];
-
-      // The terms this organization settles on, read inside the transaction so a change made
-      // while a generate is in flight cannot apply to half of it.
-      const terms = await this.settings.effectiveFor(organizationId, tx);
-
+      // Eligibility is four rules and both the writer and the read model must use the same four.
+      const { standing, settledUntil, eventSettled, transferredEventIds, terms } =
+        await this.settlementScope(tx, organizationId, eventId);
       const settlements = (
         await this.settle(
           tx,

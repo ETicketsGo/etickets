@@ -52,6 +52,45 @@ export class PayoutsController {
   }
 
   /**
+   * What this organization is owed, has been paid, and is waiting on.
+   *
+   * A GET, and observational by contract: it creates no payout, claims no revenue, changes no
+   * status and contacts no provider. It reuses the payout ledger's own eligibility rules and the
+   * one settlement calculation, so a finance screen and the payout it would raise cannot
+   * disagree. Figures are per currency and never combined.
+   */
+  @Get('summary')
+  @ApiOperation({ summary: "An organization's settlement position, per currency (read only)." })
+  summary(
+    @CurrentUser() user: RequestUser,
+    @Query(
+      new ZodValidationPipe(
+        z.object({ organizationId: z.string().cuid(), eventId: z.string().cuid().optional() }),
+      ),
+    )
+    q: { organizationId: string; eventId?: string },
+  ) {
+    return this.payouts.summary(user, q.organizationId, q.eventId);
+  }
+
+  /**
+   * Where this organization's payout setup stands, as one state rather than five booleans.
+   *
+   * The server decides what the facts mean, so every consumer - this console, mobile, admin -
+   * reads the same answer. `organizerActionRequired` is false whenever the wait is ETicketsGo's,
+   * and no action is ever offered alongside it.
+   */
+  @Get('account-state')
+  @ApiOperation({ summary: "An organization's payout account state (read only)." })
+  accountState(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ organizationId: z.string().cuid() })))
+    q: { organizationId: string },
+  ) {
+    return this.payouts.accountState(user, q.organizationId);
+  }
+
+  /**
    * The organizer's own bank details.
    *
    * Entered by the owner, shown back masked. The full number is never returned here - see
