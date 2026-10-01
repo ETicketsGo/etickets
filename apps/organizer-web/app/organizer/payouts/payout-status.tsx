@@ -116,7 +116,7 @@ function Journey({ step }: { step: number | null }) {
             aria-current={here ? 'step' : undefined}
             className={`rounded-full px-3 py-1 text-caption ${
               here
-                ? 'bg-action-primary text-text-inverse'
+                ? 'bg-action-primary text-action-primary-foreground'
                 : done
                   ? 'bg-tint-success text-status-success'
                   : 'bg-background-subtle text-text-muted'
