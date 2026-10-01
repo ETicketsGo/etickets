@@ -65,13 +65,29 @@ export interface PayoutAccountAction {
   href: string;
 }
 
+/**
+ * Whether money can reach the organizer, in the three values the domain actually has.
+ *
+ * ── WHY THIS IS NOT A BOOLEAN ──────────────────────────────────────────────────────
+ * It was `payoutsAffected: boolean`, and `VERIFIED` set it false - which a console can only read
+ * as "payouts are fine". But VERIFIED means a person checked the bank account; nothing has yet
+ * proved money can leave. The state's own description and its own flag contradicted each other,
+ * and the payout page duly told organizers their payouts were Available when no such thing was
+ * known. Waiting and blocked are different facts and a boolean cannot hold both.
+ *
+ * `salesAffected` stays a boolean deliberately: paid tickets either can be sold or they cannot.
+ * There is no state in which selling is "pending", so a third value would be symmetry for its own
+ * sake and would invite a meaningless middle.
+ */
+export type PayoutAvailability = 'AVAILABLE' | 'PENDING' | 'UNAVAILABLE';
+
 export interface PayoutAccountState {
   code: PayoutAccountStateCode;
   basis: PayoutAccountBasis;
   /** Whether PAID ticket sales are affected. Free events never are. */
   salesAffected: boolean;
   /** Whether money can currently leave to the organizer. */
-  payoutsAffected: boolean;
+  payouts: PayoutAvailability;
   /** Whether anybody is waiting on the ORGANIZER. False when the wait is ours. */
   organizerActionRequired: boolean;
   /** One sentence an organizer can act on, carrying no provider-internal text. */
@@ -149,7 +165,7 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
         code: PayoutAccountStateCode.ACTION_REQUIRED,
         basis: 'CONNECT',
         salesAffected: !connect.chargesEnabled,
-        payoutsAffected: !connect.payoutsEnabled,
+        payouts: connect.payoutsEnabled ? 'AVAILABLE' : 'UNAVAILABLE',
         organizerActionRequired: true,
         explanation:
           outstanding === 1
@@ -165,7 +181,7 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
         code: PayoutAccountStateCode.RESTRICTED,
         basis: 'CONNECT',
         salesAffected: !connect.chargesEnabled,
-        payoutsAffected: !connect.payoutsEnabled,
+        payouts: connect.payoutsEnabled ? 'AVAILABLE' : 'UNAVAILABLE',
         /*
           Nothing specific has been asked for, so there is nothing for the organizer to supply.
           Contacting us is a real action - a person here can read the provider's reason, which
@@ -184,7 +200,8 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
         code: PayoutAccountStateCode.DETAILS_REQUIRED,
         basis: 'CONNECT',
         salesAffected: !connect.chargesEnabled,
-        payoutsAffected: true,
+        // Blocked, not waiting: nothing progresses until the organizer finishes the details.
+        payouts: 'UNAVAILABLE',
         organizerActionRequired: true,
         explanation: 'Your payout details were started but not finished.',
         action: CONTINUE_ONBOARDING,
@@ -204,7 +221,7 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
         code: PayoutAccountStateCode.PAYOUTS_ENABLED,
         basis: 'CONNECT',
         salesAffected: !connect.chargesEnabled,
-        payoutsAffected: false,
+        payouts: 'AVAILABLE',
         organizerActionRequired: false,
         explanation: connect.chargesEnabled
           ? 'Your payout account is active.'
@@ -223,7 +240,8 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
       code: PayoutAccountStateCode.UNDER_REVIEW,
       basis: 'CONNECT',
       salesAffected: !connect.chargesEnabled,
-      payoutsAffected: true,
+      // Waiting on the provider, not blocked by anything anybody can supply.
+      payouts: 'PENDING',
       organizerActionRequired: false,
       explanation:
         'Your payment provider is still checking your details. No action is required from you right now.',
@@ -243,7 +261,8 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
         event cannot sell when it can, which is the more expensive error of the two.
       */
       salesAffected: false,
-      payoutsAffected: true,
+      // Nothing is in flight; there is nowhere to send money at all.
+      payouts: 'UNAVAILABLE',
       organizerActionRequired: true,
       explanation: 'We do not know where to send your money yet.',
       action: ADD_BANK,
@@ -262,7 +281,7 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
       code: PayoutAccountStateCode.UNDER_REVIEW,
       basis: 'BANK',
       salesAffected: false,
-      payoutsAffected: true,
+      payouts: 'PENDING',
       organizerActionRequired: false,
       explanation:
         'We have your bank details and are checking them. No action is required from you right now.',
@@ -281,9 +300,14 @@ export function derivePayoutAccountState(facts: PayoutAccountFacts): PayoutAccou
     code: PayoutAccountStateCode.VERIFIED,
     basis: 'BANK',
     salesAffected: false,
-    payoutsAffected: false,
+    /*
+      PENDING, not AVAILABLE. The organizer's half is done and the platform's is not yet proved:
+      whether the gateway can actually settle to this account is a fact nothing here establishes.
+      Saying AVAILABLE would promise money can move on the strength of a bank check alone.
+    */
+    payouts: 'PENDING',
     organizerActionRequired: false,
-    explanation: 'Your bank account is verified.',
+    explanation: 'Your bank account is verified. We are getting payouts ready.',
     action: null,
     outstandingRequirements: 0,
   };
