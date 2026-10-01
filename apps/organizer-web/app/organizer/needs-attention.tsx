@@ -15,7 +15,11 @@ import { api, Card } from '@eticketsgo/web-kit';
  *
  * Every item says what the gap COSTS rather than that it is required, because none of them
  * stops an organizer selling today and saying otherwise would be a lie the product tells.
- * The list is the same one the admin console reads, so the two never disagree.
+ *
+ * It reads the organizer ACTION list, which composes readiness with the operational checks the
+ * console used to make for itself. This surface shows the business and money gaps; Get started
+ * shows the things still to build. Two views, one list, one notion of done - they were three
+ * checklists and could disagree about the same question.
  *
  * It renders nothing at all when there is nothing to do. A permanent "all good" panel is a
  * thing people learn to scroll past, and then miss the day it says something.
@@ -36,12 +40,19 @@ const TONE = {
 
 export function NeedsAttention({ orgId }: { orgId: string }) {
   const { data } = useQuery({
-    queryKey: ['organizer', 'readiness', orgId],
-    queryFn: () => api.organizations.readiness(orgId),
+    queryKey: ['organizer', 'actions', orgId],
+    queryFn: () => api.organizations.actions(orgId),
     staleTime: 30_000,
   });
 
-  const items = data?.items ?? [];
+  /*
+    The gaps about the BUSINESS and its money. What an organizer still has to build is the Get
+    started list, from the same response - splitting them by category keeps each surface about one
+    question without either deciding completion for itself.
+  */
+  const items = (data?.actions ?? []).filter(
+    (a) => !a.done && (a.category === 'BUSINESS' || a.category === 'MONEY'),
+  );
   if (items.length === 0) return null;
 
   // Blocking first: "your money cannot be paid" outranks "add a profile picture".

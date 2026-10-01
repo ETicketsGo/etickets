@@ -102,6 +102,20 @@ export class OrganizationsController {
     return this.lifecycle.readiness(id);
   }
 
+  /**
+   * Everything this organizer still has to do, as one list.
+   *
+   * The dashboard, Get started and the setup card are filtered views of THIS - they were three
+   * independent checklists, two of them derived in the browser from different endpoints.
+   */
+  @Get(':id/actions')
+  @ApiOperation({ summary: 'One list of what this organizer still has to do.' })
+  async actions(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    // `get` asserts membership (and lets a platform admin through), exactly as readiness does.
+    await this.orgs.get(user, id);
+    return this.lifecycle.actions(id);
+  }
+
   @Post(':id/logo')
   @ApiOperation({ summary: 'Upload the organization profile picture (JPG, PNG or WebP, 1 MB).' })
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: ORG_LOGO_MAX_BYTES, files: 1 } }))
