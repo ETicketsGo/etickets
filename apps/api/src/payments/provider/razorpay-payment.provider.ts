@@ -19,6 +19,7 @@ import type {
   TransferResult,
   TransferReversalInput,
   ReversalOutcome,
+  TransferReversalState,
   WebhookEnvelope,
   WebhookInput,
 } from './payment-provider.interface';
@@ -328,6 +329,30 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     } catch (err) {
       return razorpayReversalFailure(err);
     }
+  }
+
+  /**
+   * What Razorpay says has been reversed on this transfer, in total.
+   *
+   * The authoritative figure, and the reason not knowing whether Route reversals are synchronous
+   * does not block us: `amount_reversed` is "Amount reversed from this transfer for refunds" and
+   * accumulates, while the transfer's own status distinguishes `partially_reversed` from
+   * `reversed`. An attempt stuck at UNKNOWN is resolved by reading this, never by asking for the
+   * reversal again.
+   */
+  async getTransferReversalState(transferId: string): Promise<TransferReversalState> {
+    const transfer = (await this.client.transfers.fetch(transferId)) as unknown as {
+      amount_reversed?: number;
+      status?: string;
+    };
+    const status = typeof transfer?.status === 'string' ? transfer.status : null;
+    return {
+      transferId,
+      amountReversedMinor:
+        typeof transfer?.amount_reversed === 'number' ? transfer.amount_reversed : 0,
+      fullyReversed: status === 'reversed',
+      providerStatusRaw: status,
+    };
   }
 
   /** Fetch a Linked Account and map its KYC/activation state to our snapshot. */

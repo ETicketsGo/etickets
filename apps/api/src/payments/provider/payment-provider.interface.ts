@@ -241,6 +241,22 @@ export type ReversalOutcome =
   | { kind: 'INDETERMINATE'; raw: unknown };
 
 /**
+ * How much of a transfer the provider says has come back, in total.
+ *
+ * Cumulative, not per-reversal: it is the figure both providers maintain on the transfer itself,
+ * and the only one either of them will stand behind.
+ */
+export interface TransferReversalState {
+  transferId: string;
+  /** Total reversed so far, across every reversal on this transfer. */
+  amountReversedMinor: number;
+  /** The provider considers the whole transfer reversed. */
+  fullyReversed: boolean;
+  /** The provider's own status word, unmapped, for diagnosis. */
+  providerStatusRaw: string | null;
+}
+
+/**
  * The provider contract. `createPayment`/`verifyWebhook`/`refund` and
  * `capabilities` are required; everything else is OPTIONAL and adapters implement
  * them as the provider supports them (advertised via `capabilities`). This keeps
@@ -291,6 +307,22 @@ export interface PaymentProvider {
   createTransfer?(input: TransferInput): Promise<TransferResult>;
   /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
   reverseTransfer?(input: TransferReversalInput): Promise<ReversalOutcome>;
+  /**
+   * What the provider says has been reversed on a transfer, in total.
+   *
+   * ── WHY THE TRANSFER AND NOT THE REVERSAL ───────────────────────────────
+   * Neither provider's REVERSAL entity carries a status, so neither can answer "did it work?"
+   * about itself. Both providers do carry a cumulative figure on the TRANSFER:
+   *
+   *   Stripe    Transfer.amount_reversed - "can be less than the amount attribute on the
+   *             transfer if a partial reversal was issued" - plus `reversed: boolean`
+   *   Razorpay  Transfer.amount_reversed - "Amount reversed from this transfer for refunds" -
+   *             plus status 'partially_reversed' | 'reversed'
+   *
+   * So the same question has the same authoritative answer at both providers, and it is a READ.
+   * This is how an attempt stuck at UNKNOWN is resolved: ask what was reversed, never reissue.
+   */
+  getTransferReversalState?(transferId: string): Promise<TransferReversalState>;
   /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */
   verifyCheckoutSignature?(input: CheckoutVerifyInput): boolean;
 }

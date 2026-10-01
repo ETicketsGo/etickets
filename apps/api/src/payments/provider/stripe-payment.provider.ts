@@ -22,6 +22,7 @@ import type {
   TransferResult,
   TransferReversalInput,
   ReversalOutcome,
+  TransferReversalState,
   WebhookEnvelope,
   WebhookInput,
 } from './payment-provider.interface';
@@ -420,6 +421,23 @@ export class StripePaymentProvider implements PaymentProvider {
     } catch (err) {
       return stripeReversalFailure(err);
     }
+  }
+
+  /**
+   * What Stripe says has been reversed on this transfer, in total.
+   *
+   * `amount_reversed` is documented as "can be less than the amount attribute on the transfer if
+   * a partial reversal was issued", so it is cumulative across every reversal - which is exactly
+   * what reconciliation needs and what no individual reversal object can report.
+   */
+  async getTransferReversalState(transferId: string): Promise<TransferReversalState> {
+    const transfer = await this.client.transfers.retrieve(transferId);
+    return {
+      transferId,
+      amountReversedMinor: transfer.amount_reversed,
+      fullyReversed: transfer.reversed,
+      providerStatusRaw: transfer.reversed ? 'reversed' : null,
+    };
   }
 
   private fromSession(session: Stripe.Checkout.Session, type: PaymentEvent['type']): PaymentEvent {
