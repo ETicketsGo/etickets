@@ -11,6 +11,7 @@ export * from './payment-routing-policy';
 export * from './finance-currency';
 export * from './finance-entry';
 export * from './finance-one-path';
+export * from './settlement-reversal';
 export * from './country';
 export * from './india-states';
 export * from './markets';
