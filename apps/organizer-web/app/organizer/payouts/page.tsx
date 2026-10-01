@@ -26,6 +26,7 @@ import {
   marketFor,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { connectWords, PLATFORM_SETTLEMENTS_OFF } from '@/lib/connect-onboarding-words';
 import { BankAccount } from './bank-account';
 import { PayoutStatus } from './payout-status';
 
@@ -312,10 +313,16 @@ function StripePayoutSetup({ orgId }: { orgId: string }) {
 
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
-            <dt className="text-caption text-text-muted">Onboarding status</dt>
-            <dd className="mt-1">
-              <StatusBadge status={status.onboardingStatus} />
+            <dt className="text-caption text-text-muted">Payout account</dt>
+            {/* Words, not the enum - the same change as the India card below. */}
+            <dd className="mt-1 text-[0.9375rem] text-text-primary">
+              {connectWords(status.onboardingStatus).label}
             </dd>
+            {connectWords(status.onboardingStatus).note && (
+              <dd className="mt-0.5 text-caption text-text-muted">
+                {connectWords(status.onboardingStatus).note}
+              </dd>
+            )}
           </div>
           <div>
             <dt className="text-caption text-text-muted">Account</dt>
@@ -423,29 +430,47 @@ function RazorpayPayoutSetup({ orgId }: { orgId: string }) {
       }
     >
       <div className="space-y-4">
+        {/*
+          Our configuration, said without making it the organizer's problem.
+
+          This read: "Razorpay Route is not yet enabled for this platform - payouts are held;
+          contact support to enable Route settlements." It named the provider and one of its
+          products, stated a setting of OUR platform, and then sent the organizer to support over
+          something only we can change - so the single action it offered was a wasted trip. It
+          also sat directly below a card built to never do any of that.
+        */}
         {!status.routeEnabled && (
           <div className="flex items-start gap-2 rounded-md border border-status-warning/30 bg-status-warning/8 px-4 py-3 text-sm text-status-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Razorpay Route is not yet enabled for this platform — payouts are held; contact
-              support to enable Route settlements.
-            </span>
+            <span>{PLATFORM_SETTLEMENTS_OFF}</span>
           </div>
         )}
 
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
-            <dt className="text-caption text-text-muted">Onboarding status</dt>
-            <dd className="mt-1">
-              <StatusBadge status={status.onboardingStatus} />
+            <dt className="text-caption text-text-muted">Payout account</dt>
+            {/*
+              Words, not the enum. This printed PENDING_VERIFICATION and RESTRICTED and REJECTED
+              as they are spelled in our database.
+            */}
+            <dd className="mt-1 text-[0.9375rem] text-text-primary">
+              {connectWords(status.onboardingStatus).label}
             </dd>
+            {connectWords(status.onboardingStatus).note && (
+              <dd className="mt-0.5 text-caption text-text-muted">
+                {connectWords(status.onboardingStatus).note}
+              </dd>
+            )}
           </div>
           <div>
             <dt className="text-caption text-text-muted">Account</dt>
+            {/*
+              No "Route" badge. Route is a capability of OUR platform account, not of theirs, so
+              showing it here invited an organizer to read our configuration as their own fault.
+            */}
             <dd className="mt-1 flex flex-wrap gap-2">
               <EnabledBadge label="Charges" on={status.chargesEnabled} />
               <EnabledBadge label="Payouts" on={status.payoutsEnabled} />
-              <EnabledBadge label="Route" on={status.routeEnabled} />
             </dd>
           </div>
         </dl>
