@@ -3656,6 +3656,25 @@ model Settlement {
   reserveMinor       Int                      @default(0)
   payableMinor       Int                      @default(0)
   transferredMinor   Int                      @default(0)
+  /// Total ever transferred OUT to the organizer, never decremented.
+  ///
+  /// ── WHY A SECOND NUMBER ───────────────────────────────────────────────────────
+  /// `transferredMinor` is mutated in both directions: a release adds to it, a reversal takes
+  /// from it. So once anything has come back, the amount originally sent is GONE, and there is
+  /// nothing left to reconcile a clawback against.
+  ///
+  /// This one only ever grows. With it, outstanding exposure is derivable rather than tracked
+  /// independently:
+  ///     transferredMinor == releasedMinor − Σ(confirmed reversals)
+  /// which is an invariant a test can assert. Without it, that equation has no left-hand side.
+  releasedMinor      Int                      @default(0)
+  /// When this settlement started keeping reversal attempts. Null means it predates the ledger.
+  ///
+  /// Historical rows are NOT backfilled. `Settlement.status` cannot say how many reversals
+  /// produced a PARTIALLY_REFUNDED, for how much, or whether any failed - and a number derived
+  /// from it would be a guess wearing the authority of a record. Unknown history stays visibly
+  /// unknown, and reconciliation skips these rows rather than failing on them.
+  reversalLedgerFrom DateTime?
   // Stripe transfer id (tr_...) once released, and the destination connected account.
   providerTransferId String?
   connectedAccountId String?
@@ -3667,7 +3686,8 @@ model Settlement {
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
-  payments Payment[]
+  payments         Payment[]
+  reversalAttempts SettlementReversalAttempt[]
 
   @@unique([eventId, currency])
   @@index([organizationId, status])
@@ -4426,4 +4446,111 @@ model GuestBookingAccess {
   @@index([bookingId])
   /// The expiry sweep's worklist.
   @@index([expiresAt])
+}
+
+/// How far a reversal attempt has got, as far as PROVIDER EVIDENCE can prove.
+///
+/// Five values, and the important one is UNKNOWN. A timeout is not a failure: the provider may
+/// have moved money while our response was lost. Recording that as COMPLETED or FAILED would
+/// manufacture financial certainty we do not have, so it gets a state of its own - and that state
+/// is deliberately NOT terminal, because it is a work item for reconciliation rather than a
+/// resting place.
+enum SettlementReversalStatus {
+  /// Written before the provider is called, so a crash mid-call still leaves a record.
+  REQUESTED
+  /// Provider accepted it; the outcome is not final yet.
+  PROCESSING
+  /// Provider confirmed the money came back. The ONLY state that may move money.
+  COMPLETED
+  /// Provider refused, authoritatively. Not a transport failure.
+  FAILED
+  /// We cannot prove either way. Never silently treated as FAILED or COMPLETED.
+  UNKNOWN
+}
+
+/// Why a reversal was asked for. Evidence for a later ownership decision, never the decision.
+enum ReversalReason {
+  REFUND
+  DISPUTE
+  /// A reversal we did not originate - raised in a provider dashboard, learned from a webhook.
+  ADJUSTMENT
+}
+
+/// One attempt to claw back money already transferred to an organizer.
+///
+/// ── WHY THIS TABLE EXISTS ────────────────────────────────────────────────────────────
+/// A reversal used to be an event inside a method call: no identity, no row, no state. So when
+/// it failed, the catch logged a line and returned normally - while the refund had ALREADY been
+/// accrued. The ledger said the money was deducted, the money was still with the organizer, and
+/// nothing in the database recorded that an attempt had been made. Reconciliation could not find
+/// it because there was nothing to find.
+///
+/// A reversal is a record, not a side effect. Each row is immutable except along its own
+/// lifecycle, and a retry is a NEW row pointing at the one it supersedes - so evidence is never
+/// overwritten and the history of an argument with a provider stays readable.
+///
+/// Nothing writes to this table yet. Schema and constraints only.
+model SettlementReversalAttempt {
+  id           String     @id @default(cuid())
+  settlementId String
+  settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  /// ── WHY ─────────────────────────────────────────────────────────────────────────
+  reason    ReversalReason
+  /// The Refund or Dispute that caused it. Plain ids, NOT foreign keys: a reversal is evidence
+  /// about money movement and must stay readable even if its cause is later reorganised.
+  refundId  String?
+  disputeId String?
+
+  /// ── WHAT WE ASKED FOR. Immutable. ───────────────────────────────────────────────
+  requestedMinor Int
+  currency       String
+  /// Captured at request time rather than read from the settlement later, which can change.
+  provider       String
+
+  /// ── WHAT WE CAN PROVE ───────────────────────────────────────────────────────────
+  status             SettlementReversalStatus @default(REQUESTED)
+  /// What the provider confirmed came back. Zero until status is COMPLETED - that is the
+  /// invariant that makes an optimistic decrement impossible to express.
+  confirmedMinor     Int                      @default(0)
+  providerReversalId String?
+  /// The provider's own status string, unmapped. Diagnosis, never organizer copy.
+  providerStatusRaw  String?
+  /// The synchronous call's answer, kept apart from what arrived later: a disagreement between
+  /// the two is exactly what reconciliation hunts for, and merging them destroys the signal.
+  syncResponse       Json?
+  /// What webhooks and reconciliation added afterwards.
+  evidence           Json?
+  lastError          String?
+
+  /// ── IDEMPOTENCY AND RETRY, WHICH ARE NOT THE SAME THING ─────────────────────────
+  /// Derived from the CAUSE, so every retry of one logical operation sends the same key and the
+  /// provider dedupes it. A DELIBERATE new attempt carries a different key, which is why this
+  /// being unique does not prevent supersession - see `supersedesId`.
+  idempotencyKey String                     @unique
+  /// Which attempt this one replaces. The superseded row keeps its own evidence.
+  supersedesId   String?                    @unique
+  supersedes     SettlementReversalAttempt? @relation("ReversalSupersession", fields: [supersedesId], references: [id])
+  supersededBy   SettlementReversalAttempt? @relation("ReversalSupersession")
+
+  /// ── TIMELINE ────────────────────────────────────────────────────────────────────
+  requestedAt      DateTime  @default(now())
+  respondedAt      DateTime?
+  /// Set when a terminal state is reached. Null for REQUESTED, PROCESSING and UNKNOWN.
+  settledAt        DateTime?
+  lastReconciledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One row per provider operation, so the same reversal cannot be counted twice whatever
+  /// arrives and in whatever order. Postgres does not collide NULLs in a unique index, so any
+  /// number of attempts may sit at REQUESTED without a provider id yet.
+  @@unique([provider, providerReversalId])
+  @@index([settlementId, status])
+  /// Serves the reconciliation sweeps for stale REQUESTED / PROCESSING / UNKNOWN.
+  @@index([status, requestedAt])
+  @@index([providerReversalId])
+  @@index([refundId])
+  @@index([disputeId])
 }
