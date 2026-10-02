@@ -92,6 +92,21 @@ export interface FinanceFeeLine {
   /** Stable key for grouping and translation. Never shown raw. */
   key: 'BOOKING' | 'PAYMENT_PROCESSING' | 'PLATFORM' | 'PLATFORM_COMBINED';
   amountMinor: number;
+  /**
+   * Whether this line was taken OUT of `organizerNetMinor`, or is merely reported.
+   *
+   * ── WHY A FEE LINE HAS TO SAY THIS ─────────────────────────────────────────────────
+   * On the platform path they are not all the same. `organizerFeeMinor` is deducted;
+   * `bookingFeeMinor` and `paymentFeeMinor` are REPORTED and deliberately not deducted, because
+   * `subtotalMinor` is already the ticket value net to the organizer and the customer bears those
+   * two on top. See `currency-settlement.calculator.ts`.
+   *
+   * Without this field a consumer has every reason to sum the lines and subtract them from gross,
+   * which understates what the organizer is owed by exactly the customer-borne fees - a wrong
+   * number that looks entirely plausible. The key alone implies it today, and relying on that is
+   * the same invisible convention `attribution` just replaced.
+   */
+  deducted: boolean;
 }
 
 /**

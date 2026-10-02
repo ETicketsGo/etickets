@@ -171,3 +171,49 @@ describe('the one-path check reads the claim instead of guessing it', () => {
     expect(provesOnePath(entries)).toBe(true);
   });
 });
+
+/*
+  ── A FEE LINE MUST SAY WHETHER IT WAS TAKEN OUT ──────────────────────────────────────
+  The platform path does not treat its fees alike: organizerFee is deducted from net, while
+  bookingFee and paymentFee are reported and deliberately not deducted - the customer bears those
+  on top. A consumer summing the lines and subtracting from gross would understate what the
+  organizer is owed by exactly the customer-borne fees, and the total would look plausible.
+*/
+describe('fee lines carry their own deduction semantics', () => {
+  const withFees = (fees: FinanceEntry['money']['fees']): FinanceEntry =>
+    entry({
+      attribution: 'AUTHORITATIVE',
+      eventId: 'e1',
+      money: { organizerNetMinor: 10_000, fees },
+    });
+
+  it('lets a deducted fee and a reported fee sit in the same list', () => {
+    const e = withFees([
+      { key: 'PLATFORM', amountMinor: 1_000, deducted: true },
+      { key: 'BOOKING', amountMinor: 300, deducted: false },
+      { key: 'PAYMENT_PROCESSING', amountMinor: 200, deducted: false },
+    ]);
+    const fees = e.money.fees!;
+    // Only one of the three came out of the organizer's money.
+    expect(fees.filter((f) => f.deducted).map((f) => f.key)).toEqual(['PLATFORM']);
+    expect(fees.filter((f) => !f.deducted).map((f) => f.key)).toEqual([
+      'BOOKING',
+      'PAYMENT_PROCESSING',
+    ]);
+  });
+
+  it('makes the deducted subtotal computable without knowing the keys', () => {
+    /*
+      The point of the flag. A consumer can reconcile gross to net using only `deducted`, with no
+      hardcoded list of which keys happen to be customer-borne this quarter.
+    */
+    const e = withFees([
+      { key: 'PLATFORM', amountMinor: 1_000, deducted: true },
+      { key: 'BOOKING', amountMinor: 5_000, deducted: false },
+    ]);
+    const takenOut = e.money.fees!.reduce((t, f) => t + (f.deducted ? f.amountMinor : 0), 0);
+    expect(takenOut).toBe(1_000);
+    // Summing every line instead would have claimed 6 000 came out of a 10 000 net.
+    expect(e.money.fees!.reduce((t, f) => t + f.amountMinor, 0)).toBe(6_000);
+  });
+});
