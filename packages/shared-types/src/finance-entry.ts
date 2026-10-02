@@ -27,6 +27,40 @@ import type { CURRENCY_WILDCARD } from './finance-currency';
 export type FinanceSourceType = 'PAYOUT' | 'SETTLEMENT';
 
 /**
+ * How well this entry's EVENT attribution is known. Says nothing about its amount.
+ *
+ * ── WHY THIS IS A FIELD AND NOT A RULE ABOUT OTHER FIELDS ──────────────────────────
+ * The distinction already existed, encoded across two fields: `eventId` set, or
+ * `coveredEventIds` present, meant proven; both absent meant a payout that predates allocations
+ * and whose membership nobody knows. That rule was correct and completely invisible. A producer
+ * could emit an entry with no events for the wrong reason and nothing would notice, and every
+ * consumer had to re-derive the convention to read it.
+ *
+ * So the entry states it. An amount can be authoritative while its attribution is not - that is
+ * the normal condition of a legacy payout, and the whole reason this type exists.
+ *
+ * NOT_APPLICABLE was considered and deliberately left out: nothing in either path can currently
+ * produce a financial entry that is genuinely not about events, and a state with no producer is
+ * a state nobody tests. Add it when something emits it.
+ */
+export type FinanceAttribution =
+  /**
+   * The events are proven. Either the source names one, or its allocations do.
+   *
+   * An AUTHORITATIVE entry with an EMPTY `coveredEventIds` is a real and different claim: the
+   * allocations were read and they cover no events. Not the same as nobody having looked.
+   */
+  | 'AUTHORITATIVE'
+  /**
+   * The source predates allocations. Its AMOUNT is authoritative; its event membership is not.
+   *
+   * Never to be read as "covers nothing". A legacy period payout may well cover the event
+   * somebody is about to release, and treating absence of evidence as evidence of absence is
+   * what would pay that revenue twice.
+   */
+  | 'UNKNOWN_LEGACY';
+
+/**
  * The organizer-facing lifecycle, normalized across two enums that stay in persistence.
  *
  * `PayoutStatus` has 4 values and `SettlementStatus` has 10. They are NOT merged into a shared
@@ -100,6 +134,13 @@ export interface FinanceEntry {
   organizationId: string;
   /** ISO-4217, upper case. Folded by `readCurrency`; never the wildcard. */
   currency: Exclude<string, typeof CURRENCY_WILDCARD>;
+  /**
+   * Whether the event attribution below can be relied on.
+   *
+   * Required, so a producer has to make the claim rather than leave it to be inferred from what
+   * it happened to omit.
+   */
+  attribution: FinanceAttribution;
   /** The event, when the entry is about one. Null for a period payout spanning many. */
   eventId: string | null;
   /**
@@ -121,6 +162,53 @@ export interface FinanceEntry {
   periodStart: string | null;
   periodEnd: string | null;
   money: FinanceMoney;
+}
+
+/**
+ * Why this entry's attribution and its events disagree, or null when they are consistent.
+ *
+ * ── WHY A CHECK AND NOT JUST A TYPE ────────────────────────────────────────────────
+ * TypeScript can require the field. It cannot require that `UNKNOWN_LEGACY` comes with no events
+ * - that is a relationship between three fields, and the combinations it forbids are exactly the
+ * ones that would be dangerous:
+ *
+ *   UNKNOWN_LEGACY naming events        claims proof it does not have
+ *   AUTHORITATIVE naming nothing        indistinguishable from legacy, which is the collapse
+ *                                       this whole distinction exists to prevent
+ *
+ * Returns a sentence rather than a boolean so a producer's test failure says what is wrong.
+ */
+export function financeAttributionError(entry: FinanceEntry): string | null {
+  const names = entry.eventId !== null;
+  const covers = entry.coveredEventIds !== undefined;
+
+  if (entry.attribution === 'UNKNOWN_LEGACY') {
+    if (names) return 'UNKNOWN_LEGACY entry names an eventId, which claims proof it does not have';
+    if (covers) {
+      return 'UNKNOWN_LEGACY entry carries coveredEventIds, which claims proof it does not have';
+    }
+    return null;
+  }
+
+  // AUTHORITATIVE
+  if (!names && !covers) {
+    return 'AUTHORITATIVE entry proves no events: it is indistinguishable from UNKNOWN_LEGACY';
+  }
+  if (names && covers) {
+    /*
+      Both would be two answers to one question, and a reader has no basis for choosing. An
+      event-scoped source names its event; a period source lists what its allocations proved.
+    */
+    return 'entry sets both eventId and coveredEventIds, so its attribution has two answers';
+  }
+  return null;
+}
+
+/** Every event this entry authoritatively claims. Empty when attribution is not authoritative. */
+export function financeClaimedEvents(entry: FinanceEntry): readonly string[] {
+  if (entry.attribution !== 'AUTHORITATIVE') return [];
+  if (entry.eventId !== null) return [entry.eventId];
+  return entry.coveredEventIds ?? [];
 }
 
 const PAYOUT_STATES: Record<string, FinanceState> = {

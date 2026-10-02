@@ -2,18 +2,30 @@ import { describe, it, expect } from 'vitest';
 import { onePathViolations, onePathReport, holdsOnePath, provesOnePath } from './finance-one-path';
 import type { FinanceEntry, FinanceSourceType } from './finance-entry';
 
-const entry = (over: Partial<FinanceEntry> & { sourceType: FinanceSourceType }): FinanceEntry => ({
-  sourceId: `${over.sourceType}-${Math.random().toString(36).slice(2, 8)}`,
-  sourceStatus: over.sourceType === 'PAYOUT' ? 'PAID' : 'TRANSFERRED',
-  state: 'PAID',
-  organizationId: 'org1',
-  currency: 'INR',
-  eventId: 'e1',
-  periodStart: null,
-  periodEnd: null,
-  money: { organizerNetMinor: 10_000 },
-  ...over,
-});
+/**
+ * `attribution` is defaulted from the event fields so every test written before it existed keeps
+ * exactly the meaning it had: naming an event, or listing covered ones, is AUTHORITATIVE; naming
+ * neither is the legacy case. Tests that care state it explicitly.
+ */
+const entry = (over: Partial<FinanceEntry> & { sourceType: FinanceSourceType }): FinanceEntry => {
+  const base = {
+    sourceId: `${over.sourceType}-${Math.random().toString(36).slice(2, 8)}`,
+    sourceStatus: over.sourceType === 'PAYOUT' ? 'PAID' : 'TRANSFERRED',
+    state: 'PAID' as const,
+    organizationId: 'org1',
+    currency: 'INR',
+    eventId: 'e1' as string | null,
+    periodStart: null,
+    periodEnd: null,
+    money: { organizerNetMinor: 10_000 },
+    ...over,
+  };
+  const proven = base.eventId !== null || base.coveredEventIds !== undefined;
+  return {
+    attribution: proven ? 'AUTHORITATIVE' : 'UNKNOWN_LEGACY',
+    ...base,
+  } as FinanceEntry;
+};
 
 describe('the one-path invariant', () => {
   it('holds when each event is claimed by one path only', () => {
