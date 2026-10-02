@@ -12,6 +12,11 @@ import {
   calculateCurrencySettlement,
   type CurrencySettlement,
 } from './currency-settlement.calculator';
+import {
+  allocateCurrencySettlement,
+  allocatedNet,
+  type AllocationDraft,
+} from './payout-allocation';
 
 /*
   Re-exported from here because this is where it has always been imported from. The definition
@@ -141,6 +146,19 @@ export const SETTLEMENT_CLAIMED_STATUSES = [
   'PARTIALLY_REFUNDED',
   'REVERSED',
 ];
+
+/**
+ * What one settlement pass produced: the money, and which bookings it is made of.
+ *
+ * Returned together deliberately. If a caller could obtain the totals without the allocations it
+ * would be able to write a payout with no explanation, which is the state this work exists to
+ * end.
+ */
+interface SettleResult {
+  settlements: CurrencySettlement[];
+  /** Keyed by the payout currency, case already folded as the calculator folds it. */
+  allocations: Map<string, AllocationDraft[]>;
+}
 
 /** Everything `payableBookingWhere` needs, so the predicate has one definition. */
 export interface PayableBookingScope {
@@ -379,7 +397,7 @@ export class PayoutsService {
     /** Events whose money a provider transfer has already claimed. See the constant. */
     transferredEventIds: string[],
     holdDays: number,
-  ): Promise<CurrencySettlement[]> {
+  ): Promise<SettleResult> {
     const settledCurrencies = [...settledUntil.keys()];
     const bookingWindows: Prisma.BookingWhereInput[] = [
       ...[...settledUntil].map(([currency, after]) => ({
@@ -405,8 +423,20 @@ export class PayoutsService {
     ];
 
     const [paid, refunds] = await Promise.all([
-      client.booking.groupBy({
-        by: ['currency'],
+      /*
+        Read booking by booking, NOT as a database aggregate.
+
+        The sums used to come back from `groupBy`, which was cheaper and told us nothing about
+        WHICH bookings produced them - so a payout could not be explained afterwards. Allocations
+        need those rows, and the tempting way to get them is a second query. That would be two
+        expressions of one eligibility rule, and two expressions of one rule eventually disagree:
+        somebody is paid for a booking the totals never counted.
+
+        So there is one query, `payableBookingWhere`, and both the totals and the allocations are
+        derived from its result. Proven equivalent to the aggregate it replaces in
+        `booking-level-equivalence.integration-postgres.spec.ts` before this change was made.
+      */
+      client.booking.findMany({
         where: payableBookingWhere({
           organizationId,
           eventId,
@@ -415,7 +445,10 @@ export class PayoutsService {
           bookingWindows,
           eventSettled,
         }),
-        _sum: {
+        select: {
+          id: true,
+          eventId: true,
+          currency: true,
           subtotalMinor: true,
           discountMinor: true,
           bookingFeeMinor: true,
@@ -463,32 +496,37 @@ export class PayoutsService {
         select: {
           amountMinor: true,
           taxAddedMinor: true,
-          booking: { select: { currency: true } },
+          /*
+            The booking's id and event, not only its currency: a refund has to be attributable to
+            the booking it returns, or the allocation sum cannot account for it. Note the refund
+            window is NOT the booking window - refunds are selected on `updatedAt` and revenue on
+            `confirmedAt` - so this booking may legitimately be absent from `paid` above, and is
+            then allocated as a pure clawback.
+          */
+          booking: { select: { id: true, eventId: true, currency: true } },
         },
       }),
     ]);
 
     /*
-      The queries above decided WHICH rows settle; the sum is `calculateCurrencySettlement`.
-      Prisma's `_sum` shape is flattened here rather than inside the calculator, so the calculator
-      owes nothing to the ORM and the same function serves a read-only finance summary.
+      The queries above decided WHICH rows settle; the arithmetic is `calculateCurrencySettlement`
+      and the split is `allocateCurrencySettlement`. Both are given THE SAME rows, which is the
+      only reason the allocation sum can be trusted to equal the payout - it is not a second
+      derivation that happens to agree, it is the same numbers added up two ways.
     */
-    return calculateCurrencySettlement({
-      revenue: paid.map((row) => ({
-        currency: row.currency,
-        subtotalMinor: row._sum.subtotalMinor ?? 0,
-        discountMinor: row._sum.discountMinor ?? 0,
-        bookingFeeMinor: row._sum.bookingFeeMinor ?? 0,
-        paymentFeeMinor: row._sum.paymentFeeMinor ?? 0,
-        organizerFeeMinor: row._sum.organizerFeeMinor ?? 0,
-      })),
-      // A refund has no currency of its own; it is in the currency of the booking it returns.
-      refunds: refunds.map((row) => ({
-        currency: row.booking.currency,
-        amountMinor: row.amountMinor,
-        taxAddedMinor: row.taxAddedMinor ?? 0,
-      })),
-    });
+    // A refund has no currency of its own; it is in the currency of the booking it returns.
+    const refundRows = refunds.map((row) => ({
+      bookingId: row.booking.id,
+      eventId: row.booking.eventId,
+      currency: row.booking.currency,
+      amountMinor: row.amountMinor,
+      taxAddedMinor: row.taxAddedMinor ?? 0,
+    }));
+
+    return {
+      settlements: calculateCurrencySettlement({ revenue: paid, refunds: refundRows }),
+      allocations: allocateCurrencySettlement({ bookings: paid, refunds: refundRows }),
+    };
   }
 
   /**
@@ -621,6 +659,7 @@ export class PayoutsService {
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.settlementScope(tx, organizationId, eventId);
       const [eligible, held, payouts] = await Promise.all([
+        // The summary reads money; allocations are only written when a payout is.
         this.settle(
           tx,
           organizationId,
@@ -630,7 +669,7 @@ export class PayoutsService {
           now,
           scope.transferredEventIds,
           scope.terms.holdDays,
-        ),
+        ).then((result) => result.settlements),
         this.heldRevenue(
           tx,
           organizationId,
@@ -800,18 +839,18 @@ export class PayoutsService {
       // Eligibility is four rules and both the writer and the read model must use the same four.
       const { standing, settledUntil, eventSettled, transferredEventIds, terms } =
         await this.settlementScope(tx, organizationId, eventId);
-      const settlements = (
-        await this.settle(
-          tx,
-          organizationId,
-          eventId,
-          settledUntil,
-          eventSettled,
-          now,
-          transferredEventIds,
-          terms.holdDays,
-        )
-      ).filter((s) => s.gross !== 0 || s.refund !== 0);
+      const settled = await this.settle(
+        tx,
+        organizationId,
+        eventId,
+        settledUntil,
+        eventSettled,
+        now,
+        transferredEventIds,
+        terms.holdDays,
+      );
+      const { allocations } = settled;
+      const settlements = settled.settlements.filter((s) => s.gross !== 0 || s.refund !== 0);
       if (settlements.length === 0) {
         /*
           "No new revenue" is the wrong answer when there IS revenue and it is simply not due
@@ -896,6 +935,34 @@ export class PayoutsService {
       const rows = [];
       for (const s of due) {
         const periodStart = settledUntil.get(s.currency) ?? null;
+
+        /*
+          ── THE GATE ────────────────────────────────────────────────────────────────────
+          The allocations must account for the payout EXACTLY. Integer minor units on both
+          sides, so there is nothing to round and no tolerance to justify.
+
+          A mismatch means our own ledger disagreed with itself. The only safe response is to
+          write nothing: a payout whose explanation does not add up is worse than one with no
+          explanation, because it looks like evidence. The throw rolls the transaction back, so
+          neither the payout nor its allocations survive.
+        */
+        const drafts = allocations.get(s.currency) ?? [];
+        const allocated = allocatedNet(drafts);
+        if (allocated !== s.net) {
+          throw new AppException(
+            ErrorCodes.PAYOUT_ALLOCATION_MISMATCH,
+            'This payout could not be explained by the bookings it was built from, so it was not created.',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            {
+              organizationId,
+              currency: s.currency,
+              netMinor: s.net,
+              allocatedNetMinor: allocated,
+              allocationCount: drafts.length,
+            },
+          );
+        }
+
         const payout = await tx.payout.create({
           data: {
             organizationId,
@@ -915,8 +982,33 @@ export class PayoutsService {
             */
             status: run.scheduledFor ? PayoutStatus.SCHEDULED : PayoutStatus.PENDING,
             scheduledAt: run.scheduledFor,
+            /*
+              Stamped as this payout is written, which is what separates "no allocations because
+              it predates them" from "no allocations because something went wrong". Never read the
+              absence of allocations as proof that no payout covers an event.
+            */
+            allocatedFrom: now,
           },
         });
+
+        // Same transaction as the payout: there is no state where one exists without the other.
+        if (drafts.length > 0) {
+          await tx.payoutAllocation.createMany({
+            data: drafts.map((draft: AllocationDraft) => ({
+              payoutId: payout.id,
+              bookingId: draft.bookingId,
+              eventId: draft.eventId,
+              currency: draft.currency,
+              allocatedNetMinor: draft.allocatedNetMinor,
+              subtotalMinor: draft.subtotalMinor,
+              discountMinor: draft.discountMinor,
+              organizerFeeMinor: draft.organizerFeeMinor,
+              refundShareMinor: draft.refundShareMinor,
+              bookingFeeMinor: draft.bookingFeeMinor,
+              paymentFeeMinor: draft.paymentFeeMinor,
+            })),
+          });
+        }
         rows.push({ payout, settlement: s, periodStart, periodEnd: now });
       }
       return rows;

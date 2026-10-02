@@ -88,8 +88,12 @@ export interface CurrencySettlementInput {
  *
  * Clamped at zero: a refund recorded as more tax than money is a data fault, and letting it go
  * negative would quietly ADD to the organizer's proceeds.
+ *
+ * Exported because allocations have to attribute this SAME share to the individual booking a
+ * refund returns. A second copy of the clamp would be a second rounding rule, and the allocation
+ * sum would stop matching the payout it is supposed to explain.
  */
-function organizerShareOfRefund(row: SettlementRefundRow): number {
+export function organizerShareOfRefund(row: SettlementRefundRow): number {
   return Math.max(0, row.amountMinor - (row.taxAddedMinor ?? 0));
 }
 

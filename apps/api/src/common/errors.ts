@@ -78,6 +78,15 @@ export const ErrorCodes = {
   SMS_UNDELIVERABLE: 'SMS_UNDELIVERABLE',
   /** Text messaging is not working right now. Says nothing about which provider or why. */
   SMS_UNAVAILABLE: 'SMS_UNAVAILABLE',
+  /**
+   * A payout's allocations did not add up to the payout. Our own ledger disagreed with itself,
+   * so no payout was written.
+   *
+   * Deliberately its own code rather than INTERNAL: it means something specific and it leads
+   * somewhere specific - stop the payout run and reconcile - which a generic internal error
+   * does not. It is never the caller's fault and never retryable by them.
+   */
+  PAYOUT_ALLOCATION_MISMATCH: 'PAYOUT_ALLOCATION_MISMATCH',
   MAINTENANCE_MODE: 'MAINTENANCE_MODE',
   INTERNAL: 'INTERNAL',
 } as const;
