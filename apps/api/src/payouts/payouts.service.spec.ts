@@ -6,14 +6,24 @@ import type { RequestUser } from '../common/decorators';
 
 const user = { id: 'u1', roles: [] } as never;
 
+/**
+ * One eligible booking as the generator now reads it.
+ *
+ * It used to be a pre-summed `_sum` group, because the database did the adding. The generator
+ * reads bookings individually so it can record WHICH ones a payout is made of, so the fixture
+ * has to be a booking - a mock still answering the old shape would be describing a service that
+ * no longer exists.
+ */
+let paidSeq = 0;
 const paidRow = (currency: string, subtotal: number, organizerFee = 0) => ({
+  id: `bk${++paidSeq}`,
+  eventId: 'e1',
   currency,
-  _sum: {
-    subtotalMinor: subtotal,
-    bookingFeeMinor: 100,
-    paymentFeeMinor: 50,
-    organizerFeeMinor: organizerFee,
-  },
+  subtotalMinor: subtotal,
+  discountMinor: 0,
+  bookingFeeMinor: 100,
+  paymentFeeMinor: 50,
+  organizerFeeMinor: organizerFee,
 });
 
 /** A standing payout as the cursor query selects it. */
@@ -44,14 +54,22 @@ function makeService(
     // the "why is nothing due" path. Empty is the ordinary case: no transfers, nothing held.
     settlement: { findMany: jest.fn().mockResolvedValue([]) },
     event: { findMany: jest.fn().mockResolvedValue([]) },
-    booking: { groupBy: jest.fn().mockResolvedValue(paid) },
-    refund: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue(
-          refunds.map((r) => ({ amountMinor: r.amountMinor, booking: { currency: r.currency } })),
-        ),
+    booking: {
+      // `findMany` is the generator's path; `groupBy` still serves the "what is held" query.
+      findMany: jest.fn().mockResolvedValue(paid),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
+    refund: {
+      findMany: jest.fn().mockResolvedValue(
+        refunds.map((r, i) => ({
+          amountMinor: r.amountMinor,
+          taxAddedMinor: 0,
+          // A refund has to name the booking it returns, or it cannot be attributed.
+          booking: { id: `rbk${i + 1}`, eventId: 'e1', currency: r.currency },
+        })),
+      ),
+    },
+    payoutAllocation: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
     payout: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -168,6 +186,8 @@ describe('PayoutsService.generate — one payout per currency', () => {
 describe('PayoutsService.generate — only money the platform actually took', () => {
   const bookings = [
     {
+      id: 'bk-online',
+      eventId: 'e1',
       currency: 'INR',
       paymentMethod: 'ONLINE',
       subtotalMinor: 100_000,
@@ -177,6 +197,8 @@ describe('PayoutsService.generate — only money the platform actually took', ()
       organizerFeeMinor: 1_000,
     },
     {
+      id: 'bk-cash',
+      eventId: 'e1',
       currency: 'INR',
       paymentMethod: 'CASH',
       subtotalMinor: 40_000,
@@ -186,7 +208,11 @@ describe('PayoutsService.generate — only money the platform actually took', ()
       organizerFeeMinor: 0,
     },
   ];
-  /** A groupBy over the rows above that honours the filter it is given. */
+  /** The booking-level read the generator uses, honouring the filter it is given. */
+  const findMany = jest.fn(async ({ where }: { where: { paymentMethod?: string } }) =>
+    bookings.filter((b) => !where.paymentMethod || b.paymentMethod === where.paymentMethod),
+  );
+  /** Still reached by the "what revenue is held" query, which does sum in the database. */
   const groupBy = jest.fn(
     async ({ where, _sum }: { where: { paymentMethod?: string }; _sum: Record<string, true> }) => {
       const rows = bookings.filter(
@@ -206,6 +232,7 @@ describe('PayoutsService.generate — only money the platform actually took', ()
 
   it('settles online bookings at what the customer paid for the tickets', async () => {
     const { service, prisma } = makeService();
+    prisma.booking.findMany = findMany;
     prisma.booking.groupBy = groupBy;
     await service.generate(user, 'o1');
     expect(prisma.payout.create.mock.calls[0][0].data).toMatchObject({
@@ -217,13 +244,14 @@ describe('PayoutsService.generate — only money the platform actually took', ()
   });
 
   it('refuses a check-in staff member, who may not read or raise payouts', async () => {
+    findMany.mockClear();
     groupBy.mockClear();
     const { service, prisma } = makeServiceWithAccess({
       status: 'ACTIVE',
       role: Role.CHECKIN_STAFF,
     });
     Object.assign(prisma, {
-      booking: { groupBy },
+      booking: { findMany, groupBy },
       refund: { findMany: jest.fn().mockResolvedValue([]) },
       settlement: { findMany: jest.fn().mockResolvedValue([]) },
       event: { findMany: jest.fn().mockResolvedValue([]) },
@@ -231,6 +259,8 @@ describe('PayoutsService.generate — only money the platform actually took', ()
     await expect(service.generate(asUser(), 'org-1')).rejects.toMatchObject({
       code: ErrorCodes.TENANT_FORBIDDEN,
     });
+    // The money was never even read: refusal comes before any query.
+    expect(findMany).not.toHaveBeenCalled();
     expect(groupBy).not.toHaveBeenCalled();
   });
 });
@@ -298,6 +328,7 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
     const refunds: Row[] = [];
     const payouts: Row[] = [];
     const settlements: Row[] = [];
+    const allocations: Row[] = [];
     const prisma = withTransaction({
       settlement: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
@@ -311,8 +342,16 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       },
       booking: {
         /*
-          Grouped by whatever `by` asks for, because `generate` sums per currency and the
-          "what is held" query sums per event AND currency.
+          The generator's path: it reads the eligible bookings themselves, so it can record
+          which ones each payout is made of. The filter is the service's own
+          `payableBookingWhere`, honoured here rather than reimplemented.
+        */
+        findMany: jest.fn(async ({ where }: { where: Row }) =>
+          bookings.filter((row) => matches(row, where)),
+        ),
+        /*
+          Grouped by whatever `by` asks for, still used by the "what revenue is held" query,
+          which only needs totals.
         */
         groupBy: jest.fn(
           async ({ where, by, _sum }: { where: Row; by: string[]; _sum: Record<string, true> }) => {
@@ -337,9 +376,24 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
             .map((row) => ({
               amountMinor: row.amountMinor,
               taxAddedMinor: row.taxAddedMinor ?? 0,
-              booking: { currency: (row.booking as Row).currency },
+              booking: {
+                id: (row.booking as Row).id,
+                eventId: (row.booking as Row).eventId,
+                currency: (row.booking as Row).currency,
+              },
             })),
         ),
+      },
+      /*
+        Recorded so the tests below can assert what a payout was actually explained BY, not
+        only what it came to. A mock that silently swallowed allocations would let the gate
+        pass while nothing was written.
+      */
+      payoutAllocation: {
+        createMany: jest.fn(async ({ data }: { data: Row[] }) => {
+          allocations.push(...data);
+          return { count: data.length };
+        }),
       },
       payout: {
         findMany: jest.fn(async ({ where }: { where: Row }) =>
@@ -392,6 +446,8 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
 
     const book = (currency: string, subtotalMinor: number, confirmedAt: string, eventId = 'e1') => {
       const booking = {
+        // Allocations are keyed by booking, so a test booking needs an identity.
+        id: `bk${bookings.length + 1}`,
         organizationId: 'o1',
         eventId,
         event: events.get(eventId) ?? event(eventId),
@@ -431,7 +487,17 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
       jest.setSystemTime(new Date(iso));
       return service.markPaid(user, id);
     };
-    return { prisma, payouts, settlements, event, book, refund, generateAt, payAt };
+    return {
+      prisma,
+      payouts,
+      settlements,
+      allocations,
+      event,
+      book,
+      refund,
+      generateAt,
+      payAt,
+    };
   }
 
   beforeEach(() => {
@@ -844,6 +910,138 @@ describe('PayoutsService.generate — never pays the same revenue twice', () => 
 
     const [payout] = await generateAt('2026-09-05T10:00:00Z');
     expect(payout.netMinor).toBe(-5_000);
+  });
+
+  /*
+    ── WHAT A PAYOUT IS MADE OF ──────────────────────────────────────────────────────────
+    The figures above are correct, and until now that was all a payout recorded. Nothing said
+    WHICH bookings produced them, so the only way to explain a payout later was to run the query
+    again - which answers for today. These assert the explanation is written with the payout and
+    adds back to it exactly.
+  */
+  describe('allocations', () => {
+    it('names every booking a payout is made of, adding back to its net', async () => {
+      const { book, generateAt, allocations } = ledger();
+      book('INR', 10_000, '2026-09-01T09:00:00Z');
+      book('INR', 25_000, '2026-09-01T09:30:00Z');
+      const [payout] = await generateAt('2026-09-01T10:00:00Z');
+
+      expect(allocations).toHaveLength(2);
+      expect(allocations.every((a) => a.payoutId === payout.id)).toBe(true);
+      // Exact integer equality. This is the gate the generator itself enforces.
+      expect(allocations.reduce((t, a) => t + (a.allocatedNetMinor as number), 0)).toBe(
+        payout.netMinor,
+      );
+    });
+
+    it('stamps allocatedFrom, so an absent explanation is distinguishable from an empty one', async () => {
+      const { book, generateAt } = ledger();
+      book('INR', 10_000, '2026-09-01T09:00:00Z');
+      const [payout] = await generateAt('2026-09-01T10:00:00Z');
+      /*
+        The field that stops a legacy payout being mistaken for one that covers nothing. A
+        payout raised here is under the allocation regime, so it must be stamped.
+      */
+      expect(payout.allocatedFrom).toEqual(new Date('2026-09-01T10:00:00Z'));
+    });
+
+    it('records the events inside a PERIOD payout, which its own eventId cannot', async () => {
+      const { book, event, generateAt, allocations } = ledger();
+      event('gig-a', { lastEndsAt: '2026-08-01T20:00:00Z' });
+      event('gig-b', { lastEndsAt: '2026-08-02T20:00:00Z' });
+      book('INR', 10_000, '2026-09-01T09:00:00Z', 'gig-a');
+      book('INR', 20_000, '2026-09-01T09:30:00Z', 'gig-b');
+      const [payout] = await generateAt('2026-09-01T10:00:00Z');
+
+      // An org-wide payout names no event at all, which is exactly the gap.
+      expect(payout.eventId).toBeNull();
+      expect([...new Set(allocations.map((a) => a.eventId))].sort()).toEqual(['gig-a', 'gig-b']);
+    });
+
+    it('attributes a refund to its own booking, not to the payout in general', async () => {
+      const { book, refund, generateAt, allocations } = ledger();
+      const refunded = book('INR', 10_000, '2026-09-01T09:00:00Z');
+      const untouched = book('INR', 25_000, '2026-09-01T09:30:00Z');
+      // Same period as the revenue, so one allocation carries both the sale and the refund.
+      refund(refunded, 4_000, '2026-09-01T09:45:00Z');
+      const [payout] = await generateAt('2026-09-01T10:00:00Z');
+
+      const mine = allocations.find((a) => a.bookingId === refunded.id)!;
+      expect(mine).toMatchObject({
+        subtotalMinor: 10_000,
+        refundShareMinor: 4_000,
+        allocatedNetMinor: 6_000,
+      });
+      // The refund is NOT smeared across the other booking.
+      expect(allocations.find((a) => a.bookingId === untouched.id)).toMatchObject({
+        refundShareMinor: 0,
+        allocatedNetMinor: 25_000,
+      });
+      expect(allocations.reduce((t, a) => t + (a.allocatedNetMinor as number), 0)).toBe(
+        payout.netMinor,
+      );
+    });
+
+    it('allocates a clawback to the booking it came from, even with no revenue to show', async () => {
+      /*
+        The case the windows make ordinary rather than rare: revenue is selected on
+        confirmedAt and refunds on updatedAt, so this payout deducts a refund for a booking
+        its own revenue query never returned. The clawback still has to be attributable, or
+        the allocation sum could not account for the net.
+      */
+      const { book, refund, generateAt, payAt, allocations } = ledger();
+      const paidOut = book('INR', 10_000, '2026-09-01T09:00:00Z');
+      const [first] = await generateAt('2026-09-01T10:00:00Z');
+      await payAt(first.id, '2026-09-01T11:00:00Z');
+      const beforeClawback = allocations.length;
+
+      refund(paidOut, 4_000, '2026-09-02T09:00:00Z');
+      const [second] = await generateAt('2026-09-02T10:00:00Z');
+
+      expect(second.netMinor).toBe(-4_000);
+      const clawback = allocations.slice(beforeClawback);
+      expect(clawback).toHaveLength(1);
+      expect(clawback[0]).toMatchObject({
+        bookingId: paidOut.id,
+        subtotalMinor: 0,
+        refundShareMinor: 4_000,
+        allocatedNetMinor: -4_000,
+      });
+      // The same booking appears in two payouts - legitimate, and why the unique key is
+      // (payoutId, bookingId) rather than bookingId.
+      expect(allocations.filter((a) => a.bookingId === paidOut.id)).toHaveLength(2);
+    });
+
+    it('writes one allocation set per currency, never a mixed one', async () => {
+      const { book, generateAt, allocations } = ledger();
+      book('INR', 10_000, '2026-09-01T09:00:00Z');
+      book('USD', 20_000, '2026-09-01T09:30:00Z');
+      const payouts = await generateAt('2026-09-01T10:00:00Z');
+
+      expect(payouts).toHaveLength(2);
+      for (const payout of payouts) {
+        const mine = allocations.filter((a) => a.payoutId === payout.id);
+        expect(mine.length).toBeGreaterThan(0);
+        expect(mine.every((a) => a.currency === payout.currency)).toBe(true);
+        expect(mine.reduce((t, a) => t + (a.allocatedNetMinor as number), 0)).toBe(payout.netMinor);
+      }
+    });
+
+    it('leaves a held event out of the allocations too, not only out of the total', async () => {
+      /*
+        Eligibility and explanation have to agree. An allocation for an event whose money is
+        still held would claim the payout covers revenue it never contained.
+      */
+      const { book, event, generateAt, allocations } = ledger(7);
+      event('over', { lastEndsAt: '2026-08-01T20:00:00Z' });
+      event('justFinished', { lastEndsAt: '2026-09-01T20:00:00Z' });
+      book('INR', 10_000, '2026-08-20T09:00:00Z', 'over');
+      book('INR', 90_000, '2026-09-01T22:00:00Z', 'justFinished');
+
+      const [payout] = await generateAt('2026-09-02T10:00:00Z');
+      expect(payout.grossMinor).toBe(10_000);
+      expect(allocations.map((a) => a.eventId)).toEqual(['over']);
+    });
   });
 });
 
