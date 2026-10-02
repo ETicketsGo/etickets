@@ -18,6 +18,7 @@ export { FinanceReconciliationService } from './payments/finance/finance-reconci
 export { StripeWebhookProcessor } from './payments/webhooks/stripe/stripe-webhook.processor';
 export { RazorpayWebhookProcessor } from './payments/razorpay/razorpay-webhook.processor';
 export { SettlementService } from './payments/settlement/settlement.service';
+export { ReversalReconciliationService } from './payments/settlement/reversal-reconciliation.service';
 export { PayoutRunService } from './payouts/payout-run.service';
 // Exposed for the worker's expiry tick — see apps/worker/src/main.ts.
 export { SeatOverridesService } from './shows/seat-overrides.service';

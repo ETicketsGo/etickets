@@ -22,6 +22,7 @@ import {
   SeatOverridesService,
   PayoutRunService,
   SettlementService,
+  ReversalReconciliationService,
   StripeWebhookProcessor,
   SyncEventProcessor,
   SyncPollingService,
@@ -265,6 +266,7 @@ async function main(): Promise<void> {
   const stripeWebhooks = app.get(StripeWebhookProcessor);
   const razorpayWebhooks = app.get(RazorpayWebhookProcessor);
   const settlements = app.get(SettlementService);
+  const reversalReconcile = app.get(ReversalReconciliationService);
   const payoutRuns = app.get(PayoutRunService);
   const seatOverrides = app.get(SeatOverridesService);
   const syncProcessor = app.get(SyncEventProcessor);
@@ -290,6 +292,21 @@ async function main(): Promise<void> {
 
   const TOKEN_PRUNE_EVERY_MS =
     Number.isFinite(RAW_TOKEN_PRUNE_MS) && RAW_TOKEN_PRUNE_MS > 0 ? RAW_TOKEN_PRUNE_MS : DAY_MS;
+  /*
+    How often the read-only reversal sweep asks whether any ambiguous reversal is worth a
+    provider query. Fifteen minutes, because the shortest candidate maturity window is five
+    minutes and the shortest backoff rung is fifteen - a faster tick would just find nothing due.
+
+    Same guard as every other interval: a blank or mistyped value must not crash-loop the worker.
+    Note this is the TICK, not the enablement - with the flag off the tick does nothing at all.
+  */
+  const RAW_REVERSAL_RECONCILE_MS = Number(
+    process.env.SETTLEMENT_REVERSAL_RECONCILE_INTERVAL_MS ?? '',
+  );
+  const REVERSAL_RECONCILE_EVERY_MS =
+    Number.isFinite(RAW_REVERSAL_RECONCILE_MS) && RAW_REVERSAL_RECONCILE_MS > 0
+      ? RAW_REVERSAL_RECONCILE_MS
+      : 15 * 60_000;
 
   // A plain options object avoids a type clash between our ioredis and the one
   // bundled inside bullmq. Parsed from the full REDIS_URL (credentials, db index and TLS
@@ -417,6 +434,32 @@ async function main(): Promise<void> {
       removeOnFail: 50,
       attempts: 3,
       backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
+  /*
+    Read-only reversal reconciliation. REGISTERED UNCONDITIONALLY and gated inside the service:
+    deploying this starts no provider polling, because with
+    SETTLEMENT_REVERSAL_RECONCILE_ENABLED off the sweep returns an empty report without reading
+    the table. Registration is infrastructure; enablement is a decision.
+
+    Deliberately NOT coupled to Route/Connect enablement. Reading what a provider did and being
+    allowed to move money are different permissions, and coupling them would mean we could only
+    observe money once we were already moving it.
+  */
+  await queue.add(
+    'reversal-reconcile',
+    {},
+    {
+      repeat: { every: REVERSAL_RECONCILE_EVERY_MS },
+      jobId: 'reversal-reconcile',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      /*
+        One attempt. A failed sweep is not worth retrying - the next tick is fifteen minutes away
+        and re-asking a provider sooner is the opposite of what the backoff ladder is for.
+      */
+      attempts: 1,
     },
   );
 
@@ -549,6 +592,26 @@ async function main(): Promise<void> {
         const pruned = await auth.pruneExpiredRefreshTokens();
         if (pruned > 0) log('info', 'pruned expired refresh tokens', { pruned });
         return { pruned };
+      }
+      if (job.name === 'reversal-reconcile') {
+        /*
+          Read-only: observes what a provider did about a reversal and records that we looked.
+          It applies no financial outcome and cannot move money - see
+          ReconciliationReaderRegistry. Returns an all-zero report when
+          SETTLEMENT_REVERSAL_RECONCILE_ENABLED is off, without touching the database.
+        */
+        const report = await reversalReconcile.sweep();
+        if (report.observed > 0 || report.needsOperatorAttention.length > 0) {
+          log('info', 'reversal reconciliation sweep', {
+            scanned: report.scanned,
+            observed: report.observed,
+            reconciled: report.reconciled,
+            providerUnreachable: report.providerUnreachable,
+            // Operational, never a financial state: these are still UNKNOWN money facts.
+            needsOperatorAttention: report.needsOperatorAttention.length,
+          });
+        }
+        return report;
       }
       if (job.name === 'reconcile-finance') {
         const summary = await finance.runDailyDetection();
