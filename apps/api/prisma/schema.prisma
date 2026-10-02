@@ -4548,6 +4548,15 @@ model SettlementReversalAttempt {
   /// Set when a terminal state is reached. Null for REQUESTED, PROCESSING and UNKNOWN.
   settledAt        DateTime?
   lastReconciledAt DateTime?
+  /// How many times the provider has been asked about this attempt without reaching a terminal
+  /// answer.
+  ///
+  /// It is the position on the backoff ladder, not a diagnostic. Stored rather than derived
+  /// because the ladder has to survive a worker restart: a count rebuilt from nothing would put
+  /// every attempt back at the shortest interval and turn a provider outage into a hammering
+  /// poller. Reset to zero when an attempt reaches a terminal state, so a later reopening starts
+  /// from the top of the ladder again.
+  reconcileCount   Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

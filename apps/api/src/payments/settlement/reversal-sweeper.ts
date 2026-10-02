@@ -39,6 +39,8 @@ export interface SweepCandidate {
   status: 'REQUESTED' | 'PROCESSING' | 'UNKNOWN';
   requestedAt: Date;
   lastReconciledAt: Date | null;
+  /** How many unproductive looks so far. The position on the backoff ladder. */
+  reconcileCount: number;
 }
 
 /**
@@ -49,21 +51,59 @@ export interface SweepCandidate {
  */
 export interface SweepWindows {
   /**
+   * UNKNOWN is the shortest wait, and deliberately so.
+   *
+   * It is the only state where nothing is coming unless we ask, so every minute spent waiting is
+   * a minute money is unaccounted for. The other two have a provider working on them.
+   */
+  unknownMs: number;
+  /**
    * A REQUESTED attempt has not had its response recorded. Usually that means it is simply in
    * flight; past this it means something interrupted it.
    */
   requestedMs: number;
   /** The provider acknowledged it, so it is given longer before being chased. */
   processingMs: number;
-  /** How long after an unproductive look before asking the same question again. */
-  recheckMs: number;
 }
 
 export const DEFAULT_SWEEP_WINDOWS: SweepWindows = {
-  requestedMs: 5 * 60_000,
-  processingMs: 30 * 60_000,
-  recheckMs: 60 * 60_000,
+  unknownMs: 5 * 60_000,
+  requestedMs: 10 * 60_000,
+  processingMs: 15 * 60_000,
 };
+
+/**
+ * How long to wait after each unproductive look.
+ *
+ * ── WHY A LADDER AND NOT A FIXED INTERVAL ──────────────────────────────────────────
+ * A fixed interval has to be either short - which turns a provider outage into thousands of
+ * pointless calls, and may well be what gets us rate limited at the worst moment - or long,
+ * which leaves a genuinely stuck attempt unexamined for hours. The ladder is short where an
+ * answer is still plausibly arriving and long once it clearly is not.
+ *
+ * It CAPS rather than growing without bound: an attempt nobody can resolve is checked every four
+ * hours forever, because it is money in an unknown state and giving up on it is not an option.
+ * Nothing here retries a money movement - see the one rule at the top of this file.
+ */
+export const BACKOFF_LADDER_MS: readonly number[] = [
+  15 * 60_000,
+  30 * 60_000,
+  60 * 60_000,
+  2 * 60 * 60_000,
+  4 * 60 * 60_000,
+];
+
+/**
+ * The wait before the next look, given how many have already happened.
+ *
+ * Clamped at both ends. A negative or non-integer count is a data fault rather than a reason to
+ * ask the provider immediately, so it reads as the first rung.
+ */
+export function backoffFor(reconcileCount: number): number {
+  if (!Number.isFinite(reconcileCount) || reconcileCount < 1) return BACKOFF_LADDER_MS[0];
+  const index = Math.min(Math.floor(reconcileCount), BACKOFF_LADDER_MS.length) - 1;
+  return BACKOFF_LADDER_MS[index];
+}
 
 /**
  * Whether this attempt is worth a provider call right now.
@@ -78,19 +118,63 @@ export function isSweepDue(
 ): boolean {
   if (candidate.providerTransferId == null) return false; // nothing to ask about
 
+  /*
+    Already looked once: the ladder decides, not the status. A long-stuck attempt is not more
+    urgent for having been stuck longer - it is less likely to resolve on its own, which is the
+    opposite.
+  */
   if (candidate.lastReconciledAt != null) {
-    if (now.getTime() - candidate.lastReconciledAt.getTime() < windows.recheckMs) return false;
+    const since = now.getTime() - candidate.lastReconciledAt.getTime();
+    return since >= backoffFor(candidate.reconcileCount);
   }
 
+  // Never looked: wait for the state's own window before the first question.
   const age = now.getTime() - candidate.requestedAt.getTime();
   if (candidate.status === 'REQUESTED') return age >= windows.requestedMs;
   if (candidate.status === 'PROCESSING') return age >= windows.processingMs;
-  /*
-    UNKNOWN has no expected completion time - nothing is coming unless we ask - so it is due as
-    soon as the recheck window allows. It is also the only state where NOT asking leaves money
-    unaccounted for indefinitely.
-  */
-  return true;
+  return age >= windows.unknownMs;
+}
+
+/** What one sweep is allowed to do, so a backlog cannot become an unbounded run. */
+export interface SweepLimits {
+  /** Most attempts observed in one sweep. The rest wait for the next one. */
+  batchSize: number;
+  /** Most provider calls in flight at once. */
+  concurrency: number;
+}
+
+export const DEFAULT_SWEEP_LIMITS: SweepLimits = {
+  batchSize: 50,
+  concurrency: 4,
+};
+
+/**
+ * The attempts this sweep will actually ask about, oldest-looked first.
+ *
+ * ── WHY THE ORDER MATTERS ──────────────────────────────────────────────────────────
+ * With a backlog larger than one batch, an arbitrary order can starve a row forever: the same
+ * fifty get picked every time and the fifty-first is never reached. Least-recently-looked first
+ * is the order that cannot starve, because looking at a row moves it to the back.
+ *
+ * An attempt never looked at sorts before every attempt that has been, so a new UNKNOWN is not
+ * stuck behind a backlog of old ones.
+ */
+export function planSweep(
+  candidates: readonly SweepCandidate[],
+  now: Date,
+  windows: SweepWindows = DEFAULT_SWEEP_WINDOWS,
+  limits: SweepLimits = DEFAULT_SWEEP_LIMITS,
+): SweepCandidate[] {
+  const due = candidates.filter((c) => isSweepDue(c, now, windows));
+  const sorted = [...due].sort((a, b) => {
+    const at = a.lastReconciledAt?.getTime() ?? -1;
+    const bt = b.lastReconciledAt?.getTime() ?? -1;
+    if (at !== bt) return at - bt;
+    // Stable within a tie, so a sweep is reproducible from the same input.
+    return a.id < b.id ? -1 : 1;
+  });
+  const size = Number.isFinite(limits.batchSize) && limits.batchSize > 0 ? limits.batchSize : 0;
+  return sorted.slice(0, size);
 }
 
 /** What the sweeper did about one candidate. Reported, never inferred from side effects. */
