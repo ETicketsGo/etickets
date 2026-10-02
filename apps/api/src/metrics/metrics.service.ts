@@ -46,6 +46,7 @@ export class MetricsService {
   private readonly syncProcessingDuration: Histogram;
   private readonly syncPoll: Counter<'provider' | 'outcome'>;
   private readonly syncReconcile: Counter<'outcome'>;
+  private readonly reversalReconcile: Counter<'provider' | 'outcome'>;
   private readonly providerHealth: Counter<'provider' | 'state'>;
   private readonly outboxCreated: Counter<'outcome'>;
   private readonly outboxDelivery: Counter<'event_type' | 'outcome'>;
@@ -315,6 +316,12 @@ export class MetricsService {
       name: 'etg_inventory_sync_reconcile_total',
       help: 'Sync reconciliation outcomes (in_sync|mismatch|auto_repaired|manual_review).',
       labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+    this.reversalReconcile = new Counter({
+      name: 'etg_settlement_reversal_reconcile_total',
+      help: 'Read-only reversal reconciliation outcomes (reconciled|unreachable|not_due|no_reference|attention) by provider.',
+      labelNames: ['provider', 'outcome'],
       registers: [this.registry],
     });
     this.providerHealth = new Counter({
@@ -715,6 +722,18 @@ export class MetricsService {
   recordSyncReconcile(outcome: string, count = 1): void {
     this.safe(() => {
       if (count > 0) this.syncReconcile.inc({ outcome }, count);
+    });
+  }
+  /**
+   * One read-only reversal reconciliation outcome.
+   *
+   * `attention` is counted alongside the others deliberately: operator escalation is an
+   * operational signal, never a change to the money, so it belongs in the same place somebody
+   * already watches rather than in a financial state.
+   */
+  recordReversalReconcile(provider: string, outcome: string, count = 1): void {
+    this.safe(() => {
+      if (count > 0) this.reversalReconcile.inc({ provider, outcome }, count);
     });
   }
   recordProviderHealth(provider: string, state: string): void {

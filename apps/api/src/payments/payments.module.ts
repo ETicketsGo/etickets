@@ -32,6 +32,8 @@ import { StripeWebhookService } from './webhooks/stripe/stripe-webhook.service';
 import { StripeWebhookProcessor } from './webhooks/stripe/stripe-webhook.processor';
 import { SettlementController } from './settlement/settlement.controller';
 import { SettlementService } from './settlement/settlement.service';
+import { ReconciliationReaderRegistry } from './settlement/reconciliation-reader.registry';
+import { ReversalReconciliationService } from './settlement/reversal-reconciliation.service';
 import { DisputeService } from './dispute/dispute.service';
 import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
@@ -113,6 +115,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     StripeWebhookProcessor,
     // Marketplace settlement lifecycle + transfers.
     SettlementService,
+    ReconciliationReaderRegistry,
+    ReversalReconciliationService,
     // Dispute (chargeback) synchronisation.
     DisputeService,
     // Multi-provider resolver (US→Stripe, IN→Razorpay; lazy construct + register).
@@ -138,6 +142,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     StripeWebhookProcessor,
     // Exported so the worker can promote completed-event settlements to ELIGIBLE.
     SettlementService,
+    ReversalReconciliationService,
     // Exported so the worker's sweep also drains Razorpay webhooks.
     RazorpayWebhookProcessor,
   ],
