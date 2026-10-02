@@ -142,6 +142,59 @@ export const SETTLEMENT_CLAIMED_STATUSES = [
   'REVERSED',
 ];
 
+/** Everything `payableBookingWhere` needs, so the predicate has one definition. */
+export interface PayableBookingScope {
+  organizationId: string;
+  eventId: string | undefined;
+  eventFilter: Prisma.EventWhereInput;
+  /** Events whose money a provider transfer has already claimed. */
+  transferredEventIds: string[];
+  /** Per-currency confirmation windows, already built by the caller. */
+  bookingWindows: Prisma.BookingWhereInput[];
+  eventSettled: EventSettled[];
+}
+
+/**
+ * Which bookings a payout may settle.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT AN INLINE OBJECT ────────────────────────────────
+ * It was written once, inline, inside the aggregate query - which was fine while only one query
+ * needed it. Allocations need the SAME population read booking by booking, and the obvious way
+ * to get there is a second query with the predicate written out again.
+ *
+ * That is the bug this project keeps finding: two expressions of one rule, edited in one place.
+ * An eligibility predicate that drifts does not fail loudly; it quietly pays somebody for a
+ * booking the aggregate never counted, or omits one it did.
+ *
+ * So there is one definition, and every reader of "which bookings settle" goes through it.
+ * Extracting it changes no behaviour - the object produced is identical - and that is exactly
+ * what makes a differential proof against the old path meaningful rather than circular.
+ */
+export function payableBookingWhere(scope: PayableBookingScope): Prisma.BookingWhereInput {
+  return {
+    organizationId: scope.organizationId,
+    paymentMethod: 'ONLINE',
+    ...(scope.eventId ? { eventId: scope.eventId } : {}),
+    // The show has happened and the hold has expired, and no provider transfer has claimed this
+    // event's money. Both rules are on the BOOKING's event, so an org-wide payout leaves out the
+    // events that are not ready and settles the ones that are.
+    event: scope.eventFilter,
+    ...(scope.transferredEventIds.length > 0
+      ? { eventId: { notIn: scope.transferredEventIds } }
+      : {}),
+    OR: scope.bookingWindows,
+    ...(scope.eventSettled.length > 0
+      ? {
+          NOT: scope.eventSettled.map((s) => ({
+            eventId: s.eventId,
+            currency: s.currency,
+            confirmedAt: { lte: s.until },
+          })),
+        }
+      : {}),
+  };
+}
+
 @Injectable()
 export class PayoutsService {
   constructor(
@@ -354,26 +407,14 @@ export class PayoutsService {
     const [paid, refunds] = await Promise.all([
       client.booking.groupBy({
         by: ['currency'],
-        where: {
+        where: payableBookingWhere({
           organizationId,
-          paymentMethod: 'ONLINE',
-          ...(eventId ? { eventId } : {}),
-          // The show has happened and the hold has expired, and no provider transfer has
-          // claimed this event's money. Both rules are on the BOOKING's event, so an org-wide
-          // payout leaves out the events that are not ready and settles the ones that are.
-          event: this.payableEventFilter(until, holdDays),
-          ...(transferredEventIds.length > 0 ? { eventId: { notIn: transferredEventIds } } : {}),
-          OR: bookingWindows,
-          ...(eventSettled.length > 0
-            ? {
-                NOT: eventSettled.map((s) => ({
-                  eventId: s.eventId,
-                  currency: s.currency,
-                  confirmedAt: { lte: s.until },
-                })),
-              }
-            : {}),
-        },
+          eventId,
+          eventFilter: this.payableEventFilter(until, holdDays),
+          transferredEventIds,
+          bookingWindows,
+          eventSettled,
+        }),
         _sum: {
           subtotalMinor: true,
           discountMinor: true,
