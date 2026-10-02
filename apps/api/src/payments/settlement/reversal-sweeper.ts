@@ -234,3 +234,91 @@ export async function observeCandidate(
     };
   }
 }
+
+/**
+ * When an unresolved ambiguity should also be put in front of a person.
+ *
+ * ── WHY THIS IS NOT A STATUS ───────────────────────────────────────────────────────
+ * Two different questions get conflated constantly, and conflating them corrupts money:
+ *
+ *   FINANCIALLY, what do we know?        -> UNKNOWN. Still UNKNOWN. Age proves nothing.
+ *   OPERATIONALLY, who should look?      -> somebody, once it has been unresolved long enough.
+ *
+ * An attempt that has been UNKNOWN for a month is not FAILED, and marking it FAILED because
+ * nobody resolved it would be inventing a money fact out of impatience. So escalation is
+ * DERIVED from fields that already exist and is deliberately not persisted as a state: there is
+ * nothing to migrate, nothing that can drift from the financial record, and no column somebody
+ * can later mistake for an outcome.
+ *
+ * Escalating also does NOT stop reconciliation. The sweeper keeps asking at the capped cadence,
+ * because the answer is still worth having and a person looking does not make the provider's
+ * record any less authoritative.
+ */
+export interface EscalationPolicy {
+  /**
+   * Unresolved for this long and a person should look, whatever the ladder says.
+   *
+   * Conservative on purpose. It is an operational trigger, not a financial deadline, so being
+   * early costs somebody a glance and being late costs money nobody is watching.
+   */
+  afterMs: number;
+}
+
+export const DEFAULT_ESCALATION: EscalationPolicy = {
+  afterMs: 24 * 60 * 60_000,
+};
+
+/**
+ * Why a person should look. Operational only - none of these is a money fact.
+ */
+export type AttentionReason =
+  /** Unresolved longer than the policy allows. */
+  | 'UNRESOLVED_TOO_LONG'
+  /**
+   * Every rung of the backoff ladder has been tried and the provider still has not given a
+   * terminal answer. Distinct from the age trigger: an attempt can exhaust the ladder well
+   * inside the age window if it was created during an outage, and it can pass the age window
+   * having been asked only once if the worker was down.
+   */
+  | 'BACKOFF_LADDER_EXHAUSTED';
+
+/**
+ * Whether a person should also be looking at this attempt, and why.
+ *
+ * Empty means no operator attention is needed. It says nothing about whether the attempt is due
+ * for another look - that is `isSweepDue`, and the two are intentionally independent.
+ */
+export function operatorAttention(
+  candidate: SweepCandidate,
+  now: Date,
+  policy: EscalationPolicy = DEFAULT_ESCALATION,
+): AttentionReason[] {
+  const reasons: AttentionReason[] = [];
+
+  const unresolvedMs = now.getTime() - candidate.requestedAt.getTime();
+  if (Number.isFinite(policy.afterMs) && policy.afterMs > 0 && unresolvedMs >= policy.afterMs) {
+    reasons.push('UNRESOLVED_TOO_LONG');
+  }
+  if (candidate.reconcileCount >= BACKOFF_LADDER_MS.length) {
+    reasons.push('BACKOFF_LADDER_EXHAUSTED');
+  }
+  return reasons;
+}
+
+/**
+ * What a sweep did, in the shape the existing reconciliation services report.
+ *
+ * `needsOperatorAttention` is counted and listed separately from anything financial, so a
+ * report cannot be read as a change to the money.
+ */
+export interface SweepReport {
+  scanned: number;
+  /** Attempts the plan selected for a provider call. */
+  observed: number;
+  reconciled: number;
+  providerUnreachable: number;
+  notDue: number;
+  noReference: number;
+  /** Attempt ids a person should look at, with the reason. Never a status change. */
+  needsOperatorAttention: Array<{ attemptId: string; reasons: AttentionReason[] }>;
+}

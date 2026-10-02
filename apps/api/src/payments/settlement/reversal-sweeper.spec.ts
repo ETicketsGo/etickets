@@ -3,9 +3,11 @@ import {
   observeCandidate,
   planSweep,
   backoffFor,
+  operatorAttention,
   BACKOFF_LADDER_MS,
   DEFAULT_SWEEP_WINDOWS,
   DEFAULT_SWEEP_LIMITS,
+  DEFAULT_ESCALATION,
   type SweepCandidate,
   type ProviderReconciliationReader,
 } from './reversal-sweeper';
@@ -347,5 +349,94 @@ describe('planning a bounded sweep', () => {
         planSweep(rows, NOW, DEFAULT_SWEEP_WINDOWS, { batchSize: bad, concurrency: 1 }),
       ).toEqual([]);
     }
+  });
+});
+
+/*
+  ── ESCALATION IS NOT A MONEY FACT ────────────────────────────────────────────────────
+  Two questions that get conflated constantly: what do we KNOW financially, and who should
+  LOOK. Age answers the second and must never answer the first. These tests exist because
+  marking an old UNKNOWN as FAILED - inventing a money fact out of impatience - is the exact
+  mistake that would be easy to make here and impossible to see afterwards.
+*/
+describe('operator escalation', () => {
+  const unresolved = (ageMs: number, reconcileCount = 0) =>
+    candidate({ status: 'UNKNOWN', requestedAt: ago(ageMs), reconcileCount });
+
+  it('says nothing while an attempt is young', () => {
+    expect(operatorAttention(unresolved(60 * 60_000), NOW)).toEqual([]);
+  });
+
+  it('asks for a person once it has been unresolved too long', () => {
+    expect(operatorAttention(unresolved(25 * 60 * 60_000), NOW)).toEqual(['UNRESOLVED_TOO_LONG']);
+  });
+
+  it('asks for a person once the ladder is exhausted, even inside the age window', () => {
+    /*
+      A separate trigger, not a duplicate of age. An attempt created during an outage can run
+      out of ladder long before 24 hours, and the worker being down can push an attempt past 24
+      hours having been asked only once.
+    */
+    const early = unresolved(60 * 60_000, BACKOFF_LADDER_MS.length);
+    expect(operatorAttention(early, NOW)).toEqual(['BACKOFF_LADDER_EXHAUSTED']);
+  });
+
+  it('reports both reasons when both apply', () => {
+    const both = unresolved(30 * 60 * 60_000, BACKOFF_LADDER_MS.length + 3);
+    expect(operatorAttention(both, NOW)).toEqual([
+      'UNRESOLVED_TOO_LONG',
+      'BACKOFF_LADDER_EXHAUSTED',
+    ]);
+  });
+
+  it('does NOT stop reconciliation once escalated', () => {
+    /*
+      The rule that matters most. A person looking does not make the provider's record less
+      authoritative, and an escalated attempt whose sweeps stopped is money nobody is observing.
+    */
+    const escalated = candidate({
+      status: 'UNKNOWN',
+      requestedAt: ago(40 * 24 * 60 * 60_000),
+      reconcileCount: 99,
+      lastReconciledAt: ago(5 * 60 * 60_000),
+    });
+    expect(operatorAttention(escalated, NOW).length).toBeGreaterThan(0);
+    // Still swept, at the capped cadence.
+    expect(isSweepDue(escalated, NOW)).toBe(true);
+  });
+
+  it('does not change the attempt, its status or its amounts', () => {
+    const before = unresolved(40 * 24 * 60 * 60_000, 99);
+    const snapshot = JSON.stringify(before);
+    operatorAttention(before, NOW);
+    // Derived, never applied: UNKNOWN stays UNKNOWN and no amount moves.
+    expect(JSON.stringify(before)).toBe(snapshot);
+    expect(before.status).toBe('UNKNOWN');
+  });
+
+  it('is not reached by the sweep plan, which is a separate question', () => {
+    // An escalated attempt still has to be DUE to be looked at; escalation does not queue-jump.
+    const escalatedButJustLooked = candidate({
+      id: 'esc',
+      status: 'UNKNOWN',
+      requestedAt: ago(40 * 24 * 60 * 60_000),
+      reconcileCount: 99,
+      lastReconciledAt: ago(60_000),
+    });
+    expect(operatorAttention(escalatedButJustLooked, NOW).length).toBeGreaterThan(0);
+    expect(planSweep([escalatedButJustLooked], NOW)).toEqual([]);
+  });
+
+  it('honours a configured threshold, and ignores a nonsense one', () => {
+    const row = unresolved(2 * 60 * 60_000);
+    expect(operatorAttention(row, NOW, { afterMs: 60 * 60_000 })).toContain('UNRESOLVED_TOO_LONG');
+    // A misconfigured threshold must not escalate everything, which would bury the real ones.
+    for (const bad of [0, -1, NaN]) {
+      expect(operatorAttention(row, NOW, { afterMs: bad })).toEqual([]);
+    }
+  });
+
+  it('has a conservative default', () => {
+    expect(DEFAULT_ESCALATION.afterMs).toBe(24 * 60 * 60_000);
   });
 });
