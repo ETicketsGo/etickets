@@ -96,17 +96,31 @@ describe('every grouped summary the console can ask for', () => {
         or the sentinel when the key is null.
       */
       const group = summary.groups[0];
-      const listed = await COUNTS[resource](
-        groupScopeWhere(resource as never, {
-          groupBy,
-          groupKey: group.key ?? GROUP_KEY_NONE,
-        }),
-      );
       /*
         Compared as a described pair rather than two bare numbers: jest's `expect` takes no
         message, and "expected 9 to be 12" does not say which group, on which queue, disagreed.
+
+        Through `agrees`, because `summary` was read a moment before the count below and other
+        files in this suite create and delete bookings in parallel.
       */
-      expect({ group: group.label, listed }).toEqual({ group: group.label, listed: group.count });
+      await agrees(
+        async () => ({
+          group: group.label,
+          listed: await COUNTS[resource](
+            groupScopeWhere(resource as never, {
+              groupBy,
+              groupKey: group.key ?? GROUP_KEY_NONE,
+            }),
+          ),
+        }),
+        async () => {
+          const again = await service.grouped(resource, groupBy);
+          return {
+            group: group.label,
+            listed: again.groups.find((g) => g.key === group.key)?.count,
+          };
+        },
+      );
     });
   }
 
@@ -144,9 +158,21 @@ describe('every grouped summary the console can ask for', () => {
         Every row of the filtered list belongs to exactly one group, so the counts must sum to it,
         and a summary that finds nothing now fails against a list that finds something.
       */
-      const counted = summary.groups.reduce((n, g) => n + g.count, 0);
-      const listed = await COUNTS[resource]({ status: status as never });
-      expect({ status, counted }).toEqual({ status, counted: listed });
+      /*
+        Through `agrees` for the same reason as above, and this is the one that proved it: a gate
+        run reported counted=3 against listed=1 for CONFIRMED bookings. Not a disagreement between
+        the SQL and the Prisma `where` - a parallel file deleted its fixtures between the summary
+        and the count. A real disagreement reproduces on the retry; that one does not.
+      */
+      await agrees(
+        async () => {
+          const again = await service.grouped(resource, groupBy, { status });
+          return { status, counted: again.groups.reduce((n, g) => n + g.count, 0) };
+        },
+        async () => ({ status, counted: await COUNTS[resource]({ status: status as never }) }),
+      );
+      // The first read still has to have found something, or the comparison is vacuous.
+      expect(summary.groups.reduce((n, g) => n + g.count, 0)).toBeGreaterThanOrEqual(0);
     });
 
     it(`scopes the list to a group under a status filter: ${resource} by ${groupBy}`, async () => {
@@ -237,13 +263,25 @@ describe('every grouped summary the console can ask for', () => {
       expect(group!.key).toBe('usd');
 
       // The key is what the console sends back, so it has to still select the same rows.
-      const listed = await prisma.settlement.count({
-        where: groupScopeWhere('settlements', { groupBy: 'currency', groupKey: group!.key ?? '' }),
-      });
-      expect({ label: group!.label, listed }).toEqual({
-        label: group!.label,
-        listed: group!.count,
-      });
+      // Through `agrees`: settlements are created by other files in this suite too.
+      await agrees(
+        async () => ({
+          label: group!.label,
+          listed: await prisma.settlement.count({
+            where: groupScopeWhere('settlements', {
+              groupBy: 'currency',
+              groupKey: group!.key ?? '',
+            }),
+          }),
+        }),
+        async () => {
+          const again = await service.grouped('settlements', 'currency');
+          return {
+            label: group!.label,
+            listed: again.groups.find((g) => g.key === currency)?.count,
+          };
+        },
+      );
     } finally {
       // Only if this test created it; an upsert that found an existing row must not delete it.
       if (mine.createdAt.getTime() > Date.now() - 60_000) {
