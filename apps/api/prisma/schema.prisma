@@ -2092,6 +2092,15 @@ model Payout {
   /// platform's account. A FAILED payout returns its revenue to the unsettled pool.
   failureReason String?
 
+  allocations   PayoutAllocation[]
+  /// When this payout started recording which bookings it is made of.
+  ///
+  /// Null means it PREDATES allocations, and its booking membership is genuinely unknown - not
+  /// empty. The distinction matters: absence of allocations must never be read as proof that no
+  /// payout covers an event, which is exactly the mistake that would let RETURN_TO_PLATFORM
+  /// release revenue a legacy payout already claimed.
+  allocatedFrom DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -4553,4 +4562,70 @@ model SettlementReversalAttempt {
   @@index([providerReversalId])
   @@index([refundId])
   @@index([disputeId])
+}
+
+/// One booking's contribution to one platform-managed payout, recorded immutably.
+///
+/// ── WHY THIS EXISTS ──────────────────────────────────────────────────────────────────
+/// A `Payout` carried only totals and a window. The figures came from a query, so the only way
+/// to explain them later was to run that query again - which gives TODAY's answer, not the one
+/// the payout was raised from. If a booking was refunded afterwards, the explanation silently
+/// changed and no longer matched the row.
+///
+/// The provider path never had this trouble: `Payment.settlementId` names the batch each payment
+/// belongs to. The platform path was the one with no memory.
+///
+/// ── WHY THE AMOUNTS ARE STORED, NOT RE-DERIVED ───────────────────────────────────────
+/// `allocatedNetMinor` is what this booking contributed to THIS payout, as computed at the
+/// moment it was raised. Reading it back from the booking would reintroduce exactly the drift
+/// this model exists to remove. Nothing here is ever updated: a later correction is a new
+/// allocation, which is what keeps yesterday's explanation intact.
+model PayoutAllocation {
+  id       String @id @default(cuid())
+  payoutId String
+  payout   Payout @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  /// Plain ids, NOT foreign keys. An allocation is evidence about money and must stay readable
+  /// even if the booking or event it refers to is later reorganised.
+  bookingId String
+  /// Denormalised deliberately: it is what makes a PERIOD payout's event membership queryable,
+  /// and `Payout.eventId` is null for those. The event as of allocation.
+  eventId   String
+  /// Always equal to the payout's currency. Allocations never mix or convert.
+  currency  String
+
+  /// What this booking contributed. The sum across a payout's allocations equals its netMinor
+  /// EXACTLY - integer equality, no tolerance - or the payout is not written at all.
+  allocatedNetMinor Int
+
+  /// ── THE IMMUTABLE SNAPSHOT ────────────────────────────────────────────────────────
+  /// The components as they stood when the payout was raised, so "why this amount" is answerable
+  /// without re-reading a booking that may have moved since.
+  ///
+  ///   allocatedNetMinor = subtotalMinor − discountMinor − organizerFeeMinor − refundShareMinor
+  ///
+  /// `bookingFeeMinor` and `paymentFeeMinor` are REPORTED and deliberately NOT in that equation:
+  /// `subtotalMinor` is already the ticket value net to the organizer and those two are borne by
+  /// the customer on top. They are stored so an allocation can explain the payout's own reported
+  /// fee columns too, not because they are deducted.
+  subtotalMinor     Int
+  discountMinor     Int
+  organizerFeeMinor Int
+  /// The organizer's share of refunds against this booking AS AT payout creation:
+  /// `max(0, amountMinor − taxAddedMinor)` summed over its completed refunds. A later refund
+  /// does not alter this - that is the point - and is represented by a new allocation.
+  refundShareMinor  Int
+  bookingFeeMinor   Int
+  paymentFeeMinor   Int
+
+  createdAt DateTime @default(now())
+
+  /// One allocation per booking per payout. A booking contributing twice to the same payout is
+  /// a double count, and the database refuses it rather than trusting the writer.
+  @@unique([payoutId, bookingId])
+  @@index([payoutId])
+  /// Serves "which payouts claim this booking", the question legacy payouts cannot answer.
+  @@index([bookingId])
+  /// Serves period-payout event membership, which `Payout.eventId` cannot express.
+  @@index([eventId])
 }
