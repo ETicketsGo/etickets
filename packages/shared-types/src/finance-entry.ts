@@ -138,6 +138,47 @@ export interface FinanceMoney {
   adjustmentsMinor?: number;
 }
 
+/**
+ * What money actually MOVED, for a path that moves money. Absent where the path does not.
+ *
+ * ── WHY THIS IS NOT PART OF FinanceMoney ───────────────────────────────────────────
+ * `FinanceMoney` answers one question: what is the organizer entitled to, and what came off it.
+ * These answer a different one: what left our control, what came back, and what is still out
+ * there. Folding them together is how `organizerNetMinor` would end up meaning entitlement
+ * before a transfer and holdings afterwards - one field answering two financial questions
+ * depending on status, which is exactly what must not happen.
+ *
+ * The platform path has no equivalent: a Payout is paid by a bank transfer somebody makes by
+ * hand, and the ledger records that it was paid, not a reversible provider movement. So this is
+ * optional rather than zero-filled.
+ */
+export interface FinanceMovement {
+  /**
+   * Total ever sent to the organizer. Monotonic - never decremented.
+   *
+   * `Settlement.releasedMinor`, whose schema comment is explicit: "Total ever transferred OUT to
+   * the organizer, never decremented." Not to be confused with money still held.
+   */
+  transferredOutMinor: number;
+  /**
+   * Confirmed to have come back, by authoritative evidence only.
+   *
+   * `transferredOutMinor − stillOutMinor`, which the settlement maintains from CONFIRMED
+   * reversals alone. A REQUESTED, PROCESSING or UNKNOWN attempt contributes nothing here,
+   * because none of them proves money moved.
+   */
+  recoveredMinor: number;
+  /**
+   * Still economically with the organizer after confirmed recoveries.
+   *
+   * `Settlement.transferredMinor`, the net position. NOTE the word "outstanding" is ambiguous in
+   * this domain and this is the narrower of its two readings: money that WENT OUT and has not
+   * come back. It is NOT "entitlement not yet transferred", which would be a different
+   * subtraction against a different field.
+   */
+  stillOutMinor: number;
+}
+
 /** One unit of organizer revenue, read from whichever system owns it. */
 export interface FinanceEntry {
   sourceType: FinanceSourceType;
@@ -177,6 +218,8 @@ export interface FinanceEntry {
   periodStart: string | null;
   periodEnd: string | null;
   money: FinanceMoney;
+  /** What actually moved, where the path moves money. Absent on the platform ledger path. */
+  movement?: FinanceMovement;
 }
 
 /**
