@@ -6,13 +6,18 @@ const mockOrdersCreate = jest.fn();
 const mockAccountsFetch = jest.fn();
 const mockTransfersCreate = jest.fn();
 const mockTransfersReverse = jest.fn();
+const mockTransfersFetch = jest.fn();
 const mockPaymentsFetch = jest.fn();
 
 jest.mock('razorpay', () =>
   jest.fn().mockImplementation(() => ({
     orders: { create: mockOrdersCreate },
     accounts: { fetch: mockAccountsFetch },
-    transfers: { create: mockTransfersCreate, reverse: mockTransfersReverse },
+    transfers: {
+      create: mockTransfersCreate,
+      reverse: mockTransfersReverse,
+      fetch: mockTransfersFetch,
+    },
     payments: { fetch: mockPaymentsFetch, refund: jest.fn() },
   })),
 );
@@ -38,6 +43,7 @@ beforeEach(() => {
   mockOrdersCreate.mockReset();
   mockAccountsFetch.mockReset();
   mockTransfersCreate.mockReset();
+  mockTransfersFetch.mockReset();
   mockTransfersReverse.mockReset();
   mockPaymentsFetch.mockReset();
 });
@@ -163,6 +169,93 @@ describe('Route createTransfer gating', () => {
       account: 'acc_1',
       amount: 100000,
       currency: 'INR',
+    });
+  });
+});
+
+/*
+  ── READING A REVERSAL IS A MONEY FACT, SO IT CANNOT BE GUESSED ───────────────────────
+  This used to substitute 0 when `amount_reversed` was missing or not a number, which fails
+  OPEN: the reconciliation engine compares cumulative figures, so a fabricated 0 against a
+  record that also says 0 reconciles as AGREES - "the provider confirms nothing was reversed" -
+  when in truth nothing was ever read.
+
+  The engine cannot catch it. It validates the number it is handed, and a plausible 0 passes
+  every check it has. So the adapter has to refuse. That matters more now that a scheduled
+  worker can ask this question unattended every fifteen minutes.
+*/
+describe('reading a transfer reversal state from Razorpay', () => {
+  const provider = () => makeProvider(true);
+
+  it('reports the cumulative amount the provider actually gave', async () => {
+    mockTransfersFetch.mockResolvedValue({ amount_reversed: 25_000, status: 'processed' });
+    await expect(provider().getTransferReversalState('trf_1')).resolves.toEqual({
+      transferId: 'trf_1',
+      amountReversedMinor: 25_000,
+      fullyReversed: false,
+      providerStatusRaw: 'processed',
+    });
+  });
+
+  it('reads a wholly reversed transfer as fully reversed', async () => {
+    mockTransfersFetch.mockResolvedValue({ amount_reversed: 50_000, status: 'reversed' });
+    const out = await provider().getTransferReversalState('trf_1');
+    expect(out.fullyReversed).toBe(true);
+    expect(out.amountReversedMinor).toBe(50_000);
+  });
+
+  it('reports a genuine zero, which is different from an unreadable one', async () => {
+    // A transfer with nothing reversed is a real, readable answer and must still work.
+    mockTransfersFetch.mockResolvedValue({ amount_reversed: 0, status: 'processed' });
+    const out = await provider().getTransferReversalState('trf_1');
+    expect(out.amountReversedMinor).toBe(0);
+  });
+
+  describe('refuses rather than inventing a figure', () => {
+    const unreadable: Array<[string, unknown]> = [
+      ['the field is absent', { status: 'processed' }],
+      ['the field is null', { amount_reversed: null, status: 'processed' }],
+      ['the field is a string', { amount_reversed: '25000', status: 'processed' }],
+      ['the field is fractional', { amount_reversed: 250.5, status: 'processed' }],
+      ['the field is negative', { amount_reversed: -1, status: 'processed' }],
+      ['the field is NaN', { amount_reversed: Number.NaN, status: 'processed' }],
+      ['the response is an unexpected envelope', { items: [{ amount_reversed: 25_000 }] }],
+      ['the response is empty', {}],
+    ];
+
+    for (const [label, response] of unreadable) {
+      it(`throws when ${label}`, async () => {
+        mockTransfersFetch.mockResolvedValue(response);
+        await expect(provider().getTransferReversalState('trf_1')).rejects.toMatchObject({
+          code: 'PAYMENT_PROVIDER_UNAVAILABLE',
+        });
+      });
+    }
+
+    it('never reports zero for any unreadable response', async () => {
+      /*
+        The assertion that would have caught the original defect. Every shape above must fail to
+        produce a figure - a resolved 0 anywhere here is the fail-open bug returning.
+      */
+      for (const [, response] of unreadable) {
+        mockTransfersFetch.mockResolvedValue(response);
+        const result = await provider()
+          .getTransferReversalState('trf_1')
+          .then((out) => `resolved ${out.amountReversedMinor}`)
+          .catch(() => 'refused');
+        expect(result).toBe('refused');
+      }
+    });
+
+    it('does not put the provider response in the error detail', async () => {
+      // The response may carry account detail that is not ours to log.
+      mockTransfersFetch.mockResolvedValue({ account: 'acc_secret', beneficiary: 'x' });
+      const err = await provider()
+        .getTransferReversalState('trf_1')
+        .catch((e: { details?: unknown }) => e);
+      expect(JSON.stringify((err as { details?: unknown }).details)).toBe(
+        JSON.stringify({ transferId: 'trf_1', field: 'amount_reversed' }),
+      );
     });
   });
 });

@@ -340,16 +340,53 @@ export class RazorpayPaymentProvider implements PaymentProvider {
    * `reversed`. An attempt stuck at UNKNOWN is resolved by reading this, never by asking for the
    * reversal again.
    */
+  /**
+   * What Razorpay says came back out of one transfer.
+   *
+   * ── WHY AN UNREADABLE RESPONSE THROWS RATHER THAN READING AS ZERO ─────────────────
+   * This used to substitute 0 when `amount_reversed` was missing or not a number. That is a
+   * fabricated money fact, and it fails OPEN: the reconciliation engine compares cumulative
+   * figures, so a 0 against a record that also says 0 reconciles as AGREES - "the provider
+   * confirms nothing was reversed" - when in truth nothing was ever read. If Razorpay changed
+   * its response shape, omitted the field, or wrapped the entity, we would record positive
+   * confirmation that money had not moved.
+   *
+   * The engine cannot defend against this: it validates the number it is given, and a plausible
+   * 0 passes every check. So the adapter has to refuse instead.
+   *
+   * Throwing is the safe outcome because the sweeper turns it into PROVIDER_UNREACHABLE, which
+   * means "we could not ask" and draws no conclusion at all. A 0 we invented is worse than no
+   * answer, and this matters more now that a scheduled worker can ask unattended.
+   *
+   * Stripe needs none of this - its SDK types `amount_reversed` as a required number. Razorpay's
+   * client returns an untyped object and Route is not enabled on our test account, so this
+   * response shape has never actually been observed. See the sandbox questions in the reversal
+   * documentation.
+   */
   async getTransferReversalState(transferId: string): Promise<TransferReversalState> {
     const transfer = (await this.client.transfers.fetch(transferId)) as unknown as {
-      amount_reversed?: number;
-      status?: string;
+      amount_reversed?: unknown;
+      status?: unknown;
     };
+    const reversed = transfer?.amount_reversed;
+    if (!Number.isInteger(reversed) || (reversed as number) < 0) {
+      throw new AppException(
+        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+        'Razorpay did not report a readable reversed amount for this transfer.',
+        HttpStatus.BAD_GATEWAY,
+        // The transfer id only. The response may carry account detail that is not ours to log.
+        { transferId, field: 'amount_reversed' },
+      );
+    }
     const status = typeof transfer?.status === 'string' ? transfer.status : null;
     return {
       transferId,
-      amountReversedMinor:
-        typeof transfer?.amount_reversed === 'number' ? transfer.amount_reversed : 0,
+      amountReversedMinor: reversed as number,
+      /*
+        Razorpay's documented terminal status for a wholly reversed transfer. A partial reversal
+        is expected to leave the status alone and move `amount_reversed` only - expected, not
+        proven, which is why `fullyReversed` is never the thing the ledger acts on. The amount is.
+      */
       fullyReversed: status === 'reversed',
       providerStatusRaw: status,
     };
