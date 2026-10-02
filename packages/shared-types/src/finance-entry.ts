@@ -102,6 +102,21 @@ export interface FinanceEntry {
   currency: Exclude<string, typeof CURRENCY_WILDCARD>;
   /** The event, when the entry is about one. Null for a period payout spanning many. */
   eventId: string | null;
+  /**
+   * The events a PERIOD payout covers, where the source can prove it.
+   *
+   * ── THE DISTINCTION THAT MATTERS ─────────────────────────────────────────────────
+   * An array - including an empty one - means membership is PROVEN, read from the payout's
+   * allocations. `undefined` means the source does not record it, so membership is genuinely
+   * UNKNOWN. These are different facts and must never be collapsed.
+   *
+   * Reading unknown as empty is what would let a release decide no payout covers an event when a
+   * legacy payout already claimed it. A payout raised before allocations existed has
+   * `allocatedFrom` null and belongs here as `undefined`, not `[]`.
+   *
+   * Absent on an event-level entry, which names its event directly.
+   */
+  coveredEventIds?: readonly string[];
   /** The period, when the entry covers one. Null for an event settlement. */
   periodStart: string | null;
   periodEnd: string | null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { onePathViolations, holdsOnePath } from './finance-one-path';
+import { onePathViolations, onePathReport, holdsOnePath, provesOnePath } from './finance-one-path';
 import type { FinanceEntry, FinanceSourceType } from './finance-entry';
 
 const entry = (over: Partial<FinanceEntry> & { sourceType: FinanceSourceType }): FinanceEntry => ({
@@ -129,28 +129,126 @@ describe('the invariant, over generated entry sets', () => {
   });
 });
 
-describe('what the check cannot see', () => {
-  it('cannot detect a period payout overlapping an event settlement', () => {
-    /*
-      NOT a gap in this function - a gap in the data model, recorded here so a passing result is
-      never mistaken for a proof.
+/*
+  ── PERIOD PAYOUTS ────────────────────────────────────────────────────────────────────
+  A period payout used to be invisible here: it carried no link to the bookings inside it, so an
+  overlap between it and an event settlement could not be detected at all. `PayoutAllocation`
+  records that membership as the payout is written, so the overlap is now findable - for payouts
+  raised under the allocation regime.
+*/
+describe('a period payout that records what it covers', () => {
+  const period = (coveredEventIds: readonly string[] | undefined) =>
+    entry({
+      sourceType: 'PAYOUT',
+      eventId: null,
+      coveredEventIds,
+      periodStart: '2026-09-01T00:00:00.000Z',
+      periodEnd: '2026-09-30T23:59:59.999Z',
+    });
 
-      A Payout may cover a PERIOD across many events and carries no link to the bookings inside
-      it: there is no PayoutLine and no Booking.payoutId. So its entry has eventId null, and
-      nothing here can tell whether the settled event below is one of the events it contains.
+  it('catches an overlap that used to be undetectable', () => {
+    const entries = [period(['e1', 'e2']), entry({ sourceType: 'SETTLEMENT', eventId: 'e1' })];
+
+    const report = onePathReport(entries);
+    expect(report.violations).toHaveLength(1);
+    expect(report.violations[0].eventId).toBe('e1');
+    // Both claimants are named, so the report can be acted on rather than merely counted.
+    expect(report.violations[0].entries.map((e) => e.sourceType).sort()).toEqual([
+      'PAYOUT',
+      'SETTLEMENT',
+    ]);
+    expect(report.gaps).toEqual([]);
+    expect(holdsOnePath(entries)).toBe(false);
+    expect(provesOnePath(entries)).toBe(false);
+  });
+
+  it('stays clean when the settled event is not one it covers', () => {
+    const entries = [period(['e1', 'e2']), entry({ sourceType: 'SETTLEMENT', eventId: 'e9' })];
+    const report = onePathReport(entries);
+    expect(report.violations).toEqual([]);
+    expect(report.gaps).toEqual([]);
+    // Now a real proof, not merely an absence of evidence.
+    expect(provesOnePath(entries)).toBe(true);
+  });
+
+  it('reports every overlapping event, not only the first', () => {
+    const entries = [
+      period(['e1', 'e2', 'e3']),
+      entry({ sourceType: 'SETTLEMENT', eventId: 'e1' }),
+      entry({ sourceType: 'SETTLEMENT', eventId: 'e3' }),
+    ];
+    expect(
+      onePathReport(entries)
+        .violations.map((v) => v.eventId)
+        .sort(),
+    ).toEqual(['e1', 'e3']);
+  });
+
+  it('does not flag two payouts covering the same event, which is the ordinary case', () => {
+    /*
+      A corrective payout legitimately revisits a booking an earlier payout included - that is
+      the cursor's business, not a cross-path double claim. Flagging it would make the check cry
+      wolf about the normal path.
+    */
+    const entries = [period(['e1']), period(['e1'])];
+    const report = onePathReport(entries);
+    expect(report.violations).toEqual([]);
+    expect(provesOnePath(entries)).toBe(true);
+  });
+
+  it('keeps the comparison inside one organization and one currency', () => {
+    const entries = [
+      period(['e1']),
+      entry({ sourceType: 'SETTLEMENT', eventId: 'e1', organizationId: 'other-org' }),
+      entry({ sourceType: 'SETTLEMENT', eventId: 'e1', currency: 'USD' }),
+    ];
+    expect(onePathReport(entries).violations).toEqual([]);
+  });
+});
+
+describe('what the check still cannot see', () => {
+  it('reports a LEGACY payout as an unproven gap, not as clean', () => {
+    /*
+      The distinction the whole design turns on. A payout raised before allocations existed has
+      no membership, and inventing one would be inventing evidence. So it is neither a violation
+      nor a pass: it is unproven, and it says so.
     */
     const entries = [
       entry({
         sourceType: 'PAYOUT',
         eventId: null,
+        // Absent, NOT an empty array. Empty would claim it covers nothing.
+        coveredEventIds: undefined,
         periodStart: '2026-09-01T00:00:00.000Z',
         periodEnd: '2026-09-30T23:59:59.999Z',
       }),
       entry({ sourceType: 'SETTLEMENT', eventId: 'e1' }),
     ];
 
-    // Reports clean, and that is the honest limit of what entries alone can answer.
+    const report = onePathReport(entries);
+    // No double claim was FOUND...
+    expect(report.violations).toEqual([]);
     expect(holdsOnePath(entries)).toBe(true);
+    // ...but one could be hiding, and the gate must not read that as a proof.
+    expect(report.gaps).toHaveLength(1);
+    expect(report.gaps[0].reason).toBe('UNKNOWN_LEGACY_MEMBERSHIP');
+    expect(report.gaps[0].entry.sourceType).toBe('PAYOUT');
+    expect(provesOnePath(entries)).toBe(false);
+  });
+
+  it('treats an empty coverage list as proven, because it is a claim the data supports', () => {
+    /*
+      Not the same as the case above. An empty list came from allocations and says the payout
+      covers no events; `undefined` says nobody knows. Collapsing them is the mistake that would
+      let a release decide no payout covers an event when a legacy one already claimed it.
+    */
+    const entries = [
+      entry({ sourceType: 'PAYOUT', eventId: null, coveredEventIds: [] }),
+      entry({ sourceType: 'SETTLEMENT', eventId: 'e1' }),
+    ];
+    const report = onePathReport(entries);
+    expect(report.gaps).toEqual([]);
+    expect(provesOnePath(entries)).toBe(true);
   });
 
   it('ignores an entry with no readable currency rather than guessing one', () => {
@@ -159,5 +257,11 @@ describe('what the check cannot see', () => {
       entry({ sourceType: 'SETTLEMENT', eventId: 'e1' }),
     ];
     expect(holdsOnePath(entries)).toBe(true);
+  });
+
+  it('does not let an unreadable currency become a membership gap', () => {
+    // It is skipped entirely: reporting it as an unproven payout would be a different lie.
+    const entries = [entry({ sourceType: 'PAYOUT', eventId: null, currency: '' })];
+    expect(onePathReport(entries).gaps).toEqual([]);
   });
 });
