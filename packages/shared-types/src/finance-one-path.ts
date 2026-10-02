@@ -1,4 +1,4 @@
-import type { FinanceEntry } from './finance-entry';
+import { financeAttributionError, financeClaimedEvents, type FinanceEntry } from './finance-entry';
 import { readCurrency } from './finance-currency';
 
 /**
@@ -41,10 +41,21 @@ export interface OnePathViolation {
 /**
  * Why an entry could not be checked.
  *
- * One reason, because there is only one: a period payout that does not record its membership.
- * Adding reasons nothing branches on would only make the report harder to act on.
+ * Two reasons, and they lead somewhere different. The first is the ordinary historical case and
+ * needs no action beyond not acting on it. The second means a PRODUCER is wrong and somebody has
+ * to fix code. Collapsing them would hide a bug inside a known limitation.
  */
-export type MembershipGapReason = 'UNKNOWN_LEGACY_MEMBERSHIP';
+export type MembershipGapReason =
+  /** A payout that predates allocations and records no membership. */
+  | 'UNKNOWN_LEGACY_MEMBERSHIP'
+  /**
+   * The entry's `attribution` contradicts its own event fields.
+   *
+   * Reported rather than ignored: a malformed entry is one whose events cannot be trusted, which
+   * is operationally the same position as not knowing them - and silently dropping it would let a
+   * broken producer shrink the checked population without saying so.
+   */
+  | 'MALFORMED_ATTRIBUTION';
 
 /** An entry whose revenue cannot be attributed to events, so the invariant is unproven for it. */
 export interface MembershipGap {
@@ -72,13 +83,24 @@ export interface OnePathReport {
 /**
  * Which events an entry claims, or null when it cannot say.
  *
- * Null is the legacy case and is deliberately NOT an empty list: an empty list is a claim that
- * the payout covers nothing, and nothing in the data supports that claim.
+ * ── NOW READ FROM THE ENTRY, NOT INFERRED FROM IT ─────────────────────────────────
+ * This used to decide legacy-ness itself, by noticing that an entry named no event and carried no
+ * covered list. That worked, and it meant the rule lived in two places: here, and in whatever
+ * produced the entry. `attribution` is a required field now, so the producer states the claim and
+ * this reads it.
+ *
+ * Null remains the legacy case and is deliberately NOT an empty list: an empty list is a claim
+ * that the payout covers nothing, and a legacy payout supports no such claim.
  */
 function claimedEvents(entry: FinanceEntry): string[] | null {
-  if (entry.eventId !== null) return [entry.eventId];
-  if (entry.coveredEventIds === undefined) return null;
-  return [...entry.coveredEventIds];
+  /*
+    An entry whose attribution contradicts its own events is not evidence of anything. Treated as
+    unknown rather than believed, because the dangerous reading of a malformed entry is always the
+    confident one.
+  */
+  if (financeAttributionError(entry) !== null) return null;
+  if (entry.attribution !== 'AUTHORITATIVE') return null;
+  return [...financeClaimedEvents(entry)];
 }
 
 /**
@@ -104,7 +126,10 @@ export function onePathReport(entries: readonly FinanceEntry[]): OnePathReport {
       gaps.push({
         organizationId: entry.organizationId,
         currency,
-        reason: 'UNKNOWN_LEGACY_MEMBERSHIP',
+        reason:
+          financeAttributionError(entry) === null
+            ? 'UNKNOWN_LEGACY_MEMBERSHIP'
+            : 'MALFORMED_ATTRIBUTION',
         entry,
       });
       continue;
