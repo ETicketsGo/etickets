@@ -120,12 +120,20 @@ export function providerFinanceEntry(
   const released = RELEASED_STATUSES.has(settlement.status);
 
   // ── movement integrity ───────────────────────────────────────────────────────────
-  if (settlement.transferredMinor > settlement.releasedMinor) {
-    /*
-      More still out than was ever sent. The schema's own invariant is
-      transferredMinor == releasedMinor − Σ(confirmed reversals), so this cannot happen without
-      something being wrong, and a derived "recovered" would come out negative.
-    */
+  /*
+    ── WHY THIS IS NOT A SIMPLE COMPARISON ───────────────────────────────────────────
+    `releasedMinor` is written by NOTHING. The release path sets status, providerTransferId,
+    reserveMinor, payableMinor and transferredMinor - never releasedMinor - so it stays at its
+    schema default of 0, and the rest of the settlement service reads it as
+    `releasedMinor || transferredMinor`.
+
+    So `transferredMinor > releasedMinor` is true of EVERY healthy released settlement. Treating
+    that as a contradiction would mark real money as broken. Only a NON-ZERO released figure
+    smaller than what is still out is genuinely impossible.
+  */
+  const movementRecorded = settlement.releasedMinor > 0;
+
+  if (movementRecorded && settlement.transferredMinor > settlement.releasedMinor) {
     integrity.push({
       code: 'TOTALS_DISAGREE',
       field: 'transferredMinor',
@@ -143,12 +151,16 @@ export function providerFinanceEntry(
       detail: 'a negative movement amount is not a possible state',
     });
   }
-  if (released && settlement.releasedMinor === 0) {
+  if (released && !movementRecorded) {
+    /*
+      The ordinary case today, not an anomaly. Reported so a reader knows the movement is MISSING
+      rather than zero, and deliberately not as a disagreement - nothing here contradicts anything.
+    */
     integrity.push({
-      code: 'TOTALS_DISAGREE',
+      code: 'MOVEMENT_NOT_RECORDED',
       field: 'releasedMinor',
-      stored: 0,
-      detail: `status ${settlement.status} says money was sent, but nothing is recorded as released`,
+      detail:
+        'the amount originally transferred was never recorded, so this settlement cannot describe what moved',
     });
   }
   if (!released && settlement.releasedMinor > 0) {
@@ -165,13 +177,14 @@ export function providerFinanceEntry(
     to report and zeroes would assert that nothing moved - true today, but indistinguishable from
     a settlement whose movement nobody recorded.
   */
-  const movement: FinanceMovement | undefined = released
-    ? {
-        transferredOutMinor: settlement.releasedMinor,
-        recoveredMinor: Math.max(0, settlement.releasedMinor - settlement.transferredMinor),
-        stillOutMinor: settlement.transferredMinor,
-      }
-    : undefined;
+  const movement: FinanceMovement | undefined =
+    released && movementRecorded
+      ? {
+          transferredOutMinor: settlement.releasedMinor,
+          recoveredMinor: Math.max(0, settlement.releasedMinor - settlement.transferredMinor),
+          stillOutMinor: settlement.transferredMinor,
+        }
+      : undefined;
 
   // ── lifecycle, derived independently of every amount ─────────────────────────────
   const mapped = financeStateOf('SETTLEMENT', settlement.status);
@@ -187,8 +200,14 @@ export function providerFinanceEntry(
     An unresolved reversal means money may or may not have come back; showing PAID would claim we
     know it did not.
   */
+  /*
+    A LIMITATION is not a reason to call somebody. MOVEMENT_NOT_RECORDED is true of every released
+    settlement today, so marking them all ATTENTION_REQUIRED would make the state meaningless
+    exactly where it matters most.
+  */
+  const contradictions = integrity.filter((f) => f.code !== 'MOVEMENT_NOT_RECORDED');
   const needsPerson =
-    integrity.length > 0 || evidence.unresolvedCount > 0 || evidence.reconciliationMismatch;
+    contradictions.length > 0 || evidence.unresolvedCount > 0 || evidence.reconciliationMismatch;
   const state: FinanceState = needsPerson ? 'ATTENTION_REQUIRED' : (mapped as FinanceState);
 
   // ── money ────────────────────────────────────────────────────────────────────────
