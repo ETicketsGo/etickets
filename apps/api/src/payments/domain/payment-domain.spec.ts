@@ -16,6 +16,8 @@ const stripeLike: PaymentProviderCapabilities = {
   supportsIdempotentRefund: false,
   supportsRefundStatusQuery: false,
   refundMayBeAsynchronous: false,
+  supportsIdempotentTransfer: false,
+  supportsTransferStatusQuery: false,
   supportsConnectedAccounts: true,
   supportsApplePay: true,
   supportsGooglePay: true,

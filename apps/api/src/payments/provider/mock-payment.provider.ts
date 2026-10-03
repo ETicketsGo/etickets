@@ -47,6 +47,8 @@ export class MockPaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: true,
     supportsRefundStatusQuery: true,
     refundMayBeAsynchronous: false,
+    supportsIdempotentTransfer: true,
+    supportsTransferStatusQuery: true,
     supportsConnectedAccounts: false,
     supportsApplePay: true,
     supportsGooglePay: true,

@@ -50,6 +50,24 @@ export interface PaymentProviderCapabilities {
   supportsIdempotentRefund: boolean;
   supportsRefundStatusQuery: boolean;
   refundMayBeAsynchronous: boolean;
+  /**
+   * Transfer support (organizer payouts). The same principle as void and refund above, applied
+   * to the operation that moves the LARGEST amount of money.
+   *
+   * `supportsIdempotentTransfer` gates automatic RETRY of a transfer whose outcome is not known.
+   * An adapter that cannot prove the provider will deduplicate a replayed request must not have
+   * a transfer resent on its behalf - the money may already be with the organizer.
+   *
+   * This describes what OUR ADAPTER does, not what the provider's API is capable of. An adapter
+   * that never sends an idempotency identity declares false even if the provider would honour
+   * one, because nothing in our code would give it the chance to.
+   *
+   * `supportsTransferStatusQuery` enables status recovery after an ambiguous transfer, exactly
+   * as the payment and refund equivalents do. Defaults false - set true only when the adapter
+   * genuinely wires it.
+   */
+  supportsIdempotentTransfer: boolean;
+  supportsTransferStatusQuery: boolean;
   supportsConnectedAccounts: boolean;
   supportsApplePay: boolean;
   supportsGooglePay: boolean;
