@@ -463,6 +463,54 @@ export class SettlementService {
       );
     }
 
+    const idempotencyKey = `settlement_${settlement.id}_${settlement.transferredMinor}`;
+
+    /*
+      ── THE SAME IDENTITY MUST MEAN THE SAME REQUEST ──────────────────────────────────
+      The key is derived from the settlement and its prior transferred amount, so a replay
+      presents the SAME identity - that is what makes recovery possible. But the AMOUNT is
+      computed from `refundsMinor` and `disputesMinor` too, and those can move while a crashed
+      attempt is being recovered. A refund landing in that window produces the same identity
+      carrying a different amount.
+
+      Nobody should have to know what a given provider does with that. Stripe rejects it;
+      Razorpay's behaviour is unverified and is not guessed at here. So ETicketsGo refuses it
+      itself: a changed amount is a DIFFERENT operation, and reusing the old identity for it
+      would make the two indistinguishable to the provider and to us.
+    */
+    const priorAttempts = await this.prisma.settlementTransferAttempt.findMany({
+      where: { settlementId: settlement.id, idempotencyKey },
+      select: { id: true, requestedMinor: true, status: true },
+    });
+    const incompatible = priorAttempts.find((a) => a.requestedMinor !== payable.payableMinor);
+    if (incompatible) {
+      return this.blockClaimed(
+        actor,
+        settlement,
+        `A previous attempt to pay out this settlement asked for a different amount ` +
+          `(${incompatible.requestedMinor} vs ${payable.payableMinor}). Retrying would reuse one ` +
+          `payment identity for two different requests, so this needs a person to confirm with ` +
+          `the provider what was actually sent.`,
+      );
+    }
+
+    /*
+      Durable intent, COMMITTED before anything leaves this process - the same order the reversal
+      path has used since it was built. If this process dies during the provider call, this row
+      is the only thing that says ETicketsGo asked for money to move at all.
+    */
+    const attempt = await this.prisma.settlementTransferAttempt.create({
+      data: {
+        settlementId: settlement.id,
+        requestedMinor: payable.payableMinor,
+        currency: settlement.currency,
+        provider: settlement.provider,
+        destinationAccountId: settlement.connectedAccountId,
+        idempotencyKey,
+        status: 'REQUESTED',
+      },
+    });
+
     try {
       const transfer = await adapter.createTransfer!({
         amountMinor: payable.payableMinor,
@@ -470,7 +518,7 @@ export class SettlementService {
         destinationAccountId: settlement.connectedAccountId,
         transferGroup: `etg_event_${settlement.eventId}`,
         // Deterministic key: a re-run of the same settlement release never double-pays.
-        idempotencyKey: `settlement_${settlement.id}_${settlement.transferredMinor}`,
+        idempotencyKey,
         metadata: { settlementId: settlement.id, eventId: settlement.eventId },
       });
       /*
@@ -526,6 +574,19 @@ export class SettlementService {
             failureMessage: null,
           },
         });
+        /*
+          In the SAME transaction as the money. An attempt that says SUCCEEDED while the
+          settlement does not, or the reverse, would be a disagreement invented by our own
+          write ordering rather than by anything the provider did.
+        */
+        await tx.settlementTransferAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            status: 'SUCCEEDED',
+            providerTransferId: transfer.transferId,
+            respondedAt: new Date(),
+          },
+        });
         await this.notifyOrganizerInTransaction(tx, settlement.organizationId, {
           type: NotificationType.SETTLEMENT_RELEASED,
           settlementId: id,
@@ -544,6 +605,27 @@ export class SettlementService {
       return released;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Transfer failed.';
+      /*
+        ── UNKNOWN, NOT FAILED ───────────────────────────────────────────────────────────
+        Everything lands here: an authoritative refusal, a timeout, a connection reset, an
+        unreadable response. `TransferResult` is `{ transferId, status }` and the adapters throw
+        on anything else, so there is no information at this point that could separate "the
+        provider said no" from "the provider may have sent the money and we lost the answer".
+
+        Writing FAILED on the attempt would state the first when we only know the second is
+        possible. UNKNOWN is the honest state and the one the reversal side already uses. The
+        SETTLEMENT keeps its existing FAILED status - that is a true statement about this
+        release not completing, and changing its meaning would reach code far outside this path.
+        The attempt row is where the uncertainty is recorded.
+      */
+      await this.prisma.settlementTransferAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: 'UNKNOWN',
+          lastError: message.slice(0, 500),
+          respondedAt: new Date(),
+        },
+      });
       await this.prisma.settlement.update({
         where: { id },
         data: { status: 'FAILED', failureMessage: message.slice(0, 500) },

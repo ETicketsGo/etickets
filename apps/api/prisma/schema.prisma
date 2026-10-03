@@ -3697,6 +3697,7 @@ model Settlement {
 
   payments         Payment[]
   reversalAttempts SettlementReversalAttempt[]
+  transferAttempts SettlementTransferAttempt[]
 
   @@unique([eventId, currency])
   @@index([organizationId, status])
@@ -4462,6 +4463,23 @@ model GuestBookingAccess {
 /// Five values, and the important one is UNKNOWN. A timeout is not a failure: the provider may
 /// have moved money while our response was lost. Recording that as COMPLETED or FAILED would
 /// manufacture financial certainty we do not have, so it gets a state of its own - and that state
+/// What a transfer attempt proved, mirroring SettlementReversalStatus deliberately.
+///
+/// The reversal side of this domain has had durable attempts, an honest UNKNOWN and a
+/// reconciliation sweeper since 20261001194912. The transfer side - which moves the organizer's
+/// WHOLE payout rather than a refund-sized slice of it - had none of that. These are the same
+/// states because they are the same problem.
+enum SettlementTransferStatus {
+  /// Written before the provider is called, so a crash mid-call still leaves a record.
+  REQUESTED
+  /// Provider accepted it and gave us a transfer reference.
+  SUCCEEDED
+  /// Provider refused, authoritatively. Not a transport failure.
+  FAILED
+  /// We cannot prove either way. Never silently treated as FAILED or SUCCEEDED.
+  UNKNOWN
+}
+
 /// is deliberately NOT terminal, because it is a work item for reconciliation rather than a
 /// resting place.
 enum SettlementReversalStatus {
@@ -4497,6 +4515,58 @@ enum ReversalReason {
 /// A reversal is a record, not a side effect. Each row is immutable except along its own
 /// lifecycle, and a retry is a NEW row pointing at the one it supersedes - so evidence is never
 /// overwritten and the history of an argument with a provider stays readable.
+/// One attempt to send an organizer their payout through a payment provider.
+///
+/// ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────────
+/// Nothing was written before `createTransfer` was called. If the process died during that call
+/// there was no row anywhere saying ETicketsGo had asked a provider to move money, so four
+/// distinct crash windows were indistinguishable from "nothing happened". The reversal path had
+/// committed a REQUESTED row before calling out since the day it was built, for exactly this
+/// reason; the transfer path never did.
+///
+/// ── OPERATION VERSUS ATTEMPT ────────────────────────────────────────────────────────
+/// `idempotencyKey` is deliberately NOT unique here. The key identifies the OPERATION - one
+/// settlement at one prior transferred amount - and it is stable across replays on purpose, so a
+/// lost write can be recovered by presenting the same identity again. Each ATTEMPT at that
+/// operation is a row. Rows sharing a key are attempts at the same external money movement.
+///
+/// That is also what makes the dangerous case detectable: if a replay would present the same
+/// identity with a DIFFERENT amount - which happens when a refund lands between a crash and a
+/// retry - the prior rows say so, and the request is refused rather than sent and hoped about.
+model SettlementTransferAttempt {
+  id           String     @id @default(cuid())
+  settlementId String
+  settlement   Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  /// What this attempt asked the provider to send. Compared against siblings sharing a key.
+  requestedMinor       Int
+  currency             String
+  provider             String
+  destinationAccountId String?
+
+  /// The OPERATION identity. Not unique: replays of one operation share it.
+  idempotencyKey String
+
+  status             SettlementTransferStatus @default(REQUESTED)
+  providerTransferId String?
+  providerStatusRaw  String?
+  syncResponse       Json?
+  lastError          String?
+
+  requestedAt      DateTime  @default(now())
+  respondedAt      DateTime?
+  lastReconciledAt DateTime?
+  reconcileCount   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([settlementId, status])
+  @@index([status, requestedAt])
+  @@index([providerTransferId])
+  @@index([settlementId, idempotencyKey])
+}
+
 ///
 /// Nothing writes to this table yet. Schema and constraints only.
 model SettlementReversalAttempt {

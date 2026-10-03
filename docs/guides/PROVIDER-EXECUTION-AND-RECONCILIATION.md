@@ -247,8 +247,56 @@ Proven in `release-writer.integration-postgres.spec.ts` (writer-driven, real Pos
 `transfer-idempotency.contract.spec.ts` (adapter contract). Removing the gate fails exactly one
 test, and that failure is a second transfer being sent.
 
-**Still open from the list above:** (1) no durable transfer attempt record, (3) UNKNOWN recorded as
-FAILED, (4) `TransferResult` cannot express uncertainty, (5) no transfer status query, (7)
-`reconciliationMismatch`. The gate converts (3)'s consequence from _duplicate money_ to _a blocked
-settlement a person must resolve_, which is a far better failure, but it does not make the system
-able to say "unknown".
+The gate converts (3)'s consequence from _duplicate money_ to _a blocked settlement a person must
+resolve_, which is a far better failure, but it does not by itself make the system able to say
+"unknown".
+
+### Durable transfer attempts, and an honest UNKNOWN
+
+Findings (1) and (3) are closed. `SettlementTransferAttempt` mirrors the reversal attempt table
+that has existed since `20261001194912`, because it is the same problem on the side that moves the
+larger amount.
+
+The order is now the one the reversal path has always used:
+
+```
+1. write the attempt REQUESTED and COMMIT, before the provider is called
+2. call the provider, with no transaction open
+3. record what the answer proved
+4. move money ONLY on a proven success
+```
+
+- **Step 1 closes crash windows A-D.** A process that dies inside `createTransfer` now leaves a
+  `REQUESTED` row saying ETicketsGo asked for money to move. Previously nothing distinguished that
+  from never having tried.
+- **Step 3 records `UNKNOWN`, not `FAILED`.** Every error lands in one catch - a refusal, a
+  timeout, a reset, an unreadable response - and at that point nothing separates _"the provider
+  said no"_ from _"the provider may have sent the money and we lost the answer"_. `UNKNOWN` is the
+  honest state, and the one the reversal side already uses.
+- The **settlement** keeps its existing `FAILED` status, which is a true statement about this
+  release not completing. Changing its meaning would reach far outside this path. The attempt row
+  is where the uncertainty lives.
+- On success **step 3 runs in the same transaction as the money**, so an attempt saying
+  `SUCCEEDED` while the settlement disagrees cannot be produced by our own write ordering.
+
+### Operation versus attempt
+
+`idempotencyKey` is deliberately **not unique** on the attempt table. It identifies the
+**operation** - one settlement at one prior transferred amount - and is stable across replays on
+purpose, because that is what makes recovery possible. Each **attempt** at that operation is a row.
+Rows sharing a key are attempts at the same external money movement.
+
+That also makes finding (e) detectable, which closes it. A replay presents the same identity, but
+the amount is computed from `refundsMinor` and `disputesMinor` too, so a refund landing between a
+crash and a retry produces **the same identity carrying a different amount**.
+
+Rather than depend on what a given provider does with that - Stripe rejects it, Razorpay is
+unverified - ETicketsGo now refuses it itself. A release whose payable differs from a prior attempt
+under the same identity is `BLOCKED` before anything leaves the process. A changed amount is a
+_different operation_, and reusing one identity for two requests would make them indistinguishable
+to the provider and to us.
+
+**Still open:** (4) `TransferResult` cannot express uncertainty, so the UNKNOWN above is inferred
+from "something was thrown" rather than reported by the adapter; (5) no transfer status query, so
+an `UNKNOWN` attempt cannot yet be resolved by asking the provider - which is also why there is no
+transfer sweeper, because there would be nothing safe for it to call; (7) `reconciliationMismatch`.
