@@ -214,11 +214,35 @@ the gap stated:
 ## 7. Webhooks
 
 Two provider webhook surfaces exist (`stripe/`, `razorpay/`), each with controller, service and
-processor, behind `webhook-router.service.ts`. Assessed separately in the webhook work; the
-provider-neutral concerns are signature boundary, duplicate delivery, ordering, unknown entity
-references and tenant association.
+processor, behind `webhook-router.service.ts`.
 
-Razorpay signature semantics must come from verified provider documentation, not from inference.
+This half of the system is in much better shape than the transfer path, and the ingestion order is
+already the right one:
+
+```
+verify the signature  ->  resolve a dedup identity  ->  persist RECEIVED  ->  process
+```
+
+| Provider-neutral property                           | State       | Evidence                                                          |
+| --------------------------------------------------- | ----------- | ----------------------------------------------------------------- |
+| signature bound to the exact raw bytes              | implemented | `verifySignedEnvelope` HMACs `rawBody`, timing-safe compare       |
+| fail closed: an unverified payload persists nothing | implemented | verification precedes every DB call                               |
+| stable dedup identity                               | implemented | event-id header, falling back to a SHA-256 of the payload         |
+| duplicate delivery not reprocessed                  | implemented | claim on the stored row being `PROCESSED`/`PROCESSING`            |
+| unfinished delivery retried in place                | implemented | `RECEIVED`/`FAILED` updates the row rather than creating a second |
+| unhandled event type ignored, not dropped           | implemented | processor marks `IGNORED`                                         |
+| poison event dead-lettered                          | implemented | processor `MAX_ATTEMPTS`                                          |
+| processing failure does not fail ingestion          | implemented | the row is committed first; the sweep retries                     |
+
+What was missing was not the behaviour but the **proof of the ingestion step**: signature rejection
+was tested at the adapter and event handling at the processor, with nothing covering the step
+between - the one that decides whether an unauthenticated payload can leave a row behind. Stripe
+had `stripe-webhook.service.spec.ts`; Razorpay had no equivalent. It does now, using the real
+adapter so the HMAC check is genuine rather than a double that always agrees.
+
+**Still Razorpay-specific and not claimed here:** that Razorpay signs what we think it signs, which
+events it actually sends, its redelivery cadence, and whether it can deliver out of order. Those
+need verified provider documentation or a sandbox. Nothing in this repository infers them.
 
 ---
 
