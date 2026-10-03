@@ -1553,6 +1553,14 @@ export const api = {
      */
     summary: (organizationId: string, eventId?: string) =>
       request<PayoutSummary>(`/payouts/summary${qs({ organizationId, eventId })}`),
+    /**
+     * Every financial record this organization has, across both settlement paths, per currency.
+     *
+     * Distinct from `summary`, which is forward-looking: what a payout raised right now would come
+     * to, from current booking state. This is historical - which records exist and what they say.
+     */
+    finance: (organizationId: string, eventId?: string) =>
+      request<UnifiedFinanceDto>(`/payouts/finance${qs({ organizationId, eventId })}`),
     accountState: (organizationId: string) =>
       request<PayoutAccountState>(`/payouts/account-state${qs({ organizationId })}`),
     /** One payout per currency the scope has money in. */
@@ -4405,6 +4413,120 @@ export interface PayoutAccountAction {
   label: string;
   /** Relative to the organizer console. */
   href: string;
+}
+
+/*
+  ── UNIFIED FINANCE ────────────────────────────────────────────────────────────────────
+  The organizer's financial records across BOTH settlement paths, per currency.
+
+  Every money field that can be ABSENT is optional here on purpose, and a consumer must treat
+  absent as "the source cannot prove this" rather than as zero. Absent and zero are different
+  financial statements: a legacy payout never stored its discount, which is not the same as a
+  payout proving its discount was nothing.
+*/
+
+/** Which settlement path produced an entry. */
+export type FinancePathCode = 'PLATFORM' | 'PROVIDER';
+
+/** Whether an entry's event attribution can be relied on. */
+export type FinanceAttributionCode = 'AUTHORITATIVE' | 'UNKNOWN_LEGACY';
+
+export type FinanceStateCode =
+  'PENDING' | 'IN_PROGRESS' | 'PAID' | 'PARTIALLY_REFUNDED' | 'ATTENTION_REQUIRED';
+
+export interface FinanceFeeLineDto {
+  key: 'BOOKING' | 'PAYMENT_PROCESSING' | 'PLATFORM' | 'PLATFORM_COMBINED';
+  amountMinor: number;
+  /**
+   * Whether this line came OUT of `organizerNetMinor`.
+   *
+   * Never sum every line to compute deductions: booking and payment fees are reported and borne
+   * by the customer on top of the ticket price. Summing all of them understates what the
+   * organizer is owed by exactly those, and the total looks entirely plausible.
+   */
+  deducted: boolean;
+}
+
+export interface FinanceMoneyDto {
+  /** What the organizer is entitled to from this record. The only always-present amount. */
+  organizerNetMinor: number;
+  grossFaceValueMinor?: number;
+  discountMinor?: number;
+  fees?: FinanceFeeLineDto[];
+  refundsMinor?: number;
+  adjustmentsMinor?: number;
+}
+
+/** What actually moved, where the path moves money. Absent on the platform ledger path. */
+export interface FinanceMovementDto {
+  transferredOutMinor: number;
+  recoveredMinor: number;
+  /** Still with the organizer after confirmed recoveries. Not "entitlement not yet sent". */
+  stillOutMinor: number;
+}
+
+export interface FinanceEntryDto {
+  /** The source TABLE, which is not the same axis as the path. */
+  sourceType: 'PAYOUT' | 'SETTLEMENT';
+  sourceId: string;
+  sourceStatus: string;
+  state: FinanceStateCode;
+  organizationId: string;
+  currency: string;
+  attribution: FinanceAttributionCode;
+  eventId: string | null;
+  coveredEventIds?: string[];
+  periodStart: string | null;
+  periodEnd: string | null;
+  money: FinanceMoneyDto;
+  movement?: FinanceMovementDto;
+}
+
+export interface FinanceComposedEntryDto {
+  path: FinancePathCode;
+  entry: FinanceEntryDto;
+}
+
+export type FinanceWarningCategoryCode = 'HISTORICAL_LIMITATION' | 'FINANCIAL_INTEGRITY';
+
+export interface FinanceWarningDto {
+  category: FinanceWarningCategoryCode;
+  code:
+    | 'EVENT_ATTRIBUTION_UNAVAILABLE'
+    | 'DEDUCTION_DETAIL_UNAVAILABLE'
+    | 'EVIDENCE_DISAGREEMENT'
+    | 'DOUBLE_CLAIM'
+    | 'NEEDS_RECONCILIATION';
+  sourceIds: string[];
+  detail: string;
+}
+
+export interface FinanceSummaryDto {
+  entitlementMinor: number;
+  paidMinor: number;
+  pendingMinor: number;
+  attentionMinor: number;
+  movement?: FinanceMovementDto;
+  refundsMinor?: number;
+  deductedFeesMinor?: number;
+  counts: { platform: number; provider: number };
+}
+
+export interface FinanceCurrencyGroupDto {
+  currency: string;
+  entries: FinanceComposedEntryDto[];
+  summary: FinanceSummaryDto;
+  warnings: FinanceWarningDto[];
+}
+
+/**
+ * One group per currency. There is no combined total, by design.
+ *
+ * An organizer with INR and USD gets two groups. Nothing in this shape can hold a figure spanning
+ * both, so a cross-currency total is unrepresentable rather than merely discouraged.
+ */
+export interface UnifiedFinanceDto {
+  currencies: FinanceCurrencyGroupDto[];
 }
 
 export interface PayoutAccountState {
