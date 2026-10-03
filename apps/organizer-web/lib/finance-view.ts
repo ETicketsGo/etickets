@@ -118,6 +118,17 @@ function notice(warning: FinanceWarningDto): FinanceNoticeView {
         tone,
         message: 'We are still confirming a refund or reversal with the payment provider.',
       };
+    case 'MOVEMENT_DETAIL_UNAVAILABLE':
+      /*
+        The money is real and the amount owed is right; what we cannot show is the movement -
+        how much was sent and how much came back. Saying "we do not have a record" is honest.
+        Showing zeroes would say the provider never sent anything.
+      */
+      return {
+        tone,
+        message:
+          'We do not have a record of what your provider sent and returned for these events. The amounts owed to you are still correct.',
+      };
   }
 }
 

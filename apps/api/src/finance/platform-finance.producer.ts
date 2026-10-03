@@ -88,7 +88,18 @@ export type FinanceIntegrityCode =
   /** The payout's status is not one we can map to an organizer-facing state. */
   | 'UNMAPPED_STATUS'
   /** The payout's currency is not readable, so it cannot be compared with anything. */
-  | 'CURRENCY_UNREADABLE';
+  | 'CURRENCY_UNREADABLE'
+  /**
+   * A settlement says money was sent, but no original transfer amount was ever recorded.
+   *
+   * A LIMITATION, not a contradiction. `Settlement.releasedMinor` is written by nothing in this
+   * codebase - it sits at its schema default of 0, and the settlement service reads it as
+   * `releasedMinor || transferredMinor` - so the amount originally sent is simply not stored.
+   * Reporting that as a disagreement would mark every healthy released settlement as broken;
+   * reporting a zero would state that nothing was sent. Neither is true, so movement is withheld
+   * and this says why.
+   */
+  | 'MOVEMENT_NOT_RECORDED';
 
 export interface FinanceIntegrityFinding {
   code: FinanceIntegrityCode;

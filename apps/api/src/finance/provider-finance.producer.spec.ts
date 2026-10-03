@@ -376,13 +376,27 @@ describe('contradictory movement evidence is reported, not smoothed over', () =>
     expect(entry.movement!.recoveredMinor).toBe(0);
   });
 
-  it('flags a released status with nothing recorded as released', () => {
+  it('reports a released status with no recorded amount as a LIMITATION, not a contradiction', () => {
+    /*
+      ── A DELIBERATE CHANGE ─────────────────────────────────────────────────────────
+      This used to assert TOTALS_DISAGREE and ATTENTION_REQUIRED, on the reasoning that a
+      TRANSFERRED settlement recording nothing as released contradicts itself.
+
+      It does not. `Settlement.releasedMinor` is written by NOTHING - the release path never sets
+      it - so it is 0 on every real settlement. The old assertion would therefore have marked all
+      real money as broken, and the fixtures only hid that by setting a field production never
+      sets.
+
+      Nothing is recorded, which is a gap in what we keep, not two sources disagreeing.
+    */
     const { entry, integrity } = providerFinanceEntry(
       settlement({ status: 'TRANSFERRED', releasedMinor: 0, transferredMinor: 0 }),
       clean,
     );
-    expect(integrity.some((f) => f.detail.includes('says money was sent'))).toBe(true);
-    expect(entry.state).toBe('ATTENTION_REQUIRED');
+    expect(integrity.map((f) => f.code)).toEqual(['MOVEMENT_NOT_RECORDED']);
+    expect(integrity.some((f) => f.code === 'TOTALS_DISAGREE')).toBe(false);
+    // And it does not call somebody about a settlement that is fine.
+    expect(entry.state).toBe('PAID');
   });
 
   it('flags a release recorded against a status that has not released', () => {
@@ -422,6 +436,96 @@ describe('attribution and currency', () => {
   it('flags an unreadable currency rather than inventing one', () => {
     const { entry, integrity } = providerFinanceEntry(settlement({ currency: '  ' }), clean);
     expect(integrity.map((f) => f.code)).toContain('CURRENCY_UNREADABLE');
+    expect(entry.state).toBe('ATTENTION_REQUIRED');
+  });
+});
+
+/*
+  ── THE SHAPE PRODUCTION ACTUALLY WRITES ──────────────────────────────────────────────
+  `Settlement.releasedMinor` is written by NOTHING. The release path sets status,
+  providerTransferId, reserveMinor, payableMinor and transferredMinor - never releasedMinor - so
+  it stays at its schema default of 0 forever, and the settlement service reads it as
+  `releasedMinor || transferredMinor`.
+
+  Every test above sets releasedMinor explicitly, which is a shape production never produces. That
+  gap is exactly how a producer can pass a real-Postgres suite and still be wrong against real
+  data, so these use the real shape: released status, real transferredMinor, releasedMinor at 0.
+*/
+describe('a settlement written the way production writes it', () => {
+  const asProductionWrites = (over: Partial<ProviderSettlementRow> = {}) =>
+    settlement({
+      status: 'TRANSFERRED',
+      grossSalesMinor: 120_000,
+      // What release() actually sets...
+      transferredMinor: 95_000,
+      // ...and what it does not.
+      releasedMinor: 0,
+      ...over,
+    });
+
+  it('does not call a healthy settlement broken', () => {
+    const { entry, integrity } = providerFinanceEntry(asProductionWrites(), clean);
+    // Before this fix, BOTH naive checks fired and every real settlement read as contradictory.
+    expect(integrity.filter((f) => f.code === 'TOTALS_DISAGREE')).toEqual([]);
+    expect(entry.state).toBe('PAID');
+  });
+
+  it('withholds movement rather than reporting that nothing was sent', () => {
+    const { entry } = providerFinanceEntry(asProductionWrites(), clean);
+    /*
+      transferredOutMinor would have been 0 - a confident statement that the provider never sent
+      anything, about a settlement that is TRANSFERRED. Absent is the only honest answer.
+    */
+    expect(entry.movement).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('movement');
+  });
+
+  it('says why the movement is missing', () => {
+    const { integrity } = providerFinanceEntry(asProductionWrites(), clean);
+    const found = integrity.filter((f) => f.code === 'MOVEMENT_NOT_RECORDED');
+    expect(found).toHaveLength(1);
+    expect(found[0].field).toBe('releasedMinor');
+    expect(found[0].detail).toMatch(/never recorded/i);
+  });
+
+  it('keeps the entitlement, which IS recorded', () => {
+    /*
+      The important half. grossSalesMinor is genuinely maintained by the settlement upsert, so
+      what the organizer is owed is unaffected by the movement gap.
+    */
+    const { entry } = providerFinanceEntry(asProductionWrites(), clean);
+    expect(entry.money.organizerNetMinor).toBe(120_000);
+  });
+
+  it('still reports a genuine contradiction when the figure IS recorded', () => {
+    // The real impossibility: a non-zero released amount smaller than what is still out.
+    const { entry, integrity } = providerFinanceEntry(
+      asProductionWrites({ releasedMinor: 50_000, transferredMinor: 90_000 }),
+      clean,
+    );
+    expect(integrity.map((f) => f.code)).toContain('TOTALS_DISAGREE');
+    expect(entry.state).toBe('ATTENTION_REQUIRED');
+  });
+
+  it('still reports movement when the figure IS recorded', () => {
+    const { entry, integrity } = providerFinanceEntry(
+      asProductionWrites({ releasedMinor: 120_000, transferredMinor: 95_000 }),
+      clean,
+    );
+    expect(integrity).toEqual([]);
+    expect(entry.movement).toEqual({
+      transferredOutMinor: 120_000,
+      recoveredMinor: 25_000,
+      stillOutMinor: 95_000,
+    });
+  });
+
+  it('does not drag an unresolved reversal down with it', () => {
+    // A limitation must not mask a real reason to call somebody.
+    const { entry } = providerFinanceEntry(asProductionWrites(), {
+      unresolvedCount: 1,
+      reconciliationMismatch: false,
+    });
     expect(entry.state).toBe('ATTENTION_REQUIRED');
   });
 });

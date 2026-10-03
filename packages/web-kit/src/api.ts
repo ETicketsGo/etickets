@@ -4496,7 +4496,9 @@ export interface FinanceWarningDto {
     | 'DEDUCTION_DETAIL_UNAVAILABLE'
     | 'EVIDENCE_DISAGREEMENT'
     | 'DOUBLE_CLAIM'
-    | 'NEEDS_RECONCILIATION';
+    | 'NEEDS_RECONCILIATION'
+    /** A settlement cannot say what moved, because the original transfer was never recorded. */
+    | 'MOVEMENT_DETAIL_UNAVAILABLE';
   sourceIds: string[];
   detail: string;
 }

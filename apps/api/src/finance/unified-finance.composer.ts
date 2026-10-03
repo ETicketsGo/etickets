@@ -53,7 +53,9 @@ export interface FinanceWarning {
     /** One event is claimed by both settlement paths. */
     | 'DOUBLE_CLAIM'
     /** Reconciliation or an unresolved reversal needs a person. */
-    | 'NEEDS_RECONCILIATION';
+    | 'NEEDS_RECONCILIATION'
+    /** A settlement cannot say what moved, because the original transfer was never recorded. */
+    | 'MOVEMENT_DETAIL_UNAVAILABLE';
   /** The entries this concerns, by sourceId, so a warning can be chased to a row. */
   sourceIds: string[];
   detail: string;
@@ -234,14 +236,34 @@ function buildGroup(
     });
   }
 
-  // ── evidence quality, by category ────────────────────────────────────────────────
-  const disagreeing = items.filter((i) => i.integrity.length > 0);
+  /*
+    ── EVIDENCE QUALITY, SPLIT BY WHAT THE FINDING ACTUALLY MEANS ───────────────────
+    Not every integrity finding is a disagreement. MOVEMENT_NOT_RECORDED says a figure was never
+    stored, which is a gap in what we keep - not two sources contradicting each other. Lumping it
+    in would raise a financial alarm about every released settlement, and an alarm that is always
+    on is an alarm nobody reads.
+  */
+  const disagreeing = items.filter((i) =>
+    i.integrity.some((f) => f.code !== 'MOVEMENT_NOT_RECORDED'),
+  );
   if (disagreeing.length > 0) {
     warnings.push({
       category: 'FINANCIAL_INTEGRITY',
       code: 'EVIDENCE_DISAGREEMENT',
       sourceIds: disagreeing.map((i) => i.entry.sourceId).sort(),
       detail: 'stored totals and their supporting evidence do not agree',
+    });
+  }
+
+  const movementMissing = items.filter((i) =>
+    i.integrity.some((f) => f.code === 'MOVEMENT_NOT_RECORDED'),
+  );
+  if (movementMissing.length > 0) {
+    warnings.push({
+      category: 'HISTORICAL_LIMITATION',
+      code: 'MOVEMENT_DETAIL_UNAVAILABLE',
+      sourceIds: movementMissing.map((i) => i.entry.sourceId).sort(),
+      detail: 'the amount originally transferred was never recorded, so what moved cannot be shown',
     });
   }
 
