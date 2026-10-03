@@ -172,20 +172,52 @@ export class UnifiedFinanceService {
           where: { status: { in: ['REQUESTED', 'PROCESSING', 'UNKNOWN'] } },
           select: { id: true },
         },
+        /*
+          UNKNOWN only, deliberately.
+
+          A transfer attempt sits in REQUESTED for the duration of every ordinary provider call,
+          so counting that state would raise an alarm on healthy releases that happen to overlap
+          a read. UNKNOWN is different: it is written when the outcome could not be established,
+          which means the organizer may already hold money we cannot account for. That is
+          unambiguous and it is exactly what "somebody must look at this" is for.
+
+          A REQUESTED row left behind by a crash is a real problem too, but distinguishing stale
+          from in-flight needs a staleness window, which belongs to a sweeper rather than to a
+          read model. There is no transfer sweeper yet; see
+          docs/guides/PROVIDER-EXECUTION-AND-RECONCILIATION.md.
+        */
+        transferAttempts: {
+          where: { status: 'UNKNOWN' },
+          select: { id: true },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
 
     return settlements.map((settlement) => {
-      const { reversalAttempts, ...row } = settlement;
+      const { reversalAttempts, transferAttempts, ...row } = settlement;
       return providerFinanceEntry(row, {
-        unresolvedCount: reversalAttempts.length,
         /*
-          Not yet derivable from persisted state. `reconcileTransferEvidence` classifies a
-          mismatch in flight, and no column records that it did - so this reports false rather
-          than guessing, and the producer's own movement-contradiction checks remain the
-          persisted-evidence path to an integrity finding. Recorded as a known gap rather than
-          faked with a heuristic.
+          Both directions. Money that may have gone OUT without us learning the outcome is at
+          least as strong a reason to call somebody as money that may not have come back, and
+          until the transfer attempt table existed there was no durable evidence of it at all.
+        */
+        unresolvedCount: reversalAttempts.length + transferAttempts.length,
+        /*
+          ── STILL FALSE, AND DELIBERATELY ─────────────────────────────────────────────
+          `reconcileTransferEvidence` classifies a mismatch in flight. The only durable trace it
+          leaves is an `AuditLog` entry (SETTLEMENT_EVIDENCE_MISMATCH), which is an append-only
+          record of something that HAPPENED, not a queryable record of something that is still
+          TRUE. Deriving "currently mismatched" from it would be permanently true from the first
+          occurrence onwards, because an audit entry is never retracted.
+
+          The correct shape is a finding with an open/resolved lifecycle. Who may resolve one and
+          what resolution means are product decisions, so the model is proposed rather than
+          guessed at - see docs/guides/PROVIDER-EXECUTION-AND-RECONCILIATION.md.
+
+          What this field was reaching for is now largely served by evidence that IS durable and
+          IS queryable: unresolved attempts in BOTH directions, counted above. A boolean here
+          would add staleness without adding information.
         */
         reconciliationMismatch: false,
       });
