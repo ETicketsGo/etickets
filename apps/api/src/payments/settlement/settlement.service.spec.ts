@@ -117,9 +117,17 @@ describe('SettlementService.release', () => {
     expect(arg.destinationAccountId).toBe('acct_1');
     expect(arg.idempotencyKey).toContain('settlement_s1');
     const transferred = updated.find((d) => d.status === 'TRANSFERRED');
+    /*
+      Both money fields are ATOMIC increments, not absolute writes computed from the snapshot
+      read before the transfer. `reverseIfTransferred` gates on `providerTransferId` rather than
+      status, so a reversal can land while this release is at the provider; an absolute write
+      would silently undo it. Proven against a real database in
+      release-writer.integration-postgres.spec.ts.
+    */
     expect(transferred).toMatchObject({
       providerTransferId: 'tr_1',
-      transferredMinor: 90000,
+      transferredMinor: { increment: 90000 },
+      releasedMinor: { increment: 90000 },
       reserveMinor: 10000,
     });
   });

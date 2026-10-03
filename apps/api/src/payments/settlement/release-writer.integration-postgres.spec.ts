@@ -395,6 +395,60 @@ describe('integration-real-postgres: what release() persists', () => {
     expect(reverseTransfer.mock.calls[0][0].amountMinor).toBe(50_000);
   });
 
+  maybe('does not undo a reversal that lands DURING an incremental release', async () => {
+    /*
+      ── A RACE, MADE DETERMINISTIC ───────────────────────────────────────────────────────
+      The atomic claim stops two releases overlapping, but `reverseIfTransferred` gates on
+      `providerTransferId`, not on status - so a refund webhook can confirm a reversal while a
+      second, incremental release is in flight at the provider.
+
+      The provider call is where that window really is, so the reversal is driven from inside
+      the stub: by the time the release persists, `transferredMinor` has already been decremented
+      underneath it. An absolute write computed from the pre-transfer snapshot silently restored
+      the money that had just been clawed back.
+    */
+    const s = await approvedSettlement(40_000);
+    const reverseTransfer = confirmedReversal();
+    let service!: ReturnType<typeof makeService>['service'];
+
+    const createTransfer = jest.fn(async () => {
+      // Exactly the window: the transfer is away, our row has not been written yet.
+      await service.applyRefund(s.eventId, 'usd', 10_000);
+      return { transferId: `tr_race_${Date.now()}`, raw: {} };
+    });
+
+    ({ service } = makeService({ reverseTransfer }));
+    await service.release(actor as never, s.id, 'first');
+
+    // Entitlement grows; the second release moves only the difference.
+    await db!.settlement.update({
+      where: { id: s.id },
+      data: { grossSalesMinor: 70_000, status: 'APPROVED' },
+    });
+    ({ service } = makeService({ createTransfer, reverseTransfer }));
+    await service.release(actor as never, s.id, 'second');
+
+    const row = await read(s.id);
+    const attempts = await db!.settlementReversalAttempt.findMany({
+      where: { settlementId: s.id },
+    });
+    const confirmed = attempts
+      .filter((a: { status: string }) => a.status === 'COMPLETED')
+      .reduce((t: number, a: { confirmedMinor: number }) => t + a.confirmedMinor, 0);
+
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+    expect(confirmed).toBe(10_000);
+    /*
+      40,000 out, then a further 30,000: the payable is computed from the snapshot BEFORE the
+      refund lands, so the second transfer legitimately sends 70,000 - 40,000. Cumulative OUT
+      movement is 70,000 and the claw-back does not reduce it.
+    */
+    expect(row.releasedMinor).toBe(70_000);
+    // The decrement must survive. Without the fix this read 70,000 - the reversal undone.
+    expect(row.transferredMinor).toBe(60_000);
+    expect(row.transferredMinor).toBe(row.releasedMinor - confirmed);
+  });
+
   // ── 5. the legacy rows this change does not backfill ─────────────────────────────────
 
   maybe('reconstructs a pre-fix row exactly rather than understating it', async () => {

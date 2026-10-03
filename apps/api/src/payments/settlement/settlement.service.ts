@@ -462,7 +462,16 @@ export class SettlementService {
             providerTransferId: transfer.transferId,
             reserveMinor: payable.reserveMinor,
             payableMinor: payable.payableMinor,
-            transferredMinor: settlement.transferredMinor + payable.payableMinor,
+            /*
+              An INCREMENT, not `snapshot + payable`. The atomic claim stops a second release
+              racing this one, but it does not stop a REVERSAL: `reverseIfTransferred` gates on
+              `providerTransferId`, not on status, so a refund arriving during an incremental
+              release decrements `transferredMinor` while this transaction is in flight. An
+              absolute write computed from the pre-transfer snapshot silently undid that
+              decrement - money that had been clawed back reappeared as still held, breaking the
+              very invariant below.
+            */
+            transferredMinor: { increment: payable.payableMinor },
             /*
               The other half of the schema invariant
               `transferredMinor == releasedMinor - Sum(confirmed reversals)`. Only the decrement
