@@ -465,6 +465,126 @@ describe('integration-real-postgres: what release() persists', () => {
     expect(row.transferredMinor).toBe(row.releasedMinor - confirmed);
   });
 
+  // ── 4b. the durable record of having asked a provider to move money ──────────────────
+
+  const attemptsFor = (settlementId: string) =>
+    db!.settlementTransferAttempt.findMany({
+      where: { settlementId },
+      orderBy: { requestedAt: 'asc' },
+    });
+
+  maybe('records the attempt BEFORE the provider is called', async () => {
+    /*
+      The window that had no evidence at all. If the process dies inside `createTransfer` there
+      must already be a row saying we asked, or the crash is indistinguishable from never having
+      tried. Asserted from INSIDE the provider call, which is exactly that moment.
+    */
+    const s = await approvedSettlement(42_000);
+    let seenDuringCall: Array<{ status: string; requestedMinor: number }> = [];
+    const createTransfer = jest.fn(async () => {
+      seenDuringCall = await attemptsFor(s.id);
+      return { transferId: 'tr_durable', raw: {} };
+    });
+
+    await makeService({ createTransfer }).service.release(actor as never, s.id, 'durable');
+
+    expect(seenDuringCall).toHaveLength(1);
+    expect(seenDuringCall[0].status).toBe('REQUESTED');
+    expect(seenDuringCall[0].requestedMinor).toBe(42_000);
+  });
+
+  maybe('marks the attempt SUCCEEDED with the provider reference', async () => {
+    const s = await approvedSettlement(42_000);
+    await makeService({}).service.release(actor as never, s.id, 'ok');
+
+    const [a] = await attemptsFor(s.id);
+    expect(a.status).toBe('SUCCEEDED');
+    expect(a.providerTransferId).toBeTruthy();
+    expect(a.providerTransferId).toBe((await read(s.id)).providerTransferId);
+    expect(a.respondedAt).not.toBeNull();
+  });
+
+  maybe('records an ambiguous outcome as UNKNOWN, never FAILED', async () => {
+    /*
+      THE POINT. A timeout means the provider may have sent the money. The attempt row is where
+      that uncertainty lives; writing FAILED there would state something we cannot know.
+    */
+    const s = await approvedSettlement(42_000);
+    const createTransfer = jest.fn(async () => {
+      throw new Error('socket hang up');
+    });
+    await expect(
+      makeService({ createTransfer }).service.release(actor as never, s.id, 'timeout'),
+    ).rejects.toThrow();
+
+    const [a] = await attemptsFor(s.id);
+    expect(a.status).toBe('UNKNOWN');
+    expect(a.status).not.toBe('FAILED');
+    expect(a.lastError).toMatch(/socket hang up/);
+    expect(a.providerTransferId).toBeNull();
+    // The settlement keeps its coarse FAILED; the attempt carries the honest state.
+    expect((await read(s.id)).status).toBe('FAILED');
+  });
+
+  maybe('leaves one attempt per try, under one operation identity', async () => {
+    const s = await approvedSettlement(42_000);
+    let failFirst = true;
+    const createTransfer = jest.fn(async () => {
+      if (failFirst) {
+        failFirst = false;
+        throw new Error('lost');
+      }
+      return { transferId: 'tr_second', raw: {} };
+    });
+    const { service } = makeService({ createTransfer, supportsIdempotentTransfer: true });
+    await expect(service.release(actor as never, s.id, 'one')).rejects.toThrow();
+    await service.release(actor as never, s.id, 'two');
+
+    const all = await attemptsFor(s.id);
+    expect(all.map((a: { status: string }) => a.status)).toEqual(['UNKNOWN', 'SUCCEEDED']);
+    // Two attempts at ONE operation: the identity is shared on purpose.
+    expect(new Set(all.map((a: { idempotencyKey: string }) => a.idempotencyKey)).size).toBe(1);
+  });
+
+  maybe('refuses to reuse one identity for a different amount', async () => {
+    /*
+      ── THE EDGE THIS CLOSES ─────────────────────────────────────────────────────────────
+      The key is derived from the settlement and its PRIOR transferred amount, but the amount
+      also depends on refunds. A refund landing between a crash and a retry produces the same
+      identity carrying a different amount. Stripe rejects that; Razorpay is unverified. Rather
+      than depend on either, ETicketsGo refuses to send it.
+    */
+    const s = await approvedSettlement(60_000);
+    const createTransfer = jest.fn(async () => {
+      throw new Error('lost in transit');
+    });
+    await expect(
+      makeService({ createTransfer }).service.release(actor as never, s.id, 'one'),
+    ).rejects.toThrow();
+    expect((await attemptsFor(s.id))[0].requestedMinor).toBe(60_000);
+
+    // A refund arrives while the first attempt's outcome is still unknown.
+    await db!.settlement.update({ where: { id: s.id }, data: { refundsMinor: 15_000 } });
+
+    const replay = jest.fn(async () => ({ transferId: 'tr_nope', raw: {} }));
+    await expect(
+      makeService({ createTransfer: replay, supportsIdempotentTransfer: true }).service.release(
+        actor as never,
+        s.id,
+        'two',
+      ),
+    ).rejects.toThrow();
+
+    // Refused before anything left the process.
+    expect(replay).not.toHaveBeenCalled();
+    const row = await read(s.id);
+    expect(row.status).toBe('BLOCKED');
+    expect(row.blockedReason).toMatch(/different amount/i);
+    expect(row.releasedMinor).toBe(0);
+    // And no second attempt row was created for an identity we refused to reuse.
+    expect(await attemptsFor(s.id)).toHaveLength(1);
+  });
+
   // ── 5. replaying a transfer whose outcome we never learned ───────────────────────────
 
   maybe('refuses to replay a transfer on a provider that cannot deduplicate', async () => {

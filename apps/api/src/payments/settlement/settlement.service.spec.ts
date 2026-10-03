@@ -8,6 +8,8 @@ function makeDeps(overrides: {
   claimCount?: number;
   /** Reversal attempts already on the settlement, as the clamp would read them. */
   priorAttempts?: Array<{ status: string; requestedMinor: number; confirmedMinor: number }>;
+  /** Transfer attempts already recorded under this operation identity. */
+  priorTransferAttempts?: Array<{ id: string; requestedMinor: number; status: string }>;
   /** 0 simulates another worker having already settled the attempt. */
   attemptClaimCount?: number;
   reserveBps?: number;
@@ -17,6 +19,8 @@ function makeDeps(overrides: {
   const updated: Array<Record<string, unknown>> = [];
   /** Attempt rows the service creates, so a test can assert what was recorded. */
   const attempts: Array<Record<string, unknown>> = [];
+  /** Transfer attempt rows, the durable record of asking a provider to move money. */
+  const transferAttempts: Array<Record<string, unknown>> = [];
   const prisma = {
     /*
       The reversal ledger. The service now writes an attempt BEFORE calling the provider and
@@ -37,6 +41,23 @@ function makeDeps(overrides: {
       updateMany: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         attempts.push({ op: 'updateMany', ...data });
         return { count: overrides.attemptClaimCount ?? 1 };
+      }),
+    },
+    /*
+      Durable transfer intent. `release()` commits a REQUESTED row BEFORE calling the provider and
+      records what the answer proved afterwards, so a stub without this model makes every release
+      throw rather than exercise the behaviour under test.
+    */
+    settlementTransferAttempt: {
+      findMany: jest.fn(async () => overrides.priorTransferAttempts ?? []),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: `tatt_${transferAttempts.length + 1}`, ...data };
+        transferAttempts.push(row);
+        return row;
+      }),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        transferAttempts.push({ op: 'update', ...data });
+        return data;
       }),
     },
     settlement: {
@@ -62,6 +83,7 @@ function makeDeps(overrides: {
     name: 'stripe',
     createTransfer: overrides.createTransfer,
     reverseTransfer: overrides.reverseTransfer,
+    capabilities: { supportsIdempotentTransfer: true, supportsTransferStatusQuery: false },
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const notifications = {
@@ -81,7 +103,7 @@ function makeDeps(overrides: {
     config as never,
     resolver as never,
   );
-  return { service, prisma, provider, audit, updated, attempts };
+  return { service, prisma, provider, audit, updated, attempts, transferAttempts };
 }
 
 const approved = (over: Record<string, unknown> = {}) => ({
