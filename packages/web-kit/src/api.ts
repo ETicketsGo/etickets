@@ -4512,10 +4512,24 @@ export interface FinanceSummaryDto {
   counts: { platform: number; provider: number };
 }
 
+/**
+ * One settlement route's share of a currency group.
+ *
+ * Provided by the server precisely so a screen showing the two routes separately does not have
+ * to add anything up. Summing entries in a component would be a second financial opinion in the
+ * browser.
+ */
+export interface FinancePathSummaryDto extends FinanceSummaryDto {
+  path: FinancePathCode;
+}
+
 export interface FinanceCurrencyGroupDto {
   currency: string;
   entries: FinanceComposedEntryDto[];
+  /** Both routes together. */
   summary: FinanceSummaryDto;
+  /** One entry per route PRESENT. A platform-only organization has one, not a zeroed pair. */
+  paths: FinancePathSummaryDto[];
   warnings: FinanceWarningDto[];
 }
 

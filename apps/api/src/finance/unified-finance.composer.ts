@@ -74,7 +74,15 @@ export interface ComposedEntry {
 export interface FinanceCurrencyGroup {
   currency: string;
   entries: ComposedEntry[];
+  /** Both paths together. The only figure that answers "what is this organization owed". */
   summary: FinanceSummary;
+  /**
+   * The same figures per path, for a screen that shows the two settlement routes separately.
+   *
+   * One entry per path PRESENT - a platform-only organization gets one, not two with a zeroed
+   * provider. A zero would assert something about a route this organization does not use.
+   */
+  paths: FinancePathSummary[];
   warnings: FinanceWarning[];
 }
 
@@ -136,6 +144,21 @@ export interface FinanceSummary {
   deductedFeesMinor?: number;
   /** Entry counts by path, so a reader can see the view is mixed without inspecting entries. */
   counts: { platform: number; provider: number };
+}
+
+/**
+ * One path's share of a currency group.
+ *
+ * ── WHY THE SERVER PROVIDES THIS AND NOT THE UI ────────────────────────────────────
+ * The organizer Finance page shows a platform ladder from `/payouts/summary` and needs the
+ * provider side beside it. Summing provider entries in a component would be a second financial
+ * opinion in the browser, and the whole point of this projection is that there is one.
+ *
+ * It is produced by the SAME `buildSummary` the total uses, over a filtered subset, so a path
+ * figure cannot drift from the total it is part of - and a test asserts the paths add back to it.
+ */
+export interface FinancePathSummary extends FinanceSummary {
+  path: FinancePath;
 }
 
 export interface ComposeInput {
@@ -281,6 +304,15 @@ function buildGroup(
       )
       .map(({ path, entry }) => ({ path, entry })),
     summary: buildSummary(items),
+    /*
+      Only paths that actually appear, in a fixed order so a response is stable. `buildSummary`
+      is reused rather than reimplemented, which is what makes the parts add up to the whole by
+      construction instead of by agreement.
+    */
+    paths: (['PLATFORM', 'PROVIDER'] as const)
+      .map((path) => ({ path, items: items.filter((i) => i.path === path) }))
+      .filter(({ items: subset }) => subset.length > 0)
+      .map(({ path, items: subset }) => ({ path, ...buildSummary(subset) })),
     warnings,
   };
 }

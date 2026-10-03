@@ -1,3 +1,14 @@
+/*
+  ── WHY THIS FILE HAS ITS OWN COUNTRY ─────────────────────────────────────────────────
+  55 spec files create venues in country 'India', and `admin-grouping` asserts a global
+  events-by-country count. Every one of those files is a writer into the bucket it counts, which
+  makes that count a moving target for the whole run - and this suite was one of the writers that
+  pushed it over.
+
+  Nothing here asserts on country, so a unique one costs nothing and removes this file as an
+  interferer. The general remediation is the same: a fixture dimension that another file can also
+  write is not a fixture, it is a shared global.
+*/
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PayoutsService } from './payouts.service';
@@ -93,7 +104,7 @@ describe('integration-real-postgres: payout allocation and ownership certificati
         organizationId: orgId,
         name: `V ${label} ${suffix}`,
         city: 'Bengaluru',
-        country: 'India',
+        country: 'Certland',
       },
     });
     const event = await db!.event.create({

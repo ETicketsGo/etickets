@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { financeView, splitFees, type FinanceLoad } from './finance-view';
+import { financeView, providerSections, splitFees, type FinanceLoad } from './finance-view';
 import type { FinanceCurrencyGroupDto, UnifiedFinanceDto } from '@eticketsgo/web-kit';
 
 /**
@@ -23,6 +23,20 @@ const group = (over: Partial<FinanceCurrencyGroupDto> = {}): FinanceCurrencyGrou
     attentionMinor: 0,
     counts: { platform: 1, provider: 0 },
   },
+  /*
+    One route by default. Tests that care about the split state it; the rest only need the group
+    to be well formed.
+  */
+  paths: [
+    {
+      path: 'PLATFORM',
+      entitlementMinor: 114_800,
+      paidMinor: 114_800,
+      pendingMinor: 0,
+      attentionMinor: 0,
+      counts: { platform: 1, provider: 0 },
+    },
+  ],
   warnings: [],
   ...over,
 });
@@ -290,5 +304,213 @@ describe('fee lines are split, never summed', () => {
     expect(split.reported).toEqual([]);
     // Zero here is the sum of nothing, which is honest; the absence is carried by the empty lists.
     expect(split.deductedTotalMinor).toBe(0);
+  });
+});
+
+/*
+  ── THE PROVIDER-SETTLED SECTION ──────────────────────────────────────────────────────
+  The figures the ladder above deliberately excludes. Every decision the section makes is here, so
+  it is checkable without a renderer this console does not have in its test setup.
+*/
+describe('provider-settled sections', () => {
+  const providerPath = (over: Record<string, unknown> = {}) => ({
+    path: 'PROVIDER' as const,
+    entitlementMinor: 83_250,
+    paidMinor: 0,
+    pendingMinor: 0,
+    attentionMinor: 83_250,
+    counts: { platform: 0, provider: 1 },
+    movement: {
+      transferredOutMinor: 71_000,
+      recoveredMinor: 13_400,
+      stillOutMinor: 57_600,
+    },
+    refundsMinor: 9_800,
+    ...over,
+  });
+
+  it('shows nothing when the organization has no provider route', () => {
+    /*
+      A platform-only organization gets no section at all - not one full of dashes about a
+      settlement route it does not use.
+    */
+    expect(providerSections(loaded({ currencies: [group()] }))).toEqual([]);
+  });
+
+  it('reports four independent figures for a provider route', () => {
+    const [section] = providerSections(
+      loaded({ currencies: [group({ paths: [providerPath()] })] }),
+    );
+    expect(section.entitlementMinor).toBe(83_250);
+    expect(section.transferredOutMinor).toBe(71_000);
+    expect(section.recoveredMinor).toBe(13_400);
+    expect(section.stillOutMinor).toBe(57_600);
+    // Entitlement is none of the movement figures. Four questions, four answers.
+    expect(new Set([83_250, 71_000, 13_400, 57_600]).size).toBe(4);
+  });
+
+  it('keeps refund accounting apart from money taken back', () => {
+    const [section] = providerSections(
+      loaded({ currencies: [group({ paths: [providerPath()] })] }),
+    );
+    /*
+      A refund can be recorded while nothing has come back. Presenting them as one number would
+      tell the organizer money left when it has not.
+    */
+    expect(section.refundsMinor).toBe(9_800);
+    expect(section.recoveredMinor).toBe(13_400);
+    expect(section.refundsMinor).not.toBe(section.recoveredMinor);
+  });
+
+  it('reports a route with no movement as null, never zero', () => {
+    const [section] = providerSections(
+      loaded({ currencies: [group({ paths: [providerPath({ movement: undefined })] })] }),
+    );
+    /*
+      Nothing has moved yet. A zero would claim the provider sent nothing AND took nothing back,
+      which is a statement the route has not made.
+    */
+    expect(section.transferredOutMinor).toBeNull();
+    expect(section.recoveredMinor).toBeNull();
+    expect(section.stillOutMinor).toBeNull();
+    // The entitlement is still known.
+    expect(section.entitlementMinor).toBe(83_250);
+  });
+
+  it('reports absent refund accounting as null', () => {
+    const [section] = providerSections(
+      loaded({ currencies: [group({ paths: [providerPath({ refundsMinor: undefined })] })] }),
+    );
+    expect(section.refundsMinor).toBeNull();
+  });
+
+  it('reports a proven zero as zero', () => {
+    const [section] = providerSections(
+      loaded({
+        currencies: [
+          group({
+            paths: [
+              providerPath({
+                entitlementMinor: 0,
+                refundsMinor: 0,
+                movement: { transferredOutMinor: 0, recoveredMinor: 0, stillOutMinor: 0 },
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(section.entitlementMinor).toBe(0);
+    expect(section.refundsMinor).toBe(0);
+    expect(section.stillOutMinor).toBe(0);
+    // Zero and null both reach the view, and they are different.
+    expect(section.refundsMinor).not.toBeNull();
+  });
+
+  it('gives each currency its own section and no combined figure', () => {
+    const sections = providerSections(
+      loaded({
+        currencies: [
+          group({ currency: 'INR', paths: [providerPath()] }),
+          group({
+            currency: 'USD',
+            paths: [providerPath({ entitlementMinor: 42_775, movement: undefined })],
+          }),
+        ],
+      }),
+    );
+    expect(sections.map((s) => s.currency)).toEqual(['INR', 'USD']);
+    expect(JSON.stringify(sections)).not.toContain(String(83_250 + 42_775));
+  });
+
+  it('shows no section for loading or failure, so neither looks like an answer', () => {
+    /*
+      Returning an empty list for these is safe only because the component renders its own loading
+      and failure states. An absence must never be mistaken for "no provider money".
+    */
+    expect(providerSections({ kind: 'LOADING' })).toEqual([]);
+    expect(providerSections({ kind: 'FAILED' })).toEqual([]);
+  });
+
+  it('carries the currency notices into the section without leaking codes', () => {
+    const [section] = providerSections(
+      loaded({
+        currencies: [
+          group({
+            paths: [providerPath()],
+            warnings: [
+              {
+                category: 'FINANCIAL_INTEGRITY',
+                code: 'NEEDS_RECONCILIATION',
+                sourceIds: ['s1'],
+                detail: 'internal',
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(section.notices).toHaveLength(1);
+    expect(section.notices[0].tone).toBe('attention');
+    expect(section.notices[0].message).not.toContain('NEEDS_RECONCILIATION');
+  });
+});
+
+describe('money holds at both extremes', () => {
+  it('carries a large value through as an exact integer', () => {
+    /*
+      Just under a crore in paise. A rounded or truncated money figure on a finance page is a
+      wrong number, not a layout choice, so the value must survive the view unchanged.
+    */
+    const big = 999_999_999;
+    const v = financeView(
+      loaded({
+        currencies: [
+          group({
+            summary: {
+              entitlementMinor: big,
+              paidMinor: big,
+              pendingMinor: 0,
+              attentionMinor: 0,
+              counts: { platform: 1, provider: 0 },
+            },
+            paths: [
+              {
+                path: 'PLATFORM',
+                entitlementMinor: big,
+                paidMinor: big,
+                pendingMinor: 0,
+                attentionMinor: 0,
+                counts: { platform: 1, provider: 0 },
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(v.currencies[0].entitlementMinor).toBe(big);
+    expect(Number.isSafeInteger(v.currencies[0].entitlementMinor)).toBe(true);
+  });
+
+  it('keeps a zero distinguishable from a null at the view boundary', () => {
+    const zero = financeView(
+      loaded({
+        currencies: [
+          group({
+            summary: {
+              entitlementMinor: 0,
+              paidMinor: 0,
+              pendingMinor: 0,
+              attentionMinor: 0,
+              deductedFeesMinor: 0,
+              counts: { platform: 1, provider: 0 },
+            },
+          }),
+        ],
+      }),
+    );
+    const absent = financeView(loaded({ currencies: [group()] }));
+    expect(zero.currencies[0].deductedFeesMinor).toBe(0);
+    expect(absent.currencies[0].deductedFeesMinor).toBeNull();
   });
 });

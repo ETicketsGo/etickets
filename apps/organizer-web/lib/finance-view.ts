@@ -213,3 +213,57 @@ export function splitFees(fees: FinanceFeeView[] | undefined): {
     deductedTotalMinor: deducted.reduce((t, f) => t + f.amountMinor, 0),
   };
 }
+
+/**
+ * One currency's provider-settled figures, ready to render.
+ *
+ * ── WHY THIS IS NOT IN THE COMPONENT ───────────────────────────────────────────────
+ * Every decision worth testing is here: which currencies have a provider route at all, which
+ * figures the route can support, and when a dash must appear instead of a number. In JSX none of
+ * it is checkable without a renderer this console does not have in its test setup.
+ *
+ * Nothing is computed. `entitlementMinor` and the movement figures are fields from the certified
+ * per-route subtotal, which the server provides precisely so no component adds money up.
+ */
+export interface ProviderSectionView {
+  currency: string;
+  /** What these events earned the organizer. Always present on a route that exists. */
+  entitlementMinor: number;
+  /** Null where the route reports no movement - NOT zero. */
+  transferredOutMinor: number | null;
+  recoveredMinor: number | null;
+  stillOutMinor: number | null;
+  /** Refund ACCOUNTING. Null when unproven. Never "money taken back". */
+  refundsMinor: number | null;
+  notices: FinanceNoticeView[];
+}
+
+/**
+ * The provider-settled sections, one per currency that has a provider route.
+ *
+ * Empty when the organization settles entirely through the platform ledger, so a screen can show
+ * nothing at all rather than a section full of dashes about a route it does not use.
+ *
+ * Returns empty for LOADING and FAILED too: those are not "no provider money", and a caller must
+ * render its own loading or failure state rather than an absence that looks like an answer.
+ */
+export function providerSections(load: FinanceLoad): ProviderSectionView[] {
+  if (load.kind !== 'LOADED') return [];
+  const view = financeView(load);
+
+  return load.data.currencies.flatMap((group) => {
+    const provider = group.paths.find((p) => p.path === 'PROVIDER');
+    if (provider === undefined) return [];
+    return [
+      {
+        currency: group.currency,
+        entitlementMinor: provider.entitlementMinor,
+        transferredOutMinor: provider.movement?.transferredOutMinor ?? null,
+        recoveredMinor: provider.movement?.recoveredMinor ?? null,
+        stillOutMinor: provider.movement?.stillOutMinor ?? null,
+        refundsMinor: provider.refundsMinor ?? null,
+        notices: view.currencies.find((c) => c.currency === group.currency)?.notices ?? [],
+      },
+    ];
+  });
+}

@@ -1,3 +1,14 @@
+/*
+  ── WHY THIS FILE HAS ITS OWN COUNTRY ─────────────────────────────────────────────────
+  55 spec files create venues in country 'India', and `admin-grouping` asserts a global
+  events-by-country count. Every one of those files is a writer into the bucket it counts, which
+  makes that count a moving target for the whole run - and this suite was one of the writers that
+  pushed it over.
+
+  Nothing here asserts on country, so a unique one costs nothing and removes this file as an
+  interferer. The general remediation is the same: a fixture dimension that another file can also
+  write is not a fixture, it is a shared global.
+*/
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { UnifiedFinanceService } from './unified-finance.service';
@@ -66,7 +77,7 @@ describe('integration-real-postgres: Unified Finance read path', () => {
         organizationId,
         name: `V ${label} ${suffix}`,
         city: 'Bengaluru',
-        country: 'India',
+        country: 'Financeland',
       },
     });
     const event = await db!.event.create({
@@ -847,6 +858,75 @@ describe('integration-real-postgres: Unified Finance read path', () => {
     // The decomposition is the WHOLE payout's, which is what the stored totals describe.
     expect(scoped.entries[0].entry.money.discountMinor).toBe(3_000);
     expect(scoped.entries[0].entry.coveredEventIds).toEqual([a, b].sort());
+  }, 60_000);
+
+  it('17. per-path subtotals add back to the combined total, through the read path', async () => {
+    if (!guard()) return;
+    /*
+      The organizer Finance page shows the platform ladder and the provider side separately, so
+      the split has to be right where it is actually produced - not only in the pure composer.
+      Asymmetric figures again, so a wrong split cannot coincide with a right one.
+    */
+    const org = await makeOrg('path-split');
+    const platformEvent = await makeEvent(org, 'ps-platform');
+    const providerEvent = await makeEvent(org, 'ps-provider');
+
+    await makePayout(
+      org,
+      { eventId: platformEvent, grossMinor: 137_900, refundMinor: 11_700, netMinor: 114_800 },
+      [
+        {
+          bookingId: 'bk-ps',
+          eventId: platformEvent,
+          subtotalMinor: 137_900,
+          discountMinor: 7_300,
+          organizerFeeMinor: 4_100,
+          refundShareMinor: 11_700,
+          allocatedNetMinor: 114_800,
+        },
+      ],
+    );
+    await makeSettlement(org, providerEvent, {
+      status: 'PARTIALLY_REFUNDED',
+      grossSalesMinor: 83_250,
+      platformFeesMinor: 6_150,
+      refundsMinor: 9_800,
+      releasedMinor: 71_000,
+      transferredMinor: 57_600,
+    });
+
+    const g = only(await finance.forOrganization(admin, org));
+    const platform = g.paths.find((p) => p.path === 'PLATFORM')!;
+    const provider = g.paths.find((p) => p.path === 'PROVIDER')!;
+
+    expect(platform.entitlementMinor).toBe(114_800);
+    expect(provider.entitlementMinor).toBe(83_250);
+    // The parts add back to the whole.
+    expect(platform.entitlementMinor + provider.entitlementMinor).toBe(g.summary.entitlementMinor);
+    // Movement belongs to the provider route only; the platform ledger reports none.
+    expect(platform.movement).toBeUndefined();
+    expect(provider.movement).toEqual({
+      transferredOutMinor: 71_000,
+      recoveredMinor: 13_400,
+      stillOutMinor: 57_600,
+    });
+    // And the deducted fees stay with their own route.
+    expect(platform.deductedFeesMinor).toBe(4_100);
+    expect(provider.deductedFeesMinor).toBe(6_150);
+  }, 60_000);
+
+  it('18. lists only the settlement routes the organization actually uses', async () => {
+    if (!guard()) return;
+    const org = await makeOrg('one-route');
+    const ev = await makeEvent(org, 'or');
+    await makePayout(org, { eventId: ev, grossMinor: 10_000, netMinor: 10_000 }, [
+      { bookingId: 'bk-or', eventId: ev, subtotalMinor: 10_000, allocatedNetMinor: 10_000 },
+    ]);
+
+    const g = only(await finance.forOrganization(admin, org));
+    // One route, not two with a zeroed provider - a zero would assert something about a route
+    // this organization does not use.
+    expect(g.paths.map((p) => p.path)).toEqual(['PLATFORM']);
   }, 60_000);
 
   // ── empty ────────────────────────────────────────────────────────────────────────
