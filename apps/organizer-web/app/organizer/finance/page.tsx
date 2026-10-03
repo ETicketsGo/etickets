@@ -15,6 +15,7 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { ProviderSettled } from './provider-settled';
+import { FinanceNotices } from './finance-notices';
 
 /**
  * Where this organizer's money is, in one place.
@@ -210,6 +211,13 @@ export default function FinancePage() {
             figures above are still true, and blanking the page would hide money we do have.
           */}
           <ProviderSettled organizationId={activeOrg.id} />
+
+          {/*
+            Limitations of the records behind EVERY figure above, not just the provider ones, so
+            they are shown once and outside any route-specific card. They used to live inside the
+            provider section, where an organization with no provider route never saw them at all.
+          */}
+          <FinanceNotices organizationId={activeOrg.id} />
 
           {data.heldRevenue.length > 0 && (
             <Card title="Held until the show has finished">

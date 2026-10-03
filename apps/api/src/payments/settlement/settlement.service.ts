@@ -7,6 +7,7 @@ import {
   SettlementStatus,
   canTransitionSettlement,
   computeSettlementPayable,
+  confirmedTotalMinor,
   isReleasableSettlementStatus,
   reversibleMinor,
 } from '@eticketsgo/shared-types';
@@ -462,6 +463,24 @@ export class SettlementService {
             reserveMinor: payable.reserveMinor,
             payableMinor: payable.payableMinor,
             transferredMinor: settlement.transferredMinor + payable.payableMinor,
+            /*
+              The other half of the schema invariant
+              `transferredMinor == releasedMinor - Sum(confirmed reversals)`. Only the decrement
+              was ever implemented, so this field sat at 0 for every row ever written, and the
+              two readers that consume it fell through `releasedMinor || transferredMinor` on
+              every call - not just for the pre-ledger rows that fallback was written for.
+
+              That is not only a reporting gap. `reversibleMinor` clamps a claw-back to
+              `released - Sum(confirmed)`, so with the fallback supplying a `transferredMinor`
+              that confirmed reversals have ALREADY decremented, the confirmed total was
+              subtracted twice and the second reversal of any settlement was silently refused.
+              See docs/guides/SETTLEMENT-RELEASE-LIFECYCLE.md.
+
+              It increments rather than assigns because a settlement can be released more than
+              once - step 6 computes an incremental payable from `priorTransferredMinor`, and
+              what went out cumulatively is the question this field answers.
+            */
+            releasedMinor: { increment: payable.payableMinor },
             releasedAt: new Date(),
             failureMessage: null,
           },
@@ -587,15 +606,22 @@ export class SettlementService {
       more than is outstanding - the invariant is enforced where the number is produced rather
       than checked afterwards.
 
-      `releasedMinor` falls back to `transferredMinor` for settlements that predate the ledger:
-      those rows were never given a released figure, and reconstructing one from status is
-      exactly what the migration refused to do.
+      `releasedMinor` needs a fallback for settlements released before anything wrote it. The
+      old one was a bare `|| transferredMinor`, and it was WRONG rather than merely approximate:
+      `transferredMinor` is already net of confirmed reversals, so the clamp subtracted the
+      confirmed total a second time and silently refused the second reversal of any settlement.
+
+      Reconstructing it is exact arithmetic, not a guess from status. `transferredMinor` is
+      whatever went out minus what has come back, so what went out is `transferredMinor` plus
+      the confirmed total - both durable, both read right here.
+      See docs/guides/SETTLEMENT-RELEASE-LIFECYCLE.md.
     */
     const prior = await this.prisma.settlementReversalAttempt.findMany({
       where: { settlementId: settlement.id },
       select: { status: true, requestedMinor: true, confirmedMinor: true },
     });
-    const released = settlement.releasedMinor || settlement.transferredMinor;
+    const released =
+      settlement.releasedMinor || settlement.transferredMinor + confirmedTotalMinor(prior as never);
     const reverseMinor = reversibleMinor(amountMinor, released, prior as never);
     if (reverseMinor <= 0) return;
 
@@ -849,8 +875,16 @@ export class SettlementService {
         settlementId: settlement.id,
         providerTransferId: settlement.providerTransferId,
         currency: settlement.currency,
-        // Settlements written before the ledger have no released figure; see the migration.
-        releasedMinor: settlement.releasedMinor || settlement.transferredMinor,
+        /*
+          Settlements released before anything wrote `releasedMinor` have no stored figure, so it
+          is reconstructed the same exact way as the reversal clamp: what went out is what is
+          still held plus what has been confirmed back. The old `|| transferredMinor` understated
+          it by the confirmed total, which is the figure this reconciliation compares against the
+          provider's own ORIGINAL transfer amount - so a correctly reversed settlement reported a
+          mismatch against the provider.
+        */
+        releasedMinor:
+          settlement.releasedMinor || settlement.transferredMinor + confirmedReversedMinor,
         confirmedReversedMinor,
         unresolvedAttempts,
       },

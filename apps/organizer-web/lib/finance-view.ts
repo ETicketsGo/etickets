@@ -246,7 +246,35 @@ export interface ProviderSectionView {
   stillOutMinor: number | null;
   /** Refund ACCOUNTING. Null when unproven. Never "money taken back". */
   refundsMinor: number | null;
+}
+
+/** A currency's notices, kept with the currency they describe. */
+export interface CurrencyNoticesView {
+  currency: string;
   notices: FinanceNoticeView[];
+}
+
+/**
+ * Every currency's notices, for ONE render site on the page.
+ *
+ * ── WHY THIS IS NOT PART OF THE PROVIDER SECTION ───────────────────────────────────────
+ * It used to be, and that was wrong twice over. A warning is a fact about a CURRENCY, not about
+ * a settlement route: `DEDUCTION_DETAIL_UNAVAILABLE` is raised by old PAYOUTS, so rendering it
+ * under "Settled by your payment provider" told the organizer their provider money had a problem
+ * it did not have.
+ *
+ * Worse, the provider section renders nothing at all for an organization with no provider route -
+ * which is most of them - so the notice silently disappeared and the page presented an admittedly
+ * incomplete breakdown as if it were complete. A limitation that hides itself is the failure this
+ * whole read model exists to prevent.
+ *
+ * Currencies with nothing to say are dropped, so a caller never renders an empty notice block.
+ */
+export function currencyNotices(load: FinanceLoad): CurrencyNoticesView[] {
+  if (load.kind !== 'LOADED') return [];
+  return financeView(load)
+    .currencies.filter((c) => c.notices.length > 0)
+    .map((c) => ({ currency: c.currency, notices: c.notices }));
 }
 
 /**
@@ -260,7 +288,6 @@ export interface ProviderSectionView {
  */
 export function providerSections(load: FinanceLoad): ProviderSectionView[] {
   if (load.kind !== 'LOADED') return [];
-  const view = financeView(load);
 
   return load.data.currencies.flatMap((group) => {
     const provider = group.paths.find((p) => p.path === 'PROVIDER');
@@ -273,7 +300,6 @@ export function providerSections(load: FinanceLoad): ProviderSectionView[] {
         recoveredMinor: provider.movement?.recoveredMinor ?? null,
         stillOutMinor: provider.movement?.stillOutMinor ?? null,
         refundsMinor: provider.refundsMinor ?? null,
-        notices: view.currencies.find((c) => c.currency === group.currency)?.notices ?? [],
       },
     ];
   });

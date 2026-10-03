@@ -122,12 +122,12 @@ export function providerFinanceEntry(
   // ── movement integrity ───────────────────────────────────────────────────────────
   /*
     ── WHY THIS IS NOT A SIMPLE COMPARISON ───────────────────────────────────────────
-    `releasedMinor` is written by NOTHING. The release path sets status, providerTransferId,
-    reserveMinor, payableMinor and transferredMinor - never releasedMinor - so it stays at its
-    schema default of 0, and the rest of the settlement service reads it as
-    `releasedMinor || transferredMinor`.
+    `release()` now records `releasedMinor`, but for most of this platform's history it wrote
+    nothing at all, so the field sat at its schema default of 0 on every row ever released. Those
+    rows are NOT backfilled - reconstructing a released figure from status is exactly what the
+    original migration refused to do. See docs/guides/SETTLEMENT-RELEASE-LIFECYCLE.md.
 
-    So `transferredMinor > releasedMinor` is true of EVERY healthy released settlement. Treating
+    So `transferredMinor > releasedMinor` is true of every pre-fix released settlement. Treating
     that as a contradiction would mark real money as broken. Only a NON-ZERO released figure
     smaller than what is still out is genuinely impossible.
   */
