@@ -81,12 +81,27 @@ function CurrencyCard({ row }: { row: PayoutSummaryCurrency }) {
           </div>
         ))}
         <div className="flex items-baseline justify-between gap-4 py-3">
-          <dt className="font-semibold text-text-primary">Your net</dt>
+          <dt className="font-semibold text-text-primary">Ready to pay out now</dt>
           <dd className="text-lg font-semibold tabular-nums text-text-primary">
             {money(row.net, row.currency)}
           </dd>
         </div>
       </dl>
+
+      {/*
+        ── WHY THIS SENTENCE IS HERE ──────────────────────────────────────────────────
+        Browser QA showed the real failure mode of the old label. The ladder read "Your net 0"
+        directly above "Pending 1,598" and "Held 4,596" - every figure correct, and the page
+        appearing to say the organizer has nothing while naming two amounts they do have.
+
+        The endpoint answers "what would a payout raised right now come to", so a zero means
+        everything is ALREADY raised or still held, not that there is no money. The heading now
+        says which question it answers, and this line says where the rest of it went.
+      */}
+      <p className="mt-2 text-caption text-text-muted">
+        What a payout raised today would come to. Money already raised, or still held until a show
+        finishes, is counted below rather than here.
+      </p>
 
       <dl className="mt-3 grid gap-2 sm:grid-cols-3">
         {[
