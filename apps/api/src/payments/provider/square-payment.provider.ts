@@ -40,6 +40,8 @@ export class SquarePaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: false,
     supportsRefundStatusQuery: false,
     refundMayBeAsynchronous: false,
+    supportsIdempotentTransfer: false,
+    supportsTransferStatusQuery: false,
     supportsConnectedAccounts: false,
     supportsApplePay: true,
     supportsGooglePay: true,

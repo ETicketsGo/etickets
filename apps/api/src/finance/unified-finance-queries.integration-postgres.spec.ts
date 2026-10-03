@@ -192,9 +192,34 @@ describe('integration-real-postgres: Unified Finance query shape', () => {
   };
 
   /** Statements issued by one call, excluding connection noise. */
+  /**
+   * Wait until Prisma has finished delivering query events.
+   *
+   * `$on('query')` is emitted ASYNCHRONOUSLY, so the array is not complete the moment the awaited
+   * call resolves. Reading it immediately counted whatever happened to have arrived: stragglers
+   * from an earlier measurement landed after the reset and inflated the next one, while the tail
+   * of the current one had not arrived yet and deflated it. On a quiet machine the timing worked
+   * out; under full-suite load in CI it did not, and a comparison of two counts failed with the
+   * LARGE case showing FEWER queries than the small one - which is not a shape any N+1 can take.
+   *
+   * Bounded convergence, not a fixed sleep: it returns as soon as a tick adds nothing, and gives
+   * up rather than hanging. A real N+1 still grows the count on every attempt, so this changes
+   * what is measured, not how strictly it is judged.
+   */
+  async function settle(): Promise<void> {
+    let seen = -1;
+    for (let i = 0; i < 50 && seen !== statements.length; i += 1) {
+      seen = statements.length;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   async function measure(fn: () => Promise<unknown>): Promise<string[]> {
+    // Drain anything still in flight from earlier work before claiming a clean slate.
+    await settle();
     statements = [];
     await fn();
+    await settle();
     return statements.filter(
       (q) => !/^\s*(BEGIN|COMMIT|ROLLBACK|SELECT 1|SET |DEALLOCATE|SHOW )/i.test(q),
     );

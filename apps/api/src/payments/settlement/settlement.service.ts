@@ -384,6 +384,38 @@ export class SettlementService {
     }
     const adapter = this.adapterFor(settlement.provider);
 
+    /*
+      ── RETRYING A TRANSFER WHOSE OUTCOME WE DO NOT KNOW ──────────────────────────────
+      `FAILED` is releasable so a lost write can be recovered. But `release()` writes FAILED for
+      EVERY error - an authoritative refusal, a timeout, a connection reset - so a settlement in
+      FAILED without a `providerTransferId` is not a settlement we know did not pay. It is one
+      whose outcome we never learned, and the organizer may already have the money.
+
+      Retrying that is safe only if a replayed request would be deduplicated by the provider.
+      This codebase already decided how to express that: ADR-043 gates automatic void and refund
+      execution on `supportsIdempotentVoid` / `supportsIdempotentRefund`. The same rule had never
+      been applied to transfers - the operation that moves the largest amount.
+
+      `supportsIdempotentTransfer` describes OUR adapter. The Razorpay adapter accepts
+      `idempotencyKey` and sends `account`, `amount`, `currency` and `notes` - the identity is
+      discarded, so a replay is a second transfer. It declares false for that reason, which is a
+      fact about our code and not a claim about Razorpay's API.
+
+      A first attempt is unaffected. Only a replay is gated, and the settlement is left BLOCKED
+      with a reason rather than silently stuck, because resolving it needs a person to establish
+      what the provider actually did. See docs/guides/PROVIDER-EXECUTION-AND-RECONCILIATION.md.
+    */
+    const isReplay = settlement.status === 'FAILED' && !settlement.providerTransferId;
+    if (isReplay && !adapter.capabilities.supportsIdempotentTransfer) {
+      return this.blockClaimed(
+        actor,
+        settlement,
+        'A previous transfer attempt did not complete and its outcome is unknown. This provider ' +
+          'cannot prove a repeated request would not pay twice, so the payout needs a person to ' +
+          'confirm with the provider what happened.',
+      );
+    }
+
     // Recompute payable immediately before transfer (deduct refunds/disputes/prior/reserve).
     const payable = computeSettlementPayable({
       grossOrganizerNetMinor: settlement.grossSalesMinor,

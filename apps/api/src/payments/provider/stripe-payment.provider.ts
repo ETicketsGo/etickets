@@ -90,6 +90,8 @@ export class StripePaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: false,
     supportsRefundStatusQuery: false,
     refundMayBeAsynchronous: false,
+    supportsIdempotentTransfer: true,
+    supportsTransferStatusQuery: false,
     supportsConnectedAccounts: true,
     supportsApplePay: true,
     supportsGooglePay: true,

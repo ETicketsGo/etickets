@@ -77,6 +77,8 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: false,
     supportsRefundStatusQuery: true,
     refundMayBeAsynchronous: true,
+    supportsIdempotentTransfer: false,
+    supportsTransferStatusQuery: false,
     supportsConnectedAccounts: true,
     supportsApplePay: false,
     supportsGooglePay: true,

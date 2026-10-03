@@ -129,6 +129,14 @@ describe('integration-real-postgres: what release() persists', () => {
     createTransfer?: jest.Mock;
     reverseTransfer?: jest.Mock;
     reserveBps?: number;
+    /**
+     * Whether this adapter can prove a replayed transfer would be deduplicated.
+     *
+     * Defaults to TRUE so the tests above keep exercising the transfer path. An adapter that
+     * declares false - the Razorpay adapter does, because it discards the idempotency identity -
+     * is refused an automatic replay, which is what the gate tests below assert.
+     */
+    supportsIdempotentTransfer?: boolean;
   }) {
     const calls: Array<Record<string, unknown>> = [];
     const createTransfer =
@@ -137,7 +145,15 @@ describe('integration-real-postgres: what release() persists', () => {
         calls.push(req);
         return { transferId: `tr_${calls.length}_${Date.now()}`, raw: {} };
       });
-    const provider = { name: 'stripe', createTransfer, reverseTransfer: opts.reverseTransfer };
+    const provider = {
+      name: 'stripe',
+      createTransfer,
+      reverseTransfer: opts.reverseTransfer,
+      capabilities: {
+        supportsIdempotentTransfer: opts.supportsIdempotentTransfer ?? true,
+        supportsTransferStatusQuery: false,
+      },
+    };
     const service = new SettlementService(
       db as never,
       { record: jest.fn().mockResolvedValue(undefined) } as never,
@@ -447,6 +463,84 @@ describe('integration-real-postgres: what release() persists', () => {
     // The decrement must survive. Without the fix this read 70,000 - the reversal undone.
     expect(row.transferredMinor).toBe(60_000);
     expect(row.transferredMinor).toBe(row.releasedMinor - confirmed);
+  });
+
+  // ── 5. replaying a transfer whose outcome we never learned ───────────────────────────
+
+  maybe('refuses to replay a transfer on a provider that cannot deduplicate', async () => {
+    /*
+      ── WHY THIS IS THE WORST CASE ───────────────────────────────────────────────────────
+      `release()` writes FAILED for every error, including a timeout - so a FAILED settlement
+      with no `providerTransferId` is NOT one we know did not pay. The organizer may already
+      have the money.
+
+      Replaying that is safe only where a repeated request would be deduplicated. The Razorpay
+      adapter declares it cannot, because it discards the idempotency identity before calling
+      Razorpay, so the replay must not happen at all - not be attempted and hope.
+    */
+    const s = await approvedSettlement(55_000);
+    const first = jest.fn(async () => {
+      throw new Error('timeout - the provider may or may not have sent the money');
+    });
+    await expect(
+      makeService({ createTransfer: first }).service.release(actor as never, s.id, 'attempt 1'),
+    ).rejects.toThrow();
+    expect((await read(s.id)).status).toBe('FAILED');
+
+    const replay = jest.fn(async () => ({ transferId: 'tr_should_not_happen', raw: {} }));
+    const { service } = makeService({
+      createTransfer: replay,
+      supportsIdempotentTransfer: false,
+    });
+
+    await expect(service.release(actor as never, s.id, 'attempt 2')).rejects.toThrow();
+
+    // The money must not have been sent a second time.
+    expect(replay).not.toHaveBeenCalled();
+    const row = await read(s.id);
+    expect(row.releasedMinor).toBe(0);
+    expect(row.transferredMinor).toBe(0);
+    // And it must be visible to a person rather than silently stuck.
+    expect(row.status).toBe('BLOCKED');
+    expect(row.blockedReason).toMatch(/outcome is unknown/i);
+  });
+
+  maybe('still replays on a provider that CAN deduplicate', async () => {
+    // The gate must not block legitimate recovery, which is the whole reason FAILED is releasable.
+    const s = await approvedSettlement(55_000);
+    let failFirst = true;
+    const createTransfer = jest.fn(async () => {
+      if (failFirst) {
+        failFirst = false;
+        throw new Error('answer lost in transit');
+      }
+      return { transferId: 'tr_dedup', raw: {} };
+    });
+    const { service } = makeService({ createTransfer, supportsIdempotentTransfer: true });
+
+    await expect(service.release(actor as never, s.id, 'attempt 1')).rejects.toThrow();
+    await service.release(actor as never, s.id, 'attempt 2');
+
+    const row = await read(s.id);
+    expect(row.status).toBe('TRANSFERRED');
+    expect(row.releasedMinor).toBe(55_000);
+    expect(createTransfer).toHaveBeenCalledTimes(2);
+  });
+
+  maybe('does not gate a FIRST attempt on a provider that cannot deduplicate', async () => {
+    /*
+      Nothing has been sent, so there is nothing to double. Gating this would stop every Razorpay
+      payout rather than only the unsafe replay.
+    */
+    const s = await approvedSettlement(30_000);
+    const { service, createTransfer } = makeService({ supportsIdempotentTransfer: false });
+
+    await service.release(actor as never, s.id, 'first and only');
+
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+    const row = await read(s.id);
+    expect(row.status).toBe('TRANSFERRED');
+    expect(row.releasedMinor).toBe(30_000);
   });
 
   // ── 5. the legacy rows this change does not backfill ─────────────────────────────────

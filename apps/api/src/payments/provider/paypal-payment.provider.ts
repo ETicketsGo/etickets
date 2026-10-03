@@ -41,6 +41,8 @@ export class PayPalPaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: false,
     supportsRefundStatusQuery: false,
     refundMayBeAsynchronous: false,
+    supportsIdempotentTransfer: false,
+    supportsTransferStatusQuery: false,
     supportsConnectedAccounts: false,
     supportsApplePay: false,
     supportsGooglePay: false,
