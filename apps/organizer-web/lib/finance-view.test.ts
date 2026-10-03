@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { financeView, providerSections, splitFees, type FinanceLoad } from './finance-view';
+import {
+  currencyNotices,
+  financeView,
+  providerSections,
+  splitFees,
+  type FinanceLoad,
+} from './finance-view';
 import type { FinanceCurrencyGroupDto, UnifiedFinanceDto } from '@eticketsgo/web-kit';
 
 /**
@@ -432,7 +438,12 @@ describe('provider-settled sections', () => {
     expect(providerSections({ kind: 'FAILED' })).toEqual([]);
   });
 
-  it('carries the currency notices into the section without leaking codes', () => {
+  it('leaves notices to the page, so a route-less organization still sees them', () => {
+    /*
+      A warning describes a CURRENCY, not a settlement route. While it lived here it rendered
+      under "Settled by your payment provider" - and for an organization with no provider route
+      the section renders nothing at all, so the limitation disappeared entirely.
+    */
     const [section] = providerSections(
       loaded({
         currencies: [
@@ -450,9 +461,55 @@ describe('provider-settled sections', () => {
         ],
       }),
     );
-    expect(section.notices).toHaveLength(1);
-    expect(section.notices[0].tone).toBe('attention');
-    expect(section.notices[0].message).not.toContain('NEEDS_RECONCILIATION');
+    expect(section).not.toHaveProperty('notices');
+  });
+});
+
+describe('the notices a page must show whatever route the money took', () => {
+  type WarningCode = NonNullable<FinanceCurrencyGroupDto['warnings']>[number]['code'];
+  const warned = (code: WarningCode, currency = 'INR') =>
+    group({
+      currency,
+      warnings: [{ category: 'HISTORICAL_LIMITATION', code, sourceIds: ['p1'], detail: 'x' }],
+    });
+
+  it('shows a platform limitation to an organization with NO provider route', () => {
+    /*
+      THE DEFECT THIS REPLACED. These are the commonest organizations on the platform, and the
+      notice about their own payouts was rendered only inside a provider section they never saw.
+    */
+    const groups = currencyNotices(
+      loaded({ currencies: [warned('DEDUCTION_DETAIL_UNAVAILABLE')] }),
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].currency).toBe('INR');
+    expect(groups[0].notices[0].message).toMatch(/older payouts/i);
+  });
+
+  it('never leaks a code', () => {
+    const groups = currencyNotices(
+      loaded({ currencies: [warned('DEDUCTION_DETAIL_UNAVAILABLE')] }),
+    );
+    expect(groups[0].notices[0].message).not.toContain('DEDUCTION_DETAIL_UNAVAILABLE');
+  });
+
+  it('drops currencies with nothing to say, so no empty block is rendered', () => {
+    expect(currencyNotices(loaded({ currencies: [group()] }))).toEqual([]);
+  });
+
+  it('keeps each currency its own notices', () => {
+    const groups = currencyNotices(
+      loaded({
+        currencies: [warned('DEDUCTION_DETAIL_UNAVAILABLE', 'INR'), group({ currency: 'USD' })],
+      }),
+    );
+    // USD had nothing to say, so it is absent rather than present and empty.
+    expect(groups.map((g) => g.currency)).toEqual(['INR']);
+  });
+
+  it('shows nothing for loading or failure, so neither looks like an all-clear', () => {
+    expect(currencyNotices({ kind: 'LOADING' })).toEqual([]);
+    expect(currencyNotices({ kind: 'FAILED' })).toEqual([]);
   });
 });
 

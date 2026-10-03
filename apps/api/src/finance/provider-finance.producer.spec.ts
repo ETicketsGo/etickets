@@ -382,10 +382,10 @@ describe('contradictory movement evidence is reported, not smoothed over', () =>
       This used to assert TOTALS_DISAGREE and ATTENTION_REQUIRED, on the reasoning that a
       TRANSFERRED settlement recording nothing as released contradicts itself.
 
-      It does not. `Settlement.releasedMinor` is written by NOTHING - the release path never sets
-      it - so it is 0 on every real settlement. The old assertion would therefore have marked all
-      real money as broken, and the fixtures only hid that by setting a field production never
-      sets.
+      It does not. `releasedMinor` went unwritten for most of this platform's history, so it is 0
+      on every settlement released before that was fixed, and those rows are not backfilled. The
+      old assertion would therefore have marked real historical money as broken, and the fixtures
+      only hid that by setting a field the writer did not set.
 
       Nothing is recorded, which is a gap in what we keep, not two sources disagreeing.
     */
@@ -441,17 +441,19 @@ describe('attribution and currency', () => {
 });
 
 /*
-  ── THE SHAPE PRODUCTION ACTUALLY WRITES ──────────────────────────────────────────────
-  `Settlement.releasedMinor` is written by NOTHING. The release path sets status,
-  providerTransferId, reserveMinor, payableMinor and transferredMinor - never releasedMinor - so
-  it stays at its schema default of 0 forever, and the settlement service reads it as
-  `releasedMinor || transferredMinor`.
+  ── THE SHAPE PRODUCTION WROTE FOR ITS ENTIRE HISTORY ─────────────────────────────────
+  `release()` records `releasedMinor` now, but nothing did before that fix, so it stayed at its
+  schema default of 0 on every row ever released - and those rows are deliberately not
+  backfilled, because reconstructing the figure from status is what the original migration
+  refused to do.
 
-  Every test above sets releasedMinor explicitly, which is a shape production never produces. That
-  gap is exactly how a producer can pass a real-Postgres suite and still be wrong against real
-  data, so these use the real shape: released status, real transferredMinor, releasedMinor at 0.
+  Every test above sets releasedMinor explicitly, which is a shape the writer never produced.
+  That gap is exactly how a producer can pass a real-Postgres suite and still be wrong against
+  real data, so these use the historical shape: released status, real transferredMinor,
+  releasedMinor at 0. What the writer does now is proven in
+  release-writer.integration-postgres.spec.ts, against the real service.
 */
-describe('a settlement written the way production writes it', () => {
+describe('a settlement released before releasedMinor was recorded', () => {
   const asProductionWrites = (over: Partial<ProviderSettlementRow> = {}) =>
     settlement({
       status: 'TRANSFERRED',

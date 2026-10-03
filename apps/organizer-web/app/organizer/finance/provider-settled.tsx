@@ -1,8 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Info } from 'lucide-react';
-import { api, Card, ErrorState, Skeleton, money } from '@eticketsgo/web-kit';
+import { api, Card, ErrorState, Skeleton, money, moneyFractionDigits } from '@eticketsgo/web-kit';
 import { providerSections } from '@/lib/finance-view';
 
 /**
@@ -37,11 +36,14 @@ function Figure({
   amountMinor,
   currency,
   hint,
+  fractionDigits,
 }: {
   label: string;
   amountMinor: number | null;
   currency: string;
   hint: string;
+  /** Decided once for the whole section, so the four figures can be read as a column. */
+  fractionDigits: number;
 }) {
   return (
     <div className="rounded-md border border-border px-3 py-2">
@@ -52,7 +54,7 @@ function Figure({
             Null means the route does not report this concept - not that it is zero. A dash says
             so; a currency figure would state something the server declined to.
           */}
-          {amountMinor === null ? '—' : money(amountMinor, currency)}
+          {amountMinor === null ? '—' : money(amountMinor, currency, undefined, fractionDigits)}
         </span>
         <span className="mt-0.5 block text-caption font-normal text-text-muted">{hint}</span>
       </dd>
@@ -91,81 +93,80 @@ export function ProviderSettled({ organizationId }: { organizationId: string }) 
       </p>
 
       <div className="space-y-5">
-        {sections.map((section) => (
-          <section key={section.currency} aria-labelledby={`provider-${section.currency}`}>
-            <h3
-              id={`provider-${section.currency}`}
-              className="mb-2 text-sm font-semibold text-text-primary"
-            >
-              {section.currency}
-            </h3>
+        {sections.map((section) => {
+          /*
+            One decimal shape for everything this section shows, including the refund line below.
+            Per-amount formatting put ₹832.50 next to ₹710 in the same four-up grid - figures
+            meant to be compared, rendered as if they had different precision. `money` takes the
+            override for exactly this reason; see `moneyFractionDigits`.
+          */
+          const fractionDigits = moneyFractionDigits(
+            [
+              section.entitlementMinor,
+              section.transferredOutMinor,
+              section.recoveredMinor,
+              section.stillOutMinor,
+              section.refundsMinor,
+            ],
+            section.currency,
+          );
+          return (
+            <section key={section.currency} aria-labelledby={`provider-${section.currency}`}>
+              <h3
+                id={`provider-${section.currency}`}
+                className="mb-2 text-sm font-semibold text-text-primary"
+              >
+                {section.currency}
+              </h3>
 
-            <dl className="grid gap-2 sm:grid-cols-2">
-              <Figure
-                label="Yours from these events"
-                amountMinor={section.entitlementMinor}
-                currency={section.currency}
-                hint="What these events earned you, after your provider's fees."
-              />
-              <Figure
-                label="Sent to you"
-                amountMinor={section.transferredOutMinor}
-                currency={section.currency}
-                hint="Paid out by your provider."
-              />
-              <Figure
-                label="Taken back"
-                amountMinor={section.recoveredMinor}
-                currency={section.currency}
-                hint="Returned to us after a refund or a correction."
-              />
-              <Figure
-                label="Still with you"
-                amountMinor={section.stillOutMinor}
-                currency={section.currency}
-                hint="Sent and not taken back."
-              />
-            </dl>
+              <dl className="grid gap-2 sm:grid-cols-2">
+                <Figure
+                  label="Yours from these events"
+                  amountMinor={section.entitlementMinor}
+                  currency={section.currency}
+                  hint="What these events earned you, after your provider's fees."
+                  fractionDigits={fractionDigits}
+                />
+                <Figure
+                  label="Sent to you"
+                  amountMinor={section.transferredOutMinor}
+                  currency={section.currency}
+                  hint="Paid out by your provider."
+                  fractionDigits={fractionDigits}
+                />
+                <Figure
+                  label="Taken back"
+                  amountMinor={section.recoveredMinor}
+                  currency={section.currency}
+                  hint="Returned to us after a refund or a correction."
+                  fractionDigits={fractionDigits}
+                />
+                <Figure
+                  label="Still with you"
+                  amountMinor={section.stillOutMinor}
+                  currency={section.currency}
+                  hint="Sent and not taken back."
+                  fractionDigits={fractionDigits}
+                />
+              </dl>
 
-            {/*
+              {/*
               Refund accounting is shown apart from "taken back" on purpose. A refund can be
               recorded while no money has moved at all, and presenting them as one number would
               tell the organizer money left when it has not.
             */}
-            {section.refundsMinor !== null && (
-              <p className="mt-2 text-caption text-text-secondary">
-                Refunds recorded against these events:{' '}
-                <span className="font-medium tabular-nums text-text-primary">
-                  {money(section.refundsMinor, section.currency)}
-                </span>
-                . This is the refund total, not money already taken back from you.
-              </p>
-            )}
-
-            {section.notices.length > 0 && (
-              <ul className="mt-3 space-y-2">
-                {section.notices.map((n) => (
-                  <li key={n.message} className="flex items-start gap-2">
-                    <span
-                      className={
-                        n.tone === 'attention'
-                          ? 'mt-0.5 text-status-warning'
-                          : 'mt-0.5 text-text-muted'
-                      }
-                    >
-                      {n.tone === 'attention' ? (
-                        <AlertTriangle className="h-4 w-4" aria-hidden />
-                      ) : (
-                        <Info className="h-4 w-4" aria-hidden />
-                      )}
-                    </span>
-                    <span className="text-caption text-text-secondary">{n.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ))}
+              {section.refundsMinor !== null && (
+                <p className="mt-2 text-caption text-text-secondary">
+                  Refunds recorded against these events:{' '}
+                  <span className="font-medium tabular-nums text-text-primary">
+                    {money(section.refundsMinor, section.currency, undefined, fractionDigits)}
+                  </span>
+                  . This is the refund total, not money already taken back from you.
+                </p>
+              )}
+            </section>
+          );
+        })}
       </div>
     </Card>
   );

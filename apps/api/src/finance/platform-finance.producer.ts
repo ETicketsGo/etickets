@@ -92,12 +92,14 @@ export type FinanceIntegrityCode =
   /**
    * A settlement says money was sent, but no original transfer amount was ever recorded.
    *
-   * A LIMITATION, not a contradiction. `Settlement.releasedMinor` is written by nothing in this
-   * codebase - it sits at its schema default of 0, and the settlement service reads it as
-   * `releasedMinor || transferredMinor` - so the amount originally sent is simply not stored.
-   * Reporting that as a disagreement would mark every healthy released settlement as broken;
+   * A LIMITATION, not a contradiction. `release()` now records `Settlement.releasedMinor`, but
+   * for most of this platform's history nothing did, so it sits at its schema default of 0 on
+   * every row released before that fix. Those rows are deliberately not backfilled, so the
+   * amount originally sent is simply not stored for them.
+   *
+   * Reporting that as a disagreement would mark healthy historical settlements as broken;
    * reporting a zero would state that nothing was sent. Neither is true, so movement is withheld
-   * and this says why.
+   * and this says why. Expect it to stop appearing as pre-fix settlements age out.
    */
   | 'MOVEMENT_NOT_RECORDED';
 
