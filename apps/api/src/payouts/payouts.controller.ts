@@ -5,6 +5,7 @@ import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { PayoutsService } from './payouts.service';
 import { PayoutSettingsService } from './payout-settings.service';
 import { PayoutAccountsService } from './payout-accounts.service';
+import { UnifiedFinanceService } from '../finance/unified-finance.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
@@ -39,6 +40,7 @@ export class PayoutsController {
   constructor(
     private readonly payouts: PayoutsService,
     private readonly accounts_: PayoutAccountsService,
+    private readonly finance: UnifiedFinanceService,
   ) {}
 
   @Get()
@@ -59,6 +61,44 @@ export class PayoutsController {
    * one settlement calculation, so a finance screen and the payout it would raise cannot
    * disagree. Figures are per currency and never combined.
    */
+
+  /**
+   * Every financial record this organization has, by currency - across BOTH settlement paths.
+   *
+   * ── WHY THIS SITS BESIDE /payouts/summary RATHER THAN REPLACING IT ─────────────────
+   * They answer different questions and both are wanted. `summary` is forward-looking: what a
+   * payout raised right now would come to, computed from current booking state, which is what an
+   * organizer asking "when do I get paid" needs. This is historical: which financial records
+   * exist, what they say, and which path owns them. Folding the second into the first would make
+   * a live projection carry immutable evidence, and neither question would be answered cleanly.
+   *
+   * ── WHAT IT DOES NOT DO ────────────────────────────────────────────────────────────
+   * No writes, no provider calls, no reconciliation. Opening a finance screen must not move money
+   * or ask a payment provider anything. Authorization happens inside the service BEFORE any
+   * financial row is read - see `UnifiedFinanceService` - so a refused request never loads another
+   * tenant's evidence at all.
+   *
+   * `eventId` narrows to one event's authoritative participation. A period payout with
+   * `eventId: null` is still returned when its allocations prove the event took part; a legacy
+   * period payout whose membership was never recorded is not, and the response says why rather
+   * than implying the event was unpaid.
+   */
+  @Get('finance')
+  @ApiOperation({
+    summary: "An organization's financial records across both settlement paths, by currency.",
+  })
+  finance_(
+    @CurrentUser() user: RequestUser,
+    @Query(
+      new ZodValidationPipe(
+        z.object({ organizationId: z.string().cuid(), eventId: z.string().cuid().optional() }),
+      ),
+    )
+    q: { organizationId: string; eventId?: string },
+  ) {
+    return this.finance.forOrganization(user, q.organizationId, q.eventId);
+  }
+
   @Get('summary')
   @ApiOperation({ summary: "An organization's settlement position, per currency (read only)." })
   summary(

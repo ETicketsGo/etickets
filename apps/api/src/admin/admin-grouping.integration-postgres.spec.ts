@@ -28,6 +28,16 @@ import { GROUP_KEY_NONE, groupScopeWhere } from './group-scope';
  * of 1 against a list of 2, on an event with exactly one confirmed booking by the time anyone
  * looked. A real disagreement between the SQL and the Prisma `where` reproduces every time; a
  * concurrent insert does not. So one retry tells them apart without weakening the assertion.
+ *
+ * ── WHY THE RETRY READS AN ABSENT GROUP AS ZERO ───────────────────────────────────
+ * `groups.find(...)?.count` is `undefined` when a parallel file deletes the last row of a group,
+ * while the count side returns 0. Those are THE SAME FACT - a group with no rows does not appear
+ * in a GROUP BY result - but `0 !== undefined`, so the retry could never converge and the test
+ * failed on a benign race. Found exactly that way, in a gate run reporting
+ * `listed: 0` against `listed: undefined`.
+ *
+ * This does not weaken anything: a genuine disagreement still differs by its amount, so a
+ * summary claiming 5 against a list of 3 fails as before.
  */
 async function agrees<T>(read: () => Promise<T>, expected: () => Promise<T>): Promise<void> {
   const first = await read();
@@ -117,7 +127,7 @@ describe('every grouped summary the console can ask for', () => {
           const again = await service.grouped(resource, groupBy);
           return {
             group: group.label,
-            listed: again.groups.find((g) => g.key === group.key)?.count,
+            listed: again.groups.find((g) => g.key === group.key)?.count ?? 0,
           };
         },
       );
@@ -195,9 +205,10 @@ describe('every grouped summary the console can ask for', () => {
         async () => ({
           status,
           group: group.label,
-          listed: (await service.grouped(resource, groupBy, { status })).groups.find(
-            (g) => g.key === group.key,
-          )?.count,
+          listed:
+            (await service.grouped(resource, groupBy, { status })).groups.find(
+              (g) => g.key === group.key,
+            )?.count ?? 0,
         }),
       );
     });
@@ -278,7 +289,7 @@ describe('every grouped summary the console can ask for', () => {
           const again = await service.grouped('settlements', 'currency');
           return {
             label: group!.label,
-            listed: again.groups.find((g) => g.key === currency)?.count,
+            listed: again.groups.find((g) => g.key === currency)?.count ?? 0,
           };
         },
       );

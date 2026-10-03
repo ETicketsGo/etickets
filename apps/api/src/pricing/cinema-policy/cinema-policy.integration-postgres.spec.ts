@@ -18,11 +18,22 @@ const prisma = new PrismaClient();
 const service = new CinemaPricingPolicyService(prisma as never);
 
 /** Namespaced so a failed run cannot leave rows that price a later test. */
+/*
+  ── WHY THIS FILE HAS ITS OWN COUNTRY ─────────────────────────────────────────────────
+  `telangana-and-immutability.integration-postgres.spec.ts` also used 'Testland' and creates
+  ACTIVE policies there. Each file cleans only its own `regulatoryReference`, and the suite runs
+  files in parallel - so while that one held an ACTIVE Testland policy, the DRAFT test below
+  flipped from NOT_REGULATED ("this country has no active policies") to POLICY_NOT_FOUND ("it has
+  some, none covering this location"). Both answers were correct; the COUNTRY was the shared
+  global, and a reference-scoped clean cannot isolate a country-scoped question.
+
+  Found in a gate run, not by reading the code.
+*/
 const REF = 'ITEST-CINEMA-POLICY';
 const AT = new Date('2026-06-01T00:00:00Z');
 
 const base = {
-  country: 'Testland',
+  country: 'Policyland',
   region: '*',
   district: '*',
   city: '*',
@@ -33,7 +44,7 @@ const base = {
 
 const ctx = (over: Record<string, unknown> = {}) =>
   ({
-    country: 'Testland',
+    country: 'Policyland',
     region: 'Testshire',
     district: null,
     city: 'Testville',
