@@ -235,11 +235,16 @@ describe('integration-real-postgres: Unified Finance query shape', () => {
 
     const queries = await measure(() => finance.forOrganization(admin, organizationId));
     /*
-      Three: payouts (with allocations joined by Prisma), settlements (with unresolved attempts
-      joined), and Prisma's separate relation load. Exact rather than an upper bound - slack is
-      how three quietly become five.
+      Payouts (with allocations joined by Prisma), settlements, and Prisma's separate load for
+      each to-many relation on them - unresolved REVERSAL attempts and unresolved TRANSFER
+      attempts. The bound moved from 4 to 5 when transfer attempts were added to the evidence,
+      which is one relation load and not a loop.
+
+      A tight bound rather than slack, because slack is how a constant quietly becomes an N+1.
+      It is the test below that actually proves the shape: the count must not move when the row
+      count does.
     */
-    expect(queries.length).toBeLessThanOrEqual(4);
+    expect(queries.length).toBeLessThanOrEqual(5);
     expect(queries.filter((q) => /"Payout"/.test(q)).length).toBe(1);
     expect(queries.filter((q) => /"Settlement"/.test(q)).length).toBe(1);
   }, 120_000);

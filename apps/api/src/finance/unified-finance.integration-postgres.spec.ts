@@ -207,6 +207,27 @@ describe('integration-real-postgres: Unified Finance read path', () => {
     });
   }
 
+  /**
+   * A transfer whose outcome was never established.
+   *
+   * This is the shape `release()` writes when `createTransfer` throws - proven against the real
+   * writer in release-writer.integration-postgres.spec.ts, which is why constructing it here is
+   * sound rather than the fixture-shape trap: the writer demonstrably produces it.
+   */
+  async function makeUnknownTransfer(settlementId: string) {
+    await db!.settlementTransferAttempt.create({
+      data: {
+        settlementId,
+        requestedMinor: 5_000,
+        currency: 'inr',
+        provider: 'razorpay',
+        status: 'UNKNOWN',
+        lastError: 'socket hang up',
+        idempotencyKey: `uf-t-${settlementId}-${Math.random().toString(36).slice(2)}`,
+      },
+    });
+  }
+
   beforeAll(async () => {
     if (!url) {
       // eslint-disable-next-line no-console
@@ -536,6 +557,65 @@ describe('integration-real-postgres: Unified Finance read path', () => {
     expect(g.summary.paidMinor).toBe(0);
     expect(g.summary.attentionMinor).toBe(64_500);
     expect(g.warnings.map((w) => w.code)).toContain('NEEDS_RECONCILIATION');
+  }, 60_000);
+
+  it('a transfer whose outcome was never established needs a person', async () => {
+    if (!guard()) return;
+    /*
+      ── MONEY THAT MAY HAVE GONE OUT ─────────────────────────────────────────────────────
+      Until the transfer attempt table existed there was no durable evidence of this at all: a
+      release that timed out wrote FAILED and nothing recorded that the organizer might already
+      hold the money. The read model counted unresolved REVERSALS only, so the larger and more
+      dangerous direction raised no flag.
+    */
+    const org = await makeOrg('unknown-transfer');
+    const ev = await makeEvent(org, 'ut');
+    const sid = await makeSettlement(org, ev, {
+      status: 'TRANSFERRED',
+      grossSalesMinor: 70_000,
+      releasedMinor: 70_000,
+      transferredMinor: 70_000,
+    });
+    await makeUnknownTransfer(sid);
+
+    const g = only(await finance.forOrganization(admin, org));
+    const e = g.entries[0].entry;
+    expect(e.state).toBe('ATTENTION_REQUIRED');
+    // The stored figures are untouched: ambiguity is reported, never netted off the money.
+    expect(e.money.organizerNetMinor).toBe(70_000);
+    expect(e.movement!.transferredOutMinor).toBe(70_000);
+    expect(g.summary.attentionMinor).toBe(70_000);
+    expect(g.summary.paidMinor).toBe(0);
+    expect(g.warnings.map((w) => w.code)).toContain('NEEDS_RECONCILIATION');
+  }, 60_000);
+
+  it('a SUCCEEDED transfer attempt is not a reason to call anybody', async () => {
+    if (!guard()) return;
+    // The ordinary case must stay quiet, or the flag means nothing.
+    const org = await makeOrg('settled-transfer');
+    const ev = await makeEvent(org, 'st');
+    const sid = await makeSettlement(org, ev, {
+      status: 'TRANSFERRED',
+      grossSalesMinor: 48_000,
+      releasedMinor: 48_000,
+      transferredMinor: 48_000,
+    });
+    await db!.settlementTransferAttempt.create({
+      data: {
+        settlementId: sid,
+        requestedMinor: 48_000,
+        currency: 'inr',
+        provider: 'razorpay',
+        status: 'SUCCEEDED',
+        providerTransferId: 'trf_ok',
+        idempotencyKey: `uf-ok-${sid}`,
+      },
+    });
+
+    const g = only(await finance.forOrganization(admin, org));
+    expect(g.entries[0].entry.state).toBe('PAID');
+    expect(g.summary.paidMinor).toBe(48_000);
+    expect(g.summary.attentionMinor).toBe(0);
   }, 60_000);
 
   it('9b. REQUESTED and PROCESSING attempts also hold the entry open', async () => {
