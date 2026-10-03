@@ -38,15 +38,43 @@ import { GROUP_KEY_NONE, groupScopeWhere } from './group-scope';
  *
  * This does not weaken anything: a genuine disagreement still differs by its amount, so a
  * summary claiming 5 against a list of 3 fails as before.
+ *
+ * ── WHY MORE THAN ONE RETRY ───────────────────────────────────────────────────────
+ * One retry assumed the interference was a single event. It is not: 55 spec files create venues
+ * in country 'India', so a global events-by-country count is a MOVING TARGET for the whole run,
+ * and two reads a moment apart can differ every time. A gate run failed on exactly that -
+ * `listed: 16` against `listed: 17` - with the retry disagreeing too.
+ *
+ * So it reads until a pair agrees, bounded. That is still not tolerance for flakiness: a real
+ * SQL/Prisma disagreement is wrong on EVERY attempt and can never converge, so it fails exactly
+ * as before. What changed is that a target which moves between reads is no longer mistaken for a
+ * formula that disagrees.
  */
-async function agrees<T>(read: () => Promise<T>, expected: () => Promise<T>): Promise<void> {
-  const first = await read();
-  const firstExpected = await expected();
-  if (JSON.stringify(first) === JSON.stringify(firstExpected)) {
-    expect(first).toEqual(firstExpected);
-    return;
+async function agrees<T>(
+  read: () => Promise<T>,
+  expected: () => Promise<T>,
+  attempts = 5,
+): Promise<void> {
+  let lastRead: T | undefined;
+  let lastExpected: T | undefined;
+
+  for (let i = 0; i < attempts; i += 1) {
+    const a = await read();
+    const b = await expected();
+    if (JSON.stringify(a) === JSON.stringify(b)) {
+      expect(a).toEqual(b);
+      return;
+    }
+    lastRead = a;
+    lastExpected = b;
   }
-  expect(await read()).toEqual(await expected());
+
+  /*
+    Never agreed across `attempts` independent read pairs. A real disagreement between the SQL and
+    the Prisma `where` cannot converge - it is wrong every time - so this is the failure the suite
+    exists to catch, and it is reported with the last pair seen.
+  */
+  expect(lastRead).toEqual(lastExpected);
 }
 
 const prisma = new PrismaClient();

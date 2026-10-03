@@ -422,3 +422,104 @@ describe('lifecycle is never re-derived during composition', () => {
     expect(g.summary.attentionMinor).toBe(83_250);
   });
 });
+
+/*
+  ── PER-PATH SUBTOTALS ────────────────────────────────────────────────────────────────
+  The organizer Finance page shows a platform ladder and needs the provider side beside it.
+  Summing provider entries in a component would put a second financial opinion in the browser, so
+  the server provides the split - using the same `buildSummary` as the total, which is what makes
+  the parts add back to the whole by construction rather than by agreement.
+*/
+describe('per-path subtotals', () => {
+  it('splits a mixed currency into its two routes', () => {
+    const g = composeFinance(mixed()).currencies[0];
+    expect(g.paths.map((p) => p.path)).toEqual(['PLATFORM', 'PROVIDER']);
+
+    const platform = g.paths.find((p) => p.path === 'PLATFORM')!;
+    const provider = g.paths.find((p) => p.path === 'PROVIDER')!;
+    expect(platform.entitlementMinor).toBe(114_800);
+    expect(provider.entitlementMinor).toBe(83_250);
+    // Each counted once, in its own route.
+    expect(platform.counts).toEqual({ platform: 1, provider: 0 });
+    expect(provider.counts).toEqual({ platform: 0, provider: 1 });
+  });
+
+  it('adds back to the combined total, exactly', () => {
+    /*
+      THE INVARIANT. If the parts could disagree with the whole, a screen showing both would
+      display two numbers that cannot both be right - and nobody would know which.
+    */
+    const g = composeFinance(mixed()).currencies[0];
+    const sum = (k: 'entitlementMinor' | 'paidMinor' | 'pendingMinor' | 'attentionMinor') =>
+      g.paths.reduce((t, p) => t + p[k], 0);
+
+    expect(sum('entitlementMinor')).toBe(g.summary.entitlementMinor);
+    expect(sum('paidMinor')).toBe(g.summary.paidMinor);
+    expect(sum('pendingMinor')).toBe(g.summary.pendingMinor);
+    expect(sum('attentionMinor')).toBe(g.summary.attentionMinor);
+  });
+
+  it('attributes movement to the provider route only', () => {
+    const g = composeFinance(mixed()).currencies[0];
+    const platform = g.paths.find((p) => p.path === 'PLATFORM')!;
+    const provider = g.paths.find((p) => p.path === 'PROVIDER')!;
+    // The platform ledger has no movement concept, so it reports none rather than zeroes.
+    expect(platform.movement).toBeUndefined();
+    expect(provider.movement).toEqual({
+      transferredOutMinor: 71_000,
+      recoveredMinor: 13_400,
+      stillOutMinor: 57_600,
+    });
+  });
+
+  it('keeps the deducted-fee split per route', () => {
+    const g = composeFinance(mixed()).currencies[0];
+    // 4 100 organizer fee against 6 150 provider aggregate - different routes, different fees.
+    expect(g.paths.find((p) => p.path === 'PLATFORM')!.deductedFeesMinor).toBe(4_100);
+    expect(g.paths.find((p) => p.path === 'PROVIDER')!.deductedFeesMinor).toBe(6_150);
+    expect(g.summary.deductedFeesMinor).toBe(10_250);
+  });
+
+  it('lists only the routes an organization actually uses', () => {
+    /*
+      A platform-only organization gets ONE path, not two with a zeroed provider. A zero would
+      assert something about a settlement route this organization does not use at all.
+    */
+    const platformOnly = composeFinance({
+      platform: [platformFinanceEntry(PLATFORM_PAYOUT, PLATFORM_ALLOCATIONS)],
+      provider: [],
+    }).currencies[0];
+    expect(platformOnly.paths.map((p) => p.path)).toEqual(['PLATFORM']);
+
+    const providerOnly = composeFinance({
+      platform: [],
+      provider: [providerFinanceEntry(PROVIDER_SETTLEMENT, clean)],
+    }).currencies[0];
+    expect(providerOnly.paths.map((p) => p.path)).toEqual(['PROVIDER']);
+  });
+
+  it('still holds no cross-currency total through the path split', () => {
+    const usd = {
+      ...PROVIDER_SETTLEMENT,
+      id: 'settle-usd2',
+      currency: 'USD',
+      eventId: 'ev-usd2',
+      grossSalesMinor: 42_775,
+      releasedMinor: 31_250,
+      transferredMinor: 28_125,
+    };
+    const result = composeFinance({
+      platform: [platformFinanceEntry(PLATFORM_PAYOUT, PLATFORM_ALLOCATIONS)],
+      provider: [
+        providerFinanceEntry(PROVIDER_SETTLEMENT, clean),
+        providerFinanceEntry(usd, clean),
+      ],
+    });
+    // Each currency's paths belong to that currency only.
+    const inr = result.currencies.find((c) => c.currency === 'INR')!;
+    const usdGroup = result.currencies.find((c) => c.currency === 'USD')!;
+    expect(inr.paths.find((p) => p.path === 'PROVIDER')!.entitlementMinor).toBe(83_250);
+    expect(usdGroup.paths.find((p) => p.path === 'PROVIDER')!.entitlementMinor).toBe(42_775);
+    expect(JSON.stringify(result)).not.toContain(String(83_250 + 42_775));
+  });
+});

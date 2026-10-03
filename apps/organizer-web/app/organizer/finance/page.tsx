@@ -14,6 +14,7 @@ import {
   type PayoutSummaryCurrency,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { ProviderSettled } from './provider-settled';
 
 /**
  * Where this organizer's money is, in one place.
@@ -39,10 +40,12 @@ import { useOrg } from '@/components/org-context';
  *   ELIGIBLE; they do not say when a payout run happens. A date somebody plans around has to be
  *   a date, not an inference.
  *
- *   Provider-transfer money. Events settled through a connected provider are excluded from every
- *   figure here, correctly - counting them would pay the same revenue twice. For an organization
- *   settled mainly that way these totals understate reality, so the page says so rather than
- *   showing a confident zero.
+ *   Provider-transfer money IN THE LADDER. Events settled through a connected provider are
+ *   excluded from every figure the ladder shows, correctly - counting them would pay the same
+ *   revenue twice. That money is no longer missing from the page: `ProviderSettled` below reads
+ *   `GET /payouts/finance`, the certified read model over both settlement routes, and shows the
+ *   provider route on its own. The two are never added together here, which is the double count
+ *   that contract exists to prevent.
  */
 const LADDER: { key: keyof PayoutSummaryCurrency; label: string; negative?: boolean }[] = [
   { key: 'gross', label: 'Gross ticket value' },
@@ -78,12 +81,27 @@ function CurrencyCard({ row }: { row: PayoutSummaryCurrency }) {
           </div>
         ))}
         <div className="flex items-baseline justify-between gap-4 py-3">
-          <dt className="font-semibold text-text-primary">Your net</dt>
+          <dt className="font-semibold text-text-primary">Ready to pay out now</dt>
           <dd className="text-lg font-semibold tabular-nums text-text-primary">
             {money(row.net, row.currency)}
           </dd>
         </div>
       </dl>
+
+      {/*
+        ── WHY THIS SENTENCE IS HERE ──────────────────────────────────────────────────
+        Browser QA showed the real failure mode of the old label. The ladder read "Your net 0"
+        directly above "Pending 1,598" and "Held 4,596" - every figure correct, and the page
+        appearing to say the organizer has nothing while naming two amounts they do have.
+
+        The endpoint answers "what would a payout raised right now come to", so a zero means
+        everything is ALREADY raised or still held, not that there is no money. The heading now
+        says which question it answers, and this line says where the rest of it went.
+      */}
+      <p className="mt-2 text-caption text-text-muted">
+        What a payout raised today would come to. Money already raised, or still held until a show
+        finishes, is counted below rather than here.
+      </p>
 
       <dl className="mt-3 grid gap-2 sm:grid-cols-3">
         {[
@@ -159,8 +177,8 @@ export default function FinancePage() {
                       : `${data.excluded.providerSettledEvents} events are settled through your connected payment provider`}
                     .
                   </span>{' '}
-                  That money is paid to you by the provider directly and is not counted anywhere on
-                  this page, so these figures are lower than your full position.
+                  That money is paid to you by the provider directly, so these figures are lower
+                  than your full position. It is shown separately below.
                 </p>
               </div>
             </Card>
@@ -186,6 +204,12 @@ export default function FinancePage() {
               ))}
             </div>
           )}
+
+          {/*
+            Its own query and its own failure state. If the provider read fails the platform
+            figures above are still true, and blanking the page would hide money we do have.
+          */}
+          <ProviderSettled organizationId={activeOrg.id} />
 
           {data.heldRevenue.length > 0 && (
             <Card title="Held until the show has finished">
