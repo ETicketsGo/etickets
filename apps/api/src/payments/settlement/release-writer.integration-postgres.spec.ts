@@ -137,6 +137,8 @@ describe('integration-real-postgres: what release() persists', () => {
      * is refused an automatic replay, which is what the gate tests below assert.
      */
     supportsIdempotentTransfer?: boolean;
+    /** The platform-wide payout switch. Off is the real default; tests opt in. */
+    payoutExecutionEnabled?: boolean;
   }) {
     const calls: Array<Record<string, unknown>> = [];
     const createTransfer =
@@ -162,7 +164,14 @@ describe('integration-real-postgres: what release() persists', () => {
         sendCritical: jest.fn().mockResolvedValue(undefined),
         fanOutCritical: jest.fn().mockResolvedValue(0),
       } as never,
-      { get: jest.fn().mockReturnValue(opts.reserveBps ?? 0) } as never,
+      {
+        // Payout execution is OFF by default; a release test opts in deliberately.
+        get: jest.fn((key: string) =>
+          key === 'PAYOUT_EXECUTION_ENABLED'
+            ? (opts.payoutExecutionEnabled ?? true)
+            : (opts.reserveBps ?? 0),
+        ),
+      } as never,
       { get: jest.fn().mockReturnValue(provider) } as never,
     );
     return { service, createTransfer, calls };
@@ -668,6 +677,111 @@ describe('integration-real-postgres: what release() persists', () => {
       expect(row.releasedMinor).toBe(33_000);
     },
   );
+
+  // ── 4d. the platform-wide payout switch ───────────────────────────────────
+
+  maybe('refuses to send anything while payout execution is switched off', async () => {
+    /*
+      CONTROLLED LAUNCH. Customers can be buying tickets while no money leaves for organizers,
+      and that has to be ONE explicit switch rather than an emergent property of which provider
+      happens to be configured. Before this, only Razorpay had a gate - a Stripe settlement could
+      be released with nothing but an operator\'s judgement in the way.
+    */
+    const s = await approvedSettlement(64_000);
+    const { service, createTransfer } = makeService({ payoutExecutionEnabled: false });
+
+    await expect(service.release(actor as never, s.id, 'while off')).rejects.toThrow(
+      /switched off/i,
+    );
+
+    // Nothing was attempted, and nothing about this settlement was changed.
+    expect(createTransfer).not.toHaveBeenCalled();
+    const row = await read(s.id);
+    expect(row.releasedMinor).toBe(0);
+    expect(row.transferredMinor).toBe(0);
+    /*
+      Still APPROVED, deliberately NOT blocked. "Payouts are off" is a fact about the platform,
+      not something wrong with this settlement, and marking it BLOCKED would leave a trail of
+      payouts that look troubled when they are merely waiting.
+    */
+    expect(row.status).toBe('APPROVED');
+    expect(row.blockedReason).toBeNull();
+    // And no attempt row either: nothing was asked of any provider.
+    expect(await attemptsFor(s.id)).toHaveLength(0);
+  });
+
+  maybe('is OFF when nobody has said otherwise', async () => {
+    /*
+      THE DEFAULT IS THE WHOLE POINT. A switch that only works when somebody remembers to set it
+      is not a control. This harness supplies NO value for the key, which is what an environment
+      that has never heard of it looks like.
+    */
+    const s = await approvedSettlement(64_000);
+    const createTransfer = jest.fn(async () => ({
+      kind: 'ACCEPTED' as const,
+      transferId: 'tr_should_not_happen',
+      raw: {},
+    }));
+    const service = new SettlementService(
+      db as never,
+      { record: jest.fn().mockResolvedValue(undefined) } as never,
+      {
+        send: jest.fn().mockResolvedValue(undefined),
+        sendCritical: jest.fn().mockResolvedValue(undefined),
+        fanOutCritical: jest.fn().mockResolvedValue(0),
+      } as never,
+      // Answers nothing about any key, the way an unconfigured environment does.
+      { get: jest.fn(() => undefined) } as never,
+      {
+        get: jest.fn().mockReturnValue({
+          name: 'stripe',
+          createTransfer,
+          capabilities: { supportsIdempotentTransfer: true, supportsTransferStatusQuery: false },
+        }),
+      } as never,
+    );
+
+    await expect(service.release(actor as never, s.id, 'unconfigured')).rejects.toThrow(
+      /switched off/i,
+    );
+    expect(createTransfer).not.toHaveBeenCalled();
+    expect((await read(s.id)).status).toBe('APPROVED');
+  });
+
+  maybe('what the organizer is owed is untouched while payouts are off', async () => {
+    // Entitlement keeps accruing and stays visible; only the outbound transfer is refused.
+    const s = await approvedSettlement(64_000);
+    const before = await read(s.id);
+    const { service } = makeService({ payoutExecutionEnabled: false });
+
+    await expect(service.release(actor as never, s.id, 'one')).rejects.toThrow();
+    await expect(service.release(actor as never, s.id, 'two')).rejects.toThrow();
+
+    const after = await read(s.id);
+    expect(after.grossSalesMinor).toBe(before.grossSalesMinor);
+    expect(after.payableMinor).toBe(before.payableMinor);
+    expect(after.status).toBe('APPROVED');
+  });
+
+  maybe('turning it on later releases normally, with nothing to undo', async () => {
+    /*
+      The switch is not a state machine. A settlement refused while payouts were off is an
+      ordinary APPROVED settlement afterwards - no cleanup, no stuck row, no first attempt that
+      has to be reasoned about.
+    */
+    const s = await approvedSettlement(64_000);
+    await expect(
+      makeService({ payoutExecutionEnabled: false }).service.release(actor as never, s.id, 'off'),
+    ).rejects.toThrow();
+
+    const { service, createTransfer } = makeService({ payoutExecutionEnabled: true });
+    await service.release(actor as never, s.id, 'on');
+
+    expect(createTransfer).toHaveBeenCalledTimes(1);
+    const row = await read(s.id);
+    expect(row.status).toBe('TRANSFERRED');
+    expect(row.releasedMinor).toBe(64_000);
+  });
 
   // ── 5. replaying a transfer whose outcome we never learned ───────────────────────────
 

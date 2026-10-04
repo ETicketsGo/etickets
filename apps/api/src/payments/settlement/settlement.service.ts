@@ -269,6 +269,18 @@ export class SettlementService {
    * Razorpay Route disabled / no linked account) → BLOCKED with a clear reason. No fake
    * transfer, no FAILED (this is a policy hold, not a transfer failure).
    */
+  /**
+   * Whether this platform may send money to organizers at all.
+   *
+   * Default OFF, and deliberately separate from everything about selling tickets. A controlled
+   * launch wants customers buying while payouts stay manual, and that separation has to be one
+   * explicit switch rather than an emergent property of which provider happens to be configured.
+   */
+  private get payoutExecutionEnabled(): boolean {
+    const raw = this.config.get<string | boolean>('PAYOUT_EXECUTION_ENABLED');
+    return raw === true || raw === 'true';
+  }
+
   private async blockClaimed(
     actor: RequestUser,
     settlement: { id: string; organizationId: string },
@@ -314,6 +326,32 @@ export class SettlementService {
       throw new AppException(
         ErrorCodes.CONFLICT,
         `Settlement must be APPROVED before release (is ${settlement.status}).`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    /*
+      PAYOUT EXECUTION KILL SWITCH
+      ----------------------------
+      One switch that stops money leaving for organizers, whatever the provider, and WITHOUT
+      touching ticket sales. Customers can keep buying, entitlement keeps accruing, Finance keeps
+      showing what is owed - only the outbound transfer is refused.
+
+      The gate that existed before this was `RAZORPAY_ROUTE_ENABLED`, which is provider-specific:
+      a Stripe settlement had no payout-level switch at all, so an admin with PAYOUT_MANAGE could
+      move real money with nothing but their own judgement in the way. For a controlled launch
+      that is the wrong default.
+
+      Refused BEFORE the atomic claim, and without changing the settlement, because "payouts are
+      switched off" is a fact about the platform rather than something wrong with this
+      settlement. Marking the row BLOCKED would conflate the two and leave a trail of blocked
+      payouts that are not actually in trouble.
+    */
+    if (!this.payoutExecutionEnabled) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Automatic payout execution is switched off on this platform, so no transfer was ' +
+          'attempted. What the organizer is owed is unaffected and remains visible in Finance.',
         HttpStatus.CONFLICT,
       );
     }
