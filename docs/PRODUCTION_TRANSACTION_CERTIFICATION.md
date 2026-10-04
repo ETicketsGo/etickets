@@ -231,6 +231,13 @@ could not diagnose the cause from outside; the lead is the throttler's tracker k
 
 **P2 — observations, not defects.**
 
+- **A CI flake, found by this PR's own run.** `customer-secure-sharing` failed on
+  `openPaidEvent` with _"No paid, quantity-sold event on this page. 0 listed"_ — the listing page
+  had **zero** event cards, not the wrong kind. Re-running the identical commit passed, so it is
+  intermittent rather than date rot (the seed uses relative dates). It is worth a look before it
+  starts costing people re-runs; the helper already carries two comments about exactly this class
+  of fixture rot.
+
 - Swagger correctly **not** served in production despite `ENABLE_SWAGGER` being present — the code
   lets `APP_ENV` decide, which is the right design.
 - `/api/metrics` correctly requires a token (401).
