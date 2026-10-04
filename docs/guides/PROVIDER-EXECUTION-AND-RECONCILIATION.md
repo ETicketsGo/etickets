@@ -175,41 +175,20 @@ Its safety property is structural, not procedural:
 right model. **It covers reversals only.** There is no transfer equivalent because there is nothing
 to sweep.
 
-### `reconciliationMismatch`
+### `reconciliationMismatch` — CLOSED
 
-`unified-finance.service.ts` hardcodes it `false`. It participates in `needsPerson`, so one of the
-three triggers for "a person must look at this" is permanently dead.
+It is gone. It had one writer (a hardcoded `false`) and one reader, so a third of `needsPerson`
+was permanently dead.
 
-**What it actually is, assessed against the four candidate models:**
+`SettlementReconciliationFinding` is now the durable record of an unresolved reconciliation
+problem, and the Finance read derives `openFindingCount` from it — **one** source of truth for
+"does this need attention", not a second copy that can go stale. A resolved finding stops
+counting; the row stays, because the row is the evidence.
 
-| Model                                       | Verdict                                                                                                                   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| (A) durable financial state on `Settlement` | **No.** A boolean goes stale and erases the evidence needed to understand the disagreement.                               |
-| (B) derived from durable evidence           | **Partly.** What it reaches for is now served by unresolved attempts in both directions, which are durable and queryable. |
-| (C) an event/finding                        | **Yes, and this is what it should be** — but see below.                                                                   |
-| (D) dead contract surface                   | **Yes, as currently wired.**                                                                                              |
-
-A mismatch _is_ persisted today, as an `AuditLog` entry (`SETTLEMENT_EVIDENCE_MISMATCH`). That is
-an append-only record of something that **happened**, not a queryable record of something that is
-still **true**. Deriving "currently mismatched" from it would be permanently true from the first
-occurrence onwards, because an audit entry is never retracted. So the audit log cannot serve as the
-read-model input without inventing a resolution concept it does not have.
-
-**Proposal, deliberately not implemented.** A `SettlementReconciliationFinding` with an
-open/resolved lifecycle: the detector opens a finding carrying both sides of the disagreement and
-the evidence source; the read model asks whether an open finding exists; resolution records who
-resolved it and on what basis, and **keeps** the finding rather than deleting it. Two questions in
-it are product decisions, not engineering ones, and guessing at them would be worse than leaving
-the gap stated:
-
-1. Who may resolve a money disagreement — platform operations only, or the organizer too?
-2. Does resolution require recording the provider evidence that settled it, or is an operator
-   assertion sufficient?
-
-**Blocked on those two answers.** Until then the field stays `false` and says why, and the honest
-"somebody must look" signal comes from unresolved attempt evidence.
-
----
+The two product questions it was blocked on were answered: an authorized operator
+(`ADMIN`/`SUPER_ADMIN` + `PAYMENT_ADMIN`) may disposition a finding, recording actor, time,
+classification, a mandatory reason and — where the disposition claims a provider fact — the
+reference they saw. **Disposition moves no money.**
 
 ## 7. Webhooks
 

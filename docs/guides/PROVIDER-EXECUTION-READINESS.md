@@ -236,3 +236,41 @@ In order, and none of it requires moving money:
 
 Steps 2, 3 and 5 were the provider-neutral ones. All three are done. Step 1 and the second half
 of step 2 are questions for Razorpay; step 4 is a question for the business.
+
+---
+
+## 8. FROZEN for controlled launch
+
+This workstream is closed. Everything below is settled; what remains is listed as EXTERNAL,
+POST-LAUNCH or OPTIONAL and nothing is vague.
+
+| Area                          | Status                                          |
+| ----------------------------- | ----------------------------------------------- |
+| Finance accounting            | **CLOSED** for controlled launch                |
+| Provider movement model       | **CLOSED** for controlled launch                |
+| Reconciliation model          | **CLOSED** provider-neutrally                   |
+| Operator exception handling   | **CLOSED** (backend; no UI)                     |
+| Automated payout architecture | **READY BUT DISABLED**                          |
+| Automated payout execution    | **DISABLED** — `PAYOUT_EXECUTION_ENABLED=false` |
+| Customer ticket sales         | **NOT BLOCKED** by any of the above             |
+
+Items that were open and are now answered:
+
+- `reconciliationMismatch` — removed; attention derives from OPEN findings
+- manual resolution — implemented, authorized, evidence-conditional, moves no money
+- `derivedPosition` — removed; position is read off the money
+- transfer observation worker — built, cannot move money, **OFF**
+- payout kill switch — `PAYOUT_EXECUTION_ENABLED`, default OFF, provider-neutral
+- integrated lifecycle — certified end to end against real PostgreSQL
+
+**Remaining, all external:** whether Razorpay supports transfer idempotency; whether a transfer
+can be found by an identifier we supplied; its error taxonomy; its Route webhook set, ordering
+and redelivery; Route activation and KYC. See
+[RAZORPAY-SANDBOX-HANDOFF.md](./RAZORPAY-SANDBOX-HANDOFF.md).
+
+**Remaining, product:** there is no first-class "record an external settlement" operation, and no
+operation that catches the ledger up after a person establishes what a provider did. Both are
+deliberate — nobody has decided who may perform them. See
+[PAYOUT-LIFECYCLE.md](./PAYOUT-LIFECYCLE.md) §7 and §8.
+
+**Remaining, post-launch:** an operator UI over the money-exception endpoint.

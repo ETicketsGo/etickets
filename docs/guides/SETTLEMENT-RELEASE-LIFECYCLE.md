@@ -134,16 +134,23 @@ confirmed reversal per settlement.
 Both production readers hide behind the fallback until then, which is consistent with no observed
 incident: real reversals need `RAZORPAY_ROUTE_ENABLED`, which is off everywhere.
 
-## 7. Also found: `derivedPosition` has no production caller
+## 7. `derivedPosition` — REMOVED
 
-`derivedPosition(releasedMinor, attempts)` derives `TRANSFERRED | PARTIALLY_REFUNDED | REVERSED` and
-is called only from its own spec. Nothing sets a `Settlement` to `PARTIALLY_REFUNDED` or `REVERSED`.
-Both appear in `SETTLEMENT_CLAIMED_STATUSES`, so the payout boundary guards statuses nothing can
-currently produce — defensive, not broken. Recorded, not changed here: wiring a status derivation is
-a separate decision from recording an amount.
+It computed a settlement's position from `releasedMinor` and confirmed reversals, and never had a
+production caller. It is deleted, and the reasoning is recorded where it stood.
 
-Note it would be wrong _today_ anyway — with `releasedMinor` at 0, the `releasedMinor > 0` guard
-makes `REVERSED` unreachable, so a fully reversed settlement would read `PARTIALLY_REFUNDED`.
+Wiring a caller would have created drift rather than closed a gap. **Position is already said by
+the money**: `releasedMinor` is what went out, `transferredMinor` is what is still out, the
+difference is what came back. A stored copy can disagree with its source.
+
+It would also have changed no behaviour — both readers of settlement status
+(`SETTLEMENT_CLAIMED_STATUSES`, `RELEASED_STATUSES`) already contain all four statuses, so moving
+a row from `TRANSFERRED` to `REVERSED` is invisible to both.
+
+`apps/api/src/finance/settlement-position.spec.ts` asserts every position a settlement can hold,
+read off the money: nothing sent, fully transferred, partial recovery, full recovery, several
+reversals, a failed reversal, a pending one, transfer uncertainty, an open finding, and a stored
+contradiction.
 
 ## 8. The semantic decision, from repository evidence
 
