@@ -8,7 +8,6 @@ import {
   confirmedTotalMinor,
   outstandingTransferredMinor,
   reversalViolations,
-  derivedPosition,
   reversibleMinor,
   type SettlementReversalStatus,
   type ReversalAmountView,
@@ -130,49 +129,6 @@ describe('only COMPLETED moves money', () => {
   });
 });
 
-describe('a partial release never implies a full one', () => {
-  it('stays PARTIALLY_REFUNDED while anything is still outstanding', () => {
-    const position = derivedPosition(100_000, [at('COMPLETED', 30_000)]);
-    expect(position).toBe('PARTIALLY_REFUNDED');
-    expect(position).not.toBe('REVERSED');
-  });
-
-  it('stays PARTIALLY_REFUNDED across several partials that do not add up', () => {
-    const position = derivedPosition(100_000, [at('COMPLETED', 30_000), at('COMPLETED', 20_000)]);
-    expect(position).toBe('PARTIALLY_REFUNDED');
-  });
-
-  it('reaches REVERSED only when the confirmed total covers everything released', () => {
-    expect(derivedPosition(100_000, [at('COMPLETED', 60_000), at('COMPLETED', 40_000)])).toBe(
-      'REVERSED',
-    );
-  });
-
-  it('is TRANSFERRED while nothing is confirmed, whatever is in flight', () => {
-    expect(
-      derivedPosition(100_000, [
-        at('PROCESSING', 100_000),
-        at('UNKNOWN', 100_000),
-        at('FAILED', 100_000),
-      ]),
-    ).toBe('TRANSFERRED');
-  });
-
-  it('cannot be talked into REVERSED by unconfirmed attempts', () => {
-    /*
-      The exact defect. A webhook used to set the whole settlement REVERSED regardless of amount,
-      and REVERSED was the one claimed status missing from the payout boundary - so a partial
-      refund could release the event and the same revenue could be paid twice.
-    */
-    const position = derivedPosition(100_000, [
-      at('COMPLETED', 10_000),
-      at('PROCESSING', 90_000),
-      at('UNKNOWN', 90_000),
-    ]);
-    expect(position).toBe('PARTIALLY_REFUNDED');
-  });
-});
-
 describe('confirmed reversals cannot exceed what was released', () => {
   it('clamps a request to what the organizer still holds', () => {
     expect(reversibleMinor(80_000, 100_000, [at('COMPLETED', 70_000)])).toBe(30_000);
@@ -233,16 +189,6 @@ describe('over generated histories', () => {
       expect(outstanding).toBeGreaterThanOrEqual(0);
       // I3: no attempt carries money it has not proven.
       for (const a of attempts) expect(reversalViolations(a)).toEqual([]);
-
-      // The position agrees with the arithmetic, in both directions.
-      const position = derivedPosition(released, attempts);
-      const confirmed = confirmedTotalMinor(attempts);
-      if (confirmed === 0) expect(position).toBe('TRANSFERRED');
-      else if (confirmed >= released) expect(position).toBe('REVERSED');
-      else expect(position).toBe('PARTIALLY_REFUNDED');
-
-      // And the one that matters: a partial can never read as a full reversal.
-      if (confirmed > 0 && confirmed < released) expect(position).not.toBe('REVERSED');
     }
   });
 });

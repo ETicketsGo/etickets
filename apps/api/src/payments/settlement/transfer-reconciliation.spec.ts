@@ -150,11 +150,28 @@ describe('answers that are not answers', () => {
 });
 
 describe('reconciling one attempt', () => {
-  it('does nothing for an attempt that is not in doubt', async () => {
-    const reader = { getTransferState: jest.fn() };
+  it('does nothing for a settled attempt when there is nothing to compare against', async () => {
+    const out = await reconcileTransferAttempt(local({ status: 'SUCCEEDED' }), null);
+    expect(out.kind).toBe('AGREES');
+  });
+
+  it('still VERIFIES a settled attempt when evidence is offered', async () => {
+    /*
+      Being settled is not a reason to ignore evidence somebody actually fetched. A transfer we
+      recorded as sent, which the provider later says it never sent, is the most important thing
+      this module can catch - and the worker never selects settled attempts anyway, so nothing
+      here causes needless asking.
+    */
+    const reader = { getTransferState: jest.fn(async () => state({ disposition: 'FAILED' })) };
+    const out = await reconcileTransferAttempt(local({ status: 'SUCCEEDED' }), reader);
+    expect(reader.getTransferState).toHaveBeenCalled();
+    expect(out).toMatchObject({ kind: 'FINDING', finding: 'PROVIDER_CONTRADICTS_LOCAL' });
+  });
+
+  it('agrees when a settled attempt and the provider say the same thing', async () => {
+    const reader = { getTransferState: jest.fn(async () => state()) };
     const out = await reconcileTransferAttempt(local({ status: 'SUCCEEDED' }), reader);
     expect(out.kind).toBe('AGREES');
-    expect(reader.getTransferState).not.toHaveBeenCalled();
   });
 
   it('records that it cannot be asked, rather than guessing', async () => {

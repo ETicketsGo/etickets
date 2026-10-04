@@ -114,6 +114,13 @@ export function classifyTransferEvidence(
           detail: `We asked for ${local.requestedMinor}; the provider reports ${state.amountMinor}.`,
         };
       }
+      /*
+        Both sides say the same thing. That is agreement, not a resolution - nothing was in
+        doubt, and calling it RESOLVED would imply a question had been answered.
+      */
+      if (local.status === 'SUCCEEDED') {
+        return { kind: 'AGREES', reason: 'We and the provider both say this transfer was sent.' };
+      }
       return {
         kind: 'RESOLVED',
         disposition: 'SENT',
@@ -135,6 +142,12 @@ export function classifyTransferEvidence(
           state,
           detail:
             'We recorded this transfer as sent; the provider says it did not send it. Nothing has been changed.',
+        };
+      }
+      if (local.status === 'FAILED') {
+        return {
+          kind: 'AGREES',
+          reason: 'We and the provider both say this transfer was not sent.',
         };
       }
       return {
@@ -190,11 +203,17 @@ export async function reconcileTransferAttempt(
   local: LocalTransferFacts,
   reader: ProviderTransferReader | null,
 ): Promise<TransferReconciliationOutcome> {
-  if (!isReconcilable(local.status)) {
-    return { kind: 'AGREES', reason: `Attempt is ${local.status}; nothing is in doubt.` };
-  }
-
+  /*
+    A settled attempt holds no open QUESTION - which is why the worker never selects one; see
+    `unresolvedAttempts`. But being settled is not a reason to ignore evidence somebody has
+    actually gone and fetched: a transfer we recorded as sent, which the provider later says it
+    never sent, is the single most important thing this module can catch. So the early exit is
+    only for the case where there is nothing to compare against.
+  */
   if (!reader) {
+    if (!isReconcilable(local.status)) {
+      return { kind: 'AGREES', reason: `Attempt is ${local.status}; nothing is in doubt.` };
+    }
     /*
       No adapter capability, or no identifier this provider accepts. Recorded rather than
       retried: the whole point is that uncertainty we cannot resolve must stay visible instead
