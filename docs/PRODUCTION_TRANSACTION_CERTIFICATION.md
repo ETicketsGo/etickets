@@ -6,9 +6,10 @@ Dated 2026-10-04. Repeat the external evidence with
 `node scripts/certification/production-transaction-probe.mjs`.
 
 > **A second activation pass ran the same day. See [§20](#20-activation-pass-2026-10-04).** It
-> upgrades the payment finding from inferred to confirmed, settles the notification channels and
-> the auth-throttle P1, finds that India GST is not actually applied in production, and fixes the
-> storefront. The verdict does not change.
+> **corrects the payment conclusion in §1 below** - the Razorpay bind failure is real but is not
+> on the checkout path, so it does not stop a payment. It also settles the notification channels
+> and the auth-throttle P1, finds that India GST is not actually applied in production, and fixes
+> the storefront. **The verdict does not change**, for the reasons in §20.
 
 ---
 
@@ -382,9 +383,13 @@ A second pass the same day, against `main = 2b42fb31`. The verdict is unchanged 
 PRODUCTION READY** - but four things that were inferred are now settled, and one new blocker was
 found that nobody had looked for.
 
-### 20.1 The payment finding is now confirmed, from the log
+### 20.1 The payment finding, corrected
 
-The previous pass inferred that Razorpay could not bind. The running deployment says so itself:
+**The earlier conclusion in this document was wrong, and this section replaces it.** The verdict
+in §1 says a customer "could not pay" because the Razorpay adapter does not bind. That bind
+failure is real, but it is **not on the checkout path**, so it does not stop a payment.
+
+The running deployment does log it:
 
 ```
 [PaymentProviderFactory] Could not bind provider 'razorpay' in PRODUCTION:
@@ -394,21 +399,34 @@ secretsmanager:GetSecretValue on resource: payments/razorpay/live/secret-key
 because no identity-based policy allow...
 ```
 
-Logged at `2026-09-30T19:53:09Z`, inside deployment `65bd7bab` - the one serving traffic now.
+Two different ways of getting a provider exist, and only one of them goes near AWS:
 
-Two details matter more than the error:
+| Path                      | How it gets the key                                                                                                | Used by                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `PaymentProviderResolver` | `new RazorpayPaymentProvider(config)` - reads `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` from the **environment** | **checkout**: `payments.service`, `razorpay-order.service`, the orchestrator        |
+| `PaymentProviderFactory`  | AWS Secrets Manager                                                                                                | sandbox certification, merchant onboarding, promotion, **live-readiness reporting** |
 
-- **`RAZORPAY_KEY_SECRET` _is_ set as a Railway variable on the PROD api.** It is not read,
-  because `SECRET_MANAGER_PROVIDER` points at AWS and the managed store takes precedence. Setting
-  the Railway variable again will not fix this, and that is the trap: the configuration looks
-  complete.
-- **The principal is `eticketsgo-ses-qa`.** Production payments are being attempted with an IAM
-  user named for QA email. Even once it can read the secret, that is the wrong identity to hold a
-  live payment credential.
+Both environment variables are set on the PROD api, and `[PaymentConfigService] bootstrapped
+razorpay:LIVE; routes INR->razorpay` confirms the routing. A real live Razorpay order was created
+from the live storefront on 2026-09-29 and read back from the live account, which is the strongest
+check available without paying - creating an order moves no money.
 
-`[PaymentConfigService] bootstrapped razorpay:LIVE; routes INR->razorpay` succeeds, so routing and
-configuration are right. Only the secret read fails. **It fails closed: no mock fallback exists
-outside LOCAL/DEV/QA, so nobody can be charged.**
+**So payment creation works.** What the AWS failure actually breaks is the factory-backed
+features, and one of those matters here: `payment-live-readiness.service` takes the factory, so
+the readiness report can say "not ready" while checkout is perfectly able to take a payment. That
+is a confusing pair of signals to launch into, and it is worth fixing for that reason rather than
+because it blocks a sale.
+
+Fixing it means either granting `secretsmanager:GetSecretValue` on
+`payments/razorpay/live/{secret-key,webhook-secret}`, or pointing the factory at the environment
+the same way the resolver does. **If IAM is the route, do not widen `eticketsgo-ses-qa`** - a
+production payment credential should not be read by a principal named for QA email.
+
+**The link that is still genuinely unproven is the webhook signature.**
+`RAZORPAY_WEBHOOK_SECRET` was generated by us and typed into the dashboard by hand. Razorpay never
+returns it, so nothing short of a real paid transaction can confirm the two match, and a mismatch
+is silent and expensive: the payment succeeds and the booking stays `PENDING_PAYMENT`. The first
+real purchase has to be watched through to `CONFIRMED`.
 
 ### 20.2 India GST is configured but NOT applied - new finding
 
