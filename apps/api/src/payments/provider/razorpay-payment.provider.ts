@@ -16,7 +16,7 @@ import type {
   RefundInput,
   RefundResult,
   TransferInput,
-  TransferResult,
+  TransferOutcome,
   TransferReversalInput,
   ReversalOutcome,
   TransferReversalState,
@@ -24,7 +24,7 @@ import type {
   WebhookInput,
 } from './payment-provider.interface';
 import { PaymentMethod, type PaymentProviderCapabilities } from '../domain/payment-capabilities';
-import { razorpayReversalFailure } from './reversal-outcome';
+import { razorpayReversalFailure, razorpayTransferFailure } from './reversal-outcome';
 
 /** Shape of the Razorpay webhook JSON we consume (only the fields we read). */
 interface RazorpayWebhookBody {
@@ -268,7 +268,7 @@ export class RazorpayPaymentProvider implements PaymentProvider {
 
   // ─── Route (marketplace transfers to Linked Accounts) ───
 
-  async createTransfer(input: TransferInput): Promise<TransferResult> {
+  async createTransfer(input: TransferInput): Promise<TransferOutcome> {
     if (!this.routeEnabled) {
       throw new AppException(
         ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
@@ -283,13 +283,19 @@ export class RazorpayPaymentProvider implements PaymentProvider {
         currency: input.currency.toUpperCase(),
         ...(input.metadata ? { notes: input.metadata } : {}),
       });
-      return { transferId: transfer.id, status: 'COMPLETED' };
+      /*
+        ACCEPTED, not COMPLETED. A successful `transfers.create` proves Razorpay took the
+        instruction. It does not prove the organizer has the money.
+      */
+      return { kind: 'ACCEPTED', transferId: transfer.id, raw: { id: transfer.id } };
     } catch (err) {
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        err instanceof Error ? err.message : 'Razorpay transfer failed.',
-        HttpStatus.BAD_GATEWAY,
-      );
+      /*
+        Always INDETERMINATE, and that is a statement about our evidence rather than about
+        Razorpay. Its error taxonomy for Route is not evidenced anywhere here, so a refusal and
+        a timeout are indistinguishable - and the costs are not symmetric. See
+        `razorpayTransferFailure`.
+      */
+      return razorpayTransferFailure(err);
     }
   }
 

@@ -1,4 +1,4 @@
-import type { ReversalOutcome } from './payment-provider.interface';
+import type { ReversalOutcome, TransferOutcome } from './payment-provider.interface';
 
 /**
  * Turning a provider's answer into what it actually proves.
@@ -102,4 +102,47 @@ export function redactProviderError(err: unknown): Record<string, unknown> {
     statusCode: typeof e.statusCode === 'number' ? e.statusCode : null,
     message: (asString(e.message) ?? '').slice(0, 300),
   };
+}
+
+/* ─── The same decisions, for the side that sends money OUT ────────────────────────── */
+
+/**
+ * What a thrown Stripe error proves about a TRANSFER.
+ *
+ * The rule and the error sets are the same as for a reversal, because the question is the same:
+ * did the provider decline before acting, or might it have acted while our answer was lost? The
+ * asymmetry is if anything sharper here - a transfer is the organizer's whole payout, so a
+ * timeout wrongly classed `REFUSED` invites a retry that pays it twice.
+ */
+export function stripeTransferFailure(err: unknown): TransferOutcome {
+  const e = (err ?? {}) as ProviderErrorLike;
+  const type = asString(e.type) ?? (err as { name?: string })?.name ?? '';
+  const message = asString(e.message) ?? 'Stripe transfer failed.';
+
+  if (STRIPE_AUTHORITATIVE_REFUSALS.has(type)) {
+    return {
+      kind: 'REFUSED',
+      code: asString(e.code) ?? type,
+      message,
+      retryable: STRIPE_RETRYABLE_REFUSALS.has(type),
+      raw: redactProviderError(err),
+    };
+  }
+  // Includes StripeConnectionError, StripeAPIError, and anything we have not met.
+  return { kind: 'INDETERMINATE', raw: redactProviderError(err) };
+}
+
+/**
+ * What a thrown Razorpay error proves about a TRANSFER: nothing, for now.
+ *
+ * Same position as `razorpayReversalFailure`, and for the same reason: Razorpay's error taxonomy
+ * for Route is not evidenced anywhere in this repository, so there is no way to tell an
+ * authoritative refusal from transport noise. Every error is therefore `INDETERMINATE`, which
+ * costs a question rather than a duplicate payout.
+ *
+ * This is a placeholder for EVIDENCE, not for effort. Narrowing it requires a sandbox session,
+ * not a guess.
+ */
+export function razorpayTransferFailure(err: unknown): TransferOutcome {
+  return { kind: 'INDETERMINATE', raw: redactProviderError(err) };
 }

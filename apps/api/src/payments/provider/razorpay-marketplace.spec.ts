@@ -164,7 +164,11 @@ describe('Route createTransfer gating', () => {
       destinationAccountId: 'acc_1',
       idempotencyKey: 'k',
     });
-    expect(r.transferId).toBe('trf_1');
+    /*
+      ACCEPTED, not COMPLETED: a successful create proves Razorpay took the instruction, never
+      that the organizer has the money.
+    */
+    expect(r).toMatchObject({ kind: 'ACCEPTED', transferId: 'trf_1' });
     expect(mockTransfersCreate.mock.calls[0][0]).toMatchObject({
       account: 'acc_1',
       amount: 100000,

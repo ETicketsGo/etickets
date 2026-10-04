@@ -348,7 +348,44 @@ under the same identity is `BLOCKED` before anything leaves the process. A chang
 _different operation_, and reusing one identity for two requests would make them indistinguishable
 to the provider and to us.
 
-**Still open:** (4) `TransferResult` cannot express uncertainty, so the UNKNOWN above is inferred
-from "something was thrown" rather than reported by the adapter; (5) no transfer status query, so
-an `UNKNOWN` attempt cannot yet be resolved by asking the provider - which is also why there is no
-transfer sweeper, because there would be nothing safe for it to call; (7) `reconciliationMismatch`.
+### A structured outcome, so uncertainty is reported rather than inferred
+
+Finding (4) is closed. `TransferResult` is gone; `createTransfer` now returns a `TransferOutcome`
+with the same shape `ReversalOutcome` has had since it was built:
+
+| Arm             | What it proves                                                                         |
+| --------------- | -------------------------------------------------------------------------------------- |
+| `ACCEPTED`      | the provider took the instruction and gave a reference. **Not** that the money settled |
+| `REFUSED`       | the provider declined **without acting**. Authoritative, and carries `retryable`       |
+| `INDETERMINATE` | we cannot say. The provider may have moved money while our answer was lost             |
+
+There is deliberately no `CONFIRMED`: neither adapter reads anything proving the organizer has the
+money, and claiming more would be the hardcoded-`COMPLETED` mistake in a new shape.
+
+Classification reuses the reversal machinery rather than inventing a second one. The rule is
+unchanged and deliberately asymmetric:
+
+> An error becomes `REFUSED` only when it proves the provider did NOT act. Anything else is
+> `INDETERMINATE`.
+
+`REFUSED` invites a retry, and retrying a transfer that already succeeded pays the organizer their
+whole payout twice. `INDETERMINATE` invites a question, which is slower and cannot move money by
+mistake. Stripe gets the documented authoritative-refusal set; **every Razorpay error stays
+`INDETERMINATE`**, because its Route taxonomy is not evidenced anywhere here - a placeholder for
+evidence, not for effort.
+
+Two consequences in `release()`:
+
+- a `REFUSED` outcome records the attempt `FAILED`, not `UNKNOWN`. The question is settled, so
+  there is nothing for a reconciliation worker to resolve and nothing to dilute a queue of real
+  uncertainty with.
+- **the replay gate now reads attempt evidence instead of settlement status.** Those were the same
+  thing while every failure produced `FAILED` with no transfer id. They are not any more: a
+  settlement refused by the provider is replayable, and gating it would strand a payout - a closed
+  destination account, say - behind manual review forever on any provider that cannot deduplicate.
+  Settlements predating the attempt table have no rows, so for those the old coarse test remains
+  the only evidence and stays conservative.
+
+**Still open:** (5) no transfer status query, so an `UNKNOWN` attempt cannot yet be resolved by
+asking the provider - which is also why there is no transfer sweeper, because there would be
+nothing safe for it to call; (7) `reconciliationMismatch`.
