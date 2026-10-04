@@ -102,7 +102,16 @@ function makeDeps(overrides: {
     sendCritical: jest.fn().mockResolvedValue(undefined),
     fanOutCritical: jest.fn().mockResolvedValue(0),
   };
-  const config = { get: jest.fn().mockReturnValue(overrides.reserveBps ?? 0) };
+  /*
+    Payout execution is OFF by default on the platform, so a test that exercises release has to
+    opt in - which is the point of the switch. `reserveBps` is keyed separately so one stub does
+    not answer every question with the same number.
+  */
+  const config = {
+    get: jest.fn((key: string) =>
+      key === 'PAYOUT_EXECUTION_ENABLED' ? true : (overrides.reserveBps ?? 0),
+    ),
+  };
   // SettlementService now resolves the transfer adapter by provider name.
   const resolver = { get: jest.fn().mockReturnValue(provider) };
   const service = new SettlementService(

@@ -317,7 +317,11 @@ export interface TransferLookup {
  * by moving money.
  */
 export interface TransferState {
-  transferId: string;
+  /**
+   * Null where the provider has one to give but this answer does not carry it - a PENDING or
+   * NOT_FOUND reply to a lookup by an identifier WE supplied may legitimately name no transfer.
+   */
+  transferId: string | null;
   /**
    * What the provider's answer PROVES, not what it said.
    *
