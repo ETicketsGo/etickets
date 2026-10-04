@@ -47,8 +47,14 @@ export class MockPaymentProvider implements PaymentProvider {
     supportsIdempotentRefund: true,
     supportsRefundStatusQuery: true,
     refundMayBeAsynchronous: false,
-    supportsIdempotentTransfer: true,
-    supportsTransferStatusQuery: true,
+    /*
+      FALSE, because this adapter implements no transfer surface at all - no `createTransfer`,
+      no `getTransferState`. Declaring otherwise was a capability claiming something its adapter
+      cannot do, which is the exact failure the capability model exists to prevent.
+      `adapter-capability-honesty.spec.ts` now checks every adapter against its own methods.
+    */
+    supportsIdempotentTransfer: false,
+    supportsTransferStatusQuery: false,
     supportsConnectedAccounts: false,
     supportsApplePay: true,
     supportsGooglePay: true,
