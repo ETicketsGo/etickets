@@ -268,6 +268,43 @@ export type ReversalOutcome =
   | { kind: 'INDETERMINATE'; raw: unknown };
 
 /**
+ * What a provider says about a transfer we previously submitted.
+ *
+ * The recovery path for an `INDETERMINATE` outcome: rather than resend and hope, ask. Only a
+ * provider that declares `supportsTransferStatusQuery` can be asked, because an adapter that
+ * cannot look a transfer up must not be made to pretend.
+ *
+ * ── WHY `NOT_FOUND` IS NOT PERMISSION TO SEND AGAIN ────────────────────────────────
+ * It is tempting to read "the provider has never heard of it" as "nothing happened, send it".
+ * That inference is unsafe in the general case and nothing here makes it: a lookup may be
+ * eventually consistent, may be keyed on an identifier the create call never returned, or may
+ * scope differently from how we asked. `NOT_FOUND` is therefore evidence requiring
+ * provider-specific interpretation, and it resolves nothing on its own.
+ *
+ * Only `SENT` and `FAILED` are conclusions. `PENDING`, `NOT_FOUND` and `UNKNOWN` all leave the
+ * question open, and an open question is answered by a person or by asking again later - never
+ * by moving money.
+ */
+export interface TransferState {
+  transferId: string;
+  /**
+   * What the provider's answer PROVES, not what it said.
+   *
+   *  SENT       the provider confirms it sent this transfer
+   *  FAILED     the provider confirms it did not, authoritatively
+   *  PENDING    the provider has it and is still working on it
+   *  NOT_FOUND  the provider has no record under this identifier. See above - NOT a clearance
+   *  UNKNOWN    the answer could not be read, or the adapter cannot map it to any of the above
+   */
+  disposition: 'SENT' | 'FAILED' | 'PENDING' | 'NOT_FOUND' | 'UNKNOWN';
+  /** What the provider says it sent, where it says so. Compared against what we asked for. */
+  amountMinor: number | null;
+  currency: string | null;
+  /** The provider's own status word, unmapped, for diagnosis. */
+  providerStatusRaw: string | null;
+}
+
+/**
  * How much of a transfer the provider says has come back, in total.
  *
  * Cumulative, not per-reversal: it is the figure both providers maintain on the transfer itself,
@@ -349,6 +386,15 @@ export interface PaymentProvider {
    * So the same question has the same authoritative answer at both providers, and it is a READ.
    * This is how an attempt stuck at UNKNOWN is resolved: ask what was reversed, never reissue.
    */
+  /**
+   * Ask what became of a transfer we submitted.
+   *
+   * Optional, and gated by `supportsTransferStatusQuery`. A provider that cannot be asked simply
+   * does not implement it, and the recovery path for an ambiguous transfer on that provider is a
+   * person rather than a guess.
+   */
+  getTransferState?(transferId: string): Promise<TransferState>;
+
   getTransferReversalState?(transferId: string): Promise<TransferReversalState>;
   /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */
   verifyCheckoutSignature?(input: CheckoutVerifyInput): boolean;

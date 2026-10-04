@@ -75,7 +75,15 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     supportsPaymentStatusQuery: true,
     supportsFullRefund: true,
     supportsIdempotentRefund: false,
-    supportsRefundStatusQuery: true,
+    /*
+      FALSE: this adapter implements `refund` and `getPayment`, but no `getRefund`. The
+      declaration said otherwise, which the capability-honesty check caught.
+
+      Nothing was broken by it - `payment-refund.executor` guards on BOTH the capability and the
+      method, and falls back to manual review - but a capability that overstates its adapter is
+      the thing the model exists to prevent, and the next caller might trust it alone.
+    */
+    supportsRefundStatusQuery: false,
     refundMayBeAsynchronous: true,
     supportsIdempotentTransfer: false,
     supportsTransferStatusQuery: false,
