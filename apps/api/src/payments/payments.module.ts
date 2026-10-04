@@ -35,6 +35,8 @@ import { SettlementService } from './settlement/settlement.service';
 import { ReconciliationReaderRegistry } from './settlement/reconciliation-reader.registry';
 import { ReversalReconciliationService } from './settlement/reversal-reconciliation.service';
 import { TransferReconciliationService } from './settlement/transfer-reconciliation.service';
+import { TransferObservationWorker } from './settlement/transfer-observation.worker';
+import { TransferReaderRegistry } from './settlement/transfer-reader.registry';
 import { DisputeService } from './dispute/dispute.service';
 import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
@@ -119,6 +121,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     ReconciliationReaderRegistry,
     ReversalReconciliationService,
     TransferReconciliationService,
+    TransferObservationWorker,
+    TransferReaderRegistry,
     // Dispute (chargeback) synchronisation.
     DisputeService,
     // Multi-provider resolver (US→Stripe, IN→Razorpay; lazy construct + register).
@@ -146,6 +150,8 @@ import { CommerceModule } from '../commerce/commerce.module';
     SettlementService,
     ReversalReconciliationService,
     TransferReconciliationService,
+    TransferObservationWorker,
+    TransferReaderRegistry,
     // Exported so the worker's sweep also drains Razorpay webhooks.
     RazorpayWebhookProcessor,
   ],

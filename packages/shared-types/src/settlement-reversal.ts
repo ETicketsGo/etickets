@@ -114,31 +114,25 @@ export function reversalViolations(attempt: ReversalAmountView): string[] {
   return out;
 }
 
-/** The settlement position a set of attempts implies. */
-export type DerivedSettlementPosition = 'TRANSFERRED' | 'PARTIALLY_REFUNDED' | 'REVERSED';
+/*
+  REMOVED: `DerivedSettlementPosition` and `derivedPosition()`.
 
-/**
- * The settlement's position, DERIVED from confirmed money rather than set by whoever wrote last.
- *
- * ── WHY DERIVED ────────────────────────────────────────────────────────────────────
- * A `transfer.reversed` webhook used to set the whole settlement REVERSED regardless of how much
- * came back. A partial reversal could therefore mark an event fully reversed, and REVERSED was
- * the one claimed status missing from the payout boundary - so an ordinary partial refund could
- * release the event into the platform ledger and have the same revenue paid twice.
- *
- * Deriving it removes the code path rather than guarding it. REVERSED is reachable only when the
- * confirmed total reaches everything that was released; there is no longer anything to call that
- * would set it early.
- */
-export function derivedPosition(
-  releasedMinor: number,
-  attempts: readonly ReversalAmountView[],
-): DerivedSettlementPosition {
-  const confirmed = confirmedTotalMinor(attempts);
-  if (confirmed <= 0) return 'TRANSFERRED';
-  if (releasedMinor > 0 && confirmed >= releasedMinor) return 'REVERSED';
-  return 'PARTIALLY_REFUNDED';
-}
+  They computed a settlement's financial position - TRANSFERRED / PARTIALLY_REFUNDED / REVERSED -
+  from `releasedMinor` and confirmed reversals, and nothing in the API ever called them.
+
+  Wiring a caller would have created drift rather than closing a gap. Position is already said by
+  the money: `releasedMinor` is what went out, `transferredMinor` is what is still out, and their
+  difference is what came back. A stored position would be a second copy of that, and a second
+  copy can disagree with the first.
+
+  It would also have changed no behaviour. Both readers of settlement status - the payout
+  boundary's `SETTLEMENT_CLAIMED_STATUSES` and the Finance producer's `RELEASED_STATUSES` -
+  already contain all four statuses, so moving a row from TRANSFERRED to REVERSED is invisible to
+  both.
+
+  Every position a settlement can hold is asserted against the money in
+  apps/api/src/finance/settlement-position.spec.ts.
+*/
 
 /**
  * How much of `wanted` may still be reversed.
