@@ -1,10 +1,22 @@
 'use client';
 
 import { ChevronRight, PlayCircle, Mail, Rocket, BookOpen } from 'lucide-react';
-import { ButtonLink, Card, PageHeader } from '@eticketsgo/web-kit';
+import {
+  BUSINESS_DETAILS,
+  ButtonLink,
+  Card,
+  PageHeader,
+  publishedDetail,
+} from '@eticketsgo/web-kit';
 import { OrganizerFeedback } from '@/components/organizer-feedback';
 
-const SUPPORT_EMAIL = 'organizers@eticketsgo.example';
+/*
+  Read from the one place the business details live. This was a hardcoded
+  `organizers@eticketsgo.example` - a reserved domain that can never resolve - so "Contact
+  support" opened a mail client addressed to nowhere. Organizers are the people whose money
+  passes through us; a dead support address is the last thing they should find here.
+*/
+const SUPPORT_EMAIL = publishedDetail(BUSINESS_DETAILS.organizerEmail);
 
 const GETTING_STARTED = [
   {
@@ -142,14 +154,18 @@ export default function HelpPage() {
             <div>
               <p className="font-semibold text-text-primary">Still need help?</p>
               <p className="mt-1 text-[0.9375rem] text-text-muted">
-                Our organizer support team is happy to help with anything not covered above.
+                {SUPPORT_EMAIL
+                  ? 'Our organizer support team is happy to help with anything not covered above.'
+                  : 'Our organizer support address is not published yet. Until it is, use Send feedback below - it reaches us.'}
               </p>
             </div>
           </div>
-          <ButtonLink href={`mailto:${SUPPORT_EMAIL}`} variant="outline">
-            <Mail className="h-4 w-4" />
-            Contact support
-          </ButtonLink>
+          {SUPPORT_EMAIL && (
+            <ButtonLink href={`mailto:${SUPPORT_EMAIL}`} variant="outline">
+              <Mail className="h-4 w-4" />
+              Contact support
+            </ButtonLink>
+          )}
         </div>
       </Card>
 

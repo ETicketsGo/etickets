@@ -321,54 +321,6 @@ export function MarketingLanding() {
         </Container>
       </Section>
 
-      {/* ── Testimonials (placeholder) ── */}
-      <Section className="border-b border-border">
-        <Container>
-          <SectionHeading
-            eyebrow="Testimonials"
-            title="Sample quotes"
-            lead="These quotes are placeholders. They are not from real customers."
-          />
-          <div className="mt-12 grid gap-6 lg:grid-cols-3">
-            {[
-              {
-                q: 'We moved our whole on-sale to ETicketsGo and the gate stopped being a bottleneck.',
-                a: 'Festival Director',
-                c: 'Placeholder',
-              },
-              {
-                q: 'Reserved seating and offline check-in in one platform saved us two vendors.',
-                a: 'Venue Manager',
-                c: 'Placeholder',
-              },
-              {
-                q: 'The reports tell us what sells. Refunds and payouts add up.',
-                a: 'Promoter',
-                c: 'Placeholder',
-              },
-            ].map((t, i) => (
-              <figure
-                key={i}
-                className="rounded-2xl border border-border bg-background-surface p-6 shadow-sm"
-              >
-                <blockquote className="text-[0.9375rem] leading-relaxed text-text-secondary">
-                  &quot;{t.q}&quot;
-                </blockquote>
-                <figcaption className="mt-5 flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-tint-primary text-caption font-semibold text-action-primary">
-                    {t.a[0]}
-                  </span>
-                  <span className="text-caption">
-                    <span className="block font-semibold text-text-primary">{t.a}</span>
-                    <span className="text-text-muted">{t.c}</span>
-                  </span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </Container>
-      </Section>
-
       {/* ── FAQ (zero-JS accordion) ── */}
       <Section className="border-b border-border">
         <Container className="max-w-3xl">

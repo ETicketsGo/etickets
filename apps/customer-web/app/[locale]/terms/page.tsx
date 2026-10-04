@@ -26,8 +26,8 @@ export default function TermsPage() {
           </NoticeBanner>
           <Prose>
             <p>
-              <strong>Effective date:</strong> pending - <strong>Operator:</strong> ETicketsGo
-              (placeholder legal entity).
+              <strong>Effective date:</strong> pending - <strong>Operator:</strong> the operating
+              legal entity is not published here yet.
             </p>
             <h2>1. Overview</h2>
             <p>
@@ -83,8 +83,8 @@ export default function TermsPage() {
             <p>We may update these terms; material changes will be communicated.</p>
             <h2>11. Contact</h2>
             <p>
-              See the <Link href="/contact">contact page</Link> (details are placeholders in this
-              demo).
+              Use the form on the <Link href="/contact">contact page</Link>. It reaches our support
+              team. We have not published a postal address or phone number yet.
             </p>
           </Prose>
         </Container>

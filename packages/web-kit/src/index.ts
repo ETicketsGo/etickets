@@ -48,3 +48,4 @@ export * from './event-details';
 export * from './safe-next';
 export * from './showtimes';
 export * from './ratings';
+export * from './business-details';

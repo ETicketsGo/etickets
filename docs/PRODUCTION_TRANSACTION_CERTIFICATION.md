@@ -5,6 +5,11 @@
 Dated 2026-10-04. Repeat the external evidence with
 `node scripts/certification/production-transaction-probe.mjs`.
 
+> **A second activation pass ran the same day. See [§20](#20-activation-pass-2026-10-04).** It
+> upgrades the payment finding from inferred to confirmed, settles the notification channels and
+> the auth-throttle P1, finds that India GST is not actually applied in production, and fixes the
+> storefront. The verdict does not change.
+
 ---
 
 ## 1. Executive verdict
@@ -368,3 +373,195 @@ Tick every box before enabling real customers.
 **The first five boxes are the ones that matter.** Until a single real transaction completes end
 to end, every payment, notification and refund capability in §4 stays at
 `INTEGRATION TESTED` and no higher.
+
+---
+
+## 20. Activation pass, 2026-10-04
+
+A second pass the same day, against `main = 2b42fb31`. The verdict is unchanged - **NOT
+PRODUCTION READY** - but four things that were inferred are now settled, and one new blocker was
+found that nobody had looked for.
+
+### 20.1 The payment finding is now confirmed, from the log
+
+The previous pass inferred that Razorpay could not bind. The running deployment says so itself:
+
+```
+[PaymentProviderFactory] Could not bind provider 'razorpay' in PRODUCTION:
+Secret 'payments/razorpay/live/secret-key' could not be resolved via aws:
+User: arn:aws:iam::<account-id>:user/eticketsgo-ses-qa is not authorized to perform:
+secretsmanager:GetSecretValue on resource: payments/razorpay/live/secret-key
+because no identity-based policy allow...
+```
+
+Logged at `2026-09-30T19:53:09Z`, inside deployment `65bd7bab` - the one serving traffic now.
+
+Two details matter more than the error:
+
+- **`RAZORPAY_KEY_SECRET` _is_ set as a Railway variable on the PROD api.** It is not read,
+  because `SECRET_MANAGER_PROVIDER` points at AWS and the managed store takes precedence. Setting
+  the Railway variable again will not fix this, and that is the trap: the configuration looks
+  complete.
+- **The principal is `eticketsgo-ses-qa`.** Production payments are being attempted with an IAM
+  user named for QA email. Even once it can read the secret, that is the wrong identity to hold a
+  live payment credential.
+
+`[PaymentConfigService] bootstrapped razorpay:LIVE; routes INR->razorpay` succeeds, so routing and
+configuration are right. Only the secret read fails. **It fails closed: no mock fallback exists
+outside LOCAL/DEV/QA, so nobody can be charged.**
+
+### 20.2 India GST is configured but NOT applied - new finding
+
+The live production quote, read by the probe:
+
+```
+Checkout can price a basket - total 83028 INR (subtotal 79900, fees 3128, tax 0)
+```
+
+**`tax 0` on an INR sale.** The tax engine ships holding no rates, the Indian rules are written
+inactive on purpose (`apps/api/prisma/seed-india-gst.ts`), and nobody has switched them on. So a
+real Indian customer today would be charged `79900 + 3128` with **no GST line on the order and
+none on the receipt** - and the Rs 31.28 convenience fee, which is the platform's own taxable
+supply at 18%, carries no GST either.
+
+This is a compliance exposure, not a rounding question. It is also the only blocker on this list
+that is entirely ours: it needs no provider, no dashboard and no third party.
+
+```
+npx tsx apps/api/prisma/seed-india-gst.ts            # write the rules, still inactive
+npx tsx apps/api/prisma/seed-india-gst.ts --activate # switch them on, deliberately
+```
+
+**Activation does not change what a customer pays.** Indian ticket prices are quoted inclusive of
+GST, so switching the rules on changes what the receipt _says_, not what is charged. That property
+is now asserted directly, in `apps/api/src/pricing/india-gst-activation.spec.ts`.
+
+Until this pass the shipped rule table had **no test at all**. The engine was well covered, but
+only against rules written inside the tests; the rows somebody types `--activate` against were
+exercised by nothing. A wrong band edge or rate would have reached a customer's receipt with every
+test still green. `INDIA_GST_RULES` is now exported for that reason, and 13 tests hold it to the
+published table - including that the Rs 100.00 / Rs 100.01 band edge has no gap, that admission
+rules share one tax group so a band and the catch-all cannot stack, and that no rate is invented
+for the 40% categories.
+
+**Still a business decision, not ours:** whether the table is correct. The guide says plainly that
+it is not tax advice. An accountant has to read it before anybody types `--activate`.
+
+### 20.3 Notifications: four of five channels cannot deliver
+
+Settled from the PROD api variable list against what each transport requires in
+`apps/api/src/config/configuration.ts`:
+
+| Channel     | Credentials present                                          | Can deliver        |
+| ----------- | ------------------------------------------------------------ | ------------------ |
+| Email (SES) | `AWS_*`, `EMAIL_FROM`, `SES_CONFIGURATION_SET`               | **Probably** - yes |
+| SMS         | no `TWILIO_*`, no `MSG91_*`                                  | **No**             |
+| WhatsApp    | no `WHATSAPP_ACCESS_TOKEN`, no `MSG91_*`                     | **No**             |
+| Mobile push | no `FCM_PROJECT_ID` / `FCM_CLIENT_EMAIL` / `FCM_PRIVATE_KEY` | **No**             |
+| Web push    | no `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`                  | **No**             |
+
+`ALLOW_UNDELIVERABLE_NOTIFICATIONS` is set on PROD, which is what lets the API boot in that state.
+It is doing real work, and removing it today would stop production booting.
+
+**The consequence nobody had written down: phone sign-in cannot work in production.** The platform
+is phone-first for India, `POST /auth/phone/request-code` sends an SMS, and there is no SMS
+transport. A customer who picks the phone route reaches a code-entry screen for a code that was
+never sent. Email is the only channel a buyer can actually be reached on.
+
+### 20.4 Razorpay webhook: the exact configuration a person has to enter
+
+From source, not from the provider documentation:
+
+|                  |                                                                             |
+| ---------------- | --------------------------------------------------------------------------- |
+| URL              | `https://api.eticketsgo.com/api/payments/webhooks/razorpay`                 |
+| Events           | **`payment.captured` and `payment.failed` - these two only**                |
+| Secret           | `RAZORPAY_WEBHOOK_SECRET`, which **must differ** from `RAZORPAY_KEY_SECRET` |
+| Signature header | `X-Razorpay-Signature`, HMAC over the exact raw bytes                       |
+
+The route is plural (`webhooks`), and it is deliberately exempt from the per-IP throttle so that a
+sale spike cannot turn payment confirmations into 429s.
+
+**Subscribe only those two events.** `razorpay-payment.provider.ts` rejects anything else with a
+400 by design, so subscribing `order.paid` or `refund.processed` produces a stream of failed
+deliveries and provider retry noise against an endpoint that is working correctly.
+
+The endpoint is already live and already refusing correctly: the probe's deliberately invalid
+signature returned `400 PAYMENT_WEBHOOK_INVALID`, which proves the route is deployed and a secret
+is configured. A `501` would have meant no secret. **Zero real deliveries have ever arrived.**
+
+### 20.5 The auth-throttle P1, classified
+
+The previous pass recorded that the throttle did not appear to engage at its configured 10/min.
+Five candidate explanations are now ruled out:
+
+| Candidate             | Ruled out by                                                           |
+| --------------------- | ---------------------------------------------------------------------- |
+| Misconfiguration      | `AUTH_THROTTLE_LIMIT` is **not set** on PROD, so the limit is 10       |
+| Per-instance counters | PROD api runs **`numReplicas: 1`**                                     |
+| Stale deployed code   | the throttle block at `a78f6d2` is **byte-identical** to `main`        |
+| Decorator missing     | every credential handler carries `THROTTLER:LIMITdefault` (now tested) |
+| Guard not registered  | `ThrottlerGuard` is an `APP_GUARD` in `app.module.ts`                  |
+
+What remains is **storage durability, plus the measurement itself**. `@nestjs/throttler` defaults
+to in-memory storage, so the counter lives in the API process and is lost on every restart or cold
+start - and the original observation (13 sequential failed logins, all 401) is equally consistent
+with a correctly working 10/60s limit whose window simply expired part-way through the run.
+
+**Classification: not a defect in the limit; a durability weakness in where the count is kept.**
+The fix is a shared store, and Redis is already provisioned (`REDIS_URL` is set on the PROD api).
+That is a change to a live security control and a new dependency, so it is left as an owner
+decision rather than made here - deliberately, during an activation sprint.
+
+What was closed instead is the gap that would actually bite: there was **no test of any kind** on
+the credential throttle. `apps/api/src/auth/auth-throttle.spec.ts` now enumerates the controller's
+handlers rather than naming them, so a newly added auth route that ships without a limit fails the
+suite. Nobody removes `@Throttle` from `login`; somebody adds a route and forgets. It also pins
+the production default (10/60s with the variable unset), because a test that sets the variable
+proves nothing about the deployed system.
+
+### 20.6 The storefront, fixed
+
+Fixed in this pass, with nothing invented:
+
+- **The fabricated testimonials are gone.** Three invented quotes attributed to "Placeholder".
+  Fake social proof has no honest replacement, so the section was removed rather than rewritten.
+- **The contact form now delivers.** It posted nowhere: it opened the visitor's mail client
+  addressed to `hello@eticketsgo.example` - a domain reserved by RFC 2606, which can never
+  resolve - and then said that we would get back to them soon. A customer whose card was charged
+  twice would have written to it and waited. It now posts to `POST /support`, which was **already
+  there**: public, persisted, and visible in the admin support inbox. The mailto was a workaround
+  for a missing endpoint that was not missing.
+- **One source of truth for the business facts.** `packages/web-kit/src/business-details.ts` holds
+  them, every field `null` until somebody publishes it, with a guard that refuses to render a
+  reserved or placeholder-shaped value even if one is committed. The organizer console carried the
+  same dead address (`organizers@eticketsgo.example`) and now reads from here too.
+- **The demo notice is derived, not hardcoded.** It was a constant, which meant it could outlive
+  the problem it described - or be deleted while the problem remained. It now follows the details
+  themselves and retires itself.
+
+**Still blocked on business decisions, and deliberately left visible:** the pricing figures
+(`/pricing`, the landing preview, the FAQ), the operating legal entity on `/terms`, and a postal
+address, phone number and support hours. Those are commitments only the business can make.
+
+### 20.7 The probe result did not move
+
+```
+2 blocker(s), 2 unproven, 8 ok.
+```
+
+Identical to the previous pass, and correctly so: **the probe reads the deployed site, and
+production still runs `a78f6d2` from 30 September - 141 commits behind `main`.** The storefront
+fixes above are on a branch. The two blockers it still reports are the demo wording and the
+`.example` contact details, both of which are fixed in code and neither of which is fixed in
+production until somebody deploys.
+
+That is the cleanest illustration of the gap this document exists to measure: every green tick in
+the repository says nothing about what a customer meets.
+
+### 20.8 Gate re-run at the end of this pass
+
+**409 API suites / 4818 tests passing**, `tsc` clean across `api`, `web-kit`, `customer-web`,
+`organizer-web` and `admin-web`, prettier clean. `lint` and `build` could not be run locally -
+Windows Application Control blocks `turbo.exe` on this machine - so CI on Linux remains the
+authority for those two, and that limitation was not worked around.
