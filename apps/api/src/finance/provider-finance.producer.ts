@@ -85,7 +85,17 @@ export interface ProviderReversalEvidence {
    */
   unresolvedCount: number;
   /** Reconciliation found provider evidence disagreeing with our ledger. */
-  reconciliationMismatch: boolean;
+  /**
+   * How many reconciliation problems are currently OPEN for this settlement.
+   *
+   * Replaces a boolean named `reconciliationMismatch` that was hardcoded `false` at its only
+   * caller and could never be anything else, because nothing persisted the concept. The durable
+   * `SettlementReconciliationFinding` is now that record, so this is DERIVED from it rather than
+   * stored a second time - one source of truth for whether somebody must look.
+   *
+   * A resolved finding stops counting. The row stays, because it is the evidence.
+   */
+  openFindingCount: number;
 }
 
 export interface ProviderFinanceResult {
@@ -103,7 +113,7 @@ const RELEASED_STATUSES = new Set([
 
 export function providerFinanceEntry(
   settlement: ProviderSettlementRow,
-  evidence: ProviderReversalEvidence = { unresolvedCount: 0, reconciliationMismatch: false },
+  evidence: ProviderReversalEvidence = { unresolvedCount: 0, openFindingCount: 0 },
 ): ProviderFinanceResult {
   const integrity: FinanceIntegrityFinding[] = [];
 
@@ -207,7 +217,7 @@ export function providerFinanceEntry(
   */
   const contradictions = integrity.filter((f) => f.code !== 'MOVEMENT_NOT_RECORDED');
   const needsPerson =
-    contradictions.length > 0 || evidence.unresolvedCount > 0 || evidence.reconciliationMismatch;
+    contradictions.length > 0 || evidence.unresolvedCount > 0 || evidence.openFindingCount > 0;
   const state: FinanceState = needsPerson ? 'ATTENTION_REQUIRED' : (mapped as FinanceState);
 
   // ── money ────────────────────────────────────────────────────────────────────────

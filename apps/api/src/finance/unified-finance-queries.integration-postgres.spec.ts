@@ -240,11 +240,16 @@ describe('integration-real-postgres: Unified Finance query shape', () => {
       attempts. The bound moved from 4 to 5 when transfer attempts were added to the evidence,
       which is one relation load and not a loop.
 
+      The bound moved again, 5 to 6, when `reconciliationMismatch` stopped being a hardcoded
+      false and started being derived from OPEN findings. That is ONE grouped query for the whole
+      page - deliberately not a relation load per settlement, which is what the same information
+      would have cost as a nested include.
+
       A tight bound rather than slack, because slack is how a constant quietly becomes an N+1.
       It is the test below that actually proves the shape: the count must not move when the row
       count does.
     */
-    expect(queries.length).toBeLessThanOrEqual(5);
+    expect(queries.length).toBeLessThanOrEqual(6);
     expect(queries.filter((q) => /"Payout"/.test(q)).length).toBe(1);
     expect(queries.filter((q) => /"Settlement"/.test(q)).length).toBe(1);
   }, 120_000);

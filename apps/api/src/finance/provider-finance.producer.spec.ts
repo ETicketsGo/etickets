@@ -27,7 +27,7 @@ const settlement = (over: Partial<ProviderSettlementRow> = {}): ProviderSettleme
   ...over,
 });
 
-const clean: ProviderReversalEvidence = { unresolvedCount: 0, reconciliationMismatch: false };
+const clean: ProviderReversalEvidence = { unresolvedCount: 0, openFindingCount: 0 };
 
 describe('organizerNetMinor means one thing', () => {
   it('is the entitlement, not the disbursement instruction', () => {
@@ -224,7 +224,7 @@ describe('the partial reversal walk, asserted integer by integer', () => {
         transferredMinor: 200_000,
         refundsMinor: 50_000,
       },
-      { unresolvedCount: 1, reconciliationMismatch: false },
+      { unresolvedCount: 1, openFindingCount: 0 },
     );
     expect(entry.movement!.recoveredMinor).toBe(0);
     // A request does not prove money moved, and an unresolved one must not read as finished.
@@ -240,7 +240,7 @@ describe('the partial reversal walk, asserted integer by integer', () => {
         transferredMinor: 200_000,
         refundsMinor: 50_000,
       },
-      { unresolvedCount: 1, reconciliationMismatch: false },
+      { unresolvedCount: 1, openFindingCount: 0 },
     );
     // UNKNOWN is not zero and not failure. No amount may move because of ambiguity.
     expect(entry.movement!.recoveredMinor).toBe(0);
@@ -351,7 +351,7 @@ describe('lifecycle is derived independently of the amounts', () => {
   it('surfaces a reconciliation mismatch without correcting any amount', () => {
     const { entry } = providerFinanceEntry(
       settlement({ status: 'TRANSFERRED', releasedMinor: 100_000, transferredMinor: 100_000 }),
-      { unresolvedCount: 0, reconciliationMismatch: true },
+      { unresolvedCount: 0, openFindingCount: 1 },
     );
     expect(entry.state).toBe('ATTENTION_REQUIRED');
     // No fabricated correction: the stored figures are reported exactly as they stand.
@@ -526,7 +526,7 @@ describe('a settlement released before releasedMinor was recorded', () => {
     // A limitation must not mask a real reason to call somebody.
     const { entry } = providerFinanceEntry(asProductionWrites(), {
       unresolvedCount: 1,
-      reconciliationMismatch: false,
+      openFindingCount: 0,
     });
     expect(entry.state).toBe('ATTENTION_REQUIRED');
   });

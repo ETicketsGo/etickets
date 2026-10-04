@@ -79,7 +79,7 @@ const PROVIDER_SETTLEMENT = {
   updatedAt: new Date('2026-09-30T00:00:00Z'),
 };
 
-const clean = { unresolvedCount: 0, reconciliationMismatch: false };
+const clean = { unresolvedCount: 0, openFindingCount: 0 };
 
 function mixed(): ComposeInput {
   return {
@@ -357,7 +357,7 @@ describe('warnings are categorised so a history note is not an emergency', () =>
       provider: [
         providerFinanceEntry(PROVIDER_SETTLEMENT, {
           unresolvedCount: 1,
-          reconciliationMismatch: false,
+          openFindingCount: 0,
         }),
       ],
     }).currencies[0];

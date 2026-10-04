@@ -4554,6 +4554,22 @@ enum SettlementFindingKind {
 /// Whether a finding is still live.
 ///
 /// Deliberately only two states. A finding is never DELETED on resolution - the row is the
+/// How an authorized operator dispositioned a reconciliation finding.
+///
+/// Resolution means "a person has dispositioned this exception". It does NOT mean "the ledger has
+/// been corrected": nothing here moves money, and a resolution that claims a provider-observed
+/// fact must cite the evidence a person actually saw.
+enum SettlementFindingResolution {
+  /// A person established WITH THE PROVIDER that the money did move as recorded. Needs evidence.
+  PROVIDER_CONFIRMED_SENT
+  /// A person established WITH THE PROVIDER that it did not move. Needs evidence.
+  PROVIDER_CONFIRMED_NOT_SENT
+  /// Settled outside ETicketsGo. Closes the exception and claims NOTHING about provider state.
+  SETTLED_OUTSIDE_PLATFORM
+  /// Nothing can be established. Closed administratively so the queue reflects reality.
+  CANNOT_ESTABLISH
+}
+
 /// evidence that the disagreement happened, and discarding it would erase the only record that
 /// anyone ever had to look into it.
 enum SettlementFindingStatus {
@@ -4613,9 +4629,14 @@ model SettlementReconciliationFinding {
   observationCount Int      @default(1)
 
   /// Written by nothing today. See the note above.
-  resolvedAt       DateTime?
-  resolvedByUserId String?
-  resolutionNote   String?
+  /// Written only by an authorized manual disposition. See SettlementFindingResolution.
+  resolvedAt            DateTime?
+  resolvedByUserId      String?
+  resolution            SettlementFindingResolution?
+  /// Required where the resolution claims a provider-observed fact; the reference a person saw.
+  resolutionEvidenceRef String?
+  /// Required always. Free text, because the next reader is a person and not a machine.
+  resolutionNote        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

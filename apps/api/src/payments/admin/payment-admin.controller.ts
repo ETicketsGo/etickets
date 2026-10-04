@@ -1,15 +1,28 @@
-import { Body, Controller, Delete, Get, Ip, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpStatus,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AdminPermission, Role } from '@eticketsgo/shared-types';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
+import { AppException, ErrorCodes } from '../../common/errors';
 import { PAYMENT_ENVS, type PaymentEnvName } from '../configuration/payment-environment';
 import { PaymentConfigService } from '../configuration/payment-config.service';
 import { PaymentReconciliationService } from '../reconciliation/payment-reconciliation.service';
 import { PaymentLiveReadinessService } from '../readiness/payment-live-readiness.service';
 import { LaunchGateService } from '../launch/launch-gate.service';
 import { TransferReconciliationService } from '../settlement/transfer-reconciliation.service';
+import { FINDING_RESOLUTIONS } from '../settlement/finding-resolution';
 import {
   PaymentAdminService,
   type ProviderConfigPatch,
@@ -55,6 +68,19 @@ const routeSchema = z
   .strict();
 
 const routePatchSchema = routeSchema.partial();
+
+/**
+ * What an operator must supply to close a money exception.
+ *
+ * The reason is mandatory and the evidence reference is conditionally mandatory; the conditional
+ * part lives in `checkResolution` rather than here, because it is a policy worth reading on its
+ * own rather than a validation detail buried in a controller.
+ */
+const resolveFindingSchema = z.object({
+  resolution: z.enum(FINDING_RESOLUTIONS),
+  note: z.string().min(1).max(1000),
+  evidenceRef: z.string().max(200).optional(),
+});
 
 /**
  * Admin console for runtime payment configuration (ADR-022). All routes require an
@@ -111,6 +137,52 @@ export class PaymentAdminController {
     const toDate = parseDate(to, new Date());
     const fromDate = parseDate(from, new Date(toDate.getTime() - 7 * 24 * 3600 * 1000));
     return this.reconciliation.reconcile(fromDate, toDate);
+  }
+
+  /**
+   * Record that an authorized person has dispositioned a money exception.
+   *
+   * ── WHAT THIS DOES NOT DO ──────────────────────────────────────────────────
+   * It does not send, refund or reverse money, and it does not alter an entitlement, a released
+   * amount or a transferred amount. Resolving says a person has DECIDED how to treat this
+   * exception; correcting the ledger is a separate act with its own authority. The service that
+   * performs it has no provider and no settlement service, so this is structural rather than a
+   * promise.
+   *
+   * Authorization is the controller\'s: ADMIN or SUPER_ADMIN, plus PAYMENT_ADMIN. An organizer
+   * cannot reach it, and nothing here grants resolution to someone who can merely read Finance.
+   */
+  @Post('reconciliation-findings/:id/resolve')
+  @ApiOperation({ summary: 'Disposition a reconciliation finding (admin). Moves no money.' })
+  async resolveFinding(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(resolveFindingSchema))
+    body: { resolution: (typeof FINDING_RESOLUTIONS)[number]; note: string; evidenceRef?: string },
+  ) {
+    const out = await this.transfers.resolveFinding(user, id, body);
+    if (!out.resolved) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        out.reason ?? 'Could not resolve.',
+        HttpStatus.CONFLICT,
+      );
+    }
+    return { resolved: true };
+  }
+
+  /**
+   * Ask the provider again about one unresolved transfer.
+   *
+   * OBSERVATION ONLY. It queries evidence and records what came back; it cannot create a
+   * transfer, a reversal or a refund, because the reconciliation service is never handed
+   * anything that can. Where no adapter implements a status query - which is every adapter today
+   * - the honest result is a CANNOT_BE_ASKED finding rather than a retry.
+   */
+  @Post('unresolved-money/:attemptId/recheck')
+  @ApiOperation({ summary: 'Re-observe one unresolved transfer (admin). Moves no money.' })
+  recheck(@Param('attemptId') attemptId: string) {
+    return this.transfers.recheckAttempt(attemptId);
   }
 
   /**

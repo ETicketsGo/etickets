@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { checkResolution, type ResolutionRequest } from './finding-resolution';
 import {
   reconcileTransferAttempt,
   type LocalTransferFacts,
@@ -30,7 +32,10 @@ import {
 export class TransferReconciliationService {
   private readonly logger = new Logger(TransferReconciliationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** The attempts whose outcome was never established, oldest first. */
   async unresolvedAttempts(limit = 50, organizationId?: string) {
@@ -185,6 +190,90 @@ export class TransferReconciliationService {
   }
 
   /**
+   * Record that an authorized person has dispositioned a money exception.
+   *
+   * ── THIS CANNOT MOVE MONEY, AND NOT BECAUSE IT CHOOSES NOT TO ─────────────────────
+   * This service is constructed with Prisma and an audit sink. It has no payment provider, no
+   * settlement service, no way to issue a transfer, a refund or a reversal. Resolving a finding
+   * writes to ONE table, and every money column on the settlement and the attempt is untouched.
+   *
+   * That is the whole point of separating the disposition from the correction. An exception
+   * queue that could also fix the ledger would let a disagreement be made to disappear by
+   * rewriting one side of it - which is the failure the finding model exists to prevent.
+   *
+   * Authorization is the caller\'s and is not re-implemented here; see the controller.
+   */
+  async resolveFinding(
+    actor: { id: string },
+    findingId: string,
+    req: ResolutionRequest,
+  ): Promise<{ resolved: boolean; reason?: string }> {
+    const checked = checkResolution(req);
+    if (!checked.ok) return { resolved: false, reason: checked.reason };
+
+    const finding = await this.prisma.settlementReconciliationFinding.findUnique({
+      where: { id: findingId },
+      select: { id: true, status: true, organizationId: true, settlementId: true, kind: true },
+    });
+    if (!finding) return { resolved: false, reason: 'No such finding.' };
+    if (finding.status !== 'OPEN') {
+      // Idempotent rather than an error: two operators closing the same row is not a fault.
+      return { resolved: false, reason: 'That finding is already resolved.' };
+    }
+
+    /*
+      Guarded on the row still being OPEN, so two operators resolving at once produce one
+      disposition rather than one overwriting the other\'s reason.
+    */
+    const claimed = await this.prisma.settlementReconciliationFinding.updateMany({
+      where: { id: findingId, status: 'OPEN' },
+      data: {
+        status: 'RESOLVED',
+        resolvedAt: new Date(),
+        resolvedByUserId: actor.id,
+        resolution: req.resolution,
+        resolutionEvidenceRef: checked.evidenceRef,
+        resolutionNote: checked.note,
+      },
+    });
+    if (claimed.count !== 1)
+      return { resolved: false, reason: 'That finding is already resolved.' };
+
+    await this.audit.record({
+      actorUserId: actor.id,
+      organizationId: finding.organizationId,
+      action: 'SETTLEMENT_FINDING_RESOLVED',
+      entityType: 'SettlementReconciliationFinding',
+      entityId: findingId,
+      metadata: {
+        kind: finding.kind,
+        resolution: req.resolution,
+        evidenceRef: checked.evidenceRef,
+        settlementId: finding.settlementId,
+      },
+    });
+
+    return { resolved: true };
+  }
+
+  /**
+   * How many reconciliation problems are currently open for these settlements.
+   *
+   * The single source of truth for "does a reconciliation issue need attention", replacing a
+   * boolean that was hardcoded `false` and could never be anything else. A finding that has been
+   * resolved stops counting; the row stays, because it is the evidence.
+   */
+  async openFindingCounts(settlementIds: string[]): Promise<Map<string, number>> {
+    if (settlementIds.length === 0) return new Map();
+    const rows = await this.prisma.settlementReconciliationFinding.groupBy({
+      by: ['settlementId'],
+      where: { settlementId: { in: settlementIds }, status: 'OPEN' },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.settlementId, r._count._all]));
+  }
+
+  /**
    * Ask about one attempt and record what came back.
    *
    * `reader` is null where the provider cannot be asked at all, which is a conclusion in its own
@@ -225,6 +314,52 @@ export class TransferReconciliationService {
     }
 
     return outcome;
+  }
+
+  /**
+   * Re-observe one unresolved attempt, on demand.
+   *
+   * The same path the worker would take, exposed so an operator can ask now rather than wait. It
+   * can only observe: this service holds no provider that could move money, and the reader it
+   * would use is a one-method read interface. No adapter implements that method yet, so today
+   * this honestly records CANNOT_BE_ASKED rather than pretending to have looked.
+   */
+  async recheckAttempt(attemptId: string) {
+    const a = await this.prisma.settlementTransferAttempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        settlementId: true,
+        status: true,
+        requestedMinor: true,
+        currency: true,
+        providerTransferId: true,
+        idempotencyKey: true,
+        destinationAccountId: true,
+        settlement: { select: { organizationId: true } },
+      },
+    });
+    if (!a) return { checked: false as const, reason: 'No such transfer attempt.' };
+
+    const outcome = await this.reconcileOne(
+      {
+        attemptId: a.id,
+        settlementId: a.settlementId,
+        organizationId: a.settlement.organizationId,
+        status: a.status as 'REQUESTED' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN',
+        requestedMinor: a.requestedMinor,
+        currency: a.currency,
+        providerTransferId: a.providerTransferId,
+        idempotencyKey: a.idempotencyKey,
+        destinationAccountId: a.destinationAccountId,
+      },
+      /*
+        No reader. Nothing can supply one until an adapter implements `getTransferState`, and
+        handing over a money-moving provider instead is precisely what must never happen here.
+      */
+      null,
+    );
+    return { checked: true as const, outcome };
   }
 
   /** Upsert on the finding's stable identity, so repeated passes do not multiply it. */
