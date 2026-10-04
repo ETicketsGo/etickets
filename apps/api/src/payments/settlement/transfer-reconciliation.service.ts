@@ -58,6 +58,133 @@ export class TransferReconciliationService {
   }
 
   /**
+   * Money an operator may need to act on, oldest first.
+   *
+   * ── WHY AGE AND NOT A SEVERITY ────────────────────────────────────────────
+   * Uncertainty matters more as it ages, but this repository has no settlement-exception SLA, so
+   * inventing "stale after N hours" would be a business rule smuggled in as a default. The age
+   * is reported and the operator judges it.
+   *
+   * ── READ-ONLY, AND NO PROVIDER CALLS ─────────────────────────────────────
+   * Listing never contacts a provider. A page that queried per row would turn opening a screen
+   * into dozens of outbound calls, and would make an operator's browser the thing deciding how
+   * often we ask a payment provider about money.
+   */
+  async operatorQueue(options: { limit?: number; organizationId?: string } = {}) {
+    const take = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const org = options.organizationId;
+    const now = Date.now();
+
+    const [attempts, findings, blocked] = await Promise.all([
+      this.prisma.settlementTransferAttempt.findMany({
+        where: {
+          status: { in: ['UNKNOWN', 'REQUESTED'] },
+          ...(org ? { settlement: { organizationId: org } } : {}),
+        },
+        orderBy: { requestedAt: 'asc' },
+        take,
+        select: {
+          id: true,
+          settlementId: true,
+          status: true,
+          requestedMinor: true,
+          currency: true,
+          provider: true,
+          providerTransferId: true,
+          idempotencyKey: true,
+          requestedAt: true,
+          lastError: true,
+          settlement: { select: { organizationId: true, eventId: true } },
+        },
+      }),
+      this.prisma.settlementReconciliationFinding.findMany({
+        where: { status: 'OPEN', ...(org ? { organizationId: org } : {}) },
+        orderBy: { discoveredAt: 'asc' },
+        take,
+        select: {
+          id: true,
+          settlementId: true,
+          transferAttemptId: true,
+          organizationId: true,
+          kind: true,
+          detail: true,
+          localAmountMinor: true,
+          localCurrency: true,
+          providerDisposition: true,
+          providerAmountMinor: true,
+          discoveredAt: true,
+          lastSeenAt: true,
+          observationCount: true,
+        },
+      }),
+      this.prisma.settlement.findMany({
+        where: { status: 'BLOCKED', ...(org ? { organizationId: org } : {}) },
+        orderBy: { updatedAt: 'asc' },
+        take,
+        select: {
+          id: true,
+          organizationId: true,
+          eventId: true,
+          currency: true,
+          grossSalesMinor: true,
+          blockedReason: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const ageSeconds = (d: Date) => Math.max(0, Math.round((now - d.getTime()) / 1000));
+
+    return {
+      /** A transfer we asked for and never learned the outcome of. The money may be gone. */
+      unresolvedTransfers: attempts.map((a) => ({
+        attemptId: a.id,
+        settlementId: a.settlementId,
+        organizationId: a.settlement.organizationId,
+        eventId: a.settlement.eventId,
+        status: a.status,
+        amountMinor: a.requestedMinor,
+        currency: a.currency,
+        provider: a.provider,
+        /** The operation identity. Safe to show: it is ours, and it identifies nothing else. */
+        operationId: a.idempotencyKey,
+        providerTransferId: a.providerTransferId,
+        requestedAt: a.requestedAt,
+        ageSeconds: ageSeconds(a.requestedAt),
+        reason: a.lastError,
+      })),
+      /** Two sources of truth that do not match, still open. */
+      openFindings: findings.map((f) => ({
+        findingId: f.id,
+        settlementId: f.settlementId,
+        attemptId: f.transferAttemptId,
+        organizationId: f.organizationId,
+        kind: f.kind,
+        detail: f.detail,
+        localAmountMinor: f.localAmountMinor,
+        currency: f.localCurrency,
+        providerDisposition: f.providerDisposition,
+        providerAmountMinor: f.providerAmountMinor,
+        discoveredAt: f.discoveredAt,
+        ageSeconds: ageSeconds(f.discoveredAt),
+        lastSeenAt: f.lastSeenAt,
+        observationCount: f.observationCount,
+      })),
+      /** Payouts a guard stopped, each with the reason a person needs to act on. */
+      blockedSettlements: blocked.map((b) => ({
+        settlementId: b.id,
+        organizationId: b.organizationId,
+        eventId: b.eventId,
+        currency: b.currency,
+        amountMinor: b.grossSalesMinor,
+        reason: b.blockedReason,
+        since: b.updatedAt,
+        ageSeconds: ageSeconds(b.updatedAt),
+      })),
+    };
+  }
+
+  /**
    * Ask about one attempt and record what came back.
    *
    * `reader` is null where the provider cannot be asked at all, which is a conclusion in its own
