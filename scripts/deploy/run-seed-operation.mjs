@@ -154,6 +154,7 @@ let deploymentId = null;
 try {
   // 1. Start from a known state. A stale SEED_OPERATION is an instruction nobody gave.
   await deleteVar('SEED_OPERATION');
+  await deleteVar('SEED_OPERATION_UNTIL');
   await deleteVar('SEED_ALLOW_DESTRUCTIVE');
   console.log('  settling after clearing stale variables...');
   const priorId = await settle();
@@ -166,10 +167,25 @@ try {
     console.log(`  destructive authorisation expires ${until}`);
   }
 
-  // 3. The operation last. The deployment this induces is the run.
+  /*
+    3. The operation's own authorisation window, before the operation itself.
+
+    An explicit SEED_OPERATION is now refused by the dispatcher unless a live
+    SEED_OPERATION_UNTIL says a human asked for it recently. That is what stops a value left
+    behind by an interrupted run from replacing the nightly backup - which is how production
+    went five days with no recovery point while every cron reported SUCCESS.
+
+    Set BEFORE the operation, for the same reason the destructive authorisation is: a deployment
+    induced by this write has no operation to perform yet, so it does nothing.
+  */
+  const operationUntil = new Date(Date.now() + AUTHORISATION_WINDOW_MS).toISOString();
+  await setVar('SEED_OPERATION_UNTIL', operationUntil);
+  console.log(`  operation authorisation expires ${operationUntil}`);
+
+  // 4. The operation last. The deployment this induces is the run.
   await setVar('SEED_OPERATION', operation);
 
-  // 4. Adopt what that induced, rather than adding a deployment of our own.
+  // 5. Adopt what that induced, rather than adding a deployment of our own.
   const deadline = Date.now() + 25 * 60 * 1000;
   let status = null;
   let adopted = null;
@@ -225,9 +241,10 @@ try {
     process.exitCode = 1;
   }
 } finally {
-  // 5. Always, on every path. A left-behind SEED_OPERATION is what the next person's redeploy
+  // 6. Always, on every path. A left-behind SEED_OPERATION is what the next person's redeploy
   //    would run. Clearing induces one more deployment, which runs the read-only default.
   await deleteVar('SEED_OPERATION');
+  await deleteVar('SEED_OPERATION_UNTIL');
   await deleteVar('SEED_ALLOW_DESTRUCTIVE');
   console.log('  variables cleared (service returns to the read-only default)');
 }

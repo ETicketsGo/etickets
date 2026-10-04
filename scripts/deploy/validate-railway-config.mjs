@@ -577,10 +577,17 @@ function validateDestructiveSurfaces() {
     );
   }
 
-  // The fallback operation a scheduled run uses must be one that cannot destroy data.
-  if (existsSync(dispatcher)) {
-    const src = readFileSync(dispatcher, 'utf8');
-    const defaultable = src.match(/const DEFAULTABLE = \[([^\]]*)\]/);
+  /*
+    The fallback operation a scheduled run uses must be one that cannot destroy data.
+
+    This lives in `scheduled-operation.ts` rather than the dispatcher: the resolution grew a rule
+    it could not express inline, so it moved to a pure module that can be tested. Read it where
+    it actually is - a check that silently stops finding what it guards is worse than no check.
+  */
+  const resolver = join(ROOT, 'apps/api/prisma/scheduled-operation.ts');
+  if (existsSync(resolver)) {
+    const src = readFileSync(resolver, 'utf8');
+    const defaultable = src.match(/DEFAULTABLE = \[([^\]]*)\]/);
     check(
       Boolean(defaultable),
       where,
@@ -591,6 +598,50 @@ function validateDestructiveSurfaces() {
         !/full-reset/.test(defaultable[1]),
         where,
         'full-reset is selectable as the scheduled default — a nightly wipe must be impossible to configure, not merely awkward',
+      );
+    }
+
+    /*
+      5b. An explicit SEED_OPERATION must EXPIRE, for the same reason the destructive
+      authorisation must.
+
+      PROD went five days with no backup: a manual `payment-providers` run left SEED_OPERATION
+      behind, an explicit operation outranks the scheduled fallback, and every one of those
+      nights was a green deployment. The expiring-authorisation idiom already existed for
+      SEED_ALLOW_DESTRUCTIVE and had simply never been extended to the operation itself — so the
+      destructive flag could not be left behind, but the operation could.
+    */
+    check(
+      /SEED_OPERATION_UNTIL/.test(src),
+      'apps/api/prisma/scheduled-operation.ts',
+      'an explicit SEED_OPERATION no longer requires an expiring window — a stale override can silently replace the nightly backup again',
+    );
+    const runnerPath = join(ROOT, 'scripts/deploy/run-seed-operation.mjs');
+    if (existsSync(runnerPath)) {
+      const runner = readFileSync(runnerPath, 'utf8');
+      check(
+        /setVar\('SEED_OPERATION_UNTIL'/.test(runner),
+        'scripts/deploy/run-seed-operation.mjs',
+        'the runner does not write SEED_OPERATION_UNTIL — every manual operation would be refused',
+      );
+      check(
+        /deleteVar\('SEED_OPERATION_UNTIL'/.test(runner),
+        'scripts/deploy/run-seed-operation.mjs',
+        'the runner does not clear SEED_OPERATION_UNTIL — an interrupted run would leave the window open',
+      );
+    }
+
+    /*
+      The evidence line has to be printed on EVERY run. The old BACKUP_JSON was printed only by
+      the backup branch, so five nights of the wrong operation produced no line at all — and an
+      absence is evidence only to somebody who already suspects it.
+    */
+    if (existsSync(dispatcher)) {
+      const dsrc = readFileSync(dispatcher, 'utf8');
+      check(
+        /evidenceLine\(/.test(dsrc) && /resolved: operation/.test(dsrc),
+        where,
+        'the dispatcher no longer prints a SEED_EVIDENCE line naming the resolved operation — a wrong scheduled operation becomes invisible again',
       );
     }
   }
