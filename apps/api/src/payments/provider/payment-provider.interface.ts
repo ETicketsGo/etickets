@@ -268,6 +268,37 @@ export type ReversalOutcome =
   | { kind: 'INDETERMINATE'; raw: unknown };
 
 /**
+ * Everything we hold that might identify a transfer to the provider.
+ *
+ * ── WHY THIS IS NOT JUST A TRANSFER ID ──────────────────────────────────────
+ * A transfer id is what the provider returns when it ANSWERS. The case this lookup exists for is
+ * the case where it did not answer - a timeout, a reset, a body we could not read. In that case
+ * `providerTransferId` was never written, and asking "what happened to transfer tr_abc" is
+ * impossible because we never learned `tr_abc`.
+ *
+ * So the only identifiers available in the situation that matters are the ones WE chose: the
+ * idempotency key, the transfer group, and the metadata we attached. Whether a provider can be
+ * searched by any of them is provider-specific and, for Razorpay, unverified - it is the real
+ * shape of the open question, which is not "can you query a transfer" but "can you find one by
+ * something we supplied".
+ *
+ * `transferId` is therefore nullable and is the easy case, not the important one.
+ */
+export interface TransferLookup {
+  /** Present only when the provider already answered us once. Usually absent when it matters. */
+  transferId: string | null;
+  /** Always present. The operation identity we sent, and the only handle we always keep. */
+  idempotencyKey: string;
+  /** What we asked for, so a provider answer can be compared rather than merely read. */
+  amountMinor: number;
+  currency: string;
+  destinationAccountId: string | null;
+  /** Grouping/metadata we attached on the way out, where a provider can search by them. */
+  transferGroup?: string;
+  metadata?: Record<string, string>;
+}
+
+/**
  * What a provider says about a transfer we previously submitted.
  *
  * The recovery path for an `INDETERMINATE` outcome: rather than resend and hope, ask. Only a
@@ -392,8 +423,11 @@ export interface PaymentProvider {
    * Optional, and gated by `supportsTransferStatusQuery`. A provider that cannot be asked simply
    * does not implement it, and the recovery path for an ambiguous transfer on that provider is a
    * person rather than a guess.
+   *
+   * Takes a REFERENCE rather than a transfer id; see `TransferLookup` for why that distinction
+   * is the whole difficulty.
    */
-  getTransferState?(transferId: string): Promise<TransferState>;
+  getTransferState?(lookup: TransferLookup): Promise<TransferState>;
 
   getTransferReversalState?(transferId: string): Promise<TransferReversalState>;
   /** Razorpay: verify the Checkout success signature (order_id|payment_id, HMAC key secret). */

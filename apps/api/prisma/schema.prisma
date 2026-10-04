@@ -3695,9 +3695,10 @@ model Settlement {
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
-  payments         Payment[]
-  reversalAttempts SettlementReversalAttempt[]
-  transferAttempts SettlementTransferAttempt[]
+  payments               Payment[]
+  reversalAttempts       SettlementReversalAttempt[]
+  transferAttempts       SettlementTransferAttempt[]
+  reconciliationFindings SettlementReconciliationFinding[]
 
   @@unique([eventId, currency])
   @@index([organizationId, status])
@@ -4531,6 +4532,100 @@ enum ReversalReason {
 /// operation is a row. Rows sharing a key are attempts at the same external money movement.
 ///
 /// That is also what makes the dangerous case detectable: if a replay would present the same
+/// What a reconciliation finding says disagreed.
+///
+/// Named for the DISAGREEMENT, not for a remedy. A finding records that two sources of truth do
+/// not match; what to do about it is a separate decision with separate authority.
+enum SettlementFindingKind {
+  /// The provider says it sent a different amount than we asked for.
+  AMOUNT_DISAGREES
+  /// The provider says a different currency than we asked for.
+  CURRENCY_DISAGREES
+  /// We recorded money as sent; the provider says it did not send it.
+  PROVIDER_CONTRADICTS_LOCAL
+  /// The provider has no record under any identifier we hold. NOT a clearance to resend.
+  PROVIDER_HAS_NO_RECORD
+  /// We asked and the provider still cannot say. Uncertainty that survived a question.
+  STILL_UNRESOLVED
+  /// We cannot ask at all: no adapter capability, or no identifier the provider accepts.
+  CANNOT_BE_ASKED
+}
+
+/// Whether a finding is still live.
+///
+/// Deliberately only two states. A finding is never DELETED on resolution - the row is the
+/// evidence that the disagreement happened, and discarding it would erase the only record that
+/// anyone ever had to look into it.
+enum SettlementFindingStatus {
+  OPEN
+  RESOLVED
+}
+
+/// A durable financial disagreement, with a lifecycle.
+///
+/// ── WHY NOT A BOOLEAN ─────────────────────────────────────────────────────
+/// `reconciliationMismatch` was a hardcoded `false` on the Finance read model, and the only
+/// durable trace of a detected mismatch was an AuditLog entry - an append-only record that
+/// something HAPPENED, which cannot answer whether it is still TRUE.
+///
+/// A boolean on Settlement would go stale and, worse, would erase the evidence needed to
+/// understand the disagreement: which figures, from where, observed when. This keeps all of it.
+///
+/// ── STABLE IDENTITY ───────────────────────────────────────────────────────
+/// One disagreement is one row. Reconciliation runs repeatedly by design, and a worker that
+/// opened a new finding on every pass would bury a queue of real problems under copies of one.
+/// `(transferAttemptId, kind)` is unique; a repeat observation advances `lastSeenAt` and
+/// `observationCount` instead.
+///
+/// ── RESOLUTION IS NOT IMPLEMENTED ───────────────────────────────────────────
+/// The resolution columns exist and nothing writes them. Who may declare money correct, and
+/// whether doing so must cite provider evidence, are product decisions this repository has not
+/// made. The shape is here so the answer can be applied without a migration; the action is
+/// absent so nobody can take it by accident.
+model SettlementReconciliationFinding {
+  id             String     @id @default(cuid())
+  settlementId   String
+  settlement     Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  transferAttemptId String
+  transferAttempt   SettlementTransferAttempt @relation(fields: [transferAttemptId], references: [id], onDelete: Cascade)
+
+  kind   SettlementFindingKind
+  status SettlementFindingStatus @default(OPEN)
+
+  /// What WE believed, captured at discovery so the row explains itself later.
+  localStatus      String
+  localAmountMinor Int
+  localCurrency    String
+
+  /// What the PROVIDER said, where it said anything. Null means it could not be asked.
+  providerDisposition String?
+  providerAmountMinor Int?
+  providerCurrency    String?
+  providerStatusRaw   String?
+
+  /// One sentence an operator can read without opening the code.
+  detail String
+
+  discoveredAt     DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  observationCount Int      @default(1)
+
+  /// Written by nothing today. See the note above.
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolutionNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([transferAttemptId, kind])
+  @@index([status, discoveredAt])
+  @@index([organizationId, status])
+  @@index([settlementId])
+}
+
 /// identity with a DIFFERENT amount - which happens when a refund lands between a crash and a
 /// retry - the prior rows say so, and the request is refused rather than sent and hoped about.
 model SettlementTransferAttempt {
@@ -4560,6 +4655,8 @@ model SettlementTransferAttempt {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  findings SettlementReconciliationFinding[]
 
   @@index([settlementId, status])
   @@index([status, requestedAt])
