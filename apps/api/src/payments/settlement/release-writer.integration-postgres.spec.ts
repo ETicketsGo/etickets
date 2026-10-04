@@ -584,6 +584,90 @@ describe('integration-real-postgres: what release() persists', () => {
     // And no second attempt row was created for an identity we refused to reuse.
     expect(await attemptsFor(s.id)).toHaveLength(1);
   });
+  // ── 4c. a refusal is not the same thing as not knowing ─────────────────────────
+
+  maybe('records an authoritative refusal as FAILED, not UNKNOWN', async () => {
+    /*
+      THE DISTINCTION THE CONTRACT EXISTS FOR. The provider declined BEFORE acting, so nothing
+      moved and there is nothing for a reconciliation worker to resolve. Recording UNKNOWN here
+      would park a settled question in a queue of real uncertainty and dilute it.
+    */
+    const s = await approvedSettlement(33_000);
+    const createTransfer = jest.fn(async () => ({
+      kind: 'REFUSED' as const,
+      code: 'account_closed',
+      message: 'destination account is closed',
+      retryable: false,
+      raw: { type: 'StripeInvalidRequestError', code: 'account_closed' },
+    }));
+
+    await expect(
+      makeService({ createTransfer }).service.release(actor as never, s.id, 'refused'),
+    ).rejects.toThrow();
+
+    const [a] = await attemptsFor(s.id);
+    expect(a.status).toBe('FAILED');
+    expect(a.status).not.toBe('UNKNOWN');
+    expect(a.lastError).toMatch(/account_closed/);
+    // Nothing moved, and the refusal is kept for whoever reads the row later.
+    expect(a.providerTransferId).toBeNull();
+    expect(a.syncResponse).toMatchObject({ code: 'account_closed' });
+    const row = await read(s.id);
+    expect(row.releasedMinor).toBe(0);
+    expect(row.transferredMinor).toBe(0);
+  });
+
+  maybe('records a reported INDETERMINATE as UNKNOWN, with the cause kept', async () => {
+    // The adapter reports it rather than throwing; the honest state and the cause both survive.
+    const s = await approvedSettlement(33_000);
+    const createTransfer = jest.fn(async () => ({
+      kind: 'INDETERMINATE' as const,
+      raw: { type: 'StripeConnectionError', message: 'connection reset by peer' },
+    }));
+
+    await expect(
+      makeService({ createTransfer }).service.release(actor as never, s.id, 'indeterminate'),
+    ).rejects.toThrow();
+
+    const [a] = await attemptsFor(s.id);
+    expect(a.status).toBe('UNKNOWN');
+    expect(a.lastError).toMatch(/connection reset by peer/);
+    expect(a.syncResponse).toMatchObject({ type: 'StripeConnectionError' });
+  });
+
+  maybe(
+    'a refusal leaves the settlement replayable; the provider settled the question',
+    async () => {
+      /*
+      A FAILED attempt means the provider declined without acting, so a later release is an
+      ordinary first attempt - not a replay of something that might already have paid. The
+      replay gate must not treat it as one, even on an adapter that cannot deduplicate.
+    */
+      const s = await approvedSettlement(33_000);
+      const refuse = jest.fn(async () => ({
+        kind: 'REFUSED' as const,
+        code: 'rate_limited',
+        message: 'slow down',
+        retryable: true,
+        raw: {},
+      }));
+      await expect(
+        makeService({ createTransfer: refuse, supportsIdempotentTransfer: false }).service.release(
+          actor as never,
+          s.id,
+          'one',
+        ),
+      ).rejects.toThrow();
+
+      const { service, createTransfer } = makeService({ supportsIdempotentTransfer: false });
+      await service.release(actor as never, s.id, 'two');
+
+      expect(createTransfer).toHaveBeenCalledTimes(1);
+      const row = await read(s.id);
+      expect(row.status).toBe('TRANSFERRED');
+      expect(row.releasedMinor).toBe(33_000);
+    },
+  );
 
   // ── 5. replaying a transfer whose outcome we never learned ───────────────────────────
 
@@ -623,6 +707,26 @@ describe('integration-real-postgres: what release() persists', () => {
     // And it must be visible to a person rather than silently stuck.
     expect(row.status).toBe('BLOCKED');
     expect(row.blockedReason).toMatch(/outcome is unknown/i);
+  });
+
+  maybe('still gates a pre-attempt-table settlement left in FAILED', async () => {
+    /*
+      Settlements released before the attempt table existed have no rows to reason about, so the
+      only evidence is the coarse one: FAILED with no transfer id. That could be a refusal or a
+      timeout, and nothing records which - so it stays blocked on a provider that cannot
+      deduplicate. The fallback is conservative precisely because the evidence is poor.
+    */
+    const s = await approvedSettlement(27_000, { status: 'FAILED' });
+    const replay = jest.fn(async () => ({ transferId: 'tr_no', raw: {} }));
+    const { service } = makeService({
+      createTransfer: replay,
+      supportsIdempotentTransfer: false,
+    });
+
+    await expect(service.release(actor as never, s.id, 'legacy replay')).rejects.toThrow();
+
+    expect(replay).not.toHaveBeenCalled();
+    expect((await read(s.id)).status).toBe('BLOCKED');
   });
 
   maybe('still replays on a provider that CAN deduplicate', async () => {

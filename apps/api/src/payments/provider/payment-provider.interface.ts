@@ -196,10 +196,37 @@ export interface TransferInput {
   metadata?: Record<string, string>;
 }
 
-export interface TransferResult {
-  transferId: string;
-  status: 'COMPLETED' | 'FAILED';
-}
+/**
+ * What a provider's answer to a TRANSFER request actually proves.
+ *
+ * ── WHY THIS REPLACED `{ transferId, status }` ─────────────────────────────────────
+ * The old shape could say COMPLETED or FAILED and nothing else, and both adapters hardcoded
+ * COMPLETED on any non-throwing response. Everything else - a timeout, a connection reset, an
+ * unreadable body - became a thrown error that the caller recorded as a failure.
+ *
+ * That is the exact defect `ReversalOutcome` was created to fix, on the side that moves the
+ * SMALLER amount back. This is the same union for the side that sends the organizer's whole
+ * payout out, and it exists so "I do not know" can be REPORTED rather than inferred.
+ *
+ * ── WHY THERE IS NO `CONFIRMED` ────────────────────────────────────────────────────
+ * A successful `transfers.create` proves the provider ACCEPTED the instruction. Neither adapter
+ * reads anything that proves the money has settled with the organizer, so claiming more would be
+ * the hardcoded-COMPLETED mistake again in a new shape. A `CONFIRMED` arm belongs here only when
+ * an adapter can produce the evidence for it.
+ */
+export type TransferOutcome =
+  /** The provider took the instruction and gave us a reference. Settlement is NOT proven. */
+  | { kind: 'ACCEPTED'; transferId: string; raw: unknown }
+  /** The provider refused, authoritatively, without acting. Not a transport failure. */
+  | { kind: 'REFUSED'; code: string; message: string; retryable: boolean; raw: unknown }
+  /**
+   * We cannot say what happened.
+   *
+   * A timeout, a connection error, or a response we cannot interpret. The provider may have
+   * moved money while our answer was lost, so this is NOT a failure and must never be retried
+   * blindly - the recovery is to ask the provider what it did.
+   */
+  | { kind: 'INDETERMINATE'; raw: unknown };
 
 export interface TransferReversalInput {
   transferId: string;
@@ -304,7 +331,7 @@ export interface PaymentProvider {
   /** Login/dashboard link — only for account types that support it (e.g. Express). */
   createDashboardLink?(accountId: string): Promise<DashboardLinkResult>;
   /** Move funds to a connected account (settlement). */
-  createTransfer?(input: TransferInput): Promise<TransferResult>;
+  createTransfer?(input: TransferInput): Promise<TransferOutcome>;
   /** Reverse (claw back) a prior transfer, e.g. after a post-transfer refund. */
   reverseTransfer?(input: TransferReversalInput): Promise<ReversalOutcome>;
   /**

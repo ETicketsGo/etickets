@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { AppException, ErrorCodes } from '../../common/errors';
 import { redirectUrl } from '../../common/console-urls';
 import { stripeReversalFailure } from './reversal-outcome';
+import { stripeTransferFailure } from './reversal-outcome';
 import type {
   ConnectedAccountSnapshot,
   CreateConnectedAccountInput,
@@ -19,7 +20,7 @@ import type {
   RefundInput,
   RefundResult,
   TransferInput,
-  TransferResult,
+  TransferOutcome,
   TransferReversalInput,
   ReversalOutcome,
   TransferReversalState,
@@ -366,7 +367,7 @@ export class StripePaymentProvider implements PaymentProvider {
     return { url: link.url };
   }
 
-  async createTransfer(input: TransferInput): Promise<TransferResult> {
+  async createTransfer(input: TransferInput): Promise<TransferOutcome> {
     try {
       const transfer = await this.client.transfers.create(
         {
@@ -379,15 +380,18 @@ export class StripePaymentProvider implements PaymentProvider {
         // Idempotency: a re-run of the same settlement never double-transfers.
         { idempotencyKey: input.idempotencyKey },
       );
-      return { transferId: transfer.id, status: 'COMPLETED' };
+      /*
+        ACCEPTED, not COMPLETED. Stripe took the instruction and gave us a reference; nothing
+        here proves the money has settled with the organizer.
+      */
+      return { kind: 'ACCEPTED', transferId: transfer.id, raw: { id: transfer.id } };
     } catch (err) {
-      // Surface a typed failure to the settlement service (which records FAILED) rather
-      // than throwing raw Stripe errors up the stack.
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        err instanceof Error ? err.message : 'Stripe transfer failed.',
-        HttpStatus.BAD_GATEWAY,
-      );
+      /*
+        Reported, not thrown. The caller must be able to tell a refusal Stripe made BEFORE
+        acting from a timeout where it may have acted anyway, and an exception collapses both
+        into "something went wrong". Same classification as the reversal side, deliberately.
+      */
+      return stripeTransferFailure(err);
     }
   }
 

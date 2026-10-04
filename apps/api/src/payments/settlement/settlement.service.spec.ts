@@ -50,6 +50,15 @@ function makeDeps(overrides: {
     */
     settlementTransferAttempt: {
       findMany: jest.fn(async () => overrides.priorTransferAttempts ?? []),
+      /*
+        The replay gate counts attempt rows rather than reading settlement status, so that an
+        authoritative refusal is not mistaken for an outcome we never learned.
+      */
+      count: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        const all = overrides.priorTransferAttempts ?? [];
+        const status = where.status as { in?: string[] } | undefined;
+        return status?.in ? all.filter((a) => status.in!.includes(a.status)).length : all.length;
+      }),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const row = { id: `tatt_${transferAttempts.length + 1}`, ...data };
         transferAttempts.push(row);

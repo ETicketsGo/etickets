@@ -125,10 +125,10 @@ and enforced by the replay gate — it is not left as an assumption.
 
 `SettlementTransferAttempt.UNKNOWN`. Previously every ambiguous result was written as `FAILED`.
 
-Residual: the `UNKNOWN` is inferred from _"something was thrown"_ rather than reported, because
-`TransferResult` is `{ transferId, status: 'COMPLETED' | 'FAILED' }` and cannot carry
-`INDETERMINATE` the way `ReversalOutcome` does. The transfer contract is a generation behind the
-reversal one.
+The contract now reports it. `createTransfer` returns a `TransferOutcome` of `ACCEPTED` /
+`REFUSED` / `INDETERMINATE`, so a refusal the provider made before acting is distinguishable from
+a timeout where it may have acted anyway - and only the second is recorded as `UNKNOWN`. The
+transfer contract is no longer a generation behind the reversal one.
 
 ### E. Recovery from provider-success + local-write-failure · **PARTIAL, and safe either way**
 
@@ -206,8 +206,9 @@ In order, and none of it requires moving money:
    not, the gate is the permanent answer and that should be stated, not worked around.
 2. **Answer question 4 and add `getTransferState` to the contract.** This unblocks resolving an
    `UNKNOWN` attempt, and only then a transfer sweeper — observation first, by construction.
-3. **Give `TransferResult` the shape `ReversalOutcome` already has** so `INDETERMINATE` is
-   _reported_ rather than inferred from a thrown error.
+3. ~~Give `TransferResult` the shape `ReversalOutcome` already has~~ - **done**. `TransferOutcome`
+   reports `ACCEPTED` / `REFUSED` / `INDETERMINATE`, and the replay gate now reads attempt
+   evidence rather than settlement status.
 4. **Get the two product answers** on reconciliation findings (§`reconciliationMismatch`).
 5. **Build the operator queue** on the read model that now exists.
 

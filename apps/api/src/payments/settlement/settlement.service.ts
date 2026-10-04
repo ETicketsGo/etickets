@@ -15,7 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { NotificationService } from '../../notifications/notification.service';
 import { AppException, ErrorCodes } from '../../common/errors';
-import type { ReversalOutcome } from '../provider/payment-provider.interface';
+import type { ReversalOutcome, TransferOutcome } from '../provider/payment-provider.interface';
 import { redactProviderError } from '../provider/reversal-outcome';
 import {
   reconcileTransferEvidence,
@@ -405,7 +405,29 @@ export class SettlementService {
       with a reason rather than silently stuck, because resolving it needs a person to establish
       what the provider actually did. See docs/guides/PROVIDER-EXECUTION-AND-RECONCILIATION.md.
     */
-    const isReplay = settlement.status === 'FAILED' && !settlement.providerTransferId;
+    /*
+      What makes a release a REPLAY is an earlier attempt whose outcome is still unknown - not
+      merely a settlement sitting in FAILED. Those were the same thing until the adapter could
+      report a refusal: every failure, authoritative or not, produced FAILED with no transfer id.
+
+      Now a FAILED attempt means the provider declined WITHOUT acting, so the question is
+      settled and a later release is an ordinary first attempt. Gating it would strand a payout
+      the provider simply refused - a closed destination account, say - behind manual review
+      forever, on every provider that cannot deduplicate.
+
+      Settlements released before the attempt table existed have no rows at all. For those the
+      old, coarser test is still the only evidence available, and it stays conservative.
+    */
+    const unresolvedAttempts = await this.prisma.settlementTransferAttempt.count({
+      where: { settlementId: settlement.id, status: { in: ['UNKNOWN', 'REQUESTED'] } },
+    });
+    const anyAttempts = await this.prisma.settlementTransferAttempt.count({
+      where: { settlementId: settlement.id },
+    });
+    const isReplay =
+      unresolvedAttempts > 0 ||
+      (anyAttempts === 0 && settlement.status === 'FAILED' && !settlement.providerTransferId);
+
     if (isReplay && !adapter.capabilities.supportsIdempotentTransfer) {
       return this.blockClaimed(
         actor,
@@ -511,8 +533,15 @@ export class SettlementService {
       },
     });
 
+    /*
+      The provider call, with NO transaction open, in exactly the shape the reversal path uses.
+      An adapter that throws rather than returning an outcome tells us nothing about whether it
+      acted, so a throw becomes INDETERMINATE rather than a failure - a failure invites a retry
+      of an operation that may have succeeded.
+    */
+    let outcome: TransferOutcome;
     try {
-      const transfer = await adapter.createTransfer!({
+      outcome = await adapter.createTransfer!({
         amountMinor: payable.payableMinor,
         currency: settlement.currency,
         destinationAccountId: settlement.connectedAccountId,
@@ -521,6 +550,60 @@ export class SettlementService {
         idempotencyKey,
         metadata: { settlementId: settlement.id, eventId: settlement.eventId },
       });
+    } catch (err) {
+      outcome = { kind: 'INDETERMINATE', raw: redactProviderError(err) };
+    }
+
+    /*
+      WHAT THE ANSWER PROVED
+      ----------------------
+      A refusal the provider made BEFORE acting is now distinguishable from a timeout where it
+      may have acted anyway. Those two must not share a record: one is safely retryable, the
+      other is a question only the provider can answer.
+
+      Exhausted deliberately. The compiler refuses a new outcome kind that nothing handles,
+      which is what stops an answer being quietly discarded the way the old status field was.
+    */
+    if (outcome.kind === 'REFUSED' || outcome.kind === 'INDETERMINATE') {
+      /*
+        The discriminant has to be the condition itself, or TypeScript cannot narrow the union.
+
+        An INDETERMINATE outcome still carries the cause in its redacted `raw`, and an operator
+        reading this row needs it - "no usable answer" alone does not say whether to look at the
+        network or at the provider. The redaction is what keeps keys and customer detail out.
+      */
+      const cause =
+        outcome.kind === 'INDETERMINATE'
+          ? ((outcome.raw as { message?: unknown } | null)?.message ?? '')
+          : '';
+      const message =
+        outcome.kind === 'INDETERMINATE'
+          ? `No usable answer from the provider; it may or may not have sent the money${
+              typeof cause === 'string' && cause ? `: ${cause}` : '.'
+            }`
+          : `${outcome.code}: ${outcome.message}`;
+      const indeterminate = outcome.kind === 'INDETERMINATE';
+
+      await this.prisma.settlementTransferAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          /*
+            REFUSED is authoritative - the provider declined without acting - so the attempt is
+            FAILED and there is nothing for a reconciliation worker to resolve. INDETERMINATE
+            keeps UNKNOWN, because the money may already be with the organizer and only the
+            provider can settle the question.
+          */
+          status: indeterminate ? 'UNKNOWN' : 'FAILED',
+          lastError: message.slice(0, 500),
+          syncResponse: outcome.raw as never,
+          respondedAt: new Date(),
+        },
+      });
+      return this.failClaimed(actor, settlement, id, message);
+    }
+
+    try {
+      const transfer = outcome;
       /*
         The release and the organizer being told about it, in one transaction.
 
@@ -606,17 +689,14 @@ export class SettlementService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Transfer failed.';
       /*
-        ── UNKNOWN, NOT FAILED ───────────────────────────────────────────────────────────
-        Everything lands here: an authoritative refusal, a timeout, a connection reset, an
-        unreadable response. `TransferResult` is `{ transferId, status }` and the adapters throw
-        on anything else, so there is no information at this point that could separate "the
-        provider said no" from "the provider may have sent the money and we lost the answer".
+        THE PROVIDER ACCEPTED; OUR OWN PERSISTENCE DID NOT
+        --------------------------------------------------
+        Only reachable after an ACCEPTED outcome, so this is not the provider failing - it is us
+        failing to record that it agreed. The money may well be moving.
 
-        Writing FAILED on the attempt would state the first when we only know the second is
-        possible. UNKNOWN is the honest state and the one the reversal side already uses. The
-        SETTLEMENT keeps its existing FAILED status - that is a true statement about this
-        release not completing, and changing its meaning would reach code far outside this path.
-        The attempt row is where the uncertainty is recorded.
+        UNKNOWN therefore, and never FAILED. The SETTLEMENT keeps its coarse FAILED status,
+        which is a true statement about this release not completing and whose meaning other code
+        depends on; the attempt row is where the uncertainty lives.
       */
       await this.prisma.settlementTransferAttempt.update({
         where: { id: attempt.id },
@@ -626,29 +706,46 @@ export class SettlementService {
           respondedAt: new Date(),
         },
       });
-      await this.prisma.settlement.update({
-        where: { id },
-        data: { status: 'FAILED', failureMessage: message.slice(0, 500) },
-      });
-      await this.audit.record({
-        actorUserId: actor.id,
-        organizationId: settlement.organizationId,
-        action: 'SETTLEMENT_TRANSFER_FAILED',
-        entityType: 'Settlement',
-        entityId: id,
-        metadata: { error: message },
-      });
-      await this.notifyAdmins({
-        type: NotificationType.TRANSFER_FAILED,
-        settlementId: id,
-        error: message,
-      });
-      throw new AppException(
-        ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
-        `Settlement transfer failed: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      return this.failClaimed(actor, settlement, id, message);
     }
+  }
+
+  /**
+   * Record that a release did not complete, and say so loudly.
+   *
+   * Shared by both ways that can happen - the provider declining or not answering, and our own
+   * persistence failing after it agreed - so the audit trail and the admin notice cannot drift
+   * apart between them. The ATTEMPT row is written by the caller, because only the caller knows
+   * what the answer actually proved.
+   */
+  private async failClaimed(
+    actor: RequestUser,
+    settlement: { organizationId: string },
+    id: string,
+    message: string,
+  ): Promise<never> {
+    await this.prisma.settlement.update({
+      where: { id },
+      data: { status: 'FAILED', failureMessage: message.slice(0, 500) },
+    });
+    await this.audit.record({
+      actorUserId: actor.id,
+      organizationId: settlement.organizationId,
+      action: 'SETTLEMENT_TRANSFER_FAILED',
+      entityType: 'Settlement',
+      entityId: id,
+      metadata: { error: message },
+    });
+    await this.notifyAdmins({
+      type: NotificationType.TRANSFER_FAILED,
+      settlementId: id,
+      error: message,
+    });
+    throw new AppException(
+      ErrorCodes.PAYMENT_PROVIDER_UNAVAILABLE,
+      `Settlement transfer failed: ${message}`,
+      HttpStatus.BAD_GATEWAY,
+    );
   }
 
   // ─── Refund / dispute deductions (driven by webhooks, M6) ───
