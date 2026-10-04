@@ -9,6 +9,7 @@ import { PaymentConfigService } from '../configuration/payment-config.service';
 import { PaymentReconciliationService } from '../reconciliation/payment-reconciliation.service';
 import { PaymentLiveReadinessService } from '../readiness/payment-live-readiness.service';
 import { LaunchGateService } from '../launch/launch-gate.service';
+import { TransferReconciliationService } from '../settlement/transfer-reconciliation.service';
 import {
   PaymentAdminService,
   type ProviderConfigPatch,
@@ -72,6 +73,7 @@ export class PaymentAdminController {
     private readonly reconciliation: PaymentReconciliationService,
     private readonly readiness: PaymentLiveReadinessService,
     private readonly launchGate: LaunchGateService,
+    private readonly transfers: TransferReconciliationService,
   ) {}
 
   private resolveEnv(raw?: string): PaymentEnvName {
@@ -109,6 +111,36 @@ export class PaymentAdminController {
     const toDate = parseDate(to, new Date());
     const fromDate = parseDate(from, new Date(toDate.getTime() - 7 * 24 * 3600 * 1000));
     return this.reconciliation.reconcile(fromDate, toDate);
+  }
+
+  /**
+   * Money nobody can currently account for.
+   *
+   * ── READ-ONLY, DELIBERATELY ───────────────────────────────────────────────
+   * There is no "mark paid", no "force success", no "retry transfer" and no "resolve". Every one
+   * of those is a financial decision, and who is allowed to declare money correct is a product
+   * question this repository has not answered. Visibility is worth more than a premature button,
+   * and a button that silently fixed a disagreement would destroy the evidence it was ever there.
+   *
+   * It also makes no provider calls, so opening the screen cannot turn into dozens of outbound
+   * requests about money.
+   *
+   * Authorization is the controller\'s: ADMIN or SUPER_ADMIN, plus PAYMENT_ADMIN. An organizer
+   * cannot reach it, and `organizationId` narrows an admin\'s view rather than granting one.
+   */
+  @Get('unresolved-money')
+  @ApiOperation({
+    summary: 'Transfers with no known outcome, open reconciliation findings, and blocked payouts.',
+  })
+  unresolvedMoney(
+    @Query('organizationId') organizationId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = Number.parseInt(limit ?? '', 10);
+    return this.transfers.operatorQueue({
+      organizationId: organizationId?.trim() || undefined,
+      limit: Number.isFinite(parsed) ? parsed : undefined,
+    });
   }
 
   @Get('settlement')
