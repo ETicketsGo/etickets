@@ -2,35 +2,73 @@
 
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import { api, BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 
 const TOPICS = ['Sales', 'Support', 'Partnerships', 'Media', 'General enquiry'];
 
-/** A functional, client-side contact form. With no contact API in the demo it validates
- *  input and confirms locally (and offers a mailto fallback); wire to an endpoint later. */
+/**
+ * The contact form - which now actually delivers.
+ *
+ * ── WHAT WAS WRONG ─────────────────────────────────────────────────────────────────────
+ * This posted nowhere. It opened the visitor's mail client addressed to
+ * `hello@eticketsgo.example` - a domain reserved by RFC 2606, so it can never resolve, for
+ * anybody, ever - and then showed a panel saying "we'll get back to you soon". Somebody whose
+ * card was charged twice would have written to it and waited.
+ *
+ * ── WHY IT IS A POST NOW ───────────────────────────────────────────────────────────────
+ * A real channel was already here and this page never used it: `POST /support` is public,
+ * persisted, and shows up in the admin support inbox, which is where an enquiry can actually
+ * be read and answered. `CONTACT` is one of its declared kinds. The mailto was a workaround
+ * for a missing endpoint that was not missing.
+ *
+ * The published support address is still shown where we have one, as a second route - but it
+ * is read from the single source of business detail, never hardcoded, and never invented.
+ */
 export function ContactForm() {
   const [topic, setTopic] = useState(TOPICS[0]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const inbox = publishedDetail(BUSINESS_DETAILS.supportEmail);
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const valid = name.trim().length > 1 && emailOk && message.trim().length > 4;
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid) {
       setError('Please add your name, a valid email, and a short message.');
       return;
     }
     setError(null);
-    // Fallback delivery in the demo (no contact API yet): open the user's mail client.
-    const body = encodeURIComponent(`Topic: ${topic}\nFrom: ${name} <${email}>\n\n${message}`);
-    window.location.href = `mailto:hello@eticketsgo.example?subject=${encodeURIComponent(
-      `[${topic}] Website enquiry`,
-    )}&body=${body}`;
-    setSent(true);
+    setSending(true);
+    try {
+      /*
+        The name goes in the message body rather than a field of its own: the endpoint takes
+        an email, a subject and a message, and inventing a field here would mean changing a
+        contract shared with the organizer console and the admin inbox.
+      */
+      await api.support.submit({
+        kind: 'CONTACT',
+        email: email.trim(),
+        subject: `[${topic}] Website enquiry`,
+        message: `From: ${name.trim()}\n\n${message.trim()}`,
+      });
+      setSent(true);
+    } catch {
+      // Say what to do next. An error that only says "something went wrong" wastes the visit.
+      setError(
+        inbox
+          ? `We could not send that. Please try again, or email us at ${inbox}.`
+          : 'We could not send that. Please check your connection and try again.',
+      );
+    } finally {
+      setSending(false);
+    }
   };
 
   const field =
@@ -41,11 +79,11 @@ export function ContactForm() {
       <div className="rounded-2xl border border-status-success/30 bg-status-success/5 p-8 text-center">
         <CheckCircle2 className="mx-auto h-10 w-10 text-status-success" />
         <h3 className="mt-4 text-lg font-semibold text-text-primary">
-          Thanks - your message is ready to send
+          Thanks - we have your message
         </h3>
         <p className="mt-2 text-[0.9375rem] text-text-secondary">
-          We opened your email client to deliver it. If nothing happened, email us at the address
-          listed - we&rsquo;ll get back to you soon.
+          It is with our support team and we will reply to{' '}
+          <span className="font-medium text-text-primary">{email.trim()}</span>.
         </p>
       </div>
     );
@@ -131,9 +169,10 @@ export function ContactForm() {
       )}
       <button
         type="submit"
-        className="inline-flex w-full items-center justify-center rounded-xl bg-action-primary px-5 py-3 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas sm:w-auto"
+        disabled={sending}
+        className="inline-flex w-full items-center justify-center rounded-xl bg-action-primary px-5 py-3 text-[0.9375rem] font-semibold text-action-primary-foreground shadow-sm transition-all hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas disabled:opacity-60 sm:w-auto"
       >
-        Send message
+        {sending ? 'Sending...' : 'Send message'}
       </button>
     </form>
   );

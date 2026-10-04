@@ -27,7 +27,7 @@ const GST_2_0 = new Date('2025-09-22T00:00:00.000Z');
 
 const RUPEE = 100;
 
-interface Rule {
+export interface IndiaGstRule {
   label: string;
   /**
    * Rules in one group are ALTERNATIVES. Admission is one group so the catch-all does not
@@ -45,10 +45,18 @@ interface Rule {
 }
 
 /**
- * Bands are on the price of ONE ticket, which is how they are written in the law and why
- * the engine refuses to rate a banded rule off an order total.
+ * The shipped Indian rule set, exported so it can be TESTED rather than merely run.
+ *
+ * Bands are on the price of ONE ticket, which is how they are written in the law and why the
+ * engine refuses to rate a banded rule off an order total.
+ *
+ * This table is what somebody types `--activate` against on a production database. Until it was
+ * exported, nothing exercised it: the tax engine had thorough coverage against hand-built rules,
+ * and the rules we actually ship had none. A wrong band or rate here would have reached a real
+ * customer's receipt with every unit test still green. It is now priced against the worked
+ * examples in the guide by `src/pricing/india-gst-activation.spec.ts`.
  */
-const INDIA: Rule[] = [
+export const INDIA_GST_RULES: IndiaGstRule[] = [
   {
     taxGroup: 'ADMISSION',
     label: 'GST',
@@ -128,7 +136,7 @@ const INDIA: Rule[] = [
 async function main() {
   const activate = process.argv.includes('--activate');
 
-  for (const rule of INDIA) {
+  for (const rule of INDIA_GST_RULES) {
     /*
       Matched on the shape rather than upserted on an id: these rows are configuration a
       human may have edited, and re-running this must not silently overwrite a rate somebody
@@ -201,7 +209,7 @@ async function main() {
   );
 }
 
-function describe(rule: Rule): string {
+function describe(rule: IndiaGstRule): string {
   const band =
     rule.minUnitMinor != null
       ? `above ₹${(rule.minUnitMinor - 1) / RUPEE}`

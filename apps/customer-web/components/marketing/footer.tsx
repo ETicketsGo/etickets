@@ -1,6 +1,6 @@
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
-import { Logo } from '@eticketsgo/web-kit';
+import { Logo, needsPlaceholderNotice } from '@eticketsgo/web-kit';
 
 const COLUMNS: { title: string; links: { href: string; label: string; external?: boolean }[] }[] = [
   {
@@ -90,9 +90,16 @@ export function MarketingFooter() {
         </div>
         <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-border pt-6 text-caption text-text-secondary sm:flex-row sm:items-center">
           <p>© {2026} ETicketsGo. All rights reserved.</p>
-          <p className="text-text-secondary">
-            Demo build. The contact details and legal terms are placeholders.
-          </p>
+          {/*
+            Derived, not hardcoded. This notice used to be a constant, which meant it would
+            still be here long after the details were real - and, worse, could be deleted while
+            they were still fake. It now follows the details themselves and retires itself.
+          */}
+          {needsPlaceholderNotice() && (
+            <p className="text-text-secondary">
+              Our contact details and legal terms are not published yet.
+            </p>
+          )}
         </div>
       </div>
     </footer>
