@@ -62,7 +62,12 @@ describe('integration-real-postgres: the operator unresolved-money queue', () =>
     });
     orgId = a.id;
     otherOrgId = b.id;
-    service = new TransferReconciliationService(db as never);
+    service = new TransferReconciliationService(
+      db as never,
+      {
+        record: async () => undefined,
+      } as never,
+    );
   }, 60_000);
 
   afterAll(async () => {

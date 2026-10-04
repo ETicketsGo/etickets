@@ -45,6 +45,7 @@ describe('integration-real-postgres: reconciliation findings', () => {
   let available = false;
   let orgId = '';
   let seq = 0;
+  const audited: Array<Record<string, unknown>> = [];
 
   beforeAll(async () => {
     if (!url) return;
@@ -61,7 +62,14 @@ describe('integration-real-postgres: reconciliation findings', () => {
       data: { name: `Recon ${stamp}`, slug: `recon-${stamp}`, status: 'APPROVED' },
     });
     orgId = org.id;
-    service = new TransferReconciliationService(db as never);
+    service = new TransferReconciliationService(
+      db as never,
+      {
+        record: async (e: unknown) => {
+          audited.push(e as Record<string, unknown>);
+        },
+      } as never,
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -285,6 +293,169 @@ describe('integration-real-postgres: reconciliation findings', () => {
     expect(after.a.status).toBe('UNKNOWN');
     expect(after.a.requestedMinor).toBe(before.a.requestedMinor);
     expect(after.a.providerTransferId).toBe(before.a.providerTransferId);
+  });
+
+  // ── manual disposition: a person decides, and nothing moves ───────────────────────
+
+  const operator = { id: 'ops-1' };
+
+  maybe('records who decided, why, and on what evidence', async () => {
+    const { attempt, local } = await unknownAttempt();
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    const [open] = await findingsFor(attempt.id);
+
+    const out = await service.resolveFinding(operator, open.id, {
+      resolution: 'PROVIDER_CONFIRMED_SENT',
+      note: 'Dashboard shows the payout against this linked account.',
+      evidenceRef: 'trf_seen_by_a_person',
+    });
+    expect(out.resolved).toBe(true);
+
+    const [row] = await findingsFor(attempt.id);
+    expect(row).toMatchObject({
+      status: 'RESOLVED',
+      resolvedByUserId: 'ops-1',
+      resolution: 'PROVIDER_CONFIRMED_SENT',
+      resolutionEvidenceRef: 'trf_seen_by_a_person',
+    });
+    expect(row.resolvedAt).not.toBeNull();
+    // The disagreement itself is still fully readable.
+    expect(row.kind).toBe('PROVIDER_HAS_NO_RECORD');
+    expect(row.localAmountMinor).toBe(50_000);
+    expect(audited.some((a) => a.action === 'SETTLEMENT_FINDING_RESOLVED')).toBe(true);
+  });
+
+  maybe('refuses a provider claim that cites nothing', async () => {
+    const { attempt, local } = await unknownAttempt();
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    const [open] = await findingsFor(attempt.id);
+
+    const out = await service.resolveFinding(operator, open.id, {
+      resolution: 'PROVIDER_CONFIRMED_SENT',
+      note: 'I am fairly sure this one went through.',
+    });
+    expect(out.resolved).toBe(false);
+    // Still open: a refused disposition must not half-close anything.
+    expect((await findingsFor(attempt.id))[0].status).toBe('OPEN');
+  });
+
+  maybe('resolving MOVES NO MONEY, whatever the disposition says', async () => {
+    /*
+      THE BOUNDARY THAT MATTERS. "An authorized person dispositioned this exception" is not
+      "change the ledger until it looks correct". Even PROVIDER_CONFIRMED_SENT - the disposition
+      that asserts the organizer has the money - leaves every money column exactly as it was.
+    */
+    const { settlement, attempt, local } = await unknownAttempt();
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    const [open] = await findingsFor(attempt.id);
+
+    const sBefore = await db!.settlement.findUnique({ where: { id: settlement.id } });
+    const aBefore = await db!.settlementTransferAttempt.findUnique({ where: { id: attempt.id } });
+
+    await service.resolveFinding(operator, open.id, {
+      resolution: 'PROVIDER_CONFIRMED_SENT',
+      note: 'Dashboard shows the payout against this linked account.',
+      evidenceRef: 'trf_x',
+    });
+
+    const sAfter = await db!.settlement.findUnique({ where: { id: settlement.id } });
+    const aAfter = await db!.settlementTransferAttempt.findUnique({ where: { id: attempt.id } });
+    expect(sAfter.releasedMinor).toBe(sBefore.releasedMinor);
+    expect(sAfter.transferredMinor).toBe(sBefore.transferredMinor);
+    expect(sAfter.payableMinor).toBe(sBefore.payableMinor);
+    expect(sAfter.status).toBe(sBefore.status);
+    // The attempt is evidence too: a disposition does not promote UNKNOWN to anything.
+    expect(aAfter).toEqual(aBefore);
+  });
+
+  maybe('cannot be resolved twice, so two operators do not overwrite each other', async () => {
+    const { attempt, local } = await unknownAttempt();
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    const [open] = await findingsFor(attempt.id);
+
+    const first = await service.resolveFinding(operator, open.id, {
+      resolution: 'CANNOT_ESTABLISH',
+      note: 'No record either way after fourteen days of chasing.',
+    });
+    const second = await service.resolveFinding({ id: 'ops-2' }, open.id, {
+      resolution: 'SETTLED_OUTSIDE_PLATFORM',
+      note: 'Paid by bank transfer, see ticket 44.',
+    });
+    expect(first.resolved).toBe(true);
+    expect(second.resolved).toBe(false);
+
+    const [row] = await findingsFor(attempt.id);
+    expect(row.resolvedByUserId).toBe('ops-1');
+    expect(row.resolution).toBe('CANNOT_ESTABLISH');
+  });
+
+  // ── the single source of truth for "somebody must look" ──────────────────────
+
+  maybe('counts OPEN findings, and stops counting once resolved', async () => {
+    /*
+      This replaces `reconciliationMismatch`, which was hardcoded false and could never be
+      anything else. One durable record now answers "does this need attention", and a resolved
+      finding stops answering yes while its row stays as evidence.
+    */
+    const { settlement, attempt, local } = await unknownAttempt();
+    expect((await service.openFindingCounts([settlement.id])).get(settlement.id)).toBeUndefined();
+
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    expect((await service.openFindingCounts([settlement.id])).get(settlement.id)).toBe(1);
+
+    // Seen again is still ONE problem, not two.
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    expect((await service.openFindingCounts([settlement.id])).get(settlement.id)).toBe(1);
+
+    const [open] = await findingsFor(attempt.id);
+    await service.resolveFinding(operator, open.id, {
+      resolution: 'CANNOT_ESTABLISH',
+      note: 'No record either way after fourteen days of chasing.',
+    });
+    expect((await service.openFindingCounts([settlement.id])).get(settlement.id)).toBeUndefined();
+    // The evidence survives the queue.
+    expect(
+      await db!.settlementReconciliationFinding.count({ where: { settlementId: settlement.id } }),
+    ).toBe(1);
+  });
+
+  maybe('a NEW contradiction after a resolution opens its own finding', async () => {
+    // Resolving one question does not silence a different one discovered later.
+    const { settlement, attempt, local } = await unknownAttempt();
+    await service.reconcileOne(local, reader({ disposition: 'NOT_FOUND' }));
+    const [open] = await findingsFor(attempt.id);
+    await service.resolveFinding(operator, open.id, {
+      resolution: 'CANNOT_ESTABLISH',
+      note: 'No record either way after fourteen days of chasing.',
+    });
+
+    await service.reconcileOne(local, reader({ amountMinor: 49_000 }));
+
+    expect((await service.openFindingCounts([settlement.id])).get(settlement.id)).toBe(1);
+    const kinds = (await findingsFor(attempt.id))
+      .map((f: { kind: string; status: string }) => `${f.kind}:${f.status}`)
+      .sort();
+    expect(kinds).toEqual(['AMOUNT_DISAGREES:OPEN', 'PROVIDER_HAS_NO_RECORD:RESOLVED']);
+  });
+
+  maybe('a recheck observes and records, and cannot ask anybody anything yet', async () => {
+    /*
+      The operator-triggered path. No adapter implements a status query, so the honest result is
+      CANNOT_BE_ASKED - recorded as a finding rather than dressed up as a look.
+    */
+    const { attempt } = await unknownAttempt();
+    const out = await service.recheckAttempt(attempt.id);
+    expect(out.checked).toBe(true);
+    expect(out.checked === true && out.outcome).toMatchObject({
+      kind: 'FINDING',
+      finding: 'CANNOT_BE_ASKED',
+    });
+    expect((await findingsFor(attempt.id))[0].kind).toBe('CANNOT_BE_ASKED');
+  });
+
+  maybe('a recheck of nothing is a refusal, not a crash', async () => {
+    const out = await service.recheckAttempt('att_does_not_exist');
+    expect(out.checked).toBe(false);
   });
 
   maybe('finds unresolved attempts oldest first, and bounds the page', async () => {

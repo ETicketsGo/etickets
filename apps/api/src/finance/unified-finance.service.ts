@@ -144,6 +144,17 @@ export class UnifiedFinanceService {
     });
   }
 
+  /** OPEN reconciliation findings per settlement. Empty in, empty out - no query for no rows. */
+  private async openFindingCounts(settlementIds: string[]): Promise<Map<string, number>> {
+    if (settlementIds.length === 0) return new Map();
+    const rows = await this.prisma.settlementReconciliationFinding.groupBy({
+      by: ['settlementId'],
+      where: { settlementId: { in: settlementIds }, status: 'OPEN' },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.settlementId, r._count._all]));
+  }
+
   /** Settlements and their reconciliation evidence, scoped to the asserted organization. */
   private async providerEntries(organizationId: string, eventId?: string) {
     const settlements = await this.prisma.settlement.findMany({
@@ -194,6 +205,14 @@ export class UnifiedFinanceService {
       orderBy: { createdAt: 'asc' },
     });
 
+    /*
+      One grouped query for every settlement in the page, rather than a relation load per row.
+      This is what `reconciliationMismatch` was reaching for and could never express: whether a
+      reconciliation problem is CURRENTLY open, derived from the durable finding rather than
+      stored a second time where it could go stale.
+    */
+    const openBySettlement = await this.openFindingCounts(settlements.map((s) => s.id));
+
     return settlements.map((settlement) => {
       const { reversalAttempts, transferAttempts, ...row } = settlement;
       return providerFinanceEntry(row, {
@@ -203,23 +222,7 @@ export class UnifiedFinanceService {
           until the transfer attempt table existed there was no durable evidence of it at all.
         */
         unresolvedCount: reversalAttempts.length + transferAttempts.length,
-        /*
-          ── STILL FALSE, AND DELIBERATELY ─────────────────────────────────────────────
-          `reconcileTransferEvidence` classifies a mismatch in flight. The only durable trace it
-          leaves is an `AuditLog` entry (SETTLEMENT_EVIDENCE_MISMATCH), which is an append-only
-          record of something that HAPPENED, not a queryable record of something that is still
-          TRUE. Deriving "currently mismatched" from it would be permanently true from the first
-          occurrence onwards, because an audit entry is never retracted.
-
-          The correct shape is a finding with an open/resolved lifecycle. Who may resolve one and
-          what resolution means are product decisions, so the model is proposed rather than
-          guessed at - see docs/guides/PROVIDER-EXECUTION-AND-RECONCILIATION.md.
-
-          What this field was reaching for is now largely served by evidence that IS durable and
-          IS queryable: unresolved attempts in BOTH directions, counted above. A boolean here
-          would add staleness without adding information.
-        */
-        reconciliationMismatch: false,
+        openFindingCount: openBySettlement.get(settlement.id) ?? 0,
       });
     });
   }

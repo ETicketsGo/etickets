@@ -589,6 +589,78 @@ describe('integration-real-postgres: Unified Finance read path', () => {
     expect(g.warnings.map((w) => w.code)).toContain('NEEDS_RECONCILIATION');
   }, 60_000);
 
+  it('an OPEN reconciliation finding is a reason to call somebody', async () => {
+    if (!guard()) return;
+    /*
+      THE REPLACEMENT FOR `reconciliationMismatch`. That was hardcoded false and could never be
+      anything else, so one of the three triggers for "somebody must look" was permanently dead.
+      The durable finding is now the single source of truth, and this proves the Finance reader
+      actually consults it.
+    */
+    const org = await makeOrg('open-finding');
+    const ev = await makeEvent(org, 'of');
+    const sid = await makeSettlement(org, ev, {
+      status: 'TRANSFERRED',
+      grossSalesMinor: 52_000,
+      releasedMinor: 52_000,
+      transferredMinor: 52_000,
+    });
+    const attempt = await db!.settlementTransferAttempt.create({
+      data: {
+        settlementId: sid,
+        requestedMinor: 52_000,
+        currency: 'inr',
+        provider: 'razorpay',
+        idempotencyKey: `uf-find-${sid}`,
+        status: 'SUCCEEDED',
+        providerTransferId: 'trf_ok',
+      },
+    });
+
+    // Nothing wrong yet: a settled transfer with no finding is simply PAID.
+    const before = only(await finance.forOrganization(admin, org));
+    expect(before.entries[0].entry.state).toBe('PAID');
+
+    const finding = await db!.settlementReconciliationFinding.create({
+      data: {
+        settlementId: sid,
+        organizationId: org,
+        transferAttemptId: attempt.id,
+        kind: 'PROVIDER_CONTRADICTS_LOCAL',
+        localStatus: 'SUCCEEDED',
+        localAmountMinor: 52_000,
+        localCurrency: 'inr',
+        providerDisposition: 'FAILED',
+        detail: 'We recorded this as sent; the provider says it did not send it.',
+      },
+    });
+
+    const during = only(await finance.forOrganization(admin, org));
+    expect(during.entries[0].entry.state).toBe('ATTENTION_REQUIRED');
+    // Ambiguity is reported, never netted off the money.
+    expect(during.entries[0].entry.money.organizerNetMinor).toBe(52_000);
+    expect(during.summary.attentionMinor).toBe(52_000);
+    expect(during.summary.paidMinor).toBe(0);
+
+    // Resolved: the exception is dispositioned, so it stops demanding attention.
+    await db!.settlementReconciliationFinding.update({
+      where: { id: finding.id },
+      data: {
+        status: 'RESOLVED',
+        resolvedAt: new Date(),
+        resolvedByUserId: 'ops-1',
+        resolution: 'CANNOT_ESTABLISH',
+        resolutionNote: 'No record either way after fourteen days of chasing.',
+      },
+    });
+
+    const after = only(await finance.forOrganization(admin, org));
+    expect(after.entries[0].entry.state).toBe('PAID');
+    expect(after.summary.paidMinor).toBe(52_000);
+    // And the money was never touched by any of it.
+    expect(after.entries[0].entry.money.organizerNetMinor).toBe(52_000);
+  }, 60_000);
+
   it('a SUCCEEDED transfer attempt is not a reason to call anybody', async () => {
     if (!guard()) return;
     // The ordinary case must stay quiet, or the flag means nothing.
