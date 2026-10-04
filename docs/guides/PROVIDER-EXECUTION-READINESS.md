@@ -3,9 +3,14 @@
 > **The question:** if Razorpay Route is enabled later, can ETicketsGo execute and reconcile
 > provider movement without guessing about money?
 >
-> **The answer today:** it can represent what it knows, say when it does not know, and refuse to
-> act on uncertainty. It cannot yet **resolve** that uncertainty by itself, because it has no way
-> to ask a provider what happened to a transfer.
+> **The answer today:** every part of that sentence that is ETicketsGo's to build now exists. The
+> transfer contract reports uncertainty instead of inferring it, a durable attempt records every
+> request, a disagreement is a row with a lifecycle rather than a log line, reconciliation
+> classifies evidence without being able to move money, and an operator has one place to find
+> money nobody can account for.
+>
+> What remains is not architecture. It is two sentences from Razorpay - see
+> [RAZORPAY-SANDBOX-HANDOFF.md](./RAZORPAY-SANDBOX-HANDOFF.md).
 
 Assessed at `b35a2ff`. Companion to
 [PROVIDER-EXECUTION-AND-RECONCILIATION.md](./PROVIDER-EXECUTION-AND-RECONCILIATION.md), which
@@ -141,15 +146,23 @@ transfer contract is no longer a generation behind the reversal one.
 No path sends money twice. But automatic recovery exists only where idempotency is proven, so for
 Razorpay today the "recovery" is a human.
 
-### F. Reconciliation · **PARTIAL**
+### F. Reconciliation · **PARTIAL - and the remainder is Razorpay's**
 
-Reversals have a real engine (`AGREES` / `CONFIRM` / `MARK_FAILED` / `STILL_UNKNOWN` /
-`OPERATOR_REVIEW`), durable attempts and a reader that cannot move money. Transfers have durable
-evidence but **no provider query**, so an `UNKNOWN` transfer cannot be resolved by asking.
+Both directions now have an engine, durable evidence and a reader that cannot move money.
+Transfers gained `classifyTransferEvidence` (total over every provider disposition), a durable
+`SettlementReconciliationFinding` with a stable identity, and `TransferReconciliationService`,
+which is constructed with Prisma alone and therefore has no means to move money at all.
 
-Disagreement is never silently repaired: only `CONFIRMED` evidence moves money, a detected mismatch
-raises an audit record and notifies admins, and no sweeper writes to the money path.
-`reconciliationMismatch` stays a proposal pending two product answers.
+Disagreement is never silently repaired, and that is now a tested property rather than a
+convention: letting reconciliation "catch the ledger up" on a `SENT` answer fails a real-Postgres
+test asserting every money column is unchanged.
+
+`reconciliationMismatch` is answered: it was option (C), an event, and it now exists as a finding
+with an OPEN/RESOLVED lifecycle. The two product questions are unchanged - who may resolve a money
+disagreement, and whether resolution must cite provider evidence - so the resolution COLUMNS exist
+and nothing writes them.
+
+What is missing is the one thing we cannot build: a provider that can be asked.
 
 ### G. Webhooks · **YES provider-neutrally**
 
@@ -164,15 +177,20 @@ Razorpay-specific semantics (question 5) remain unverified.
 See §3. It cannot move money by construction. No transfer sweeper exists, and none should be built
 before question 4 is answered.
 
-### I. Operator · **PARTIAL**
+### I. Operator · **YES, for finding it**
 
 Visible today: `BLOCKED` with a specific `blockedReason` for both refusal paths; `ATTENTION_REQUIRED`
 in Unified Finance for any settlement with an unresolved attempt in either direction; audit records
 for blocks, mismatches and transfer failures; admin notification on failure and mismatch.
 
-**Missing:** a dedicated operations queue — "money states needing a person", listing `UNKNOWN`
-transfer attempts, blocked settlements and their reasons, oldest first. The read model now exists
-to build it. Recorded as follow-up; no UI was invented here.
+`GET admin/payments/unresolved-money` now answers the question directly: unresolved transfers,
+open findings and blocked payouts, oldest first, with age, on the existing payment-admin
+authorization.
+
+**Deliberately read-only.** No "mark paid", no "force success", no "retry transfer", no "resolve".
+Each of those is a financial decision and `who may declare money correct` has no answer yet.
+
+**Missing:** a UI. The endpoint is the read model; no screen was invented.
 
 ### J. What genuinely needs Razorpay
 
@@ -185,15 +203,16 @@ set/ordering/redelivery, and Route activation with KYC-complete linked accounts.
 
 Each stands alone. None implies another.
 
-| Certification                                            | Status                                                          | Evidence boundary                                                                                                                                                                                                      |
-| -------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UNIFIED FINANCE PRODUCER CERTIFIED — PLATFORM`          | **GRANTED**                                                     | unchanged by this workstream                                                                                                                                                                                           |
-| `UNIFIED FINANCE PRODUCER CERTIFIED — PROVIDER MOVEMENT` | **GRANTED**, with the named `reconciliationMismatch` limitation | writer-driven real PostgreSQL; pre-fix rows report a limitation rather than a figure                                                                                                                                   |
-| `PROVIDER OPERATION MODEL CERTIFIED`                     | **GRANTED**                                                     | ETicketsGo's own model: identity defined, attempts durable, amount drift refused, replay gated by declared capability. Internal evidence only — it does **not** certify that any provider honours the identity we send |
-| `PROVIDER RECONCILIATION MODEL CERTIFIED`                | **NOT GRANTED**                                                 | complete for reversals, absent for transfers — there is no provider query to reconcile a transfer against                                                                                                              |
-| `PROVIDER RECOVERY MODEL CERTIFIED`                      | **NOT GRANTED**                                                 | recovery is automatic only where idempotent replay is declared; elsewhere it is a human. Safe, but not a recovery model                                                                                                |
-| `RAZORPAY EXECUTION READY FOR SANDBOX`                   | **NOT CLAIMED**                                                 | internal prerequisites are **not** satisfied: no transfer status query, and our own adapter sends no idempotency identity. These are not merely sandbox configuration                                                  |
-| `RAZORPAY EXECUTION CERTIFIED`                           | **NOT CLAIMED**                                                 | no external Razorpay execution is authorized, and none occurred                                                                                                                                                        |
+| Certification                                            | Status                                                          | Evidence boundary                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UNIFIED FINANCE PRODUCER CERTIFIED — PLATFORM`          | **GRANTED**                                                     | unchanged by this workstream                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `UNIFIED FINANCE PRODUCER CERTIFIED — PROVIDER MOVEMENT` | **GRANTED**, with the named `reconciliationMismatch` limitation | writer-driven real PostgreSQL; pre-fix rows report a limitation rather than a figure                                                                                                                                                                                                                                                                                                                                                                       |
+| `PROVIDER OPERATION MODEL CERTIFIED`                     | **GRANTED**                                                     | ETicketsGo's own model: identity defined, attempts durable, amount drift refused, replay gated by declared capability. Internal evidence only — it does **not** certify that any provider honours the identity we send                                                                                                                                                                                                                                     |
+| `PROVIDER RECONCILIATION MODEL CERTIFIED`                | **GRANTED for the model, NOT for any provider**                 | the classifier, the durable finding with a stable identity, and the no-silent-repair property are proven against real PostgreSQL. It certifies that ETicketsGo can consume provider evidence safely — **not** that any provider can supply it. No adapter implements `getTransferState`                                                                                                                                                                    |
+| `PROVIDER RECOVERY MODEL CERTIFIED`                      | **NOT GRANTED**                                                 | recovery is automatic only where idempotent replay is declared, and no real provider declares it. Everywhere else recovery is a person. Safe, but a queue is not a recovery model                                                                                                                                                                                                                                                                          |
+| `OPERATOR MONEY-EXCEPTION VISIBILITY READY`              | **GRANTED (backend)**                                           | one authorized, tenant-scoped, read-only endpoint covering unresolved transfers, open findings and blocked payouts, with age. No UI                                                                                                                                                                                                                                                                                                                        |
+| `RAZORPAY EXECUTION READY FOR SANDBOX`                   | **NOT CLAIMED**                                                 | closer, and for a different reason than before. The internal architecture is now built and tested; what blocks it is that our Razorpay adapter sends no idempotency identity and implements no status query, and **neither can be written without Razorpay telling us how**. The blockers are now genuinely provider-side, but they are not mere configuration, so the claim is withheld. See [RAZORPAY-SANDBOX-HANDOFF.md](./RAZORPAY-SANDBOX-HANDOFF.md) |
+| `RAZORPAY EXECUTION CERTIFIED`                           | **NOT CLAIMED**                                                 | no external Razorpay execution is authorized, and none occurred                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 
@@ -204,12 +223,16 @@ In order, and none of it requires moving money:
 1. **Answer question 1.** If Razorpay supports an idempotency identity on transfers, send it and
    flip `supportsIdempotentTransfer`; the replay gate then permits automatic recovery. If it does
    not, the gate is the permanent answer and that should be stated, not worked around.
-2. **Answer question 4 and add `getTransferState` to the contract.** This unblocks resolving an
-   `UNKNOWN` attempt, and only then a transfer sweeper — observation first, by construction.
+2. **~~Add `getTransferState` to the contract~~ - done.** The seam, the classifier, the durable
+   finding and the operator queue are all built and tested. What is still missing is Razorpay's
+   answer, and it is a sharper question than it looked: not _"can you query a transfer"_ but
+   _"can you find one by something WE supplied"_, because the transfers worth asking about are
+   exactly the ones where Razorpay never gave us an id.
 3. ~~Give `TransferResult` the shape `ReversalOutcome` already has~~ - **done**. `TransferOutcome`
    reports `ACCEPTED` / `REFUSED` / `INDETERMINATE`, and the replay gate now reads attempt
    evidence rather than settlement status.
 4. **Get the two product answers** on reconciliation findings (§`reconciliationMismatch`).
-5. **Build the operator queue** on the read model that now exists.
+5. ~~Build the operator queue~~ - **done**. `GET admin/payments/unresolved-money`, read-only.
 
-Steps 2, 3 and 5 are provider-neutral and can be done before Razorpay answers anything.
+Steps 2, 3 and 5 were the provider-neutral ones. All three are done. Step 1 and the second half
+of step 2 are questions for Razorpay; step 4 is a question for the business.
