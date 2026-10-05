@@ -103,6 +103,17 @@ const ADMIN_ROUTES = [
   '/admin/settings',
   '/admin/support',
   '/admin/ops',
+  /*
+    Chargebacks. A new page, so it is listed here rather than inherited - the sweep walks a
+    fixed list, which means a page added without a line here is a page nothing ever scans.
+
+    Worth saying while adding one: this list is also missing /admin/settlements,
+    /admin/finance-reconciliation, /admin/payment-config, /admin/merchant-onboarding,
+    /admin/payment-promotion, /admin/tax-rules, /admin/cinema-pricing and /admin/ai, all of
+    which existed before this change. Not added here, because each one may fail and fixing
+    eight unrelated pages does not belong in the change that noticed them.
+  */
+  '/admin/disputes',
 ];
 
 /**
