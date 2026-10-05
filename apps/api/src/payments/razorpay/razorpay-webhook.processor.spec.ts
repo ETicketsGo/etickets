@@ -284,6 +284,42 @@ describe('RazorpayWebhookProcessor idempotency + dispatch', () => {
     expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
   });
 
+  /*
+    A capture we cannot attribute to a booking.
+
+    `toPaymentEvent` resolves the booking from `payment.notes.bookingId`, then
+    `order.notes.bookingId`, then `order.receipt`. With none of them it returns null - and the
+    only safe thing to do with real money we cannot attribute is to record the event and touch
+    nothing. Confirming a guess would issue somebody else's tickets; throwing would retry to
+    the dead-letter and still never resolve.
+  */
+  it('IGNORES a captured payment that names no booking, rather than guessing one', async () => {
+    const { processor, payments, updates } = makeProcessor({
+      record: rec({
+        payload: { object: { payment: { entity: { id: 'pay_x', amount: 150000, notes: {} } } } },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
+  it('IGNORES a capture whose amount is not a number', async () => {
+    // Razorpay types some money fields as number | string; a string here must not be confirmed.
+    const { processor, payments, updates } = makeProcessor({
+      record: rec({
+        payload: {
+          object: {
+            payment: { entity: { id: 'pay_y', amount: '150000', notes: { bookingId: 'b1' } } },
+          },
+        },
+      }),
+    });
+    await processor.process('w1');
+    expect(payments.processVerifiedEvent).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ processingStatus: 'IGNORED' });
+  });
+
   it('dead-letters after MAX_ATTEMPTS', async () => {
     const { processor, payments, updates } = makeProcessor({ record: rec({ attempts: 6 }) });
     payments.processVerifiedEvent.mockRejectedValueOnce(new Error('boom'));
