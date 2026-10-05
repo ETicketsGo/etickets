@@ -118,6 +118,19 @@ export class RazorpayWebhookProcessor {
           errorMessage: null,
         },
       });
+      /*
+        The counterpart to the order line: proof that a signed delivery was authenticated AND
+        what we decided to do about it.
+
+        Only failures were logged here, so a webhook that arrived, verified and processed
+        correctly left no trace outside the database - and `IGNORED` (the safe outcome for an
+        event we do not act on) was indistinguishable in a log from one that never arrived.
+        For the first live transaction those are the two cases you most need to tell apart.
+      */
+      this.logger.log(
+        `razorpay webhook ${result} event=${record.eventType} ` +
+          `providerEventId=${record.providerEventId} webhookEvent=${record.id}`,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const dead = record.attempts >= MAX_ATTEMPTS;
