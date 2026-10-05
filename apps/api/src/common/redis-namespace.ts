@@ -28,6 +28,18 @@ export function opsKeyPrefix(appEnv: string | undefined): string {
 }
 
 /**
+ * Namespace for rate-limit counters.
+ *
+ * Its own root, not a sub-key of `ops`: these keys are high-churn and short-lived, and mixing
+ * them in with durable operational flags makes both harder to reason about when somebody is
+ * looking at a Redis keyspace during an incident. Per-environment for the usual reason - QA,
+ * UAT and production must not be able to spend each other's login budget.
+ */
+export function throttleKeyPrefix(appEnv: string | undefined): string {
+  return `${redisEnvRoot(appEnv)}:throttle`;
+}
+
+/**
  * BullMQ connection options parsed from a `REDIS_URL`.
  *
  * BullMQ needs a plain options object rather than a shared `ioredis` instance (passing an

@@ -571,6 +571,15 @@ const envSchema = z.object({
   OTP_SMS_TEMPLATE: z.string().optional(),
 
   // --- SMS (recipient = payload.phone) ---
+  /*
+    Where rate-limit counters live. `memory` is what this platform has always done and stays
+    the default, so a deploy cannot change a security control - only a decision can.
+
+    `redis` shares the counters between replicas and keeps them across a restart. See
+    src/common/redis-throttler.storage.ts for what it costs when Redis is away.
+  */
+  THROTTLE_STORAGE: z.enum(['memory', 'redis']).default('memory'),
+
   SMS_PROVIDER: z.enum(['log', 'twilio', 'msg91']).default('log'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
