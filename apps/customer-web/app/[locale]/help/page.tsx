@@ -25,7 +25,18 @@ const FAQ_SECTIONS: { heading: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'What payment methods are accepted?',
-        a: 'This demo uses a mock payment step, so no money is charged. The live site takes cards and popular wallets.',
+        /*
+          This used to read "This demo uses a mock payment step, so no money is charged."
+          The same sentence was taken off the landing page a while ago because it is stale
+          and untrue - production refuses to start on the simulated gateway at all - and
+          this copy of it was missed. On a live site it tells somebody no money is charged
+          while their card is charged, which is the worst thing a help page can say.
+
+          The replacement names no method on purpose. Which ones work is a property of the
+          payment account for that country, not of this page, and a help page that promises
+          UPI to somebody whose account does not have it enabled is wrong again in a new way.
+        */
+        a: 'You will see the methods available in your country at the payment step. The amount shown there is the full amount, including fees.',
       },
       {
         q: 'My payment failed. What now?',

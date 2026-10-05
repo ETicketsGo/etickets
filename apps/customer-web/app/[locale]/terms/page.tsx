@@ -5,7 +5,7 @@ import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
   title: 'Terms & Conditions',
-  description: 'The terms governing use of the ETicketsGo platform (draft pending legal review).',
+  description: 'The terms governing use of the ETicketsGo platform (not yet reviewed by a lawyer).',
   alternates: { canonical: '/terms' },
   robots: { index: false, follow: true },
 };
@@ -21,8 +21,9 @@ export default function TermsPage() {
       <Section>
         <Container className="max-w-3xl space-y-8">
           <NoticeBanner>
-            This is a <strong>draft for demonstration</strong> and is not yet legally binding. It
-            must be reviewed and finalized by qualified legal counsel before publication.
+            These terms have <strong>not been reviewed by a lawyer</strong> yet, and they are not
+            legally binding. Qualified legal counsel must review and finalise them before they are
+            published as the terms of use.
           </NoticeBanner>
           <Prose>
             <p>
