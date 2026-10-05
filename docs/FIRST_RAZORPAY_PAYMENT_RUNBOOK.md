@@ -10,24 +10,24 @@ read off the code.
 
 ## 1. The path a payment takes
 
-| #   | Step                                   | Where                                                              | Evidence it happened                                                                                                           |
-| --- | -------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Buyer prices a basket                  | `POST /api/bookings/quote` → `PricingService.quote`                | HTTP 200 with `fees.totalMinor`                                                                                                |
-| 2   | Booking created, `PENDING_PAYMENT`     | `BookingsService`                                                  | `Booking.status`, no `reference` yet                                                                                           |
-| 3   | Razorpay order created                 | `RazorpayOrderService.createOrder` → `payload()`                   | `razorpay order ready order=… booking=… amountMinor=… currency=INR` **(added by PR #215; absent before it merges)**            |
-| 4   | Browser hands off to Razorpay Checkout | client, with `keyId` + `orderId`                                   | `PaymentAttempt` row, `Payment.status`                                                                                         |
-| 5   | Buyer pays                             | Razorpay                                                           | Razorpay dashboard payment id `pay_…`                                                                                          |
-| 6   | Razorpay posts the webhook             | `POST /api/payments/webhooks/razorpay`                             | `[Request] {"path":"/api/payments/webhooks/razorpay","status":200,…,"correlationId":…}`                                        |
-| 7   | Signature verified                     | `RazorpayPaymentProvider.verifySignedEnvelope`                     | a 200 at all; a bad signature is `400 PAYMENT_WEBHOOK_INVALID`                                                                 |
-| 8   | Event stored, deduped                  | `RazorpayWebhookService.ingest`                                    | `WebhookEvent` row, `processingStatus=RECEIVED`                                                                                |
-| 9   | Event dispatched                       | `RazorpayWebhookProcessor.process` → `dispatch`                    | `razorpay webhook processed event=payment.captured providerEventId=…` **(PR #215)**; `WebhookEvent.processingStatus=PROCESSED` |
-| 10  | Amount checked against the booking     | `PaymentsService.confirm`                                          | refuses with `PAYMENT_WEBHOOK_INVALID` + an audit row `PAYMENT_AMOUNT_MISMATCH`                                                |
-| 11  | Booking → `CONFIRMED`, atomically      | `prisma.$transaction` in `confirm`                                 | `Booking.status=CONFIRMED`, `confirmedAt` set                                                                                  |
-| 12  | Public reference assigned              | `BookingReferenceService.assign`                                   | `Booking.reference` = `ETG-IN-2026-…`                                                                                          |
-| 13  | Receipt issued, same transaction       | `ReceiptsService.issueForBooking`                                  | `Receipt` row                                                                                                                  |
-| 14  | Inventory settled, tickets minted      | experience strategy → `tx.ticket.create`                           | `Ticket` rows with `serial` + `nonce`, `status=ACTIVE`                                                                         |
-| 15  | Confirmation notification queued       | `NotificationService.sendCritical` **inside the tx**               | `Notification` row, `type=BOOKING_CONFIRMED`                                                                                   |
-| 16  | Settlement accrued                     | `settlements.onPaymentSucceeded(eventId)` **after commit, `void`** | `Settlement` ledger movement                                                                                                   |
+| #   | Step                                   | Where                                                              | Evidence it happened                                                                                                                        |
+| --- | -------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Buyer prices a basket                  | `POST /api/bookings/quote` → `PricingService.quote`                | HTTP 200 with `fees.totalMinor`                                                                                                             |
+| 2   | Booking created, `PENDING_PAYMENT`     | `BookingsService`                                                  | `Booking.status`, no `reference` yet                                                                                                        |
+| 3   | Razorpay order created                 | `RazorpayOrderService.createOrder` → `payload()`                   | `razorpay order ready order=… booking=… amountMinor=… currency=INR` **(on `main` since #215)**                                              |
+| 4   | Browser hands off to Razorpay Checkout | client, with `keyId` + `orderId`                                   | `PaymentAttempt` row, `Payment.status`                                                                                                      |
+| 5   | Buyer pays                             | Razorpay                                                           | Razorpay dashboard payment id `pay_…`                                                                                                       |
+| 6   | Razorpay posts the webhook             | `POST /api/payments/webhooks/razorpay`                             | `[Request] {"path":"/api/payments/webhooks/razorpay","status":200,…,"correlationId":…}`                                                     |
+| 7   | Signature verified                     | `RazorpayPaymentProvider.verifySignedEnvelope`                     | a 200 at all; a bad signature is `400 PAYMENT_WEBHOOK_INVALID`                                                                              |
+| 8   | Event stored, deduped                  | `RazorpayWebhookService.ingest`                                    | `WebhookEvent` row, `processingStatus=RECEIVED`                                                                                             |
+| 9   | Event dispatched                       | `RazorpayWebhookProcessor.process` → `dispatch`                    | `razorpay webhook processed event=payment.captured providerEventId=…` **(on `main` since #215)**; `WebhookEvent.processingStatus=PROCESSED` |
+| 10  | Amount checked against the booking     | `PaymentsService.confirm`                                          | refuses with `PAYMENT_WEBHOOK_INVALID` + an audit row `PAYMENT_AMOUNT_MISMATCH`                                                             |
+| 11  | Booking → `CONFIRMED`, atomically      | `prisma.$transaction` in `confirm`                                 | `Booking.status=CONFIRMED`, `confirmedAt` set                                                                                               |
+| 12  | Public reference assigned              | `BookingReferenceService.assign`                                   | `Booking.reference` = `ETG-IN-2026-…`                                                                                                       |
+| 13  | Receipt issued, same transaction       | `ReceiptsService.issueForBooking`                                  | `Receipt` row                                                                                                                               |
+| 14  | Inventory settled, tickets minted      | experience strategy → `tx.ticket.create`                           | `Ticket` rows with `serial` + `nonce`, `status=ACTIVE`                                                                                      |
+| 15  | Confirmation notification queued       | `NotificationService.sendCritical` **inside the tx**               | `Notification` row, `type=BOOKING_CONFIRMED`                                                                                                |
+| 16  | Settlement accrued                     | `settlements.onPaymentSucceeded(eventId)` **after commit, `void`** | `Settlement` ledger movement                                                                                                                |
 
 ### Idempotency boundaries, and why they are where they are
 
@@ -105,13 +105,13 @@ Have these ready before the buyer starts. Substitute the ids as they appear.
 (`order_…`) from the payment payload.
 
 ```bash
-# 1. The order was created (needs PR #215 deployed; otherwise rely on the Payment row)
+# 1. The order was created (merged in #215; present once the API is deployed)
 railway logs --service api --environment PROD | grep "razorpay order ready"
 
 # 2. The webhook arrived and authenticated (a 200 at all means the signature passed)
 railway logs --service api --environment PROD | grep "payments/webhooks/razorpay"
 
-# 3. What we decided to do with it (needs PR #215)
+# 3. What we decided to do with it
 railway logs --service api --environment PROD | grep "razorpay webhook"
 ```
 
@@ -129,9 +129,10 @@ Then confirm state, which is authoritative whatever the logs say:
 
 ### What is NOT observable
 
-- **Before PR #215 merges there is no positive log line** for order creation or successful
-  webhook processing. `IGNORED` and "never arrived" look identical in the log, which is the
-  gap that PR exists to close.
+- **These two log lines are merged but not yet DEPLOYED.** Until production runs a build that
+  includes them, there is no positive log line for order creation or successful webhook
+  processing, and `IGNORED` is indistinguishable from "never arrived". Until then, the database
+  state below is the only evidence.
 - There is no single correlation id spanning Razorpay → booking → ticket → notification →
   finance. The join key is the **booking id**, present on every row above; the Razorpay payment
   id reaches us as `Payment.providerRef` and in `PaymentAttempt.rawEvent`.

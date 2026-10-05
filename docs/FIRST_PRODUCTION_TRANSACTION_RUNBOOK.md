@@ -22,7 +22,7 @@ Do not start if any line is not PASS. The point of a gate is that it is allowed 
 | 6   | **Notification deliverable**              | Email via SES configured. **SMS/WhatsApp/push are not**                                                                                                      | **PARTIAL** — email only; see the DLT inventory            |
 | 7   | **GST decision**                          | Activate or deliberately defer. Deferring is a decision, not an omission                                                                                     | **OPEN** — Q1 and Q10 in `INDIA_GST_BUSINESS_DECISIONS.md` |
 | 8   | **Business/legal blockers**               | The MUST-HAVE table in `PRODUCTION_BUSINESS_DETAILS_CHECKLIST.md`                                                                                            | **FAIL** — 7 items                                         |
-| 9   | **Monitoring available**                  | The log greps in the payment runbook return something                                                                                                        | **PARTIAL** — needs PR #215 for positive lines             |
+| 9   | **Monitoring available**                  | The log greps in the payment runbook return something                                                                                                        | **PARTIAL** — #215 merged; needs a deploy to take effect   |
 | 10  | **Finance/Payout safety understood**      | `PAYOUT_EXECUTION_ENABLED` off, `SETTLEMENT_REVERSAL_RECONCILE_ENABLED` unset, Route off                                                                     | **PASS**                                                   |
 
 **Also decide before starting:** which event, which show, which seat, and the exact amount you
@@ -45,7 +45,7 @@ No step may be inferred. If you cannot see the evidence, stop at that step.
 | 3   | **Capture the quote**                | `POST /bookings/quote` response saved verbatim — subtotal, booking fee, payment fee, tax, total                                  |
 | 4   | **Record the expected amount**       | Written down, from §3, before paying                                                                                             |
 | 5   | Begin checkout                       | `Booking.status=PENDING_PAYMENT`; no `reference` yet                                                                             |
-| 6   | Razorpay Checkout opens              | `razorpay order ready order=… booking=…` (PR #215); order id noted                                                               |
+| 6   | Razorpay Checkout opens              | `razorpay order ready order=… booking=…` (once deployed); order id noted                                                         |
 | 7   | Pay with a real method               | Razorpay dashboard shows `pay_…` captured; **amount equals step 4**                                                              |
 | 8   | **Capture the provider payment id**  | `pay_…` written down                                                                                                             |
 | 9   | Webhook observed                     | `WebhookEvent` row, `processingStatus=PROCESSED`                                                                                 |

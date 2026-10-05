@@ -21,7 +21,7 @@ is a configuration change or a business decision rather than another investigati
 | **GST**                    | Engine complete; shipped rate table now tested (13 tests) + order totals measured (6 tests) | Rules ship **inactive**; production charges `tax 0`   | —                                                       | **12 questions, 2 of them about money**     | **No — and it changes prices**                        |
 | **Business details**       | One guarded source; renders only what is published                                          | 9 fields, **all null**                                | —                                                       | All of them                                 | **No**                                                |
 | **Legal**                  | 4 pages exist                                                                               | All four declare themselves drafts                    | —                                                       | Counsel                                     | **No**                                                |
-| **Transaction monitoring** | Two log lines added (PR #215); DB state authoritative                                       | —                                                     | —                                                       | —                                           | **Yes, with #215**                                    |
+| **Transaction monitoring** | Two log lines merged in #215; DB state authoritative                                        | —                                                     | —                                                       | —                                           | **Yes, with #215**                                    |
 | **Refund**                 | Complete; refund counted once; `refund.created` deliberately moves nothing                  | Automation **off and production-forbidden**           | —                                                       | Fee refundability (GST Q9)                  | **Code yes, policy no**                               |
 
 ---
@@ -95,7 +95,7 @@ Demonstrated, not speculative.
    fix: remove `taxRules` from `FeeCalcInput`, or return `taxAddedMinor` and use it. Not changed
    during the freeze; it is shared money code and deserves its own review.
 2. **No single correlation id spans the transaction.** The join key is the booking id, which is
-   present on every row, and PR #215 adds the two missing log lines. Good enough to diagnose a
+   present on every row, and #215 added the two missing log lines. Good enough to diagnose a
    first transaction; not a tracing system, and not worth building one yet.
 3. **`settlements.onPaymentSucceeded` is fire-and-forget** (`void`, after the commit). Finance
    can lag a confirmed booking, and a failure there is invisible. Acceptable for a pilot;
@@ -117,13 +117,13 @@ Demonstrated, not speculative.
 
 ## PRS CREATED
 
-All open. **None merged.** `main` remains `c77a9cd`.
+`main` is `e33daa5`. **#215 is merged**; #216 and this branch are open by instruction.
 
-| PR                                                      | Workstream                            | SHA       | Purpose                                                                                                                               | CI      | Merge recommendation                                                                                                                   |
-| ------------------------------------------------------- | ------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| [#215](https://github.com/ETicketsGo/etickets/pull/215) | G — observability                     | `7c1e201` | Two log lines so a live payment is traceable; order creation and webhook outcome. No behaviour change                                 | pending | **Merge with the production deploy.** It is the difference between diagnosing the first transaction and guessing                       |
-| [#216](https://github.com/ETicketsGo/etickets/pull/216) | F — auth throttling                   | `c1727c0` | Redis-backed rate-limit counters, no new dependency, `THROTTLE_STORAGE=memory` default so deploying changes nothing                   | pending | **Merge when convenient; switch on separately.** Not a launch blocker                                                                  |
-| this branch                                             | A, B, D, E — docs + GST/webhook tests | —         | 6 documents, the GST measurement, the seed-import fix, the unattributable-capture tests, and two corrections to the certification doc | pending | **Merge before the first transaction** — the runbooks are meant to be followed, and the corrected claims are currently wrong on `main` |
+| PR                                                      | Workstream                            | SHA       | Purpose                                                                                                                               | CI        | Merge recommendation                                                                                                                   |
+| ------------------------------------------------------- | ------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| [#215](https://github.com/ETicketsGo/etickets/pull/215) | G — observability                     | `7c1e201` | Two log lines so a live payment is traceable                                                                                          | 5/5 green | **MERGED** into `main` as `e33daa5`; trunk CI green, verified by SHA. Takes effect on the next deploy                                  |
+| [#216](https://github.com/ETicketsGo/etickets/pull/216) | F — auth throttling                   | `c1727c0` | Redis-backed rate-limit counters, no new dependency, `THROTTLE_STORAGE=memory` default so deploying changes nothing                   | pending   | **Merge when convenient; switch on separately.** Not a launch blocker                                                                  |
+| this branch                                             | A, B, D, E — docs + GST/webhook tests | —         | 6 documents, the GST measurement, the seed-import fix, the unattributable-capture tests, and two corrections to the certification doc | pending   | **Merge before the first transaction** — the runbooks are meant to be followed, and the corrected claims are currently wrong on `main` |
 
 ---
 
