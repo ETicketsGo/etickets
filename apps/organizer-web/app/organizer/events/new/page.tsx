@@ -38,7 +38,19 @@ import {
   prepareEventImage,
 } from '@/components/event-image-picker';
 
-const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
+/*
+  Five steps, not six. "Fee handling" used to be the fifth.
+
+  It was one dropdown, with a correct default already selected, standing between an organizer
+  and their first published event - and it asked them to form a policy on fee incidence, a
+  concept of OURS, before they could sell a ticket. Somebody publishing one comedy night does
+  not have an opinion about who absorbs the booking fee, and should not have to invent one.
+
+  The control did not go away. It moved onto Review, where it is visible, already answered,
+  and changeable by the organizer who does care - which is the difference between a default and
+  a decision nobody asked for.
+*/
+const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Review'];
 const FEE_MODES = [
   { value: 'CUSTOMER_PAYS', label: 'Customer pays fees' },
   { value: 'ORGANIZER_PAYS', label: 'Organizer absorbs fees' },
@@ -1035,36 +1047,7 @@ function NewEventWizard() {
           </div>
         )}
 
-        {step === 4 &&
-          (isFree ? (
-            /*
-              There are no fees to hand to anybody, so asking who pays them would be a
-              question with no true answer. The setting is still stored as it was — it simply
-              never applies while the event is free.
-            */
-            <div className="rounded-md border border-border p-4 text-sm">
-              <p className="font-medium">No fees on a free event</p>
-              <p className="mt-1 text-text-muted">
-                Attendees pay nothing, so there is no booking fee, no payment fee and no platform
-                share to divide.
-              </p>
-            </div>
-          ) : (
-            <Select
-              id="feeMode"
-              label="Fee handling"
-              value={feeMode}
-              onChange={(e) => setFeeMode(e.target.value)}
-            >
-              {FEE_MODES.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </Select>
-          ))}
-
-        {step === 5 && (
+        {step === 4 && (
           <div className="space-y-3 text-sm">
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
@@ -1101,10 +1084,30 @@ function NewEventWizard() {
               }
             />
             {!isFree && (
-              <Row
-                label="Fee handling"
-                value={FEE_MODES.find((f) => f.value === feeMode)?.label ?? feeMode}
-              />
+              /*
+                Answered, and changeable. This was a whole step of the wizard; it is now a
+                default an organizer can see and override without having been stopped by it.
+
+                Phrased as what HAPPENS rather than as a mode name: "Customer pays fees" is
+                our vocabulary, and the organizer wants to know what the buyer is charged.
+              */
+              <div className="rounded-md border border-border p-4">
+                <Select
+                  id="feeMode"
+                  label="Who pays the booking fee?"
+                  value={feeMode}
+                  onChange={(e) => setFeeMode(e.target.value)}
+                >
+                  {FEE_MODES.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-2 text-caption text-text-muted">
+                  Most organizers leave this as it is. The buyer sees every fee before they pay.
+                </p>
+              </div>
             )}
             <Row label="Sessions" value={`${sessions.length}`} />
             {/*
