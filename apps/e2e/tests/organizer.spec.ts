@@ -72,10 +72,13 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   // Step 4 — ticket types (defaults are prefilled)
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
-  // Step 5 — fee handling
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  /*
+    Step 5 — review & submit.
 
-  // Step 6 — review & submit
+    There is no longer a "Fee handling" step. It was one dropdown with the right default
+    already selected, standing between an organizer and their first published event; the
+    control now lives on Review, answered and changeable.
+  */
   await expect(page.getByText(title)).toBeVisible();
   await page.getByRole('button', { name: 'Submit for approval' }).click();
 

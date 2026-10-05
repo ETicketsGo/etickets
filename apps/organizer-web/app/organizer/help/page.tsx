@@ -42,7 +42,7 @@ const GETTING_STARTED = [
 const FAQS: { q: string; a: string }[] = [
   {
     q: 'How do I create an event?',
-    a: 'Go to Events → Create event. The wizard walks you through basic details, venue, sessions, ticket types, and fee handling. You can start from a template on the Get started page to pre-fill the wizard.',
+    a: 'Go to Events → Create event. The wizard has five steps: basic details, venue, sessions, ticket types, and a review. You can change anything on the review step before you send it. You can also start from a template on the Get started page, which fills in the wizard for you.',
   },
   {
     q: 'How do ticket types and pricing work?',
