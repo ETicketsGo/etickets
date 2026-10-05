@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import type { OrgPermissions } from '@/lib/org-permissions';
 import { AppShell, RequireAuth, type NavItem } from '@eticketsgo/web-kit';
 import {
   CalendarDays,
@@ -15,6 +16,7 @@ import {
   Building2,
   Rocket,
   LifeBuoy,
+  ScanLine,
   TicketPercent,
   Bell,
   ReceiptText,
@@ -47,7 +49,30 @@ import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/wo
  * seat map for ANY event creates one. Seated events made `Cinema` mean "a seated venue". A
  * durable organization capability is the right long-term answer and is not invented here.
  */
-function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] {
+function navFor({
+  doesFilmBusiness,
+  can,
+}: {
+  doesFilmBusiness: boolean;
+  can: OrgPermissions;
+}): NavItem[] {
+  /*
+    Check-in staff get the gate and nothing else.
+
+    Their whole job is a scanner. The console offered them eighteen sections - Finance,
+    Payouts, Receipts, Refunds, Team, Settings among them - every one of which the API
+    refuses, and asked them to find Check-in inside an events list. A temporary worker on
+    their first shift, at a door with a queue forming, was navigating a finance console.
+
+    This is UX, not authorization: the API refuses those routes whether or not they are
+    listed, and a separate change tightened the one place it did not.
+  */
+  if (!can.financials && !can.ownerActions) {
+    return [
+      { label: 'Gate', href: '/organizer/gate', exact: true, icon: ScanLine },
+      { label: 'Help', href: '/organizer/help', icon: LifeBuoy },
+    ];
+  }
   return [
     { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
     { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
@@ -134,7 +159,7 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
     through the same small store the masthead uses. A nav that waited for a provider below it
     would blank on every navigation.
   */
-  const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness });
+  const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness, can: workspace.can });
   return (
     <AppShell
       brand="Organizer"

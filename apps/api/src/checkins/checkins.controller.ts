@@ -21,6 +21,7 @@ const findBookingsSchema = z.object({
   organizationId: z.string().cuid(),
   q: z.string().trim().min(3).max(80),
 });
+const gateSessionsSchema = z.object({ organizationId: z.string().cuid() });
 const rosterSchema = z.object({
   eventSessionId: z.string().cuid(),
   /** Free text: a seat, a name, a booking reference, part of a serial. */
@@ -50,6 +51,22 @@ export class CheckinsController {
       expectedSessionId: body.expectedSessionId,
       deviceInfo: body.deviceInfo,
     });
+  }
+
+  @Get('sessions')
+  @Roles(
+    Role.ORGANIZER_OWNER,
+    Role.ORGANIZER_MANAGER,
+    Role.CHECKIN_STAFF,
+    Role.ADMIN,
+    Role.SUPER_ADMIN,
+  )
+  @ApiOperation({ summary: 'Shows this organization is running now, for the gate to pick from.' })
+  async gateSessions(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(gateSessionsSchema)) q: { organizationId: string },
+  ) {
+    return this.checkins.gateSessions(user, q.organizationId);
   }
 
   @Get('roster')

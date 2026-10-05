@@ -17,6 +17,18 @@ const listQuerySchema = paginationSchema.extend({
   to: z.coerce.date().optional(),
 });
 
+/**
+ * Who may read somebody else's receipt.
+ *
+ * A receipt is a money document: it names the buyer, their email, every line and the total.
+ * The organization list already restricted itself to these two roles for exactly that reason;
+ * this is the same rule applied to the document and to the ids that lead to it.
+ *
+ * The BUYER is handled separately and before this, because their own receipt is theirs
+ * whatever their organization role is - or whether they have one at all.
+ */
+const RECEIPT_VIEWER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
+
 @ApiTags('receipts')
 @ApiBearerAuth()
 @Controller('receipts')
@@ -42,7 +54,16 @@ export class ReceiptsController {
       select: { userId: true },
     });
     if (booking?.userId && booking.userId === user.id) return document;
-    await this.access.assertMember(user, receipt.organizationId);
+    /*
+      Owners and managers, matching the organization LIST below - which already says why:
+      "Every document names a buyer and an amount, and check-in staff are members too."
+
+      The list was locked and the single document was not, and the gap was reachable by the
+      one role it was written about. A gate worker scans a ticket, which gives them the
+      booking; `listForBooking` gave them the document ids; this gave them the buyer's name,
+      email and what they paid. Each step looked harmless on its own.
+    */
+    await this.access.assertMember(user, receipt.organizationId, RECEIPT_VIEWER_ROLES);
     return document;
   }
 
@@ -70,7 +91,8 @@ export class ReceiptsController {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Booking not found.', HttpStatus.NOT_FOUND);
     }
     if (booking.userId !== user.id) {
-      await this.access.assertMember(user, booking.organizationId);
+      // Same rule as the document itself: these ids are the way to it.
+      await this.access.assertMember(user, booking.organizationId, RECEIPT_VIEWER_ROLES);
     }
     return this.receipts.listForBooking(bookingId);
   }
