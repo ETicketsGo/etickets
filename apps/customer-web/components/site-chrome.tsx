@@ -1,8 +1,8 @@
 'use client';
 
 import { usePathname } from '@/i18n/navigation';
-import { useEffect, useState } from 'react';
-import { backfillSessionHint, isSignedIn } from '@/lib/auth-flag';
+import { useEffect } from 'react';
+import { backfillSessionHint } from '@/lib/auth-flag';
 import { CitySuggestionBar } from '@eticketsgo/web-kit';
 import { Header } from '@/components/header';
 import { FeedbackWidget } from '@/components/feedback-widget';
@@ -17,7 +17,14 @@ import { useTranslations } from 'next-intl';
 // the existing app chrome (header + constrained main + feedback widget). Kept as a
 // pathname switch so no existing app route had to move.
 const MARKETING_EXACT = new Set([
-  '/',
+  /*
+    `/` is deliberately NOT here any more.
+
+    The home page is the ticket shop, so it takes the app chrome everybody else gets: the
+    buyer header with its city context, the city suggestion bar, the bottom navigation on a
+    phone. The organizer pitch moved to `/sell` and keeps the marketing shell below.
+  */
+  '/sell',
   '/features',
   '/pricing',
   '/organizers',
@@ -92,18 +99,16 @@ export function SiteChrome({
 }) {
   const f = useTranslations('common.footer');
   const pathname = usePathname();
-  // The home page (/) is adaptive: signed-in visitors see the app (discovery) there,
-  // so it needs the app chrome; signed-out visitors get the marketing shell. Every
-  // other marketing route always uses the marketing shell. Defaults to signed-out on
-  // the server so crawlers + first paint get the marketing landing.
-  const [authed, setAuthed] = useState(initialSignedIn);
+  // Marketing routes get the marketing shell; everything else - including `/`, which is now
+  // the ticket shop - gets the app chrome. The signed-in flag still drives the header's own
+  // account affordances; it no longer decides which SHELL the home page gets.
   useEffect(() => {
-    setAuthed(isSignedIn());
     // Repairs a session that predates the cookie; only ever writes the true direction.
+    // The shell no longer depends on the answer, but `Header` still reads the same flag.
     backfillSessionHint();
   }, [pathname]);
 
-  const useMarketingShell = isMarketing(pathname) && !(pathname === '/' && authed);
+  const useMarketingShell = isMarketing(pathname);
 
   // No header, no footer, no city bar — just the sheet.
   if (isPrintRoute(pathname)) return <main id="main">{children}</main>;
@@ -129,7 +134,18 @@ export function SiteChrome({
       <CitySuggestionBar />
       {/* Bottom padding on mobile clears the fixed BottomNav (WS2). */}
       {/* 40px top and bottom is a desktop rhythm; a phone gets 24 and keeps the rest. */}
-      <main className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10">
+      {/*
+        `id="main"` is what "Skip to content" jumps to.
+
+        The marketing shell and the print sheet both had it; the app shell did not, so the skip
+        link pointed at nothing on every in-app page and a keyboard user tabbed through the
+        whole header to reach the content. axe reports it as `skip-link`. Found when the home
+        page moved into this shell - the front door is the page where it matters most.
+      */}
+      <main
+        id="main"
+        className="mx-auto w-full max-w-shell flex-1 px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-8 lg:pb-10"
+      >
         {children}
       </main>
       {/*
