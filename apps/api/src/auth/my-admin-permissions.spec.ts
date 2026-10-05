@@ -30,7 +30,10 @@ function makeService(grants: string[]) {
 
 describe('AuthService.myAdminPermissions', () => {
   it('reports the grants an admin actually holds', async () => {
-    const { service } = makeService([AdminPermission.ORGANIZER_REVIEW, AdminPermission.EVENT_REVIEW]);
+    const { service } = makeService([
+      AdminPermission.ORGANIZER_REVIEW,
+      AdminPermission.EVENT_REVIEW,
+    ]);
     const { adminPermissions } = await service.myAdminPermissions('u1', [Role.ADMIN]);
     expect(adminPermissions).toEqual(['EVENT_REVIEW', 'ORGANIZER_REVIEW']);
   });
