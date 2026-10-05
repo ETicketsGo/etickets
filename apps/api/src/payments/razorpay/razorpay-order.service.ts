@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   PaymentAttemptStatus,
@@ -53,6 +53,17 @@ export interface RazorpayCheckoutPayload {
  */
 @Injectable()
 export class RazorpayOrderService {
+  /*
+    The only positive record that an order was created.
+
+    Before this, the order service logged nothing at all and the webhook processor logged only
+    failures - so the evidence that a real payment had been set up existed solely as database
+    rows. Diagnosing a first live transaction meant querying tables and hoping you picked the
+    right ones. One line naming the provider order and the booking it belongs to is what turns
+    that into a search.
+  */
+  private readonly logger = new Logger(RazorpayOrderService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly resolver: PaymentProviderResolver,
@@ -204,6 +215,14 @@ export class RazorpayOrderService {
     const contact = await this.buyerPhone(booking.userId);
     // Never rejects: any failure answers false, and Checkout opens with its default methods.
     const upiEnabled = await this.methods.upiEnabled(keyId, booking.currency);
+    /*
+      Identifiers and money only. No buyer name, email or phone: this line exists to be
+      searched and quoted, and a log line is wherever that log is shipped.
+    */
+    this.logger.log(
+      `razorpay order ready order=${orderId} booking=${booking.id} ` +
+        `amountMinor=${booking.totalMinor} currency=${booking.currency}`,
+    );
     return {
       providerRef: orderId,
       clientActionUrl: orderId,
