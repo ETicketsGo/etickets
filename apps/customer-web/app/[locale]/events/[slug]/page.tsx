@@ -16,7 +16,14 @@ import {
   Images,
 } from 'lucide-react';
 import { ImageLightbox } from '@/components/image-lightbox';
-import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
+import {
+  RatingStars,
+  apiAssetUrl,
+  useToast,
+  errorMessage,
+  venueAddressLine,
+  venueMapQuery,
+} from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
@@ -722,9 +729,14 @@ export default function EventDetailPage() {
           <div className="order-1 grid gap-6 sm:grid-cols-2 lg:order-none">
             <Card title={sf('event.venueHeading')}>
               <p className="font-medium text-text-primary">{event.venue.name}</p>
+              {/*
+                Composed, not concatenated. The city, state and country are their own columns
+                and `address` is one free-text box, so an organizer who types the whole address
+                into it - which is what the word invites - used to get it printed twice:
+                "Worli, Mumbai, MH, Mumbai, India". See `venueAddressLine`.
+              */}
               <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {event.venue.address ? `${event.venue.address}, ` : ''}
-                {event.venue.city}, {event.venue.country}
+                {venueAddressLine(event.venue)}
               </p>
               {/*
                 A real link where an empty box used to be.
@@ -741,7 +753,7 @@ export default function EventDetailPage() {
               */}
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  `${event.venue.name}, ${event.venue.address ?? ''} ${event.venue.city} ${event.venue.country}`,
+                  venueMapQuery(event.venue),
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"

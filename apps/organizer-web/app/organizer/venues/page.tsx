@@ -355,9 +355,19 @@ export default function VenuesPage() {
             onChange={setWhere}
             countryHint="Sets the currency you sell in and the tax rules that apply."
           />
+          {/*
+            "Street address", not "Address".
+
+            Labelled "Address", this box invites the whole address - and the city, state and
+            country are asked separately just above it, so a listing came out reading
+            "Worli, Mumbai, MH, Mumbai, India". The page that prints it now tolerates the
+            repeat, because venues already entered cannot be relabelled; this stops new ones
+            being typed that way.
+          */}
           <Input
             id="venueAddress"
-            label="Address (optional)"
+            label="Street address (optional)"
+            hint="Just the street and area. The city, state and country are set above."
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
