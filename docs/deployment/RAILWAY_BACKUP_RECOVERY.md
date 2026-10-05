@@ -234,3 +234,109 @@ Stated plainly so no one mistakes documentation for evidence:
 
 Each is a repository-owner action requiring Railway access. Until they are closed, DR
 readiness for production is **documented, not demonstrated**.
+
+---
+
+## 11. Incident, 2026-10-04: five days with no backup, every night green
+
+Found at a pre-deploy gate, by somebody looking for a dump that was not there. It blocked an
+authorized production deployment, which is the best outcome available once it had happened.
+
+### What happened
+
+The nightly `db-seed` cron takes a recovery point only when `SEED_OPERATION` is **unset**, falling
+through to `SEED_DEFAULT_OPERATION=backup`. Around 29-30 September a manual `payment-providers`
+operation left `SEED_OPERATION` set on PROD. An explicit operation outranks the fallback, so from
+30 September every 02:00 run re-asserted payment provider rows and took no backup:
+
+```
+2026-09-28 02:01  seed-operation: backup              backup written, verified   310483 bytes
+2026-09-29 02:01  seed-operation: backup              backup written, verified   313137 bytes
+2026-09-30 02:03  seed-operation: payment-providers   no backup
+2026-10-01 02:03  seed-operation: payment-providers   no backup
+2026-10-02 02:03  seed-operation: payment-providers   no backup
+2026-10-03 02:00  seed-operation: payment-providers   no backup
+2026-10-04 02:02  seed-operation: payment-providers   no backup
+```
+
+Every one of those was a **green scheduled deployment**.
+
+### The actual defect
+
+Not the stale variable - that is only how it happened this time. The defect is that **a schedule
+running the wrong job is indistinguishable from one running the right job**, because both end in
+`SUCCESS`. The only evidence of a backup was a `BACKUP_JSON` line printed by the backup branch, so
+five nights of the wrong operation produced no line at all, and an absence is evidence only to
+somebody already looking for it.
+
+Railway's own API makes this worse in two ways worth knowing: `describe-environment` reports
+`cronSchedule: null` for this service even while the cron runs (it is set in config-as-code, which
+the API does not report), and a `SUCCESS` deployment status says a container was scheduled, never
+that your command ran.
+
+### What changed
+
+1. **An explicit `SEED_OPERATION` now expires.** It is a MANUAL instruction, so it carries
+   `SEED_OPERATION_UNTIL=<ISO timestamp>`, capped an hour ahead, written by
+   `scripts/deploy/run-seed-operation.mjs`. Without a live window the dispatcher **exits
+   non-zero**, which turns a silent green cron into a failed one on the first night instead of
+   the fifth day. This is the same idiom `SEED_ALLOW_DESTRUCTIVE` already used - it had just
+   never been extended to the operation itself, so the destructive flag could not be left
+   behind but the operation could.
+
+2. **Every run prints one machine-readable line**, not just the backup branch:
+
+   ```
+   SEED_EVIDENCE {"requested":"","resolved":"backup","source":"scheduled","appEnv":"PRODUCTION",
+                  "allowed":true,"completed":true,
+                  "backup":{"name":"etg-production-...dump","bytes":313137,"verified":true},
+                  "recoveryPoints":4}
+   ```
+
+   `resolved != "backup"` on a night that should have been a backup is now a grep, not an
+   investigation.
+
+3. **The guard steps aside where better guards exist.** `full-reset` keeps its environment guard
+   and its own expiring authorisation, and an unrecognised operation still gets the dispatcher's
+   own error. An early version of this check ran first and refused a production reset for the
+   _weaker_ reason - a missing window rather than "this is a production database" - which put
+   the strongest guard out of reach. `destructive-seed-refusal.integration-postgres.spec.ts`
+   caught that immediately; it is why that test exists.
+
+Covered by `apps/api/src/ops/scheduled-backup.spec.ts`.
+
+### Steady-state configuration — option B, from the source
+
+```
+SEED_OPERATION          (absent)
+SEED_DEFAULT_OPERATION  backup
+```
+
+**Do not pin `SEED_OPERATION=backup`.** The runner clears the variable after every manual run, so
+a pinned value is by definition left over, and the dispatcher now refuses it. The fallback is
+where the schedule's work is designed to live, and `seed-operation.ts` says so in as many words.
+
+### The rule for anyone deploying
+
+Before a production deploy, prove the backup by **its own evidence line and its timestamp**:
+operation resolved to `backup`, a dump named, a plausible non-zero size, `verified yes`, and the
+artifact present in the listing. A green nightly job, a mounted `/backups` volume and a `SUCCESS`
+deployment each prove nothing.
+
+### Also found: the nightly `payment-providers` run was writing the wrong mode
+
+This is the cause of the "mode drift" that was previously recorded as unexplained.
+
+`db-seed` was deployed at `39e10a0b`, where `payment-providers` classified a provider with
+`modeOf(secret ?? publicKey)`. **A Razorpay secret carries no mode marker - only
+`RAZORPAY_KEY_ID` does** - so a genuine live credential read as `TEST`. Fixed in `d9e2d52`
+(PR #152) to `modeOf(publicKey, secret)`, a fix `db-seed` never received.
+
+So every night at 02:00 the job wrote `mode: TEST` onto the live Razorpay provider row, logging
+`razorpay: enabled, TEST` on PRODUCTION. The API re-derives the mode on boot
+(`bootstrapped razorpay:LIVE`), which hid it most of the time - but on 30 September production
+**refused to boot** with "enabled in PRODUCTION but still in TEST mode". That was this.
+
+It is closed twice over and needed no payment change: `SEED_OPERATION` is cleared, so
+`payment-providers` no longer runs nightly, and `db-seed` now carries the fix. Nightly
+payment-provider re-assertion is **not** to be restored.

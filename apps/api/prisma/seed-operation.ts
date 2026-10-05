@@ -5,6 +5,7 @@ import {
   destructiveAuthorisationVerdict,
 } from './destructive-authorisation';
 import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './backup';
+import { evidenceLine, resolveOperation } from './scheduled-operation';
 /**
  * The single entry point the `db-seed` Railway service runs.
  *
@@ -36,33 +37,43 @@ import { BACKUP_DIR, listBackups, prune, restoreDrill, takeBackup } from './back
  * an interrupted run forgot to clear it (see destructive-authorisation.ts).
  */
 /*
-  Empty means unset. `??` only defaults on null/undefined, so a variable set to an empty
-  string — exactly what clearing the field can leave behind — fell through to the
-  unknown-operation branch and exited 1. The safe default has to cover "set to nothing" as
-  well as "never set", or the failure mode returns the moment someone blanks the value
-  instead of deleting it.
+  WHAT THIS RUN DOES, and whether it is allowed to.
+
+  The resolution used to live here as two `??` expressions. It now lives in
+  `scheduled-operation.ts`, because it needed a rule it could not express: an explicit
+  SEED_OPERATION is a MANUAL invocation and has to expire. Production went five days with no
+  backup because a left-behind `payment-providers` outranked the scheduled fallback every night,
+  and every one of those nights was a green deployment.
+
+  Refusing here exits non-zero, which turns that silent green cron into a failed one on the
+  first night instead of the fifth day.
 */
+const resolved = resolveOperation();
+const operation = resolved.operation;
 
-const requested = (process.env.SEED_OPERATION ?? '').trim().toLowerCase();
-/*
-  What a run with no explicit operation does.
-
-  The scheduled backup needs the service to DO something on a plain deployment, and manual runs
-  clear SEED_OPERATION after themselves — so the fallback is where the cron's work lives.
-  `SEED_DEFAULT_OPERATION` is set to `backup` on the deployed service; anything not set falls
-  through to the read-only census.
-
-  Deliberately cannot select a destructive operation: `full-reset` is rejected here even if
-  somebody sets it, so a schedule can never be turned into a nightly wipe by editing one
-  variable. It would still need SEED_ALLOW_DESTRUCTIVE as well, but a schedule that empties a
-  database should be impossible to configure, not merely awkward.
-*/
-const fallback = (process.env.SEED_DEFAULT_OPERATION ?? '').trim().toLowerCase();
-const DEFAULTABLE = ['status', 'backup', 'backups', 'restore-drill'];
-const operation =
-  requested !== '' ? requested : DEFAULTABLE.includes(fallback) ? fallback : 'status';
+/** Set by the backup branch, so the closing evidence line can name what it produced. */
+let artifact: { name: string; bytes: number; verified: boolean } | null = null;
 
 console.log(`seed-operation: ${operation}`);
+console.log(`  requested        ${resolved.requested || '(unset)'}`);
+console.log(`  source           ${resolved.source} - ${resolved.reason}`);
+
+if (!resolved.allowed) {
+  console.error(`REFUSED: ${resolved.reason}`);
+  console.log(
+    evidenceLine({
+      requested: resolved.requested,
+      resolved: null,
+      source: resolved.source,
+      appEnv: process.env.APP_ENV ?? null,
+      railwayEnv: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+      allowed: false,
+      completed: false,
+      reason: resolved.reason,
+    }),
+  );
+  process.exit(1);
+}
 
 switch (operation) {
   case 'status': {
@@ -94,8 +105,14 @@ switch (operation) {
       Railway's own volume backups need account-level credentials that a project token does
       not have, so this is the only backup the deployment pipeline can actually guarantee.
     */
+    /*
+      `takeBackup` throws if pg_dump fails, writes nothing, or fails to read back - and it
+      deletes an unverified dump rather than keeping it. So reaching the next line IS the
+      verification result, and there is no path where this branch completes without one.
+    */
     const b = takeBackup();
     const pruned = prune();
+    artifact = { name: b.name, bytes: b.bytes, verified: true };
     console.log(`  backup written   ${b.name}`);
     console.log(`  size             ${(b.bytes / 1024 / 1024).toFixed(2)} MB`);
     console.log(`  verified         yes (read back with pg_restore --list)`);
@@ -299,3 +316,26 @@ ABORTING: could not take a recovery point, so nothing has been touched.
     );
     process.exit(1);
 }
+
+/*
+  ONE machine-readable line per run, whatever the run did.
+
+  The old `BACKUP_JSON` was printed only by the backup branch, so five nights of
+  `payment-providers` produced no line at all - and an absence is only evidence to somebody who
+  already knows to look for it. This prints always, names the requested AND the resolved
+  operation, and says whether a verified artifact exists. `resolved != "backup"` on a night that
+  was supposed to be a backup is now a grep, not an investigation.
+*/
+console.log(
+  evidenceLine({
+    requested: resolved.requested,
+    resolved: operation,
+    source: resolved.source,
+    appEnv: process.env.APP_ENV ?? null,
+    railwayEnv: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+    allowed: true,
+    completed: true,
+    backup: artifact,
+    recoveryPoints: operation === 'backup' ? listBackups().length : undefined,
+  }),
+);

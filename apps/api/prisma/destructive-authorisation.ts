@@ -31,7 +31,7 @@ export const MAX_AUTHORISATION_WINDOW_MS = 60 * 60_000;
   a zone-less time (read in the container's local zone) and assorted free text, and an
   authorisation for destroying data is not the place for a parser to guess what was meant.
 */
-const ISO_TIMESTAMP =
+export const ISO_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/i;
 
 export interface AuthorisationVerdict {
