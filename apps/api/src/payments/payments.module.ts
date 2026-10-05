@@ -38,6 +38,7 @@ import { TransferReconciliationService } from './settlement/transfer-reconciliat
 import { TransferObservationWorker } from './settlement/transfer-observation.worker';
 import { TransferReaderRegistry } from './settlement/transfer-reader.registry';
 import { DisputeService } from './dispute/dispute.service';
+import { DisputeController } from './dispute/dispute.controller';
 import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
 import { RazorpayMethodsService } from './razorpay/razorpay-methods.service';
@@ -71,6 +72,7 @@ import { CommerceModule } from '../commerce/commerce.module';
     OrganizerConnectController,
     StripeWebhookController,
     SettlementController,
+    DisputeController,
     RazorpayPaymentController,
     RazorpayWebhookController,
     RazorpayConnectController,

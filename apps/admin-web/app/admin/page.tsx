@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { NeedsYou } from '@/components/needs-you';
 import {
   api,
   MetricCard,
   Card,
   Skeleton,
-  ButtonLink,
   ErrorState,
   EmptyState,
   money,
@@ -15,6 +15,7 @@ import {
   titleCase,
   PageHeader,
   MARKETS,
+  useAuthUser,
   type CurrencyMoney,
 } from '@eticketsgo/web-kit';
 
@@ -34,14 +35,34 @@ function plural(count: number, noun: string): string {
 }
 
 export default function AdminDashboard() {
-  const dash = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: () => api.admin.dashboard() });
+  /*
+    ── THE FIGURES ARE NOT EVERY OPERATOR'S ───────────────────────────────────────────
+    `GET /admin/dashboard`, `/admin/platform-analytics` and `/admin/audit` all require
+    `BOOKING_READ`, and the moderation duty does not grant it. So somebody whose job is
+    reviewing organizers and events signed in and the first thing they saw was "We couldn't
+    load this. Please try again." - a dead end, on the landing page, with a retry button that
+    could never work.
+
+    Three requests were being made on behalf of an account that was never allowed to make
+    them. Asking only when the capability is held fixes the screen and stops the refusals.
+  */
+  const { user } = useAuthUser();
+  const mayReadFigures = (user?.adminPermissions ?? []).includes('BOOKING_READ');
+
+  const dash = useQuery({
+    queryKey: ['admin', 'dashboard'],
+    queryFn: () => api.admin.dashboard(),
+    enabled: mayReadFigures,
+  });
   const analytics = useQuery({
     queryKey: ['admin', 'platform-analytics'],
     queryFn: () => api.admin.platformAnalytics(),
+    enabled: mayReadFigures,
   });
   const audit = useQuery({
     queryKey: ['admin', 'audit', 1],
     queryFn: () => api.admin.audit({ page: 1, pageSize: 8 }),
+    enabled: mayReadFigures,
   });
   /*
     ── ONE MARKET AT A TIME ───────────────────────────────────────────────────────────
@@ -61,7 +82,12 @@ export default function AdminDashboard() {
   const markets = d?.money ?? [];
   const market = markets.find((m) => m.currency === currency) ?? markets[0];
 
-  if (dash.isError)
+  /*
+    An error is only an error for somebody who was allowed to ask. Returning the whole page as
+    "We couldn't load this" also threw away the action centre below it, which is the part a
+    moderator came for and is perfectly able to see.
+  */
+  if (mayReadFigures && dash.isError)
     return (
       <ErrorState
         message="We couldn't load this. Please try again."
@@ -71,7 +97,28 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Platform overview" description="Marketplace health at a glance." />
+      <PageHeader
+        title="Platform overview"
+        /* The page leads with work now, so "health at a glance" described only the half
+           of it below the fold. */
+        description="What needs you, and how the marketplace is doing."
+      />
+
+      {/*
+        The work first, the measurements after. Everything below this answers "how is the
+        platform doing"; this answers "what should I do now", which is the question somebody
+        opening the console at the start of a shift is actually asking.
+      */}
+      <NeedsYou />
+
+      {!mayReadFigures && (
+        <Card title="Platform figures">
+          <p className="text-sm text-text-secondary">
+            Your duties do not include reading platform figures, so the money and booking numbers
+            are not shown. Your queues are above.
+          </p>
+        </Card>
+      )}
 
       {markets.length > 0 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Market">
@@ -94,7 +141,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {dash.isLoading || !d ? (
+      {!mayReadFigures ? null : dash.isLoading || !d ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-24 w-full" />
@@ -232,31 +279,19 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="Pending approvals" className="lg:col-span-1">
-          {d && (
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Organizers awaiting review</span>
-                <span className="font-semibold text-text-primary">{d.pendingOrganizers ?? 0}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-text-secondary">Events under review</span>
-                <span className="font-semibold text-text-primary">{d.pendingEvents ?? 0}</span>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <ButtonLink href="/admin/organizers" variant="outline">
-                  Review organizers
-                </ButtonLink>
-                <ButtonLink href="/admin/events" variant="outline">
-                  Review events
-                </ButtonLink>
-              </div>
-            </div>
-          )}
-        </Card>
+      {/*
+        ── "PENDING APPROVALS" WAS REMOVED, NOT MOVED ─────────────────────────────────────
+        It listed two counts, "Organizers awaiting review" and "Events under review", with a
+        button to each unfiltered list. The action centre at the top of this page now carries
+        both of those numbers, plus what happens if they are left, plus a link that lands on
+        the filtered queue rather than the page containing it.
 
-        <Card title="Recent activity" className="lg:col-span-2">
+        Keeping both meant the same fact twice on one screen, which is not reassurance - it is
+        two things to reconcile, and the moment one of them is counted differently the page
+        contradicts itself. The weaker of the two went.
+      */}
+      <div className={mayReadFigures ? '' : 'hidden'}>
+        <Card title="Recent activity">
           {audit.isLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : audit.isError ? (

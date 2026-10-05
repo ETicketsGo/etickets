@@ -150,6 +150,84 @@ export class DisputeService {
     if (open) await this.notifyAdmins(dispute.id, booking?.organizationId ?? null);
   }
 
+  /**
+   * The dispute queue, oldest deadline first.
+   *
+   * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+   * Until this method, `DisputeService` could only WRITE. The webhook mirrored every
+   * chargeback, stamped `evidenceDueBy` from the provider, blocked the organizer's proceeds
+   * and sent each admin a notification - and then no screen in the platform could list one.
+   *
+   * A notification is an event: it says a dispute was opened. It cannot answer "which
+   * disputes are still waiting on us", and it is read once, by whoever happened to be
+   * looking. `evidenceDueBy` is a real deadline with money behind it: miss it and the
+   * chargeback is lost by default, with nothing to appeal to. So the one thing an operator
+   * must be able to do - see what is due and when - was the one thing missing.
+   *
+   * ── WHY READ-ONLY ──────────────────────────────────────────────────────────────────
+   * Evidence is submitted to the provider, in the provider's dashboard, and the outcome
+   * comes back to us through the webhook that already exists. A "respond" button here would
+   * have to either reimplement the provider's evidence model or pretend to, and a button
+   * that pretends to answer a chargeback is worse than no button. This lists them, names the
+   * deadline, and says where the answer is given.
+   */
+  async listOpen(limit = 50): Promise<{
+    disputes: {
+      id: string;
+      provider: string;
+      providerDisputeId: string;
+      status: DisputeStatus;
+      amountMinor: number;
+      currency: string;
+      reason: string | null;
+      evidenceDueBy: string | null;
+      createdAt: string;
+      bookingId: string | null;
+      organization: { id: string; name: string } | null;
+    }[];
+    /** How much is being disputed, per currency. Never summed across them. */
+    atRisk: { currency: string; totalMinor: number }[];
+  }> {
+    const rows = await this.prisma.dispute.findMany({
+      where: { status: { in: OPEN_STATUSES } },
+      /*
+        A dispute with no deadline sorts last, not first. Postgres puts NULLs first on an
+        ascending sort by default, so the ones with nothing to miss would have pushed the ones
+        with a deadline today off the top of the queue.
+      */
+      orderBy: [{ evidenceDueBy: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+      take: limit,
+      include: { organization: { select: { id: true, name: true } } },
+    });
+
+    const byCurrency = new Map<string, number>();
+    for (const r of rows) {
+      // Providers report a currency in lower case; a screen grouping by it would otherwise
+      // show "inr" and "INR" as two markets.
+      const currency = r.currency.toUpperCase();
+      byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + r.amountMinor);
+    }
+
+    return {
+      disputes: rows.map((r) => ({
+        id: r.id,
+        provider: r.provider,
+        providerDisputeId: r.providerDisputeId,
+        status: r.status as DisputeStatus,
+        amountMinor: r.amountMinor,
+        currency: r.currency.toUpperCase(),
+        reason: r.reason,
+        evidenceDueBy: r.evidenceDueBy ? r.evidenceDueBy.toISOString() : null,
+        createdAt: r.createdAt.toISOString(),
+        bookingId: r.bookingId,
+        organization: r.organization ? { id: r.organization.id, name: r.organization.name } : null,
+      })),
+      atRisk: [...byCurrency.entries()]
+        .map(([currency, totalMinor]) => ({ currency, totalMinor }))
+        .sort((a, b) => b.totalMinor - a.totalMinor || a.currency.localeCompare(b.currency)),
+    };
+  }
+
   private async notifyAdmins(disputeId: string, organizationId: string | null) {
     const admins = await this.prisma.user.findMany({
       where: { roles: { has: 'ADMIN' } },
