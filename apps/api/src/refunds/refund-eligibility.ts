@@ -8,6 +8,22 @@ export interface RefundEligibilityInput {
   refundsEnabled?: boolean;
   /** Cut-off window before the session start, in hours. Comes from the event. */
   policyHours?: number;
+  /**
+   * Whether the SHOW was cancelled, rather than the buyer changing their mind.
+   *
+   * ── WHY THIS OVERRIDES THE ORGANIZER'S OWN RULES ───────────────────────────────
+   * Both rules below exist to protect the organizer from a buyer who waited too long or
+   * bought a non-refundable ticket. Neither is about a show that is not happening.
+   *
+   * Applying them to a cancellation produces the worst answer this module can give: the
+   * organizer calls off the show, and the person who paid is told refunds closed 48 hours
+   * ago, or that this event does not offer them. They are not asking for a favour - they
+   * are owed the money for a thing they will not receive.
+   *
+   * The booking status check still applies. An already-refunded booking is not refunded
+   * twice because the show was then cancelled.
+   */
+  sessionCancelled?: boolean;
 }
 
 export interface RefundEligibility {
@@ -35,6 +51,13 @@ export function checkRefundEligibility(input: RefundEligibilityInput): RefundEli
   if (!refundableStatuses.includes(input.bookingStatus)) {
     return { eligible: false, reason: `Booking status ${input.bookingStatus} is not refundable.` };
   }
+  /*
+    A cancelled show skips the organizer's own two rules, and only those. See
+    `sessionCancelled` above for why: they protect an organizer from a late or ineligible
+    buyer, and neither describes a show that is not happening.
+  */
+  if (input.sessionCancelled) return { eligible: true };
+
   if (input.refundsEnabled === false) {
     return {
       eligible: false,

@@ -192,6 +192,56 @@ export class RefundsService {
    * exactly the state an account refund lands in, in the same organizer queue, and a change to
    * the organizer's cutoff policy cannot apply to one door and not the other.
    */
+  /**
+   * Open a refund because the SHOW was cancelled, not because anybody asked.
+   *
+   * ── WHY THIS IS A THIRD DOOR AND NOT A FOURTH PIPELINE ─────────────────────────────
+   * It is the same {@link createRequest} the account and guest routes use, so a cancellation
+   * refund gets the per-booking advisory lock, the refundable-balance ceiling, the cash
+   * refusal, the transferred-ticket rule, the tax split and the audit row - all of it, without
+   * a second implementation of money that could drift from the first.
+   *
+   * Only two things differ, and both follow from nobody having asked:
+   *
+   *   - `sessionCancelled` lifts the organizer's cut-off and their refunds-off switch. Those
+   *     rules protect an organizer from a late buyer; neither is about a show that is not
+   *     happening. See `refund-eligibility.ts`.
+   *   - The requester is the platform. There is no user to name: the booking may be a guest's,
+   *     and putting the cancelling organizer's id on the buyer's refund would misrecord who
+   *     asked. `staff: true` is what that means here - the platform acting on the whole
+   *     booking - and it is the same flag an admin-initiated refund already carries.
+   *
+   * It does NOT move money. The refund lands REQUESTED, in the same queue a buyer's request
+   * lands in, and an authorised human approves it. That is deliberate: `BOOKING_REFUND_POLICY_
+   * MODE` is MANUAL_ONLY and the money automation is production-forbidden, so this creates an
+   * obligation that cannot be silently ignored rather than quietly paying people from an event
+   * handler.
+   *
+   * Idempotent by the same check every other door uses: a booking that already has an OPEN
+   * refund is left alone, so a redelivered event, a retry and the sweep cannot stack refunds
+   * on one booking.
+   */
+  async openForCancelledSession(bookingId: string, reason: string) {
+    const booking = await this.loadForRefund(bookingId);
+    return this.createRequest(
+      {
+        userId: null,
+        staff: true,
+        // The platform acts on the booking as a whole; no ticket is "held" by it.
+        holds: () => true,
+        via: 'ACCOUNT',
+        /*
+          The buyer is told. They did not ask for this and may not be watching the page, so
+          the refund notice is the first they hear that their money is coming back.
+        */
+        notifyBuyer: true,
+      },
+      booking,
+      { bookingId, reason },
+      { sessionCancelled: true },
+    );
+  }
+
   async requestAsGuest(input: RefundRequestInput) {
     const booking = await this.loadForRefund(input.bookingId);
     /*
@@ -238,6 +288,8 @@ export class RefundsService {
     requester: RefundRequester,
     booking: BookingForRefund,
     input: RefundRequestInput,
+    /** Set only by {@link openForCancelledSession}; see `refund-eligibility.ts`. */
+    options: { sessionCancelled?: boolean } = {},
   ) {
     /*
       Cash never passed through a gateway, so there is nothing online to send it back through.
@@ -260,6 +312,7 @@ export class RefundsService {
       now: new Date(),
       refundsEnabled: booking.event?.refundsEnabled,
       policyHours: booking.event?.refundCutoffHours,
+      sessionCancelled: options.sessionCancelled,
     });
     if (!eligibility.eligible) {
       throw new AppException(
