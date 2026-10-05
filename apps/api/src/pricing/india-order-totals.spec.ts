@@ -1,6 +1,6 @@
 import { calculateFees, DEFAULT_FEE_TIERS, DEFAULT_PAYMENT_FEE_BPS } from './fee-calculator';
 import { computeTax, type TaxRuleInput } from './tax-calculator';
-import { INDIA_GST_RULES } from '../../prisma/seed-india-gst';
+import { INDIA_GST_RULES } from '../../prisma/india-gst-rules';
 import { FeeMode } from '@eticketsgo/shared-types';
 
 /**

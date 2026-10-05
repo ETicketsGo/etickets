@@ -1,5 +1,5 @@
 import { computeTax, type TaxRuleInput } from './tax-calculator';
-import { INDIA_GST_RULES } from '../../prisma/seed-india-gst';
+import { INDIA_GST_RULES } from '../../prisma/india-gst-rules';
 
 /**
  * unit — the Indian rule set we actually ship, priced against the published table.
