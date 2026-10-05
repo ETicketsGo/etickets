@@ -14,10 +14,13 @@ import { INDIA_GST_RULES } from '../../prisma/seed-india-gst';
  * `docs/guides/INDIA-GST.md`. If that table is edited on an accountant's advice, this fails
  * until the documented examples are updated to match — which is the point.
  *
- * ── THE PROPERTY THAT MAKES ACTIVATION SAFE ────────────────────────────────────────────
- * Indian ticket prices are quoted INCLUSIVE of GST. Switching these rules on must therefore
- * change what the receipt SAYS and not what the customer PAYS. That is asserted directly,
- * because it is the whole reason this can be switched on without re-pricing anything.
+ * ── WHAT ACTIVATION ACTUALLY DOES TO THE PRICE ─────────────────────────────────────────
+ * Indian TICKET prices are quoted inclusive of GST, so the ticket's tax is extracted from the
+ * poster price and the buyer is unaffected. The platform FEE is a separate supply and its GST
+ * is ADDED - so switching these rules on raises an Indian order by 18% of the customer-borne
+ * fee. This file used to claim activation changed nothing the customer pays, backed by an
+ * assertion that reduced to `x === x`. It does not, and that makes activation a business
+ * decision rather than a bookkeeping one. See `src/pricing/india-order-totals.spec.ts`.
  */
 
 /** The shipped rules, as the seed writes them into the database. */
@@ -98,21 +101,41 @@ describe('switching it on changes the receipt, not the price', () => {
     expect(out.taxLines).toEqual([]);
   });
 
-  it('leaves the customer paying exactly the same once active', () => {
+  it('adds the FEE GST to the customer total, and nothing from the ticket', () => {
     /*
-      THE PROPERTY THAT MAKES THIS SAFE TO SWITCH ON. ₹500 of tickets stays ₹500 of tickets: the
-      GST was always inside the poster price, and activation only names it.
+      ── A CORRECTION TO WHAT THIS TEST USED TO CLAIM ───────────────────────────────────
+      It was titled "leaves the customer paying exactly the same once active" and asserted
+      `after.taxAddedMinor === before.taxAddedMinor + after.taxAddedMinor - before.taxAddedMinor`
+      - which is `x === x` for every possible value. It proved nothing at all, while being
+      labelled the property that made activation safe to switch on. It is not that property,
+      because the claim is not true.
+
+      What is true: the TICKET's GST is inclusive, so it is extracted from the poster price and
+      adds nothing. The platform FEE is a separate supply charged on top, so its GST IS added.
+      Activation therefore raises an Indian order by 18% of the customer-borne fee.
+
+      `src/pricing/india-order-totals.spec.ts` prices the whole order through both engines and
+      reports the figure at every fee band.
     */
     const before = computeTax({ ...order, rules: shipped({ active: false }), place: INTRA_STATE });
     const after = computeTax({ ...order, rules: shipped({ active: true }), place: INTRA_STATE });
 
-    // The tickets cost what they cost; activation moves nothing into the customer's total.
-    expect(after.taxAddedMinor).toBe(
-      before.taxAddedMinor + after.taxAddedMinor - before.taxAddedMinor,
-    );
     expect(before.taxMinor).toBe(0);
-    // Tax now exists, and it came out of the ticket price rather than on top of it.
-    expect(after.taxMinor).toBeGreaterThan(0);
+    expect(before.taxAddedMinor).toBe(0);
+
+    // The ticket contributes inclusive tax: counted in taxMinor, never in taxAddedMinor.
+    const admissionTax = after.taxLines
+      .filter((l) => l.basis !== 'FEES')
+      .reduce((t, l) => t + l.amountMinor, 0);
+    const feeTax = after.taxLines
+      .filter((l) => l.basis === 'FEES')
+      .reduce((t, l) => t + l.amountMinor, 0);
+
+    expect(admissionTax).toBe(7_627);
+    expect(feeTax).toBe(360);
+    // Only the fee's GST reaches the customer's total. Rs 3.60 on a Rs 20 fee.
+    expect(after.taxAddedMinor).toBe(feeTax);
+    expect(after.taxMinor).toBe(admissionTax + feeTax);
   });
 
   it('splits the admission GST into CGST and SGST that add up', () => {

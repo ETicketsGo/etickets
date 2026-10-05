@@ -219,9 +219,22 @@ function describe(rule: IndiaGstRule): string {
   return `${(rule.rateBasisPoints / 100).toFixed(0).padStart(2)}%  ${rule.category.padEnd(8)} ${rule.appliesTo.padEnd(8)} ${band}`;
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+/*
+  Run only when this file IS the program, never when it is imported.
+
+  Exporting INDIA_GST_RULES so the shipped table could be tested had a consequence nobody
+  looked for: `main()` ran on import, so a unit test that wanted the rate table opened a Prisma
+  client and wrote TaxRule rows into whatever DATABASE_URL happened to be set. Harmless against
+  a test database, and a configuration change away from writing tax rules into production from
+  a test run. `process.exit(1)` on failure would also have taken the Jest worker with it.
+
+  The rules are data and the script is a program. Only the program should do anything.
+*/
+if (require.main === module) {
+  main()
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

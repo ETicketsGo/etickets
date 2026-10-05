@@ -450,9 +450,15 @@ npx tsx apps/api/prisma/seed-india-gst.ts            # write the rules, still in
 npx tsx apps/api/prisma/seed-india-gst.ts --activate # switch them on, deliberately
 ```
 
-**Activation does not change what a customer pays.** Indian ticket prices are quoted inclusive of
-GST, so switching the rules on changes what the receipt _says_, not what is charged. That property
-is now asserted directly, in `apps/api/src/pricing/india-gst-activation.spec.ts`.
+> **CORRECTED 2026-10-05.** This said "activation does not change what a customer pays",
+> backed by a test of mine that asserted `x === 0 + x - 0` - true for every value, proving
+> nothing. It is true of the TICKET and false of the ORDER: ticket GST is inclusive and is
+> extracted from the poster price, but the platform fee's GST is **added**, so activation
+> raises every Indian order by 18% of the customer-borne fee (Rs 1.28 on a Rs 100 ticket).
+> That makes activation a business decision, not a bookkeeping one. The measured table at
+> every fee band is in
+> [INDIA_GST_BUSINESS_DECISIONS.md](./INDIA_GST_BUSINESS_DECISIONS.md) §1.2, produced by
+> `apps/api/src/pricing/india-order-totals.spec.ts`.
 
 Until this pass the shipped rule table had **no test at all**. The engine was well covered, but
 only against rules written inside the tests; the rows somebody types `--activate` against were
@@ -493,16 +499,24 @@ From source, not from the provider documentation:
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
 | URL              | `https://api.eticketsgo.com/api/payments/webhooks/razorpay`                 |
-| Events           | **`payment.captured` and `payment.failed` - these two only**                |
+| Events           | see the correction below - NOT just these two                               |
 | Secret           | `RAZORPAY_WEBHOOK_SECRET`, which **must differ** from `RAZORPAY_KEY_SECRET` |
 | Signature header | `X-Razorpay-Signature`, HMAC over the exact raw bytes                       |
 
 The route is plural (`webhooks`), and it is deliberately exempt from the per-IP throttle so that a
 sale spike cannot turn payment confirmations into 429s.
 
-**Subscribe only those two events.** `razorpay-payment.provider.ts` rejects anything else with a
-400 by design, so subscribing `order.paid` or `refund.processed` produces a stream of failed
-deliveries and provider retry noise against an endpoint that is working correctly.
+> **CORRECTED 2026-10-05, and it was wrong in a way that mattered.** The paragraph that stood
+> here said to subscribe only those two events, because anything else is rejected with a 400.
+> That describes `RazorpayPaymentProvider.mapEventType`, which serves the **generic**
+> `/payments/webhook` route - not this one. The dedicated route dispatches through
+> `RazorpayWebhookProcessor`, which **rejects nothing**: it also processes `order.paid`,
+> `refund.processed`, `refund.failed`, `payment.dispute.*`, `transfer.failed` and
+> `transfer.reversed`, and records anything unrecognised as IGNORED rather than failing it.
+>
+> Had the original instruction been followed, **refunds and disputes would never have reached
+> us**. Subscribe the events you want acted on; the full table is in
+> [FIRST_RAZORPAY_PAYMENT_RUNBOOK.md](./FIRST_RAZORPAY_PAYMENT_RUNBOOK.md) §2.
 
 The endpoint is already live and already refusing correctly: the probe's deliberately invalid
 signature returned `400 PAYMENT_WEBHOOK_INVALID`, which proves the route is deployed and a secret
