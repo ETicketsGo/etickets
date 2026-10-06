@@ -232,6 +232,24 @@ export class RazorpayPaymentProvider implements PaymentProvider {
     return a.length === b.length && timingSafeEqual(a, b);
   }
 
+  /**
+   * Every payment Razorpay holds against an order — the recovery lookup.
+   *
+   * `orders.fetchPayments` is answerable from the order id alone, which is all we have
+   * before a webhook lands. Errors are deliberately NOT swallowed into an empty list: the
+   * caller must be able to tell "Razorpay says nobody paid" from "Razorpay did not answer",
+   * and an empty array would make a timeout look like an abandoned cart.
+   */
+  async findOrderPayments(orderId: string): Promise<PaymentStatusResult[]> {
+    const res = await this.client.orders.fetchPayments(orderId);
+    return (res.items ?? []).map((p) => ({
+      providerRef: String(p.id),
+      status: mapPaymentStatus(String(p.status)),
+      amountMinor: Number(p.amount),
+      currency: String(p.currency),
+    }));
+  }
+
   /** Fetch a payment's current authoritative state (used by the verify endpoint + reconcile). */
   async getPayment(providerRef: string): Promise<PaymentStatusResult> {
     const p = await this.client.payments.fetch(providerRef);

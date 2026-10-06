@@ -40,8 +40,29 @@ export class RazorpayWebhookService {
       );
     }
 
-    // Signature verification against the exact raw body (throws PAYMENT_WEBHOOK_INVALID).
-    const envelope = provider.verifySignedEnvelope({ rawBody, signature });
+    /*
+      Signature verification against the exact raw body (throws PAYMENT_WEBHOOK_INVALID).
+
+      The rejection is counted and logged at ERROR before it is rethrown. It used to surface
+      only as an access-log 400, which is how a misconfigured webhook secret stayed invisible
+      in production for two days and cost a real captured payment: Razorpay delivered and
+      retried correctly, every delivery was refused, and nothing said so. A refused delivery
+      is a payment confirmation we are throwing away, so it is an incident, not a bad request.
+      `payment_webhooks{result="signature_invalid"}` is the alertable signal.
+    */
+    let envelope: ReturnType<NonNullable<typeof provider.verifySignedEnvelope>>;
+    try {
+      envelope = provider.verifySignedEnvelope({ rawBody, signature });
+    } catch (err) {
+      this.metrics.recordPaymentWebhook?.(PROVIDER, 'signature_invalid');
+      this.logger.error(
+        `REJECTED a Razorpay webhook: signature did not verify (event-id ` +
+          `${eventIdHeader ?? 'none'}, ${rawBody.length} bytes). The configured ` +
+          `webhook secret does not match the one signing these deliveries. Payments may be ` +
+          `captured without their bookings being confirmed until this is fixed.`,
+      );
+      throw err;
+    }
 
     // Stable dedup id: Razorpay event ids are not guaranteed unique in the body, so use
     // the header if present, else a hash of the raw payload.

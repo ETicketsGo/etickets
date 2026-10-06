@@ -382,6 +382,17 @@ export interface PaymentProvider {
   capture?(input: CaptureInput): Promise<PaymentStatusResult>;
   cancel?(input: CancelInput): Promise<PaymentStatusResult>;
   getPayment?(providerRef: string): Promise<PaymentStatusResult>;
+  /**
+   * Every payment the provider has recorded against an ORDER.
+   *
+   * Distinct from `getPayment`, and the distinction is the whole point: before a webhook
+   * arrives we know only the order we created, never the payment id the buyer's attempt
+   * produced. Without an order-level lookup there is no way to ask "did somebody pay for
+   * this?" - which is why a captured payment could be silently discarded as an abandoned
+   * cart. Optional: an adapter that cannot answer must leave it undefined rather than
+   * return an empty list, because "no" and "I cannot say" must not be confused.
+   */
+  findOrderPayments?(orderId: string): Promise<PaymentStatusResult[]>;
   getRefund?(refundRef: string): Promise<RefundResult>;
   /** Parse an already-verified webhook body (verifyWebhook does both by default). */
   parseWebhook?(rawBody: string): PaymentEvent;
