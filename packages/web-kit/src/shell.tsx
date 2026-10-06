@@ -171,10 +171,29 @@ export function AppShell({
 
             `pointer-events-none` on the wrapper so an invisible band across the header cannot
             swallow clicks meant for the controls behind it.
+
+            ── AND NOT `pointer-events-auto` ON THE INNER BOX EITHER ──────────────────────
+            It used to be there, which gave back exactly the bug the line above avoids. The
+            wrapper spans the header and is transparent to clicks; the inner box is only as
+            wide as the name, but on a narrow screen the centre IS where the controls are.
+            Measured on the gate, which is a screen used on a phone by definition:
+
+              320px  the name covered Light, Dark and Match system - all three unclickable
+              412px  it covered Light and Dark
+              1440px no overlap
+
+            So on a phone the theme control could not be pressed at all. `elementFromPoint`
+            at each button's centre returned the name, and a click timed out. It is a label:
+            nothing in it is interactive, and it has no business intercepting a press.
+
+            The `title` below only surfaces on hover, which needs pointer events, so it no
+            longer shows. That is the right trade - a tooltip for a truncated name is worth
+            less than a button that can be pressed - and it is kept because it is also what
+            some assistive technology reads for the full name.
           */}
           {workspace && (
             <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-              <div className="pointer-events-auto flex max-w-[min(50vw,28rem)] items-center gap-2.5">
+              <div className="flex max-w-[min(50vw,28rem)] items-center gap-2.5">
                 {apiAssetUrl(workspace.logoUrl ?? null) && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
