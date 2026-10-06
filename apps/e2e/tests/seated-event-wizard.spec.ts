@@ -117,7 +117,6 @@ test.describe('creating an event with assigned seating', () => {
     await expect(page.getByText('Ticket types come from the seat map')).toBeVisible();
     await expect(page.locator('#tn0')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Next', exact: true }).click(); // fee handling
     await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
 
     // Named, not counted: booking a run into the wrong auditorium is what this page catches.
