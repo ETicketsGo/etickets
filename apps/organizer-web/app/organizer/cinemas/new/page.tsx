@@ -129,7 +129,8 @@ export default function NewCinemaPage() {
           </div>
           <Input
             id="address"
-            label="Address"
+            label="Street address"
+            hint="Just the street and area. The city is set above."
             value={form.address}
             onChange={(e) => set('address', e.target.value)}
           />
