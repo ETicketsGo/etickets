@@ -66,6 +66,13 @@ export interface SettlementRefundRow {
   amountMinor: number;
   /** The portion of `amountMinor` that is tax being returned. */
   taxAddedMinor: number | null;
+  /**
+   * The portion of `amountMinor` that is PLATFORM money - the fees a cancellation gives back.
+   *
+   * Optional so a caller that predates the column, or a fixture that does not care, behaves
+   * exactly as before: absent reads as zero, which is what every buyer-requested refund is.
+   */
+  platformFeeRefundedMinor?: number | null;
 }
 
 export interface CurrencySettlementInput {
@@ -86,6 +93,12 @@ export interface CurrencySettlementInput {
  * whole refund really is the organizer's. That is why the old sum was right there and wrong
  * everywhere the platform adds tax on top.
  *
+ * `platformFeeRefundedMinor` comes off for the same reason, one step further out. A cancelled
+ * show returns the buyer everything they paid, fees included - but the fees were never in the
+ * organizer's gross (`subtotalMinor` is ticket face value; fees are borne by the customer on
+ * top and only REPORTED here). Charging them back for a fee they never received would turn a
+ * refund into a fine. Zero on every buyer-requested refund, so nothing else moves.
+ *
  * Clamped at zero: a refund recorded as more tax than money is a data fault, and letting it go
  * negative would quietly ADD to the organizer's proceeds.
  *
@@ -94,7 +107,10 @@ export interface CurrencySettlementInput {
  * sum would stop matching the payout it is supposed to explain.
  */
 export function organizerShareOfRefund(row: SettlementRefundRow): number {
-  return Math.max(0, row.amountMinor - (row.taxAddedMinor ?? 0));
+  return Math.max(
+    0,
+    row.amountMinor - (row.taxAddedMinor ?? 0) - (row.platformFeeRefundedMinor ?? 0),
+  );
 }
 
 /**

@@ -21,6 +21,13 @@
  *
  * A line that predates `basis`/`inclusive` is treated as added, exactly as before this
  * change — rows written since 2026-09-06 state both.
+ *
+ * ── THE ONE CASE WHERE FEE TAX DOES COME BACK ──────────────────────────────────────
+ * `includeFeeTax` reverses the first rule, and only a cancellation sets it. When the show is
+ * cancelled the buyer gets back everything they paid — fees included — so the tax levied on
+ * those fees has to come back with them. Leaving it behind would hand the buyer less than
+ * they paid while recording a full refund, which is the same arithmetic fault as the report
+ * above, pointing the other way.
  */
 export interface TaxLineSnapshot {
   label: string;
@@ -60,11 +67,29 @@ export function refundTax(
   lines: readonly TaxLineSnapshot[],
   ticketsMinor: number,
   bookingTicketsMinor: number,
+  options: { includeFeeTax?: boolean } = {},
 ): RefundTax {
   const share = bookingTicketsMinor > 0 ? Math.min(1, ticketsMinor / bookingTicketsMinor) : 0;
   const out: RefundTaxLine[] = [];
   for (const line of lines) {
-    if (line.basis === 'FEES') continue;
+    if (line.basis === 'FEES' && !options.includeFeeTax) continue;
+    /*
+      A fee tax line on a cancellation goes back WHOLE, not by the ticket share. The ticket
+      share answers "how many of these tickets are being returned"; the fee was charged once
+      for the booking and is being returned once, so prorating it by tickets would return a
+      fraction of a thing that is not divisible that way.
+    */
+    if (line.basis === 'FEES') {
+      out.push({
+        label: line.label,
+        rateBasisPoints: line.rateBasisPoints,
+        basis: line.basis ?? null,
+        inclusive: line.inclusive === true,
+        baseMinor: line.baseMinor,
+        amountMinor: line.amountMinor,
+      });
+      continue;
+    }
     const common = {
       label: line.label,
       rateBasisPoints: line.rateBasisPoints,
