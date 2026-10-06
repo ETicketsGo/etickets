@@ -1509,7 +1509,15 @@ export const api = {
      * no route back to it: documents were reachable by booking id or by organization, and a
      * customer has neither to hand.
      */
-    mine: (params: PageParams = {}) => request<Paged<MyReceiptRow>>(`/receipts/mine${qs(params)}`),
+    /*
+      `MyReceiptsPage`, not `Paged`.
+
+      This said `Paged<MyReceiptRow>`, which is `{ data, meta }`. The endpoint returns
+      `{ items, total, page, pageSize }`. `request<T>` casts the JSON and checks nothing, so
+      the type compiled, the page read `data.data`, got undefined, and showed "No receipts
+      yet" to everybody - for ever, including buyers holding receipts.
+    */
+    mine: (params: PageParams = {}) => request<MyReceiptsPage>(`/receipts/mine${qs(params)}`),
     get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
     /**
      * Open the printable document in a new tab.
@@ -4189,6 +4197,20 @@ export interface MyReceiptRow extends ReceiptSummary {
     event: { title: string };
     eventSession: { startsAt: string };
   };
+}
+
+/**
+ * What `/receipts/mine` actually returns.
+ *
+ * Deliberately the same shape as `ReceiptListPage` rather than `Paged<T>`: this mirrors the
+ * endpoint, and the endpoint has paged this way since it was written. The client's job is to
+ * describe the server, not to wish it were consistent.
+ */
+export interface MyReceiptsPage {
+  items: MyReceiptRow[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ReceiptListPage {

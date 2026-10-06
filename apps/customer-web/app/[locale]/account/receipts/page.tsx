@@ -54,7 +54,14 @@ export default function ReceiptsPage() {
     }
   };
 
-  const rows = data?.data ?? [];
+  /*
+    `items`, not `data`. The client's type said `Paged` and the endpoint has always returned
+    `{ items, total, page, pageSize }` - so this read undefined and the page told every buyer
+    "No receipts yet", including the ones holding receipts. This page exists precisely so that
+    somebody who closed the confirmation screen has a route back to their receipt, and it was
+    the one route that could never work.
+  */
+  const rows = data?.items ?? [];
 
   return (
     <div className="space-y-6">
