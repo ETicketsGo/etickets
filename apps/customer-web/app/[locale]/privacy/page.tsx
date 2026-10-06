@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
+import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description:
-    'How ETicketsGo collects, uses, and protects personal data (not yet reviewed by a lawyer).',
+    'How ETicketsGo collects, uses, and protects personal data, including mobile numbers.',
   alternates: { canonical: '/privacy' },
   robots: { index: false, follow: true },
 };
 
 export default function PrivacyPage() {
+  const controller = publishedDetail(BUSINESS_DETAILS.legalName);
+
   return (
     <>
       <PageHero
@@ -21,15 +24,10 @@ export default function PrivacyPage() {
       />
       <Section>
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            This policy has <strong>not been reviewed by a lawyer</strong> yet. How long data is
-            kept, and how you exercise your rights over it, must be settled with privacy counsel
-            before this is published as the privacy policy.
-          </NoticeBanner>
           <Prose>
+            {/* Derived, never invented - see the note on the terms page. */}
             <p>
-              <strong>Controller:</strong> ETicketsGo (placeholder) -{' '}
-              <strong>Effective date:</strong> pending.
+              <strong>Controller:</strong> {controller ?? 'ETicketsGo'}
             </p>
             <h2>1. Data we collect</h2>
             <ul>
@@ -52,9 +50,10 @@ export default function PrivacyPage() {
             </p>
             <h2>4. Retention</h2>
             <p>
-              Concrete retention periods per data category are to be defined with counsel. A
-              self-serve data export/erasure workflow is a planned follow-up; until then, requests
-              are handled operationally.
+              We keep personal data for as long as we need it to provide the service and to meet our
+              legal, tax and accounting obligations, and then delete or anonymise it. To ask for a
+              copy of your data or its deletion, write to us through the{' '}
+              <Link href="/contact">contact page</Link> and we will action it.
             </p>
             <h2>5. Your rights</h2>
             <p>
@@ -66,12 +65,29 @@ export default function PrivacyPage() {
               Encryption in transit (TLS), hashed passwords, least-privilege authorization, audit
               logging, secret management, and fail-closed production configuration.
             </p>
-            <h2>7. Children</h2>
-            <p>The service is not directed to children; we do not knowingly collect their data.</p>
-            <h2>8. Changes & contact</h2>
+            <h2>7. Mobile numbers and text messages</h2>
             <p>
-              We may update this policy; material changes will be communicated. Contact details are
-              placeholders in this demo.
+              If you give us your mobile number, we use it to send you messages about your account
+              and your tickets, and - only if you have separately agreed - messages about other
+              events. You can withdraw agreement at any time by replying <strong>STOP</strong> to a
+              message or from your notification settings. See the{' '}
+              <Link href="/sms">text message programme</Link>.
+            </p>
+            <p>
+              <strong>
+                We do not sell your mobile number, and we do not share it with third parties or
+                affiliates for their own marketing.
+              </strong>{' '}
+              It is shared only with the messaging providers that deliver messages for us, who may
+              use it only for that purpose and under contract, and where the law requires
+              disclosure. Agreeing to text messages is never a condition of buying a ticket.
+            </p>
+            <h2>8. Children</h2>
+            <p>The service is not directed to children; we do not knowingly collect their data.</p>
+            <h2>9. Changes & contact</h2>
+            <p>
+              We may update this policy; material changes will be communicated. Reach us through the{' '}
+              <Link href="/contact">contact page</Link>.
             </p>
           </Prose>
         </Container>

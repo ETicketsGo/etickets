@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
@@ -42,10 +42,6 @@ export default function RefundsPage() {
       />
       <Section>
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            A lawyer has not yet reviewed this page. The rules below are the rules the platform
-            applies today.
-          </NoticeBanner>
           <Prose>
             <h2>The event sets the refund window</h2>
             <p>

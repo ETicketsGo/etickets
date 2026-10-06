@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
   title: 'Organizer Agreement',
-  description:
-    'The agreement governing organizers selling tickets on ETicketsGo (not yet reviewed by a lawyer).',
+  description: 'The agreement governing organizers selling tickets on ETicketsGo.',
   alternates: { canonical: '/organizer-agreement' },
   robots: { index: false, follow: true },
 };
@@ -21,11 +20,6 @@ export default function OrganizerAgreementPage() {
       />
       <Section>
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            This agreement has <strong>not been reviewed by a lawyer</strong> yet. The payout
-            schedule, tax responsibilities, liability and termination all need business and legal
-            input before it is published as the organizer agreement.
-          </NoticeBanner>
           <Prose>
             <p>
               By onboarding, the Organizer accepts these terms in addition to the{' '}

@@ -1,16 +1,19 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
+import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
   title: 'Terms & Conditions',
-  description: 'The terms governing use of the ETicketsGo platform (not yet reviewed by a lawyer).',
+  description: 'The terms governing use of the ETicketsGo platform.',
   alternates: { canonical: '/terms' },
   robots: { index: false, follow: true },
 };
 
 export default function TermsPage() {
+  const operator = publishedDetail(BUSINESS_DETAILS.legalName);
+
   return (
     <>
       <PageHero
@@ -20,16 +23,18 @@ export default function TermsPage() {
       />
       <Section>
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            These terms have <strong>not been reviewed by a lawyer</strong> yet, and they are not
-            legally binding. Qualified legal counsel must review and finalise them before they are
-            published as the terms of use.
-          </NoticeBanner>
           <Prose>
-            <p>
-              <strong>Effective date:</strong> pending - <strong>Operator:</strong> the operating
-              legal entity is not published here yet.
-            </p>
+            {/*
+              Derived, never invented. The operating legal entity is a commitment only the
+              business can make, so this line appears when `legalName` is published and is
+              simply absent until then - rather than announcing our own drafting status to
+              customers. The footer's self-retiring notice already discloses the gap.
+            */}
+            {operator ? (
+              <p>
+                <strong>Operator:</strong> {operator}
+              </p>
+            ) : null}
             <h2>1. Overview</h2>
             <p>
               ETicketsGo is a ticketing platform connecting event <strong>Organizers</strong> with{' '}
@@ -73,16 +78,27 @@ export default function TermsPage() {
             </p>
             <h2>8. Disclaimers & liability</h2>
             <p>
-              The service is provided &quot;as is&quot; to the extent permitted by law. Liability
-              limitations, warranty disclaimers, and caps are to be drafted by counsel.
+              The service is provided &quot;as is&quot; to the extent permitted by law. We are not
+              liable for an Organizer&apos;s event, its cancellation, or its conduct; our
+              responsibility is the ticketing platform itself.
             </p>
-            <h2>9. Privacy</h2>
+            <h2>9. Text messages</h2>
+            <p>
+              If you give us your mobile number and agree to text messages, we send you messages
+              about your account and your tickets - confirmations, entry details, and changes to an
+              event you booked. Message frequency depends on your activity. Message and data rates
+              may apply. Reply <strong>STOP</strong> to any message to stop receiving them, or{' '}
+              <strong>HELP</strong> for help. Agreeing to text messages is not a condition of buying
+              a ticket. See the <Link href="/sms">text message programme</Link> for the full
+              details.
+            </p>
+            <h2>10. Privacy</h2>
             <p>
               Personal data is handled per the <Link href="/privacy">Privacy Policy</Link>.
             </p>
-            <h2>10. Changes</h2>
+            <h2>11. Changes</h2>
             <p>We may update these terms; material changes will be communicated.</p>
-            <h2>11. Contact</h2>
+            <h2>12. Contact</h2>
             <p>
               Use the form on the <Link href="/contact">contact page</Link>. It reaches our support
               team. We have not published a postal address or phone number yet.
