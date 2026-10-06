@@ -154,6 +154,65 @@ describe('PendingPaymentRecoveryService', () => {
     await expect(service.guardExpiry(gatewayOpened)).resolves.toBe('hold_back');
   });
 
+  describe('racing a genuine late webhook', () => {
+    /*
+      Scenarios 5 and 6: recovery finds the capture and a real webhook arrives too, in either
+      order, possibly concurrently.
+
+      Exactly-once is not re-implemented here and these tests say why. Recovery's entire
+      effect is one call to `processVerifiedEvent` - the SAME entry point a verified webhook
+      uses - whose idempotency is already proven at
+      `payments/payments.service.spec.ts:439` ("a concurrent re-delivery (claim count 0)
+      issues no tickets"). `confirm` claims the booking with a conditional update, so the
+      loser of the race is told `already_confirmed` and writes nothing. What is left to prove
+      is only that THIS code adds no second effect and draws the right conclusion from
+      losing.
+    */
+    const capture = {
+      findOrderPayments: jest
+        .fn()
+        .mockResolvedValue([
+          { providerRef: 'pay_1', status: 'CAPTURED', amountMinor: 51_918, currency: 'INR' },
+        ]),
+    };
+
+    it('treats losing the race as success, and still does not release the stock', async () => {
+      // The webhook got there first. Nothing more to do - and crucially NOT 'release': the
+      // booking is confirmed, so handing its seats back would void a paid ticket.
+      const { service } = make(
+        capture,
+        jest.fn().mockResolvedValue({ status: 'already_confirmed', bookingId: 'bk1' }),
+      );
+      await expect(service.guardExpiry(gatewayOpened)).resolves.toBe('recovered');
+    });
+
+    it('defers to the canonical path when the booking can no longer be paid', async () => {
+      /*
+        The booking was already expired by an earlier sweep. The canonical path answers
+        `captured_on_unpayable_booking`, which is where `recordUnappliedCapture` writes the
+        finance discrepancy for a person to refund. Recovery must accept that and NOT invent
+        a fulfilment of its own.
+      */
+      const { service } = make(
+        capture,
+        jest.fn().mockResolvedValue({ status: 'captured_on_unpayable_booking', bookingId: 'bk1' }),
+      );
+      await expect(service.guardExpiry(gatewayOpened)).resolves.toBe('recovered');
+    });
+
+    it('does exactly one thing, so it cannot double-confirm or double-issue', async () => {
+      const processVerifiedEvent = jest.fn().mockResolvedValue({ status: 'confirmed' });
+      const { service } = make(capture, processVerifiedEvent);
+
+      await service.guardExpiry(gatewayOpened);
+
+      // One call, and no other write surface exists on this service: it holds no Prisma
+      // client, issues no tickets and creates no finance rows. That is the argument that it
+      // cannot duplicate any of them.
+      expect(processVerifiedEvent).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('emits a distinct metric per outcome, so recovery is visible without reading logs', async () => {
     const { service, metrics } = make({
       findOrderPayments: jest
