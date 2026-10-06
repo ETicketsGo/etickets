@@ -4,7 +4,8 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthTokens } from '@eticketsgo/shared-types';
-import { Role, isReservedEmail } from '@eticketsgo/shared-types';
+import { Role, isReservedEmail, permissionsFor } from '@eticketsgo/shared-types';
+import type { AdminPermission } from '@eticketsgo/shared-types';
 import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -471,6 +472,50 @@ export class AuthService {
    * refreshed - so the screen would say "no phone number" straight after somebody added one.
    * These are read at request time precisely because they change.
    */
+  /**
+   * What this account may do in the back office, from its own point of view.
+   *
+   * ── WHY THE CLIENT IS TOLD AT ALL ──────────────────────────────────────────────────
+   * The capability model is enforced entirely on the server, and the console knew nothing
+   * about it. So the console showed every operator the same twenty-four navigation items and
+   * the same landing page, and found out what they were allowed to do by being refused.
+   *
+   * That is not a cosmetic problem. `GET /admin/dashboard` requires `BOOKING_READ`, which the
+   * moderation duty does not grant, so somebody whose whole job is reviewing organizers and
+   * events signed in and the first thing they saw was "We couldn't load this. Please try
+   * again." - a dead end with a button that cannot work, on the page they land on.
+   *
+   * ── IT IS NOT AUTHORIZATION ────────────────────────────────────────────────────────
+   * This answers "what should I offer this person", never "may this person do this". Every
+   * route keeps its own guard and that guard keeps reading the grants from the database on
+   * each request, so a capability revoked mid-session still takes effect immediately. A client
+   * holding a stale list can only ask; it cannot authorise itself.
+   *
+   * Disclosing it is safe because it is the caller's OWN authorization, which they could map
+   * by trial in a minute, and nobody else's.
+   *
+   * Computed with the same `permissionsFor()` the guard uses, so there is one answer to the
+   * question rather than two that can drift. Empty for everybody who is not platform staff.
+   */
+  async myAdminPermissions(
+    userId: string,
+    roles: readonly Role[],
+  ): Promise<{ adminPermissions: AdminPermission[] }> {
+    const staff = roles.includes(Role.ADMIN) || roles.includes(Role.SUPER_ADMIN);
+    if (!staff) return { adminPermissions: [] };
+    const rows = await this.prisma.adminGrant.findMany({
+      where: { userId },
+      select: { permission: true },
+    });
+    const held = permissionsFor(
+      roles,
+      rows.map((r) => r.permission as AdminPermission),
+    );
+    // Sorted so the same grants always serialise identically, which keeps a client's cache
+    // from being invalidated by nothing more than row order.
+    return { adminPermissions: [...held].sort() };
+  }
+
   async accountDetails(userId: string): Promise<{
     phone: string | null;
     phoneVerified: boolean;

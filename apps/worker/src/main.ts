@@ -16,6 +16,7 @@ import {
   NotificationFallbackService,
   ProviderEventReplayService,
   ShowCancellationFanoutService,
+  CancellationRefundsService,
   ShowReminderService,
   PrismaService,
   RazorpayWebhookProcessor,
@@ -110,6 +111,20 @@ const FALLBACK_SWEEP_MS =
 const RAW_CANCELLATION_MS = Number(process.env.NOTIFICATION_FANOUT_INTERVAL_MS ?? 60_000);
 const CANCELLATION_SWEEP_MS =
   Number.isFinite(RAW_CANCELLATION_MS) && RAW_CANCELLATION_MS > 0 ? RAW_CANCELLATION_MS : 60_000;
+/*
+  How often we ask whether anybody owed a refund by a cancelled show still has none.
+
+  Every two minutes, not every minute: this sweep opens REFUND rows, and a question about
+  money deserves a slightly calmer cadence than a question about messages. Same guard as
+  every other interval here - a blank or mistyped value must not crash-loop the worker.
+*/
+const RAW_CANCELLATION_REFUND_MS = Number(
+  process.env.CANCELLATION_REFUND_SWEEP_INTERVAL_MS ?? 120_000,
+);
+const CANCELLATION_REFUND_SWEEP_MS =
+  Number.isFinite(RAW_CANCELLATION_REFUND_MS) && RAW_CANCELLATION_REFUND_MS > 0
+    ? RAW_CANCELLATION_REFUND_MS
+    : 120_000;
 /*
   Hourly, and deliberately not faster.
 
@@ -259,6 +274,7 @@ async function main(): Promise<void> {
   const CALLBACK_REPLAY_MS =
     Number.isFinite(RAW_REPLAY_MS) && RAW_REPLAY_MS > 0 ? RAW_REPLAY_MS : 60_000;
   const cancellationFanout = app.get(ShowCancellationFanoutService);
+  const cancellationRefunds = app.get(CancellationRefundsService);
   const reminders = app.get(ShowReminderService);
   const sellability = app.get(EventSellabilitySweepService);
   const finance = app.get(FinanceReconciliationService);
@@ -388,6 +404,30 @@ async function main(): Promise<void> {
     notice, which means it recovers on its own from a failed handler, a disabled outbox or a
     process that died mid-batch, and it needs no cursor to do it.
   */
+  /*
+    The same cancellation owes people money, and that obligation needs its own guarantee.
+
+    `cancelShow` used to hand back a `bookingsRequiringRefund` list and do nothing with it, so
+    whether a paying customer was refunded depended on a human reading an API response. The
+    domain-event handler now opens the first batch within seconds; THIS is what makes the
+    promise true when the handler threw, the outbox was off, or the process died mid-batch.
+
+    It asks the data - paid bookings on a cancelled show with no refund row - so it needs no
+    cursor and cannot drift out of step with reality.
+  */
+  await queue.add(
+    'cancellation-refunds',
+    {},
+    {
+      repeat: { every: CANCELLATION_REFUND_SWEEP_MS },
+      jobId: 'cancellation-refunds',
+      removeOnComplete: 50,
+      removeOnFail: 50,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+    },
+  );
+
   await queue.add(
     'notification-cancellation-fanout',
     {},
@@ -631,6 +671,17 @@ async function main(): Promise<void> {
         // noise that makes the hour something IS wrong harder to spot.
         if (summary.unsellable > 0) {
           log('warn', 'published events that cannot be sold', { ...summary });
+        }
+        return summary;
+      }
+      if (job.name === 'cancellation-refunds') {
+        const summary = await cancellationRefunds.sweep();
+        /*
+          Logged when it did something or when something went wrong. A two-minute "0 opened"
+          line is noise that makes the run that mattered harder to find.
+        */
+        if (summary.opened > 0 || summary.failed > 0) {
+          log(summary.failed > 0 ? 'warn' : 'info', 'cancellation refunds', { ...summary });
         }
         return summary;
       }

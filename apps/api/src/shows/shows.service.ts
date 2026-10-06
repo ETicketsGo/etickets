@@ -1660,6 +1660,26 @@ export class ShowsService {
       select: { id: true, reference: true },
     });
 
+    /*
+      Built once, before the transaction, so the row recorded inside it and the event
+      delivered after it are the same event with the same id - which is what makes the
+      delivery idempotent for a handler that has already seen it.
+    */
+    const cancelled = showCancelledEvent(
+      {
+        sessionId,
+        // The session's own eventId. The session loader selects only the organization
+        // and the movie off the event, and widening that select for one field on a
+        // cancellation would change every other caller's query.
+        eventId: session.eventId,
+        organizationId: session.event.organizationId,
+        startsAt: session.startsAt.toISOString(),
+        reason,
+        affectedBookings: affected.length,
+      },
+      { actorId: user.id, tenantId: session.event.organizationId },
+    );
+
     await this.prisma.$transaction(async (tx) => {
       await tx.eventSession.update({
         where: { id: sessionId },
@@ -1716,23 +1736,30 @@ export class ShowsService {
         commits, the fan-out is owed and the sweep will find it even if every process
         between here and there dies.
       */
-      await this.events?.recordInTransaction(tx, [
-        showCancelledEvent(
-          {
-            sessionId,
-            // The session's own eventId. The session loader selects only the organization
-            // and the movie off the event, and widening that select for one field on a
-            // cancellation would change every other caller's query.
-            eventId: session.eventId,
-            organizationId: session.event.organizationId,
-            startsAt: session.startsAt.toISOString(),
-            reason,
-            affectedBookings: affected.length,
-          },
-          { actorId: user.id, tenantId: session.event.organizationId },
-        ),
-      ]);
+      await this.events?.recordInTransaction(tx, [cancelled]);
     });
+
+    /*
+      ── AND DELIVERED, ONCE THE COMMIT HAS HAPPENED ────────────────────────────────────
+      `recordInTransaction` alone publishes NOTHING in the default delivery mode. It writes
+      durable outbox rows, and in `in_process` mode - the default - there are no rows to
+      write, so it returns 0 and does nothing at all. Delivery is the second half of the
+      contract, and every other caller in the codebase does both halves.
+
+      This one did not, so `session.cancelled` was never published: neither the notification
+      handler nor the refund handler ran, and the outbox stayed empty. Observed on a real
+      cancellation - the refund arrived only when the worker sweep found it.
+
+      The sweep is the guarantee and it worked, which is why nothing was lost. But it is the
+      guarantee, not the mechanism: it runs on an interval, so without this line a customer
+      waits for the next sweep to learn their show is cancelled instead of hearing within
+      seconds. Fast path for latency, sweep for convergence - this restores the first.
+
+      After the commit, never inside it, and it cannot throw: `deliverAfterCommit` swallows
+      and logs a publication failure, because the cancellation has already happened and
+      failing the request now would tell the organizer their show is still on.
+    */
+    await this.events?.deliverAfterCommit([cancelled]);
 
     await this.recordShowAudit(user, session, 'SHOW_CANCELLED', {
       from: session.status,

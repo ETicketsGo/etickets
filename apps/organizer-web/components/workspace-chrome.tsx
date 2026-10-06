@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { orgPermissions, type OrgPermissions } from '@/lib/org-permissions';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { api, useColorScheme, WorkspaceAccent, type ColorScheme } from '@eticketsgo/web-kit';
 import { useActiveOrgId } from './org-context';
@@ -25,6 +26,17 @@ export function useWorkspace(): {
    * appears and then vanishes.
    */
   doesFilmBusiness: boolean;
+  /**
+   * What this member may be OFFERED, from their role in this organization.
+   *
+   * The organization list already carries `myRole`; the sidebar simply never asked. So a
+   * check-in worker - whose whole job is a scanner - was shown Finance, Payouts, Receipts,
+   * Refunds, Team and Settings, every one of which the API refuses them.
+   *
+   * Navigation visibility is UX and is NOT the authorization. The API decides, and goes on
+   * deciding; this only stops the console offering what will be refused.
+   */
+  can: OrgPermissions;
 } {
   const activeId = useActiveOrgId();
   const { data } = useQuery({
@@ -42,6 +54,12 @@ export function useWorkspace(): {
     logoUrl: org?.logoUrl,
     accent: org?.consoleTheme,
     doesFilmBusiness: (org?._count?.movies ?? 0) > 0,
+    /*
+      `undefined` while the list is in flight, which `orgPermissions` reads as unrestricted.
+      That is the right way round: briefly offering an action the API refuses explains itself,
+      while briefly hiding one a person is entitled to looks like the feature is missing.
+    */
+    can: orgPermissions(org?.myRole),
   };
 }
 

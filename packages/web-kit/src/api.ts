@@ -1300,6 +1300,17 @@ export const api = {
      * Search rather than a full list: a busy screening is several hundred seats, and
      * scrolling that at a door under time pressure is how the wrong seat gets admitted.
      */
+    /** Shows running now, for the gate screen to choose from. Carries no money. */
+    gateSessions: (organizationId: string) =>
+      request<
+        {
+          id: string;
+          eventTitle: string;
+          startsAt: string;
+          venueName: string | null;
+          startsAtLabel: string;
+        }[]
+      >(`/checkins/sessions${qs({ organizationId })}`),
     roster: (eventSessionId: string, q?: string) =>
       request<CheckInRosterRow[]>(`/checkins/roster${qs({ eventSessionId, q })}`),
     /**
@@ -1498,7 +1509,15 @@ export const api = {
      * no route back to it: documents were reachable by booking id or by organization, and a
      * customer has neither to hand.
      */
-    mine: (params: PageParams = {}) => request<Paged<MyReceiptRow>>(`/receipts/mine${qs(params)}`),
+    /*
+      `MyReceiptsPage`, not `Paged`.
+
+      This said `Paged<MyReceiptRow>`, which is `{ data, meta }`. The endpoint returns
+      `{ items, total, page, pageSize }`. `request<T>` casts the JSON and checks nothing, so
+      the type compiled, the page read `data.data`, got undefined, and showed "No receipts
+      yet" to everybody - for ever, including buyers holding receipts.
+    */
+    mine: (params: PageParams = {}) => request<MyReceiptsPage>(`/receipts/mine${qs(params)}`),
     get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
     /**
      * Open the printable document in a new tab.
@@ -1917,6 +1936,12 @@ export const api = {
       }),
 
     // ─── Marketplace settlements (admin/finance) ───
+    /**
+     * Open chargebacks, soonest deadline first. Read-only: evidence is submitted in the
+     * provider's dashboard and the outcome returns through the webhook. Needs FINANCE_READ.
+     */
+    disputes: () => request<OpenDisputes>('/admin/disputes'),
+
     settlements: {
       list: (
         params?: PageParams & {
@@ -2187,6 +2212,31 @@ export type PageParams = {
   page?: number;
   pageSize?: number;
 };
+/**
+ * An open chargeback. The platform is merchant of record, so a dispute is money the platform
+ * has to answer for, with a deadline the provider sets and nobody here can extend.
+ */
+export interface DisputeRow {
+  id: string;
+  provider: string;
+  providerDisputeId: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  reason: string | null;
+  /** When the provider stops accepting an answer. Null when it set no deadline. */
+  evidenceDueBy: string | null;
+  createdAt: string;
+  bookingId: string | null;
+  organization: { id: string; name: string } | null;
+}
+
+export interface OpenDisputes {
+  disputes: DisputeRow[];
+  /** Disputed money per currency. Never summed across them. */
+  atRisk: { currency: string; totalMinor: number }[];
+}
+
 export interface Paged<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
@@ -2197,6 +2247,16 @@ export interface AuthUser {
   email: string;
   fullName: string;
   roles: string[];
+  /**
+   * What this account may do in the back office, as the server computes it.
+   *
+   * Present so the console can offer an operator their OWN work instead of all twenty-four
+   * menu items and a landing page that refuses them. It is never authorization: every route
+   * still enforces its own guard against the grants in the database, so a client holding a
+   * stale list can ask and be refused, and nothing more. Empty for everybody who is not
+   * platform staff.
+   */
+  adminPermissions?: string[];
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *
@@ -4137,6 +4197,20 @@ export interface MyReceiptRow extends ReceiptSummary {
     event: { title: string };
     eventSession: { startsAt: string };
   };
+}
+
+/**
+ * What `/receipts/mine` actually returns.
+ *
+ * Deliberately the same shape as `ReceiptListPage` rather than `Paged<T>`: this mirrors the
+ * endpoint, and the endpoint has paged this way since it was written. The client's job is to
+ * describe the server, not to wish it were consistent.
+ */
+export interface MyReceiptsPage {
+  items: MyReceiptRow[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ReceiptListPage {

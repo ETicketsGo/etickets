@@ -2021,19 +2021,19 @@ model PaymentAttempt {
 }
 
 model Refund {
-  id                String       @id @default(cuid())
-  bookingId         String
-  booking           Booking      @relation(fields: [bookingId], references: [id])
-  organizationId    String
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  amountMinor       Int
+  id                       String       @id @default(cuid())
+  bookingId                String
+  booking                  Booking      @relation(fields: [bookingId], references: [id])
+  organizationId           String
+  organization             Organization @relation(fields: [organizationId], references: [id])
+  amountMinor              Int
   /// The portion of `amountMinor` that is tax being returned.
   ///
   /// Recorded rather than re-derived: the credit note has to state the tax component exactly,
   /// and apportioning it back out of a total afterwards reintroduces rounding error into a
   /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
   /// every refund where no tax was charged — which is the default.
-  taxMinor          Int          @default(0)
+  taxMinor                 Int          @default(0)
   /// The part of `taxMinor` that was ADDED to the price rather than already inside it.
   ///
   /// Whose money a refund returns depends on this. Tax inside the ticket price was the
@@ -2041,16 +2041,34 @@ model Refund {
   /// retained by the platform, and charging it back to the organizer takes money they never
   /// received. Zero for every refund of an inclusive-tax market (India), which is why the
   /// ledger's old "deduct the whole refund" was right there and wrong everywhere else.
-  taxAddedMinor     Int          @default(0)
-  status            RefundStatus @default(REQUESTED)
-  reason            String
-  ticketIds         String[]     @default([])
-  requestedByUserId String?
-  processedByUserId String?
-  providerRef       String?
-  creditNote        Receipt?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  taxAddedMinor            Int          @default(0)
+  /// The part of `amountMinor` that is PLATFORM money rather than the organizer's.
+  ///
+  /// Settlement charges a refund to the organizer as `amountMinor - taxAddedMinor`, because a
+  /// normal refund returns the ticket and the tax on it, and the ticket face value is exactly
+  /// what the organizer's gross was. Fees were never in that gross - they are borne by the
+  /// customer on top of it and only reported in settlement.
+  ///
+  /// A cancellation returns the fees too. Without this field, raising `amountMinor` to the full
+  /// amount paid would claw back from the organizer money they never received. So the fee
+  /// portion is recorded here and excluded from their share.
+  ///
+  /// Stored rather than derived, for the same reason `taxAddedMinor` is: it is a fact about this
+  /// refund, decided when it is created. Deriving it later would have to re-decide it against
+  /// whatever partial refunds exist by then.
+  ///
+  /// Zero on every refund written before this existed and on every buyer-requested refund, so
+  /// the settlement arithmetic for those is exactly what it was.
+  platformFeeRefundedMinor Int          @default(0)
+  status                   RefundStatus @default(REQUESTED)
+  reason                   String
+  ticketIds                String[]     @default([])
+  requestedByUserId        String?
+  processedByUserId        String?
+  providerRef              String?
+  creditNote               Receipt?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
 
   @@index([bookingId])
   // Composite serves both status-only reads and the risk service's
