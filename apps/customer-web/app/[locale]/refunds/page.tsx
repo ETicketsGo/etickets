@@ -16,8 +16,11 @@ export const metadata: Metadata = {
   It used to say: "We have not decided whether fees are refundable, or how cancellations
   work." Both are now decided, and the second one is decided in CODE, not only on paper:
 
-    - Fees. The refund calculation returns the ticket price and the tax charged on it. Fees
-      were already excluded; the business has now ratified that.
+    - Fees, when the BUYER asks. The refund returns the ticket price and the tax charged on
+      it; fees stay. That was already the behaviour and the business has ratified it.
+    - Fees, when WE cancel. The buyer gets back everything they paid, fees included. They did
+      not cancel, so they do not absorb our fee for it. Same refund machinery, one different
+      figure - see `sessionCancelled` in `refunds.service.ts`.
     - Cancellation. A cancelled show opens a refund for every paid booking automatically,
       through the ordinary refund queue. See `cancellation-refunds.service.ts`.
 
@@ -67,12 +70,16 @@ export default function RefundsPage() {
             </p>
 
             <h2>What comes back</h2>
+            <p>What you get back depends on who cancelled.</p>
             <p>
-              You get the price of the tickets you return, and the tax charged on those tickets.
+              <strong>If you ask for the refund:</strong> you get the price of the tickets you
+              return, and the tax charged on those tickets. Booking fees and payment fees are not
+              returned. These pay for the service you have already used.
             </p>
             <p>
-              <strong>Booking fees and payment fees are not returned.</strong> These pay for the
-              service you have already used.
+              <strong>If the organizer or ETicketsGo cancels:</strong> you get back the full amount
+              you paid for that booking. That includes the tickets, the tax, and our fees. You did
+              not cancel, so you do not pay our fee for it.
             </p>
             <p>
               You can return some of your tickets and keep the rest. We never refund more than you
@@ -87,6 +94,11 @@ export default function RefundsPage() {
             <p>
               The refund window does not apply. If the organizer has turned refunds off for that
               event, that does not apply either. The show is not happening, so the money comes back.
+            </p>
+            <p>
+              <strong>You get back the full amount you paid</strong> for that booking - the tickets,
+              the tax, and the booking and payment fees. This is the one case where our fees come
+              back, because you are not the one who cancelled.
             </p>
             <p>
               We tell you that the show is cancelled, and you can see the refund on your booking. A

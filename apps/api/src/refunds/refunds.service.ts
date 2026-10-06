@@ -428,12 +428,52 @@ export class RefundsService {
 
       Both figures are after the discount, because tax was levied on the discounted price.
     */
-      const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor);
+      /*
+        ── WHO CANCELLED DECIDES WHAT COMES BACK ─────────────────────────────────────────
+        A buyer who changes their mind gets the tickets and their tax. A buyer whose show was
+        cancelled gets everything they paid, fees included: they did nothing, and the thing
+        they bought is not happening. Making them absorb our fee for our cancellation is the
+        one case where the long-standing fee rule produces the wrong answer.
+
+        Same machinery, two inputs. The amount is still bounded by what was collected, still
+        written as one REQUESTED refund by the same code path, still carries the same states,
+        audit and execution controls. Only the figure differs, and only on this branch.
+      */
+      const cancellation = options.sessionCancelled === true;
+
+      // Fee tax comes back only when the fees do.
+      const tax = refundTax(booking.taxLines ?? [], ticketsMinor, bookingTicketsMinor, {
+        includeFeeTax: cancellation,
+      });
       const taxMinor = tax.taxMinor;
-      const amountMinor = ticketsMinor + tax.addedMinor;
+
+      const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
+
+      /*
+        Everything still owed on the booking, not a figure rebuilt from parts. Rebuilding it
+        as tickets + fees + tax would be a second definition of "what they paid" that could
+        drift from `totalMinor`, and the invariant below compares against `totalMinor`. Taking
+        the remainder directly means a cancellation lands exactly on the boundary rather than
+        near it, and a booking already partly refunded returns only what is left.
+      */
+      const amountMinor = cancellation
+        ? Math.max(0, booking.totalMinor - priorAmount)
+        : ticketsMinor + tax.addedMinor;
+
+      /*
+        The part of that which is ours, not the organizer's.
+
+        Settlement charges them `amountMinor - taxAddedMinor`, which for a normal refund is
+        the ticket face value - exactly their gross. The remainder on a cancellation is the
+        fees, which were never in their gross, so it is recorded here and taken off their
+        share. Derived by subtraction rather than re-adding the fee columns, so it cannot
+        disagree with the amount actually being returned.
+      */
+      const platformFeeRefundedMinor = cancellation
+        ? Math.max(0, amountMinor - tax.addedMinor - ticketsMinor)
+        : 0;
 
       // Never let cumulative refunds exceed what was paid.
-      const priorAmount = priorRefunds.reduce((s, r) => s + r.amountMinor, 0);
       if (priorAmount + amountMinor > booking.totalMinor) {
         throw new AppException(
           ErrorCodes.REFUND_NOT_ELIGIBLE,
@@ -455,6 +495,7 @@ export class RefundsService {
             on top was collected and kept by the platform. Zero in an inclusive-tax market.
           */
           taxAddedMinor: tax.addedMinor,
+          platformFeeRefundedMinor,
           reason: input.reason,
           status: RefundStatus.REQUESTED,
           ticketIds: targetTickets.map((t) => t.id),
