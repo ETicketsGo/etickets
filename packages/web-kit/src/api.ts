@@ -1300,6 +1300,17 @@ export const api = {
      * Search rather than a full list: a busy screening is several hundred seats, and
      * scrolling that at a door under time pressure is how the wrong seat gets admitted.
      */
+    /** Shows running now, for the gate screen to choose from. Carries no money. */
+    gateSessions: (organizationId: string) =>
+      request<
+        {
+          id: string;
+          eventTitle: string;
+          startsAt: string;
+          venueName: string | null;
+          startsAtLabel: string;
+        }[]
+      >(`/checkins/sessions${qs({ organizationId })}`),
     roster: (eventSessionId: string, q?: string) =>
       request<CheckInRosterRow[]>(`/checkins/roster${qs({ eventSessionId, q })}`),
     /**
