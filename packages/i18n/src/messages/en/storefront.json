@@ -530,7 +530,7 @@
     "support": "Support",
     "allInBooking": "All tickets in this booking",
     "autoAdvance": "Auto-advance",
-    "notAssigned": "Not yet assigned",
+    "notAssigned": "Not passed to anyone else",
     "yours": "This ticket is yours",
     "anAttendee": "an attendee",
     "invitationSent": "Invitation sent to {name}",

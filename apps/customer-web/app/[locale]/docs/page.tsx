@@ -9,7 +9,6 @@ import {
   BarChart3,
   Wrench,
   History,
-  Blocks,
   ArrowRight,
 } from 'lucide-react';
 import { Container, Section, SectionHeading } from '@/components/marketing/kit';
@@ -85,12 +84,11 @@ const SECTIONS = [
     body: 'What shipped across each phase and release.',
     href: '/changelog',
   },
-  {
-    icon: Blocks,
-    title: 'Architecture',
-    body: 'The modular-monolith design, data model, and cross-cutting concerns.',
-    href: '/about',
-  },
+  /*
+    The Architecture card pointed at /about, which is a placeholder page about the company
+    rather than the architecture. It is not linked at launch - see the footer and the sitemap -
+    so a card leading there would be a dead end dressed as documentation.
+  */
 ];
 
 export default function DocsPage() {

@@ -530,7 +530,7 @@
     "support": "Assistance",
     "allInBooking": "Tous les billets de cette réservation",
     "autoAdvance": "Avance automatique",
-    "notAssigned": "Pas encore attribué",
+    "notAssigned": "Pas transmis à quelqu'un d'autre",
     "yours": "Ce billet est à vous",
     "anAttendee": "un participant",
     "invitationSent": "Invitation envoyée à {name}",

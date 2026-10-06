@@ -1,6 +1,5 @@
 import type { MetadataRoute } from 'next';
 import { DEFAULT_LOCALE, LOCALES } from '@eticketsgo/i18n';
-import { POSTS } from '@/lib/blog';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://eticketsgo.com';
 
@@ -13,12 +12,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     '/solutions',
     '/organizers',
     '/customers',
-    '/about',
+    /*
+      No '/about' and no '/blog', and no blog posts below.
+
+      Both pages state that their content is a placeholder, and that is true. Submitting them
+      to search engines asks the world to index sample articles and sample founder bios as
+      this company's own writing. The routes still answer for anyone holding a link; they are
+      simply not advertised. Put them back when there is real content behind them.
+    */
     '/contact',
     '/faq',
     '/docs',
     '/docs/api',
-    '/blog',
     '/changelog',
     '/events',
     '/privacy',
@@ -55,12 +60,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     alternates: { languages: languages(r) },
   }));
 
-  const blogEntries: MetadataRoute.Sitemap = POSTS.map((p) => ({
-    url: `${SITE_URL}/blog/${p.slug}`,
-    lastModified: new Date(p.date),
-    changeFrequency: 'monthly',
-    priority: 0.6,
-  }));
-
-  return [...staticEntries, ...blogEntries];
+  return staticEntries;
 }
