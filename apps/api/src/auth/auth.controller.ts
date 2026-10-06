@@ -210,10 +210,16 @@ export class AuthController {
       it look like a setting, and settings imply the platform will keep using it — which is
       exactly the promise a place-of-supply field should not make.
     */
-    const [lastBuyerRegion, details] = await Promise.all([
+    const [lastBuyerRegion, details, permissions] = await Promise.all([
       this.auth.lastBuyerRegion(user.id),
       this.auth.accountDetails(user.id),
+      /*
+        What this operator may do, so the back office can offer them their own work rather
+        than every operator the same twenty-four menu items and a landing page that refuses
+        them. It describes what to OFFER; every route still enforces its own guard.
+      */
+      this.auth.myAdminPermissions(user.id, user.roles),
     ]);
-    return { ...user, lastBuyerRegion, ...details };
+    return { ...user, lastBuyerRegion, ...details, ...permissions };
   }
 }

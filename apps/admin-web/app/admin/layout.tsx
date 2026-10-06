@@ -23,6 +23,7 @@ import {
   Scale,
   Landmark,
   Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 
 /*
@@ -48,6 +49,13 @@ const nav: NavItem[] = [
   { label: 'Refunds', href: '/admin/refunds', icon: RotateCcw },
   { label: 'Payouts', href: '/admin/payouts', icon: Banknote },
   { label: 'Settlements', href: '/admin/settlements', icon: Landmark },
+  /*
+    Chargebacks had no way in at all. The data has been mirrored from the provider since
+    Connect went in, with a deadline on each one, and no screen could show it - so this is
+    a new item rather than a moved one. It sits with the money, next to Settlements,
+    because a dispute blocks a settlement.
+  */
+  { label: 'Chargebacks', href: '/admin/disputes', icon: ShieldAlert },
   { label: 'Finance Recon', href: '/admin/finance-reconciliation', icon: Scale },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },
 

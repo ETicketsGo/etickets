@@ -1928,6 +1928,12 @@ export const api = {
       }),
 
     // ─── Marketplace settlements (admin/finance) ───
+    /**
+     * Open chargebacks, soonest deadline first. Read-only: evidence is submitted in the
+     * provider's dashboard and the outcome returns through the webhook. Needs FINANCE_READ.
+     */
+    disputes: () => request<OpenDisputes>('/admin/disputes'),
+
     settlements: {
       list: (
         params?: PageParams & {
@@ -2198,6 +2204,31 @@ export type PageParams = {
   page?: number;
   pageSize?: number;
 };
+/**
+ * An open chargeback. The platform is merchant of record, so a dispute is money the platform
+ * has to answer for, with a deadline the provider sets and nobody here can extend.
+ */
+export interface DisputeRow {
+  id: string;
+  provider: string;
+  providerDisputeId: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  reason: string | null;
+  /** When the provider stops accepting an answer. Null when it set no deadline. */
+  evidenceDueBy: string | null;
+  createdAt: string;
+  bookingId: string | null;
+  organization: { id: string; name: string } | null;
+}
+
+export interface OpenDisputes {
+  disputes: DisputeRow[];
+  /** Disputed money per currency. Never summed across them. */
+  atRisk: { currency: string; totalMinor: number }[];
+}
+
 export interface Paged<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
@@ -2208,6 +2239,16 @@ export interface AuthUser {
   email: string;
   fullName: string;
   roles: string[];
+  /**
+   * What this account may do in the back office, as the server computes it.
+   *
+   * Present so the console can offer an operator their OWN work instead of all twenty-four
+   * menu items and a landing page that refuses them. It is never authorization: every route
+   * still enforces its own guard against the grants in the database, so a client holding a
+   * stale list can ask and be refused, and nothing more. Empty for everybody who is not
+   * platform staff.
+   */
+  adminPermissions?: string[];
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *
