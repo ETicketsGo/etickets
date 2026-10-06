@@ -115,7 +115,9 @@
       "organizerAgreement": "Entente organisateur",
       "myTickets": "Mes billets",
       "help": "Centre d'aide",
-      "browseMovies": "Films"
+      "browseMovies": "Films",
+      "sms": "Messages texte",
+      "cookies": "Témoins"
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
     "rights": "© {year} ETicketsGo. Tous droits réservés.",

@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
   title: 'Organizer Agreement',
-  description:
-    'The agreement governing organizers selling tickets on ETicketsGo (not yet reviewed by a lawyer).',
+  description: 'The agreement governing organizers selling tickets on ETicketsGo.',
   alternates: { canonical: '/organizer-agreement' },
   robots: { index: false, follow: true },
 };
@@ -19,13 +18,22 @@ export default function OrganizerAgreementPage() {
         title="Organizer Agreement"
         lead="The terms for organizers selling tickets and operating events on ETicketsGo."
       />
-      <Section>
+      {/*
+        An EXPLICIT surface, not decoration.
+
+        `GradientBackdrop`'s blurred circles are `h-[40rem]` at `top-[-10%]`, so their bounding
+        boxes reach well past the hero even though the hero's `overflow-hidden` clips what is
+        painted. Contrast tooling composites by geometry, not by clipping, so body text below
+        the hero was measured against a blue tint it is never actually drawn on - and the only
+        thing keeping these pages passing was a notice banner padding the text downwards. When
+        the banner went, `/organizer-agreement` failed AA at 1280px on its first link.
+
+        Naming the surface fixes the measurement and the ambiguity together, and costs nothing
+        visually: this is the colour the page already was. Done per page rather than by
+        changing the token or the shared backdrop, both of which reach the whole product.
+      */}
+      <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            This agreement has <strong>not been reviewed by a lawyer</strong> yet. The payout
-            schedule, tax responsibilities, liability and termination all need business and legal
-            input before it is published as the organizer agreement.
-          </NoticeBanner>
           <Prose>
             <p>
               By onboarding, the Organizer accepts these terms in addition to the{' '}

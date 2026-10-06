@@ -30,14 +30,15 @@ const FILLED: BusinessDetails = {
 };
 
 describe('nothing is published until somebody publishes it', () => {
-  it('ships with every detail unset', () => {
+  it('publishes exactly the two details the business has committed to, and no others', () => {
     /*
       This is the assertion that fails if anybody invents a value to make a page look done.
-      Filling one in is a legitimate act - it just has to be deliberate enough to update a test.
+      Filling one in is a legitimate act - it just has to be deliberate enough to update a
+      test, which is what happened here: the owner published the operating entity and the
+      support address on 2026-10-06. The rest are still commitments nobody has made, and the
+      list below is what keeps them honest.
     */
     expect(missingBusinessDetails()).toEqual([
-      'legalName',
-      'supportEmail',
       'organizerEmail',
       'salesEmail',
       'partnershipsEmail',
@@ -48,7 +49,15 @@ describe('nothing is published until somebody publishes it', () => {
     ]);
   });
 
+  it('publishes a support address that can actually receive mail', () => {
+    // The guard is in the render path, so a published value still has to survive it.
+    expect(publishedDetail(BUSINESS_DETAILS.supportEmail)).toBe('support@eticketsgo.com');
+    expect(publishedDetail(BUSINESS_DETAILS.legalName)).toBe('DeepTrics LLC');
+  });
+
   it('keeps the storefront notice up while anything is missing', () => {
+    // Still true, and deliberately so: a postal address and a support phone are not published.
+    // The notice is derived, so it retires itself when they are - nobody has to remember.
     expect(needsPlaceholderNotice()).toBe(true);
   });
 
@@ -68,8 +77,10 @@ describe('nothing is published until somebody publishes it', () => {
 });
 
 describe('whether a customer could get help', () => {
-  it('says no today, because they could not', () => {
-    expect(canReachSupport()).toBe(false);
+  it('says yes, now that there is somewhere to write', () => {
+    // Was false for the whole of the project's life before 2026-10-06. The customer-essential
+    // pair - who was paid, and where to write - is now published.
+    expect(canReachSupport()).toBe(true);
   });
 
   it('needs both who was paid and where to write', () => {

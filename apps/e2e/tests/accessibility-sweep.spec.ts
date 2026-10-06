@@ -53,6 +53,8 @@ const CUSTOMER_PUBLIC = [
   '/refunds',
   '/register',
   '/solutions',
+  '/sms',
+  '/cookies',
   '/terms',
   '/checkout/cancel',
   '/checkout/success',

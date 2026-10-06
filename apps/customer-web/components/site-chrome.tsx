@@ -38,6 +38,8 @@ const MARKETING_EXACT = new Set([
   '/terms',
   '/refunds',
   '/organizer-agreement',
+  '/sms',
+  '/cookies',
 ]);
 const MARKETING_PREFIX = ['/docs', '/blog'];
 

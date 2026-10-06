@@ -4313,6 +4313,21 @@ model MarketingConsent {
   ipAddress String?
   userAgent String?
 
+  /// The market the consent was given in, ISO-3166 alpha-2. Which rules applied is a
+  /// property of WHERE, and a consent record that cannot say where is hard to defend.
+  country       String?
+  /// The disclosure the person actually read, as `TYPE/JURISDICTION/vN` — the same label
+  /// `policyVersionLabel()` produces. A string, not a foreign key: it has to stay legible in
+  /// an export and must survive the policy registry being reorganised around it.
+  policyVersion String?
+  /// The number the consent was given FOR, snapshotted at the moment of consent.
+  ///
+  /// Only ever set for the `sms` and `whatsapp` channels, and only from a number the account
+  /// has already verified — this is not a place to collect phone numbers. It is here because
+  /// the subject of an SMS consent is the number, and a person can change theirs afterwards:
+  /// without the snapshot the record says somebody agreed, but not what they agreed about.
+  phone         String?
+
   createdAt DateTime @default(now())
 
   /// Newest row per subject+channel is the current state, so the read is an index scan.

@@ -1,7 +1,12 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
-import { PageHero, NoticeBanner, Prose } from '@/components/marketing/blocks';
+import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
+import {
+  PolicyJurisdictionPicker,
+  PolicyMeta,
+  jurisdictionFromSearch,
+} from '@/components/legal/policy-chrome';
 
 export const metadata: Metadata = {
   title: 'Refund Policy',
@@ -32,7 +37,12 @@ export const metadata: Metadata = {
 
   Written to ASD-STE100: short sentences, one idea each, active voice, no legal throat-clearing.
 */
-export default function RefundsPage() {
+export default async function RefundsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string | string[] }>;
+}) {
+  const country = jurisdictionFromSearch((await searchParams).country);
   return (
     <>
       <PageHero
@@ -40,12 +50,24 @@ export default function RefundsPage() {
         title="Refund Policy"
         lead="When you can get a refund, what comes back, and what happens if an event is cancelled."
       />
-      <Section>
+      {/*
+        An EXPLICIT surface, not decoration.
+
+        `GradientBackdrop`'s blurred circles are `h-[40rem]` at `top-[-10%]`, so their bounding
+        boxes reach well past the hero even though the hero's `overflow-hidden` clips what is
+        painted. Contrast tooling composites by geometry, not by clipping, so body text below
+        the hero was measured against a blue tint it is never actually drawn on - and the only
+        thing keeping these pages passing was a notice banner padding the text downwards. When
+        the banner went, `/organizer-agreement` failed AA at 1280px on its first link.
+
+        Naming the surface fixes the measurement and the ambiguity together, and costs nothing
+        visually: this is the colour the page already was. Done per page rather than by
+        changing the token or the shared backdrop, both of which reach the whole product.
+      */}
+      <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
-          <NoticeBanner>
-            A lawyer has not yet reviewed this page. The rules below are the rules the platform
-            applies today.
-          </NoticeBanner>
+          <PolicyJurisdictionPicker type="REFUNDS" country={country} path="/refunds" />
+          <PolicyMeta type="REFUNDS" country={country} />
           <Prose>
             <h2>The event sets the refund window</h2>
             <p>
