@@ -1,8 +1,12 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
-import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 import { Link } from '@/i18n/navigation';
+import {
+  PolicyJurisdictionPicker,
+  PolicyMeta,
+  jurisdictionFromSearch,
+} from '@/components/legal/policy-chrome';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -12,8 +16,12 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
-export default function PrivacyPage() {
-  const controller = publishedDetail(BUSINESS_DETAILS.legalName);
+export default async function PrivacyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string | string[] }>;
+}) {
+  const country = jurisdictionFromSearch((await searchParams).country);
 
   return (
     <>
@@ -38,11 +46,9 @@ export default function PrivacyPage() {
       */}
       <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
+          <PolicyJurisdictionPicker type="PRIVACY" country={country} path="/privacy" />
+          <PolicyMeta type="PRIVACY" country={country} />
           <Prose>
-            {/* Derived, never invented - see the note on the terms page. */}
-            <p>
-              <strong>Controller:</strong> {controller ?? 'ETicketsGo'}
-            </p>
             <h2>1. Data we collect</h2>
             <ul>
               <li>Account: name, email, password hash (bcrypt), roles.</li>
@@ -96,9 +102,37 @@ export default function PrivacyPage() {
               use it only for that purpose and under contract, and where the law requires
               disclosure. Agreeing to text messages is never a condition of buying a ticket.
             </p>
-            <h2>8. Children</h2>
+            <h2>8. Your country</h2>
+            {country === 'IN' ? (
+              <p>
+                Your data is handled by Deeptrics Software Solution Pvt Ltd for bookings in India.
+                Payments are processed by Razorpay, which receives the details needed to take the
+                payment.
+              </p>
+            ) : null}
+            {country === 'US' ? (
+              <p>
+                Your data is handled by DeepTrics LLC. Our text message programme is described in
+                the <Link href="/sms">text message programme</Link>.
+              </p>
+            ) : null}
+            {country === 'CA' ? (
+              <p>
+                Your data is handled by DeepTrics LLC. We send commercial messages only where you
+                have agreed to them, and we keep a record of when and how you agreed so we can show
+                it on request.
+              </p>
+            ) : null}
+            {country === 'GLOBAL' ? (
+              <p>
+                Your data is handled by DeepTrics LLC. Data may be processed in a country other than
+                your own, including the United States and India, by us and by the service providers
+                named above.
+              </p>
+            ) : null}
+            <h2>9. Children</h2>
             <p>The service is not directed to children; we do not knowingly collect their data.</p>
-            <h2>9. Changes & contact</h2>
+            <h2>10. Changes & contact</h2>
             <p>
               We may update this policy; material changes will be communicated. Reach us through the{' '}
               <Link href="/contact">contact page</Link>.

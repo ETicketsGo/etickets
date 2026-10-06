@@ -1,7 +1,12 @@
 import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
-import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
+import {
+  PolicyJurisdictionPicker,
+  PolicyMeta,
+  jurisdictionFromSearch,
+} from '@/components/legal/policy-chrome';
+import { legalEntityFor } from '@eticketsgo/shared-types';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
@@ -11,8 +16,13 @@ export const metadata: Metadata = {
   robots: { index: false, follow: true },
 };
 
-export default function TermsPage() {
-  const operator = publishedDetail(BUSINESS_DETAILS.legalName);
+export default async function TermsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string | string[] }>;
+}) {
+  const country = jurisdictionFromSearch((await searchParams).country);
+  const operator = legalEntityFor(country).legalName;
 
   return (
     <>
@@ -37,18 +47,9 @@ export default function TermsPage() {
       */}
       <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
+          <PolicyJurisdictionPicker type="TERMS" country={country} path="/terms" />
+          <PolicyMeta type="TERMS" country={country} />
           <Prose>
-            {/*
-              Derived, never invented. The operating legal entity is a commitment only the
-              business can make, so this line appears when `legalName` is published and is
-              simply absent until then - rather than announcing our own drafting status to
-              customers. The footer's self-retiring notice already discloses the gap.
-            */}
-            {operator ? (
-              <p>
-                <strong>Operator:</strong> {operator}
-              </p>
-            ) : null}
             <h2>1. Overview</h2>
             <p>
               ETicketsGo is a ticketing platform connecting event <strong>Organizers</strong> with{' '}
@@ -110,9 +111,70 @@ export default function TermsPage() {
             <p>
               Personal data is handled per the <Link href="/privacy">Privacy Policy</Link>.
             </p>
-            <h2>11. Changes</h2>
+            {/*
+              The country supplement. Every clause here describes behaviour the product
+              actually has - inclusive GST and regulated ticket ceilings in India, a
+              French-language storefront and a recorded consent trail in Canada, the
+              registered messaging programme in the US. Nothing is asserted that the platform
+              does not do, and the contracting entity is resolved, never typed.
+            */}
+            <h2>11. Your country</h2>
+            <p>
+              You are reading the version for{' '}
+              <strong>
+                {country === 'GLOBAL'
+                  ? 'countries where we have no local entity'
+                  : country === 'US'
+                    ? 'the United States'
+                    : country === 'IN'
+                      ? 'India'
+                      : 'Canada'}
+              </strong>
+              . Your contract for a ticket is with <strong>{operator}</strong>, and the market of
+              the event you book decides which version applies to that booking.
+            </p>
+            {country === 'IN' ? (
+              <ul>
+                <li>
+                  Prices are shown inclusive of GST. Your receipt itemises the tax charged on the
+                  ticket and on each fee.
+                </li>
+                <li>
+                  Where a state regulates cinema ticket prices, we apply the ceiling that applies at
+                  that venue.
+                </li>
+                <li>Tickets are sold in Indian rupees.</li>
+              </ul>
+            ) : null}
+            {country === 'CA' ? (
+              <ul>
+                <li>This storefront, your receipt and our emails are available in French.</li>
+                <li>
+                  We send commercial messages only where you have agreed to them, and we keep a
+                  record of when and how you agreed, which you can withdraw at any time.
+                </li>
+                <li>Tickets are sold in Canadian dollars.</li>
+              </ul>
+            ) : null}
+            {country === 'US' ? (
+              <ul>
+                <li>Tickets are sold in US dollars.</li>
+                <li>
+                  Our text message programme and how to leave it are described in the{' '}
+                  <Link href="/sms">text message programme</Link>.
+                </li>
+              </ul>
+            ) : null}
+            {country === 'GLOBAL' ? (
+              <p>
+                We have not published a local entity or local supplement for your country yet. These
+                terms apply, and the currency and tax shown at checkout follow the country the event
+                is in.
+              </p>
+            ) : null}
+            <h2>12. Changes</h2>
             <p>We may update these terms; material changes will be communicated.</p>
-            <h2>12. Contact</h2>
+            <h2>13. Contact</h2>
             <p>
               Use the form on the <Link href="/contact">contact page</Link>. It reaches our support
               team. We have not published a postal address or phone number yet.

@@ -4,6 +4,11 @@ import { z } from 'zod';
 import { MarketingConsentService } from './marketing-consent.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import {
+  getApplicablePolicy,
+  policyJurisdictionFor,
+  policyVersionLabel,
+} from '@eticketsgo/shared-types';
 
 /**
  * The consent scopes a person can decide about.
@@ -25,6 +30,16 @@ const CONSENT_CHANNELS = ['email', 'push', 'sms', 'whatsapp', 'whatsapp:transact
 const updateSchema = z.object({
   channel: z.enum(CONSENT_CHANNELS),
   granted: z.boolean(),
+  /*
+    The market whose disclosure the person was actually shown.
+
+    The CLIENT is the authority on which text it rendered, so it may say - but it may only
+    say the country. The VERSION is resolved server-side from the registry below, so a caller
+    cannot claim to have shown a version that does not exist, or an older one than it did.
+    Anything unrecognised normalises to the global text rather than being rejected: a consent
+    that is real should not be lost to a bad country string.
+  */
+  country: z.string().trim().max(40).optional(),
 });
 
 @ApiTags('me')
@@ -55,6 +70,16 @@ export class MarketingConsentController {
     @Ip() ip: string,
     @Headers('user-agent') userAgent?: string,
   ) {
+    const jurisdiction = policyJurisdictionFor(body.country);
+    /*
+      Which disclosure this decision was made against. SMS consent is given against the SMS
+      programme page; the other channels are governed by the privacy policy. Resolved from
+      the registry so the stored label always names a version that really exists.
+    */
+    const policyVersion = policyVersionLabel(
+      getApplicablePolicy(body.channel === 'sms' ? 'SMS' : 'PRIVACY', jurisdiction),
+    );
+
     /*
       `source` records that the decision came from the account page, in the person's own
       session. That provenance is the point: "checkbox on the settings screen" and
@@ -75,6 +100,8 @@ export class MarketingConsentController {
         : `withdrawn-by-user:${body.channel}`,
       ipAddress: ip,
       userAgent,
+      country: jurisdiction,
+      policyVersion,
     });
     return this.consent.stateFor({ userId: user.id, email: user.email }, [...CONSENT_CHANNELS]);
   }

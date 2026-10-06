@@ -6,6 +6,15 @@ export interface ConsentContext {
   source: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** ISO-3166 alpha-2 of the market the decision was made in. */
+  country?: string | null;
+  /** The disclosure actually shown, as `TYPE/JURISDICTION/vN`. */
+  policyVersion?: string | null;
+  /**
+   * The number this consent is FOR. Pass only an already-verified number, and only for a
+   * messaging channel - see the schema comment. Anything else is left null.
+   */
+  phone?: string | null;
 }
 
 export interface ConsentSubject {
@@ -62,6 +71,23 @@ export class MarketingConsentService {
       this.logger.warn(`consent not recorded for channel=${channel}: no email on the subject`);
       return;
     }
+    /*
+      The number is READ HERE, never accepted from the caller.
+
+      An SMS consent whose subject is a number the caller supplied proves nothing: anyone
+      could name somebody else's. Taking it from the account's own verified number means the
+      snapshot is of a number this person demonstrably controls, and an account with no
+      verified number simply records no number rather than an unverified one.
+    */
+    let phone = context.phone ?? null;
+    if ((channel === 'sms' || channel === 'whatsapp') && !phone && subject.userId) {
+      const owner = await this.prisma.user.findUnique({
+        where: { id: subject.userId },
+        select: { phone: true, phoneVerifiedAt: true },
+      });
+      phone = owner?.phoneVerifiedAt ? (owner.phone ?? null) : null;
+    }
+
     await this.prisma.marketingConsent.create({
       data: {
         userId: subject.userId ?? null,
@@ -71,6 +97,13 @@ export class MarketingConsentService {
         source: context.source,
         ipAddress: context.ipAddress ?? null,
         userAgent: context.userAgent ?? null,
+        country: context.country ?? null,
+        policyVersion: context.policyVersion ?? null,
+        /*
+          Snapshotted for messaging channels only. A consent on `email` has no number to
+          record, and recording one there would be collecting a phone number for no reason.
+        */
+        phone: channel === 'sms' || channel === 'whatsapp' ? phone : null,
       },
     });
   }

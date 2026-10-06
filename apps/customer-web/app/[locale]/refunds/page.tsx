@@ -2,6 +2,11 @@ import type { Metadata } from 'next';
 import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
+import {
+  PolicyJurisdictionPicker,
+  PolicyMeta,
+  jurisdictionFromSearch,
+} from '@/components/legal/policy-chrome';
 
 export const metadata: Metadata = {
   title: 'Refund Policy',
@@ -32,7 +37,12 @@ export const metadata: Metadata = {
 
   Written to ASD-STE100: short sentences, one idea each, active voice, no legal throat-clearing.
 */
-export default function RefundsPage() {
+export default async function RefundsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string | string[] }>;
+}) {
+  const country = jurisdictionFromSearch((await searchParams).country);
   return (
     <>
       <PageHero
@@ -56,6 +66,8 @@ export default function RefundsPage() {
       */}
       <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
+          <PolicyJurisdictionPicker type="REFUNDS" country={country} path="/refunds" />
+          <PolicyMeta type="REFUNDS" country={country} />
           <Prose>
             <h2>The event sets the refund window</h2>
             <p>

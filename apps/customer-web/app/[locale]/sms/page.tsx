@@ -2,6 +2,11 @@ import type { Metadata } from 'next';
 import { Container, Section, PrimaryLink } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
+import {
+  PolicyJurisdictionPicker,
+  PolicyMeta,
+  jurisdictionFromSearch,
+} from '@/components/legal/policy-chrome';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 
 /**
@@ -35,7 +40,12 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function SmsPage() {
+export default async function SmsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string | string[] }>;
+}) {
+  const country = jurisdictionFromSearch((await searchParams).country);
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const supportPhone = publishedDetail(BUSINESS_DETAILS.supportPhone);
   const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
@@ -63,6 +73,8 @@ export default function SmsPage() {
       */}
       <Section className="bg-background-canvas">
         <Container className="max-w-3xl space-y-8">
+          <PolicyJurisdictionPicker type="SMS" country={country} path="/sms" />
+          <PolicyMeta type="SMS" country={country} />
           <Prose>
             <h2>Who sends these messages</h2>
             <p>
