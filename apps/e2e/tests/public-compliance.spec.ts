@@ -90,16 +90,47 @@ test.describe('the public compliance surface', () => {
   });
 
   test.describe('country-aware policies', () => {
-    test('each market gets its own operator and version', async ({ page }) => {
+    test('names the market in words, and never the internal policy id', async ({ page }) => {
+      /*
+        The registry identifier (`TERMS/IN/v1`) is how a consent record names a document. It
+        is still resolved and still stored - it is simply not consumer copy, because a page
+        that shows it reads as a compliance console rather than a Terms page.
+      */
       await page.goto(`${CUSTOMER}/terms?country=IN`);
-      let text = await page.locator('body').innerText();
-      expect(text).toContain('Deeptrics Software Solution Pvt Ltd');
-      expect(text).toContain('TERMS/IN/v1');
+      const text = await page.locator('body').innerText();
+      expect(text).toMatch(/Applicable to\s+India/);
+      expect(text).toMatch(/Last updated October 6, 2026/);
+      expect(text).not.toMatch(/TERMS\/[A-Z]+\/v\d/);
+    });
 
-      await page.goto(`${CUSTOMER}/terms?country=US`);
-      text = await page.locator('body').innerText();
-      expect(text).toContain('DeepTrics LLC');
-      expect(text).toContain('TERMS/US/v1');
+    test('no legal page leaks a policy identifier', async ({ page }) => {
+      for (const path of LEGAL_PAGES) {
+        for (const c of ['US', 'IN', 'CA', 'GLOBAL']) {
+          await page.goto(`${CUSTOMER}${path}?country=${c}`);
+          const t = await page.locator('body').innerText();
+          expect(t, `${path}?country=${c} must not show a policy id`).not.toMatch(
+            /(TERMS|PRIVACY|SMS|REFUNDS|COOKIES)\/[A-Z]+\/v\d/,
+          );
+        }
+      }
+    });
+
+    test('states one operator, and claims no per-country contracting entity', async ({ page }) => {
+      /*
+        WHICH entity contracts with a buyer in which market is a question about corporate
+        structure that this project does not answer, so no page asserts one. An earlier
+        version resolved it from the reader's market and told an Indian reader their contract
+        was with the Indian company - an assumption dressed as a fact on a legal page.
+        docs/compliance/LEGAL-REVIEW-QUESTIONS.md
+      */
+      for (const c of ['US', 'IN', 'CA', 'GLOBAL']) {
+        await page.goto(`${CUSTOMER}/terms?country=${c}`);
+        const t = await page.locator('body').innerText();
+        expect(t).toContain('operated by DeepTrics LLC');
+        expect(t, `country=${c} must not name a second contracting entity`).not.toContain(
+          'Deeptrics Software Solution Pvt Ltd',
+        );
+      }
     });
 
     test('one country does not leak into another', async ({ page }) => {
@@ -107,7 +138,7 @@ test.describe('the public compliance surface', () => {
       await page.goto(`${CUSTOMER}/terms?country=US`);
       const text = await page.locator('body').innerText();
       expect(text).not.toMatch(/inclusive of GST/i);
-      expect(text).not.toContain('Deeptrics Software Solution Pvt Ltd');
+      expect(text).not.toMatch(/available in French/i);
     });
 
     test('an unknown country falls back instead of failing', async ({ page }) => {
@@ -118,20 +149,23 @@ test.describe('the public compliance surface', () => {
       */
       const res = await page.goto(`${CUSTOMER}/terms?country=Narnia`);
       expect(res?.status()).toBe(200);
-      expect(await page.locator('body').innerText()).toContain('TERMS/GLOBAL/v1');
+      expect(await page.locator('body').innerText()).toContain('Applicable to all other countries');
     });
 
-    test('the country can be changed by the reader, and says which is current', async ({
-      page,
-    }) => {
+    test('the reader can change region, and the control is announced', async ({ page }) => {
       await page.goto(`${CUSTOMER}/terms?country=US`);
-      const picker = page.locator('nav[aria-label="Choose the country this document applies to"]');
-      await expect(picker.locator('a')).toHaveCount(4);
-      // Announced, not merely coloured.
-      await expect(picker.locator('a[aria-current="page"]')).toHaveCount(1);
+      await expect(page.locator('body')).toContainText('Applicable to the United States');
 
-      await picker.getByRole('link', { name: /India/ }).click();
-      await expect(page.locator('body')).toContainText('TERMS/IN/v1');
+      // Folded away by default: the document is the point, not the jurisdiction picker.
+      await page.getByText('Change region').click();
+      const options = page.locator('details a');
+      await expect(options).toHaveCount(4);
+      // Announced, not merely coloured.
+      await expect(page.locator('details a[aria-current="page"]')).toHaveCount(1);
+
+      await options.filter({ hasText: 'India' }).click();
+      await page.waitForURL(/country=IN/);
+      await expect(page.locator('body')).toContainText('Applicable to India');
     });
   });
 
