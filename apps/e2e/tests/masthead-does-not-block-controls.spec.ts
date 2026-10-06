@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
+import { test, expect, type Locator } from '@playwright/test';
+import { ORGANIZER, apiLogin, seedBrowserAuth } from './helpers';
 
 /**
  * The header's centred org name must not swallow presses meant for the controls under it.
@@ -9,7 +9,7 @@ import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
  * `pointer-events-none` so the invisible full-width band cannot intercept anything. The box
  * INSIDE it then set `pointer-events-auto`, which gave the bug straight back: the name is
  * only as wide as the text, but on a narrow screen the centre of the header is exactly where
- * the theme controls are.
+ * the appearance control is.
  *
  * Measured on the gate - a screen used on a phone by definition:
  *
@@ -17,24 +17,35 @@ import { ORGANIZER, API, apiLogin, seedBrowserAuth } from './helpers';
  *     412px   it covered Light and Dark
  *     1440px  no overlap
  *
- * So on a phone the theme control could not be pressed at all. Nothing caught it: the markup
- * is correct, the buttons are rendered, enabled and focusable, and every assertion of the form
- * "is it visible" passes. Only asking the browser WHICH ELEMENT IS ON TOP finds it, which is
- * why this test does that rather than clicking and hoping.
+ * So on a phone the appearance control could not be pressed at all. Nothing caught it: the
+ * markup is correct, the buttons are rendered, enabled and focusable, and every assertion of
+ * the form "is it visible" passes. Only asking the browser WHICH ELEMENT IS ON TOP finds it.
  *
- * ── WHY IT RUNS AT TWO WIDTHS ──────────────────────────────────────────────────────
- * The overlap is a function of viewport width and the length of the organisation's name, so a
- * desktop-only check would have stayed green through the whole defect.
+ * ── WHY IT RUNS AT FOUR WIDTHS ─────────────────────────────────────────────────────
+ * The overlap is a function of viewport width and of how long the organisation's name is, so
+ * a desktop-only check would have stayed green through the whole defect. 320 is the narrowest
+ * phone worth supporting, 390 and 412 are the common ones, and the desktop case is there to
+ * prove the fix did not simply stop rendering the control.
  */
-const CONTROLS = ['Light', 'Dark', 'Match system'];
+const APPEARANCE = ['Light', 'Dark', 'Match system'];
 
-for (const width of [320, 412]) {
+/** What sits on top at this element's centre, or null when the element itself does. */
+function coveredBy(control: Locator): Promise<string | null> {
+  return control.evaluate((el: Element) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    if (!top || el.contains(top)) return null;
+    return `<${top.tagName.toLowerCase()}> "${(top.textContent || '').trim().slice(0, 30)}"`;
+  });
+}
+
+for (const width of [320, 390, 412, 1440]) {
   test(`the masthead does not cover the header controls at ${width}px`, async ({
     page,
     context,
     request,
   }) => {
-    await page.setViewportSize({ width, height: 780 });
+    await page.setViewportSize({ width, height: 820 });
     const tokens = await apiLogin(request, 'owner@eticketsgo.test');
     await seedBrowserAuth(context, tokens);
 
@@ -45,34 +56,53 @@ for (const width of [320, 412]) {
 
     /*
       Found FIRST, and asserted. The first version of this test skipped a control it could not
-      find, so when it could not find any of them it passed having checked nothing - and it
-      did exactly that against the broken build, which is how the hole was noticed. A test
-      whose assertions can all be skipped reports the absence of evidence as evidence.
+      find, so when it found none it passed having checked nothing - and it did exactly that
+      against the broken build, which is how the hole was noticed. A test whose assertions can
+      all be skipped reports the absence of evidence as evidence.
+
+      `radio`, not `button`: the appearance control is a segmented radiogroup, which is the
+      correct markup for three mutually exclusive choices. Asking for the wrong role found
+      nothing, and "nothing" was being read as "nothing wrong".
     */
-    const found: string[] = [];
-    for (const label of CONTROLS) {
-      if ((await page.getByRole('radio', { name: label }).count()) > 0) found.push(label);
+    const present: string[] = [];
+    for (const label of APPEARANCE) {
+      if ((await page.getByRole('radio', { name: label }).count()) > 0) present.push(label);
     }
-    expect(found, 'the header theme controls should be on this page').toEqual(CONTROLS);
+    expect(present, 'the appearance control should be in the header').toEqual(APPEARANCE);
 
-    for (const label of CONTROLS) {
-      // `radio`, not `button`: the appearance control is a segmented radiogroup, which is the
-      // right markup for it. Asking for the wrong role found nothing and skipped everything.
-      const button = page.getByRole('radio', { name: label });
-
-      /*
-        Not `toBeVisible` and not a click. A covered button is still visible, and a click
-        either lands somewhere else or times out after thirty seconds - a slow, vague failure
-        that reads as flake. Asking the browser what sits at the button's centre answers the
-        actual question and names the culprit when it fails.
-      */
-      const blockedBy = await button.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        if (!top || el.contains(top)) return null;
-        return `<${top.tagName.toLowerCase()}> "${(top.textContent || '').trim().slice(0, 30)}"`;
-      });
-      expect(blockedBy, `"${label}" is covered at ${width}px by ${blockedBy}`).toBeNull();
+    /*
+      Not `toBeVisible`, and not a click for the sweep. A covered control is still visible, and
+      a click on one either lands somewhere else or times out - a slow, vague failure that
+      reads as flake. Asking what sits on top answers the actual question and names the culprit.
+    */
+    for (const label of APPEARANCE) {
+      const control = page.getByRole('radio', { name: label });
+      expect(await coveredBy(control), `"${label}" is covered at ${width}px`).toBeNull();
     }
+
+    /*
+      The rest of the header too, because a fix that uncovers the appearance switch by
+      covering something else is not a fix. Skipped where a control is not rendered at this
+      width - that is a layout choice, not a defect - and the appearance group above is
+      already asserted to be present, so this loop cannot quietly check nothing.
+    */
+    for (const label of ['Toggle navigation', 'Sign out']) {
+      const control = page.getByRole('button', { name: label });
+      if ((await control.count()) === 0) continue;
+      expect(await coveredBy(control), `"${label}" is covered at ${width}px`).toBeNull();
+    }
+
+    /*
+      And one real press, which is the claim that actually matters. `elementFromPoint` says
+      nothing is on top; clicking proves the browser agrees and that the control still does its
+      job. Dark is used because its effect is observable on the document element: the scheme is
+      applied as a `dark` CLASS on <html>, which is what Tailwind's dark variant reads.
+    */
+    await page.getByRole('radio', { name: 'Dark' }).click({ timeout: 5_000 });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')), {
+        timeout: 5_000,
+      })
+      .toBe(true);
   });
 }
