@@ -6,7 +6,7 @@ import { Link } from '@/i18n/navigation';
 export const metadata: Metadata = {
   title: 'Organizer Agreement',
   description:
-    'The agreement governing organizers selling tickets on ETicketsGo (draft pending legal review).',
+    'The agreement governing organizers selling tickets on ETicketsGo (not yet reviewed by a lawyer).',
   alternates: { canonical: '/organizer-agreement' },
   robots: { index: false, follow: true },
 };
@@ -22,9 +22,9 @@ export default function OrganizerAgreementPage() {
       <Section>
         <Container className="max-w-3xl space-y-8">
           <NoticeBanner>
-            This is a <strong>draft for demonstration</strong>. Payout schedule, tax
-            responsibilities, liability, and termination mechanics require business and legal input
-            before publication.
+            This agreement has <strong>not been reviewed by a lawyer</strong> yet. The payout
+            schedule, tax responsibilities, liability and termination all need business and legal
+            input before it is published as the organizer agreement.
           </NoticeBanner>
           <Prose>
             <p>

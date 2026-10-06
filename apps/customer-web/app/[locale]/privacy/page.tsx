@@ -6,7 +6,7 @@ import { Link } from '@/i18n/navigation';
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description:
-    'How ETicketsGo collects, uses, and protects personal data (draft pending legal review).',
+    'How ETicketsGo collects, uses, and protects personal data (not yet reviewed by a lawyer).',
   alternates: { canonical: '/privacy' },
   robots: { index: false, follow: true },
 };
@@ -22,8 +22,9 @@ export default function PrivacyPage() {
       <Section>
         <Container className="max-w-3xl space-y-8">
           <NoticeBanner>
-            This is a <strong>draft for demonstration</strong>. Retention periods and data-subject
-            rights mechanics require privacy/legal counsel before publication.
+            This policy has <strong>not been reviewed by a lawyer</strong> yet. How long data is
+            kept, and how you exercise your rights over it, must be settled with privacy counsel
+            before this is published as the privacy policy.
           </NoticeBanner>
           <Prose>
             <p>
