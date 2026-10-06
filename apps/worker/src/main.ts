@@ -754,7 +754,15 @@ async function main(): Promise<void> {
         return { processed };
       }
       if (job.name !== 'expire-holds') return;
-      const released = await bookings.releaseExpiredHolds();
+      /*
+        `consultProvider` is what makes the expiry guard real (2026-10-06 incident): before
+        any stock goes back, a booking whose buyer opened the payment gateway is checked
+        against the provider, so a captured payment we were never told about is recovered
+        instead of being discarded as an abandoned cart. The worker is the right place for
+        it - it tolerates a network call per lapsed gateway booking, and it is the only
+        caller that runs on a timer, which is also what makes this the recovery sweeper.
+      */
+      const released = await bookings.releaseExpiredHolds(undefined, { consultProvider: true });
       if (released > 0) log('info', 'released expired holds', { released });
       // ADR-042 §4/§19 (P5.2B): AFTER the authoritative PostgreSQL release, reconcile any
       // booking workflows to EXPIRED (active mode only; idempotent; never re-releases

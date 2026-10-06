@@ -35,6 +35,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
 import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
 import { PaymentsService } from '../payments/payments.service';
+import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
 import type {
   PolicyContext,
@@ -156,6 +157,17 @@ export class BookingsService {
       before this subsystem existed.
     */
     @Optional() private readonly policyService?: CinemaPricingPolicyService,
+
+    /*
+      ON THE END, for the reason stated immediately above.
+
+      The expiry guard (2026-10-06 incident). Absent, the sweep behaves exactly as it did
+      before - which is the behaviour that released a paid booking's inventory - so the
+      wiring is what makes the guard real. `bookings.module` imports `PaymentsModule`, which
+      exports this, so the running application always has it; the optionality is purely so
+      the hand-built test harnesses above keep compiling.
+    */
+    @Optional() private readonly recovery?: PendingPaymentRecoveryService,
   ) {}
 
   /**
@@ -1863,7 +1875,10 @@ export class BookingsService {
   }
 
   /** Expire stale holds for a session (lazy expiry path). */
-  async releaseExpiredHolds(eventSessionId?: string): Promise<number> {
+  async releaseExpiredHolds(
+    eventSessionId?: string,
+    options: { consultProvider?: boolean } = {},
+  ): Promise<number> {
     const now = new Date();
     // Bounded per sweep so a flash on-sale that abandons tens of thousands of holds
     // can't load them all at once; the remainder is released on the next tick.
@@ -1873,7 +1888,16 @@ export class BookingsService {
         holdExpiresAt: { lt: now },
         ...(eventSessionId ? { eventSessionId } : {}),
       },
-      include: { items: true },
+      /*
+        The payment is read for the expiry GUARD, not for the release. A lapsed booking whose
+        buyer opened the gateway may have been paid for without us being told - a rejected or
+        delayed webhook - and this query cannot tell that apart from an abandoned cart. So the
+        provider is asked before the stock goes back. See `PendingPaymentRecoveryService`.
+      */
+      include: {
+        items: true,
+        payment: { select: { provider: true, status: true, providerOrderId: true } },
+      },
       orderBy: { holdExpiresAt: 'asc' },
       take: 500,
     });
@@ -1889,6 +1913,34 @@ export class BookingsService {
     */
     let expired = 0;
     for (const booking of stale) {
+      /*
+        THE GUARD. Nothing below may release a booking the provider has taken money for.
+
+        Three outcomes, and only one of them releases anything. `recovered` means the
+        provider held a capture we never heard about and the booking has just been put
+        through the real confirmation path instead of being thrown away; `hold_back` means we
+        could not get an answer, so the stock stays held and the next sweep asks again. Both
+        deliberately leave the inventory alone: an undelivered release is a delay, whereas
+        releasing a seat whose buyer has paid is money taken for nothing.
+
+        Only bookings that reached the payment gateway are ever asked about, so an abandoned
+        cart still costs no network call - see `needsProviderCheck`.
+      */
+      if (this.recovery) {
+        if (options.consultProvider) {
+          const outcome = await this.recovery.guardExpiry(booking);
+          if (outcome !== 'release') continue;
+        } else if (this.recovery.needsProviderCheck(booking)) {
+          /*
+            A caller that must not make a network call - `create()`, on the booking hot path -
+            still must not release this booking blind. It is left for the worker sweep, which
+            runs every minute and does consult the provider. The cost is up to a minute of
+            delay before a gateway-abandoned seat returns to sale; the alternative is the
+            incident this guard exists for.
+          */
+          continue;
+        }
+      }
       const claimed = await this.prisma.$transaction((tx) =>
         expirePendingBooking(
           tx,
