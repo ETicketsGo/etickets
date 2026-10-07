@@ -71,9 +71,27 @@ export function requireSpaceOrganizationId(space: SpaceOwnership): string {
  * Every showtime, booking window, ticket face and reminder for this space is rendered in it,
  * so an absent answer is returned as `null` and never silently replaced with the launch
  * market's zone. A hardcoded zone has already produced two real defects on this track.
+ *
+ * -- WHY THE CINEMA WINS HERE, AND ONLY HERE ----------------------------------------------
+ * Ownership and the name of the place come from the VENUE, because a venue either has an
+ * organization and a name or it does not. Timezone is different: `Venue.timezone` is NOT NULL
+ * with a default of `Asia/Kolkata`. So a venue that was never ASKED for a timezone returns
+ * the launch market's, and nothing distinguishes that from a venue genuinely in India.
+ *
+ * Preferring the venue therefore shadows a correct answer with a defaulted one. It did:
+ *
+ *   a Sydney cinema's 00:30 show was stored and reported as 06:00 - the exact IST offset -
+ *   because its venue had never been given a zone and so claimed Asia/Kolkata.
+ *
+ * `Cinema.timezone` has the same default, but it is WRITTEN at creation from what the
+ * operator actually chose, so it carries a real answer where the venue carries a guess.
+ *
+ * This is the one place the venue is not authoritative, and it stays that way until
+ * `Venue.timezone` can say "not set" - which means making it nullable and backfilling it from
+ * the cinema. Until then, inverting this is a correctness bug, not a tidy-up.
  */
 export function spaceTimezone(space: SpacePlacement): string | null {
-  return space.venue?.timezone ?? space.cinema?.timezone ?? null;
+  return space.cinema?.timezone ?? space.venue?.timezone ?? null;
 }
 
 /** What to call the place this space is in. The venue is the place; a cinema is a tenant of one. */
