@@ -203,13 +203,22 @@ the work in the section above.
 
 Still has no UI. Unchanged by this PR; recorded here because it remains outstanding.
 
-### NOT VERIFIED - one assertion is not yet proven load-bearing
+### RESOLVED - every assertion in the new spec is now proven load-bearing
 
-Of the assertions in the new spec, the ones that matter most have been observed failing -
-either against a deliberately broken build or against the real defect they describe. The "a
-new venue still asks for the location" test has **not** been shown to fail, because the
-falsification used made its branch always-on. It asserts something true today; it is not yet
-proven it would catch a regression.
+This section previously said one assertion had not been shown it could fail. It has been
+falsified since, and the gap is closed. All four now have a demonstrated failure mode:
+
+| Assertion                                         | Proven by                               |
+| ------------------------------------------------- | --------------------------------------- |
+| the venue is asked first and decides the location | removing the inheritance: fails         |
+| a new venue still asks for its location           | never asking for a location: fails      |
+| the console calls the thing one name              | caught real missed copy on two surfaces |
+| the API stores the space in the chosen venue      | failed on the wrong request parameter   |
+
+The first falsification was the weaker one: it made the new-venue branch always-on, which made
+the second test pass trivially. The second falsification is its opposite - never ask for a
+location at all - so the two together pin the rule from both sides. A guard proven in only one
+direction is not proven.
 
 ---
 
