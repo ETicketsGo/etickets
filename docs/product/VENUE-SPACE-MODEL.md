@@ -131,6 +131,24 @@ Falsified by removing the inheritance and rebuilding: the ordering test fails, a
 The spec also earned its place by catching two surfaces this change had missed, which an
 ad-hoc script with fixed waits had reported clean.
 
+### How the rename was got wrong the first time, and what still does not guard it
+
+The first sweep for leftover "room" copy was run through `grep ... | head -20`. Four files
+never reached the output, and a clipped list read as an empty one. CI then failed on
+`seated-event-wizard` asserting copy that no longer existed, which is the assertion doing its
+job. Re-run untruncated, the sweep found six more user-visible surfaces: four in event
+creation, three toasts and a hint in the sessions screen, the schedule conflict message, and
+the shape picker's own question.
+
+Worth recording because the same mistake is cheap to repeat: **a truncated grep is not a
+sweep.** This is the second time in this piece of work that a convenience-truncated or
+fixed-wait check reported clean while the defect was on the page.
+
+The vocabulary assertion in the new spec only visits `/organizer/venues`,
+`/organizer/cinemas` and `/organizer/cinemas/new`. The strings CI caught live behind a
+multi-step wizard that the assertion never reaches, so **the guard covers three pages, not
+the console.** It would not catch this class of regression again on its own.
+
 ---
 
 ## 4. What did NOT ship, and why
