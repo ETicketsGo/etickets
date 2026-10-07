@@ -78,6 +78,10 @@ function setup(
   const sms = {
     deliver: jest.fn(async (msg: { body: string; payload: Record<string, unknown> }) => {
       sent.push(msg);
+      // A REAL provider accepted it. These tests are about hashing, normalisation, templates
+      // and what reaches the log - not about log mode, which has its own suite and for which
+      // a successful-looking outcome is exactly the bug.
+      return { provider: 'twilio' };
     }),
   };
   const config = {

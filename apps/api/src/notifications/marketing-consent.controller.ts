@@ -25,7 +25,24 @@ import {
  * Somebody who declines offers has not asked to stop receiving their tickets, and a screen
  * that bundles the two into one checkbox makes that mistake on their behalf.
  */
-const CONSENT_CHANNELS = ['email', 'push', 'sms', 'whatsapp', 'whatsapp:transactional'] as const;
+const CONSENT_CHANNELS = [
+  'email',
+  'push',
+  'sms',
+  'whatsapp',
+  'whatsapp:transactional',
+  /*
+    `sms:transactional` is the same distinction as `whatsapp:transactional` above, for the
+    channel the A2P campaign covers: "you may TEXT me about my own booking", which is not
+    "you may sell to me by text". Collected at signup.
+
+    It is deliberately NOT `sms`. Writing a granted `sms` row would make the person eligible
+    for promotional text messages they never agreed to, from a checkbox whose words promise
+    booking and account notifications - the precise bundling the separate scope exists to
+    prevent.
+  */
+  'sms:transactional',
+] as const;
 
 const updateSchema = z.object({
   channel: z.enum(CONSENT_CHANNELS),
