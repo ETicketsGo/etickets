@@ -843,7 +843,9 @@
     "requiredNote": "Required channels can't be switched off. They carry your tickets and anything urgent about a show you've booked.",
     "offersHeading": "Offers and recommendations",
     "offersLead": "These are offers and recommendations only. Turning them off does not affect your tickets or your booking updates.",
-    "marketingOn": "Marketing on {channel}"
+    "marketingOn": "Marketing on {channel}",
+    "signInTitle": "Sign in to manage your notifications",
+    "signInDescription": "Your notification and text message settings are part of your ETicketsGo account."
   },
   "following": {
     "heading": "Following",
