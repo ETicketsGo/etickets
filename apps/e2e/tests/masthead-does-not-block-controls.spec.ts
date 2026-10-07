@@ -50,8 +50,10 @@ for (const width of [320, 390, 412, 1440]) {
     await seedBrowserAuth(context, tokens);
 
     await page.goto(`${ORGANIZER}/organizer`);
-    // The name has to be on screen, or this test would pass by the masthead being absent.
-    const name = page.locator('header span[title]').first();
+    // Both responsive copies carry this hook; select the one this viewport actually shows.
+    // The phone copy intentionally has no `title`, because it flows and truncates instead of
+    // occupying the centre of the header where these controls live.
+    const name = page.locator('header [data-testid="workspace-name"]:visible').first();
     await expect(name).toBeVisible({ timeout: 20_000 });
 
     /*
