@@ -50,14 +50,19 @@ function bowl(total) {
   }));
 }
 
-async function measure(size, orgId) {
+async function measure(size, orgId, registry) {
   const row = { size };
+  // Registered as they are created, so a failure part way through is still recoverable.
+  const cleanup = {};
+  registry.push(cleanup);
   const venue = await prisma.venue.create({
     data: { organizationId: orgId, name: `Scale ${size}`, city: 'Boise', country: 'United States' },
   });
+  cleanup.venueId = venue.id;
   const space = await prisma.screen.create({
     data: { venueId: venue.id, name: `Bowl ${size}`, capacity: size },
   });
+  cleanup.spaceId = space.id;
 
   // ---- build the layout -------------------------------------------------------------
   let t = process.hrtime.bigint();
@@ -69,6 +74,7 @@ async function measure(size, orgId) {
       layoutKind: 'SECTIONED',
     },
   });
+  cleanup.mapId = map.id;
   const category = await prisma.seatCategory.create({
     data: { seatMapId: map.id, name: 'Standard', basePriceMinor: 5_000 },
   });
@@ -119,6 +125,7 @@ async function measure(size, orgId) {
       category: 'Music',
     },
   });
+  cleanup.eventId = event.id;
   const session = await prisma.eventSession.create({
     data: {
       eventId: event.id,
@@ -200,26 +207,51 @@ const org = await prisma.organization.create({
   data: { name: `ScaleBench ${Date.now()}`, slug: `scalebench-${Date.now()}` },
 });
 
+/**
+ * Everything this run created, so a crash can still take it away.
+ *
+ * The first version cleaned up only after a size SUCCEEDED. A run that threw part way left a
+ * venue-less space called `Bowl 500` behind in the development database, which then appeared
+ * as a real violation in the space audit. A measurement has to be able to fail without
+ * leaving evidence that looks like a defect in the product.
+ */
+const registry = [];
+
+async function discard(c) {
+  if (!c) return;
+  await prisma.showSeat.deleteMany({ where: { seat: { seatMapId: c.mapId } } }).catch(() => {});
+  await prisma.eventSession.deleteMany({ where: { eventId: c.eventId } }).catch(() => {});
+  await prisma.event.deleteMany({ where: { id: c.eventId } }).catch(() => {});
+  await prisma.seat.deleteMany({ where: { seatMapId: c.mapId } }).catch(() => {});
+  await prisma.seatRow.deleteMany({ where: { section: { seatMapId: c.mapId } } }).catch(() => {});
+  await prisma.seatSection.deleteMany({ where: { seatMapId: c.mapId } }).catch(() => {});
+  await prisma.seatCategory.deleteMany({ where: { seatMapId: c.mapId } }).catch(() => {});
+  await prisma.seatMap.deleteMany({ where: { id: c.mapId } }).catch(() => {});
+  await prisma.screen.deleteMany({ where: { id: c.spaceId } }).catch(() => {});
+  await prisma.venue.deleteMany({ where: { id: c.venueId } }).catch(() => {});
+}
+
 try {
   for (const size of SIZES) {
     process.stdout.write(`measuring ${size}... `);
-    const { row, cleanup } = await measure(size, org.id);
+    // `measure` registers each row in `made` AS it creates it, so a throw half way through
+    // is still recoverable by the `finally` below.
+    const { row, cleanup } = await measure(size, org.id, registry);
     results.push(row);
-    process.stdout.write(`done (${row.buildMs}ms build)\n`);
-
-    await prisma.showSeat.deleteMany({ where: { seat: { seatMapId: cleanup.mapId } } });
-    await prisma.eventSession.deleteMany({ where: { eventId: cleanup.eventId } });
-    await prisma.event.delete({ where: { id: cleanup.eventId } });
-    await prisma.seat.deleteMany({ where: { seatMapId: cleanup.mapId } });
-    await prisma.seatRow.deleteMany({ where: { section: { seatMapId: cleanup.mapId } } });
-    await prisma.seatSection.deleteMany({ where: { seatMapId: cleanup.mapId } });
-    await prisma.seatCategory.deleteMany({ where: { seatMapId: cleanup.mapId } });
-    await prisma.seatMap.delete({ where: { id: cleanup.mapId } });
-    await prisma.screen.delete({ where: { id: cleanup.spaceId } });
-    await prisma.venue.delete({ where: { id: cleanup.venueId } });
+    process.stdout.write(`done (${row.buildMs}ms build)
+`);
+    await discard(cleanup);
+    registry.splice(registry.indexOf(cleanup), 1);
   }
 } finally {
-  await prisma.organization.delete({ where: { id: org.id } }).catch(() => undefined);
+  for (const c of registry) await discard(c);
+  await prisma.organization.deleteMany({ where: { id: org.id } }).catch(() => undefined);
+  // A space with no venue is the one thing this must never leave behind: it is
+  // indistinguishable from the defect the space audit exists to find.
+  const stranded = await prisma.screen.count({ where: { venueId: null } }).catch(() => 0);
+  if (stranded > 0)
+    console.error(`
+!! ${stranded} space(s) left with no venue - clean up.`);
 }
 
 console.log('\nseats  sect  build    showSeats  overview        section            whole map');
