@@ -147,6 +147,50 @@ export class VenuesService {
   }
 
   /**
+   * Every bookable space in an organization, with the venue it belongs to.
+   *
+   * One query rather than one per venue: the organizer console lists VENUE -> SPACE -> LAYOUT
+   * on a single screen, and a request per venue would make a chain with ten venues ten round
+   * trips deep for a page that is mostly waiting.
+   */
+  async allSpaces(user: RequestUser, organizationId: string) {
+    await this.access.assertMember(user, organizationId);
+
+    const spaces = await this.prisma.screen.findMany({
+      where: { venue: { organizationId } },
+      orderBy: [{ venue: { name: 'asc' } }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        status: true,
+        screenType: true,
+        venueId: true,
+        cinemaId: true,
+        cinema: { select: { id: true, name: true } },
+        seatMaps: {
+          where: { status: 'PUBLISHED' },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { id: true, name: true, layoutKind: true, version: true },
+        },
+      },
+    });
+
+    return spaces.map((s) => ({
+      id: s.id,
+      venueId: s.venueId,
+      name: s.name,
+      capacity: s.capacity,
+      status: s.status,
+      screenType: s.screenType,
+      cinemaId: s.cinemaId,
+      cinemaName: s.cinema?.name ?? null,
+      layout: s.seatMaps[0] ?? null,
+    }));
+  }
+
+  /**
    * Add a space to a venue, with no cinema involved.
    *
    * THE POINT OF THE WHOLE MIGRATION. Before it, this call was impossible: `Screen.cinemaId`

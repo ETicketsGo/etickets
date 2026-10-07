@@ -953,6 +953,26 @@ export const api = {
         capacity: number;
       }>,
     ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+    /**
+     * The bookable spaces inside a venue - cinema screens included.
+     *
+     * This read could not be written before a space carried its own venue: "the spaces in
+     * this venue" meant "the screens of the cinemas in this venue", so a hall that was not a
+     * cinema could not exist to be listed.
+     */
+    spaces: (venueId: string) => request<VenueSpace[]>(`/venues/${venueId}/spaces`),
+
+    /** Every space in the organization, for the console's one-screen VENUE -> SPACE list. */
+    allSpaces: (organizationId: string) =>
+      request<VenueSpace[]>(`/venues/spaces${qs({ organizationId })}`),
+
+    /** Add a space to a venue. No cinema involved. */
+    addSpace: (venueId: string, body: { name: string; screenType?: string; capacity: number }) =>
+      request<VenueSpace>(`/venues/${venueId}/spaces`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   movies: {
@@ -3082,6 +3102,27 @@ export interface NotificationInbox {
   items: NotificationItem[];
   unreadCount: number;
 }
+/**
+ * A bookable area inside a venue.
+ *
+ * `cinemaName` is null unless the space IS a cinema screen. That is the whole difference the
+ * model now expresses: an arena, an auditorium and a concert hall are spaces without being
+ * cinemas, and a screen is a space that happens to be one.
+ */
+export interface VenueSpace {
+  id: string;
+  /** Present on the organization-wide listing, so the console can group without a join. */
+  venueId?: string | null;
+  name: string;
+  capacity: number;
+  status: string;
+  screenType: string;
+  cinemaId: string | null;
+  cinemaName: string | null;
+  /** The newest published layout, or null when nothing has been drawn yet. */
+  layout: { id: string; name: string | null; layoutKind: string; version: number } | null;
+}
+
 export interface Venue {
   id: string;
   name: string;

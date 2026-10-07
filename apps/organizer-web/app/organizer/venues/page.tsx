@@ -19,13 +19,13 @@ import {
   locationFrom,
   useToast,
   errorMessage,
-  type Cinema,
+  type VenueSpace,
   type LocationValue,
   type Venue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { venuePayload } from '@/components/venue-fields';
-import { groupRoomsByVenue, screenCount } from './venue-rooms';
+import { groupSpacesByVenue, spaceCapabilityLabel, spaceKindLabel } from '../venue-spaces';
 
 /**
  * Venues and the rooms inside them, on one screen.
@@ -47,27 +47,33 @@ import { groupRoomsByVenue, screenCount } from './venue-rooms';
  */
 const EMPTY = { name: '', city: '', address: '', capacity: '' };
 
-/** One room under its venue: what it is, how much of it is ready, and where to go next. */
-function RoomRow({ room }: { room: Cinema }) {
-  const screens = screenCount(room);
+/**
+ * One SPACE under its venue, and the layout inside it.
+ *
+ * The three levels the console exists to make legible - VENUE -> SPACE -> LAYOUT - are all on
+ * screen here. Before this, a venue listed its CINEMAS, so an arena or an auditorium had no
+ * way to appear at all.
+ */
+function SpaceRow({ space }: { space: VenueSpace }) {
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+    <li
+      data-testid="space-row"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+    >
       <div className="min-w-0">
         <Link
-          href={`/organizer/cinemas/${room.id}`}
+          href={`/organizer/cinemas/${space.id}`}
           className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          {room.name}
+          {space.name}
         </Link>
-        {room.brand && <p className="text-caption text-text-muted">{room.brand}</p>}
+        <p className="text-caption text-text-muted">{spaceKindLabel(space)}</p>
       </div>
       {/*
-        The count, because a room with no screens has no seat map and cannot sell a numbered
-        seat — and that is invisible from the name alone.
+        What it can SELL, not what it is. "No seating plan yet" tells an organizer why their
+        space cannot offer a numbered seat, which a status badge never did.
       */}
-      <span className="text-caption text-text-secondary">
-        {screens === 0 ? 'No screens yet' : `${screens} screen${screens === 1 ? '' : 's'}`}
-      </span>
+      <span className="text-caption text-text-secondary">{spaceCapabilityLabel(space)}</span>
     </li>
   );
 }
@@ -82,14 +88,19 @@ export default function VenuesPage() {
     queryKey: ['venues', activeOrg.id],
     queryFn: () => api.venues.list(activeOrg.id),
   });
+  /*
+    SPACES, not cinemas. A space is the bookable thing; being a cinema screen is one fact
+    about it. Asked for the whole organization in one request rather than per venue, so a
+    console with ten venues is not ten round trips deep before it can draw.
+  */
   const rooms = useQuery({
-    queryKey: ['cinemas', activeOrg.id],
-    queryFn: () => api.cinemas.list(activeOrg.id),
+    queryKey: ['venue-spaces', activeOrg.id],
+    queryFn: () => api.venues.allSpaces(activeOrg.id),
   });
 
   // The rule, and the reasons for it, live in `venue-rooms.ts` where a test can reach them.
   const grouped = useMemo(
-    () => groupRoomsByVenue(venues.data ?? [], rooms.data ?? []),
+    () => groupSpacesByVenue(venues.data ?? [], rooms.data ?? []),
     [venues.data, rooms.data],
   );
 
@@ -245,7 +256,7 @@ export default function VenuesPage() {
 
       {!loading &&
         !failed &&
-        grouped.venues.map(({ venue, rooms: inside }) => {
+        grouped.venues.map(({ venue, spaces: inside, seatedCount }) => {
           return (
             <Card key={venue.id}>
               {/*
@@ -263,6 +274,19 @@ export default function VenuesPage() {
                     {[venue.city, venue.region, venue.country].filter(Boolean).join(', ')}
                     {venue.capacity != null && ` · seats about ${venue.capacity.toLocaleString()}`}
                   </p>
+                  {/*
+                    Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
+                    numbered seat" are different facts, and only the second one tells an
+                    organizer whether they are ready to sell reserved seating here.
+                  */}
+                  {inside.length > 0 && (
+                    <p className="text-caption text-text-muted">
+                      {inside.length} space{inside.length === 1 ? '' : 's'}
+                      {seatedCount > 0
+                        ? ` · ${seatedCount} with a seating plan`
+                        : ' · none with a seating plan yet'}
+                    </p>
+                  )}
                   {venue.address && <p className="text-caption text-text-muted">{venue.address}</p>}
                 </div>
                 <button
@@ -277,8 +301,8 @@ export default function VenuesPage() {
               <div className="mt-4">
                 {inside.length > 0 ? (
                   <ul className="space-y-2">
-                    {inside.map((room) => (
-                      <RoomRow key={room.id} room={room} />
+                    {inside.map((space) => (
+                      <SpaceRow key={space.id} space={space} />
                     ))}
                   </ul>
                 ) : (
@@ -313,8 +337,8 @@ export default function VenuesPage() {
             listing’s address and city right.
           </p>
           <ul className="space-y-2">
-            {grouped.orphans.map((room) => (
-              <RoomRow key={room.id} room={room} />
+            {grouped.orphans.map((space) => (
+              <SpaceRow key={space.id} space={space} />
             ))}
           </ul>
         </Card>
