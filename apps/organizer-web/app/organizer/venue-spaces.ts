@@ -81,9 +81,25 @@ export function spaceKindLabel(space: VenueSpace): string {
   return 'Space';
 }
 
-/** What a space can sell today, said plainly rather than as a status code. */
+/** The configurations a space can be set up as, current version of each. */
+export function spaceLayouts(space: VenueSpace) {
+  return space.layouts ?? (space.layout ? [space.layout] : []);
+}
+
+/**
+ * What a space can sell today, said plainly rather than as a status code.
+ *
+ * A space with SEVERAL layouts says how many, because that is the fact an operator of a real
+ * arena needs on this page: the same room is a basketball bowl on Friday and an end-stage
+ * concert on Saturday, and a page that named only one of them would be describing half their
+ * building.
+ */
 export function spaceCapabilityLabel(space: VenueSpace): string {
-  if (!space.layout) return 'No seating plan yet — sells general admission only';
-  const kind = space.layout.layoutKind === 'SECTIONED' ? 'blocks' : 'a grid';
-  return `Reserved seating · ${space.layout.name ?? 'Layout'} (${kind})`;
+  const layouts = spaceLayouts(space);
+  if (layouts.length === 0) return 'No seating plan yet — sells general admission only';
+  if (layouts.length === 1) {
+    const kind = layouts[0].layoutKind === 'SECTIONED' ? 'blocks' : 'a grid';
+    return `Reserved seating · ${layouts[0].name ?? 'Layout'} (${kind})`;
+  }
+  return `${layouts.length} layouts`;
 }

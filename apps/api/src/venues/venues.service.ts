@@ -126,8 +126,7 @@ export class VenuesService {
         cinema: { select: { id: true, name: true } },
         seatMaps: {
           where: { status: 'PUBLISHED' },
-          orderBy: { version: 'desc' },
-          take: 1,
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
           select: { id: true, name: true, layoutKind: true, version: true },
         },
       },
@@ -168,14 +167,30 @@ export class VenuesService {
         venueId: true,
         cinemaId: true,
         cinema: { select: { id: true, name: true } },
+        /*
+          EVERY published layout, not the newest one.
+
+          A space has NAMED configurations now - an arena's basketball bowl and its end-stage
+          concert are both live at once - so taking one would show an operator half of what
+          their own room can do. Ordered newest version first so the per-name reduction below
+          keeps the current version of each.
+        */
         seatMaps: {
           where: { status: 'PUBLISHED' },
-          orderBy: { version: 'desc' },
-          take: 1,
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
           select: { id: true, name: true, layoutKind: true, version: true },
         },
       },
     });
+
+    /** The current version of each named layout. */
+    const currentLayouts = (
+      maps: { id: string; name: string; layoutKind: string; version: number }[],
+    ) => {
+      const byName = new Map<string, (typeof maps)[number]>();
+      for (const m of maps) if (!byName.has(m.name)) byName.set(m.name, m);
+      return [...byName.values()];
+    };
 
     return spaces.map((s) => ({
       id: s.id,
@@ -186,6 +201,8 @@ export class VenuesService {
       screenType: s.screenType,
       cinemaId: s.cinemaId,
       cinemaName: s.cinema?.name ?? null,
+      layouts: currentLayouts(s.seatMaps),
+      /** The first one, kept so existing callers that expect a single layout still work. */
       layout: s.seatMaps[0] ?? null,
     }));
   }

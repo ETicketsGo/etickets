@@ -3119,7 +3119,14 @@ export interface VenueSpace {
   screenType: string;
   cinemaId: string | null;
   cinemaName: string | null;
-  /** The newest published layout, or null when nothing has been drawn yet. */
+  /**
+   * EVERY published configuration of this space, current version of each.
+   *
+   * A space has named layouts - an arena's basketball bowl and its end-stage concert are both
+   * live at once - so a single `layout` would show an operator half of what their room does.
+   */
+  layouts?: { id: string; name: string; layoutKind: string; version: number }[];
+  /** The first of them. Kept for callers that only ever wanted one. */
   layout: { id: string; name: string | null; layoutKind: string; version: number } | null;
 }
 

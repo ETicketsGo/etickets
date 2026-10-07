@@ -25,7 +25,12 @@ import {
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
 import { venuePayload } from '@/components/venue-fields';
-import { groupSpacesByVenue, spaceCapabilityLabel, spaceKindLabel } from '../venue-spaces';
+import {
+  groupSpacesByVenue,
+  spaceCapabilityLabel,
+  spaceKindLabel,
+  spaceLayouts,
+} from '../venue-spaces';
 
 /**
  * Venues and the rooms inside them, on one screen.
@@ -55,6 +60,7 @@ const EMPTY = { name: '', city: '', address: '', capacity: '' };
  * way to appear at all.
  */
 function SpaceRow({ space }: { space: VenueSpace }) {
+  const layouts = spaceLayouts(space);
   return (
     <li
       data-testid="space-row"
@@ -74,6 +80,30 @@ function SpaceRow({ space }: { space: VenueSpace }) {
         space cannot offer a numbered seat, which a status badge never did.
       */}
       <span className="text-caption text-text-secondary">{spaceCapabilityLabel(space)}</span>
+      {/*
+        THE LAYOUTS, LISTED.
+
+        One space, several configurations - a basketball bowl and an end-stage concert are the
+        same room set up two ways. Naming only one of them would describe half the building,
+        and this is the page where an operator checks what their venue can actually do.
+      */}
+      {layouts.length > 1 && (
+        <ul className="w-full space-y-1 pl-1">
+          {layouts.map((l) => (
+            <li
+              key={l.id}
+              data-testid="space-layout"
+              className="flex items-center gap-2 text-caption text-text-secondary"
+            >
+              <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-text-muted" />
+              <span className="font-medium text-text-primary">{l.name}</span>
+              <span className="text-text-muted">
+                {l.layoutKind === 'SECTIONED' ? 'blocks' : 'a grid'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

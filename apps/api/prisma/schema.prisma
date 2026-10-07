@@ -1102,7 +1102,18 @@ model SeatMap {
   id       String  @id @default(cuid())
   screenId String
   screen   Screen  @relation(fields: [screenId], references: [id], onDelete: Cascade)
-  name     String?
+
+  /// What this layout IS, and therefore which of a space's configurations it belongs to.
+  ///
+  /// -- WHY THIS IS PART OF THE KEY --------------------------------------------------
+  /// A space used to be assumed to have one layout that evolved through versions, so the key
+  /// was `(screenId, version)`. A real arena has SEVERAL at once - a basketball bowl and an
+  /// end-stage concert are different rooms built from the same building, not two versions of
+  /// one - and that constraint made the second one impossible to store.
+  ///
+  /// The name is now the configuration, and `version` is that configuration's own history. A
+  /// cinema has exactly one name and behaves exactly as before.
+  name String @default("Default")
 
   /// Monotonic per screen, starting at 1. Human-facing: "Screen 3, layout v4".
   version Int              @default(1)
@@ -1151,7 +1162,7 @@ model SeatMap {
   /// Shows pinned to this exact version.
   sessions   EventSession[]
 
-  @@unique([screenId, version])
+  @@unique([screenId, name, version])
   @@index([screenId, status])
 }
 
