@@ -69,6 +69,8 @@ interface SessionDraft {
    * and general admission in the other.
    */
   screenId: string;
+  /** The named configuration selected inside that space. Empty for general admission. */
+  seatMapId: string;
 }
 interface TicketDraft {
   sessionIndex: number;
@@ -179,7 +181,7 @@ function NewEventWizard() {
       .formatToParts(0)
       .find((p) => p.type === 'currency')?.value ?? eventCurrency;
   const [sessions, setSessions] = useState<SessionDraft[]>([
-    { startsAt: '', endsAt: '', screenId: '' },
+    { startsAt: '', endsAt: '', screenId: '', seatMapId: '' },
   ]);
   const [tickets, setTickets] = useState<TicketDraft[]>([
     {
@@ -416,6 +418,7 @@ function NewEventWizard() {
           // Omitted rather than sent empty: '' is a room id that does not exist, and the
           // request would be refused instead of understood as "no room".
           ...(s.screenId ? { screenId: s.screenId } : {}),
+          ...(s.seatMapId ? { seatMapId: s.seatMapId } : {}),
         });
         sessionIds.push(created.id);
       }
@@ -785,11 +788,15 @@ function NewEventWizard() {
                   <Select
                     id={`sr${i}`}
                     label="Seating"
-                    value={s.screenId}
+                    value={s.seatMapId}
                     disabled={roomsQ.isLoading}
                     onChange={(e) => {
-                      const screenId = e.target.value;
-                      const updated = sessions.map((x, j) => (j === i ? { ...x, screenId } : x));
+                      const seatMapId = e.target.value;
+                      const selected = roomsQ.data?.find((room) => room.layoutId === seatMapId);
+                      const screenId = selected?.id ?? '';
+                      const updated = sessions.map((x, j) =>
+                        j === i ? { ...x, screenId, seatMapId } : x,
+                      );
                       setSessions(updated);
                       /*
                         Move any ticket types that were pointing at this session.
@@ -812,8 +819,9 @@ function NewEventWizard() {
                   >
                     <option value="">General admission — no seat map</option>
                     {(roomsQ.data ?? []).map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.venueName} · {r.name} ({r.sellableSeats} seats)
+                      <option key={r.layoutId} value={r.layoutId}>
+                        {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats}{' '}
+                        seats)
                       </option>
                     ))}
                   </Select>
@@ -878,7 +886,12 @@ function NewEventWizard() {
             ))}
             <Button
               variant="outline"
-              onClick={() => setSessions([...sessions, { startsAt: '', endsAt: '', screenId: '' }])}
+              onClick={() =>
+                setSessions([
+                  ...sessions,
+                  { startsAt: '', endsAt: '', screenId: '', seatMapId: '' },
+                ])
+              }
             >
               + Add session
             </Button>

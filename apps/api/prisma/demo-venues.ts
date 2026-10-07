@@ -105,7 +105,12 @@ function ring(
     const from = i * step + opts.gapDeg / 2;
     const to = (i + 1) * step - opts.gapDeg / 2;
     return {
-      name: `${opts.prefix}${i + 1}`,
+      /*
+        101..110 and 201..212, the way an arena actually numbers its bowl. Concatenating a
+        prefix produced "11" and "110" in the same ring, which reads as eleven and one-ten
+        and is the sort of detail an operator notices immediately.
+      */
+      name: String(opts.base + i + 1),
       tier: opts.tier,
       shape: bowlBlock(from, to, inner, outer),
       label: blockLabel(from, to, inner, outer),
@@ -318,7 +323,7 @@ async function main() {
     ],
     blocks: [
       ...ring(10, LOWER, LOWER_OUT, {
-        prefix: '1',
+        base: 100,
         tier: 'Lower',
         rows: 8,
         seatsPerRow: 15,
@@ -326,7 +331,7 @@ async function main() {
         gapDeg: 4,
       }),
       ...ring(12, UPPER, UPPER_OUT, {
-        prefix: '2',
+        base: 200,
         tier: 'Upper',
         rows: 10,
         seatsPerRow: 17,
@@ -358,7 +363,7 @@ async function main() {
     blocks: [
       // Blocks 1..7 of ten: the three nearest the stage are behind it and are left out.
       ...ring(10, LOWER, LOWER_OUT, {
-        prefix: '1',
+        base: 100,
         tier: 'Lower',
         rows: 8,
         seatsPerRow: 15,
@@ -366,7 +371,7 @@ async function main() {
         gapDeg: 4,
       }).slice(2, 9),
       ...ring(12, UPPER, UPPER_OUT, {
-        prefix: '2',
+        base: 200,
         tier: 'Upper',
         rows: 10,
         seatsPerRow: 17,

@@ -131,6 +131,16 @@ export const createSessionSchema = z
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
     /**
+     * WHICH layout of that space, when the space has more than one.
+     *
+     * An arena's basketball bowl and its end-stage concert are both live configurations of
+     * the same room, so "the room's layout" stopped being a single thing the moment a space
+     * could hold several. Omitting it keeps the previous behaviour - the layout in force for
+     * this session's start time - which is the only sensible answer for a cinema screen, and
+     * the only one that existed before.
+     */
+    seatMapId: z.string().cuid().optional(),
+    /**
      * The room this session happens in, when it happens in one with a seat map.
      *
      * Supplying it makes the session RESERVED SEATING: buyers choose named seats from the

@@ -132,17 +132,25 @@ export class VenuesService {
       },
     });
 
-    return spaces.map((s) => ({
-      id: s.id,
-      name: s.name,
-      capacity: s.capacity,
-      status: s.status,
-      screenType: s.screenType,
-      /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
-      cinemaId: s.cinemaId,
-      cinemaName: s.cinema?.name ?? null,
-      layout: s.seatMaps[0] ?? null,
-    }));
+    const byName = new Map<string, (typeof spaces)[number]['seatMaps'][number]>();
+    return spaces.map((s) => {
+      byName.clear();
+      for (const m of s.seatMaps) if (!byName.has(m.name)) byName.set(m.name, m);
+      return {
+        id: s.id,
+        name: s.name,
+        capacity: s.capacity,
+        status: s.status,
+        screenType: s.screenType,
+        /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
+        cinemaId: s.cinemaId,
+        cinemaName: s.cinema?.name ?? null,
+        // Every named configuration, current version of each - the same answer the
+        // organization-wide listing gives, because the two reads must not disagree.
+        layouts: [...byName.values()],
+        layout: s.seatMaps[0] ?? null,
+      };
+    });
   }
 
   /**

@@ -1253,7 +1253,7 @@ export const api = {
     addSession: (
       id: string,
       // `screenId` is the whole difference between reserved seating and general admission.
-      body: { startsAt: string; endsAt: string; screenId?: string },
+      body: { startsAt: string; endsAt: string; screenId?: string; seatMapId?: string },
     ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
@@ -3743,6 +3743,7 @@ export interface EventSession {
   status: string;
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
+  seatMapId?: string | null;
   screen?: { name: string; cinema: { name: string } } | null;
   ticketTypes?: TicketType[];
 }
@@ -3751,6 +3752,7 @@ export interface SeatingRoom {
   id: string;
   name: string;
   venueName: string;
+  layoutId: string;
   layoutName: string | null;
   layoutKind: string;
   /** Seats that can be sold: aisles and gaps are not counted. */

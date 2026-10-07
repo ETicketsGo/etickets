@@ -737,7 +737,6 @@ export class EventsService {
             is the room's current shape, which is what somebody choosing between rooms needs.
           */
           orderBy: { version: 'desc' },
-          take: 1,
           select: {
             id: true,
             name: true,
@@ -749,16 +748,23 @@ export class EventsService {
       orderBy: [{ name: 'asc' }],
     });
 
-    return screens
-      .filter((s) => s.seatMaps[0])
-      .map((s) => ({
+    return screens.flatMap((s) => {
+      // A name is a configuration and versions are its history. Offer only the current
+      // published version of each named configuration, not every historical revision.
+      const currentByName = new Map<string, (typeof s.seatMaps)[number]>();
+      for (const layout of s.seatMaps) {
+        if (!currentByName.has(layout.name)) currentByName.set(layout.name, layout);
+      }
+      return [...currentByName.values()].map((layout) => ({
         id: s.id,
         name: s.name,
         venueName: spaceVenueName(s),
-        layoutName: s.seatMaps[0].name,
-        layoutKind: s.seatMaps[0].layoutKind,
-        sellableSeats: s.seatMaps[0]._count.seats,
+        layoutId: layout.id,
+        layoutName: layout.name,
+        layoutKind: layout.layoutKind,
+        sellableSeats: layout._count.seats,
       }));
+    });
   }
 
   /**
@@ -801,7 +807,17 @@ export class EventsService {
       to be applied at both sites, and the second was found by accident.
     */
     const screenId = input.screenId;
-    const seatMap = await this.shows.resolveLayoutForShow(screenId, input.startsAt);
+    /*
+      The organizer's CHOICE of configuration, when they made one.
+
+      A space can hold several named layouts at once, so resolving "the space's layout" by
+      date alone would pick whichever happened to be newest - and quietly seat a basketball
+      event in the concert configuration. Resolution by date remains the answer when no
+      choice was made, which is every cinema screen and every space with one layout.
+    */
+    const seatMap = input.seatMapId
+      ? await this.shows.requireLayoutForSpace(screenId, input.seatMapId)
+      : await this.shows.resolveLayoutForShow(screenId, input.startsAt);
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.eventSession.create({
         data: {

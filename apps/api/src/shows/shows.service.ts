@@ -623,6 +623,51 @@ export class ShowsService {
    * Public because seating a session is no longer something only movies do — an event in a
    * room needs exactly the same answer, resolved the same way. See `seatSession`.
    */
+  /**
+   * A named layout the caller asked for by id, checked to be this space's and sellable.
+   *
+   * Separate from `resolveLayoutForShow` because the questions are different: that one asks
+   * "what is in force on this date", this one asks "may I use the one I picked". Both must
+   * refuse rather than fall back - seating an event in the wrong configuration of the right
+   * room produces a map that looks plausible and puts people in seats that do not exist.
+   */
+  async requireLayoutForSpace(screenId: string, seatMapId: string) {
+    const layout = await this.prisma.seatMap.findUnique({
+      where: { id: seatMapId },
+      select: {
+        id: true,
+        screenId: true,
+        name: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!layout || layout.screenId !== screenId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That layout does not belong to this space.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (layout.status !== 'PUBLISHED') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That layout is not published yet, so nothing could be sold from it.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // The same full shape `resolveLayoutForShow` returns, because `seatSession` consumes it
+    // and the two paths must hand it identical material.
+    return this.prisma.seatMap.findUniqueOrThrow({
+      where: { id: layout.id },
+      include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
+    });
+  }
+
   async resolveLayoutForShow(screenId: string, startsAt: Date) {
     const versions = await this.prisma.seatMap.findMany({
       where: { screenId },
