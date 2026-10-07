@@ -66,7 +66,17 @@ async function requestCodeIn(appEnv: string, nodeEnv: string) {
 
   const streams = captureStreams();
   try {
-    await new PhoneOtpService(prisma as never, channel, config as never).requestCode(PHONE);
+    /*
+      The rejection is EXPECTED outside LOCAL/DEV and is not what this file is about.
+
+      Log mode means no text message was sent, so `requestCode` now refuses to report one as
+      sent rather than leaving somebody waiting for a code that cannot arrive. The transport
+      has already written its line by then, which is the thing being inspected here - so the
+      throw is swallowed and the assertions below still see exactly what reached the log.
+    */
+    await new PhoneOtpService(prisma as never, channel, config as never)
+      .requestCode(PHONE)
+      .catch(() => undefined);
   } finally {
     streams.restore();
   }
