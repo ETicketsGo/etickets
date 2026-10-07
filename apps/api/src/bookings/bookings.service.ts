@@ -29,7 +29,7 @@ import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
@@ -1177,9 +1177,9 @@ export class BookingsService {
         { currencies: distinct },
       );
     }
-    // An empty cart still needs a currency for the zero-total row it produces; the venue
-    // answers that, and INR remains the answer for a market with no mapping.
-    return distinct[0] ?? currencyForCountry(venueCountry) ?? 'INR';
+    // A priced line is authoritative. With no priced line, only a known supported venue
+    // country may establish financial currency; an empty cart is not evidence of India.
+    return distinct[0] ?? requireCommerceCurrency(venueCountry);
   }
 
   async quote(input: QuoteBookingInput) {

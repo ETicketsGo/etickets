@@ -72,6 +72,15 @@ describe('ticket-type currency follows the venue', () => {
     expect(create.mock.calls[0][0].data.currency).toBe('INR');
   });
 
+  it.each([
+    ['Canada', 'CAD'],
+    ['Australia', 'AUD'],
+  ])('prices a show in %s in %s', async (country, currency) => {
+    const { service, create } = setup(country);
+    await service.addTicketType(ORGANIZER, input);
+    expect(create.mock.calls[0][0].data.currency).toBe(currency);
+  });
+
   it('reads the country however the venue form spelled it', async () => {
     // Venues store free text. "US", "USA" and "United States" are the same country and
     // must not price differently depending on who typed the address.
@@ -89,17 +98,21 @@ describe('ticket-type currency follows the venue', () => {
     expect(create.mock.calls[0][0].data.currency).toBe('CAD');
   });
 
-  it('falls back to rupees for a market with no mapping, exactly as before', async () => {
-    // Not a guess at Kenya's currency — a deliberate no-change for anyone the map does not
-    // cover, so this fix cannot alter an existing market it does not understand.
+  it('refuses an unmapped country rather than inventing rupees', async () => {
     const { service, create } = setup('Kenya');
-    await service.addTicketType(ORGANIZER, input);
-    expect(create.mock.calls[0][0].data.currency).toBe('INR');
+    await expect(service.addTicketType(ORGANIZER, input)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'CURRENCY_CONTEXT_REQUIRED' },
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it('falls back to rupees when the event has no venue at all', async () => {
+  it('refuses missing country context rather than inventing rupees', async () => {
     const { service, create } = setup(null);
-    await service.addTicketType(ORGANIZER, input);
-    expect(create.mock.calls[0][0].data.currency).toBe('INR');
+    await expect(service.addTicketType(ORGANIZER, input)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'CURRENCY_CONTEXT_REQUIRED' },
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 });

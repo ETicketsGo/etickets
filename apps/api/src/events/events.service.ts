@@ -23,7 +23,7 @@ import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { redirectUrl } from '../common/console-urls';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
@@ -63,15 +63,6 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
     );
   }
 }
-
-/**
- * Where a currency lands when the venue's country is one we have no mapping for.
- *
- * INR because that is what every ticket type was created in before this, so an unmapped
- * market behaves exactly as it always has. Named rather than inlined so the next person
- * adding a market can see there IS a fallback and that it is a decision.
- */
-const DEFAULT_CURRENCY = 'INR';
 
 /**
  * The details a reviewer approves, taken from `createEventSchema`: every field an organizer
@@ -1017,11 +1008,10 @@ export class EventsService {
           chosen by a default nobody had thought about since the platform sold in one
           country.
 
-          An explicit currency from the caller still wins; a country we have no currency
-          for falls back to INR, which is where this started and is a change to nobody.
+          An explicit currency from the caller still wins. Otherwise the venue must name a
+          supported country; unknown is not India and cannot safely choose financial rules.
         */
-        currency:
-          input.currency ?? currencyForCountry(session.event.venue?.country) ?? DEFAULT_CURRENCY,
+        currency: input.currency ?? requireCommerceCurrency(session.event.venue?.country),
         quantityTotal: input.quantityTotal,
         maxPerOrder: input.maxPerOrder,
         salesStartAt: input.salesStartAt,

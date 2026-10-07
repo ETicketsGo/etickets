@@ -24,7 +24,7 @@ import { TransactionalEventPublisher } from '../common/domain-events/transaction
 import { showCancelledEvent } from '../common/domain-events/catalogue/show-events';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import {
   DEFAULT_TURNAROUND_MINUTES,
@@ -747,8 +747,8 @@ export class ShowsService {
    * caller free to pass the wrong thing. Resolved at the point the row is written, "currency
    * follows the venue" is a property of the write rather than a convention callers observe.
    *
-   * INR remains the answer for a market with no mapping — the same fallback the booking and
-   * event paths already use, so all three agree rather than disagreeing in a new way.
+   * An unknown or unsupported country fails closed. It is not evidence that the venue is in
+   * India, and currency controls fees, tax and payment routing rather than only a symbol.
    */
   private async currencyForSession(
     tx: Prisma.TransactionClient,
@@ -758,7 +758,7 @@ export class ShowsService {
       where: { id: sessionId },
       select: { event: { select: { venue: { select: { country: true } } } } },
     });
-    return currencyForCountry(session?.event?.venue?.country) ?? 'INR';
+    return requireCommerceCurrency(session?.event?.venue?.country);
   }
 
   async seatSession(

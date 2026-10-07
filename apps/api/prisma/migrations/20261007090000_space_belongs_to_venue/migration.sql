@@ -45,16 +45,24 @@ ALTER TABLE "Venue" ALTER COLUMN "country" DROP DEFAULT;
 ALTER TABLE "Venue" ALTER COLUMN "timezone" DROP NOT NULL;
 ALTER TABLE "Venue" ALTER COLUMN "timezone" DROP DEFAULT;
 
-ALTER TABLE "Screen" ADD COLUMN "venueId" TEXT;
+ALTER TABLE "Screen" ADD COLUMN IF NOT EXISTS "venueId" TEXT;
 
 -- The cinema becomes optional. A cinema screen keeps its cinema and is unaffected.
 ALTER TABLE "Screen" ALTER COLUMN "cinemaId" DROP NOT NULL;
 
-ALTER TABLE "Screen"
-  ADD CONSTRAINT "Screen_venueId_fkey"
-  FOREIGN KEY ("venueId") REFERENCES "Venue"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Screen_venueId_fkey'
+      AND conrelid = '"Screen"'::regclass
+  ) THEN
+    ALTER TABLE "Screen"
+      ADD CONSTRAINT "Screen_venueId_fkey"
+      FOREIGN KEY ("venueId") REFERENCES "Venue"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
-CREATE INDEX "Screen_venueId_idx" ON "Screen"("venueId");
+CREATE INDEX IF NOT EXISTS "Screen_venueId_idx" ON "Screen"("venueId");
 
 -- 1. Every space whose cinema already has a venue inherits it.
 UPDATE "Screen" s
