@@ -45,6 +45,12 @@ import {
   type ShowOperation,
   type ShowState,
 } from './show-operations';
+import {
+  requireSpaceOrganizationId,
+  spaceOrganizationId,
+  spaceTimezone,
+  spaceVenueName,
+} from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -196,7 +202,12 @@ function toShowRow(
     endsAt: Date;
     status: string;
     screenId: string | null;
-    screen: { id: string; name: string; cinema: { id: string; name: string } } | null;
+    screen: {
+      id: string;
+      name: string;
+      venue?: { id: string; name: string } | null;
+      cinema?: { id: string; name: string } | null;
+    } | null;
     event: { movieId: string | null; movie: { title: string } | null };
     ticketTypes?: { salesStartAt: Date | null; salesEndAt: Date | null }[];
   },
@@ -216,8 +227,9 @@ function toShowRow(
     endsAt: s.endsAt,
     screenId: s.screen?.id ?? null,
     screenName: s.screen?.name ?? null,
-    cinemaId: s.screen?.cinema.id ?? null,
-    cinemaName: s.screen?.cinema.name ?? null,
+    cinemaId: s.screen?.cinema?.id ?? null,
+    // The place this show is at, which is the venue.
+    cinemaName: s.screen ? spaceVenueName(s.screen) : null,
     movieId: s.event.movieId,
     movieTitle: s.event.movie?.title ?? null,
     status: s.status,
@@ -417,11 +429,11 @@ export class ShowsService {
   private async loadOwnedScreen(user: RequestUser, screenId: string, roles = ORGANIZER_ROLES) {
     const screen = await this.prisma.screen.findUnique({
       where: { id: screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    await this.access.assertMember(user, screen.cinema.organizationId, roles);
+    await this.access.assertMember(user, requireSpaceOrganizationId(screen), roles);
     return screen;
   }
 
@@ -748,11 +760,11 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    if (screen.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(screen) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The screen does not belong to this movie’s organization.',
@@ -902,18 +914,18 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    if (screen.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(screen) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The screen does not belong to this movie’s organization.',
         HttpStatus.FORBIDDEN,
       );
     }
-    if (screen.cinema.status !== 'ACTIVE') {
+    if (screen.cinema && screen.cinema.status !== 'ACTIVE') {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'This cinema is not active; reactivate it before scheduling shows.',
@@ -922,9 +934,19 @@ export class ShowsService {
     }
     this.assertScreenUsable(screen);
 
-    // The cinema decides its own wall clock. An explicit zone is still honoured, but the
-    // default is the venue's, so "10:30" means 10:30 in the room the film is playing in.
-    const timezone = input.timezone ?? screen.cinema.timezone;
+    /*
+      The VENUE decides the wall clock, which is what "10:30" means to everyone involved.
+      An explicit zone is still honoured. `spaceTimezone` falls back to the cinema only for a
+      row written before the venue backfill, and refuses to invent one.
+    */
+    const timezone = input.timezone ?? spaceTimezone(screen);
+    if (!timezone) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This space has no venue, so there is no timezone to schedule against.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     const dates = input.dates?.length
       ? [...input.dates].sort()
@@ -1115,13 +1137,14 @@ export class ShowsService {
     tx: Prisma.TransactionClient,
     movie: { id: string; title: string; organizationId: string },
     screen: {
-      cinema: {
+      venueId: string | null;
+      cinema?: {
         id: string;
         venueId: string | null;
         name: string;
         city: string;
         address: string | null;
-      };
+      } | null;
     },
   ) {
     const existing = await tx.event.findFirst({
@@ -1146,21 +1169,33 @@ export class ShowsService {
       `CinemasService.create` now links a venue at creation, so this is the repair path for
       cinemas that predate it. Both write the same thing.
     */
-    const venueId =
-      screen.cinema.venueId ??
-      (
+    /*
+      The SPACE now carries its own venue, so the usual answer is simply to use it. The two
+      fallbacks below are the repair path for rows written before that column existed, and
+      they are kept until it becomes required.
+    */
+    let venueId = screen.venueId ?? screen.cinema?.venueId ?? null;
+    if (!venueId) {
+      const cinema = screen.cinema;
+      if (!cinema) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This space has no venue, so its shows cannot be filed under one.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      venueId = (
         await tx.venue.create({
           data: {
             organizationId: movie.organizationId,
-            name: screen.cinema.name,
-            city: screen.cinema.city,
-            address: screen.cinema.address,
+            name: cinema.name,
+            city: cinema.city,
+            address: cinema.address,
           },
           select: { id: true },
         })
       ).id;
-    if (!screen.cinema.venueId) {
-      await tx.cinema.update({ where: { id: screen.cinema.id }, data: { venueId } });
+      await tx.cinema.update({ where: { id: cinema.id }, data: { venueId } });
     }
 
     return tx.event.create({
@@ -1214,7 +1249,7 @@ export class ShowsService {
         'Source screen not found.',
         HttpStatus.NOT_FOUND,
       );
-    if (source.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(source) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The source screen does not belong to this movie’s organization.',
@@ -1223,7 +1258,14 @@ export class ShowsService {
     }
 
     // The SOURCE cinema's zone decides what "that day" means, unless the caller names one.
-    const timezone = input.timezone ?? source.cinema.timezone;
+    const timezone = input.timezone ?? spaceTimezone(source);
+    if (!timezone) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This space has no venue, so there is no timezone to schedule against.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     // The UTC window covering the source LOCAL day. Both edges are resolved through the
     // zone, so a 23- or 25-hour DST day is exactly covered rather than clipped or doubled.
@@ -1398,7 +1440,7 @@ export class ShowsService {
       timezone: session.screen
         ? ((
             await this.prisma.cinema.findUnique({
-              where: { id: session.screen.cinemaId },
+              where: { id: session.screen.cinemaId ?? undefined },
               select: { timezone: true },
             })
           )?.timezone ?? null)

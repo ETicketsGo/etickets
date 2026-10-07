@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Role } from '@eticketsgo/shared-types';
-import type { CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
+import type { CreateScreenInput, CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
@@ -94,5 +94,91 @@ export class VenuesService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
     await this.access.assertMember(user, venue.organizationId);
     return venue;
+  }
+
+  /**
+   * The spaces inside a venue - every bookable area, whether or not it is a cinema screen.
+   *
+   * This is the read the organizer console needs to show VENUE -> SPACE, and it could not be
+   * written before: a space reached its venue only through a cinema, so "the spaces in this
+   * venue" meant "the screens of the cinemas in this venue" and a hall that was not a cinema
+   * simply could not exist to be listed.
+   */
+  async spaces(user: RequestUser, venueId: string) {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { id: true, organizationId: true },
+    });
+    if (!venue)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, venue.organizationId);
+
+    const spaces = await this.prisma.screen.findMany({
+      where: { venueId },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        status: true,
+        screenType: true,
+        cinemaId: true,
+        cinema: { select: { id: true, name: true } },
+        seatMaps: {
+          where: { status: 'PUBLISHED' },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { id: true, name: true, layoutKind: true, version: true },
+        },
+      },
+    });
+
+    return spaces.map((s) => ({
+      id: s.id,
+      name: s.name,
+      capacity: s.capacity,
+      status: s.status,
+      screenType: s.screenType,
+      /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
+      cinemaId: s.cinemaId,
+      cinemaName: s.cinema?.name ?? null,
+      layout: s.seatMaps[0] ?? null,
+    }));
+  }
+
+  /**
+   * Add a space to a venue, with no cinema involved.
+   *
+   * THE POINT OF THE WHOLE MIGRATION. Before it, this call was impossible: `Screen.cinemaId`
+   * was NOT NULL, so creating a bookable area meant creating a cinema to hang it from, and an
+   * arena, an auditorium or a concert hall had to pretend to be one.
+   *
+   * A cinema screen is still created through `CinemasService.addScreen`, which sets both the
+   * cinema and the venue. The two paths write the same columns; this one simply leaves
+   * `cinemaId` null, which is now allowed to mean what it says.
+   */
+  async addSpace(user: RequestUser, venueId: string, input: CreateScreenInput) {
+    const venue = await this.prisma.venue.findUnique({
+      where: { id: venueId },
+      select: { id: true, organizationId: true },
+    });
+    if (!venue)
+      throw new AppException(ErrorCodes.NOT_FOUND, 'Venue not found.', HttpStatus.NOT_FOUND);
+    await this.access.assertMember(user, venue.organizationId, [
+      Role.ORGANIZER_OWNER,
+      Role.ORGANIZER_MANAGER,
+    ]);
+
+    return this.prisma.screen.create({
+      data: {
+        venueId,
+        // Deliberately absent. This space is not a cinema screen, and saying so is the
+        // difference between the model this migration created and the one it replaced.
+        cinemaId: null,
+        name: input.name,
+        screenType: input.screenType,
+        capacity: input.capacity,
+      },
+    });
   }
 }
