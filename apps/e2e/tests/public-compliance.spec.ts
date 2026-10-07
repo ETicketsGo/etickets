@@ -75,97 +75,131 @@ test.describe('the public compliance surface', () => {
     await expect(page.locator('a[href$="/terms"]').first()).toBeVisible();
   });
 
-  test('a reviewer starting at the home page can reach every legal document', async ({ page }) => {
+  test('a reviewer starting at the home page can reach what A2P review needs', async ({ page }) => {
     /*
-      The regression this exists for. The home page takes the APP chrome, so a link added
-      only to the marketing footer is invisible from the one place a reviewer starts.
+      The regression this exists for: the text-message page was once linked only from the
+      marketing footer, which the home page does not render, so it was invisible from the one
+      place a reviewer starts.
+
+      The footer deliberately carries the documents a buyer or a reviewer needs in the moment
+      - the programme itself, the terms they are agreeing to, privacy, and refunds - plus the
+      Legal Center for everything else. Cookies and the organizer agreement live one click
+      deeper, which is where a mature storefront puts them; the Legal Center test below proves
+      they are reachable.
     */
     await page.goto(CUSTOMER);
-    for (const path of LEGAL_PAGES) {
+    for (const href of ['/terms', '/privacy', '/refunds', '/sms', '/legal']) {
       await expect(
-        page.locator(`a[href$="${path}"]`).first(),
-        `the home page must link to ${path}`,
+        page.locator(`a[href$="${href}"]`).first(),
+        `the home page must link to ${href}`,
       ).toHaveCount(1);
     }
   });
 
-  test.describe('country-aware policies', () => {
-    test('names the market in words, and never the internal policy id', async ({ page }) => {
+  test('the Legal Center lists every published document, and each one resolves', async ({
+    page,
+  }) => {
+    const res = await page.goto(`${CUSTOMER}/legal`);
+    expect(res?.status()).toBe(200);
+    for (const href of [...LEGAL_PAGES, '/organizer-agreement']) {
+      const link = page.locator(`a[href$="${href}"]`).first();
+      await expect(link, `the Legal Center must list ${href}`).toHaveCount(1);
+    }
+  });
+
+  test.describe('market-aware policies, with no country control on the document', () => {
+    test('no legal document offers a country selector', async ({ page }) => {
       /*
-        The registry identifier (`TERMS/IN/v1`) is how a consent record names a document. It
-        is still resolved and still stored - it is simply not consumer copy, because a page
-        that shows it reads as a compliance console rather than a Terms page.
+        The correction this block exists for. Twice the documents carried their own
+        jurisdiction picker, which put the policy resolver on screen and asked a customer to
+        operate it before reading. The market now comes from the one the PRODUCT resolved.
       */
-      await page.goto(`${CUSTOMER}/terms?country=IN`);
-      const text = await page.locator('body').innerText();
-      expect(text).toMatch(/Applicable to\s+India/);
-      expect(text).toMatch(/Last updated October 6, 2026/);
-      expect(text).not.toMatch(/TERMS\/[A-Z]+\/v\d/);
+      for (const path of LEGAL_PAGES) {
+        await page.goto(`${CUSTOMER}${path}`);
+        const text = await page.locator('body').innerText();
+        expect(text, `${path} must not ask the reader to pick a country`).not.toMatch(
+          /Change region|Applicable to|All other countries/i,
+        );
+        await expect(
+          page.locator('summary', { hasText: /region/i }),
+          `${path} must have no region disclosure`,
+        ).toHaveCount(0);
+      }
     });
 
     test('no legal page leaks a policy identifier', async ({ page }) => {
       for (const path of LEGAL_PAGES) {
-        for (const c of ['US', 'IN', 'CA', 'GLOBAL']) {
-          await page.goto(`${CUSTOMER}${path}?country=${c}`);
-          const t = await page.locator('body').innerText();
-          expect(t, `${path}?country=${c} must not show a policy id`).not.toMatch(
-            /(TERMS|PRIVACY|SMS|REFUNDS|COOKIES)\/[A-Z]+\/v\d/,
-          );
-        }
+        await page.goto(`${CUSTOMER}${path}`);
+        const t = await page.locator('body').innerText();
+        expect(t, `${path} must not show a policy id`).not.toMatch(
+          /(TERMS|PRIVACY|SMS|REFUNDS|COOKIES)\/[A-Z]+\/v\d/,
+        );
+        expect(t).toMatch(/Last updated October 6, 2026/);
       }
+    });
+
+    test('REMOVING THE SELECTOR DID NOT COLLAPSE EVERY MARKET ONTO ONE POLICY', async ({
+      browser,
+    }) => {
+      /*
+        The risk the correction introduced, pinned. A document that silently serves the
+        global text to everybody would look identical to a working one on every page this
+        suite opens without a market - so the market is set the way the product sets it, by
+        cookie, and the India supplement must appear.
+      */
+      const ctx = await browser.newContext();
+      await ctx.addCookies([{ name: 'etg_market', value: 'IN', url: CUSTOMER }]);
+      const page = await ctx.newPage();
+      await page.goto(`${CUSTOMER}/terms`);
+      const indiaText = await page.locator('body').innerText();
+      expect(indiaText, 'an Indian market must get the India supplement').toMatch(
+        /inclusive of GST/i,
+      );
+      await ctx.close();
+
+      const plain = await browser.newContext();
+      const p2 = await plain.newPage();
+      await p2.goto(`${CUSTOMER}/terms`);
+      const globalText = await p2.locator('body').innerText();
+      expect(globalText, 'no market must get the global text').not.toMatch(/inclusive of GST/i);
+      await plain.close();
+    });
+
+    test('an explicit country in the URL beats the product market', async ({ browser }) => {
+      // How the support team shares "the Indian terms" with somebody browsing in the US.
+      const ctx = await browser.newContext();
+      await ctx.addCookies([{ name: 'etg_market', value: 'IN', url: CUSTOMER }]);
+      const page = await ctx.newPage();
+      await page.goto(`${CUSTOMER}/terms?country=US`);
+      expect(await page.locator('body').innerText()).not.toMatch(/inclusive of GST/i);
+      await ctx.close();
+    });
+
+    test('an unknown market falls back instead of failing', async ({ browser }) => {
+      const ctx = await browser.newContext();
+      await ctx.addCookies([{ name: 'etg_market', value: 'Narnia', url: CUSTOMER }]);
+      const page = await ctx.newPage();
+      const res = await page.goto(`${CUSTOMER}/terms`);
+      expect(res?.status()).toBe(200);
+      expect(await page.locator('body').innerText()).toMatch(/1\. Overview/);
+      await ctx.close();
     });
 
     test('states one operator, and claims no per-country contracting entity', async ({ page }) => {
-      /*
-        WHICH entity contracts with a buyer in which market is a question about corporate
-        structure that this project does not answer, so no page asserts one. An earlier
-        version resolved it from the reader's market and told an Indian reader their contract
-        was with the Indian company - an assumption dressed as a fact on a legal page.
-        docs/compliance/LEGAL-REVIEW-QUESTIONS.md
-      */
-      for (const c of ['US', 'IN', 'CA', 'GLOBAL']) {
-        await page.goto(`${CUSTOMER}/terms?country=${c}`);
-        const t = await page.locator('body').innerText();
-        expect(t).toContain('operated by DeepTrics LLC');
-        expect(t, `country=${c} must not name a second contracting entity`).not.toContain(
-          'Deeptrics Software Solution Pvt Ltd',
-        );
+      await page.goto(`${CUSTOMER}/terms`);
+      const t = await page.locator('body').innerText();
+      expect(t).toContain('operated by DeepTrics LLC');
+      expect(t).not.toContain('Deeptrics Software Solution Pvt Ltd');
+    });
+
+    test('every document offers a way back to the Legal Center', async ({ page }) => {
+      for (const path of LEGAL_PAGES) {
+        await page.goto(`${CUSTOMER}${path}`);
+        await expect(
+          page.locator('a[href$="/legal"]').first(),
+          `${path} must link back to the Legal Center`,
+        ).toHaveCount(1);
       }
-    });
-
-    test('one country does not leak into another', async ({ page }) => {
-      // India's inclusive-GST clause is true of India and wrong everywhere else.
-      await page.goto(`${CUSTOMER}/terms?country=US`);
-      const text = await page.locator('body').innerText();
-      expect(text).not.toMatch(/inclusive of GST/i);
-      expect(text).not.toMatch(/available in French/i);
-    });
-
-    test('an unknown country falls back instead of failing', async ({ page }) => {
-      /*
-        A legal page that errors is worse than one showing the text written for everybody,
-        so the resolver has a GLOBAL row for every type and normalises anything it does not
-        recognise - including something a person typed into the URL.
-      */
-      const res = await page.goto(`${CUSTOMER}/terms?country=Narnia`);
-      expect(res?.status()).toBe(200);
-      expect(await page.locator('body').innerText()).toContain('Applicable to all other countries');
-    });
-
-    test('the reader can change region, and the control is announced', async ({ page }) => {
-      await page.goto(`${CUSTOMER}/terms?country=US`);
-      await expect(page.locator('body')).toContainText('Applicable to the United States');
-
-      // Folded away by default: the document is the point, not the jurisdiction picker.
-      await page.getByText('Change region').click();
-      const options = page.locator('details a');
-      await expect(options).toHaveCount(4);
-      // Announced, not merely coloured.
-      await expect(page.locator('details a[aria-current="page"]')).toHaveCount(1);
-
-      await options.filter({ hasText: 'India' }).click();
-      await page.waitForURL(/country=IN/);
-      await expect(page.locator('body')).toContainText('Applicable to India');
     });
   });
 

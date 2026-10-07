@@ -2,11 +2,12 @@ import type { Metadata } from 'next';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
-  PolicyContext,
+  PolicyUpdated,
   OperatorLine,
   LegalDocument,
-  jurisdictionFromSearch,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 
 /**
  * What this site stores on your device.
@@ -34,13 +35,14 @@ export default async function CookiesPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
 
   return (
     <>
       <PageHero eyebrow="Legal" title="Cookies" lead="What we store on your device, and why." />
       <LegalDocument>
-        <PolicyContext type="COOKIES" country={country} path="/cookies" />
+        <BackToLegal />
+        <PolicyUpdated type="COOKIES" country={country} />
         <Prose>
           <h2>We do not track you</h2>
           <p>
