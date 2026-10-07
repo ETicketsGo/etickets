@@ -303,6 +303,7 @@ export class PublicEventsService {
               orderBy: { priceMinor: 'asc' },
               include: { inventory: true },
             },
+            showZones: true,
           },
         },
       },
@@ -361,20 +362,30 @@ export class PublicEventsService {
           one in a seated theatre and one in a standing room.
         */
         seatBased: Boolean(s.screenId),
-        ticketTypes: s.ticketTypes.map((t) => ({
-          id: t.id,
-          name: t.name,
-          priceMinor: t.priceMinor,
-          currency: t.currency,
-          maxPerOrder: t.maxPerOrder,
-          available: t.inventory
-            ? availableUnits(
-                t.inventory.quantityTotal,
-                t.inventory.quantitySold,
-                t.inventory.quantityHeld,
-              )
-            : 0,
-        })),
+        ticketTypes: s.ticketTypes.map((t) => {
+          const zone = t.seatZoneId
+            ? s.showZones.find((candidate) => candidate.zoneId === t.seatZoneId)
+            : null;
+          return {
+            id: t.id,
+            name: t.name,
+            priceMinor: t.priceMinor,
+            currency: t.currency,
+            maxPerOrder: t.maxPerOrder,
+            inventoryKind: t.seatZoneId ? ('ZONE' as const) : ('SEAT' as const),
+            // Zone capacity is authoritative in ShowZone. TicketInventory remains a reporting
+            // mirror and must never decide whether another GA ticket can be sold.
+            available: zone
+              ? Math.max(zone.capacity - zone.sold - zone.held, 0)
+              : t.inventory
+                ? availableUnits(
+                    t.inventory.quantityTotal,
+                    t.inventory.quantitySold,
+                    t.inventory.quantityHeld,
+                  )
+                : 0,
+          };
+        }),
       })),
     };
   }

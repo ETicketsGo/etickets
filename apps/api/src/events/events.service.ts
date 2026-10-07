@@ -347,11 +347,17 @@ export class EventsService {
             ),
           );
           for (const t of s.ticketTypes) {
-            if (!t.seatCategoryId) continue;
+            const derivedInventory = t.seatCategoryId
+              ? { seatCategoryId: t.seatCategoryId }
+              : t.seatZoneId
+                ? { seatZoneId: t.seatZoneId }
+                : null;
+            if (!derivedInventory) continue;
             await tx.ticketType.updateMany({
-              where: { eventSessionId: newSession.id, seatCategoryId: t.seatCategoryId },
+              where: { eventSessionId: newSession.id, ...derivedInventory },
               data: {
                 name: t.name,
+                priceMinor: t.priceMinor,
                 maxPerOrder: t.maxPerOrder,
                 salesStartAt: t.salesStartAt,
                 salesEndAt: t.salesEndAt,
@@ -362,11 +368,12 @@ export class EventsService {
         }
         for (const t of s.ticketTypes) {
           // Already created, with the right seat count, by `seatSession` above.
-          if (seatMap && t.seatCategoryId) continue;
+          if (seatMap && (t.seatCategoryId || t.seatZoneId)) continue;
           await tx.ticketType.create({
             data: {
               eventSessionId: newSession.id,
               seatCategoryId: t.seatCategoryId,
+              seatZoneId: t.seatZoneId,
               name: t.name,
               priceMinor: t.priceMinor,
               currency: t.currency,
@@ -899,6 +906,7 @@ export class EventsService {
       await this.assertNothingCommitted(sessionId, tx);
 
       await tx.showSeat.deleteMany({ where: { eventSessionId: sessionId } });
+      await tx.showZone.deleteMany({ where: { eventSessionId: sessionId } });
       // Inventory first — it holds the foreign key.
       await tx.ticketInventory.deleteMany({ where: { ticketType: { eventSessionId: sessionId } } });
       await tx.ticketType.deleteMany({ where: { eventSessionId: sessionId } });
@@ -1049,6 +1057,20 @@ export class EventsService {
     }
     const committed = (tt.inventory?.quantitySold ?? 0) + (tt.inventory?.quantityHeld ?? 0);
     const sold = tt.inventory?.quantitySold ?? 0;
+
+    // A zone's capacity belongs to ShowZone/SeatZone. TicketInventory is only a reporting
+    // mirror, so editing it here would disagree with the atomic zone hold guard.
+    if (
+      tt.seatZoneId &&
+      input.quantityTotal !== undefined &&
+      input.quantityTotal !== tt.quantityTotal
+    ) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Standing-zone capacity is controlled by the venue layout, not the ticket type.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     if (input.priceMinor !== undefined && input.priceMinor !== tt.priceMinor && sold > 0) {
       throw new AppException(

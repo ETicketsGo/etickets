@@ -338,9 +338,19 @@ export class BookingsService {
     */
     const isSeatBased = Boolean(session.screenId);
     if (isSeatBased) {
-      const allSeatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      const reservedItems = input.items.filter((item) => !byId.get(item.ticketTypeId)?.seatZoneId);
+      const allSeatIds = reservedItems.flatMap((i) => i.seatIds ?? []);
       for (const item of input.items) {
-        if (!item.seatIds || item.seatIds.length !== item.quantity) {
+        const ticketType = byId.get(item.ticketTypeId)!;
+        if (ticketType.seatZoneId) {
+          if (item.seatIds?.length) {
+            throw new AppException(
+              ErrorCodes.VALIDATION_FAILED,
+              'Standing-area tickets do not use seat numbers.',
+              HttpStatus.BAD_REQUEST,
+            );
+          }
+        } else if (!item.seatIds || item.seatIds.length !== item.quantity) {
           throw new AppException(
             ErrorCodes.VALIDATION_FAILED,
             'Please select a seat for each ticket.',
@@ -360,7 +370,7 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
-      for (const item of input.items) {
+      for (const item of reservedItems) {
         const tt = byId.get(item.ticketTypeId)!;
         for (const seatId of item.seatIds!) {
           if (categoryBySeat.get(seatId) !== tt.seatCategoryId) {

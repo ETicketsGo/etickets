@@ -28,9 +28,12 @@ import {
 const ORGANIZER_EMAIL = 'owner@eticketsgo.test';
 
 /** Everything the organizer console does, done over the API so the spec stays about the map. */
-async function buildArena(
-  request: APIRequestContext,
-): Promise<{ sessionId: string; slug: string }> {
+async function buildArena(request: APIRequestContext): Promise<{
+  sessionId: string;
+  slug: string;
+  concertSessionId: string;
+  concertSlug: string;
+}> {
   const { accessToken } = await apiLogin(request, ORGANIZER_EMAIL);
   const auth = { Authorization: `Bearer ${accessToken}` };
 
@@ -114,6 +117,21 @@ async function buildArena(
 
   await request.post(`${API}/seat-layouts/${draft.id}/publish`, { headers: auth, data: {} });
 
+  const concertDraft = await (
+    await request.post(`${API}/seat-layouts/${source.id}/clone`, { headers: auth, data: {} })
+  ).json();
+  const concertBuilt = await (
+    await request.post(`${API}/seat-layouts/${concertDraft.id}/from-template`, {
+      headers: auth,
+      data: { template: 'PROSCENIUM', rows: 4, seatsPerRow: 8, basePriceMinor: 4_500 },
+    })
+  ).json();
+  expect(concertBuilt.layoutKind).toBe('SECTIONED');
+  await request.post(`${API}/seat-layouts/${concertDraft.id}/publish`, {
+    headers: auth,
+    data: {},
+  });
+
   const startsAt = new Date(Date.now() + 30 * 86_400_000);
   const endsAt = new Date(startsAt.getTime() + 3 * 3_600_000);
   const event = await (
@@ -144,6 +162,7 @@ async function buildArena(
   // tests that cannot find a heading.
   expect(response.ok(), `scheduling failed: ${JSON.stringify(session)}`).toBe(true);
   expect(session.id).toBeTruthy();
+  expect(session.seatMapId).toBe(draft.id);
 
   await request.post(`${API}/events/${event.id}/submit`, { headers: auth });
   const admin = await apiLogin(request, 'admin@eticketsgo.test');
@@ -159,7 +178,40 @@ async function buildArena(
     ).toBe(true);
   }
 
-  return { sessionId: session.id, slug: event.slug };
+  const concertEvent = await (
+    await request.post(`${API}/events`, {
+      headers: auth,
+      data: {
+        organizationId,
+        venueId: venue.id,
+        title: `Demo Arena End Stage Concert ${stamp}`,
+        category: 'Music',
+        feeMode: 'CUSTOMER_PAYS',
+      },
+    })
+  ).json();
+  const concertResponse = await request.post(`${API}/events/${concertEvent.id}/sessions`, {
+    headers: auth,
+    data: {
+      screenId,
+      seatMapId: concertDraft.id,
+      startsAt: new Date(startsAt.getTime() + 86_400_000).toISOString(),
+      endsAt: new Date(endsAt.getTime() + 86_400_000).toISOString(),
+    },
+  });
+  const concertSession = await concertResponse.json();
+  expect(concertResponse.ok(), `concert scheduling failed: ${JSON.stringify(concertSession)}`).toBe(
+    true,
+  );
+  expect(concertSession.seatMapId).toBe(concertDraft.id);
+  await request.post(`${API}/events/${concertEvent.id}/submit`, { headers: auth });
+
+  return {
+    sessionId: session.id,
+    slug: event.slug,
+    concertSessionId: concertSession.id,
+    concertSlug: concertEvent.slug,
+  };
 }
 
 test.describe('a venue too big to list', () => {
@@ -167,9 +219,11 @@ test.describe('a venue too big to list', () => {
 
   let sessionId = '';
   let eventSlug = '';
+  let concertSessionId = '';
+  let concertSlug = '';
 
   test.beforeAll(async ({ request }) => {
-    ({ sessionId, slug: eventSlug } = await buildArena(request));
+    ({ sessionId, slug: eventSlug, concertSessionId, concertSlug } = await buildArena(request));
   });
 
   test('1: the customer sees a map of the venue, not a wall of seats', async ({ page }) => {
@@ -373,5 +427,40 @@ test.describe('a venue too big to list', () => {
       await contextA.close();
       await contextB.close();
     }
+  });
+
+  test('8: the same arena space serves its pinned end-stage concert layout', async ({
+    page,
+    context,
+    request,
+  }) => {
+    const basketball = await (await request.get(`${API}/public/shows/${sessionId}/seats`)).json();
+    const concert = await (
+      await request.get(`${API}/public/shows/${concertSessionId}/seats`)
+    ).json();
+    expect(basketball.sections.map((section: { name: string }) => section.name)).toContain(
+      'Floor A',
+    );
+    expect(concert.sections.map((section: { name: string }) => section.name)).toContain('Stalls');
+
+    const email = uniqueEmail('concert_buyer');
+    await request.post(`${API}/auth/register`, {
+      data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: 'Concert Buyer' },
+    });
+    await seedBrowserAuth(context, await apiLogin(request, email, NEW_ACCOUNT_PASSWORD));
+    await page.goto(`${CUSTOMER}/events/${concertSlug}`, { waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Choose seats' }).click();
+    await expect(page).toHaveURL(new RegExp(`/shows/${concertSessionId}`), { timeout: 30_000 });
+    await expect(page.getByText('STAGE', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Stalls/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Floor A/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /Stalls/ }).click();
+    await page.getByRole('button', { name: /^Seat A1\b/ }).click();
+    await expect(page.getByText('Total (1 seat)')).toBeVisible();
+    await page
+      .getByRole('button', { name: /Proceed to pay/i })
+      .last()
+      .click();
+    await expect(page).toHaveURL(/\/booking\/[^/]+\/payment/, { timeout: 30_000 });
   });
 });

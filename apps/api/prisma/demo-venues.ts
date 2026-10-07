@@ -343,9 +343,14 @@ async function demoReservedEvent(opts: {
     where: { seatMapId: opts.seatMapId, kind: { not: 'GAP' } },
     orderBy: [{ rowId: 'asc' }, { colIndex: 'asc' }],
   });
+  const zones = await prisma.seatZone.findMany({
+    where: { seatMapId: opts.seatMapId },
+    orderBy: { sortOrder: 'asc' },
+  });
 
   for (const category of categories) {
     const quantityTotal = seats.filter((seat) => seat.seatCategoryId === category.id).length;
+    if (quantityTotal === 0) continue;
     const existing = await prisma.ticketType.findFirst({
       where: { eventSessionId: session.id, seatCategoryId: category.id },
     });
@@ -364,6 +369,49 @@ async function demoReservedEvent(opts: {
         },
       });
     }
+  }
+
+  for (const zone of zones) {
+    const category = categories.find((candidate) => candidate.id === zone.categoryId);
+    const existing = await prisma.ticketType.findFirst({
+      where: {
+        eventSessionId: session.id,
+        OR: [{ seatZoneId: zone.id }, { name: zone.name }],
+      },
+    });
+    if (existing) {
+      await prisma.ticketType.update({
+        where: { id: existing.id },
+        data: {
+          seatZoneId: zone.id,
+          seatCategoryId: null,
+          name: zone.name,
+          priceMinor: category?.basePriceMinor ?? 0,
+          currency: opts.currency,
+          quantityTotal: zone.capacity,
+          inventory: { update: { quantityTotal: zone.capacity } },
+        },
+      });
+    } else {
+      await prisma.ticketType.create({
+        data: {
+          eventSessionId: session.id,
+          seatZoneId: zone.id,
+          name: zone.name,
+          priceMinor: category?.basePriceMinor ?? 0,
+          currency: opts.currency,
+          quantityTotal: zone.capacity,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          inventory: { create: { quantityTotal: zone.capacity } },
+        },
+      });
+    }
+    await prisma.showZone.upsert({
+      where: { eventSessionId_zoneId: { eventSessionId: session.id, zoneId: zone.id } },
+      update: {},
+      create: { eventSessionId: session.id, zoneId: zone.id, capacity: zone.capacity },
+    });
   }
 
   await prisma.showSeat.createMany({
@@ -543,7 +591,7 @@ async function main() {
     capacity: 1_200,
   });
   const mainHall = await space(hall.id, 'Main Hall', 1_200);
-  await layout(mainHall.id, {
+  const gaVip = await layout(mainHall.id, {
     name: 'GA + VIP',
     focalPoint: 'STAGE_END',
     focalLabel: 'STAGE',
@@ -573,6 +621,17 @@ async function main() {
     ],
   });
   console.log('  Riverbend Concert House / Main Hall / GA + VIP');
+  await demoReservedEvent({
+    organizationId: org.id,
+    venueId: hall.id,
+    screenId: mainHall.id,
+    seatMapId: gaVip.id,
+    slug: 'riverbend-ga-vip',
+    title: 'Riverbend GA + VIP Concert',
+    category: 'Music',
+    currency: 'USD',
+    daysFromNow: 28,
+  });
 
   // ---- 3. Hyderabad auditorium, India ---------------------------------------------------
   const audVenue = await venue(org.id, {
@@ -585,7 +644,7 @@ async function main() {
     capacity: 900,
   });
   const auditorium = await space(audVenue.id, 'Main Auditorium', 900);
-  await layout(auditorium.id, {
+  const reservedAuditorium = await layout(auditorium.id, {
     name: 'Reserved Auditorium',
     focalPoint: 'STAGE_END',
     focalLabel: 'STAGE',
@@ -662,6 +721,17 @@ async function main() {
     ],
   });
   console.log('  Sai Nilayam Auditorium / Main Auditorium / Reserved Auditorium');
+  await demoReservedEvent({
+    organizationId: org.id,
+    venueId: audVenue.id,
+    screenId: auditorium.id,
+    seatMapId: reservedAuditorium.id,
+    slug: 'hyderabad-reserved-auditorium',
+    title: 'Hyderabad Reserved Auditorium',
+    category: 'Theater',
+    currency: 'INR',
+    daysFromNow: 35,
+  });
 
   // ---- 4. Demo Theater, United States ---------------------------------------------------
   const theatreVenue = await venue(org.id, {
@@ -674,7 +744,7 @@ async function main() {
     capacity: 320,
   });
   const theatre = await space(theatreVenue.id, 'Playhouse', 320);
-  await layout(theatre.id, {
+  const reservedTheatre = await layout(theatre.id, {
     name: 'Reserved Theater',
     focalPoint: 'STAGE_THRUST' as never,
     focalLabel: 'STAGE',
@@ -716,6 +786,17 @@ async function main() {
     ],
   });
   console.log('  Old Mill Theater / Playhouse / Reserved Theater');
+  await demoReservedEvent({
+    organizationId: org.id,
+    venueId: theatreVenue.id,
+    screenId: theatre.id,
+    seatMapId: reservedTheatre.id,
+    slug: 'old-mill-reserved-theater',
+    title: 'Old Mill Reserved Theater',
+    category: 'Theater',
+    currency: 'USD',
+    daysFromNow: 42,
+  });
 
   // ---- 5. Canada, for the multi-country gate --------------------------------------------
   const ca = await venue(org.id, {

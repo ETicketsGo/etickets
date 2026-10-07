@@ -108,6 +108,7 @@ export function VenueMap({
         {drawable.map((section) => {
           const fill = fillFor(section);
           const soldOut = fill === 'none';
+          const standingZone = section.kind === 'ZONE';
           const [cx, cy] =
             section.labelX !== null && section.labelY !== null
               ? [section.labelX, section.labelY]
@@ -120,18 +121,18 @@ export function VenueMap({
                 className={`${FILL_CLASS[fill]} transition-all ${
                   soldOut ? 'cursor-not-allowed' : 'cursor-pointer'
                 }`}
-                onClick={soldOut ? undefined : () => onSelect(section.id)}
+                onClick={soldOut || standingZone ? undefined : () => onSelect(section.id)}
                 /*
                   Keyboard reachability on an SVG shape needs all of this: a role, a
                   tabindex, and a key handler. Without it the entire venue is mouse-only,
                   which for a page whose only job is choosing a seat means the page has no
                   keyboard path at all.
                 */
-                role={soldOut ? undefined : 'button'}
-                tabIndex={soldOut ? undefined : 0}
+                role={soldOut || standingZone ? undefined : 'button'}
+                tabIndex={soldOut || standingZone ? undefined : 0}
                 aria-label={describe(section, formatPrice)}
                 onKeyDown={
-                  soldOut
+                  soldOut || standingZone
                     ? undefined
                     : (e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -149,7 +150,17 @@ export function VenueMap({
               >
                 {section.name}
               </text>
-              {section.priceMinorFrom !== null && !soldOut ? (
+              {standingZone ? (
+                <text
+                  x={cx}
+                  y={cy + 22}
+                  textAnchor="middle"
+                  className="pointer-events-none fill-text-primary/80 text-[15px] font-medium uppercase"
+                >
+                  Standing
+                </text>
+              ) : null}
+              {section.priceMinorFrom !== null && !soldOut && !standingZone ? (
                 <text
                   x={cx}
                   y={cy + 22}
@@ -178,7 +189,7 @@ export function VenueMap({
               <button
                 key={section.id}
                 type="button"
-                disabled={section.availableCount === 0}
+                disabled={section.availableCount === 0 || section.kind === 'ZONE'}
                 onClick={() => onSelect(section.id)}
                 className="rounded-md border border-border px-2.5 py-1 text-caption text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-50"
               >
@@ -209,7 +220,8 @@ function describe(section: VenueSectionSummary, formatPrice: (minor: number) => 
   if (section.availableCount === 0) return `${section.name}, sold out`;
   const price =
     section.priceMinorFrom !== null ? `, from ${formatPrice(section.priceMinorFrom)}` : '';
-  return `${section.name}, ${section.availableCount} of ${section.totalCount} seats available${price}`;
+  const unit = section.kind === 'ZONE' ? 'places' : 'seats';
+  return `${section.name}, ${section.availableCount} of ${section.totalCount} ${unit} available${price}`;
 }
 
 function centroidOf(points: VenuePoint[]): VenuePoint {

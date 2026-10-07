@@ -1533,6 +1533,10 @@ model TicketType {
   // For seat-based (movie) sessions: the seat category this price applies to.
   seatCategoryId String?
   seatCategory   SeatCategory? @relation(fields: [seatCategoryId], references: [id])
+  // For capacity-based areas inside a mapped venue (GA floor, VIP terrace).
+  // ShowZone is the per-session authority; this relation identifies which zone it prices.
+  seatZoneId String?
+  seatZone   SeatZone? @relation(fields: [seatZoneId], references: [id])
   name           String
   priceMinor     Int
   currency       String        @default("INR")
@@ -1551,6 +1555,7 @@ model TicketType {
 
   @@index([eventSessionId])
   @@index([seatCategoryId])
+  @@index([seatZoneId])
 }
 
 // One row per ticket type; the concurrency-safe source of truth for stock.
@@ -4937,6 +4942,7 @@ model SeatZone {
   sortOrder Int   @default(0)
 
   showZones ShowZone[]
+  ticketTypes TicketType[]
 
   @@index([seatMapId])
   @@index([categoryId])

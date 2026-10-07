@@ -152,6 +152,7 @@ export function SeatMap({
 
       <div
         ref={scroller}
+        data-testid="seat-map-scroll"
         role="group"
         aria-label={s('mapLabel')}
         aria-describedby={instructionsId}

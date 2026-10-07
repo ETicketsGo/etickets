@@ -53,6 +53,7 @@ describe('integration-real-postgres: general admission capacity', () => {
   let eventId = '';
   let sessionId = '';
   let floorZoneId = '';
+  let vipZoneId = '';
 
   beforeAll(async () => {
     if (!url) {
@@ -107,9 +108,10 @@ describe('integration-real-postgres: general admission capacity', () => {
       data: { seatMapId, name: 'Floor', categoryId: floorCat.id, capacity: 3, sortOrder: 0 },
     });
     floorZoneId = floor.id;
-    await db!.seatZone.create({
+    const vip = await db!.seatZone.create({
       data: { seatMapId, name: 'VIP Pit', categoryId: vipCat.id, capacity: 2, sortOrder: 1 },
     });
+    vipZoneId = vip.id;
 
     const event = await db!.event.create({
       data: {
@@ -252,4 +254,28 @@ describe('integration-real-postgres: general admission capacity', () => {
     const all = await zones.availability(sessionId);
     expect(all.map((z) => z.capacity)).toEqual([3, 2]);
   });
+
+  maybe(
+    'two buyers cannot reserve 2 + 1 when only 2 remain, then release and sale stay authoritative',
+    async () => {
+      const vip = await showZoneFor(vipZoneId);
+      const [buyerA, buyerB] = await Promise.all([
+        zones.tryHold(vip.id, 2),
+        zones.tryHold(vip.id, 1),
+      ]);
+      expect(Number(buyerA) + Number(buyerB)).toBe(1);
+
+      const afterRace = await showZoneFor(vipZoneId);
+      expect(afterRace.held).toBeLessThanOrEqual(2);
+      expect(afterRace.capacity - afterRace.held - afterRace.sold).toBeGreaterThanOrEqual(0);
+
+      await zones.release(vip.id, afterRace.held);
+      expect(await zones.tryHold(vip.id, 2)).toBe(true);
+      expect(await zones.tryConfirm(vip.id, 2)).toBe(true);
+      expect(await zones.tryHold(vip.id, 1)).toBe(false);
+
+      const soldOut = await showZoneFor(vipZoneId);
+      expect(soldOut).toMatchObject({ capacity: 2, held: 0, sold: 2 });
+    },
+  );
 });

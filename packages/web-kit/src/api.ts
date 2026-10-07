@@ -2447,6 +2447,8 @@ export interface PublicEvent extends EventDetails {
       currency: string;
       maxPerOrder: number;
       available: number;
+      /** Named seat on the map, or capacity from the mapped GA/VIP zone. */
+      inventoryKind?: 'SEAT' | 'ZONE';
     }[];
   }[];
 }
@@ -3375,6 +3377,8 @@ export interface VenueFocalPoint {
 
 interface SeatLayoutBase {
   sessionId: string;
+  /** The immutable layout version this session selected when it was scheduled. */
+  seatMapId: string;
   /** The VENUE's country, for anything that must behave differently by market. */
   country: string | null;
   /** `id` is the seat category id; `ticketTypeId` is the session's price tier for it. */
@@ -3392,6 +3396,8 @@ interface SeatLayoutBase {
 /** One block on the venue overview: an outline, what is left in it, and what it costs. */
 export interface VenueSectionSummary {
   id: string;
+  /** Standing zones are visible context on the plan but are bought by quantity. */
+  kind?: 'SECTION' | 'ZONE';
   name: string;
   shape: VenuePoint[] | null;
   labelX: number | null;
