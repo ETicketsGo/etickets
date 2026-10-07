@@ -117,8 +117,21 @@ component file re-exports it.
 decision**, so the reasoning is recorded in `layout.tsx` beside the label: the word was
 "rooms" because that is what made seat maps findable after "Cinemas" drove a concert promoter
 away. "Spaces" keeps what that rename was protecting - nothing film-specific in the sidebar -
-and matches what the pages, the API and the seating model all call the thing. Film-specific
-pages still say _cinema_ and _screen_, where those words are accurate.
+and matches what the pages and the seating model call the thing. Film-specific pages still say
+_cinema_ and _screen_, where those words are accurate.
+
+The rename turned out to be wider than the console. The API also writes organizer-facing copy:
+`organizer-actions.ts` produces the "Set up a ... with a seat map" step that `lib/onboarding.ts`
+renders from `a.title` and `a.actionLabel`, and `events.service.ts` and
+`event-sellability.service.ts` return refusal messages an organizer reads verbatim ("... not
+found for this organization", "That ... has no published seat map yet", "Changing the ... would
+move seats people have already paid for"). Those are renamed too, with the one integration test
+that pins such a message updated alongside it.
+
+**One deliberate exception.** `lib/room-plan.ts` keeps "Screening room" as a seat-map shape
+name, and its descriptions keep "a small, intimate room" and "a squarer room with a flat
+floor". Those name a KIND of space, the way the space-name hint itself offers "Screen 4, Main
+Hall, Auditorium". Renaming them would be worse English, not better consistency.
 
 ### PASS - the contract is tested, and the tests were falsified
 
@@ -140,9 +153,23 @@ job. Re-run untruncated, the sweep found six more user-visible surfaces: four in
 creation, three toasts and a hint in the sessions screen, the schedule conflict message, and
 the shape picker's own question.
 
-Worth recording because the same mistake is cheap to repeat: **a truncated grep is not a
-sweep.** This is the second time in this piece of work that a convenience-truncated or
-fixed-wait check reported clean while the defect was on the page.
+Then the corrected sweep was wrong too, in a different way. It was anchored on a quote
+(`['"\`][^'"\`]*room`), because it was looking for string literals - so it could not see
+`room`sitting in bare JSX text, and it never looked at the API at all. A third pass, which
+strips comments programmatically and then reports EVERY surviving`room` for a human decision,
+found ten more: four in event creation, five in the sessions screen, the onboarding card, the
+layout-versioning note, and the API copy described above.
+
+Worth recording because the same mistake is cheap to repeat, in three flavours now:
+
+1. **A truncated grep is not a sweep.** `head -20` hid four files.
+2. **A grep anchored on quotes cannot see JSX text.** Most organizer copy is not in a string
+   literal.
+3. **A check scoped to the web app cannot see server-written copy.** The API writes organizer
+   English.
+
+The reliable form is the third pass: strip comments, print everything that matches, and judge
+each line - rather than encoding the judgement into a regex and trusting the silence.
 
 The vocabulary assertion in the new spec only visits `/organizer/venues`,
 `/organizer/cinemas` and `/organizer/cinemas/new`. The strings CI caught live behind a

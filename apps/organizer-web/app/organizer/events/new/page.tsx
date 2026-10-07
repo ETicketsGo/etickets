@@ -838,7 +838,7 @@ function NewEventWizard() {
                     ) : roomsQ.data?.length === 0 ? (
                       <>
                         Buyers choose how many tickets they want — this is the only option because
-                        none of your rooms has a published seat map yet. To sell numbered seats,
+                        none of your spaces has a published seat map yet. To sell numbered seats,
                         draw one under{' '}
                         {/*
                           Opened in a NEW TAB, deliberately.
@@ -927,7 +927,7 @@ function NewEventWizard() {
                     className="rounded-md border border-status-warning/40 bg-tint-warning px-3 py-2 text-caption text-status-warning"
                   >
                     Session {i + 1} has {forSession.toLocaleString()} tickets on sale but the venue
-                    holds {venueCapacity.toLocaleString()}. Capacity is what the room seats;
+                    holds {venueCapacity.toLocaleString()}. Capacity is what the space seats;
                     quantity is what you put on sale — change one of them if that is not deliberate.
                   </p>
                 );
@@ -936,7 +936,7 @@ function NewEventWizard() {
               // Otherwise the shorter list of sessions in the dropdown below reads as a bug.
               <p className="text-caption text-text-muted">
                 Sessions with assigned seating are not listed below — their ticket types come from
-                the room&rsquo;s seat categories.
+                the space&rsquo;s seat categories.
               </p>
             )}
             {tickets.map((t, i) => (

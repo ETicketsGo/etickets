@@ -217,7 +217,7 @@ export default function OnboardingPage() {
           </div>
           <p className="font-semibold text-text-primary">Set up a space with a seat map</p>
           <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Only if buyers should choose their own seats. Draw the room once and any event held
+            Only if buyers should choose their own seats. Draw the space once and any event held
             there can sell reserved seating — a concert or a play, not only a film.
           </p>
           <ButtonLink href="/organizer/cinemas" variant="outline" size="sm" className="mt-4">

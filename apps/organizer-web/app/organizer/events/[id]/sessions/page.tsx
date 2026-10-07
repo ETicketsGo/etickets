@@ -47,7 +47,7 @@ function SeatingHelp({
   if (failed) {
     return (
       <p className="mt-1.5 text-caption text-text-muted">
-        We couldn&rsquo;t load your rooms, so only general admission is available here.
+        We couldn&rsquo;t load your spaces, so only general admission is available here.
       </p>
     );
   }
@@ -62,7 +62,7 @@ function SeatingHelp({
   if (rooms && rooms.length === 0) {
     return (
       <p className="mt-1.5 text-caption text-text-muted">
-        Buyers choose how many tickets they want. To sell numbered seats you need a room with a
+        Buyers choose how many tickets they want. To sell numbered seats you need a space with a
         published seat map —{' '}
         <Link href={ROOMS_HREF} className="underline hover:text-text-primary">
           set one up
@@ -73,7 +73,7 @@ function SeatingHelp({
   }
   return (
     <p className="mt-1.5 text-caption text-text-muted">
-      Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.
+      Buyers choose how many tickets they want. Pick a space to sell numbered seats instead.
     </p>
   );
 }
@@ -329,8 +329,8 @@ export default function SessionsTab() {
           )}
 
           <p className="text-caption text-text-muted">
-            Seating can only be changed while nothing is sold or held. After the first sale the room
-            is fixed, because changing it would move seats people have already paid for.
+            Seating can only be changed while nothing is sold or held. After the first sale the
+            space is fixed, because changing it would move seats people have already paid for.
           </p>
         </div>
       </Dialog>
