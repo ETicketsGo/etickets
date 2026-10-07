@@ -73,13 +73,19 @@ export function PolicyContext({
   const policy = getApplicablePolicy(type, country);
   return (
     <div className="mx-auto max-w-3xl border-y border-border py-4">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[0.9375rem] text-text-secondary">
+      {/*
+        No separator character between the two facts.
+
+        A `&middot;` between them is fine on a wide screen and strands itself at the end of
+        the first line the moment they wrap - which on a phone is always, and a phone is where
+        this page gets opened, because the link arrives in a text message. The gap does the
+        separating instead: side by side when there is room, stacked when there is not, and
+        never a dangling mark either way.
+      */}
+      <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[0.9375rem] text-text-secondary">
         <span>
           Applicable to{' '}
           <strong className="font-semibold text-text-primary">{REGION_NAME[country]}</strong>
-        </span>
-        <span aria-hidden className="text-text-muted">
-          &middot;
         </span>
         <span>Last updated {readableDate(policy.effectiveDate)}</span>
       </div>
