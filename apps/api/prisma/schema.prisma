@@ -1146,6 +1146,8 @@ model SeatMap {
   categories SeatCategory[]
   sections   SeatSection[]
   seats      Seat[]
+  /// Standing areas in the same layout. A room may have both.
+  zones      SeatZone[]
   /// Shows pinned to this exact version.
   sessions   EventSession[]
 
@@ -1177,6 +1179,7 @@ model SeatCategory {
   regulatoryClass SeatRegulatoryClass?
 
   seats       Seat[]
+  zones       SeatZone[]
   ticketTypes TicketType[]
 
   @@index([seatMapId])
@@ -1505,6 +1508,7 @@ model EventSession {
   tickets     Ticket[]
   checkIns    CheckIn[]
   showSeats   ShowSeat[]
+  showZones   ShowZone[]
 
   @@index([eventId])
   @@index([startsAt])
@@ -4881,4 +4885,82 @@ model PayoutAllocation {
   @@index([bookingId])
   /// Serves period-payout event membership, which `Payout.eventId` cannot express.
   @@index([eventId])
+}
+
+/// A standing area, sold by the HEAD rather than by the seat.
+///
+/// -- WHY THIS IS NOT A ROW OF FAKE SEATS --------------------------------------------
+/// A floor, a terrace or a VIP pen has capacity and no seat identity. Modelling it as 4,000
+/// numbered seats nobody sits in would put 4,000 meaningless rows into every session, hand
+/// buyers a seat number that means nothing at the door, and make "how many are left" a COUNT
+/// over rows instead of a number. It also breaks the one thing a numbered seat is for:
+/// telling two people apart.
+///
+/// So a zone sits beside `SeatSection` in the same layout. A layout may have both - reserved
+/// stalls and a standing floor are one room - which is what makes an arena concert
+/// expressible at all.
+///
+/// -- WHAT LIVES HERE AND WHAT DOES NOT ----------------------------------------------
+/// This is the PHYSICAL layout: the zone exists and holds this many people. What is sold,
+/// held or blocked for one event lives on `ShowZone`, exactly as seat inventory lives on
+/// `ShowSeat` rather than on `Seat`. A published layout is never edited to block inventory.
+model SeatZone {
+  id        String  @id @default(cuid())
+  seatMapId String
+  seatMap   SeatMap @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  name      String
+
+  /// The price class, shared with seated sections so one layout prices the same way
+  /// throughout and a ticket type can be derived from either.
+  categoryId String?
+  category   SeatCategory? @relation(fields: [categoryId], references: [id])
+
+  /// How many people this zone holds. The physical figure; one event may offer fewer.
+  capacity Int
+
+  /// Drawn on the map like a section, so a floor appears in its real place rather than in a
+  /// list beneath the seats.
+  shape     Json?
+  labelX    Int?
+  labelY    Int?
+  sortOrder Int   @default(0)
+
+  showZones ShowZone[]
+
+  @@index([seatMapId])
+  @@index([categoryId])
+}
+
+/// What is actually available in one zone, for ONE session.
+///
+/// The GA counterpart of `ShowSeat`, and deliberately the same shape: per-session, never
+/// touching the layout, and carrying its own `version` for optimistic concurrency.
+///
+/// -- WHY THREE NUMBERS AND NOT ONE --------------------------------------------------
+/// `sold` and `held` are separate because they expire differently: a hold is released by a
+/// timer or an abandoned checkout, a sale is not. Collapsing them into "taken" would make an
+/// expired hold indistinguishable from a refund. `capacity` is per-session rather than read
+/// from the zone because an event may offer less of a zone than it physically holds - a
+/// reduced floor, a blocked terrace - which is the event-level configuration a reusable
+/// layout must not be edited to express.
+///
+/// Remaining is `capacity - sold - held`, computed and never stored: a stored remainder is a
+/// fourth number that can disagree with the other three.
+model ShowZone {
+  id             String       @id @default(cuid())
+  eventSessionId String
+  eventSession   EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  zoneId         String
+  zone           SeatZone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  capacity Int
+  sold     Int @default(0)
+  held     Int @default(0)
+
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventSessionId, zoneId])
+  @@index([eventSessionId])
+  @@index([zoneId])
 }
