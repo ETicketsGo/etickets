@@ -226,4 +226,41 @@ evidence about real data, and the counts above are only a demonstration that the
   session has no representation. Designed separately before any code.
 - **Whether `Screen` should be renamed `Space`.** Renaming a table with 137 references is a
   separate, mechanical change and should not ride along with a semantic migration.
-- **Scale.** Nothing here has been measured at 25,000 seats.
+- **Scale.** Measured - see below.
+
+---
+
+## 6. Scale, measured
+
+`apps/api/scripts/measure-seating-scale.mjs` builds a real arena bowl at each size in a real
+database (blocks of 500, 20 rows of 25) and times what a person waits for. Everything it
+creates it deletes again.
+
+|  seats | blocks | build layout | per-session seats | overview read |     ONE block |             WHOLE map |
+| -----: | -----: | -----------: | ----------------: | ------------: | ------------: | --------------------: |
+|    500 |      1 |        91 ms |            115 ms |   4 ms / 0 KB | 23 ms / 87 KB |         17 ms / 73 KB |
+|  2,500 |      5 |       623 ms |            176 ms |   2 ms / 0 KB | 45 ms / 87 KB |       125 ms / 367 KB |
+| 10,000 |     20 |       2.56 s |            645 ms |   2 ms / 1 KB | 38 ms / 87 KB |     382 ms / 1,467 KB |
+| 25,000 |     50 |       5.06 s |            1.50 s |   3 ms / 4 KB | 94 ms / 87 KB | 854 ms / **3,667 KB** |
+
+**The sectioned read is what makes 25,000 seats possible, and it works.** The overview stays
+at 3 ms and 4 KB, and opening one block stays at roughly 90 ms and 87 KB _whatever the size of
+the venue_ - because a block is 500 seats in a 500-seat hall and in a 25,000-seat arena alike.
+That is flat, and flat is the whole answer.
+
+**The whole-map read is the cliff.** 3.67 MB and 854 ms at 25,000 seats. Any path that fetches
+every seat at once is unusable on a phone. `layoutKind` already discriminates this -
+`SECTIONED` venues return the overview, `GRID` returns everything - and `GRID` is the CINEMA
+default, which is safe only because a cinema is 400 seats. **Nothing currently stops a 25,000
+seat room being created as `GRID`**, and that is the failure mode to guard before an arena is
+onboarded.
+
+**Two costs an operator will notice**, neither fatal, both worth saying out loud: building a
+25,000-seat layout takes 5 seconds, and giving each SHOW its seat inventory takes 1.5 seconds
+
+- so an arena with fifty shows spends about 75 seconds materialising them.
+
+**What this does NOT measure:** these are database-level timings of queries shaped like the
+real ones, not calls to the deployed `getPublicSeatLayout` endpoint, and they contain no
+network time. Buyer RENDERING at 25,000 seats is **not measured at all**, because no arena
+buyer UI exists yet.
