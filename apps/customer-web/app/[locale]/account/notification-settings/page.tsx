@@ -7,6 +7,7 @@ import { Link } from '@/i18n/navigation';
 import { api } from '@/lib/api';
 import { Card, ErrorState, Skeleton, Toggle, useToast } from '@/components/ui';
 import { PushToggle } from '@/components/push-toggle';
+import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /**
  * What you receive, and where.
@@ -42,6 +43,7 @@ const KNOWN_CHANNELS = new Set(['email', 'push', 'whatsapp', 'sms']);
 
 export default function NotificationSettingsPage() {
   const t = useTranslations('storefront.notificationSettings');
+  const signedIn = useSignedIn();
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -83,6 +85,28 @@ export default function NotificationSettingsPage() {
     time. A toggle that cannot work should say why rather than failing silently afterwards.
   */
   const hasPhone = prefs.data?.destinations.hasPhone ?? false;
+
+  /*
+    Somebody with no session is not looking at a broken page - they are looking at somebody
+    else's settings, which is why the API refused. Telling them "we couldn't load your
+    notification settings" next to a Try again button sent them round a loop that could never
+    succeed, and this is the page the public SMS programme links to for turning text messages
+    ON, so it was the one route that had to work for a signed-out visitor.
+
+    `signedIn === null` is the first render, before localStorage can be read; showing the
+    skeleton there avoids flashing a sign-in prompt at somebody who is signed in.
+  */
+  if (signedIn === false || isAuthFailure(prefs.error) || isAuthFailure(consent.error)) {
+    return <SignInRequired title={t('signInTitle')} description={t('signInDescription')} />;
+  }
+  if (signedIn === null) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-3 p-4">
+        <Skeleton className="h-16" />
+        <Skeleton className="h-16" />
+      </div>
+    );
+  }
 
   if (prefs.isError) {
     return <ErrorState message={t('loadError')} onRetry={() => prefs.refetch()} />;
