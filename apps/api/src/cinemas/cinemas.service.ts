@@ -282,10 +282,19 @@ export class CinemasService {
   }
 
   async addScreen(user: RequestUser, cinemaId: string, input: CreateScreenInput) {
-    await this.loadOwnedCinema(user, cinemaId);
+    const cinema = await this.loadOwnedCinema(user, cinemaId);
     return this.prisma.screen.create({
       data: {
         cinemaId,
+        /*
+          The space carries its own venue, and it is the cinema's.
+
+          Without this line every space created after the migration would have a null venue
+          while every migrated one had a value - so the invariant would hold for old rows and
+          quietly fail for new ones, which is the worst of both. The backfill is not the
+          contract; this is.
+        */
+        venueId: cinema.venueId,
         name: input.name,
         screenType: input.screenType,
         capacity: input.capacity,

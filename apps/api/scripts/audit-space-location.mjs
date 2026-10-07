@@ -80,6 +80,26 @@ try {
   const venues = await prisma.venue.count();
   const areas = await prisma.venueArea.count();
 
+  /*
+    The space-level invariant, which lives here rather than in a test.
+
+    It was briefly asserted in the integration suite and reported 17 offending rows - all of
+    them created moments earlier by other fixtures calling `prisma.screen.create` directly.
+    A global data invariant cannot be checked from inside the suite that is writing the data.
+    Here it sees a settled environment, which is the only place the answer means anything.
+  */
+  const spacesWithNoVenue = await prisma.screen.findMany({
+    where: { venueId: null },
+    select: { id: true, name: true, cinemaId: true },
+  });
+  const spacesDisagreeing = await prisma.$queryRawUnsafe(
+    `SELECT s."id", s."name", s."venueId" AS space_venue, c."venueId" AS cinema_venue
+       FROM "Screen" s
+       JOIN "Cinema" c ON s."cinemaId" = c."id"
+      WHERE c."venueId" IS NOT NULL
+        AND s."venueId" IS DISTINCT FROM c."venueId"`,
+  );
+
   const report = {
     spaces: spaces.length,
     venues,
@@ -89,6 +109,8 @@ try {
     orphans: orphans.length,
     conflictRows: conflicts,
     orphanRows: orphans,
+    spacesWithNoVenue,
+    spacesDisagreeing,
   };
 
   if (asJson) {
@@ -114,6 +136,16 @@ try {
         console.log(`  ${o.name} (${o.id}) ${o.screens} screen(s)  ${where}`);
       }
     }
+    console.log(`
+spaces (Screen) with no venue : ${spacesWithNoVenue.length}`);
+    for (const r of spacesWithNoVenue) {
+      console.log(`  ${r.name} (${r.id}) cinemaId=${r.cinemaId ?? '-'}`);
+    }
+    console.log(`spaces disagreeing with their cinema's venue: ${spacesDisagreeing.length}`);
+    for (const r of spacesDisagreeing) {
+      console.log(`  ${r.name} (${r.id}) space=${r.space_venue} cinema=${r.cinema_venue}`);
+    }
+
     // `venueArea` is expected to be 0 everywhere. If it is not, the "it is dead" finding is
     // wrong in THIS environment and the table cannot simply be dropped.
     if (areas > 0) {
@@ -123,7 +155,13 @@ try {
 
   // A non-zero exit is reserved for "this environment needs decisions before the migration",
   // so a pipeline can gate on it. Agreement alone is not interesting enough to fail on.
-  process.exitCode = conflicts.length > 0 || orphans.length > 0 ? 2 : 0;
+  process.exitCode =
+    conflicts.length > 0 ||
+    orphans.length > 0 ||
+    spacesWithNoVenue.length > 0 ||
+    spacesDisagreeing.length > 0
+      ? 2
+      : 0;
 } finally {
   await prisma.$disconnect();
 }

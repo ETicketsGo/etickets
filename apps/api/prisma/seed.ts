@@ -572,9 +572,12 @@ async function main() {
       latitude: 12.9959,
       longitude: 77.6969,
       screens: {
+        // `venueId` on each: a space carries its own venue, and nesting the create under the
+        // cinema does not infer one. A seeded space with a null venue would fail the
+        // invariant every migrated and API-created space satisfies.
         create: [
-          { name: 'Screen 1', screenType: 'IMAX', capacity: 320 },
-          { name: 'Screen 2', screenType: '2D', capacity: 180 },
+          { name: 'Screen 1', screenType: 'IMAX', capacity: 320, venueId: arena.id },
+          { name: 'Screen 2', screenType: '2D', capacity: 180, venueId: arena.id },
         ],
       },
     },
