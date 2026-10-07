@@ -957,7 +957,12 @@ export class BookingsService {
   private async resolveCinemaPolicy(
     session: {
       screen?: {
-        cinema: {
+        /*
+          Optional because a space is no longer required to be a cinema screen. Only a cinema
+          carries a regulatory classification, so a space without one resolves to no policy -
+          which is correct: the orders this engine applies govern cinemas.
+        */
+        cinema?: {
           country: string | null;
           region: string | null;
           district: string | null;
@@ -966,7 +971,7 @@ export class BookingsService {
           cinemaFormat: CinemaFormat | null;
           climateType: ClimateType | null;
           venue?: { country: string | null; region: string | null; city: string | null } | null;
-        };
+        } | null;
       } | null;
     },
     currency: string,

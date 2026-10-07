@@ -11,6 +11,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { AuditService } from '../audit/audit.service';
+import { requireSpaceOrganizationId } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -34,11 +35,19 @@ export class CinemasService {
   private async loadOwnedScreen(user: RequestUser, id: string, roles = ORGANIZER_ROLES) {
     const screen = await this.prisma.screen.findUnique({
       where: { id },
-      include: { cinema: { select: { organizationId: true } } },
+      include: {
+        venue: { select: { organizationId: true } },
+        cinema: { select: { organizationId: true } },
+      },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    await this.access.assertMember(user, screen.cinema.organizationId, roles);
+    /*
+      The VENUE owns the space now; the cinema is consulted only for a row an older instance
+      wrote. A space with neither owner cannot be authorized, and `requireSpaceOrganizationId`
+      throws rather than handing back something that would pass a membership check.
+    */
+    await this.access.assertMember(user, requireSpaceOrganizationId(screen), roles);
     return screen;
   }
 
@@ -307,7 +316,7 @@ export class CinemasService {
       });
       await this.audit?.record({
         actorUserId: user.id,
-        organizationId: screen.cinema.organizationId,
+        organizationId: requireSpaceOrganizationId(screen),
         action: 'SCREEN_STATUS_CHANGED',
         entityType: 'Screen',
         entityId: id,

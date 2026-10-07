@@ -26,6 +26,7 @@ import {
   type TemplateSection,
   type VenueTemplateKey,
 } from './venue-templates';
+import { requireSpaceOrganizationId } from '../spaces/space-owner';
 
 /**
  * Empty a draft layout before rewriting it, in the only order the database allows.
@@ -101,25 +102,25 @@ export class SeatLayoutsService {
   private async loadOwnedScreen(user: RequestUser, screenId: string, roles = ORGANIZER_ROLES) {
     const screen = await this.prisma.screen.findUnique({
       where: { id: screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
     }
-    await this.access.assertMember(user, screen.cinema.organizationId, roles);
+    await this.access.assertMember(user, requireSpaceOrganizationId(screen), roles);
     return screen;
   }
 
-  /** Load a layout with its screen, checking tenancy through the screen's cinema. */
+  /** Load a layout with its screen, checking tenancy through the screen's VENUE. */
   private async loadOwnedLayout(user: RequestUser, layoutId: string, roles = ORGANIZER_ROLES) {
     const layout = await this.prisma.seatMap.findUnique({
       where: { id: layoutId },
-      include: { screen: { include: { cinema: true } } },
+      include: { screen: { include: { cinema: true, venue: true } } },
     });
     if (!layout) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Seat layout not found.', HttpStatus.NOT_FOUND);
     }
-    await this.access.assertMember(user, layout.screen.cinema.organizationId, roles);
+    await this.access.assertMember(user, requireSpaceOrganizationId(layout.screen), roles);
     return layout;
   }
 
@@ -193,14 +194,17 @@ export class SeatLayoutsService {
       id: string;
       screenId: string;
       version: number;
-      screen: { cinema: { organizationId: string } };
+      screen: {
+        venue?: { organizationId: string } | null;
+        cinema?: { organizationId: string } | null;
+      };
     },
     action: string,
     metadata: Record<string, unknown>,
   ) {
     await this.audit?.record({
       actorUserId: user.id,
-      organizationId: layout.screen.cinema.organizationId,
+      organizationId: requireSpaceOrganizationId(layout.screen),
       action,
       entityType: 'SeatMap',
       entityId: layout.id,

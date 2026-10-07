@@ -928,6 +928,7 @@ model Venue {
   areas   VenueArea[]
   events  Event[]
   cinemas Cinema[]
+  screens Screen[]
 
   @@index([organizationId])
   @@index([city])
@@ -1041,9 +1042,30 @@ model Cinema {
 }
 
 model Screen {
-  id         String       @id @default(cuid())
-  cinemaId   String
-  cinema     Cinema       @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  /// The venue this space is in. AUTHORITATIVE for where it is.
+  ///
+  /// -- WHY THIS EXISTS ---------------------------------------------------------------
+  /// A bookable space used to reach its venue only through `Cinema`, and `cinemaId` was
+  /// REQUIRED. That single NOT NULL is why an arena, an auditorium, a concert hall and a
+  /// conference room all had to be created as a "cinema" before they could sell a numbered
+  /// seat: `Cinema` sat on the only path to a `Screen`.
+  ///
+  /// Nullable for one migration only. It is backfilled from `cinema.venueId`, and a space
+  /// whose cinema had no venue gets one created from the location it already carried. Once
+  /// every row has a venue this becomes required, in a later migration, so the column is
+  /// never required while a row could still be missing it during a rolling deploy.
+  venueId String?
+  venue   Venue?  @relation(fields: [venueId], references: [id])
+
+  /// The cinema this space belongs to, when it IS one.
+  ///
+  /// Now optional. A cinema screen keeps it and every cinema behaviour is unchanged; a
+  /// concert hall simply does not have one. What it no longer does is decide where the
+  /// space is, or whether the space may exist at all.
+  cinemaId   String?
+  cinema     Cinema?      @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
   name       String
   screenType String       @default("2D") // 2D, 3D, IMAX, 4DX
   capacity   Int
@@ -1057,6 +1079,7 @@ model Screen {
   seatMaps SeatMap[]
 
   @@index([cinemaId])
+  @@index([venueId])
 }
 
 // ─────────────────── Seat maps & seat-level inventory (ADR-013) ───────────────────

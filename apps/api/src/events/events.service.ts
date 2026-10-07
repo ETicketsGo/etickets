@@ -29,6 +29,7 @@ import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
+import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -709,12 +710,18 @@ export class EventsService {
 
     const screens = await this.prisma.screen.findMany({
       where: {
-        cinema: { organizationId },
+        /*
+          Owned through the VENUE or, for a row an older instance wrote, through the cinema.
+          Scoping only by `cinema` here would hide every space that is not a cinema screen -
+          which, after this migration, is every arena, auditorium and concert hall.
+        */
+        OR: [{ venue: { organizationId } }, { cinema: { organizationId } }],
         seatMaps: { some: { status: 'PUBLISHED' } },
       },
       select: {
         id: true,
         name: true,
+        venue: { select: { name: true } },
         cinema: { select: { name: true } },
         seatMaps: {
           where: { status: 'PUBLISHED' },
@@ -739,7 +746,7 @@ export class EventsService {
           },
         },
       },
-      orderBy: [{ cinema: { name: 'asc' } }, { name: 'asc' }],
+      orderBy: [{ name: 'asc' }],
     });
 
     return screens
@@ -747,7 +754,7 @@ export class EventsService {
       .map((s) => ({
         id: s.id,
         name: s.name,
-        venueName: s.cinema.name,
+        venueName: spaceVenueName(s),
         layoutName: s.seatMaps[0].name,
         layoutKind: s.seatMaps[0].layoutKind,
         sellableSeats: s.seatMaps[0]._count.seats,
@@ -939,11 +946,12 @@ export class EventsService {
       where: { id: screenId },
       select: {
         id: true,
+        venue: { select: { organizationId: true } },
         cinema: { select: { organizationId: true } },
         seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
       },
     });
-    if (!screen || screen.cinema.organizationId !== organizationId) {
+    if (!screen || spaceOrganizationId(screen) !== organizationId) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
         'Space not found for this organization.',
