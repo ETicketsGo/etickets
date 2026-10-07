@@ -910,7 +910,7 @@ export class EventsService {
         ErrorCodes.CONFLICT,
         `Seating cannot be changed: this session already has ${bookings} booking${
           bookings === 1 ? '' : 's'
-        }. Changing the room would move seats people have already paid for.`,
+        }. Changing the space would move seats people have already paid for.`,
         HttpStatus.CONFLICT,
         { sessionId, bookings },
       );
@@ -946,14 +946,14 @@ export class EventsService {
     if (!screen || screen.cinema.organizationId !== organizationId) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
-        'Room not found for this organization.',
+        'Space not found for this organization.',
         HttpStatus.NOT_FOUND,
       );
     }
     if (screen.seatMaps.length === 0) {
       throw new AppException(
         ErrorCodes.CONFLICT,
-        'That room has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
+        'That space has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
         HttpStatus.CONFLICT,
         { screenId },
       );

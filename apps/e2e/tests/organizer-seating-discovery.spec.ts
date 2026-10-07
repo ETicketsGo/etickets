@@ -63,10 +63,10 @@ test.describe('finding reserved seating from a standing start', () => {
 
       Renaming it to "Rooms & seat maps" fixed the word and left the real fault: it was a
       SECOND places section beside "Venues", so setting up one site meant crossing between
-      them. They are now one entry, and "rooms" survives in the label because that is the
+      them. They are now one entry, labelled with the platform's word for the thing, because that is the
       word that made seat maps findable at all.
     */
-    const rooms = page.getByRole('link', { name: 'Venues & rooms' });
+    const rooms = page.getByRole('link', { name: 'Venues & spaces' });
     await expect(rooms).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('link', { name: 'Cinemas', exact: true })).toHaveCount(0);
     // The split itself is what regressed last time; assert there is exactly one way in.
@@ -82,7 +82,7 @@ test.describe('finding reserved seating from a standing start', () => {
       tells a promoter running gigs that they are in the wrong place — while standing in the
       only place a seat map can be made.
     */
-    await expect(page.getByText(/No rooms yet/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/No spaces yet/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/not only a film/)).toBeVisible();
     await expect(page.getByText(/scheduling screenings/)).toHaveCount(0);
   });
@@ -90,7 +90,7 @@ test.describe('finding reserved seating from a standing start', () => {
   test('3: the setup checklist mentions seating, and does not nag about it', async ({ page }) => {
     await page.goto(`${ORGANIZER}/organizer/onboarding`, { waitUntil: 'networkidle' });
 
-    await expect(page.getByText('Set up a room with a seat map').first()).toBeVisible({
+    await expect(page.getByText('Set up a space with a seat map').first()).toBeVisible({
       timeout: 30_000,
     });
     /*
@@ -122,7 +122,7 @@ test.describe('finding reserved seating from a standing start', () => {
     */
     await page.locator('#name').fill(locationName);
     await page.locator('#city').fill('Hyderabad');
-    await page.getByRole('button', { name: 'Create room' }).click();
+    await page.getByRole('button', { name: 'Create space' }).click();
     await expect(page).toHaveURL(/\/organizer\/cinemas\/(?!new$)[^/]+/, { timeout: 30_000 });
 
     const cinemaId = page.url().split('/').filter(Boolean).pop()!;

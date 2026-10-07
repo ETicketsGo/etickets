@@ -55,7 +55,7 @@ export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePicke
   return (
     <div className="space-y-4">
       <div>
-        <p className="mb-2 text-sm font-medium">What kind of room is this?</p>
+        <p className="mb-2 text-sm font-medium">What kind of space is this?</p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {ROOM_SHAPES.map((s) => {
             const on = s.key === shape.key;

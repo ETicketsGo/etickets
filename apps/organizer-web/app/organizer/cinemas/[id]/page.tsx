@@ -334,7 +334,7 @@ export default function CinemaDetailPage() {
       <PageHeader
         title={cinema.name}
         breadcrumbs={[
-          { label: 'Venues & rooms', href: '/organizer/venues' },
+          { label: 'Venues & spaces', href: '/organizer/venues' },
           { label: cinema.name },
         ]}
       />

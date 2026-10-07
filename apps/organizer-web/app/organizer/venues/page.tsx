@@ -24,6 +24,7 @@ import {
   type Venue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
+import { venuePayload } from '@/components/venue-fields';
 import { groupRoomsByVenue, screenCount } from './venue-rooms';
 
 /**
@@ -144,21 +145,19 @@ export default function VenuesPage() {
     not fill this in", and writing an empty string over an address somebody entered earlier
     would silently destroy it.
   */
-  const payload = () => ({
-    name: form.name.trim(),
-    city: form.city.trim(),
-    country: where.country.trim() || 'India',
-    /*
-      Sent as '' rather than undefined when cleared, so an organizer CAN unset a state they
-      picked by mistake. The address rule above is the opposite — there, blank means "not
-      filled in" — and the difference is that this field is a dropdown with an explicit
-      "Not specified" choice, which is somebody saying so rather than not answering.
-    */
-    region: where.region.trim(),
-    timezone: where.timezone || undefined,
-    address: form.address.trim() || undefined,
-    capacity: form.capacity ? Number(form.capacity) : undefined,
-  });
+  /*
+    THE one venue payload, shared with event creation and onboarding. Each of those used to
+    build its own and each omitted something different - address here, region and timezone
+    there - so the same action produced a different venue depending on the door.
+  */
+  const payload = () =>
+    venuePayload({
+      name: form.name,
+      city: form.city,
+      address: form.address,
+      capacity: form.capacity,
+      where,
+    });
 
   const save = useMutation({
     mutationFn: () =>
@@ -180,12 +179,12 @@ export default function VenuesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Venues & rooms"
-        description="Where your events happen, and the rooms inside them. A seating plan belongs to a room."
+        title="Venues & spaces"
+        description="Where your events happen, and the spaces inside them. A seating plan belongs to a space."
         action={
           <div className="flex gap-2">
             <ButtonLink href="/organizer/cinemas/new" variant="outline">
-              New room
+              New space
             </ButtonLink>
             <Button onClick={openCreate}>New venue</Button>
           </div>
@@ -238,7 +237,7 @@ export default function VenuesPage() {
         <Card>
           <p className="text-sm text-text-secondary">
             No venues yet. Add the hall, theatre or ground where your events take place — you pick
-            one for every event you create. If you sell numbered seats, add a room inside it and
+            one for every event you create. If you sell numbered seats, add a space inside it and
             draw the seating plan there.
           </p>
         </Card>
@@ -284,23 +283,23 @@ export default function VenuesPage() {
                   </ul>
                 ) : (
                   /*
-                    Said here rather than left blank. "No rooms" is not a fault — a lawn or a
+                    Said here rather than left blank. "No spaces" is not a fault — a lawn or a
                     stadium terrace sells fine without one — so this states the consequence
                     and lets the organizer decide, instead of reading as something undone.
                   */
                   <p className="text-caption text-text-secondary">
-                    No rooms here. Add one if you want buyers to pick their own seat.
+                    No spaces here. Add one if you want buyers to pick their own seat.
                   </p>
                 )}
                 {/*
-                  Carries the venue, so the room joins this one instead of quietly creating a
+                  Carries the venue, so the space joins this one instead of quietly creating a
                   second venue with the same name.
                 */}
                 <Link
                   href={`/organizer/cinemas/new?venueId=${venue.id}`}
                   className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
-                  Add a room here
+                  Add a space here
                 </Link>
               </div>
             </Card>
@@ -308,7 +307,7 @@ export default function VenuesPage() {
         })}
 
       {!loading && !failed && grouped.orphans.length > 0 && (
-        <Card title="Rooms not linked to a venue">
+        <Card title="Spaces not linked to a venue">
           <p className="mb-3 text-caption text-text-secondary">
             These work, and their events still sell. Linking them to a venue keeps the public
             listing’s address and city right.

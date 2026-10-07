@@ -102,7 +102,7 @@ test.describe('creating an event with assigned seating', () => {
     const seating = page.locator('#sr0');
     await expect(seating).toBeVisible();
     await expect(seating).toHaveValue('');
-    await expect(page.getByText('Pick a room to sell numbered seats')).toBeVisible();
+    await expect(page.getByText('Pick a space to sell numbered seats')).toBeVisible();
 
     await seating.selectOption(room.screenId);
     await expect(page.getByText('Buyers pick a named seat')).toBeVisible();
