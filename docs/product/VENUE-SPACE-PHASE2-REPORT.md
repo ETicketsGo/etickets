@@ -139,6 +139,20 @@ from inside the suite that writes the data. It moved to the audit script.
 venue-less space behind and poisoned every later run with an unrelated failure. Cleanup is now
 in a `finally`.
 
+**I put a Sydney cinema in India.** Making `spaceTimezone` prefer the venue - as ownership and
+naming correctly do - is wrong, because `Venue.timezone` is `NOT NULL` with a default of
+`Asia/Kolkata`. A venue nobody has ever asked for a zone still RETURNS one, and nothing tells
+that guess apart from a venue genuinely in India. So the venue shadowed the cinema's real
+answer and a Sydney 00:30 show was stored and reported as **06:00** - the IST offset applied
+to a city 5.5 hours away.
+
+4,970 green API tests missed it, because every one of them asserts behaviour for a space whose
+venue and cinema AGREE. The defect needs them to disagree, and only the Sydney e2e fixture
+does that. It was caught twelve minutes into CI.
+
+`space-owner.spec.ts` now asserts the precedence directly and was falsified by restoring the
+exact inversion, so it fails in milliseconds instead.
+
 **A guard restated its fix instead of testing it.** The first version of the `addScreen` guard
 wrote `prisma.screen.create({ venueId: cinema.venueId })` itself, so it passed against the
 defective service. It now calls the real service, and was falsified by restoring the defect.
@@ -156,6 +170,15 @@ Locally it finds one conflict: a space whose address is more precise than its ve
 of this conflict and it argues for keeping a space-level **address refinement** while city,
 country, region and timezone become venue-only. A space may say where IN the venue it is; it
 may not claim a different city.
+
+**The defaults that lie, and why location unification cannot finish without fixing them.**
+`Venue.timezone` defaults to `Asia/Kolkata` and `Venue.country` defaults to `India`. Neither
+column can be authoritative while "set" is indistinguishable from "defaulted" - that is what
+produced the Sydney defect above, and it is why `spaceTimezone` still reads the CINEMA first.
+
+Making both nullable and backfilling them from the cinema is therefore a **prerequisite** for
+dropping `Cinema`'s location columns. It should be the first task of the next phase, before
+any UI work, because every later step assumes the venue can be trusted.
 
 **An owner decision: `VenueArea`.** It has zero code references, but the seed writes rows into
 it - "General" (4000) and "VIP" (1000). It is a vestigial GA model: the right idea with none of
