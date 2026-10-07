@@ -27,6 +27,7 @@ import {
   type VenueTemplateKey,
 } from './venue-templates';
 import { requireSpaceOrganizationId } from '../spaces/space-owner';
+import { GRID_LAYOUT_MAX_SEATS, checkGridLayoutLimit } from '../spaces/grid-layout-limit';
 
 /**
  * Empty a draft layout before rewriting it, in the only order the database allows.
@@ -630,6 +631,21 @@ export class SeatLayoutsService {
         HttpStatus.CONFLICT,
         { reason: 'LAYOUT_EMPTY' },
       );
+    }
+
+    /*
+      A room big enough to need blocks must be drawn in blocks.
+
+      Publishing is the right place to refuse: it is the moment a layout becomes something
+      buyers load, and a draft is still free to be any shape while it is being worked on.
+    */
+    const limit = checkGridLayoutLimit(layout.layoutKind, seatCount);
+    if (!limit.ok) {
+      throw new AppException(ErrorCodes.CONFLICT, limit.reason!, HttpStatus.CONFLICT, {
+        reason: 'LAYOUT_TOO_BIG_FOR_GRID',
+        seatCount,
+        maxSeats: GRID_LAYOUT_MAX_SEATS,
+      });
     }
 
     const now = new Date();
