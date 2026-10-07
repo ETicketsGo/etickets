@@ -1,5 +1,12 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { API, CUSTOMER, apiLogin } from './helpers';
+import {
+  API,
+  CUSTOMER,
+  apiLogin,
+  seedBrowserAuth,
+  uniqueEmail,
+  NEW_ACCOUNT_PASSWORD,
+} from './helpers';
 
 /**
  * A big venue, from the shape an organizer picks to the seat a customer takes.
@@ -23,17 +30,12 @@ const ORGANIZER_EMAIL = 'owner@eticketsgo.test';
 /** Everything the organizer console does, done over the API so the spec stays about the map. */
 async function buildArena(
   request: APIRequestContext,
-): Promise<{ sessionId: string; movieId: string }> {
+): Promise<{ sessionId: string; slug: string }> {
   const { accessToken } = await apiLogin(request, ORGANIZER_EMAIL);
   const auth = { Authorization: `Bearer ${accessToken}` };
 
   const orgs = await (await request.get(`${API}/organizations`, { headers: auth })).json();
   const organizationId = (Array.isArray(orgs) ? orgs : orgs.data)[0].id;
-
-  const cinemas = await (
-    await request.get(`${API}/cinemas?organizationId=${organizationId}`, { headers: auth })
-  ).json();
-  const cinemaId = (Array.isArray(cinemas) ? cinemas : cinemas.data)[0].id;
 
   /*
     A screen of its own, created per run.
@@ -44,14 +46,30 @@ async function buildArena(
     start time only moved the collision around. A fresh screen has nothing on it, which is
     deterministic rather than merely unlikely.
   */
-  const screen = await (
-    await request.post(`${API}/cinemas/${cinemaId}/screens`, {
+  const stamp = Date.now();
+  const venue = await (
+    await request.post(`${API}/venues`, {
       headers: auth,
-      data: { name: `Venue map E2E ${Date.now()}`, screenType: '2D', capacity: 200 },
+      data: {
+        organizationId,
+        name: `Demo Arena E2E ${stamp}`,
+        city: 'Boise',
+        region: 'Idaho',
+        country: 'United States',
+        timezone: 'America/Boise',
+        address: '100 Test Plaza',
+        capacity: 12_000,
+      },
     })
   ).json();
-  const screenId = screen.id;
-  expect(screenId, `screen creation failed: ${JSON.stringify(screen)}`).toBeTruthy();
+  const space = await (
+    await request.post(`${API}/venues/${venue.id}/spaces`, {
+      headers: auth,
+      data: { name: 'Main Arena', screenType: '2D', capacity: 12_000 },
+    })
+  ).json();
+  const screenId = space.id;
+  expect(screenId, `space creation failed: ${JSON.stringify(space)}`).toBeTruthy();
 
   // A new screen is an empty room, so give it a layout to start from — the same first step
   // an organizer takes before they can do anything else with a screen.
@@ -88,7 +106,7 @@ async function buildArena(
       // Small on purpose: this spec is about the seam, not about throughput. The
       // fourteen-thousand-seat case is proven against a real database in the API suite,
       // where it belongs and where it does not cost a browser eleven thousand DOM nodes.
-      data: { template: 'IN_THE_ROUND', rows: 4, seatsPerRow: 6, basePriceMinor: 50_000 },
+      data: { template: 'ARENA', rows: 4, seatsPerRow: 8, basePriceMinor: 5_000 },
     })
   ).json();
   expect(built.layoutKind).toBe('SECTIONED');
@@ -96,48 +114,62 @@ async function buildArena(
 
   await request.post(`${API}/seat-layouts/${draft.id}/publish`, { headers: auth, data: {} });
 
-  const movies = await (
-    await request.get(`${API}/movies?organizationId=${organizationId}`, { headers: auth })
-  ).json();
-  const list = Array.isArray(movies) ? movies : movies.data;
-  /*
-    Which movie the arena hangs off matters, and it is reported back rather than agreed by
-    convention.
-
-    Every run leaves an arena show attached to whichever movie it used, and test 5 needs an
-    ORDINARY cinema show to check that cinemas are unchanged. The first seeded movie is the
-    right host precisely because nothing is playing on it: the seed gives its showtimes to
-    the last one, so taking the first leaves the already-playing movie undisturbed for test
-    5 to look at. Picking "the last" put the arena on exactly the movie test 5 needed, and
-    it duly reported that a cinema had grown a venue map.
-  */
-  expect(
-    list.length,
-    'the seed needs at least two movies to keep these halves apart',
-  ).toBeGreaterThan(1);
-  const movieId = list[0].id;
-
   const startsAt = new Date(Date.now() + 30 * 86_400_000);
   const endsAt = new Date(startsAt.getTime() + 3 * 3_600_000);
-  const response = await request.post(`${API}/movies/${movieId}/shows`, {
+  const event = await (
+    await request.post(`${API}/events`, {
+      headers: auth,
+      data: {
+        organizationId,
+        venueId: venue.id,
+        title: `Demo Arena Basketball ${stamp}`,
+        category: 'Sports',
+        feeMode: 'CUSTOMER_PAYS',
+      },
+    })
+  ).json();
+  expect(event.id, `event creation failed: ${JSON.stringify(event)}`).toBeTruthy();
+
+  const response = await request.post(`${API}/events/${event.id}/sessions`, {
     headers: auth,
-    data: { screenId, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+    data: {
+      screenId,
+      seatMapId: draft.id,
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+    },
   });
-  const show = await response.json();
+  const session = await response.json();
   // Asserted here so a scheduling refusal fails once, loudly, instead of arriving as four
   // tests that cannot find a heading.
-  expect(response.ok(), `scheduling failed: ${JSON.stringify(show)}`).toBe(true);
-  expect(show.sessionId).toBeTruthy();
+  expect(response.ok(), `scheduling failed: ${JSON.stringify(session)}`).toBe(true);
+  expect(session.id).toBeTruthy();
 
-  return { sessionId: show.sessionId, movieId };
+  await request.post(`${API}/events/${event.id}/submit`, { headers: auth });
+  const admin = await apiLogin(request, 'admin@eticketsgo.test');
+  const approval = await request.post(`${API}/admin/events/${event.id}/review`, {
+    headers: { Authorization: `Bearer ${admin.accessToken}` },
+    data: { decision: 'APPROVE' },
+  });
+  if (!approval.ok()) {
+    const body = await approval.text();
+    expect(
+      approval.status() === 409 && body.includes('current: PUBLISHED'),
+      `event approval failed: ${body}`,
+    ).toBe(true);
+  }
+
+  return { sessionId: session.id, slug: event.slug };
 }
 
 test.describe('a venue too big to list', () => {
+  test.describe.configure({ mode: 'serial' });
+
   let sessionId = '';
-  let arenaMovieId = '';
+  let eventSlug = '';
 
   test.beforeAll(async ({ request }) => {
-    ({ sessionId, movieId: arenaMovieId } = await buildArena(request));
+    ({ sessionId, slug: eventSlug } = await buildArena(request));
   });
 
   test('1: the customer sees a map of the venue, not a wall of seats', async ({ page }) => {
@@ -155,15 +187,15 @@ test.describe('a venue too big to list', () => {
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
     // The accessible name carries the same three facts the picture does, so the map is not
     // a mouse-only feature.
-    const block = page.getByRole('button', { name: /Ringside N, \d+ of \d+ seats available/ });
+    const block = page.getByRole('button', { name: /Floor A, \d+ of \d+ seats available/ });
     await expect(block).toBeVisible();
   });
 
   test('3: opening a block shows its seats — and only its seats', async ({ page }) => {
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
-    await page.getByRole('button', { name: /Ringside N/ }).click();
+    await page.getByRole('button', { name: /Floor A/ }).click();
 
-    await expect(page.getByRole('heading', { name: 'Ringside N' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Floor A' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to the venue map' })).toBeVisible();
     // Row A exists here. If the whole venue had come back, several blocks would each have one.
     await expect(page.getByText('A', { exact: true })).toHaveCount(1);
@@ -179,7 +211,7 @@ test.describe('a venue too big to list', () => {
       and this is what proves it.
     */
     await page.goto(`${CUSTOMER}/shows/${sessionId}`);
-    await page.getByRole('button', { name: /Ringside N/ }).click();
+    await page.getByRole('button', { name: /Floor A/ }).click();
 
     const seat = page.getByRole('button', { name: /^Seat A1\b/ }).first();
     await seat.click();
@@ -191,7 +223,7 @@ test.describe('a venue too big to list', () => {
     await expect(page.getByText(/1 seat held in your basket/)).toBeVisible();
 
     // And still there, still selected, on the way back in.
-    await page.getByRole('button', { name: /Ringside N/ }).click();
+    await page.getByRole('button', { name: /Floor A/ }).click();
     await expect(page.getByText(/A1/).first()).toBeVisible();
   });
 
@@ -214,7 +246,7 @@ test.describe('a venue too big to list', () => {
       that cinemas grew a venue map.
     */
     let cinemaShow: { sessionId: string } | undefined;
-    for (const movie of list.filter((m: { id: string }) => m.id !== arenaMovieId)) {
+    for (const movie of list) {
       const showtimes = await (
         await request.get(`${API}/public/movies/${movie.slug}/shows`)
       ).json();
@@ -239,5 +271,36 @@ test.describe('a venue too big to list', () => {
     await page.goto(`${CUSTOMER}/shows/${cinemaShow!.sessionId}`);
     await expect(page.getByRole('heading', { name: 'Select seats' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Choose your area' })).toHaveCount(0);
+  });
+
+  test('6: a signed-in buyer can choose two arena seats and reach checkout', async ({
+    page,
+    context,
+    request,
+  }) => {
+    const email = uniqueEmail('arena_buyer');
+    await request.post(`${API}/auth/register`, {
+      data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: 'Arena Buyer' },
+    });
+    const tokens = await apiLogin(request, email, NEW_ACCOUNT_PASSWORD);
+    await seedBrowserAuth(context, tokens);
+
+    await page.goto(`${CUSTOMER}/events/${eventSlug}`, { waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Choose seats' }).click();
+    await expect(page).toHaveURL(new RegExp(`/shows/${sessionId}`), { timeout: 30_000 });
+    await page.getByRole('button', { name: /Floor A/ }).click();
+
+    const availableSeats = page
+      .getByRole('button', { name: /^Seat / })
+      .and(page.locator(':enabled'));
+    await availableSeats.nth(0).click();
+    await availableSeats.nth(1).click();
+    await expect(page.getByText('Total (2 seats)')).toBeVisible();
+
+    await page
+      .getByRole('button', { name: /Proceed to pay/i })
+      .last()
+      .click();
+    await expect(page).toHaveURL(/\/booking\/[^/]+\/(?:payment|reserved)/, { timeout: 30_000 });
   });
 });

@@ -92,7 +92,7 @@ function ring(
   inner: [number, number],
   outer: [number, number],
   opts: {
-    prefix: string;
+    base: number;
     tier: string;
     rows: number;
     seatsPerRow: number;
@@ -277,6 +277,125 @@ async function layout(
   return map;
 }
 
+/**
+ * Put a published event in front of a demo layout, with the same inventory the real
+ * scheduling service creates. This script is local-only, but the resulting event deliberately
+ * uses the production buyer path: public event -> session -> pinned layout -> booking.
+ */
+async function demoReservedEvent(opts: {
+  organizationId: string;
+  venueId: string;
+  screenId: string;
+  seatMapId: string;
+  slug: string;
+  title: string;
+  category: string;
+  currency: string;
+  daysFromNow: number;
+}) {
+  const event = await prisma.event.upsert({
+    where: { slug: opts.slug },
+    update: {
+      venueId: opts.venueId,
+      title: opts.title,
+      category: opts.category,
+      status: 'PUBLISHED',
+      publishedAt: new Date(),
+    },
+    create: {
+      organizationId: opts.organizationId,
+      venueId: opts.venueId,
+      slug: opts.slug,
+      title: opts.title,
+      category: opts.category,
+      description: `A representative ${opts.category.toLowerCase()} event using ETicketsGo's professional reserved-seating flow.`,
+      status: 'PUBLISHED',
+      publishedAt: new Date(),
+      feeMode: 'CUSTOMER_PAYS',
+    },
+  });
+
+  const now = new Date();
+  let session = await prisma.eventSession.findFirst({
+    where: { eventId: event.id, seatMapId: opts.seatMapId, startsAt: { gt: now } },
+    orderBy: { startsAt: 'asc' },
+  });
+  if (!session) {
+    const startsAt = new Date(now.getTime() + opts.daysFromNow * 24 * 60 * 60 * 1000);
+    const endsAt = new Date(startsAt.getTime() + 3 * 60 * 60 * 1000);
+    session = await prisma.eventSession.create({
+      data: {
+        eventId: event.id,
+        screenId: opts.screenId,
+        seatMapId: opts.seatMapId,
+        startsAt,
+        endsAt,
+        status: 'SCHEDULED',
+      },
+    });
+  }
+
+  const categories = await prisma.seatCategory.findMany({
+    where: { seatMapId: opts.seatMapId },
+    orderBy: { sortOrder: 'asc' },
+  });
+  const seats = await prisma.seat.findMany({
+    where: { seatMapId: opts.seatMapId, kind: { not: 'GAP' } },
+    orderBy: [{ rowId: 'asc' }, { colIndex: 'asc' }],
+  });
+
+  for (const category of categories) {
+    const quantityTotal = seats.filter((seat) => seat.seatCategoryId === category.id).length;
+    const existing = await prisma.ticketType.findFirst({
+      where: { eventSessionId: session.id, seatCategoryId: category.id },
+    });
+    if (!existing) {
+      await prisma.ticketType.create({
+        data: {
+          eventSessionId: session.id,
+          seatCategoryId: category.id,
+          name: category.name,
+          priceMinor: category.basePriceMinor,
+          currency: opts.currency,
+          quantityTotal,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          inventory: { create: { quantityTotal, quantitySold: 0, quantityHeld: 0 } },
+        },
+      });
+    }
+  }
+
+  await prisma.showSeat.createMany({
+    data: seats.map((seat) => ({
+      eventSessionId: session!.id,
+      seatId: seat.id,
+      status: 'AVAILABLE',
+    })),
+    skipDuplicates: true,
+  });
+
+  // A small, stable sample lets the real buyer screen demonstrate unavailable inventory.
+  // Never overwrite a hold or sale when this idempotent fixture is re-run.
+  const unavailable = seats.filter((seat) => seat.kind === 'SEAT').slice(0, 3);
+  await prisma.showSeat.updateMany({
+    where: {
+      eventSessionId: session.id,
+      seatId: { in: unavailable.map((seat) => seat.id) },
+      status: 'AVAILABLE',
+    },
+    data: {
+      status: 'BLOCKED',
+      overrideKind: 'HOUSE',
+      overrideReason: 'Demo house hold',
+      overrideAt: new Date(),
+    },
+  });
+
+  console.log(`    buyer event: /events/${event.slug} -> /shows/${session.id}`);
+  return { event, session };
+}
+
 /** A rectangle, as the map wants it. */
 const rect = (x1: number, y1: number, x2: number, y2: number): Point[] => [
   [x1, y1],
@@ -311,7 +430,7 @@ async function main() {
   const UPPER: [number, number] = [350, 260];
   const UPPER_OUT: [number, number] = [470, 360];
 
-  await layout(mainArena.id, {
+  const basketball = await layout(mainArena.id, {
     name: 'Basketball',
     focalPoint: 'FIELD',
     focalLabel: 'COURT',
@@ -350,7 +469,7 @@ async function main() {
     for this configuration rather than existing and being disabled. The floor becomes standing
     room, sold by capacity.
   */
-  await layout(mainArena.id, {
+  const concert = await layout(mainArena.id, {
     name: 'Concert - End Stage',
     focalPoint: 'STAGE_END',
     focalLabel: 'STAGE',
@@ -390,6 +509,28 @@ async function main() {
     ],
   });
   console.log('  Demo Arena / Main Arena / Concert - End Stage  (same space, second layout)');
+  await demoReservedEvent({
+    organizationId: org.id,
+    venueId: arena.id,
+    screenId: mainArena.id,
+    seatMapId: basketball.id,
+    slug: 'demo-arena-basketball',
+    title: 'Demo Arena Basketball',
+    category: 'Sports',
+    currency: 'USD',
+    daysFromNow: 14,
+  });
+  await demoReservedEvent({
+    organizationId: org.id,
+    venueId: arena.id,
+    screenId: mainArena.id,
+    seatMapId: concert.id,
+    slug: 'demo-arena-concert-end-stage',
+    title: 'Demo Arena End Stage Concert',
+    category: 'Music',
+    currency: 'USD',
+    daysFromNow: 21,
+  });
 
   // ---- 2. Revolution-style concert hall, United States ----------------------------------
   const hall = await venue(org.id, {
