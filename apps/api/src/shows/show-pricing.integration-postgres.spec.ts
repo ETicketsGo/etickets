@@ -118,6 +118,7 @@ describe('integration-real-postgres: show pricing', () => {
         organizationId: orgId,
         name: `C ${suffix}`,
         city: 'Bengaluru',
+        country: 'India',
         timezone: 'Asia/Kolkata',
       },
     });

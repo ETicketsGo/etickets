@@ -1222,6 +1222,9 @@ export class ShowsService {
         name: string;
         city: string;
         address: string | null;
+        country: string | null;
+        region: string | null;
+        timezone: string | null;
       } | null;
     },
   ) {
@@ -1269,6 +1272,12 @@ export class ShowsService {
             name: cinema.name,
             city: cinema.city,
             address: cinema.address,
+            // This is a same-tenant legacy repair from the cinema's stored answers. Preserve
+            // unknown as null; currency resolution below will then fail rather than inventing
+            // a market.
+            country: cinema.country,
+            region: cinema.region,
+            timezone: cinema.timezone,
           },
           select: { id: true },
         })
