@@ -54,7 +54,7 @@ function SeatingHelp({
   if (chosen) {
     return (
       <p className="mt-1.5 text-caption text-text-muted">
-        Buyers pick a named seat from {chosen.layoutName ?? 'this room’s'} layout. A ticket type is
+        Buyers pick a named seat from {chosen.layoutName ?? 'this space’s'} layout. A ticket type is
         created for each seat category and priced from it.
       </p>
     );
@@ -120,7 +120,7 @@ export default function SessionsTab() {
     onSuccess: (session) => {
       toast.push(
         session.screenId
-          ? 'Session added. Ticket types were created from the room’s seat categories.'
+          ? 'Session added. Ticket types were created from the space’s seat categories.'
           : 'Session added.',
         'success',
       );
@@ -144,7 +144,7 @@ export default function SessionsTab() {
     onSuccess: (session) => {
       toast.push(
         session.screenId
-          ? 'Seating updated. Ticket types now come from the room’s seat categories.'
+          ? 'Seating updated. Ticket types now come from the space’s seat categories.'
           : 'This session is general admission again. Add ticket types to sell it.',
         'success',
       );
@@ -323,7 +323,7 @@ export default function SessionsTab() {
               This session&rsquo;s {editingTicketTypes} ticket type
               {editingTicketTypes === 1 ? '' : 's'} will be replaced
               {nextRoom
-                ? ' by one for each of the room’s seat categories.'
+                ? ' by one for each of the space’s seat categories.'
                 : '. Add new ones afterwards to sell this session.'}
             </p>
           )}

@@ -52,7 +52,7 @@ test.describe('describing a room', () => {
 
   test('1: a capacity and a room type is all it takes', async ({ page }) => {
     await open(page);
-    await expect(page.getByText('What kind of room is this?')).toBeVisible();
+    await expect(page.getByText('What kind of space is this?')).toBeVisible();
     await page.getByLabel('About how many seats?').fill('100');
     await expect(page.getByText(/\d+ rows of \d+ — \d+ seats to sell/)).toBeVisible();
     // The row letters are worked out, not typed.

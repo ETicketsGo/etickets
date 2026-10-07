@@ -832,9 +832,9 @@ function NewEventWizard() {
                   */}
                   <p className="mt-1.5 text-caption text-text-muted">
                     {roomsQ.isError ? (
-                      "We couldn't load your rooms, so only general admission is available here."
+                      "We couldn't load your spaces, so only general admission is available here."
                     ) : s.screenId ? (
-                      `Buyers pick a named seat. Ticket types are created from this room's seat categories and priced from them, so you won't need to add any on the next step.`
+                      `Buyers pick a named seat. Ticket types are created from this space's seat categories and priced from them, so you won't need to add any on the next step.`
                     ) : roomsQ.data?.length === 0 ? (
                       <>
                         Buyers choose how many tickets they want — this is the only option because
@@ -894,7 +894,7 @@ function NewEventWizard() {
           <div className="rounded-md border border-border p-4 text-sm">
             <p className="font-medium">Ticket types come from the seat map</p>
             <p className="mt-1 text-text-muted">
-              {sessions.length === 1 ? 'This session is' : 'Every session is'} in a room with
+              {sessions.length === 1 ? 'This session is' : 'Every session is'} in a space with
               assigned seating, so a ticket type is created for each seat category and priced from
               it. You can adjust prices per session afterwards from the event&rsquo;s pricing page.
             </p>
@@ -1139,7 +1139,7 @@ function NewEventWizard() {
               label="Seating"
               value={
                 allSeated && sessions.length === 1
-                  ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected room'}`
+                  ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected space'}`
                   : sessions.every((x) => !x.screenId)
                     ? 'General admission'
                     : sessions
