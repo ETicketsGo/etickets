@@ -282,7 +282,7 @@ export default function SessionsTab() {
               disabled={unchanged}
               onClick={() => changeSeating.mutate()}
             >
-              {nextRoom ? 'Use this room' : 'Make it general admission'}
+              {nextRoom ? 'Use this space' : 'Make it general admission'}
             </Button>
           </>
         }

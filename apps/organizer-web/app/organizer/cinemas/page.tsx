@@ -56,7 +56,7 @@ export default function OrganizerCinemas() {
     },
     {
       key: 'screens',
-      header: 'Rooms',
+      header: 'Spaces',
       render: (c) => c.screens?.length ?? 0,
     },
   ];
@@ -64,11 +64,11 @@ export default function OrganizerCinemas() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Rooms"
-        description="Rooms live inside a venue. Venues & rooms shows both together."
-        action={<ButtonLink href="/organizer/cinemas/new">New room</ButtonLink>}
+        title="Spaces"
+        description="Spaces live inside a venue. Venues & spaces shows both together."
+        action={<ButtonLink href="/organizer/cinemas/new">New space</ButtonLink>}
       />
-      <SearchInput value={q} onChange={setQ} placeholder="Search rooms…" />
+      <SearchInput value={q} onChange={setQ} placeholder="Search spaces…" />
       <DataTable
         columns={columns}
         rows={rows}
@@ -79,14 +79,14 @@ export default function OrganizerCinemas() {
         onRowClick={(c) => router.push(`/organizer/cinemas/${c.id}`)}
         empty={
           <EmptyState
-            title="No rooms yet"
+            title="No spaces yet"
             /*
               The old hint said "to start scheduling screenings", which reads to anybody not
               running a cinema as "this section is not for you" — and this is the only place
               a seat map can be made. Say what it unlocks instead, and say it for the general
               case, with films as the special case rather than the whole story.
             */
-            hint="A location holds rooms, and a room with a published seat map is what lets buyers pick their own seat — for a concert or a play, not only a film."
+            hint="A venue holds spaces, and a space with a published seat map is what lets buyers pick their own seat — for a concert or a play, not only a film."
           />
         }
       />

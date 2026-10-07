@@ -219,7 +219,7 @@ export default function ScreenSeatMapPage() {
       <PageHeader
         title={screen ? `${screen.name} · Seat map` : 'Seat map'}
         breadcrumbs={[
-          { label: 'Venues & rooms', href: '/organizer/venues' },
+          { label: 'Venues & spaces', href: '/organizer/venues' },
           { label: 'Cinema', href: `/organizer/cinemas/${id}` },
           { label: 'Seat map' },
         ]}
@@ -341,7 +341,7 @@ export default function ScreenSeatMapPage() {
                       id={`sec-${i}-name`}
                       label="Section name"
                       placeholder="e.g. Balcony"
-                      hint="Where it is in the room. Shown on the seat map."
+                      hint="Where it is in the space. Shown on the seat map."
                       value={s.name}
                       onChange={(e) => setSection(i, { name: e.target.value })}
                     />

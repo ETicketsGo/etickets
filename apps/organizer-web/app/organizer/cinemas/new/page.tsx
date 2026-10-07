@@ -9,11 +9,11 @@ import {
   Card,
   Input,
   PageHeader,
-  Select,
   useToast,
   errorMessage,
   type CinemaBody,
 } from '@eticketsgo/web-kit';
+import { VenuePicker, InheritedVenueLocation } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 
 /**
@@ -39,7 +39,7 @@ export default function NewCinemaPage() {
     queryFn: () => api.venues.list(activeOrg.id),
   });
 
-  // Prefilled when arriving from a venue on the venues page, so "Add a room here" means here.
+  // Prefilled when arriving from a venue on the venues page, so "Add a space here" means here.
   const params = useSearchParams();
   const [venueId, setVenueId] = useState(params.get('venueId') ?? '');
 
@@ -52,12 +52,18 @@ export default function NewCinemaPage() {
     longitude: '',
   });
 
+  const selectedVenue = (venues.data ?? []).find((v) => v.id === venueId) ?? null;
+
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
   const validate = (): Record<string, string> => {
     const e: Record<string, string> = {};
     if (form.name.trim().length < 2) e.name = 'Name must be at least 2 characters.';
-    if (!form.city.trim()) e.city = 'City is required.';
+    /*
+      Only asked when there is no venue to inherit from. With a venue selected the city is
+      the venue's, and demanding it again is how the two came to disagree.
+    */
+    if (!selectedVenue && !form.city.trim()) e.city = 'Which city is it in?';
     if (form.latitude && !Number.isFinite(Number(form.latitude)))
       e.latitude = 'Latitude must be a number.';
     if (form.longitude && !Number.isFinite(Number(form.longitude)))
@@ -70,8 +76,9 @@ export default function NewCinemaPage() {
       const body: CinemaBody = {
         name: form.name.trim(),
         brand: form.brand.trim() || undefined,
-        city: form.city.trim(),
-        address: form.address.trim() || undefined,
+        // Inherited, not retyped: a space is where its venue is.
+        city: (selectedVenue?.city ?? form.city).trim(),
+        address: (selectedVenue?.address ?? form.address)?.trim() || undefined,
         latitude: form.latitude ? Number(form.latitude) : undefined,
         longitude: form.longitude ? Number(form.longitude) : undefined,
         // Empty means "make a new one", which is what the server already does with no value.
@@ -80,7 +87,7 @@ export default function NewCinemaPage() {
       return api.cinemas.create({ organizationId: activeOrg.id, ...body });
     },
     onSuccess: (cinema) => {
-      toast.push('Room created.', 'success');
+      toast.push('Space created.', 'success');
       router.push(`/organizer/cinemas/${cinema.id}`);
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -96,76 +103,100 @@ export default function NewCinemaPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
-        title="New room"
+        title="New space"
         breadcrumbs={[
-          { label: 'Venues & rooms', href: '/organizer/venues' },
-          { label: 'New room' },
+          { label: 'Venues & spaces', href: '/organizer/venues' },
+          { label: 'New space' },
         ]}
       />
       <Card>
         <div className="space-y-4">
+          {/*
+            THE VENUE COMES FIRST, AND IT DECIDES WHERE THIS IS.
+
+            This form used to ask for City, Street address, Latitude and Longitude and THEN
+            ask "Which venue is this room in?". An organizer typed a location, then named the
+            venue that already had one, and nothing reconciled the two - which is exactly why
+            a space inside a venue could appear to be somewhere else. It genuinely could.
+
+            A space is a physical area INSIDE a venue, so it is where the venue is. Choosing
+            an existing venue now shows that location instead of asking for it again.
+          */}
+          <VenuePicker
+            venues={venues.data ?? []}
+            value={venueId}
+            onChange={setVenueId}
+            label="Which venue is this space in?"
+          />
+
           <Input
             id="name"
-            label="Name"
+            label="Space name"
+            hint="What people call it inside the venue, for example Screen 4, Main Hall, Auditorium."
             autoFocus
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
             error={fieldErrors.name}
           />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              id="brand"
-              label="Brand"
-              value={form.brand}
-              onChange={(e) => set('brand', e.target.value)}
-            />
-            <Input
-              id="city"
-              label="City"
-              value={form.city}
-              onChange={(e) => set('city', e.target.value)}
-              error={fieldErrors.city}
-            />
-          </div>
           <Input
-            id="address"
-            label="Street address"
-            hint="Just the street and area. The city is set above."
-            value={form.address}
-            onChange={(e) => set('address', e.target.value)}
+            id="brand"
+            label="Brand (optional)"
+            value={form.brand}
+            onChange={(e) => set('brand', e.target.value)}
           />
-          <Select
-            id="venueId"
-            label="Which venue is this room in?"
-            hint="Leave as a new venue if this is a new site. Choosing an existing one keeps the address and city on your public listings consistent."
-            value={venueId}
-            onChange={(e) => setVenueId(e.target.value)}
-          >
-            <option value="">Create a new venue for it</option>
-            {(venues.data ?? []).map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} — {v.city}
-              </option>
-            ))}
-          </Select>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              id="latitude"
-              label="Latitude"
-              value={form.latitude}
-              onChange={(e) => set('latitude', e.target.value)}
-              error={fieldErrors.latitude}
-            />
-            <Input
-              id="longitude"
-              label="Longitude"
-              value={form.longitude}
-              onChange={(e) => set('longitude', e.target.value)}
-              error={fieldErrors.longitude}
-            />
-          </div>
+
+          {selectedVenue ? (
+            <InheritedVenueLocation venue={selectedVenue} />
+          ) : (
+            <>
+              <p className="text-[0.9375rem] text-text-secondary">
+                This creates a new venue for the space. Tell us where it is.
+              </p>
+              <Input
+                id="city"
+                label="City"
+                value={form.city}
+                onChange={(e) => set('city', e.target.value)}
+                error={fieldErrors.city}
+              />
+              <Input
+                id="address"
+                label="Street address"
+                hint="Just the street and area. The city is set above."
+                value={form.address}
+                onChange={(e) => set('address', e.target.value)}
+              />
+            </>
+          )}
+
+          {/*
+            Coordinates pin a VENUE on a map. They were two required-looking boxes in the
+            middle of the form that most organizers cannot answer, so they are folded away.
+          */}
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-[0.9375rem] font-medium text-text-primary">
+              Add map coordinates (optional)
+            </summary>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <Input
+                id="latitude"
+                label="Latitude"
+                value={form.latitude}
+                onChange={(e) => set('latitude', e.target.value)}
+                error={fieldErrors.latitude}
+              />
+              <Input
+                id="longitude"
+                label="Longitude"
+                value={form.longitude}
+                onChange={(e) => set('longitude', e.target.value)}
+                error={fieldErrors.longitude}
+              />
+            </div>
+          </details>
+
           <Button loading={create.isPending} onClick={submit}>
-            Create room
+            Create space
           </Button>
         </div>
       </Card>

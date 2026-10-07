@@ -23,6 +23,7 @@ import {
   termsList,
   type LocationValue,
 } from '@eticketsgo/web-kit';
+import { venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
@@ -140,7 +141,7 @@ function NewEventWizard() {
   const [isFree, setIsFree] = useState(false);
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
   const [venueId, setVenueId] = useState('');
-  const [newVenue, setNewVenue] = useState({ name: '', city: '', capacity: '' });
+  const [newVenue, setNewVenue] = useState({ name: '', city: '', address: '', capacity: '' });
   // Same three interdependent answers as the venues page, from the same component — a venue
   // created mid-wizard is a venue, and it was previously created without a state or a clock.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
@@ -376,14 +377,21 @@ function NewEventWizard() {
     try {
       let finalVenueId = venueId;
       if (venueMode === 'new') {
+        /*
+          ONE payload, shared with /organizer/venues and onboarding. This screen used to
+          build its own and omitted `address`, so a venue created while making an event had
+          no street address and no way to add one from here - the same action producing a
+          different object depending on which door the organizer came through.
+        */
         const created = await api.venues.create({
           organizationId: activeOrg.id,
-          name: newVenue.name,
-          city: newVenue.city,
-          country: newVenueWhere.country,
-          region: newVenueWhere.region,
-          timezone: newVenueWhere.timezone || undefined,
-          capacity: newVenue.capacity ? Number(newVenue.capacity) : undefined,
+          ...venuePayload({
+            name: newVenue.name,
+            city: newVenue.city,
+            address: newVenue.address ?? '',
+            capacity: newVenue.capacity ?? '',
+            where: newVenueWhere,
+          }),
         });
         finalVenueId = created.id;
       }
@@ -701,6 +709,17 @@ function NewEventWizard() {
                     onChange={(e) => setNewVenue({ ...newVenue, city: e.target.value })}
                     error={fieldErrors.venueCity}
                   />
+                  {/*
+                    The field this screen used to omit entirely. A venue created here had no
+                    street address and no way to add one without leaving event creation.
+                  */}
+                  <Input
+                    id="vaddress"
+                    label="Street address"
+                    hint="Just the street and area. The city is set above."
+                    value={newVenue.address}
+                    onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
+                  />
                   <Input
                     id="vcap"
                     label="Venue capacity"
@@ -712,7 +731,7 @@ function NewEventWizard() {
                       This one is a fact about the building; that one is a decision about
                       this event.
                     */
-                    hint="How many people the room holds. Each ticket type sets its own quantity — we warn you if they add up to more than this."
+                    hint="How many people the space holds. Each ticket type sets its own quantity — we warn you if they add up to more than this."
                     onChange={(e) => setNewVenue({ ...newVenue, capacity: e.target.value })}
                   />
                 </div>
@@ -836,12 +855,12 @@ function NewEventWizard() {
                           rel="noopener noreferrer"
                           className="font-medium text-action-primary underline underline-offset-2"
                         >
-                          Venues &amp; rooms
+                          Venues &amp; spaces
                         </a>{' '}
                         — it opens in a new tab, and what you have typed here is saved either way.
                       </>
                     ) : (
-                      'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'
+                      'Buyers choose how many tickets they want. Pick a space to sell numbered seats instead.'
                     )}
                   </p>
                 </div>

@@ -138,7 +138,7 @@ test.describe('changing seating on a session that exists', () => {
     await page.getByLabel('Seating').last().selectOption(fx.screenId);
     await expect(page.getByText(/1 ticket type will be replaced/)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Use this room' }).click();
+    await page.getByRole('button', { name: 'Use this space' }).click();
     await expect(page.getByRole('cell', { name: new RegExp(fx.roomName) })).toBeVisible({
       timeout: 30_000,
     });
