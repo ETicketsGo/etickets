@@ -4,6 +4,7 @@ import { currencyForCountry } from '@eticketsgo/shared-types';
 import { createVenueSchema } from '@eticketsgo/validation';
 import { spaceTimezone } from './space-owner';
 import { VenuesService } from '../venues/venues.service';
+import { CinemasService } from '../cinemas/cinemas.service';
 
 /**
  * integration-real-postgres - four countries, four answers, and no hidden India.
@@ -52,15 +53,31 @@ const MARKETS = [
     key: 'US',
     city: 'Boise',
     country: 'United States',
+    region: 'Idaho',
     timezone: 'America/Boise',
     currency: 'USD',
   },
-  { key: 'IN', city: 'Hyderabad', country: 'India', timezone: 'Asia/Kolkata', currency: 'INR' },
-  { key: 'CA', city: 'Montreal', country: 'Canada', timezone: 'America/Toronto', currency: 'CAD' },
+  {
+    key: 'IN',
+    city: 'Hyderabad',
+    country: 'India',
+    region: 'Telangana',
+    timezone: 'Asia/Kolkata',
+    currency: 'INR',
+  },
+  {
+    key: 'CA',
+    city: 'Montreal',
+    country: 'Canada',
+    region: 'Ontario',
+    timezone: 'America/Toronto',
+    currency: 'CAD',
+  },
   {
     key: 'AU',
     city: 'Sydney',
     country: 'Australia',
+    region: 'New South Wales',
     timezone: 'Australia/Sydney',
     currency: 'AUD',
   },
@@ -71,10 +88,11 @@ describe('integration-real-postgres: a venue is where the organizer said it is',
   let db: Client | undefined;
   let available = false;
   let venues: VenuesService;
+  let cinemas: CinemasService;
 
   const suffix = `mc-${Date.now()}`;
   let orgId = '';
-  const made: Record<string, { venueId: string; spaceId: string }> = {};
+  const made: Record<string, { cinemaId: string; venueId: string; spaceId: string }> = {};
 
   beforeAll(async () => {
     if (!url) {
@@ -92,6 +110,7 @@ describe('integration-real-postgres: a venue is where the organizer said it is',
       return;
     }
     venues = new VenuesService(db as never, allowAll);
+    cinemas = new CinemasService(db as never, allowAll);
 
     const org = await db!.organization.create({
       data: { name: `MC ${suffix}`, slug: `mc-${suffix}` },
@@ -99,24 +118,27 @@ describe('integration-real-postgres: a venue is where the organizer said it is',
     orgId = org.id;
 
     for (const m of MARKETS) {
-      const v = await venues.create(ORGANIZER, orgId, {
-        name: `${m.key} Venue ${suffix}`,
+      /* The canonical cinema path creates the authoritative Venue; bypassing it hid the bug. */
+      const cinema = await cinemas.create(ORGANIZER, orgId, {
+        name: `${m.key} Cinema ${suffix}`,
         city: m.city,
         country: m.country,
+        region: m.region,
         timezone: m.timezone,
       } as never);
-      const space = await venues.addSpace(ORGANIZER, v.id, {
+      const space = await cinemas.addScreen(ORGANIZER, cinema.id, {
         name: 'Main',
         screenType: '2D',
         capacity: 100,
       } as never);
-      made[m.key] = { venueId: v.id, spaceId: space.id };
+      made[m.key] = { cinemaId: cinema.id, venueId: cinema.venueId!, spaceId: space.id };
     }
   }, 180_000);
 
   afterAll(async () => {
     if (!db || !available) return;
     await db.screen.deleteMany({ where: { venue: { organizationId: orgId } } });
+    await db.cinema.deleteMany({ where: { organizationId: orgId } });
     await db.venue.deleteMany({ where: { organizationId: orgId } });
     await db.organization.deleteMany({ where: { id: orgId } });
     await db.$disconnect();
@@ -134,10 +156,11 @@ describe('integration-real-postgres: a venue is where the organizer said it is',
 
   for (const m of MARKETS) {
     maybe(
-      `${m.key}: stores and returns ${m.country} / ${m.timezone}, not the launch market`,
+      `${m.key}: cinema creation stores ${m.country} / ${m.timezone} on its Venue`,
       async () => {
         const row = await db!.venue.findUnique({ where: { id: made[m.key].venueId } });
         expect(row.country).toBe(m.country);
+        expect(row.region).toBe(m.region);
         expect(row.timezone).toBe(m.timezone);
       },
     );

@@ -91,6 +91,14 @@ export class CinemasService {
             organizationId,
             name: input.name,
             city: input.city,
+            /*
+              This Venue is the authoritative place record for every space created under the
+              cinema. Copy only answers the operator actually supplied; optional values stay
+              null rather than being replaced with the launch market.
+            */
+            country: input.country,
+            region: input.region,
+            timezone: input.timezone,
             address: input.address,
           },
           select: { id: true },

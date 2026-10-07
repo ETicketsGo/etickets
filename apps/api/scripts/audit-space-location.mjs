@@ -111,17 +111,68 @@ try {
     A global data invariant cannot be checked from inside the suite that is writing the data.
     Here it sees a settled environment, which is the only place the answer means anything.
   */
-  const spacesWithNoVenue = await prisma.screen.findMany({
-    where: { venueId: null },
-    select: { id: true, name: true, cinemaId: true },
-  });
-  const spacesDisagreeing = await prisma.$queryRawUnsafe(
-    `SELECT s."id", s."name", s."venueId" AS space_venue, c."venueId" AS cinema_venue
-       FROM "Screen" s
-       JOIN "Cinema" c ON s."cinemaId" = c."id"
-      WHERE c."venueId" IS NOT NULL
-        AND s."venueId" IS DISTINCT FROM c."venueId"`,
+  const [{ present: screenVenueColumnPresent }] = await prisma.$queryRawUnsafe(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'Screen'
+          AND column_name = 'venueId'
+     ) AS present`,
   );
+  /* The audit is intentionally runnable both before and after the migration. */
+  const spacesWithNoVenue = screenVenueColumnPresent
+    ? await prisma.screen.findMany({
+        where: { venueId: null },
+        select: { id: true, name: true, cinemaId: true },
+      })
+    : [];
+  const spacesDisagreeing = screenVenueColumnPresent
+    ? await prisma.$queryRawUnsafe(
+        `SELECT s."id", s."name", s."venueId" AS space_venue, c."venueId" AS cinema_venue
+           FROM "Screen" s
+           JOIN "Cinema" c ON s."cinemaId" = c."id"
+          WHERE c."venueId" IS NOT NULL
+            AND s."venueId" IS DISTINCT FROM c."venueId"`,
+      )
+    : [];
+  /*
+    Ownership mismatches are categorically different from location disagreements. They are
+    not candidates for inheritance or backfill: they are tenant-boundary corruption, and the
+    migration deliberately aborts while any exist.
+  */
+  const cinemaVenueOrganizationMismatches = await prisma.$queryRawUnsafe(
+    `SELECT c."id" AS cinema_id, c."name" AS cinema_name,
+            c."organizationId" AS cinema_organization_id,
+            v."id" AS venue_id, v."organizationId" AS venue_organization_id
+       FROM "Cinema" c
+       JOIN "Venue" v ON v."id" = c."venueId"
+      WHERE c."organizationId" <> v."organizationId"
+      ORDER BY c."id"`,
+  );
+  const screenOrganizationMismatches = screenVenueColumnPresent
+    ? await prisma.$queryRawUnsafe(
+        `SELECT s."id" AS screen_id, s."name" AS screen_name,
+            s."venueId" AS screen_venue_id,
+            sv."organizationId" AS screen_venue_organization_id,
+            c."id" AS cinema_id, c."organizationId" AS cinema_organization_id,
+            c."venueId" AS cinema_venue_id,
+            cv."organizationId" AS cinema_venue_organization_id
+       FROM "Screen" s
+       LEFT JOIN "Venue" sv ON sv."id" = s."venueId"
+       LEFT JOIN "Cinema" c ON c."id" = s."cinemaId"
+       LEFT JOIN "Venue" cv ON cv."id" = c."venueId"
+      WHERE (c."id" IS NOT NULL AND sv."organizationId" IS DISTINCT FROM c."organizationId")
+         OR (cv."id" IS NOT NULL AND cv."organizationId" IS DISTINCT FROM c."organizationId")
+         OR (sv."id" IS NOT NULL AND cv."id" IS NOT NULL
+             AND sv."organizationId" IS DISTINCT FROM cv."organizationId")
+      ORDER BY s."id"`,
+      )
+    : [];
+  const venuesWithUnknownLocation = await prisma.venue.findMany({
+    where: { OR: [{ country: null }, { timezone: null }] },
+    select: { id: true, name: true, city: true, country: true, region: true, timezone: true },
+    orderBy: { createdAt: 'asc' },
+  });
 
   const report = {
     spaces: spaces.length,
@@ -134,6 +185,10 @@ try {
     orphanRows: orphans,
     spacesWithNoVenue,
     spacesDisagreeing,
+    screenVenueColumnPresent,
+    cinemaVenueOrganizationMismatches,
+    screenOrganizationMismatches,
+    venuesWithUnknownLocation,
     suspectVenues: suspect,
   };
 
@@ -170,6 +225,32 @@ spaces (Screen) with no venue : ${spacesWithNoVenue.length}`);
       console.log(`  ${r.name} (${r.id}) space=${r.space_venue} cinema=${r.cinema_venue}`);
     }
 
+    console.log(
+      `cinema/venue organization mismatches: ${cinemaVenueOrganizationMismatches.length}`,
+    );
+    for (const r of cinemaVenueOrganizationMismatches) {
+      console.log(
+        `  ${r.cinema_name} (${r.cinema_id}) cinemaOrg=${r.cinema_organization_id} ` +
+          `venue=${r.venue_id} venueOrg=${r.venue_organization_id}`,
+      );
+    }
+    console.log(`screen ownership mismatches: ${screenOrganizationMismatches.length}`);
+    for (const r of screenOrganizationMismatches) {
+      console.log(
+        `  ${r.screen_name} (${r.screen_id}) screenVenue=${r.screen_venue_id ?? '-'} ` +
+          `screenVenueOrg=${r.screen_venue_organization_id ?? '-'} cinema=${r.cinema_id ?? '-'} ` +
+          `cinemaOrg=${r.cinema_organization_id ?? '-'} cinemaVenue=${r.cinema_venue_id ?? '-'} ` +
+          `cinemaVenueOrg=${r.cinema_venue_organization_id ?? '-'}`,
+      );
+    }
+    console.log(`venues with unknown country or timezone: ${venuesWithUnknownLocation.length}`);
+    for (const r of venuesWithUnknownLocation) {
+      console.log(
+        `  ${r.name} (${r.id}) ${r.city} country=${r.country ?? '-'} ` +
+          `region=${r.region ?? '-'} timezone=${r.timezone ?? '-'}`,
+      );
+    }
+
     console.log(`
 venues whose zone looks DEFAULTED, not answered: ${suspect.length}`);
     for (const r of suspect) {
@@ -199,6 +280,9 @@ venues whose zone looks DEFAULTED, not answered: ${suspect.length}`);
     orphans.length > 0 ||
     spacesWithNoVenue.length > 0 ||
     spacesDisagreeing.length > 0 ||
+    cinemaVenueOrganizationMismatches.length > 0 ||
+    screenOrganizationMismatches.length > 0 ||
+    venuesWithUnknownLocation.length > 0 ||
     suspect.length > 0
       ? 2
       : 0;
