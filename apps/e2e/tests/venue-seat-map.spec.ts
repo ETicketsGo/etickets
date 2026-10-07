@@ -204,7 +204,21 @@ async function buildArena(request: APIRequestContext): Promise<{
     true,
   );
   expect(concertSession.seatMapId).toBe(concertDraft.id);
-  await request.post(`${API}/events/${concertEvent.id}/submit`, { headers: auth });
+  const concertSubmit = await request.post(`${API}/events/${concertEvent.id}/submit`, {
+    headers: auth,
+  });
+  expect(concertSubmit.ok(), `concert submission failed: ${await concertSubmit.text()}`).toBe(true);
+  const concertApproval = await request.post(`${API}/admin/events/${concertEvent.id}/review`, {
+    headers: { Authorization: `Bearer ${admin.accessToken}` },
+    data: { decision: 'APPROVE' },
+  });
+  if (!concertApproval.ok()) {
+    const body = await concertApproval.text();
+    expect(
+      concertApproval.status() === 409 && body.includes('current: PUBLISHED'),
+      `concert approval failed: ${body}`,
+    ).toBe(true);
+  }
 
   return {
     sessionId: session.id,

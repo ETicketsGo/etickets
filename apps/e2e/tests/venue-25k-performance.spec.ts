@@ -91,7 +91,20 @@ async function build25k(request: APIRequestContext) {
   });
   const session = await sessionResponse.json();
   expect(sessionResponse.ok(), JSON.stringify(session)).toBe(true);
-  await request.post(`${API}/events/${event.id}/submit`, { headers: auth });
+  const submit = await request.post(`${API}/events/${event.id}/submit`, { headers: auth });
+  expect(submit.ok(), `event submission failed: ${await submit.text()}`).toBe(true);
+  const admin = await apiLogin(request, 'admin@eticketsgo.test');
+  const approval = await request.post(`${API}/admin/events/${event.id}/review`, {
+    headers: { Authorization: `Bearer ${admin.accessToken}` },
+    data: { decision: 'APPROVE' },
+  });
+  if (!approval.ok()) {
+    const body = await approval.text();
+    expect(
+      approval.status() === 409 && body.includes('current: PUBLISHED'),
+      `event approval failed: ${body}`,
+    ).toBe(true);
+  }
   return { sessionId: session.id, seats: generated.seats as number };
 }
 
