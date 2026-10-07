@@ -303,4 +303,75 @@ test.describe('a venue too big to list', () => {
       .click();
     await expect(page).toHaveURL(/\/booking\/[^/]+\/(?:payment|reserved)/, { timeout: 30_000 });
   });
+
+  test('7: two buyers see the authoritative hold, release, reacquisition, and sale', async ({
+    browser,
+    request,
+  }) => {
+    const register = async (label: string) => {
+      const email = uniqueEmail(label);
+      await request.post(`${API}/auth/register`, {
+        data: { email, password: NEW_ACCOUNT_PASSWORD, fullName: label },
+      });
+      return { email, tokens: await apiLogin(request, email, NEW_ACCOUNT_PASSWORD) };
+    };
+    const buyerA = await register('arena_lock_a');
+    const buyerB = await register('arena_lock_b');
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+
+    try {
+      await seedBrowserAuth(contextA, buyerA.tokens);
+      await seedBrowserAuth(contextB, buyerB.tokens);
+      const pageA = await contextA.newPage();
+      const pageB = await contextB.newPage();
+      const seatName = /^Seat A4\b/;
+
+      await pageA.goto(`${CUSTOMER}/shows/${sessionId}`);
+      await pageA.getByRole('button', { name: /Floor A/ }).click();
+      const seatA = pageA.getByRole('button', { name: seatName });
+      await seatA.click();
+      await expect(seatA).toHaveAttribute('aria-pressed', 'true');
+      await pageA
+        .getByRole('button', { name: /Proceed to pay/i })
+        .last()
+        .click();
+      await expect(pageA).toHaveURL(/\/booking\/[^/]+\/payment/, { timeout: 30_000 });
+      const bookingId = /\/booking\/([^/]+)\/payment/.exec(pageA.url())?.[1];
+      expect(bookingId, 'buyer A should own a pending booking').toBeTruthy();
+
+      // A separate browser session reads the server-owned hold, not A's local selection state.
+      await pageB.goto(`${CUSTOMER}/shows/${sessionId}`);
+      await pageB.getByRole('button', { name: /Floor A/ }).click();
+      const heldForB = pageB.getByRole('button', { name: /^Seat A4\b.*held/i });
+      await expect(heldForB).toBeDisabled();
+
+      // Explicit release is the deterministic counterpart of expiry: the same inventory must
+      // become acquirable again, while a completed sale below must not.
+      const released = await request.post(`${API}/bookings/${bookingId}/cancel`, {
+        headers: { Authorization: `Bearer ${buyerA.tokens.accessToken}` },
+      });
+      expect(released.ok(), `release failed: ${await released.text()}`).toBe(true);
+
+      await pageB.reload();
+      await pageB.getByRole('button', { name: /Floor A/ }).click();
+      const releasedSeat = pageB.getByRole('button', { name: seatName });
+      await expect(releasedSeat).toBeEnabled();
+      await releasedSeat.click();
+      await pageB
+        .getByRole('button', { name: /Proceed to pay/i })
+        .last()
+        .click();
+      await expect(pageB).toHaveURL(/\/booking\/[^/]+\/payment/, { timeout: 30_000 });
+      await pageB.getByRole('button', { name: /^Pay/ }).click();
+      await expect(pageB).toHaveURL(/\/booking\/[^/]+\/confirmation/, { timeout: 30_000 });
+
+      await pageA.goto(`${CUSTOMER}/shows/${sessionId}`);
+      await pageA.getByRole('button', { name: /Floor A/ }).click();
+      await expect(pageA.getByRole('button', { name: /^Seat A4\b.*sold/i })).toBeDisabled();
+    } finally {
+      await contextA.close();
+      await contextB.close();
+    }
+  });
 });
