@@ -119,8 +119,17 @@ export function AppShell({
   return (
     <div className="min-h-dvh bg-background-canvas">
       <header className="sticky top-0 z-30 border-b border-border bg-background-surface/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
-        <div className="relative flex items-center justify-between px-4 py-3 lg:px-6">
-          <div className="flex items-center gap-3">
+        <div className="relative flex items-center justify-between gap-2 px-4 py-3 lg:px-6">
+          {/*
+            `min-w-0` is load-bearing, not decoration.
+
+            A flex child will not shrink below its content width without it, so `truncate` on
+            the workspace name does nothing and the row simply gets wider than the screen. At
+            320px that pushed the header 56px past the viewport and the whole page scrolled
+            sideways - which is how moving the name out of absolute positioning traded one
+            defect for another.
+          */}
+          <div className="flex min-w-0 items-center gap-3">
             <button
               className="flex h-11 w-11 items-center justify-center rounded-md text-text-secondary hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 lg:hidden"
               aria-label="Toggle navigation"
@@ -158,6 +167,27 @@ export function AppShell({
                 </span>
               </Link>
             )}
+            {workspace && (
+              /*
+                THE PHONE'S COPY OF THE MASTHEAD.
+
+                The centred one below is absolutely positioned, which is right on a wide
+                header and impossible on a narrow one: at 390px the centre of the header IS
+                where the controls are, so the name sat on top of the theme switch. It was
+                made click-through rather than moved, so the control worked and still looked
+                broken.
+
+                Here it flows after the hamburger and truncates, so it cannot reach anything.
+                A centred title is worth less on a phone than a header that is not overlapping
+                itself.
+              */
+              <span
+                data-testid="workspace-name"
+                className="truncate text-[0.9375rem] font-bold tracking-tight text-text-primary sm:hidden"
+              >
+                {workspace.name}
+              </span>
+            )}
           </div>
 
           {/*
@@ -169,8 +199,10 @@ export function AppShell({
             signed-in name changed. Absolute centring puts it in the middle of the HEADER,
             which is what "centre aligned" means to the person looking at it.
 
-            `pointer-events-none` on the wrapper so an invisible band across the header cannot
-            swallow clicks meant for the controls behind it.
+            SHOWN FROM `sm` UP ONLY. Below that the header is too narrow for a centred label
+            to avoid the controls, and the phone gets the flowing copy in the left cluster
+            instead. `pointer-events-none` stays on the wrapper regardless, so an invisible
+            band across the header cannot swallow clicks meant for the controls behind it.
 
             ── AND NOT `pointer-events-auto` ON THE INNER BOX EITHER ──────────────────────
             It used to be there, which gave back exactly the bug the line above avoids. The
@@ -192,7 +224,7 @@ export function AppShell({
             some assistive technology reads for the full name.
           */}
           {workspace && (
-            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+            <div className="pointer-events-none absolute inset-x-0 hidden justify-center sm:flex">
               <div className="flex max-w-[min(50vw,28rem)] items-center gap-2.5">
                 {apiAssetUrl(workspace.logoUrl ?? null) && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -208,6 +240,7 @@ export function AppShell({
                   />
                 )}
                 <span
+                  data-testid="workspace-name"
                   className="truncate text-[1.05rem] font-bold tracking-tight text-text-primary"
                   title={workspace.name}
                 >
