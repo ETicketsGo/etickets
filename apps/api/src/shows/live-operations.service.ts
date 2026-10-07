@@ -157,7 +157,7 @@ export class LiveOperationsService {
       screen: {
         id: string;
         name: string;
-        venue?: { id: string; name: string; timezone: string } | null;
+        venue?: { id: string; name: string; timezone: string | null } | null;
         cinema?: { id: string; name: string; timezone: string } | null;
       } | null;
     },

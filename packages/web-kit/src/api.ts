@@ -3665,7 +3665,7 @@ export interface PublicShowSummary {
     genres: string[];
     posterUrl: string | null;
   } | null;
-  venue: { name: string; city: string; country: string };
+  venue: { name: string; city: string; country: string | null };
   cinema: { id: string; name: string } | null;
   screen: { name: string; format: string | null } | null;
 }

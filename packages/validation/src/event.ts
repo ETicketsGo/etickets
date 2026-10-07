@@ -4,7 +4,19 @@ import { FeeMode } from '@eticketsgo/shared-types';
 export const createVenueSchema = z.object({
   name: z.string().trim().min(2).max(160),
   city: z.string().trim().min(1).max(120),
-  country: z.string().trim().min(2).max(120).default('India'),
+  /**
+   * The country the venue is in.
+   *
+   * -- WHY THIS IS NOT DEFAULTED ANY MORE ----------------------------------------
+   * It defaulted to 'India', which meant a caller that said nothing still produced a venue
+   * that CLAIMED India - and nothing downstream could tell that claim apart from one an
+   * organizer actually made. Together with the column default it is why the venue could not
+   * be trusted as the authority for where a space is.
+   *
+   * Optional now, and absent means absent. A venue that has not been asked is described less
+   * precisely than one that has; it is not silently relocated to the launch market.
+   */
+  country: z.string().trim().min(2).max(120).optional(),
   /**
    * State, province, emirate — whatever the country calls its first-level subdivision.
    *

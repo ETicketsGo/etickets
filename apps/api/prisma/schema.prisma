@@ -893,7 +893,7 @@ model Venue {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   city           String
-  country        String       @default("India")
+  country        String?
 
   /// State / province / union territory.
   ///
@@ -918,7 +918,7 @@ model Venue {
   /// Defaults to the pilot market's zone, matching Cinema, so nothing changes for existing
   /// venues. An organizer selling outside India has to set it, and cannot be guessed for:
   /// a country is not a timezone, and several of the launch markets span more than one.
-  timezone  String   @default("Asia/Kolkata")
+  timezone  String?
   address   String?
   capacity  Int?
   status    String   @default("ACTIVE")

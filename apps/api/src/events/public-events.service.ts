@@ -70,7 +70,8 @@ function publicArtists(raw: unknown): { name: string; role: string | null; bio: 
 function cardVenue(venue: {
   name: string;
   city: string;
-  country: string;
+  /** Null when the venue has not been asked which country it is in. Never guessed. */
+  country: string | null;
   region: string | null;
   timezone: string | null;
 }) {

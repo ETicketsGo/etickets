@@ -77,6 +77,29 @@ try {
     }
   }
 
+  /*
+    Venues whose location may be a DEFAULT rather than an answer.
+
+    `Venue.country` defaulted to 'India' and `Venue.timezone` to 'Asia/Kolkata' until the
+    column defaults were dropped. Every row written before that holds a value, and the data
+    cannot say whether anybody supplied it. These are the rows a human has to look at before
+    any backfill: the venue says India, and its own cinemas - whose zone IS written from what
+    the operator chose - say something else.
+
+    Reported, never corrected. Guessing here is the defect the whole change removes.
+  */
+  const suspect = await prisma.$queryRawUnsafe(
+    `SELECT v."id", v."name", v."city", v."country" AS venue_country,
+            v."timezone" AS venue_timezone,
+            MIN(c."timezone") AS cinema_timezone,
+            COUNT(DISTINCT c."timezone")::int AS distinct_cinema_zones
+       FROM "Venue" v
+       JOIN "Cinema" c ON c."venueId" = v."id"
+      WHERE v."timezone" = 'Asia/Kolkata'
+        AND c."timezone" <> 'Asia/Kolkata'
+      GROUP BY v."id", v."name", v."city", v."country", v."timezone"`,
+  );
+
   const venues = await prisma.venue.count();
   const areas = await prisma.venueArea.count();
 
@@ -111,6 +134,7 @@ try {
     orphanRows: orphans,
     spacesWithNoVenue,
     spacesDisagreeing,
+    suspectVenues: suspect,
   };
 
   if (asJson) {
@@ -146,6 +170,21 @@ spaces (Screen) with no venue : ${spacesWithNoVenue.length}`);
       console.log(`  ${r.name} (${r.id}) space=${r.space_venue} cinema=${r.cinema_venue}`);
     }
 
+    console.log(`
+venues whose zone looks DEFAULTED, not answered: ${suspect.length}`);
+    for (const r of suspect) {
+      console.log(
+        `  ${r.name} (${r.id}) ${r.city} - venue says ${r.venue_timezone}, ` +
+          `its cinemas say ${r.cinema_timezone}` +
+          (r.distinct_cinema_zones > 1 ? ` (and ${r.distinct_cinema_zones} different zones)` : ''),
+      );
+    }
+    if (suspect.length) {
+      console.log(
+        '  ^ these need a HUMAN decision before any backfill. Nothing is corrected here.',
+      );
+    }
+
     // `venueArea` is expected to be 0 everywhere. If it is not, the "it is dead" finding is
     // wrong in THIS environment and the table cannot simply be dropped.
     if (areas > 0) {
@@ -159,7 +198,8 @@ spaces (Screen) with no venue : ${spacesWithNoVenue.length}`);
     conflicts.length > 0 ||
     orphans.length > 0 ||
     spacesWithNoVenue.length > 0 ||
-    spacesDisagreeing.length > 0
+    spacesDisagreeing.length > 0 ||
+    suspect.length > 0
       ? 2
       : 0;
 } finally {

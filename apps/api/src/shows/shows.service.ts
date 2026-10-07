@@ -2245,11 +2245,19 @@ export class ShowsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
     }
 
-    // The cinema's zone is authoritative for a screening; an ordinary venue carries its own.
-    const zone = session.screen?.cinema?.timezone ?? session.event.venue.timezone;
+    /*
+      One rule for where a space is, asked in one place.
+
+      This read its own `cinema?.timezone ?? venue.timezone` chain, which is how two call
+      sites drift apart - and the venue half of it was unsafe while the column defaulted to
+      Asia/Kolkata. `spaceTimezone` now owns the precedence; a null means nobody has said.
+    */
+    const zone = session.screen ? spaceTimezone(session.screen) : session.event.venue.timezone;
     let localDate: string;
     try {
-      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses.
+      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses. An
+      // unknown zone falls to the catch below rather than being guessed at.
+      if (!zone) throw new Error('no timezone');
       localDate = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(session.startsAt);
     } catch {
       // A zone name Intl does not know. Zones are validated on write; this only keeps one bad
