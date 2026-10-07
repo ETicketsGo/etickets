@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import {
-  PolicyContext,
+  PolicyUpdated,
   OperatorLine,
   LegalDocument,
-  jurisdictionFromSearch,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 import { Link } from '@/i18n/navigation';
 
 export const metadata: Metadata = {
@@ -20,7 +21,7 @@ export default async function TermsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
 
   return (
     <>
@@ -30,7 +31,8 @@ export default async function TermsPage({
         lead="The terms that govern your use of ETicketsGo."
       />
       <LegalDocument>
-        <PolicyContext type="TERMS" country={country} path="/terms" />
+        <BackToLegal />
+        <PolicyUpdated type="TERMS" country={country} />
         <Prose>
           <h2>1. Overview</h2>
           <p>

@@ -2,11 +2,12 @@ import type { Metadata } from 'next';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
-  PolicyContext,
+  PolicyUpdated,
   OperatorLine,
   LegalDocument,
-  jurisdictionFromSearch,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -21,7 +22,7 @@ export default async function PrivacyPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
 
   return (
     <>
@@ -31,7 +32,8 @@ export default async function PrivacyPage({
         lead="How we collect, use, and protect your data."
       />
       <LegalDocument>
-        <PolicyContext type="PRIVACY" country={country} path="/privacy" />
+        <BackToLegal />
+        <PolicyUpdated type="PRIVACY" country={country} />
         <Prose>
           <h2>1. Data we collect</h2>
           <ul>

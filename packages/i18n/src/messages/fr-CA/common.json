@@ -117,7 +117,8 @@
       "help": "Centre d'aide",
       "browseMovies": "Films",
       "sms": "Messages texte",
-      "cookies": "Témoins"
+      "cookies": "Témoins",
+      "legal": "Mentions légales"
     },
     "tagline": "Achetez vos billets, gardez-les sur votre téléphone et entrez sans faire la queue.",
     "rights": "© {year} ETicketsGo. Tous droits réservés.",

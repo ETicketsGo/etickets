@@ -3,11 +3,12 @@ import { PrimaryLink } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
-  PolicyContext,
+  PolicyUpdated,
   OperatorLine,
   LegalDocument,
-  jurisdictionFromSearch,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 import { BUSINESS_DETAILS, publishedDetail } from '@eticketsgo/web-kit';
 
 /**
@@ -46,7 +47,7 @@ export default async function SmsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
   const supportEmail = publishedDetail(BUSINESS_DETAILS.supportEmail);
   const supportPhone = publishedDetail(BUSINESS_DETAILS.supportPhone);
   const legalName = publishedDetail(BUSINESS_DETAILS.legalName);
@@ -59,7 +60,8 @@ export default async function SmsPage({
         lead="What we send, how often, and how to stop at any time."
       />
       <LegalDocument>
-        <PolicyContext type="SMS" country={country} path="/sms" />
+        <BackToLegal />
+        <PolicyUpdated type="SMS" country={country} />
         <Prose>
           <h2>Who sends these messages</h2>
           <p>

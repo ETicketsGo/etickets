@@ -2,11 +2,12 @@ import type { Metadata } from 'next';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
-  PolicyContext,
+  PolicyUpdated,
   OperatorLine,
   LegalDocument,
-  jurisdictionFromSearch,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 
 export const metadata: Metadata = {
   title: 'Refund Policy',
@@ -42,7 +43,7 @@ export default async function RefundsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
   return (
     <>
       <PageHero
@@ -51,7 +52,8 @@ export default async function RefundsPage({
         lead="When you can get a refund, what comes back, and what happens if an event is cancelled."
       />
       <LegalDocument>
-        <PolicyContext type="REFUNDS" country={country} path="/refunds" />
+        <BackToLegal />
+        <PolicyUpdated type="REFUNDS" country={country} />
         <Prose>
           <h2>The event sets the refund window</h2>
           <p>

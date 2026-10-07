@@ -78,7 +78,7 @@ const COLUMNS: {
         the documents they are agreeing to, and nothing else.
       */
       { href: '/sms', label: 'sms' },
-      { href: '/cookies', label: 'cookies' },
+      { href: '/legal', label: 'legal' },
     ],
   },
 ];
