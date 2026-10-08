@@ -29,6 +29,7 @@ import {
   groupSpacesByVenue,
   spaceCapabilityLabel,
   spaceKindLabel,
+  spaceHref,
   spaceLayouts,
 } from '../venue-spaces';
 
@@ -68,7 +69,7 @@ function SpaceRow({ space }: { space: VenueSpace }) {
     >
       <div className="min-w-0">
         <Link
-          href={`/organizer/cinemas/${space.id}`}
+          href={spaceHref(space)}
           className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {space.name}

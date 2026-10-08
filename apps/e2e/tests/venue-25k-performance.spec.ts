@@ -38,7 +38,7 @@ async function build25k(request: APIRequestContext) {
   await request.post(`${API}/screens/${space.id}/seatmap`, {
     headers: auth,
     data: {
-      name: 'Starting room',
+      name: 'Starting layout',
       sections: [
         {
           name: 'Start',

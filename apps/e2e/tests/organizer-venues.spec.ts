@@ -235,4 +235,42 @@ test.describe('venues', () => {
     await page.locator('#venue-country').selectOption('Singapore');
     await expect(page.locator('#venue-region')).toHaveCount(0);
   });
+  test('8: every space on the page opens its layouts - the arena and a cinema screen', async ({
+    page,
+  }) => {
+    /*
+      Each space linked to /organizer/cinemas/<space id>, a route that takes a CINEMA id, so
+      every one opened "We couldn't load this." The demo arena is one space with two
+      configurations; opening it must show both.
+    */
+    await page.goto(`${ORGANIZER}/organizer/venues`, { waitUntil: 'networkidle' });
+    // The DEMO arena, found by what makes it one: a space with both configurations. Other
+    // specs create spaces called "Main Arena" too.
+    const spaces = await (
+      await page.request.get(`${API}/venues/spaces?organizationId=${organizationId}`, {
+        headers: { Authorization: `Bearer ${owner.accessToken}` },
+      })
+    ).json();
+    const arena = (spaces as { id: string; layouts?: { name: string }[] }[]).find((sp) => {
+      const names = (sp.layouts ?? []).map((l) => l.name);
+      return names.includes('Basketball') && names.includes('Concert - End Stage');
+    });
+    expect(arena, 'the demo arena (db:demo-venues) is missing').toBeTruthy();
+    await page.locator(`[data-testid="space-row"] a[href$="/${arena!.id}/layouts"]`).click();
+    await expect(page).toHaveURL(/\/organizer\/spaces\/[^/]+\/layouts$/);
+    await expect(page.getByRole('heading', { name: 'Seat layout versions' })).toBeVisible();
+    await expect(page.getByText('Basketball', { exact: true })).toBeVisible();
+    await expect(page.getByText('Concert - End Stage', { exact: true })).toBeVisible();
+    await expect(page.getByText(/couldn.t load this/i)).toHaveCount(0);
+
+    await page.goto(`${ORGANIZER}/organizer/venues`, { waitUntil: 'networkidle' });
+    const screenRow = page
+      .getByTestId('space-row')
+      .filter({ hasText: /Cinema screen/ })
+      .first();
+    await screenRow.getByRole('link').first().click();
+    await expect(page).toHaveURL(/\/organizer\/cinemas\/[^/]+\/screens\/[^/]+\/layouts$/);
+    await expect(page.getByRole('heading', { name: 'Seat layout versions' })).toBeVisible();
+    await expect(page.getByText(/couldn.t load this/i)).toHaveCount(0);
+  });
 });

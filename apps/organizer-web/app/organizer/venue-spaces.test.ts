@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { groupSpacesByVenue, spaceCapabilityLabel, spaceKindLabel } from './venue-spaces';
+import {
+  groupSpacesByVenue,
+  spaceCapabilityLabel,
+  spaceHref,
+  spaceKindLabel,
+} from './venue-spaces';
 import type { Venue, VenueSpace } from '@eticketsgo/web-kit';
 
 /**
@@ -97,5 +102,21 @@ describe('describing a space in a list', () => {
     expect(label).toMatch(/Reserved seating/);
     expect(label).toContain('Basketball');
     expect(label).toContain('blocks');
+  });
+});
+
+describe('where a space links to', () => {
+  /*
+    Every space on the venues page linked to /organizer/cinemas/<space id>. That route takes a
+    CINEMA id, so every link opened an error - the arena's, and every cinema screen's too.
+  */
+  it('sends a space that is not a cinema screen to its own layouts page', () => {
+    expect(spaceHref({ id: 'space-1', cinemaId: null })).toBe('/organizer/spaces/space-1/layouts');
+  });
+
+  it("keeps a cinema screen under its cinema, addressed by the CINEMA's id", () => {
+    const href = spaceHref({ id: 'screen-1', cinemaId: 'cinema-1' });
+    expect(href).toBe('/organizer/cinemas/cinema-1/screens/screen-1/layouts');
+    expect(href).not.toBe('/organizer/cinemas/screen-1');
   });
 });

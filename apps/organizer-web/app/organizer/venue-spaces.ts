@@ -81,6 +81,20 @@ export function spaceKindLabel(space: VenueSpace): string {
   return 'Space';
 }
 
+/**
+ * Where a space's own page is: its seating layouts.
+ *
+ * The venues page linked every space to `/organizer/cinemas/<space id>`. That route takes a
+ * CINEMA id, so every link - an arena, a concert hall, and every cinema screen too - opened
+ * "We couldn't load this." A cinema screen keeps its address under its cinema; any other space
+ * has no cinema, so it has its own.
+ */
+export function spaceHref(space: Pick<VenueSpace, 'id' | 'cinemaId'>): string {
+  return space.cinemaId
+    ? `/organizer/cinemas/${space.cinemaId}/screens/${space.id}/layouts`
+    : `/organizer/spaces/${space.id}/layouts`;
+}
+
 /** The configurations a space can be set up as, current version of each. */
 export function spaceLayouts(space: VenueSpace) {
   return space.layouts ?? (space.layout ? [space.layout] : []);
