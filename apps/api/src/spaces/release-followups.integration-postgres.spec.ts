@@ -483,4 +483,71 @@ describe('integration-real-postgres: venue/seating release follow-ups', () => {
     expect(after.screenId).toBe(screen.id);
     expect(after.seatMapId).not.toBeNull();
   });
+  // ---------------------------------------------------------------------------------------
+  // 4. Duplicating an event keeps each seated session's configuration
+  // ---------------------------------------------------------------------------------------
+
+  /** The copy of the original's only session, with the seats it was given. */
+  async function copiedSession(originalEventId: string) {
+    const copy = await events.duplicate(ORGANIZER, originalEventId);
+    const session = await db!.eventSession.findFirstOrThrow({ where: { eventId: copy.id } });
+    const seats = await db!.showSeat.findMany({
+      where: { eventSessionId: session.id },
+      select: { seat: { select: { seatMapId: true } } },
+    });
+    return {
+      session,
+      seatMapIds: [...new Set(seats.map((x: { seat: { seatMapId: string } }) => x.seat.seatMapId))],
+    };
+  }
+
+  maybe('4a: copying a Concert session gives a Concert session, not Basketball', async () => {
+    /*
+      Basketball is published AFTER Concert on purpose: date resolution across the space picks
+      the newest configuration, so the old copy of this Concert session landed in Basketball.
+      This can only pass if the copy keeps the original's configuration.
+    */
+    const o = await org('Dup');
+    const v = await venue(o, 'United States', 'America/Boise');
+    const main = await space(v.id, 'Main Arena');
+    const concert = await layout(main.id, 'Concert', 1);
+    const basketball = await layout(main.id, 'Basketball', 1);
+    const e = await event(o, v.id);
+    const s = await events.addSession(ORGANIZER, e.id, {
+      startsAt: IN_THIRTY_DAYS(),
+      endsAt: LATER(IN_THIRTY_DAYS()),
+      screenId: main.id,
+      seatMapId: concert.id,
+    } as never);
+    expect(s.seatMapId).toBe(concert.id);
+
+    const { session, seatMapIds } = await copiedSession(e.id);
+    expect(session.seatMapId).toBe(concert.id);
+    expect(session.seatMapId).not.toBe(basketball.id);
+    expect(seatMapIds).toEqual([concert.id]);
+  });
+
+  maybe('4b: a cinema copy still takes the version of its layout in effect', async () => {
+    /*
+      Version compatibility. The original pins v1; v2 of the SAME layout is published since.
+      The copy is a new session and gets the version in effect - v2 - exactly as before. Only
+      the configuration is preserved, not a superseded version.
+    */
+    const o = await org('DupCine');
+    const v = await venue(o, 'India', 'Asia/Kolkata');
+    const screen = await space(v.id, 'Screen 1');
+    const v1 = await layout(screen.id, 'Main', 1);
+    const e = await event(o, v.id);
+    const s = await events.addSession(ORGANIZER, e.id, {
+      startsAt: IN_THIRTY_DAYS(),
+      endsAt: LATER(IN_THIRTY_DAYS()),
+      screenId: screen.id,
+    } as never);
+    expect(s.seatMapId).toBe(v1.id);
+    const v2 = await layout(screen.id, 'Main v2', 2, v1.id);
+
+    const { session, seatMapIds } = await copiedSession(e.id);
+    expect(session.seatMapId).toBe(v2.id);
+    expect(seatMapIds).toEqual([v2.id]);
+  });
 });
