@@ -88,7 +88,12 @@ async function createFixture(request: APIRequestContext, token: string): Promise
   const cinema = await (
     await request.post(`${API}/cinemas`, {
       headers: auth,
-      data: { organizationId, name: `Ops Multiplex ${suffix}`, city: 'Hyderabad' },
+      data: {
+        organizationId,
+        name: `Ops Multiplex ${suffix}`,
+        city: 'Hyderabad',
+        country: 'India',
+      },
     })
   ).json();
   const screen = await (

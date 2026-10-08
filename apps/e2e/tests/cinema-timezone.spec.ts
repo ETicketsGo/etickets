@@ -59,7 +59,13 @@ async function createCinemaIn(
   const cinema = await (
     await request.post(`${API}/cinemas`, {
       headers: auth,
-      data: { organizationId, name: `${label} ${suffix}`, city: label, timezone },
+      data: {
+        organizationId,
+        name: `${label} ${suffix}`,
+        city: label,
+        country: timezone === 'Australia/Sydney' ? 'Australia' : 'India',
+        timezone,
+      },
     })
   ).json();
   expect(cinema.timezone, 'the API must echo the stored zone').toBe(timezone);
