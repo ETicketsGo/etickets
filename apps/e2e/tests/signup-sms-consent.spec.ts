@@ -20,6 +20,13 @@ test.describe('signup as the A2P opt-in evidence', () => {
     expect(res?.status()).toBe(200);
     expect(page.url(), 'the opt-in page must not require a session').not.toMatch(/\/login/);
 
+    /*
+      The form renders inside a Suspense boundary: the server sends a "Loading..." card and the
+      form mounts after hydration. Reading the body as soon as navigation settles raced that,
+      and failed main twice (9c4913c, f4ef929) on an unchanged page. Wait for the form, then
+      read what a reviewer reads.
+    */
+    await expect(page.locator('#sms-consent')).toBeVisible();
     const text = await page.locator('body').innerText();
     expect(text).toMatch(/Send me transactional text messages from ETicketsGo/i);
     expect(text).toMatch(/bookings, tickets, event updates, cancellations, refunds/i);
