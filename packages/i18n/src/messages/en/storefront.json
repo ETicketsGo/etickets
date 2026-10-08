@@ -253,6 +253,7 @@
     },
     "paymentsActivatingTitle": "Online payment is being activated",
     "paymentsActivatingBody": "Card, UPI and netbanking will be available here as soon as our payment gateway is approved. Your seats are not charged and no payment has been taken.",
+    "paymentsActivatingBodyGeneric": "Online payment will be available here soon. Your seats are not charged and no payment has been taken.",
     "paymentsActivatingOperator": "ETicketsGo is operated by DeepTrics Software Solutions, Hyderabad, Telangana, India. Our payment gateway application is in progress."
   },
   "confirmation": {
