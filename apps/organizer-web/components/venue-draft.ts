@@ -61,7 +61,10 @@ export function venuePayload(draft: VenueDraft) {
   return {
     name: draft.name.trim(),
     city: draft.city.trim(),
-    country: draft.where.country.trim() || 'India',
+    // Absent means absent. Writing 'India' for a blank answer made every unanswered venue
+    // claim India, and through it INR - so pricing and checkout succeeded in the launch
+    // market's currency instead of refusing until somebody said where the venue is.
+    country: draft.where.country.trim() || undefined,
     region: draft.where.region.trim(),
     timezone: draft.where.timezone || undefined,
     address: draft.address.trim() || undefined,
