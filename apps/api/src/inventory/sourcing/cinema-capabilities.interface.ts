@@ -51,6 +51,8 @@ export interface ExternalCinema {
   externalId: string;
   name: string;
   city?: string;
+  /** Country supplied by the catalogue authority; absent stays unknown. */
+  country?: string;
   /**
    * IANA zone. Required in practice for anything with showtimes: a wall-clock time with no
    * zone is not a time, and the venue's zone is authoritative — never the server's.

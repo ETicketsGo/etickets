@@ -454,8 +454,11 @@ function stadium({ rows = 30, seatsPerRow = 26 }: TemplateParams): GeneratedVenu
     { name: 'West', shape: rect(80, 250, 150, 500), tier: 'LOWER', category: 'End' },
   ];
   stands.forEach((stand, i) => {
-    // Split each stand into blocks: a single 8,000-seat polygon is unusable to pick from.
-    const blocks = 4;
+    // Eight smaller blocks keep section detail bounded at browser scale. The seat count is
+    // unchanged: each block carries half the former seats-per-row, so a 25K stadium opens
+    // about 750 controls rather than making one click mount 1,500 interactive buttons.
+    const blocks = 8;
+    const seatsPerBlock = Math.ceil(seatsPerRow / 2);
     const horizontal =
       stand.shape[1][0] - stand.shape[0][0] > stand.shape[2][1] - stand.shape[1][1];
     for (let b = 0; b < blocks; b++) {
@@ -475,8 +478,8 @@ function stadium({ rows = 30, seatsPerRow = 26 }: TemplateParams): GeneratedVenu
         categoryName: stand.category,
         rows:
           i === 0 && b === 0
-            ? buildRowsWithAccessibleBay(rows, seatsPerRow)
-            : buildRows(rows, seatsPerRow),
+            ? buildRowsWithAccessibleBay(rows, seatsPerBlock)
+            : buildRows(rows, seatsPerBlock),
       });
     }
   });

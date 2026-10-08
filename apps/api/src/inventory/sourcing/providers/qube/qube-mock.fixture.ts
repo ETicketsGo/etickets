@@ -36,6 +36,7 @@ export const QUBE_MOCK_CINEMA: ExternalCinema = {
   externalId: 'QBC-HYD-0001',
   name: 'ETG Qube Sandbox Cinema Hyderabad',
   city: 'Hyderabad',
+  country: 'India',
   timezone: 'Asia/Kolkata',
   raw: { sandbox: true, note: 'Invented fixture. Not a real Qube cinema.' },
 };

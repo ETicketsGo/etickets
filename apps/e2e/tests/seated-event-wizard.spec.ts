@@ -42,7 +42,7 @@ async function roomWithSeats(request: APIRequestContext, accessToken: string) {
       data: { name: `Wizard Room ${stamp}`, screenType: '2D', capacity: 20 },
     })
   ).json();
-  await request.post(`${API}/screens/${screen.id}/seatmap`, {
+  const mapResponse = await request.post(`${API}/screens/${screen.id}/seatmap`, {
     headers: auth,
     data: {
       name: 'Wizard layout',
@@ -57,7 +57,26 @@ async function roomWithSeats(request: APIRequestContext, accessToken: string) {
       ],
     },
   });
-  return { organizationId, venueId, roomName: `Wizard Room ${stamp}`, screenId: screen.id };
+  const map = await mapResponse.json();
+  expect(mapResponse.ok(), `seat-map creation failed: ${JSON.stringify(map)}`).toBe(true);
+  const roomsResponse = await request.get(
+    `${API}/events/seating-rooms?organizationId=${organizationId}`,
+    { headers: auth },
+  );
+  const rooms = await roomsResponse.json();
+  expect(roomsResponse.ok(), `seating-room lookup failed: ${JSON.stringify(rooms)}`).toBe(true);
+  expect(
+    rooms.some(
+      (room: { id: string; layoutId: string }) => room.id === screen.id && room.layoutId === map.id,
+    ),
+  ).toBe(true);
+  return {
+    organizationId,
+    venueId,
+    roomName: `Wizard Room ${stamp}`,
+    screenId: screen.id,
+    layoutId: map.id as string,
+  };
 }
 
 test.describe('creating an event with assigned seating', () => {
@@ -74,6 +93,9 @@ test.describe('creating an event with assigned seating', () => {
 
   test.beforeEach(async ({ context }) => {
     await seedBrowserAuth(context, tokens);
+    await context.addInitScript((organizationId) => {
+      localStorage.setItem('etg_active_org', organizationId);
+    }, room.organizationId);
   });
 
   test('1: the wizard offers the rooms, and creates the event seated', async ({
@@ -86,7 +108,7 @@ test.describe('creating an event with assigned seating', () => {
     await page.getByLabel('Category').selectOption('Music');
     // `exact` because the Next.js dev-tools button in the corner also matches "Next".
     await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Venue').selectOption({ index: 1 });
+    await page.getByLabel('Venue').selectOption(room.venueId);
     await page.getByRole('button', { name: 'Next', exact: true }).click();
 
     await page.locator('#ss0').fill(dayAfter(120));
@@ -102,9 +124,9 @@ test.describe('creating an event with assigned seating', () => {
     const seating = page.locator('#sr0');
     await expect(seating).toBeVisible();
     await expect(seating).toHaveValue('');
-    await expect(page.getByText('Pick a room to sell numbered seats')).toBeVisible();
+    await expect(page.getByText('Pick a space to sell numbered seats')).toBeVisible();
 
-    await seating.selectOption(room.screenId);
+    await seating.selectOption(room.layoutId);
     await expect(page.getByText('Buyers pick a named seat')).toBeVisible();
 
     await page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -155,7 +177,7 @@ test.describe('creating an event with assigned seating', () => {
     await page.getByLabel('Event title').fill(`Wizard Standing ${Date.now()}`);
     await page.getByLabel('Category').selectOption('Music');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByLabel('Venue').selectOption({ index: 1 });
+    await page.getByLabel('Venue').selectOption(room.venueId);
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.locator('#ss0').fill(dayAfter(121));
     await page.locator('#ss0-time').selectOption('18:00');

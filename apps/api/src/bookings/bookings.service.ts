@@ -29,7 +29,7 @@ import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { currencyForCountry } from '../common/country';
+import { resolveCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
@@ -338,9 +338,19 @@ export class BookingsService {
     */
     const isSeatBased = Boolean(session.screenId);
     if (isSeatBased) {
-      const allSeatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      const reservedItems = input.items.filter((item) => !byId.get(item.ticketTypeId)?.seatZoneId);
+      const allSeatIds = reservedItems.flatMap((i) => i.seatIds ?? []);
       for (const item of input.items) {
-        if (!item.seatIds || item.seatIds.length !== item.quantity) {
+        const ticketType = byId.get(item.ticketTypeId)!;
+        if (ticketType.seatZoneId) {
+          if (item.seatIds?.length) {
+            throw new AppException(
+              ErrorCodes.VALIDATION_FAILED,
+              'Standing-area tickets do not use seat numbers.',
+              HttpStatus.BAD_REQUEST,
+            );
+          }
+        } else if (!item.seatIds || item.seatIds.length !== item.quantity) {
           throw new AppException(
             ErrorCodes.VALIDATION_FAILED,
             'Please select a seat for each ticket.',
@@ -360,7 +370,7 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
-      for (const item of input.items) {
+      for (const item of reservedItems) {
         const tt = byId.get(item.ticketTypeId)!;
         for (const seatId of item.seatIds!) {
           if (categoryBySeat.get(seatId) !== tt.seatCategoryId) {
@@ -957,7 +967,12 @@ export class BookingsService {
   private async resolveCinemaPolicy(
     session: {
       screen?: {
-        cinema: {
+        /*
+          Optional because a space is no longer required to be a cinema screen. Only a cinema
+          carries a regulatory classification, so a space without one resolves to no policy -
+          which is correct: the orders this engine applies govern cinemas.
+        */
+        cinema?: {
           country: string | null;
           region: string | null;
           district: string | null;
@@ -966,7 +981,7 @@ export class BookingsService {
           cinemaFormat: CinemaFormat | null;
           climateType: ClimateType | null;
           venue?: { country: string | null; region: string | null; city: string | null } | null;
-        };
+        } | null;
       } | null;
     },
     currency: string,
@@ -1143,28 +1158,15 @@ export class BookingsService {
     venueCountry: string | null | undefined,
   ): string {
     /*
-      A line with no currency contributes no opinion rather than crashing the booking.
-
-      `TicketType.currency` is NOT NULL with a default, so in real data this is always
-      present — a missing one means a `select` that did not ask for the column. Reading
-      through it would throw here, which turns a query oversight into a customer unable to
-      buy a ticket. Skipping it lets the venue answer instead, and the venue's answer is
-      the same one the ticket type would have been created with.
+      A line with no currency contributes no opinion rather than crashing the booking: a
+      missing one means a `select` that did not ask for the column, and the venue answers
+      instead. The rule itself is shared with add-ons and bundles, so the things sold beside
+      a ticket cannot be priced in a different currency from it.
     */
-    const distinct = [
-      ...new Set(priced.map((p) => p.currency?.trim().toUpperCase()).filter(Boolean)),
-    ] as string[];
-    if (distinct.length > 1) {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'These tickets are priced in different currencies and cannot be bought together.',
-        HttpStatus.BAD_REQUEST,
-        { currencies: distinct },
-      );
-    }
-    // An empty cart still needs a currency for the zero-total row it produces; the venue
-    // answers that, and INR remains the answer for a market with no mapping.
-    return distinct[0] ?? currencyForCountry(venueCountry) ?? 'INR';
+    return resolveCommerceCurrency(
+      priced.map((p) => p?.currency),
+      venueCountry,
+    );
   }
 
   async quote(input: QuoteBookingInput) {

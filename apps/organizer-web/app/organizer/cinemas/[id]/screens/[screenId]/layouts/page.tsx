@@ -106,7 +106,7 @@ export default function SeatLayoutsPage() {
       <Card>
         <p className="text-sm text-text-secondary">
           A published layout is never edited in place — sold tickets and issued seats point at its
-          rows. To change the room, clone the current version, edit the draft, then publish it.
+          rows. To change the space, clone the current version, edit the draft, then publish it.
           Publishing with a future date leaves tonight&rsquo;s shows exactly as they are.
         </p>
       </Card>

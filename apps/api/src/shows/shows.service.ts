@@ -24,7 +24,7 @@ import { TransactionalEventPublisher } from '../common/domain-events/transaction
 import { showCancelledEvent } from '../common/domain-events/catalogue/show-events';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import {
   DEFAULT_TURNAROUND_MINUTES,
@@ -45,6 +45,12 @@ import {
   type ShowOperation,
   type ShowState,
 } from './show-operations';
+import {
+  requireSpaceOrganizationId,
+  spaceOrganizationId,
+  spaceTimezone,
+  spaceVenueName,
+} from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -196,7 +202,12 @@ function toShowRow(
     endsAt: Date;
     status: string;
     screenId: string | null;
-    screen: { id: string; name: string; cinema: { id: string; name: string } } | null;
+    screen: {
+      id: string;
+      name: string;
+      venue?: { id: string; name: string } | null;
+      cinema?: { id: string; name: string } | null;
+    } | null;
     event: { movieId: string | null; movie: { title: string } | null };
     ticketTypes?: { salesStartAt: Date | null; salesEndAt: Date | null }[];
   },
@@ -216,8 +227,9 @@ function toShowRow(
     endsAt: s.endsAt,
     screenId: s.screen?.id ?? null,
     screenName: s.screen?.name ?? null,
-    cinemaId: s.screen?.cinema.id ?? null,
-    cinemaName: s.screen?.cinema.name ?? null,
+    cinemaId: s.screen?.cinema?.id ?? null,
+    // The place this show is at, which is the venue.
+    cinemaName: s.screen ? spaceVenueName(s.screen) : null,
     movieId: s.event.movieId,
     movieTitle: s.event.movie?.title ?? null,
     status: s.status,
@@ -331,6 +343,24 @@ function sellableSeats<T extends { kind: string }>(seats: T[]): T[] {
   return seats.filter((seat) => seat.kind !== 'GAP');
 }
 
+/**
+ * The configuration a layout belongs to: the root of its `clonedFromId` chain within one space.
+ * Bounded by the map count, and cycle-safe: lineage is a tree, but a corrupt row must not hang
+ * a request.
+ */
+function lineageRoot(
+  byId: Map<string, { id: string; clonedFromId: string | null }>,
+  id: string,
+): string {
+  let current = byId.get(id);
+  const seen = new Set<string>();
+  while (current?.clonedFromId && byId.has(current.clonedFromId) && !seen.has(current.id)) {
+    seen.add(current.id);
+    current = byId.get(current.clonedFromId);
+  }
+  return current?.id ?? id;
+}
+
 @Injectable()
 export class ShowsService {
   constructor(
@@ -417,11 +447,11 @@ export class ShowsService {
   private async loadOwnedScreen(user: RequestUser, screenId: string, roles = ORGANIZER_ROLES) {
     const screen = await this.prisma.screen.findUnique({
       where: { id: screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    await this.access.assertMember(user, screen.cinema.organizationId, roles);
+    await this.access.assertMember(user, requireSpaceOrganizationId(screen), roles);
     return screen;
   }
 
@@ -550,6 +580,7 @@ export class ShowsService {
       where: { id: seatMapId },
       include: {
         categories: { orderBy: { sortOrder: 'asc' } },
+        zones: { orderBy: { sortOrder: 'asc' } },
         sections: {
           orderBy: { sortOrder: 'asc' },
           include: {
@@ -611,6 +642,168 @@ export class ShowsService {
    * Public because seating a session is no longer something only movies do — an event in a
    * room needs exactly the same answer, resolved the same way. See `seatSession`.
    */
+  /**
+   * A named layout the caller asked for by id, checked to be this space's and sellable.
+   *
+   * Separate from `resolveLayoutForShow` because the questions are different: that one asks
+   * "what is in force on this date", this one asks "may I use the one I picked". Both must
+   * refuse rather than fall back - seating an event in the wrong configuration of the right
+   * room produces a map that looks plausible and puts people in seats that do not exist.
+   */
+  async requireLayoutForSpace(screenId: string, seatMapId: string) {
+    const layout = await this.prisma.seatMap.findUnique({
+      where: { id: seatMapId },
+      select: {
+        id: true,
+        screenId: true,
+        name: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!layout || layout.screenId !== screenId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That layout does not belong to this space.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (layout.status !== 'PUBLISHED') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That layout is not published yet, so nothing could be sold from it.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // The same full shape `resolveLayoutForShow` returns, because `seatSession` consumes it
+    // and the two paths must hand it identical material.
+    return this.prisma.seatMap.findUniqueOrThrow({
+      where: { id: layout.id },
+      include: {
+        categories: { orderBy: { sortOrder: 'asc' } },
+        seats: true,
+        zones: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+  }
+
+  /**
+   * The layout a session in this space should use - chosen, kept, or resolved, never guessed.
+   *
+   * -- WHY THIS EXISTS ------------------------------------------------------------------
+   * A space can hold several configurations at once (an arena's basketball bowl and its
+   * end-stage concert). `resolveLayoutForShow` predates that: it picks the newest effective
+   * version across EVERY map on the screen, so a session moved into the arena without a
+   * choice silently landed in whichever configuration was published last.
+   *
+   * In order:
+   *   1. `chosen` - the organizer named a layout. It must belong to this space and be
+   *      published; anything else is refused.
+   *   2. `keep` - the session already pins a layout in this same space. Re-seating the same
+   *      space keeps it, rather than swapping Basketball for Concert behind their back.
+   *   3. One configuration only - every cinema screen, every single-layout hall - resolves
+   *      by date exactly as before, so version history keeps working unchanged.
+   *   4. Several configurations and no choice - refused, naming them, so the organizer picks.
+   *
+   * A configuration is a LINEAGE, not a name. Cloning names a draft "<name> v<N>", so a
+   * cinema's ordinary version history carries several names while being one layout; counting
+   * names would demand a choice the operator never needed to make. Roots of the
+   * `clonedFromId` chain are what tell two configurations apart.
+   */
+  async chooseLayoutForSession(
+    screenId: string,
+    startsAt: Date,
+    chosen?: string | null,
+    keep?: string | null,
+  ) {
+    if (chosen) return this.requireLayoutForSpace(screenId, chosen);
+
+    const maps = await this.prisma.seatMap.findMany({
+      where: { screenId },
+      select: { id: true, name: true, status: true, clonedFromId: true },
+    });
+
+    if (keep) {
+      const kept = maps.find((m) => m.id === keep && m.status === 'PUBLISHED');
+      if (kept) return this.requireLayoutForSpace(screenId, kept.id);
+    }
+
+    const byId = new Map(maps.map((m) => [m.id, m]));
+    const rootOf = (id: string) => lineageRoot(byId, id);
+    const published = maps.filter((m) => m.status === 'PUBLISHED');
+    const configurations = new Map<string, string>();
+    for (const m of published) {
+      const root = rootOf(m.id);
+      if (!configurations.has(root)) configurations.set(root, byId.get(root)?.name ?? m.name);
+    }
+
+    if (configurations.size > 1) {
+      const layouts = published.map((m) => ({ id: m.id, name: m.name }));
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This space has more than one layout (${[...configurations.values()].join(', ')}). Choose which one this session uses.`,
+        HttpStatus.CONFLICT,
+        { reason: 'LAYOUT_CHOICE_REQUIRED', screenId, layouts },
+      );
+    }
+
+    return this.resolveLayoutForShow(screenId, startsAt);
+  }
+
+  /**
+   * The version of a session's OWN configuration in effect at `startsAt` - for a copy of it.
+   *
+   * Copying a Concert session must give a Concert session. Date resolution across the whole
+   * space cannot promise that: it picks the newest version of ANY configuration, so the copy of
+   * a Concert could land in Basketball. The version is still chosen by date, but only from
+   * the pinned layout's own lineage, so a cinema's ordinary version history behaves as before.
+   * No version of that configuration in effect means the copy is refused, never re-homed.
+   */
+  async resolveLayoutInConfiguration(screenId: string, startsAt: Date, pinnedId: string) {
+    const maps = await this.prisma.seatMap.findMany({
+      where: { screenId },
+      select: {
+        id: true,
+        name: true,
+        clonedFromId: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+    const byId = new Map(maps.map((m) => [m.id, m]));
+    const pinned = byId.get(pinnedId);
+    if (!pinned) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That layout does not belong to this space.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const root = lineageRoot(byId, pinnedId);
+    const lineage = maps.filter((m) => lineageRoot(byId, m.id) === root);
+    const chosen = resolveEffectiveLayout(
+      lineage.map((v) => ({ ...v, status: v.status as LayoutStatus })),
+      startsAt,
+    );
+    if (!chosen) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `No published version of the layout "${pinned.name}" is in effect for that date.`,
+        HttpStatus.CONFLICT,
+        { reason: 'LAYOUT_NOT_IN_EFFECT', screenId, seatMapId: pinnedId },
+      );
+    }
+    // Through the same validation every other path uses, and the same full shape.
+    return this.requireLayoutForSpace(screenId, chosen.id);
+  }
+
   async resolveLayoutForShow(screenId: string, startsAt: Date) {
     const versions = await this.prisma.seatMap.findMany({
       where: { screenId },
@@ -647,7 +840,11 @@ export class ShowsService {
 
     const full = await this.prisma.seatMap.findUniqueOrThrow({
       where: { id: chosen.id },
-      include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
+      include: {
+        categories: { orderBy: { sortOrder: 'asc' } },
+        seats: true,
+        zones: { orderBy: { sortOrder: 'asc' } },
+      },
     });
     return full;
   }
@@ -681,8 +878,8 @@ export class ShowsService {
    * caller free to pass the wrong thing. Resolved at the point the row is written, "currency
    * follows the venue" is a property of the write rather than a convention callers observe.
    *
-   * INR remains the answer for a market with no mapping — the same fallback the booking and
-   * event paths already use, so all three agree rather than disagreeing in a new way.
+   * An unknown or unsupported country fails closed. It is not evidence that the venue is in
+   * India, and currency controls fees, tax and payment routing rather than only a symbol.
    */
   private async currencyForSession(
     tx: Prisma.TransactionClient,
@@ -692,7 +889,7 @@ export class ShowsService {
       where: { id: sessionId },
       select: { event: { select: { venue: { select: { country: true } } } } },
     });
-    return currencyForCountry(session?.event?.venue?.country) ?? 'INR';
+    return requireCommerceCurrency(session?.event?.venue?.country);
   }
 
   async seatSession(
@@ -710,6 +907,9 @@ export class ShowsService {
 
     for (const category of seatMap.categories) {
       const quantityTotal = countByCategory.get(category.id) ?? 0;
+      // A category used only by a GA zone gets its ticket from the zone below. Creating an
+      // empty reserved ticket beside it would show buyers a permanently sold-out duplicate.
+      if (quantityTotal === 0) continue;
       await tx.ticketType.create({
         data: {
           eventSessionId: sessionId,
@@ -722,6 +922,27 @@ export class ShowsService {
           status: 'ACTIVE',
           inventory: { create: { quantityTotal, quantitySold: 0, quantityHeld: 0 } },
         },
+      });
+    }
+
+    for (const zone of seatMap.zones) {
+      const category = seatMap.categories.find((candidate) => candidate.id === zone.categoryId);
+      await tx.ticketType.create({
+        data: {
+          eventSessionId: sessionId,
+          seatZoneId: zone.id,
+          name: zone.name,
+          priceMinor: category?.basePriceMinor ?? 0,
+          currency,
+          quantityTotal: zone.capacity,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          // Reporting mirror only. ShowZone below is the capacity authority used for holds.
+          inventory: { create: { quantityTotal: zone.capacity, quantitySold: 0, quantityHeld: 0 } },
+        },
+      });
+      await tx.showZone.create({
+        data: { eventSessionId: sessionId, zoneId: zone.id, capacity: zone.capacity },
       });
     }
 
@@ -748,11 +969,11 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    if (screen.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(screen) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The screen does not belong to this movie’s organization.',
@@ -902,18 +1123,18 @@ export class ShowsService {
 
     const screen = await this.prisma.screen.findUnique({
       where: { id: input.screenId },
-      include: { cinema: true },
+      include: { cinema: true, venue: true },
     });
     if (!screen)
       throw new AppException(ErrorCodes.NOT_FOUND, 'Screen not found.', HttpStatus.NOT_FOUND);
-    if (screen.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(screen) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The screen does not belong to this movie’s organization.',
         HttpStatus.FORBIDDEN,
       );
     }
-    if (screen.cinema.status !== 'ACTIVE') {
+    if (screen.cinema && screen.cinema.status !== 'ACTIVE') {
       throw new AppException(
         ErrorCodes.CONFLICT,
         'This cinema is not active; reactivate it before scheduling shows.',
@@ -922,9 +1143,19 @@ export class ShowsService {
     }
     this.assertScreenUsable(screen);
 
-    // The cinema decides its own wall clock. An explicit zone is still honoured, but the
-    // default is the venue's, so "10:30" means 10:30 in the room the film is playing in.
-    const timezone = input.timezone ?? screen.cinema.timezone;
+    /*
+      The VENUE decides the wall clock, which is what "10:30" means to everyone involved.
+      An explicit zone is still honoured. `spaceTimezone` falls back to the cinema only for a
+      row written before the venue backfill, and refuses to invent one.
+    */
+    const timezone = input.timezone ?? spaceTimezone(screen);
+    if (!timezone) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This space has no venue, so there is no timezone to schedule against.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     const dates = input.dates?.length
       ? [...input.dates].sort()
@@ -1115,13 +1346,17 @@ export class ShowsService {
     tx: Prisma.TransactionClient,
     movie: { id: string; title: string; organizationId: string },
     screen: {
-      cinema: {
+      venueId: string | null;
+      cinema?: {
         id: string;
         venueId: string | null;
         name: string;
         city: string;
         address: string | null;
-      };
+        country: string | null;
+        region: string | null;
+        timezone: string | null;
+      } | null;
     },
   ) {
     const existing = await tx.event.findFirst({
@@ -1146,21 +1381,39 @@ export class ShowsService {
       `CinemasService.create` now links a venue at creation, so this is the repair path for
       cinemas that predate it. Both write the same thing.
     */
-    const venueId =
-      screen.cinema.venueId ??
-      (
+    /*
+      The SPACE now carries its own venue, so the usual answer is simply to use it. The two
+      fallbacks below are the repair path for rows written before that column existed, and
+      they are kept until it becomes required.
+    */
+    let venueId = screen.venueId ?? screen.cinema?.venueId ?? null;
+    if (!venueId) {
+      const cinema = screen.cinema;
+      if (!cinema) {
+        throw new AppException(
+          ErrorCodes.CONFLICT,
+          'This space has no venue, so its shows cannot be filed under one.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      venueId = (
         await tx.venue.create({
           data: {
             organizationId: movie.organizationId,
-            name: screen.cinema.name,
-            city: screen.cinema.city,
-            address: screen.cinema.address,
+            name: cinema.name,
+            city: cinema.city,
+            address: cinema.address,
+            // This is a same-tenant legacy repair from the cinema's stored answers. Preserve
+            // unknown as null; currency resolution below will then fail rather than inventing
+            // a market.
+            country: cinema.country,
+            region: cinema.region,
+            timezone: cinema.timezone,
           },
           select: { id: true },
         })
       ).id;
-    if (!screen.cinema.venueId) {
-      await tx.cinema.update({ where: { id: screen.cinema.id }, data: { venueId } });
+      await tx.cinema.update({ where: { id: cinema.id }, data: { venueId } });
     }
 
     return tx.event.create({
@@ -1214,7 +1467,7 @@ export class ShowsService {
         'Source screen not found.',
         HttpStatus.NOT_FOUND,
       );
-    if (source.cinema.organizationId !== movie.organizationId) {
+    if (spaceOrganizationId(source) !== movie.organizationId) {
       throw new AppException(
         ErrorCodes.TENANT_FORBIDDEN,
         'The source screen does not belong to this movie’s organization.',
@@ -1223,7 +1476,14 @@ export class ShowsService {
     }
 
     // The SOURCE cinema's zone decides what "that day" means, unless the caller names one.
-    const timezone = input.timezone ?? source.cinema.timezone;
+    const timezone = input.timezone ?? spaceTimezone(source);
+    if (!timezone) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'This space has no venue, so there is no timezone to schedule against.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     // The UTC window covering the source LOCAL day. Both edges are resolved through the
     // zone, so a 23- or 25-hour DST day is exactly covered rather than clipped or doubled.
@@ -1398,7 +1658,7 @@ export class ShowsService {
       timezone: session.screen
         ? ((
             await this.prisma.cinema.findUnique({
-              where: { id: session.screen.cinemaId },
+              where: { id: session.screen.cinemaId ?? undefined },
               select: { timezone: true },
             })
           )?.timezone ?? null)
@@ -2103,6 +2363,7 @@ export class ShowsService {
       where: { id: anySeat.seat.seatMapId },
       include: {
         categories: { orderBy: { sortOrder: 'asc' } },
+        zones: { orderBy: { sortOrder: 'asc' } },
         sections: {
           orderBy: { sortOrder: 'asc' },
           // Mirrors the pinned-layout query above: no seats for an overview, one block's
@@ -2203,11 +2464,19 @@ export class ShowsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
     }
 
-    // The cinema's zone is authoritative for a screening; an ordinary venue carries its own.
-    const zone = session.screen?.cinema?.timezone ?? session.event.venue.timezone;
+    /*
+      One rule for where a space is, asked in one place.
+
+      This read its own `cinema?.timezone ?? venue.timezone` chain, which is how two call
+      sites drift apart - and the venue half of it was unsafe while the column defaulted to
+      Asia/Kolkata. `spaceTimezone` now owns the precedence; a null means nobody has said.
+    */
+    const zone = session.screen ? spaceTimezone(session.screen) : session.event.venue.timezone;
     let localDate: string;
     try {
-      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses.
+      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses. An
+      // unknown zone falls to the catch below rather than being guessed at.
+      if (!zone) throw new Error('no timezone');
       localDate = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(session.startsAt);
     } catch {
       // A zone name Intl does not know. Zones are validated on write; this only keeps one bad
@@ -2314,6 +2583,7 @@ export class ShowsService {
       where: { id: sessionId },
       include: {
         ticketTypes: true,
+        showZones: true,
         // The venue's country, so the seat screen can ask an Indian buyer for their state
         // and no one else. Derived from the venue rather than from the currency: currency
         // follows the venue on this platform, and reading that relationship backwards is an
@@ -2324,6 +2594,7 @@ export class ShowsService {
         seatMap: {
           include: {
             categories: { orderBy: { sortOrder: 'asc' } },
+            zones: { orderBy: { sortOrder: 'asc' } },
             sections: {
               orderBy: { sortOrder: 'asc' },
               // One block's seats when a block was asked for, none for an overview, and
@@ -2404,8 +2675,13 @@ export class ShowsService {
 
     if (isSectionedOverview) {
       const summaries = await this.sectionAvailability(sessionId);
+      const zoneTicketType = new Map(
+        session.ticketTypes.filter((t) => t.seatZoneId).map((t) => [t.seatZoneId as string, t]),
+      );
+      const showZone = new Map(session.showZones.map((z) => [z.zoneId, z]));
       return {
         sessionId: session.id,
+        seatMapId: seatMap.id,
         /*
           The discriminant, and it is `view` rather than `layoutKind` on purpose.
 
@@ -2422,27 +2698,51 @@ export class ShowsService {
         country: session.event?.venue?.country ?? null,
         // No `sections[].rows` at all, deliberately: the client cannot accidentally render
         // a half-loaded seat grid, because there is nothing there to half-render.
-        sections: seatMap.sections.map((sec) => {
-          const summary = summaries.get(sec.id);
-          const prices = (summary?.categoryIds ?? []).map((id) => {
-            const category = seatMap.categories.find((c) => c.id === id);
-            return category ? priceFor(category.id, category.basePriceMinor) : null;
-          });
-          const known = prices.filter((p): p is number => p !== null);
-          return {
-            id: sec.id,
-            name: sec.name,
-            shape: sec.shape ?? null,
-            labelX: sec.labelX,
-            labelY: sec.labelY,
-            tier: sec.tier,
-            rotationDeg: sec.rotationDeg,
-            availableCount: summary?.available ?? 0,
-            totalCount: summary?.total ?? 0,
-            priceMinorFrom: known.length > 0 ? Math.min(...known) : null,
-            priceMinorTo: known.length > 0 ? Math.max(...known) : null,
-          };
-        }),
+        sections: [
+          ...seatMap.sections.map((sec) => {
+            const summary = summaries.get(sec.id);
+            const prices = (summary?.categoryIds ?? []).map((id) => {
+              const category = seatMap.categories.find((c) => c.id === id);
+              return category ? priceFor(category.id, category.basePriceMinor) : null;
+            });
+            const known = prices.filter((p): p is number => p !== null);
+            return {
+              id: sec.id,
+              kind: 'SECTION' as const,
+              name: sec.name,
+              shape: sec.shape ?? null,
+              labelX: sec.labelX,
+              labelY: sec.labelY,
+              tier: sec.tier,
+              rotationDeg: sec.rotationDeg,
+              availableCount: summary?.available ?? 0,
+              totalCount: summary?.total ?? 0,
+              priceMinorFrom: known.length > 0 ? Math.min(...known) : null,
+              priceMinorTo: known.length > 0 ? Math.max(...known) : null,
+            };
+          }),
+          ...seatMap.zones.map((zone) => {
+            const inventory = showZone.get(zone.id);
+            const ticket = zoneTicketType.get(zone.id);
+            const available = inventory
+              ? Math.max(0, inventory.capacity - inventory.sold - inventory.held)
+              : 0;
+            return {
+              id: zone.id,
+              kind: 'ZONE' as const,
+              name: zone.name,
+              shape: zone.shape ?? null,
+              labelX: zone.labelX,
+              labelY: zone.labelY,
+              tier: null,
+              rotationDeg: 0,
+              availableCount: available,
+              totalCount: inventory?.capacity ?? zone.capacity,
+              priceMinorFrom: ticket?.priceMinor ?? null,
+              priceMinorTo: ticket?.priceMinor ?? null,
+            };
+          }),
+        ],
       };
     }
 
@@ -2469,6 +2769,7 @@ export class ShowsService {
 
     return {
       sessionId: session.id,
+      seatMapId: seatMap.id,
       view: 'seats' as const,
       layoutKind: seatMap.layoutKind,
       focal,

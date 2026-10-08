@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
+import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /**
  * Every receipt, invoice and credit note this account has been issued.
@@ -31,7 +32,8 @@ export default function ReceiptsPage() {
   const toast = useToast();
   const [opening, setOpening] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const signedIn = useSignedIn();
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['receipts', 'mine'],
     queryFn: () => api.myReceipts({ pageSize: 50 }),
   });
@@ -72,7 +74,13 @@ export default function ReceiptsPage() {
         </p>
       </div>
 
-      {isError ? (
+      {signedIn === false || isAuthFailure(error) ? (
+        /* Same correction as the notification settings: no session is not a broken page. */
+        <SignInRequired
+          title="Sign in to see your receipts"
+          description="Your receipts and invoices are part of your ETicketsGo account."
+        />
+      ) : isError ? (
         <ErrorState message="We couldn't load your receipts. Please try again." onRetry={refetch} />
       ) : isLoading ? (
         <div className="space-y-3">

@@ -132,8 +132,9 @@ export class PhoneOtpService {
       this.config.get<string>('OTP_SMS_TEMPLATE') ??
       '{code} is your ETicketsGo sign-in code. It expires in {minutes} minutes. Never share it with anyone.';
     const body = template.replace('{code}', code).replace('{minutes}', String(OTP_TTL_MINUTES));
+    let outcome;
     try {
-      await this.sms.deliver({
+      outcome = await this.sms.deliver({
         type: 'ACCOUNT_SECURITY' as never,
         channel: 'sms',
         locale: 'en',
@@ -148,6 +149,43 @@ export class PhoneOtpService {
         .updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } })
         .catch(() => undefined);
       throw this.sendFailure(phone, err);
+    }
+
+    /*
+      A LOG-MODE SEND IS NOT A SEND.
+
+      `SmsLogTransport` writes a line and returns success, which is indistinguishable from a
+      real delivery to everything above it. In production that turned the whole sign-in into
+      a lie somebody could not detect: the API answered 201, the screen said "Code sent to
+      +1...", the person waited for a text that was never going to arrive, and the code sat
+      in the database redeemable by nobody. Observed on production on 2026-10-07.
+
+      The same rule as `messageContentLoggable`, deliberately, so the two cannot disagree: in
+      LOCAL and DEV the console IS the delivery channel and a developer signs in from it;
+      anywhere else, log mode means undelivered and must say so. The code is consumed first,
+      because a code nobody received must not stay redeemable.
+    */
+    /*
+      Fail CLOSED on anything that is not a recognisable successful send, including a
+      transport that returns nothing at all. "We could not confirm this was delivered" and
+      "we delivered it" must not collapse into the same answer, and an unreadable outcome is
+      the first of those - not a reason to reach into it and throw a 500.
+    */
+    const provider = outcome?.provider;
+    const undelivered = !provider || outcome?.skipped === true || provider === 'log';
+    if (undelivered && !messageContentLoggable(this.config)) {
+      await this.prisma.phoneOtp
+        .updateMany({ where: { phone, consumedAt: null }, data: { consumedAt: new Date() } })
+        .catch(() => undefined);
+      this.logger.error(
+        `sign-in code NOT DELIVERED for ${maskPhone(phone)}: SMS provider is ` +
+          `'${provider ?? 'unknown'}'. No text message was sent. Configure a real SMS provider.`,
+      );
+      throw new AppException(
+        ErrorCodes.SMS_UNAVAILABLE,
+        "We can't send sign-in codes by text message right now. Please sign in with your email address instead.",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
     }
 
     /*

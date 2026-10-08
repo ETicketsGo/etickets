@@ -5,6 +5,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { OVERRIDE_LABEL, type OverrideKind } from './seat-overrides';
+import { spaceTimezone, spaceVenueName } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -84,6 +85,7 @@ export class LiveOperationsService {
           select: {
             id: true,
             name: true,
+            venue: { select: { id: true, name: true, timezone: true } },
             cinema: { select: { id: true, name: true, timezone: true } },
           },
         },
@@ -132,6 +134,7 @@ export class LiveOperationsService {
           select: {
             id: true,
             name: true,
+            venue: { select: { id: true, name: true, timezone: true } },
             cinema: { select: { id: true, name: true, timezone: true } },
           },
         },
@@ -154,7 +157,8 @@ export class LiveOperationsService {
       screen: {
         id: string;
         name: string;
-        cinema: { id: string; name: string; timezone: string };
+        venue?: { id: string; name: string; timezone: string | null } | null;
+        cinema?: { id: string; name: string; timezone: string } | null;
       } | null;
     },
     now: Date,
@@ -232,9 +236,10 @@ export class LiveOperationsService {
       movieTitle: session.event.movie?.title ?? null,
       screenId: session.screen?.id ?? null,
       screenName: session.screen?.name ?? null,
-      cinemaId: session.screen?.cinema.id ?? null,
-      cinemaName: session.screen?.cinema.name ?? null,
-      timezone: session.screen?.cinema.timezone ?? null,
+      cinemaId: session.screen?.cinema?.id ?? null,
+      // The PLACE, which is the venue. A cinema is a tenant of one, not the place itself.
+      cinemaName: session.screen ? spaceVenueName(session.screen) : null,
+      timezone: session.screen ? spaceTimezone(session.screen) : null,
       startsAt: session.startsAt,
       endsAt: session.endsAt,
       status: session.status,
@@ -363,8 +368,9 @@ export class LiveOperationsService {
       sessionId,
       movieTitle: session.event.movie?.title ?? null,
       screenName: session.screen?.name ?? null,
-      cinemaName: session.screen?.cinema.name ?? null,
-      timezone: session.screen?.cinema.timezone ?? null,
+      // The PLACE, which is the venue. A cinema is a tenant of one, not the place itself.
+      cinemaName: session.screen ? spaceVenueName(session.screen) : null,
+      timezone: session.screen ? spaceTimezone(session.screen) : null,
       startsAt: session.startsAt,
       status: session.status,
       seatMapId: session.seatMapId,

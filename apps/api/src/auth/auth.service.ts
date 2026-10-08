@@ -1,10 +1,15 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthTokens } from '@eticketsgo/shared-types';
 import { Role, isReservedEmail, permissionsFor } from '@eticketsgo/shared-types';
+import {
+  getApplicablePolicy,
+  policyJurisdictionFor,
+  policyVersionLabel,
+} from '@eticketsgo/shared-types';
 import type { AdminPermission } from '@eticketsgo/shared-types';
 import type { LoginInput, RegisterInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,6 +17,8 @@ import { AppException, ErrorCodes } from '../common/errors';
 import { assertAcceptablePassword } from './password-acceptance';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
+import { MarketingConsentService } from '../notifications/marketing-consent.service';
+import { normalisePhone } from './phone';
 import { NotificationType } from '@eticketsgo/shared-types';
 import type { AccessTokenPayload } from './jwt.strategy';
 
@@ -31,12 +38,24 @@ const RESET_TTL_MINUTES = 30;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
+    /*
+      LAST, and `@Optional()`, which is this codebase's rule for a new dependency: a dozen
+      suites construct this service by hand and positionally, so a parameter inserted
+      anywhere but the end silently shifts each of their arguments one slot along.
+
+      Absent, a signup simply records no consent - which is the correct degradation, because
+      the account and its tokens are the thing the caller asked for. The running application
+      always has it; the optionality is for the harnesses.
+    */
+    @Optional() private readonly consent?: MarketingConsentService,
   ) {}
 
   /**
@@ -84,7 +103,57 @@ export class AuthService {
         if (isUniqueViolation(err)) throw emailAlreadyRegistered();
         throw err;
       });
+
+    await this.recordSignupSmsConsent(user.id, user.email, input);
     return this.issueTokens(user.id, user.email, user.fullName, user.roles as Role[], meta);
+  }
+
+  /**
+   * The text-message agreement somebody made while creating their account.
+   *
+   * -- WHAT IS AND IS NOT RECORDED --------------------------------------------------
+   * Only an affirmative tick writes a row. A number typed without the box writes nothing,
+   * because a number is a way to reach somebody and not a request to be reached - inferring
+   * one from the other is the mistake the whole consent record exists to prevent.
+   *
+   * The scope is `sms:transactional`, never `sms`. The checkbox promises messages about
+   * bookings, tickets and refunds; granting promotional SMS off the back of those words
+   * would be consent for something nobody read.
+   *
+   * -- WHY THE NUMBER IS PASSED EXPLICITLY HERE -------------------------------------
+   * Everywhere else the consent record snapshots the account's VERIFIED number, because a
+   * caller-supplied number proves nothing about who agreed. At signup there is no verified
+   * number yet and this one is self-declared by the person creating their own account, for
+   * themselves, in the same request - so it is the right subject to record, and `source`
+   * says exactly where it came from.
+   *
+   * -- WHY A FAILURE HERE DOES NOT FAIL THE SIGNUP ----------------------------------
+   * The account exists and tokens are about to be issued. Throwing now would leave somebody
+   * registered but staring at an error, and would lose the account to recover a preference.
+   * The row is evidence, not a gate; a lost one is logged and can be re-given on the
+   * notification settings screen.
+   */
+  private async recordSignupSmsConsent(
+    userId: string,
+    email: string,
+    input: RegisterInput,
+  ): Promise<void> {
+    if (input.smsConsent !== true || !input.phone) return;
+    try {
+      const phone = normalisePhone(input.phone);
+      const jurisdiction = policyJurisdictionFor(input.country);
+      if (!this.consent) return;
+      await this.consent.record({ userId, email }, 'sms:transactional', true, {
+        source: 'CUSTOMER_SIGNUP',
+        country: jurisdiction,
+        policyVersion: policyVersionLabel(getApplicablePolicy('SMS', jurisdiction)),
+        phone,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `signup SMS consent not recorded for user ${userId}: ${(err as Error).message}`,
+      );
+    }
   }
 
   async login(input: LoginInput, meta: RequestMeta): Promise<AuthTokens> {

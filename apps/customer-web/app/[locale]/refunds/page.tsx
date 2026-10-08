@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
-import { Container, Section } from '@/components/marketing/kit';
 import { PageHero, Prose } from '@/components/marketing/blocks';
 import { Link } from '@/i18n/navigation';
 import {
-  PolicyJurisdictionPicker,
-  PolicyMeta,
-  jurisdictionFromSearch,
+  PolicyUpdated,
+  OperatorLine,
+  LegalDocument,
+  BackToLegal,
 } from '@/components/legal/policy-chrome';
+import { resolveJurisdiction } from '@/lib/market';
 
 export const metadata: Metadata = {
   title: 'Refund Policy',
@@ -42,7 +43,7 @@ export default async function RefundsPage({
 }: {
   searchParams: Promise<{ country?: string | string[] }>;
 }) {
-  const country = jurisdictionFromSearch((await searchParams).country);
+  const country = await resolveJurisdiction((await searchParams).country);
   return (
     <>
       <PageHero
@@ -50,116 +51,101 @@ export default async function RefundsPage({
         title="Refund Policy"
         lead="When you can get a refund, what comes back, and what happens if an event is cancelled."
       />
-      {/*
-        An EXPLICIT surface, not decoration.
+      <LegalDocument>
+        <BackToLegal />
+        <PolicyUpdated type="REFUNDS" country={country} />
+        <Prose>
+          <h2>The event sets the refund window</h2>
+          <p>
+            Each organizer decides two things for their own event: whether they offer refunds, and
+            how long before the start the window closes. Most events close the window 48 hours
+            before the start.
+          </p>
+          <p>
+            <strong>The event page tells you before you buy.</strong> If you are not sure, look at
+            the event page again before you pay.
+          </p>
 
-        `GradientBackdrop`'s blurred circles are `h-[40rem]` at `top-[-10%]`, so their bounding
-        boxes reach well past the hero even though the hero's `overflow-hidden` clips what is
-        painted. Contrast tooling composites by geometry, not by clipping, so body text below
-        the hero was measured against a blue tint it is never actually drawn on - and the only
-        thing keeping these pages passing was a notice banner padding the text downwards. When
-        the banner went, `/organizer-agreement` failed AA at 1280px on its first link.
+          <h2>How to ask for a refund</h2>
+          <p>
+            Ask from your booking or your tickets. If you bought as a guest, use the link in your
+            confirmation email.
+          </p>
+          <p>
+            We check your request against the rules on this page and send it to the organizer. You
+            can see the status change from Requested to Completed or Rejected. We keep a record of
+            each step.
+          </p>
 
-        Naming the surface fixes the measurement and the ambiguity together, and costs nothing
-        visually: this is the colour the page already was. Done per page rather than by
-        changing the token or the shared backdrop, both of which reach the whole product.
-      */}
-      <Section className="bg-background-canvas">
-        <Container className="max-w-3xl space-y-8">
-          <PolicyJurisdictionPicker type="REFUNDS" country={country} path="/refunds" />
-          <PolicyMeta type="REFUNDS" country={country} />
-          <Prose>
-            <h2>The event sets the refund window</h2>
-            <p>
-              Each organizer decides two things for their own event: whether they offer refunds, and
-              how long before the start the window closes. Most events close the window 48 hours
-              before the start.
-            </p>
-            <p>
-              <strong>The event page tells you before you buy.</strong> If you are not sure, look at
-              the event page again before you pay.
-            </p>
+          <h2>What comes back</h2>
+          <p>What you get back depends on who cancelled.</p>
+          <p>
+            <strong>If you ask for the refund:</strong> you get the price of the tickets you return,
+            and the tax charged on those tickets. Booking fees and payment fees are not returned.
+            These pay for the service you have already used.
+          </p>
+          <p>
+            <strong>If the organizer or ETicketsGo cancels:</strong> you get back the full amount
+            you paid for that booking. That includes the tickets, the tax, and our fees. You did not
+            cancel, so you do not pay our fee for it.
+          </p>
+          <p>
+            You can return some of your tickets and keep the rest. We never refund more than you
+            paid.
+          </p>
 
-            <h2>How to ask for a refund</h2>
-            <p>
-              Ask from your booking or your tickets. If you bought as a guest, use the link in your
-              confirmation email.
-            </p>
-            <p>
-              We check your request against the rules on this page and send it to the organizer. You
-              can see the status change from Requested to Completed or Rejected. We keep a record of
-              each step.
-            </p>
+          <h2>If the organizer cancels the event</h2>
+          <p>
+            <strong>You do not need to ask.</strong> When an organizer cancels a show, we open a
+            refund for every paid booking on it.
+          </p>
+          <p>
+            The refund window does not apply. If the organizer has turned refunds off for that
+            event, that does not apply either. The show is not happening, so the money comes back.
+          </p>
+          <p>
+            <strong>You get back the full amount you paid</strong> for that booking - the tickets,
+            the tax, and the booking and payment fees. This is the one case where our fees come
+            back, because you are not the one who cancelled.
+          </p>
+          <p>
+            We tell you that the show is cancelled, and you can see the refund on your booking. A
+            person at the organizer or at ETicketsGo then approves the payment.
+          </p>
 
-            <h2>What comes back</h2>
-            <p>What you get back depends on who cancelled.</p>
-            <p>
-              <strong>If you ask for the refund:</strong> you get the price of the tickets you
-              return, and the tax charged on those tickets. Booking fees and payment fees are not
-              returned. These pay for the service you have already used.
-            </p>
-            <p>
-              <strong>If the organizer or ETicketsGo cancels:</strong> you get back the full amount
-              you paid for that booking. That includes the tickets, the tax, and our fees. You did
-              not cancel, so you do not pay our fee for it.
-            </p>
-            <p>
-              You can return some of your tickets and keep the rest. We never refund more than you
-              paid.
-            </p>
+          <h2>If the organizer changes the event</h2>
+          <p>
+            An organizer can move a show to a new time or a new place. If this happens, we tell you.
+            Contact the organizer or <Link href="/contact">contact us</Link> if the new time or
+            place does not work for you.
+          </p>
 
-            <h2>If the organizer cancels the event</h2>
-            <p>
-              <strong>You do not need to ask.</strong> When an organizer cancels a show, we open a
-              refund for every paid booking on it.
-            </p>
-            <p>
-              The refund window does not apply. If the organizer has turned refunds off for that
-              event, that does not apply either. The show is not happening, so the money comes back.
-            </p>
-            <p>
-              <strong>You get back the full amount you paid</strong> for that booking - the tickets,
-              the tax, and the booking and payment fees. This is the one case where our fees come
-              back, because you are not the one who cancelled.
-            </p>
-            <p>
-              We tell you that the show is cancelled, and you can see the refund on your booking. A
-              person at the organizer or at ETicketsGo then approves the payment.
-            </p>
+          <h2>Tickets you have used</h2>
+          <p>A ticket that has been scanned at the gate has been used. You cannot refund it.</p>
 
-            <h2>If the organizer changes the event</h2>
-            <p>
-              An organizer can move a show to a new time or a new place. If this happens, we tell
-              you. Contact the organizer or <Link href="/contact">contact us</Link> if the new time
-              or place does not work for you.
-            </p>
+          <h2>Free events</h2>
+          <p>You paid nothing, so there is nothing to refund. Cancel your booking instead.</p>
 
-            <h2>Tickets you have used</h2>
-            <p>A ticket that has been scanned at the gate has been used. You cannot refund it.</p>
+          <h2>Cash payments</h2>
+          <p>
+            If you paid cash at the venue, the venue gives the cash back. We cannot refund cash
+            online.
+          </p>
 
-            <h2>Free events</h2>
-            <p>You paid nothing, so there is nothing to refund. Cancel your booking instead.</p>
+          <h2>Card disputes</h2>
+          <p>
+            If you dispute a payment with your bank, we follow the process your bank and our payment
+            provider require. We then check the result against our own records.
+          </p>
 
-            <h2>Cash payments</h2>
-            <p>
-              If you paid cash at the venue, the venue gives the cash back. We cannot refund cash
-              online.
-            </p>
-
-            <h2>Card disputes</h2>
-            <p>
-              If you dispute a payment with your bank, we follow the process your bank and our
-              payment provider require. We then check the result against our own records.
-            </p>
-
-            <h2>Questions</h2>
-            <p>
-              Use the form on our <Link href="/contact">contact page</Link>. It reaches our support
-              team. Also read our <Link href="/terms">Terms</Link>.
-            </p>
-          </Prose>
-        </Container>
-      </Section>
+          <h2>Questions</h2>
+          <p>
+            Use the form on our <Link href="/contact">contact page</Link>. It reaches our support
+            team. Also read our <Link href="/terms">Terms</Link>.
+          </p>
+        </Prose>
+        <OperatorLine />
+      </LegalDocument>
     </>
   );
 }

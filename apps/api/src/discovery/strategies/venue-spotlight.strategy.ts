@@ -15,7 +15,8 @@ export interface VenueSpotlightItem {
   id: string;
   name: string;
   city: string;
-  country: string;
+  /** Null when the venue has not been asked. Never guessed. */
+  country: string | null;
   eventCount: number;
 }
 

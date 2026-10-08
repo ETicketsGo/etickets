@@ -40,6 +40,7 @@ const MARKETING_EXACT = new Set([
   '/organizer-agreement',
   '/sms',
   '/cookies',
+  '/legal',
 ]);
 const MARKETING_PREFIX = ['/docs', '/blog'];
 

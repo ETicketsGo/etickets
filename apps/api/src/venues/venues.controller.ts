@@ -2,8 +2,10 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import {
+  createScreenSchema,
   createVenueSchema,
   updateVenueSchema,
+  type CreateScreenInput,
   type CreateVenueInput,
   type UpdateVenueInput,
 } from '@eticketsgo/validation';
@@ -40,6 +42,22 @@ export class VenuesController {
     return this.venues.list(user, q.organizationId);
   }
 
+  /*
+    Declared BEFORE `:id`, and that is load-bearing.
+
+    Nest matches in declaration order, so with `@Get(':id')` first this path arrives as a
+    venue id of "spaces" and 404s. The same trap is documented on `events/seating-rooms`.
+  */
+  @Get('spaces')
+  @ApiOperation({ summary: 'Every bookable space in an organization, grouped by venue.' })
+  allSpaces(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ organizationId: z.string().cuid() })))
+    q: { organizationId: string },
+  ) {
+    return this.venues.allSpaces(user, q.organizationId);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Edit a venue.' })
   update(
@@ -54,5 +72,21 @@ export class VenuesController {
   @ApiOperation({ summary: 'Get a venue.' })
   get(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.venues.get(user, id);
+  }
+
+  @Get(':id/spaces')
+  @ApiOperation({ summary: 'The bookable spaces inside a venue, cinema screens included.' })
+  spaces(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.venues.spaces(user, id);
+  }
+
+  @Post(':id/spaces')
+  @ApiOperation({ summary: 'Add a space to a venue. No cinema required.' })
+  addSpace(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(createScreenSchema)) body: CreateScreenInput,
+  ) {
+    return this.venues.addSpace(user, id, body);
   }
 }

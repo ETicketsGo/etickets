@@ -94,11 +94,14 @@ function navFor({
     Worse, creating a room with no venue makes one, named after the room — so an organizer
     could see the same name in both lists as two unrelated things, with nothing to explain it.
 
-    One entry, then, and "rooms" kept in the label because that is the word that made seat
-    maps findable. The film-specific pages inside still say cinema and screen, where those
-    words are accurate.
+    One entry, then. The label said "rooms" for a while, because that was the word that made
+    seat maps findable once "Cinemas" had driven a concert promoter away. It now says SPACES,
+    which is the platform's word for a bookable area inside a venue - it keeps what that
+    rename was protecting (nothing film-specific in the sidebar) and matches what the pages
+    behind it, the API and the seating model all call the thing. The film-specific pages
+    inside still say cinema and screen, where those words are accurate.
   */
-    { label: 'Venues & rooms', href: '/organizer/venues', icon: Building2 },
+    { label: 'Venues & spaces', href: '/organizer/venues', icon: Building2 },
     /*
     The box office counter's way in. Distinct from an event's order list, which answers "who
     bought for THIS show" — a counter is holding a phone call about a booking whose show it
