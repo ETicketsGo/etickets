@@ -138,14 +138,18 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 }
 
 /**
- * KEYS[1] counter, KEYS[2] block marker. ARGV ttl, limit, blockDuration (all seconds).
+ * KEYS[1] counter, KEYS[2] block marker. ARGV ttl, limit, blockDuration (all MILLISECONDS).
  *
  * Returns [totalHits, timeToExpire, isBlocked, timeToBlockExpire], matching the in-memory
  * storage's record so the guard cannot tell the two apart.
  *
- * `ttl` and `blockDuration` arrive in SECONDS from the throttler, and the record wants seconds
- * back. Using PTTL and dividing would introduce rounding for no benefit, so this stays in
- * whole seconds throughout - the same unit the configuration is written in.
+ * ── UNITS ──────────────────────────────────────────────────────────────────────────
+ * `@nestjs/throttler` v6 passes `ttl` and `blockDuration` in MILLISECONDS (the config is
+ * `THROTTLE_TTL_MS`), and its own storage reports `timeToExpire` / `timeToBlockExpire` in
+ * whole SECONDS, rounded up. An earlier version of this script read the arguments as seconds:
+ * with `EXPIRE 60000` a one-minute window became 16.7 hours, and so did every block - ten
+ * mistyped passwords locked a customer out until the next day. So: PEXPIRE / PTTL in, ceil to
+ * seconds out.
  */
 const INCREMENT_SCRIPT = `
 local hitKey = KEYS[1]
@@ -154,28 +158,32 @@ local ttl = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
 local blockDuration = tonumber(ARGV[3])
 
+local function seconds(ms)
+  return math.ceil(ms / 1000)
+end
+
 -- Already serving a penalty: report it without counting the hit or extending the block.
-local blockTtl = redis.call('TTL', blockKey)
+local blockTtl = redis.call('PTTL', blockKey)
 if blockTtl > 0 then
   local hits = tonumber(redis.call('GET', hitKey) or '0')
-  return { hits, blockTtl, 1, blockTtl }
+  return { hits, seconds(blockTtl), 1, seconds(blockTtl) }
 end
 
 local hits = redis.call('INCR', hitKey)
 if hits == 1 then
-  redis.call('EXPIRE', hitKey, ttl)
+  redis.call('PEXPIRE', hitKey, ttl)
 end
-local expire = redis.call('TTL', hitKey)
+local expire = redis.call('PTTL', hitKey)
 if expire < 0 then
   -- A counter with no expiry would never reset and would lock the caller out for good.
-  redis.call('EXPIRE', hitKey, ttl)
+  redis.call('PEXPIRE', hitKey, ttl)
   expire = ttl
 end
 
 if hits > limit and blockDuration > 0 then
-  redis.call('SET', blockKey, '1', 'EX', blockDuration)
-  return { hits, expire, 1, blockDuration }
+  redis.call('SET', blockKey, '1', 'PX', blockDuration)
+  return { hits, seconds(expire), 1, seconds(blockDuration) }
 end
 
-return { hits, expire, 0, 0 }
+return { hits, seconds(expire), 0, 0 }
 `;
