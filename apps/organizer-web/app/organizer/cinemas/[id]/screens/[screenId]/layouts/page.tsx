@@ -44,7 +44,8 @@ const STATUS_HINT: Record<SeatLayoutStatus, string> = {
 };
 
 export default function SeatLayoutsPage() {
-  const { id: cinemaId, screenId } = useParams<{ id: string; screenId: string }>();
+  // `id` is absent on /organizer/spaces/<screenId>/layouts: a space that is not a cinema screen.
+  const { id: cinemaId, screenId } = useParams<{ id?: string; screenId: string }>();
   const qc = useQueryClient();
 
   const [publishing, setPublishing] = useState<SeatLayoutSummary | null>(null);
@@ -123,9 +124,12 @@ export default function SeatLayoutsPage() {
           title="This screen has no seat layout yet"
           hint="Until it has one, this screen cannot hold a show — there are no seats to sell."
           action={
-            <ButtonLink href={`/organizer/cinemas/${cinemaId}/screens/${screenId}/seatmap`}>
-              Design the seat layout
-            </ButtonLink>
+            // The grid designer belongs to a cinema. Any other space starts from a template.
+            cinemaId ? (
+              <ButtonLink href={`/organizer/cinemas/${cinemaId}/screens/${screenId}/seatmap`}>
+                Design the seat layout
+              </ButtonLink>
+            ) : undefined
           }
         />
       ) : (

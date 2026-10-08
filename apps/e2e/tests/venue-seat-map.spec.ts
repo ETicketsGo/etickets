@@ -79,7 +79,7 @@ async function buildArena(request: APIRequestContext): Promise<{
   await request.post(`${API}/screens/${screenId}/seatmap`, {
     headers: auth,
     data: {
-      name: 'Starting room',
+      name: 'Starting layout',
       sections: [
         {
           name: 'Stalls',
