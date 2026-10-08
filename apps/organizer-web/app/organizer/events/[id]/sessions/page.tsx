@@ -104,9 +104,19 @@ export default function SessionsTab() {
     queryFn: () => api.events.seatingRooms(event!.organizationId),
     enabled: !!event?.organizationId,
   });
-  const roomById = (screenId: string) => rooms.data?.find((r) => r.id === screenId);
+  /*
+    Options are LAYOUTS, not spaces. `seating-rooms` returns one row per layout, so a space with
+    a basketball bowl and an end-stage concert appears twice - and keyed by the space's id, the
+    two options had the same value and either one sent only the space, leaving the server to
+    guess which configuration was meant. Keying by `layoutId` makes the choice the organizer's.
+  */
+  const roomByLayout = (layoutId: string) => rooms.data?.find((r) => r.layoutId === layoutId);
+  const seatingFor = (layoutId: string) => {
+    const room = roomByLayout(layoutId);
+    return room ? { screenId: room.id, seatMapId: room.layoutId } : null;
+  };
 
-  const [form, setForm] = useState({ startsAt: '', endsAt: '', screenId: GENERAL_ADMISSION });
+  const [form, setForm] = useState({ startsAt: '', endsAt: '', layoutId: GENERAL_ADMISSION });
 
   const add = useMutation({
     mutationFn: () =>
@@ -115,7 +125,7 @@ export default function SessionsTab() {
         endsAt: new Date(form.endsAt).toISOString(),
         // Omitted entirely when general admission — sending an empty string would be a room
         // id that does not exist, and the request would be refused rather than understood.
-        ...(form.screenId ? { screenId: form.screenId } : {}),
+        ...(seatingFor(form.layoutId) ?? {}),
       }),
     onSuccess: (session) => {
       toast.push(
@@ -124,7 +134,7 @@ export default function SessionsTab() {
           : 'Session added.',
         'success',
       );
-      setForm({ startsAt: '', endsAt: '', screenId: GENERAL_ADMISSION });
+      setForm({ startsAt: '', endsAt: '', layoutId: GENERAL_ADMISSION });
       qc.invalidateQueries({ queryKey: ['event', id] });
     },
     onError: (e) => toast.push(errorMessage(e), 'error'),
@@ -136,11 +146,19 @@ export default function SessionsTab() {
 
   const openChange = (s: EventSession) => {
     setEditing(s);
-    setNextRoom(s.screenId ?? GENERAL_ADMISSION);
+    // The layout it already pins, so reopening the dialog shows the configuration in use.
+    setNextRoom(s.screenId ? (s.seatMapId ?? GENERAL_ADMISSION) : GENERAL_ADMISSION);
   };
 
   const changeSeating = useMutation({
-    mutationFn: () => api.events.updateSessionSeating(editing!.id, nextRoom || null),
+    mutationFn: () => {
+      const seating = seatingFor(nextRoom);
+      return api.events.updateSessionSeating(
+        editing!.id,
+        seating?.screenId ?? null,
+        seating?.seatMapId ?? null,
+      );
+    },
     onSuccess: (session) => {
       toast.push(
         session.screenId
@@ -174,7 +192,7 @@ export default function SessionsTab() {
               <span className="text-text-primary">Reserved seating</span>
               {s.screen ? (
                 <span className="block text-caption text-text-muted">
-                  {s.screen.cinema.name} · {s.screen.name}
+                  {s.screen.venue?.name ?? s.screen.cinema?.name} · {s.screen.name}
                 </span>
               ) : null}
             </>
@@ -203,7 +221,8 @@ export default function SessionsTab() {
   const valid = !!form.startsAt && !!form.endsAt && !endBeforeStart;
 
   const editingTicketTypes = editing?.ticketTypes?.length ?? 0;
-  const unchanged = (editing?.screenId ?? GENERAL_ADMISSION) === nextRoom;
+  const unchanged =
+    (editing?.screenId ? (editing.seatMapId ?? GENERAL_ADMISSION) : GENERAL_ADMISSION) === nextRoom;
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -239,20 +258,20 @@ export default function SessionsTab() {
             <Select
               id="room"
               label="Seating"
-              value={form.screenId}
+              value={form.layoutId}
               disabled={rooms.isLoading}
-              onChange={(e) => setForm({ ...form, screenId: e.target.value })}
+              onChange={(e) => setForm({ ...form, layoutId: e.target.value })}
             >
               <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
               {(rooms.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.venueName} · {r.name} ({r.sellableSeats} seats)
+                <option key={r.layoutId} value={r.layoutId}>
+                  {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
                 </option>
               ))}
             </Select>
             <SeatingHelp
               rooms={rooms.data}
-              chosen={roomById(form.screenId)}
+              chosen={roomByLayout(form.layoutId)}
               failed={rooms.isError}
             />
           </div>
@@ -301,12 +320,12 @@ export default function SessionsTab() {
           >
             <option value={GENERAL_ADMISSION}>General admission — no seat map</option>
             {(rooms.data ?? []).map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.venueName} · {r.name} ({r.sellableSeats} seats)
+              <option key={r.layoutId} value={r.layoutId}>
+                {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
               </option>
             ))}
           </Select>
-          <SeatingHelp rooms={rooms.data} chosen={roomById(nextRoom)} failed={rooms.isError} />
+          <SeatingHelp rooms={rooms.data} chosen={roomByLayout(nextRoom)} failed={rooms.isError} />
 
           {/*
             The consequence, before it happens rather than after.

@@ -673,6 +673,79 @@ export class ShowsService {
     });
   }
 
+  /**
+   * The layout a session in this space should use - chosen, kept, or resolved, never guessed.
+   *
+   * -- WHY THIS EXISTS ------------------------------------------------------------------
+   * A space can hold several configurations at once (an arena's basketball bowl and its
+   * end-stage concert). `resolveLayoutForShow` predates that: it picks the newest effective
+   * version across EVERY map on the screen, so a session moved into the arena without a
+   * choice silently landed in whichever configuration was published last.
+   *
+   * In order:
+   *   1. `chosen` - the organizer named a layout. It must belong to this space and be
+   *      published; anything else is refused.
+   *   2. `keep` - the session already pins a layout in this same space. Re-seating the same
+   *      space keeps it, rather than swapping Basketball for Concert behind their back.
+   *   3. One configuration only - every cinema screen, every single-layout hall - resolves
+   *      by date exactly as before, so version history keeps working unchanged.
+   *   4. Several configurations and no choice - refused, naming them, so the organizer picks.
+   *
+   * A configuration is a LINEAGE, not a name. Cloning names a draft "<name> v<N>", so a
+   * cinema's ordinary version history carries several names while being one layout; counting
+   * names would demand a choice the operator never needed to make. Roots of the
+   * `clonedFromId` chain are what tell two configurations apart.
+   */
+  async chooseLayoutForSession(
+    screenId: string,
+    startsAt: Date,
+    chosen?: string | null,
+    keep?: string | null,
+  ) {
+    if (chosen) return this.requireLayoutForSpace(screenId, chosen);
+
+    const maps = await this.prisma.seatMap.findMany({
+      where: { screenId },
+      select: { id: true, name: true, status: true, clonedFromId: true },
+    });
+
+    if (keep) {
+      const kept = maps.find((m) => m.id === keep && m.status === 'PUBLISHED');
+      if (kept) return this.requireLayoutForSpace(screenId, kept.id);
+    }
+
+    const byId = new Map(maps.map((m) => [m.id, m]));
+    const rootOf = (id: string) => {
+      let current = byId.get(id);
+      const seen = new Set<string>();
+      // Bounded by the map count, and cycle-safe: lineage is a tree, but a corrupt row must not
+      // hang a request.
+      while (current?.clonedFromId && byId.has(current.clonedFromId) && !seen.has(current.id)) {
+        seen.add(current.id);
+        current = byId.get(current.clonedFromId);
+      }
+      return current?.id ?? id;
+    };
+    const published = maps.filter((m) => m.status === 'PUBLISHED');
+    const configurations = new Map<string, string>();
+    for (const m of published) {
+      const root = rootOf(m.id);
+      if (!configurations.has(root)) configurations.set(root, byId.get(root)?.name ?? m.name);
+    }
+
+    if (configurations.size > 1) {
+      const layouts = published.map((m) => ({ id: m.id, name: m.name }));
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `This space has more than one layout (${[...configurations.values()].join(', ')}). Choose which one this session uses.`,
+        HttpStatus.CONFLICT,
+        { reason: 'LAYOUT_CHOICE_REQUIRED', screenId, layouts },
+      );
+    }
+
+    return this.resolveLayoutForShow(screenId, startsAt);
+  }
+
   async resolveLayoutForShow(screenId: string, startsAt: Date) {
     const versions = await this.prisma.seatMap.findMany({
       where: { screenId },

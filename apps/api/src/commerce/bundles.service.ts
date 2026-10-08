@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { currencyForEvent } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { onSale } from './addons.service';
 
@@ -90,9 +91,12 @@ export class BundlesService {
   async create(user: RequestUser, eventId: string, input: CreateBundleInput) {
     await this.assertEventAccess(user, eventId);
     await this.assertComponentsBelong(eventId, input.items);
+    // The event's currency, not the column's 'INR' default - see `AddOnsService.create`.
+    const currency = await currencyForEvent(this.prisma, eventId);
     const bundle = await this.prisma.bundle.create({
       data: {
         eventId,
+        currency,
         type: input.type,
         name: input.name,
         description: input.description,

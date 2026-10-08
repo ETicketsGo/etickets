@@ -1260,10 +1260,14 @@ export const api = {
         body: JSON.stringify(body),
       }),
     /** Change, add (screenId) or remove (null) a session's room. Refused once anything sold. */
-    updateSessionSeating: (sessionId: string, screenId: string | null) =>
+    /**
+     * Change a session's space - and, when that space has several layouts, WHICH one. The
+     * server refuses a multi-layout space without a `seatMapId` rather than picking for you.
+     */
+    updateSessionSeating: (sessionId: string, screenId: string | null, seatMapId?: string | null) =>
       request<EventSession>(`/events/sessions/${sessionId}/seating`, {
         method: 'PATCH',
-        body: JSON.stringify({ screenId }),
+        body: JSON.stringify({ screenId, ...(screenId && seatMapId ? { seatMapId } : {}) }),
       }),
     addTicketType: (body: CreateTicketTypeBody) =>
       request<TicketType>('/events/ticket-types', { method: 'POST', body: JSON.stringify(body) }),
@@ -3750,7 +3754,15 @@ export interface EventSession {
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
   seatMapId?: string | null;
-  screen?: { name: string; cinema: { name: string } } | null;
+  /**
+   * Where a seated session is. `cinema` is null for a space that is not a cinema screen -
+   * an arena or an auditorium - so the place is named from `venue` first.
+   */
+  screen?: {
+    name: string;
+    venue?: { name: string } | null;
+    cinema?: { name: string } | null;
+  } | null;
   ticketTypes?: TicketType[];
 }
 /** A room an event can be seated in — one that has a published seat map. */

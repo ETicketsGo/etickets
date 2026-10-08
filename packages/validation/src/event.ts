@@ -168,6 +168,12 @@ export type CreateSessionInput = z.infer<typeof createSessionSchema>;
  */
 export const updateSessionSeatingSchema = z.object({
   screenId: z.string().cuid().nullable(),
+  /**
+   * WHICH layout of that space. Required in practice when the space has more than one
+   * configuration - the server refuses to guess between them - and ignored for general
+   * admission, where there is no space.
+   */
+  seatMapId: z.string().cuid().nullable().optional(),
 });
 export type UpdateSessionSeatingInput = z.infer<typeof updateSessionSeatingSchema>;
 

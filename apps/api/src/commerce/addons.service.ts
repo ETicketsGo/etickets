@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
+import { currencyForEvent } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
@@ -54,9 +55,17 @@ export class AddOnsService {
 
   async create(user: RequestUser, eventId: string, input: CreateAddOnInput) {
     await this.assertEventAccess(user, eventId);
+    /*
+      Written explicitly. The column defaults to 'INR', and `create` never set it, so every
+      add-on - for a venue in Boise as much as one in Hyderabad - was stored as rupees. The
+      event's own currency is the only correct answer, and an event that cannot establish
+      one refuses the add-on rather than inventing rupees for it.
+    */
+    const currency = await currencyForEvent(this.prisma, eventId);
     const addOn = await this.prisma.addOn.create({
       data: {
         eventId,
+        currency,
         type: input.type,
         name: input.name,
         description: input.description,
