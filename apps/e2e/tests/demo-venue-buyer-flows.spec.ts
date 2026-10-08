@@ -137,7 +137,19 @@ test.describe('intentional demo venue buyer paths', () => {
         await page.setViewportSize({ width, height: 844 });
         await page.goto(`${CUSTOMER}/shows/${event.sessions[0].id}`);
         await expect(page.getByText(/COURT|STAGE/, { exact: true })).toBeVisible();
-        await page.getByRole('button', { name: fixture.section }).first().click();
+        /*
+          On a phone the map's labels render at about 6px - a block could be tapped but not
+          read. The blocks are listed under the map at a size people can read, with prices.
+        */
+        const listed = page
+          .getByTestId('venue-map-list')
+          .getByRole('button', { name: fixture.section })
+          .first();
+        await expect(listed).toBeVisible();
+        await expect(listed).toContainText(/from /);
+        const listedPx = await listed.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+        expect(listedPx).toBeGreaterThanOrEqual(12);
+        await listed.click();
         const seat = page
           .getByRole('button', { name: /^Seat / })
           .and(page.locator(':enabled'))

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { VenueFocalPoint, VenuePoint, VenueSectionSummary } from './api';
 
 /**
@@ -26,6 +26,16 @@ import type { VenueFocalPoint, VenuePoint, VenueSectionSummary } from './api';
  */
 
 const VIEWBOX = 1000;
+
+/**
+ * Below this rendered width, the map's labels are too small to read.
+ *
+ * Labels are sized in map units (20 of 1000), so they shrink with the map: on a 390px phone the
+ * map is about 300px wide and a block's name and price render at about 6px. A buyer could tap a
+ * block but could not read which block it was, or what it cost. Under this width the blocks are
+ * also listed beneath the map, at a size people can read and tap.
+ */
+const NARROW_MAP_PX = 560;
 
 /** SVG needs "x,y x,y"; the API sends [[x, y], …]. */
 const toPoints = (shape: VenuePoint[]) => shape.map(([x, y]) => `${x},${y}`).join(' ');
@@ -79,9 +89,22 @@ export function VenueMap({
     [sections],
   );
 
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) =>
+      setNarrow(entry.contentRect.width < NARROW_MAP_PX),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="space-y-3">
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${VIEWBOX} ${VIEWBOX}`}
         className="w-full rounded-xl border border-border bg-background-subtle"
         role="group"
@@ -180,6 +203,39 @@ export function VenueMap({
         <LegendSwatch className="bg-status-warning/60" label="Almost full" />
         <LegendSwatch className="bg-text-muted/20" label="Sold out" />
       </div>
+
+      {narrow && drawable.length > 0 ? (
+        <div data-testid="venue-map-list" className="space-y-2">
+          <p className="text-caption text-text-muted">Or choose a block from the list:</p>
+          <ul className="grid gap-2">
+            {drawable.map((section) => {
+              const soldOut = fillFor(section) === 'none';
+              const standingZone = section.kind === 'ZONE';
+              return (
+                <li key={section.id}>
+                  <button
+                    type="button"
+                    disabled={soldOut || standingZone}
+                    onClick={() => onSelect(section.id)}
+                    className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-left text-sm text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-50"
+                  >
+                    <span className="font-medium">{section.name}</span>
+                    <span className="text-text-secondary">
+                      {soldOut
+                        ? 'Sold out'
+                        : standingZone
+                          ? 'Standing'
+                          : section.priceMinorFrom !== null
+                            ? `from ${formatPrice(section.priceMinorFrom)}`
+                            : ''}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
 
       {unplaced.length > 0 ? (
         <div className="rounded-lg border border-border p-3">
