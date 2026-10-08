@@ -1,7 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { RedisThrottlerStorage, throttlerStorageMode } from './common/redis-throttler.storage';
+import { RedisService } from './redis/redis.service';
 import { loadConfig } from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
@@ -84,12 +86,31 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
       machine standing in for many users, which is precisely the case the limit is not aimed
       at. Deployments that set nothing keep the production value.
     */
-    ThrottlerModule.forRoot([
-      {
-        ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000),
-        limit: Number(process.env.THROTTLE_LIMIT ?? 120),
-      },
-    ]),
+    /*
+      ── WHERE THE COUNTERS LIVE ────────────────────────────────────────────────────
+      In memory by default, which is where they have always lived, so merging and deploying
+      this changes nothing until somebody sets THROTTLE_STORAGE=redis deliberately.
+
+      That default is the point. A rate limit is a security control, and a change to one
+      belongs to a decision rather than to a deploy. `redis-throttler.storage.ts` explains
+      what the shared store buys (counters that survive a restart and are shared between
+      replicas) and what it costs (a degraded, per-process fallback when Redis is away).
+    */
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [ConfigService, RedisService],
+      useFactory: (config: ConfigService, redis: RedisService) => ({
+        throttlers: [
+          {
+            ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000),
+            limit: Number(process.env.THROTTLE_LIMIT ?? 120),
+          },
+        ],
+        ...(throttlerStorageMode(config) === 'redis'
+          ? { storage: new RedisThrottlerStorage(redis, config) }
+          : {}),
+      }),
+    }),
     PrismaModule,
     StorageModule,
     SecretsModule,
