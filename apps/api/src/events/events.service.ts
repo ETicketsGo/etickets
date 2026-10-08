@@ -264,11 +264,21 @@ export class EventsService {
       rows. The copy looked seated, published, and then refused every booking, because a
       seated sale holds ShowSeat rows and there were none. Layouts are resolved before the
       transaction, as `addSession` does, so a multi-query read is not held inside it.
+
+      The copy keeps the original's CONFIGURATION: the version in effect from its pinned
+      layout's own lineage. Resolving by date across the whole space turned a copied Concert
+      into Basketball. A session with no pin follows `addSession`'s rule, which refuses a
+      multi-layout space rather than guessing.
     */
     const layouts = new Map<string, Awaited<ReturnType<ShowsService['resolveLayoutForShow']>>>();
     for (const s of sessions) {
       if (s.screenId) {
-        layouts.set(s.id, await this.shows.resolveLayoutForShow(s.screenId, s.startsAt));
+        layouts.set(
+          s.id,
+          s.seatMapId
+            ? await this.shows.resolveLayoutInConfiguration(s.screenId, s.startsAt, s.seatMapId)
+            : await this.shows.chooseLayoutForSession(s.screenId, s.startsAt),
+        );
       }
     }
 

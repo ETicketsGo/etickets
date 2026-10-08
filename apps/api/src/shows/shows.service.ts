@@ -343,6 +343,24 @@ function sellableSeats<T extends { kind: string }>(seats: T[]): T[] {
   return seats.filter((seat) => seat.kind !== 'GAP');
 }
 
+/**
+ * The configuration a layout belongs to: the root of its `clonedFromId` chain within one space.
+ * Bounded by the map count, and cycle-safe: lineage is a tree, but a corrupt row must not hang
+ * a request.
+ */
+function lineageRoot(
+  byId: Map<string, { id: string; clonedFromId: string | null }>,
+  id: string,
+): string {
+  let current = byId.get(id);
+  const seen = new Set<string>();
+  while (current?.clonedFromId && byId.has(current.clonedFromId) && !seen.has(current.id)) {
+    seen.add(current.id);
+    current = byId.get(current.clonedFromId);
+  }
+  return current?.id ?? id;
+}
+
 @Injectable()
 export class ShowsService {
   constructor(
@@ -715,17 +733,7 @@ export class ShowsService {
     }
 
     const byId = new Map(maps.map((m) => [m.id, m]));
-    const rootOf = (id: string) => {
-      let current = byId.get(id);
-      const seen = new Set<string>();
-      // Bounded by the map count, and cycle-safe: lineage is a tree, but a corrupt row must not
-      // hang a request.
-      while (current?.clonedFromId && byId.has(current.clonedFromId) && !seen.has(current.id)) {
-        seen.add(current.id);
-        current = byId.get(current.clonedFromId);
-      }
-      return current?.id ?? id;
-    };
+    const rootOf = (id: string) => lineageRoot(byId, id);
     const published = maps.filter((m) => m.status === 'PUBLISHED');
     const configurations = new Map<string, string>();
     for (const m of published) {
@@ -744,6 +752,56 @@ export class ShowsService {
     }
 
     return this.resolveLayoutForShow(screenId, startsAt);
+  }
+
+  /**
+   * The version of a session's OWN configuration in effect at `startsAt` - for a copy of it.
+   *
+   * Copying a Concert session must give a Concert session. Date resolution across the whole
+   * space cannot promise that: it picks the newest version of ANY configuration, so the copy of
+   * a Concert could land in Basketball. The version is still chosen by date, but only from
+   * the pinned layout's own lineage, so a cinema's ordinary version history behaves as before.
+   * No version of that configuration in effect means the copy is refused, never re-homed.
+   */
+  async resolveLayoutInConfiguration(screenId: string, startsAt: Date, pinnedId: string) {
+    const maps = await this.prisma.seatMap.findMany({
+      where: { screenId },
+      select: {
+        id: true,
+        name: true,
+        clonedFromId: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+    const byId = new Map(maps.map((m) => [m.id, m]));
+    const pinned = byId.get(pinnedId);
+    if (!pinned) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That layout does not belong to this space.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const root = lineageRoot(byId, pinnedId);
+    const lineage = maps.filter((m) => lineageRoot(byId, m.id) === root);
+    const chosen = resolveEffectiveLayout(
+      lineage.map((v) => ({ ...v, status: v.status as LayoutStatus })),
+      startsAt,
+    );
+    if (!chosen) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        `No published version of the layout "${pinned.name}" is in effect for that date.`,
+        HttpStatus.CONFLICT,
+        { reason: 'LAYOUT_NOT_IN_EFFECT', screenId, seatMapId: pinnedId },
+      );
+    }
+    // Through the same validation every other path uses, and the same full shape.
+    return this.requireLayoutForSpace(screenId, chosen.id);
   }
 
   async resolveLayoutForShow(screenId: string, startsAt: Date) {
