@@ -26,7 +26,18 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
     title: 'resources',
     links: [
       { href: '/docs', label: 'documentation' },
-      { href: '/blog', label: 'blog' },
+      /*
+        No Blog link, and no About link below, until either has real content.
+
+        Both pages carry a banner saying their content is a placeholder, and the banner is
+        true - the articles and the founder bios are samples. A launch footer that offers
+        them presents sample writing as the company's own, and a visitor deciding whether to
+        trust us with a card payment is exactly the wrong reader for that.
+
+        Removing the link rather than the page: the routes still work for anyone who has one,
+        and they stop being presented as finished launch content. Put the links back when
+        there is something real behind them.
+      */
       { href: '/faq', label: 'faq' },
       { href: '/contact', label: 'contact' },
     ],
@@ -40,7 +51,6 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
         key names to every visitor on the public site, and the five it broke were the legal
         links. camelCase now, matching every other column, and both locales have them.
       */
-      { href: '/about', label: 'about' },
       { href: '/privacy', label: 'privacy' },
       { href: '/terms', label: 'terms' },
       { href: '/refunds', label: 'refunds' },

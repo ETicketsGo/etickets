@@ -60,6 +60,27 @@ const LADDER: { key: keyof PayoutSummaryCurrency; label: string; negative?: bool
 function CurrencyCard({ row }: { row: PayoutSummaryCurrency }) {
   return (
     <Card title={`${row.currency}`}>
+      {/*
+        ── THE SCOPE, SAID BEFORE THE FIGURES, NOT AFTER ──────────────────────────────────
+        Every row below counts only revenue that is PAYABLE NOW. The calculation is unchanged
+        and correct; the presentation was not. An organizer holding money still inside the
+        hold period read "Gross ticket value Rs 0" at the top of their finance page, which on
+        its face says they have earned nothing - while their per-event Reports page showed
+        real sales for the same events. Two screens appearing to contradict each other, when
+        in fact they answer different questions.
+
+        The scope now leads. The sentence that used to sit under "Ready to pay out now",
+        explaining the exclusion, applied to the whole ladder all along - it was just placed
+        where it read as a footnote to the last line.
+      */}
+      <div className="mb-3 border-b border-border pb-3">
+        <p className="text-sm font-semibold text-text-primary">Ready to pay out now</p>
+        <p className="mt-1 text-caption text-text-muted">
+          How this figure is made up. It counts only money that is payable today - not money already
+          sent to you, and not money still held until a show finishes. Those are in the three boxes
+          below, and your per-event reports show each event&apos;s own sales in full.
+        </p>
+      </div>
       <dl className="divide-y divide-border">
         {LADDER.map(({ key, label, negative }) => (
           <div key={key} className="flex items-baseline justify-between gap-4 py-2">
@@ -100,8 +121,7 @@ function CurrencyCard({ row }: { row: PayoutSummaryCurrency }) {
         says which question it answers, and this line says where the rest of it went.
       */}
       <p className="mt-2 text-caption text-text-muted">
-        What a payout raised today would come to. Money already raised, or still held until a show
-        finishes, is counted below rather than here.
+        The total of the lines above: what a payout raised today would come to.
       </p>
 
       <dl className="mt-3 grid gap-2 sm:grid-cols-3">

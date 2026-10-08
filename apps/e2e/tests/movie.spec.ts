@@ -126,7 +126,20 @@ test('customer books a movie seat and pays', async ({ page }) => {
   await expect(seatCode).toBeVisible();
   await seatCode.fill('DEFINITELY-NOT-A-CODE');
   await page.getByRole('button', { name: 'Apply' }).click();
-  await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+  /*
+    The refusal itself, not "an alert".
+
+    `getByRole('alert')` also matches Next's route announcer, `#__next-route-announcer__`,
+    which carries role="alert" on every page and holds the page title after a navigation. Two
+    matches is a strict-mode violation, so this failed intermittently depending on whether the
+    announcer still had text - and CI's single retry usually hid it.
+
+    Naming the message is also a better test: it asserts the buyer is TOLD the code is bad,
+    which is the behaviour, rather than that some live region exists.
+  */
+  await expect(page.getByText(/code isn't valid for this booking/i)).toBeVisible({
+    timeout: 20_000,
+  });
 
   // Proceed to the (shared) payment flow
   await page.getByRole('button', { name: /Proceed to pay/i }).click();
