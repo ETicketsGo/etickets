@@ -21,7 +21,9 @@ describe('the payments-activating panel', () => {
       const copy = paymentsActivatingCopy(currency);
       expect(copy.showOperator).toBe(false);
       for (const messages of [en, frCA]) {
-        const body = (messages as { checkout: Record<string, string> }).checkout[copy.body];
+        const body = (messages as unknown as { checkout: Record<string, string> }).checkout[
+          copy.body
+        ];
         expect(body).toBeTruthy();
         expect(body).not.toMatch(/UPI|netbanking|virements bancaires|India|Inde|Hyderabad/i);
       }
