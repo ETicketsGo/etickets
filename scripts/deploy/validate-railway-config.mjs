@@ -872,6 +872,44 @@ function validatePortBinding() {
   );
 }
 
+/**
+ * A variable write must never be a deploy.
+ *
+ * On 2026-10-08 a "config-only" key change on UAT (variableCollectionUpsert without
+ * skipDeploys) made Railway build the HEAD of main for api and worker - an environment two weeks
+ * behind - and the api's preDeployCommand ran 13 migrations with no audit and no backup. A
+ * variable change on a service that auto-deploys from a branch is a deployment of that branch.
+ *
+ * So every script that writes variables must pass skipDeploys: true, and then deploy explicitly
+ * (railway-deploy-and-wait.mjs), where the commit is visible. variableDelete has no skipDeploys
+ * at all, so it is allowed only in the seed runner, whose service (db-seed) has no
+ * preDeployCommand and cannot migrate.
+ */
+function validateVariableWritesNeverDeploy() {
+  const dir = join(ROOT, 'scripts/deploy');
+  for (const name of readdirSync(dir).filter((f) => f.endsWith('.mjs'))) {
+    if (name === 'validate-railway-config.mjs') continue;
+    const src = readFileSync(join(dir, name), 'utf8');
+    const where = `scripts/deploy/${name}`;
+    // Each mutation call: from the mutation name to the end of its variables object.
+    const writes = [...src.matchAll(/variable(?:Collection)?Upsert\(input:[\s\S]*?\}\s*\)/g)];
+    for (const w of writes) {
+      check(
+        /skipDeploys:\s*true/.test(w[0]),
+        where,
+        'a Railway variable write must pass skipDeploys: true - otherwise it deploys the head of main',
+      );
+    }
+    if (/variableDelete\(/.test(src)) {
+      check(
+        name === 'run-seed-operation.mjs' || /assertDeployedIsMain\(/.test(src),
+        where,
+        'variableDelete cannot skip deploys; use it only in the db-seed runner or behind assertDeployedIsMain()',
+      );
+    }
+  }
+}
+
 // ── Run ──────────────────────────────────────────────────────────────────────
 
 validateDestructiveSurfaces();
@@ -882,6 +920,7 @@ ENV_TEMPLATES.forEach(validateEnvTemplate);
 validateNextPublicBuildArgs();
 validatePublicAssetsCopied();
 validatePortBinding();
+validateVariableWritesNeverDeploy();
 
 for (const w of warnings) console.warn(`  warn  ${w}`);
 
