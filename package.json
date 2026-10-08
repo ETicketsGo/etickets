@@ -20,6 +20,7 @@
     "db:migrate": "npm run -w @eticketsgo/api db:migrate",
     "db:deploy": "npm run -w @eticketsgo/api db:deploy",
     "db:seed": "npm run -w @eticketsgo/api db:seed",
+    "db:demo-venues": "npm run -w @eticketsgo/api db:demo-venues",
     "db:seed:india-cinema": "npm run -w @eticketsgo/api db:seed:india-cinema",
     "db:policy-status": "npm run -w @eticketsgo/api db:policy-status",
     "db:backup": "npm run -w @eticketsgo/api db:backup",

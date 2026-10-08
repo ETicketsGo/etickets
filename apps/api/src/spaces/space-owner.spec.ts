@@ -53,20 +53,27 @@ describe('resolving a space to its owner, its zone and its place', () => {
     });
   });
 
-  describe('the timezone comes from the CINEMA, and that is deliberate', () => {
-    it('prefers the cinema even when a venue offers one', () => {
-      /*
-        THE ASSERTION THAT WOULD HAVE CAUGHT THE SYDNEY DEFECT.
-
-        `Venue.timezone` defaults to Asia/Kolkata, so "the venue says Asia/Kolkata" cannot be
-        told apart from "nobody asked the venue". The cinema's column is written from what the
-        operator chose, so it carries an answer where the venue carries a guess.
-      */
+  describe('the timezone comes from the venue, now that a venue can say "not asked"', () => {
+    it('prefers the venue when it actually has a zone', () => {
       expect(
         spaceTimezone({
-          venue: { timezone: 'Asia/Kolkata' },
-          cinema: { timezone: 'Australia/Sydney' },
+          venue: { timezone: 'America/Chicago' },
+          cinema: { timezone: 'Asia/Kolkata' },
         }),
+      ).toBe('America/Chicago');
+    });
+
+    it('falls through to the cinema when the venue was never asked', () => {
+      /*
+        THE SYDNEY DEFECT, AND WHY IT IS FIXED RATHER THAN INVERTED.
+
+        While `Venue.timezone` defaulted to Asia/Kolkata, "the venue says Asia/Kolkata" could
+        not be told apart from "nobody asked the venue" - so venue-first stored a Sydney 00:30
+        show as 06:00. The column is nullable now, so an unasked venue answers NULL and `??`
+        falls through to the zone the operator actually chose.
+      */
+      expect(
+        spaceTimezone({ venue: { timezone: null }, cinema: { timezone: 'Australia/Sydney' } }),
       ).toBe('Australia/Sydney');
     });
 

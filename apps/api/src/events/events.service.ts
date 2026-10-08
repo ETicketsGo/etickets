@@ -23,7 +23,7 @@ import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { redirectUrl } from '../common/console-urls';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
@@ -63,15 +63,6 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
     );
   }
 }
-
-/**
- * Where a currency lands when the venue's country is one we have no mapping for.
- *
- * INR because that is what every ticket type was created in before this, so an unmapped
- * market behaves exactly as it always has. Named rather than inlined so the next person
- * adding a market can see there IS a fallback and that it is a decision.
- */
-const DEFAULT_CURRENCY = 'INR';
 
 /**
  * The details a reviewer approves, taken from `createEventSchema`: every field an organizer
@@ -347,11 +338,17 @@ export class EventsService {
             ),
           );
           for (const t of s.ticketTypes) {
-            if (!t.seatCategoryId) continue;
+            const derivedInventory = t.seatCategoryId
+              ? { seatCategoryId: t.seatCategoryId }
+              : t.seatZoneId
+                ? { seatZoneId: t.seatZoneId }
+                : null;
+            if (!derivedInventory) continue;
             await tx.ticketType.updateMany({
-              where: { eventSessionId: newSession.id, seatCategoryId: t.seatCategoryId },
+              where: { eventSessionId: newSession.id, ...derivedInventory },
               data: {
                 name: t.name,
+                priceMinor: t.priceMinor,
                 maxPerOrder: t.maxPerOrder,
                 salesStartAt: t.salesStartAt,
                 salesEndAt: t.salesEndAt,
@@ -362,11 +359,12 @@ export class EventsService {
         }
         for (const t of s.ticketTypes) {
           // Already created, with the right seat count, by `seatSession` above.
-          if (seatMap && t.seatCategoryId) continue;
+          if (seatMap && (t.seatCategoryId || t.seatZoneId)) continue;
           await tx.ticketType.create({
             data: {
               eventSessionId: newSession.id,
               seatCategoryId: t.seatCategoryId,
+              seatZoneId: t.seatZoneId,
               name: t.name,
               priceMinor: t.priceMinor,
               currency: t.currency,
@@ -737,7 +735,6 @@ export class EventsService {
             is the room's current shape, which is what somebody choosing between rooms needs.
           */
           orderBy: { version: 'desc' },
-          take: 1,
           select: {
             id: true,
             name: true,
@@ -749,16 +746,23 @@ export class EventsService {
       orderBy: [{ name: 'asc' }],
     });
 
-    return screens
-      .filter((s) => s.seatMaps[0])
-      .map((s) => ({
+    return screens.flatMap((s) => {
+      // A name is a configuration and versions are its history. Offer only the current
+      // published version of each named configuration, not every historical revision.
+      const currentByName = new Map<string, (typeof s.seatMaps)[number]>();
+      for (const layout of s.seatMaps) {
+        if (!currentByName.has(layout.name)) currentByName.set(layout.name, layout);
+      }
+      return [...currentByName.values()].map((layout) => ({
         id: s.id,
         name: s.name,
         venueName: spaceVenueName(s),
-        layoutName: s.seatMaps[0].name,
-        layoutKind: s.seatMaps[0].layoutKind,
-        sellableSeats: s.seatMaps[0]._count.seats,
+        layoutId: layout.id,
+        layoutName: layout.name,
+        layoutKind: layout.layoutKind,
+        sellableSeats: layout._count.seats,
       }));
+    });
   }
 
   /**
@@ -801,7 +805,17 @@ export class EventsService {
       to be applied at both sites, and the second was found by accident.
     */
     const screenId = input.screenId;
-    const seatMap = await this.shows.resolveLayoutForShow(screenId, input.startsAt);
+    /*
+      The organizer's CHOICE of configuration, when they made one.
+
+      A space can hold several named layouts at once, so resolving "the space's layout" by
+      date alone would pick whichever happened to be newest - and quietly seat a basketball
+      event in the concert configuration. Resolution by date remains the answer when no
+      choice was made, which is every cinema screen and every space with one layout.
+    */
+    const seatMap = input.seatMapId
+      ? await this.shows.requireLayoutForSpace(screenId, input.seatMapId)
+      : await this.shows.resolveLayoutForShow(screenId, input.startsAt);
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.eventSession.create({
         data: {
@@ -883,6 +897,7 @@ export class EventsService {
       await this.assertNothingCommitted(sessionId, tx);
 
       await tx.showSeat.deleteMany({ where: { eventSessionId: sessionId } });
+      await tx.showZone.deleteMany({ where: { eventSessionId: sessionId } });
       // Inventory first — it holds the foreign key.
       await tx.ticketInventory.deleteMany({ where: { ticketType: { eventSessionId: sessionId } } });
       await tx.ticketType.deleteMany({ where: { eventSessionId: sessionId } });
@@ -993,11 +1008,10 @@ export class EventsService {
           chosen by a default nobody had thought about since the platform sold in one
           country.
 
-          An explicit currency from the caller still wins; a country we have no currency
-          for falls back to INR, which is where this started and is a change to nobody.
+          An explicit currency from the caller still wins. Otherwise the venue must name a
+          supported country; unknown is not India and cannot safely choose financial rules.
         */
-        currency:
-          input.currency ?? currencyForCountry(session.event.venue?.country) ?? DEFAULT_CURRENCY,
+        currency: input.currency ?? requireCommerceCurrency(session.event.venue?.country),
         quantityTotal: input.quantityTotal,
         maxPerOrder: input.maxPerOrder,
         salesStartAt: input.salesStartAt,
@@ -1033,6 +1047,20 @@ export class EventsService {
     }
     const committed = (tt.inventory?.quantitySold ?? 0) + (tt.inventory?.quantityHeld ?? 0);
     const sold = tt.inventory?.quantitySold ?? 0;
+
+    // A zone's capacity belongs to ShowZone/SeatZone. TicketInventory is only a reporting
+    // mirror, so editing it here would disagree with the atomic zone hold guard.
+    if (
+      tt.seatZoneId &&
+      input.quantityTotal !== undefined &&
+      input.quantityTotal !== tt.quantityTotal
+    ) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Standing-zone capacity is controlled by the venue layout, not the ticket type.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     if (input.priceMinor !== undefined && input.priceMinor !== tt.priceMinor && sold > 0) {
       throw new AppException(

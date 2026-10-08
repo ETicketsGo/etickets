@@ -32,7 +32,33 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
 
   async reserve(tx: Prisma.TransactionClient, ctx: ReserveContext): Promise<void> {
     const seatIds = this.seatIdsOf(ctx);
-    if (seatIds.length === 0) {
+    if (ctx.lines.reduce((sum, line) => sum + line.quantity, 0) <= 0) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Select at least one seat or standing-area ticket.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const possibleZoneIds = ctx.lines
+      .filter((line) => !line.seatIds?.length)
+      .map((line) => line.ticketTypeId);
+    if (seatIds.length === 0 && possibleZoneIds.length === 0) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'Select at least one seat.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const ticketTypes = possibleZoneIds.length
+      ? await tx.ticketType.findMany({
+          where: { id: { in: possibleZoneIds } },
+          select: { id: true, seatZoneId: true },
+        })
+      : [];
+    const zoneByTicketType = new Map(ticketTypes.map((type) => [type.id, type.seatZoneId]));
+    const seatLines = ctx.lines.filter((line) => !zoneByTicketType.get(line.ticketTypeId));
+    const zoneLines = ctx.lines.filter((line) => zoneByTicketType.get(line.ticketTypeId));
+    if (seatIds.length === 0 && zoneLines.length === 0) {
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
         'Select at least one seat.',
@@ -41,28 +67,53 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
     }
 
     // Atomic, double-book-proof hold: only AVAILABLE seats flip to HELD.
-    const affected = await tx.$executeRaw`
-      UPDATE "ShowSeat"
-      SET "status" = 'HELD',
-          "holdBookingId" = ${ctx.bookingId},
-          "holdExpiresAt" = ${ctx.holdExpiresAt},
-          "version" = "version" + 1,
-          "updatedAt" = NOW()
-      WHERE "eventSessionId" = ${ctx.eventSessionId}
-        AND "seatId" IN (${Prisma.join(seatIds)})
-        AND "status" = 'AVAILABLE'
-    `;
-    if (affected !== seatIds.length) {
-      throw new AppException(
-        ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
-        'One or more of the selected seats are no longer available.',
-        HttpStatus.CONFLICT,
-        { eventSessionId: ctx.eventSessionId },
-      );
+    if (seatIds.length > 0) {
+      const affected = await tx.$executeRaw`
+        UPDATE "ShowSeat"
+        SET "status" = 'HELD',
+            "holdBookingId" = ${ctx.bookingId},
+            "holdExpiresAt" = ${ctx.holdExpiresAt},
+            "version" = "version" + 1,
+            "updatedAt" = NOW()
+        WHERE "eventSessionId" = ${ctx.eventSessionId}
+          AND "seatId" IN (${Prisma.join(seatIds)})
+          AND "status" = 'AVAILABLE'
+      `;
+      if (affected !== seatIds.length) {
+        throw new AppException(
+          ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
+          'One or more of the selected seats are no longer available.',
+          HttpStatus.CONFLICT,
+          { eventSessionId: ctx.eventSessionId },
+        );
+      }
+    }
+
+    // A zone is capacity, not a pile of synthetic seats. The conditional update is the
+    // authority and serialises competing buyers on this session's one ShowZone row.
+    for (const line of zoneLines) {
+      const zoneId = zoneByTicketType.get(line.ticketTypeId)!;
+      const affected = await tx.$executeRaw`
+        UPDATE "ShowZone"
+        SET "held" = "held" + ${line.quantity},
+            "version" = "version" + 1,
+            "updatedAt" = NOW()
+        WHERE "eventSessionId" = ${ctx.eventSessionId}
+          AND "zoneId" = ${zoneId}
+          AND "capacity" - "sold" - "held" >= ${line.quantity}
+      `;
+      if (affected !== 1) {
+        throw new AppException(
+          ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
+          'There are not that many places left in this area.',
+          HttpStatus.CONFLICT,
+          { eventSessionId: ctx.eventSessionId, seatZoneId: zoneId },
+        );
+      }
     }
 
     // Keep the per-category counters in step (reporting parity).
-    for (const line of ctx.lines) {
+    for (const line of [...seatLines, ...zoneLines]) {
       await tx.$executeRaw`
         UPDATE "TicketInventory"
         SET "quantityHeld" = "quantityHeld" + ${line.quantity},
@@ -88,19 +139,20 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
         },
       },
     });
-    if (held.length === 0) return [];
-
-    await tx.$executeRaw`
-      UPDATE "ShowSeat"
-      SET "status" = 'SOLD', "updatedAt" = NOW()
-      WHERE "holdBookingId" = ${ctx.bookingId} AND "status" = 'HELD'
-    `;
+    if (held.length > 0) {
+      await tx.$executeRaw`
+        UPDATE "ShowSeat"
+        SET "status" = 'SOLD', "updatedAt" = NOW()
+        WHERE "holdBookingId" = ${ctx.bookingId} AND "status" = 'HELD'
+      `;
+    }
 
     // Map each seat category to the session's ticket type (its price tier).
-    const ticketTypes = await tx.ticketType.findMany({
-      where: { eventSessionId: ctx.eventSessionId, seatCategoryId: { not: null } },
-      select: { id: true, seatCategoryId: true },
-    });
+    const ticketTypes =
+      (await tx.ticketType.findMany({
+        where: { eventSessionId: ctx.eventSessionId, seatCategoryId: { not: null } },
+        select: { id: true, seatCategoryId: true, seatZoneId: true },
+      })) ?? [];
     const ticketTypeByCategory = new Map(
       ticketTypes.map((t) => [t.seatCategoryId as string, t.id]),
     );
@@ -116,6 +168,47 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
         seatId: s.seatId,
         seatLabel: `${s.seat.row.label}${s.seat.label}`,
       });
+    }
+
+    const missingIds = ctx.lines
+      .map((line) => line.ticketTypeId)
+      .filter((id) => !ticketTypes.some((type) => type.id === id));
+    const zoneTicketTypes = missingIds.length
+      ? ((await tx.ticketType.findMany({
+          where: { id: { in: missingIds }, seatZoneId: { not: null } },
+          select: { id: true, seatZoneId: true },
+        })) ?? [])
+      : ticketTypes.filter((type) => type.seatZoneId);
+    const zoneByTicketType = new Map(
+      zoneTicketTypes.map((type) => [type.id, type.seatZoneId as string]),
+    );
+    for (const line of ctx.lines) {
+      const zoneId = zoneByTicketType.get(line.ticketTypeId);
+      if (!zoneId) continue;
+      const affected = await tx.$executeRaw`
+        UPDATE "ShowZone"
+        SET "held" = "held" - ${line.quantity},
+            "sold" = "sold" + ${line.quantity},
+            "version" = "version" + 1,
+            "updatedAt" = NOW()
+        WHERE "eventSessionId" = ${ctx.eventSessionId}
+          AND "zoneId" = ${zoneId}
+          AND "held" >= ${line.quantity}
+      `;
+      if (affected !== 1) {
+        throw new AppException(
+          ErrorCodes.BOOKING_INVENTORY_UNAVAILABLE,
+          'The standing-area hold is no longer available.',
+          HttpStatus.CONFLICT,
+        );
+      }
+      countByTicketType.set(
+        line.ticketTypeId,
+        (countByTicketType.get(line.ticketTypeId) ?? 0) + line.quantity,
+      );
+      for (let index = 0; index < line.quantity; index += 1) {
+        specs.push({ ticketTypeId: line.ticketTypeId });
+      }
     }
 
     for (const [ticketTypeId, count] of countByTicketType) {
@@ -136,7 +229,29 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
       SET "status" = 'AVAILABLE', "holdBookingId" = NULL, "holdExpiresAt" = NULL, "updatedAt" = NOW()
       WHERE "holdBookingId" = ${ctx.bookingId} AND "status" = 'HELD'
     `;
+    const zoneTicketTypes = tx.ticketType
+      ? await tx.ticketType.findMany({
+          where: {
+            id: { in: ctx.lines.map((line) => line.ticketTypeId) },
+            seatZoneId: { not: null },
+          },
+          select: { id: true, seatZoneId: true },
+        })
+      : [];
+    const zoneByTicketType = new Map(
+      zoneTicketTypes.map((type) => [type.id, type.seatZoneId as string]),
+    );
     for (const line of ctx.lines) {
+      const zoneId = zoneByTicketType.get(line.ticketTypeId);
+      if (zoneId) {
+        await tx.$executeRaw`
+          UPDATE "ShowZone"
+          SET "held" = GREATEST("held" - ${line.quantity}, 0),
+              "version" = "version" + 1,
+              "updatedAt" = NOW()
+          WHERE "eventSessionId" = ${ctx.eventSessionId} AND "zoneId" = ${zoneId}
+        `;
+      }
       await tx.$executeRaw`
         UPDATE "TicketInventory"
         SET "quantityHeld" = GREATEST(0, "quantityHeld" - ${line.quantity}), "updatedAt" = NOW()
@@ -164,6 +279,23 @@ export class SeatBasedInventoryStrategy implements InventoryStrategy {
     const countByType = new Map<string, number>();
     for (const t of ctx.tickets) {
       countByType.set(t.ticketTypeId, (countByType.get(t.ticketTypeId) ?? 0) + 1);
+    }
+    const zoneTicketTypes = tx.ticketType
+      ? await tx.ticketType.findMany({
+          where: { id: { in: [...countByType.keys()] }, seatZoneId: { not: null } },
+          select: { id: true, seatZoneId: true },
+        })
+      : [];
+    for (const type of zoneTicketTypes) {
+      const count = countByType.get(type.id) ?? 0;
+      if (!count) continue;
+      await tx.$executeRaw`
+        UPDATE "ShowZone"
+        SET "sold" = GREATEST("sold" - ${count}, 0),
+            "version" = "version" + 1,
+            "updatedAt" = NOW()
+        WHERE "eventSessionId" = ${ctx.eventSessionId} AND "zoneId" = ${type.seatZoneId!}
+      `;
     }
     for (const [ticketTypeId, count] of countByType) {
       await tx.$executeRaw`

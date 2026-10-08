@@ -72,6 +72,20 @@ describe('the canonical venue payload', () => {
     expect(p.timezone).toBeUndefined();
   });
 
+  it('never writes a country the organizer did not give', () => {
+    /*
+      A blank country used to be sent as 'India'. Currency follows the venue's country, so
+      that one default made every unanswered venue price and check out in INR, and the API's
+      refusal to guess a currency never saw an unknown to refuse.
+    */
+    const p = venuePayload(draft({ where: { country: '   ', region: '', timezone: '' } }));
+    expect(p.country).toBeUndefined();
+  });
+
+  it('sends a country that was given, unchanged', () => {
+    expect(venuePayload(draft()).country).toBe('United States');
+  });
+
   it('omits a blank address rather than writing an empty one', () => {
     expect(venuePayload(draft({ address: '   ' })).address).toBeUndefined();
   });

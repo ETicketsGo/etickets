@@ -24,7 +24,7 @@ import { TransactionalEventPublisher } from '../common/domain-events/transaction
 import { showCancelledEvent } from '../common/domain-events/catalogue/show-events';
 import { AppException, ErrorCodes } from '../common/errors';
 import { slugify } from '../movies/movies.service';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import {
   DEFAULT_TURNAROUND_MINUTES,
@@ -562,6 +562,7 @@ export class ShowsService {
       where: { id: seatMapId },
       include: {
         categories: { orderBy: { sortOrder: 'asc' } },
+        zones: { orderBy: { sortOrder: 'asc' } },
         sections: {
           orderBy: { sortOrder: 'asc' },
           include: {
@@ -623,6 +624,55 @@ export class ShowsService {
    * Public because seating a session is no longer something only movies do — an event in a
    * room needs exactly the same answer, resolved the same way. See `seatSession`.
    */
+  /**
+   * A named layout the caller asked for by id, checked to be this space's and sellable.
+   *
+   * Separate from `resolveLayoutForShow` because the questions are different: that one asks
+   * "what is in force on this date", this one asks "may I use the one I picked". Both must
+   * refuse rather than fall back - seating an event in the wrong configuration of the right
+   * room produces a map that looks plausible and puts people in seats that do not exist.
+   */
+  async requireLayoutForSpace(screenId: string, seatMapId: string) {
+    const layout = await this.prisma.seatMap.findUnique({
+      where: { id: seatMapId },
+      select: {
+        id: true,
+        screenId: true,
+        name: true,
+        version: true,
+        status: true,
+        effectiveFrom: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!layout || layout.screenId !== screenId) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That layout does not belong to this space.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (layout.status !== 'PUBLISHED') {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'That layout is not published yet, so nothing could be sold from it.',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // The same full shape `resolveLayoutForShow` returns, because `seatSession` consumes it
+    // and the two paths must hand it identical material.
+    return this.prisma.seatMap.findUniqueOrThrow({
+      where: { id: layout.id },
+      include: {
+        categories: { orderBy: { sortOrder: 'asc' } },
+        seats: true,
+        zones: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+  }
+
   async resolveLayoutForShow(screenId: string, startsAt: Date) {
     const versions = await this.prisma.seatMap.findMany({
       where: { screenId },
@@ -659,7 +709,11 @@ export class ShowsService {
 
     const full = await this.prisma.seatMap.findUniqueOrThrow({
       where: { id: chosen.id },
-      include: { categories: { orderBy: { sortOrder: 'asc' } }, seats: true },
+      include: {
+        categories: { orderBy: { sortOrder: 'asc' } },
+        seats: true,
+        zones: { orderBy: { sortOrder: 'asc' } },
+      },
     });
     return full;
   }
@@ -693,8 +747,8 @@ export class ShowsService {
    * caller free to pass the wrong thing. Resolved at the point the row is written, "currency
    * follows the venue" is a property of the write rather than a convention callers observe.
    *
-   * INR remains the answer for a market with no mapping — the same fallback the booking and
-   * event paths already use, so all three agree rather than disagreeing in a new way.
+   * An unknown or unsupported country fails closed. It is not evidence that the venue is in
+   * India, and currency controls fees, tax and payment routing rather than only a symbol.
    */
   private async currencyForSession(
     tx: Prisma.TransactionClient,
@@ -704,7 +758,7 @@ export class ShowsService {
       where: { id: sessionId },
       select: { event: { select: { venue: { select: { country: true } } } } },
     });
-    return currencyForCountry(session?.event?.venue?.country) ?? 'INR';
+    return requireCommerceCurrency(session?.event?.venue?.country);
   }
 
   async seatSession(
@@ -722,6 +776,9 @@ export class ShowsService {
 
     for (const category of seatMap.categories) {
       const quantityTotal = countByCategory.get(category.id) ?? 0;
+      // A category used only by a GA zone gets its ticket from the zone below. Creating an
+      // empty reserved ticket beside it would show buyers a permanently sold-out duplicate.
+      if (quantityTotal === 0) continue;
       await tx.ticketType.create({
         data: {
           eventSessionId: sessionId,
@@ -734,6 +791,27 @@ export class ShowsService {
           status: 'ACTIVE',
           inventory: { create: { quantityTotal, quantitySold: 0, quantityHeld: 0 } },
         },
+      });
+    }
+
+    for (const zone of seatMap.zones) {
+      const category = seatMap.categories.find((candidate) => candidate.id === zone.categoryId);
+      await tx.ticketType.create({
+        data: {
+          eventSessionId: sessionId,
+          seatZoneId: zone.id,
+          name: zone.name,
+          priceMinor: category?.basePriceMinor ?? 0,
+          currency,
+          quantityTotal: zone.capacity,
+          maxPerOrder: 10,
+          status: 'ACTIVE',
+          // Reporting mirror only. ShowZone below is the capacity authority used for holds.
+          inventory: { create: { quantityTotal: zone.capacity, quantitySold: 0, quantityHeld: 0 } },
+        },
+      });
+      await tx.showZone.create({
+        data: { eventSessionId: sessionId, zoneId: zone.id, capacity: zone.capacity },
       });
     }
 
@@ -1144,6 +1222,9 @@ export class ShowsService {
         name: string;
         city: string;
         address: string | null;
+        country: string | null;
+        region: string | null;
+        timezone: string | null;
       } | null;
     },
   ) {
@@ -1191,6 +1272,12 @@ export class ShowsService {
             name: cinema.name,
             city: cinema.city,
             address: cinema.address,
+            // This is a same-tenant legacy repair from the cinema's stored answers. Preserve
+            // unknown as null; currency resolution below will then fail rather than inventing
+            // a market.
+            country: cinema.country,
+            region: cinema.region,
+            timezone: cinema.timezone,
           },
           select: { id: true },
         })
@@ -2145,6 +2232,7 @@ export class ShowsService {
       where: { id: anySeat.seat.seatMapId },
       include: {
         categories: { orderBy: { sortOrder: 'asc' } },
+        zones: { orderBy: { sortOrder: 'asc' } },
         sections: {
           orderBy: { sortOrder: 'asc' },
           // Mirrors the pinned-layout query above: no seats for an overview, one block's
@@ -2245,11 +2333,19 @@ export class ShowsService {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Show not found.', HttpStatus.NOT_FOUND);
     }
 
-    // The cinema's zone is authoritative for a screening; an ordinary venue carries its own.
-    const zone = session.screen?.cinema?.timezone ?? session.event.venue.timezone;
+    /*
+      One rule for where a space is, asked in one place.
+
+      This read its own `cinema?.timezone ?? venue.timezone` chain, which is how two call
+      sites drift apart - and the venue half of it was unsafe while the column defaulted to
+      Asia/Kolkata. `spaceTimezone` now owns the precedence; a null means nobody has said.
+    */
+    const zone = session.screen ? spaceTimezone(session.screen) : session.event.venue.timezone;
     let localDate: string;
     try {
-      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses.
+      // en-CA formats as YYYY-MM-DD, the shape every date filter here already uses. An
+      // unknown zone falls to the catch below rather than being guessed at.
+      if (!zone) throw new Error('no timezone');
       localDate = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(session.startsAt);
     } catch {
       // A zone name Intl does not know. Zones are validated on write; this only keeps one bad
@@ -2356,6 +2452,7 @@ export class ShowsService {
       where: { id: sessionId },
       include: {
         ticketTypes: true,
+        showZones: true,
         // The venue's country, so the seat screen can ask an Indian buyer for their state
         // and no one else. Derived from the venue rather than from the currency: currency
         // follows the venue on this platform, and reading that relationship backwards is an
@@ -2366,6 +2463,7 @@ export class ShowsService {
         seatMap: {
           include: {
             categories: { orderBy: { sortOrder: 'asc' } },
+            zones: { orderBy: { sortOrder: 'asc' } },
             sections: {
               orderBy: { sortOrder: 'asc' },
               // One block's seats when a block was asked for, none for an overview, and
@@ -2446,8 +2544,13 @@ export class ShowsService {
 
     if (isSectionedOverview) {
       const summaries = await this.sectionAvailability(sessionId);
+      const zoneTicketType = new Map(
+        session.ticketTypes.filter((t) => t.seatZoneId).map((t) => [t.seatZoneId as string, t]),
+      );
+      const showZone = new Map(session.showZones.map((z) => [z.zoneId, z]));
       return {
         sessionId: session.id,
+        seatMapId: seatMap.id,
         /*
           The discriminant, and it is `view` rather than `layoutKind` on purpose.
 
@@ -2464,27 +2567,51 @@ export class ShowsService {
         country: session.event?.venue?.country ?? null,
         // No `sections[].rows` at all, deliberately: the client cannot accidentally render
         // a half-loaded seat grid, because there is nothing there to half-render.
-        sections: seatMap.sections.map((sec) => {
-          const summary = summaries.get(sec.id);
-          const prices = (summary?.categoryIds ?? []).map((id) => {
-            const category = seatMap.categories.find((c) => c.id === id);
-            return category ? priceFor(category.id, category.basePriceMinor) : null;
-          });
-          const known = prices.filter((p): p is number => p !== null);
-          return {
-            id: sec.id,
-            name: sec.name,
-            shape: sec.shape ?? null,
-            labelX: sec.labelX,
-            labelY: sec.labelY,
-            tier: sec.tier,
-            rotationDeg: sec.rotationDeg,
-            availableCount: summary?.available ?? 0,
-            totalCount: summary?.total ?? 0,
-            priceMinorFrom: known.length > 0 ? Math.min(...known) : null,
-            priceMinorTo: known.length > 0 ? Math.max(...known) : null,
-          };
-        }),
+        sections: [
+          ...seatMap.sections.map((sec) => {
+            const summary = summaries.get(sec.id);
+            const prices = (summary?.categoryIds ?? []).map((id) => {
+              const category = seatMap.categories.find((c) => c.id === id);
+              return category ? priceFor(category.id, category.basePriceMinor) : null;
+            });
+            const known = prices.filter((p): p is number => p !== null);
+            return {
+              id: sec.id,
+              kind: 'SECTION' as const,
+              name: sec.name,
+              shape: sec.shape ?? null,
+              labelX: sec.labelX,
+              labelY: sec.labelY,
+              tier: sec.tier,
+              rotationDeg: sec.rotationDeg,
+              availableCount: summary?.available ?? 0,
+              totalCount: summary?.total ?? 0,
+              priceMinorFrom: known.length > 0 ? Math.min(...known) : null,
+              priceMinorTo: known.length > 0 ? Math.max(...known) : null,
+            };
+          }),
+          ...seatMap.zones.map((zone) => {
+            const inventory = showZone.get(zone.id);
+            const ticket = zoneTicketType.get(zone.id);
+            const available = inventory
+              ? Math.max(0, inventory.capacity - inventory.sold - inventory.held)
+              : 0;
+            return {
+              id: zone.id,
+              kind: 'ZONE' as const,
+              name: zone.name,
+              shape: zone.shape ?? null,
+              labelX: zone.labelX,
+              labelY: zone.labelY,
+              tier: null,
+              rotationDeg: 0,
+              availableCount: available,
+              totalCount: inventory?.capacity ?? zone.capacity,
+              priceMinorFrom: ticket?.priceMinor ?? null,
+              priceMinorTo: ticket?.priceMinor ?? null,
+            };
+          }),
+        ],
       };
     }
 
@@ -2511,6 +2638,7 @@ export class ShowsService {
 
     return {
       sessionId: session.id,
+      seatMapId: seatMap.id,
       view: 'seats' as const,
       layoutKind: seatMap.layoutKind,
       focal,

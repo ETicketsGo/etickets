@@ -893,7 +893,7 @@ model Venue {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   city           String
-  country        String       @default("India")
+  country        String?
 
   /// State / province / union territory.
   ///
@@ -918,7 +918,7 @@ model Venue {
   /// Defaults to the pilot market's zone, matching Cinema, so nothing changes for existing
   /// venues. An organizer selling outside India has to set it, and cannot be guessed for:
   /// a country is not a timezone, and several of the launch markets span more than one.
-  timezone  String   @default("Asia/Kolkata")
+  timezone  String?
   address   String?
   capacity  Int?
   status    String   @default("ACTIVE")
@@ -1102,7 +1102,18 @@ model SeatMap {
   id       String  @id @default(cuid())
   screenId String
   screen   Screen  @relation(fields: [screenId], references: [id], onDelete: Cascade)
-  name     String?
+
+  /// What this layout IS, and therefore which of a space's configurations it belongs to.
+  ///
+  /// -- WHY THIS IS PART OF THE KEY --------------------------------------------------
+  /// A space used to be assumed to have one layout that evolved through versions, so the key
+  /// was `(screenId, version)`. A real arena has SEVERAL at once - a basketball bowl and an
+  /// end-stage concert are different rooms built from the same building, not two versions of
+  /// one - and that constraint made the second one impossible to store.
+  ///
+  /// The name is now the configuration, and `version` is that configuration's own history. A
+  /// cinema has exactly one name and behaves exactly as before.
+  name String @default("Default")
 
   /// Monotonic per screen, starting at 1. Human-facing: "Screen 3, layout v4".
   version Int              @default(1)
@@ -1151,7 +1162,7 @@ model SeatMap {
   /// Shows pinned to this exact version.
   sessions   EventSession[]
 
-  @@unique([screenId, version])
+  @@unique([screenId, name, version])
   @@index([screenId, status])
 }
 
@@ -1522,6 +1533,10 @@ model TicketType {
   // For seat-based (movie) sessions: the seat category this price applies to.
   seatCategoryId String?
   seatCategory   SeatCategory? @relation(fields: [seatCategoryId], references: [id])
+  // For capacity-based areas inside a mapped venue (GA floor, VIP terrace).
+  // ShowZone is the per-session authority; this relation identifies which zone it prices.
+  seatZoneId String?
+  seatZone   SeatZone? @relation(fields: [seatZoneId], references: [id])
   name           String
   priceMinor     Int
   currency       String        @default("INR")
@@ -1540,6 +1555,7 @@ model TicketType {
 
   @@index([eventSessionId])
   @@index([seatCategoryId])
+  @@index([seatZoneId])
 }
 
 // One row per ticket type; the concurrency-safe source of truth for stock.
@@ -4926,6 +4942,7 @@ model SeatZone {
   sortOrder Int   @default(0)
 
   showZones ShowZone[]
+  ticketTypes TicketType[]
 
   @@index([seatMapId])
   @@index([categoryId])

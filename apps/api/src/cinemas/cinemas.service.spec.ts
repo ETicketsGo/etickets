@@ -9,6 +9,98 @@ import { CinemasService } from './cinemas.service';
  */
 const OPERATOR = { id: 'u-owner', email: 'o@x.test', fullName: 'O', roles: [] } as never;
 
+describe('CinemasService.create — its generated Venue preserves authoritative location', () => {
+  const markets = [
+    ['US', 'United States', 'Idaho', 'America/Boise'],
+    ['India', 'India', 'Telangana', 'Asia/Kolkata'],
+    ['Canada', 'Canada', 'Ontario', 'America/Toronto'],
+    ['Australia', 'Australia', 'New South Wales', 'Australia/Sydney'],
+  ] as const;
+
+  it.each(markets)(
+    '%s cinema writes its known location to the resulting Venue',
+    async (label, country, region, timezone) => {
+      const venueCreate = jest.fn().mockResolvedValue({ id: `venue-${label}` });
+      const cinemaCreate = jest.fn(async ({ data }: { data: Record<string, unknown> }) => data);
+      const prisma = {
+        venue: { create: venueCreate },
+        cinema: { create: cinemaCreate },
+      };
+      const access = { assertMember: jest.fn().mockResolvedValue(undefined) };
+      const service = new CinemasService(prisma as never, access as never);
+
+      await service.create(OPERATOR, 'org-a', {
+        name: `${label} Cinema`,
+        city: label === 'Australia' ? 'Sydney' : `${label} City`,
+        country,
+        region,
+        timezone,
+      });
+
+      expect(venueCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          organizationId: 'org-a',
+          country,
+          region,
+          timezone,
+        }),
+        select: { id: true },
+      });
+      expect(cinemaCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ venueId: `venue-${label}` }) }),
+      );
+    },
+  );
+
+  it('rejects an Organization A Cinema -> Organization B Venue association', async () => {
+    const prisma = {
+      venue: { findUnique: jest.fn().mockResolvedValue({ organizationId: 'org-b' }) },
+      cinema: { create: jest.fn() },
+    };
+    const service = new CinemasService(
+      prisma as never,
+      {
+        assertMember: jest.fn().mockResolvedValue(undefined),
+      } as never,
+    );
+
+    await expect(
+      service.create(OPERATOR, 'org-a', {
+        venueId: 'venue-b',
+        name: 'Foreign Venue Cinema',
+        city: 'Boise',
+        timezone: 'America/Boise',
+      }),
+    ).rejects.toThrow(/venue not found for this organization/i);
+    expect(prisma.cinema.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves unknown country and region instead of inventing India', async () => {
+    const venueCreate = jest.fn().mockResolvedValue({ id: 'venue-unknown' });
+    const prisma = {
+      venue: { create: venueCreate },
+      cinema: { create: jest.fn().mockResolvedValue({ id: 'cinema-unknown', screens: [] }) },
+    };
+    const service = new CinemasService(
+      prisma as never,
+      {
+        assertMember: jest.fn().mockResolvedValue(undefined),
+      } as never,
+    );
+
+    await service.create(OPERATOR, 'org-a', {
+      name: 'Unknown Country Cinema',
+      city: 'Somewhere',
+      timezone: 'UTC',
+    });
+
+    expect(venueCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ country: undefined, region: undefined, timezone: 'UTC' }),
+    );
+    expect(venueCreate.mock.calls[0][0].data.country).not.toBe('India');
+  });
+});
+
 function setup(venue: { organizationId: string } | null) {
   const prisma = {
     cinema: {

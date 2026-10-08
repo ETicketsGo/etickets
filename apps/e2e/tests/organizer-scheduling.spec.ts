@@ -88,6 +88,7 @@ async function createFixture(request: APIRequestContext, token: string): Promise
         organizationId,
         name: `E2E Multiplex ${suffix}`,
         city: 'Hyderabad',
+        country: 'India',
       },
     })
   ).json();

@@ -126,22 +126,91 @@ export class VenuesService {
         cinema: { select: { id: true, name: true } },
         seatMaps: {
           where: { status: 'PUBLISHED' },
-          orderBy: { version: 'desc' },
-          take: 1,
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
           select: { id: true, name: true, layoutKind: true, version: true },
         },
       },
     });
 
+    const byName = new Map<string, (typeof spaces)[number]['seatMaps'][number]>();
+    return spaces.map((s) => {
+      byName.clear();
+      for (const m of s.seatMaps) if (!byName.has(m.name)) byName.set(m.name, m);
+      return {
+        id: s.id,
+        name: s.name,
+        capacity: s.capacity,
+        status: s.status,
+        screenType: s.screenType,
+        /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
+        cinemaId: s.cinemaId,
+        cinemaName: s.cinema?.name ?? null,
+        // Every named configuration, current version of each - the same answer the
+        // organization-wide listing gives, because the two reads must not disagree.
+        layouts: [...byName.values()],
+        layout: s.seatMaps[0] ?? null,
+      };
+    });
+  }
+
+  /**
+   * Every bookable space in an organization, with the venue it belongs to.
+   *
+   * One query rather than one per venue: the organizer console lists VENUE -> SPACE -> LAYOUT
+   * on a single screen, and a request per venue would make a chain with ten venues ten round
+   * trips deep for a page that is mostly waiting.
+   */
+  async allSpaces(user: RequestUser, organizationId: string) {
+    await this.access.assertMember(user, organizationId);
+
+    const spaces = await this.prisma.screen.findMany({
+      where: { venue: { organizationId } },
+      orderBy: [{ venue: { name: 'asc' } }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        capacity: true,
+        status: true,
+        screenType: true,
+        venueId: true,
+        cinemaId: true,
+        cinema: { select: { id: true, name: true } },
+        /*
+          EVERY published layout, not the newest one.
+
+          A space has NAMED configurations now - an arena's basketball bowl and its end-stage
+          concert are both live at once - so taking one would show an operator half of what
+          their own room can do. Ordered newest version first so the per-name reduction below
+          keeps the current version of each.
+        */
+        seatMaps: {
+          where: { status: 'PUBLISHED' },
+          orderBy: [{ name: 'asc' }, { version: 'desc' }],
+          select: { id: true, name: true, layoutKind: true, version: true },
+        },
+      },
+    });
+
+    /** The current version of each named layout. */
+    const currentLayouts = (
+      maps: { id: string; name: string; layoutKind: string; version: number }[],
+    ) => {
+      const byName = new Map<string, (typeof maps)[number]>();
+      for (const m of maps) if (!byName.has(m.name)) byName.set(m.name, m);
+      return [...byName.values()];
+    };
+
     return spaces.map((s) => ({
       id: s.id,
+      venueId: s.venueId,
       name: s.name,
       capacity: s.capacity,
       status: s.status,
       screenType: s.screenType,
-      /* Named so the console can say "Screen 4" belongs to a cinema and "Main Hall" does not. */
       cinemaId: s.cinemaId,
       cinemaName: s.cinema?.name ?? null,
+      layouts: currentLayouts(s.seatMaps),
+      /** The first one, kept so existing callers that expect a single layout still work. */
       layout: s.seatMaps[0] ?? null,
     }));
   }

@@ -93,6 +93,7 @@ async function buildCinema(request: APIRequestContext, token: string): Promise<F
         name: `Pricing Cinema ${suffix}`,
         city: 'Bengaluru',
         address: '1 QA Road',
+        country: 'India',
         timezone: TZ,
       },
     })

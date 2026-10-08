@@ -127,6 +127,7 @@ jobs:
         run: |
           npm run db:deploy
           npm run db:seed
+          npm run db:demo-venues
           # Regulatory policy rows are NOT part of the schema and NOT part of the demo seed —
           # they arrive by their own explicit operation. The cinema pricing suites resolve
           # against them, so without this they fail on an empty policy table.

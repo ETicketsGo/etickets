@@ -202,6 +202,13 @@ export class LocationService {
       // picker just because that is how it normalises.
       const byCity = new Map<string, SellableCity>();
       for (const v of venues) {
+        /*
+          A venue that has not been asked which country it is in cannot appear in a
+          country-scoped list. Placing it under a guessed country is the defect this whole
+          change removes - it is how a Chicago venue ended up filed under India - so it is
+          left out until somebody answers, rather than filed under the launch market.
+        */
+        if (!v.country) continue;
         const key = `${v.country.toLowerCase()}|${v.city.toLowerCase()}`;
         const existing = byCity.get(key);
         if (existing) existing.eventCount += v._count.events;

@@ -42,6 +42,22 @@ export class VenuesController {
     return this.venues.list(user, q.organizationId);
   }
 
+  /*
+    Declared BEFORE `:id`, and that is load-bearing.
+
+    Nest matches in declaration order, so with `@Get(':id')` first this path arrives as a
+    venue id of "spaces" and 404s. The same trap is documented on `events/seating-rooms`.
+  */
+  @Get('spaces')
+  @ApiOperation({ summary: 'Every bookable space in an organization, grouped by venue.' })
+  allSpaces(
+    @CurrentUser() user: RequestUser,
+    @Query(new ZodValidationPipe(z.object({ organizationId: z.string().cuid() })))
+    q: { organizationId: string },
+  ) {
+    return this.venues.allSpaces(user, q.organizationId);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Edit a venue.' })
   update(

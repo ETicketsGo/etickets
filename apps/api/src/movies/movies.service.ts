@@ -71,7 +71,7 @@ export interface PublicShowDto {
   eventSlug: string;
   startsAt: string;
   endsAt: string;
-  venue: { id: string; name: string; city: string; country: string };
+  venue: { id: string; name: string; city: string; country: string | null };
   cinema: { id: string; name: string; brand: string | null; timezone: string } | null;
   /**
    * The show's LOCAL calendar date at the cinema, e.g. "2026-08-09".
