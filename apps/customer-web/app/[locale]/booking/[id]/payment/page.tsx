@@ -11,6 +11,7 @@ import { api, ApiRequestError, tokenStore } from '@/lib/api';
 import { loadRazorpay } from '@/lib/razorpay';
 import { useFormat } from '@/lib/format';
 import { Button, ButtonLink, Card, Dialog, ErrorState, Stepper, useToast } from '@/components/ui';
+import { paymentsActivatingCopy } from '@/components/payment/payments-activating';
 import { PriceBreakdown } from '@/components/price-breakdown';
 import { GuestBookingNotHere, GuestBookingSummary } from '@/components/guest-booking-view';
 import { forgetGuestBooking, guestTokenFor } from '@/lib/guest-session';
@@ -573,8 +574,12 @@ function AccountPayment() {
           className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
         >
           <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
-          <p className="text-[0.9375rem] text-text-secondary">{k('paymentsActivatingBody')}</p>
-          <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+          <p className="text-[0.9375rem] text-text-secondary">
+            {k(paymentsActivatingCopy(booking.currency).body)}
+          </p>
+          {paymentsActivatingCopy(booking.currency).showOperator && (
+            <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+          )}
         </div>
       )}
 
@@ -873,8 +878,12 @@ function GuestPayment({ id, anonSession }: { id: string; anonSession: string }) 
           className="space-y-2 rounded-lg border border-status-info/30 bg-tint-info p-4"
         >
           <p className="font-medium text-text-primary">{k('paymentsActivatingTitle')}</p>
-          <p className="text-[0.9375rem] text-text-secondary">{k('paymentsActivatingBody')}</p>
-          <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+          <p className="text-[0.9375rem] text-text-secondary">
+            {k(paymentsActivatingCopy(view.currency).body)}
+          </p>
+          {paymentsActivatingCopy(view.currency).showOperator && (
+            <p className="text-caption text-text-muted">{k('paymentsActivatingOperator')}</p>
+          )}
         </div>
       )}
       {error && (
