@@ -13,6 +13,7 @@ import {
   errorMessage,
   useToast,
 } from '@eticketsgo/web-kit';
+import { venuePayload } from '@/components/venue-fields';
 import {
   Building2,
   Users,
@@ -65,12 +66,24 @@ export default function OnboardingPage() {
     mutationFn: async () => {
       let venueId = venuesQ.data?.[0]?.id;
       if (!venueId) {
+        /*
+          Through the SAME payload as every other venue. This built its own and omitted
+          `region` and `timezone`, so the sample venue silently took the default zone -
+          Asia/Kolkata - which is wrong for every organizer outside India, and a venue's
+          timezone is what every showtime on its public listing is rendered in.
+
+          The sample is explicitly an Indian venue, so it names its own zone rather than
+          relying on a default that happens to match.
+        */
         const created = await api.venues.create({
           organizationId: activeOrg.id,
-          name: 'Sample Venue',
-          city: 'Mumbai',
-          country: 'India',
-          capacity: 200,
+          ...venuePayload({
+            name: 'Sample Venue',
+            city: 'Mumbai',
+            address: '',
+            capacity: '200',
+            where: { country: 'India', region: 'Maharashtra', timezone: 'Asia/Kolkata' },
+          }),
         });
         venueId = created.id;
       }
@@ -202,13 +215,13 @@ export default function OnboardingPage() {
             </span>
             <StepBadge done={stepMap.seating?.done ?? false} optional />
           </div>
-          <p className="font-semibold text-text-primary">Set up a room with a seat map</p>
+          <p className="font-semibold text-text-primary">Set up a space with a seat map</p>
           <p className="mt-1 text-[0.9375rem] text-text-muted">
-            Only if buyers should choose their own seats. Draw the room once and any event held
+            Only if buyers should choose their own seats. Draw the space once and any event held
             there can sell reserved seating — a concert or a play, not only a film.
           </p>
           <ButtonLink href="/organizer/cinemas" variant="outline" size="sm" className="mt-4">
-            {stepMap.seating?.done ? 'Manage rooms' : 'Set up a room'}
+            {stepMap.seating?.done ? 'Manage spaces' : 'Set up a space'}
           </ButtonLink>
         </Card>
 

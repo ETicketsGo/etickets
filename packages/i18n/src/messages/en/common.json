@@ -115,7 +115,10 @@
       "organizerAgreement": "Organizer agreement",
       "myTickets": "My tickets",
       "help": "Help centre",
-      "browseMovies": "Movies"
+      "browseMovies": "Movies",
+      "sms": "Text messages",
+      "cookies": "Cookies",
+      "legal": "Legal & Policies"
     },
     "tagline": "Buy tickets, keep them on your phone, and get in without queueing.",
     "rights": "© {year} ETicketsGo. All rights reserved.",

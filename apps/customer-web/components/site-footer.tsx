@@ -66,6 +66,19 @@ const COLUMNS: {
       { href: '/terms', label: 'terms' },
       { href: '/privacy', label: 'privacy' },
       { href: '/refunds', label: 'refunds' },
+      /*
+        The text-message programme belongs in THIS footer, not only the marketing one.
+
+        The home page takes the app chrome, so the marketing footer never renders on it - and a
+        carrier reviewer starts at the home page with no inside knowledge. Linked only from the
+        marketing footer, the page existed and was unreachable from the front door. A browser
+        check caught it; the build and the route list both looked fine.
+
+        Deliberately NOT added to `CHECKOUT_LINKS`: somebody at the payment step needs help and
+        the documents they are agreeing to, and nothing else.
+      */
+      { href: '/sms', label: 'sms' },
+      { href: '/legal', label: 'legal' },
     ],
   },
 ];

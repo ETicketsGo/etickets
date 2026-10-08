@@ -22,6 +22,7 @@ import {
   gradientFor,
   useCountdown,
   useToast,
+  venueAddressLine,
 } from '@eticketsgo/web-kit';
 import { api, tokenStore } from '@/lib/api';
 import { fetchTicketWithOffline } from '@/lib/offline/sync';
@@ -133,7 +134,9 @@ export default function TicketDetailPage() {
   const zone = ticket.timezone ?? event?.venue.timezone ?? undefined;
   const venueName = event?.venue.name ?? '';
   const venueLine = event
-    ? `${event.venue.address ? `${event.venue.address}, ` : ''}${event.venue.city}, ${event.venue.country}`
+    ? // Same composer as the event page, so the ticket and the listing agree and neither
+      // prints the city twice. See `venueAddressLine`.
+      venueAddressLine(event.venue)
     : '';
   const mapsQuery = event ? `${event.venue.name}, ${event.venue.city}` : ticket.event.title;
   const fallback = qrFallback(w('qrUnavailable'));

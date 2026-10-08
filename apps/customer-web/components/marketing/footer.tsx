@@ -44,6 +44,8 @@ const COLUMNS: { title: string; links: { href: string; label: string; external?:
       { href: '/privacy', label: 'privacy' },
       { href: '/terms', label: 'terms' },
       { href: '/refunds', label: 'refunds' },
+      { href: '/sms', label: 'sms' },
+      { href: '/legal', label: 'legal' },
       { href: '/organizer-agreement', label: 'organizerAgreement' },
     ],
   },

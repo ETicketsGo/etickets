@@ -25,7 +25,20 @@ export function PageHero({
           <h1 className="mt-5 text-balance text-3xl font-bold leading-[1.1] tracking-tight text-text-primary sm:text-5xl">
             {title}
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-text-secondary">
+          {/*
+            `text-text-primary` rather than `text-text-secondary`, and only here.
+
+            The lead sits on the hero's tinted gradient, not on the page background. Measured
+            with axe at 390px: #555d6d on #c5d5f8 is 4.49:1, against a 4.5:1 requirement - a
+            hundredth short, and failing on EVERY marketing page (terms, privacy, contact, faq,
+            pricing, refunds). A secondary colour chosen against a white page was never checked
+            against the colour it actually lands on.
+
+            Fixed on the component, not on the token: `text-text-secondary` is correct
+            everywhere else it is used, and changing the token to rescue one backdrop would
+            darken body copy across the whole product.
+          */}
+          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-text-primary">
             {lead}
           </p>
           {(primary || secondary) && (

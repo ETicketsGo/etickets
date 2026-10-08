@@ -249,7 +249,7 @@ export class EventsController {
     @Param('sessionId') sessionId: string,
     @Body(new ZodValidationPipe(updateSessionSeatingSchema)) body: UpdateSessionSeatingInput,
   ) {
-    return this.events.updateSessionSeating(user, sessionId, body.screenId);
+    return this.events.updateSessionSeating(user, sessionId, body.screenId, body.seatMapId);
   }
 
   @Post('ticket-types')

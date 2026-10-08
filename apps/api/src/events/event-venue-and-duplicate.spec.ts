@@ -61,7 +61,10 @@ function setup(over: { venue?: unknown; liveBookings?: number; sessions?: unknow
     $transaction: jest.fn().mockImplementation((fn: (t: unknown) => unknown) => fn(tx)),
   };
   const shows = {
-    resolveLayoutForShow: jest.fn().mockResolvedValue({ id: 'map-3', seats: [], categories: [] }),
+    resolveLayoutInConfiguration: jest
+      .fn()
+      .mockResolvedValue({ id: 'map-3', seats: [], categories: [] }),
+    chooseLayoutForSession: jest.fn(),
     seatSession: jest.fn().mockResolvedValue(undefined),
   };
   const service = new EventsService(
@@ -170,8 +173,8 @@ describe('duplicating a seated event', () => {
     const { service, tx, shows } = setup({ sessions: [seated] });
     await service.duplicate(ORGANIZER, 'ev-1');
 
-    // The layout in force for that date, pinned — as addSession does.
-    expect(shows.resolveLayoutForShow).toHaveBeenCalledWith('room-1', STARTS);
+    // The version in force for that date OF THE ORIGINAL'S OWN LAYOUT, pinned.
+    expect(shows.resolveLayoutInConfiguration).toHaveBeenCalledWith('room-1', STARTS, 'map-1');
     expect(tx.eventSession.create.mock.calls[0][0].data).toMatchObject({
       screenId: 'room-1',
       seatMapId: 'map-3',
@@ -201,7 +204,8 @@ describe('duplicating a seated event', () => {
     const { service, tx, shows } = setup({ sessions: [standing] });
     await service.duplicate(ORGANIZER, 'ev-1');
 
-    expect(shows.resolveLayoutForShow).not.toHaveBeenCalled();
+    expect(shows.resolveLayoutInConfiguration).not.toHaveBeenCalled();
+    expect(shows.chooseLayoutForSession).not.toHaveBeenCalled();
     expect(shows.seatSession).not.toHaveBeenCalled();
     expect(tx.eventSession.create.mock.calls[0][0].data).toMatchObject({
       screenId: null,

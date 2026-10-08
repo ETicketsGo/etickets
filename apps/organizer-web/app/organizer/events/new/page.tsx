@@ -23,6 +23,7 @@ import {
   termsList,
   type LocationValue,
 } from '@eticketsgo/web-kit';
+import { venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
@@ -38,7 +39,19 @@ import {
   prepareEventImage,
 } from '@/components/event-image-picker';
 
-const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Fee handling', 'Review'];
+/*
+  Five steps, not six. "Fee handling" used to be the fifth.
+
+  It was one dropdown, with a correct default already selected, standing between an organizer
+  and their first published event - and it asked them to form a policy on fee incidence, a
+  concept of OURS, before they could sell a ticket. Somebody publishing one comedy night does
+  not have an opinion about who absorbs the booking fee, and should not have to invent one.
+
+  The control did not go away. It moved onto Review, where it is visible, already answered,
+  and changeable by the organizer who does care - which is the difference between a default and
+  a decision nobody asked for.
+*/
+const STEPS = ['Basic details', 'Venue', 'Sessions', 'Ticket types', 'Review'];
 const FEE_MODES = [
   { value: 'CUSTOMER_PAYS', label: 'Customer pays fees' },
   { value: 'ORGANIZER_PAYS', label: 'Organizer absorbs fees' },
@@ -56,6 +69,8 @@ interface SessionDraft {
    * and general admission in the other.
    */
   screenId: string;
+  /** The named configuration selected inside that space. Empty for general admission. */
+  seatMapId: string;
 }
 interface TicketDraft {
   sessionIndex: number;
@@ -128,7 +143,7 @@ function NewEventWizard() {
   const [isFree, setIsFree] = useState(false);
   const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
   const [venueId, setVenueId] = useState('');
-  const [newVenue, setNewVenue] = useState({ name: '', city: '', capacity: '' });
+  const [newVenue, setNewVenue] = useState({ name: '', city: '', address: '', capacity: '' });
   // Same three interdependent answers as the venues page, from the same component — a venue
   // created mid-wizard is a venue, and it was previously created without a state or a clock.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
@@ -166,7 +181,7 @@ function NewEventWizard() {
       .formatToParts(0)
       .find((p) => p.type === 'currency')?.value ?? eventCurrency;
   const [sessions, setSessions] = useState<SessionDraft[]>([
-    { startsAt: '', endsAt: '', screenId: '' },
+    { startsAt: '', endsAt: '', screenId: '', seatMapId: '' },
   ]);
   const [tickets, setTickets] = useState<TicketDraft[]>([
     {
@@ -364,14 +379,21 @@ function NewEventWizard() {
     try {
       let finalVenueId = venueId;
       if (venueMode === 'new') {
+        /*
+          ONE payload, shared with /organizer/venues and onboarding. This screen used to
+          build its own and omitted `address`, so a venue created while making an event had
+          no street address and no way to add one from here - the same action producing a
+          different object depending on which door the organizer came through.
+        */
         const created = await api.venues.create({
           organizationId: activeOrg.id,
-          name: newVenue.name,
-          city: newVenue.city,
-          country: newVenueWhere.country,
-          region: newVenueWhere.region,
-          timezone: newVenueWhere.timezone || undefined,
-          capacity: newVenue.capacity ? Number(newVenue.capacity) : undefined,
+          ...venuePayload({
+            name: newVenue.name,
+            city: newVenue.city,
+            address: newVenue.address ?? '',
+            capacity: newVenue.capacity ?? '',
+            where: newVenueWhere,
+          }),
         });
         finalVenueId = created.id;
       }
@@ -396,6 +418,7 @@ function NewEventWizard() {
           // Omitted rather than sent empty: '' is a room id that does not exist, and the
           // request would be refused instead of understood as "no room".
           ...(s.screenId ? { screenId: s.screenId } : {}),
+          ...(s.seatMapId ? { seatMapId: s.seatMapId } : {}),
         });
         sessionIds.push(created.id);
       }
@@ -689,6 +712,17 @@ function NewEventWizard() {
                     onChange={(e) => setNewVenue({ ...newVenue, city: e.target.value })}
                     error={fieldErrors.venueCity}
                   />
+                  {/*
+                    The field this screen used to omit entirely. A venue created here had no
+                    street address and no way to add one without leaving event creation.
+                  */}
+                  <Input
+                    id="vaddress"
+                    label="Street address"
+                    hint="Just the street and area. The city is set above."
+                    value={newVenue.address}
+                    onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
+                  />
                   <Input
                     id="vcap"
                     label="Venue capacity"
@@ -700,7 +734,7 @@ function NewEventWizard() {
                       This one is a fact about the building; that one is a decision about
                       this event.
                     */
-                    hint="How many people the room holds. Each ticket type sets its own quantity — we warn you if they add up to more than this."
+                    hint="How many people the space holds. Each ticket type sets its own quantity — we warn you if they add up to more than this."
                     onChange={(e) => setNewVenue({ ...newVenue, capacity: e.target.value })}
                   />
                 </div>
@@ -754,11 +788,15 @@ function NewEventWizard() {
                   <Select
                     id={`sr${i}`}
                     label="Seating"
-                    value={s.screenId}
+                    value={s.seatMapId}
                     disabled={roomsQ.isLoading}
                     onChange={(e) => {
-                      const screenId = e.target.value;
-                      const updated = sessions.map((x, j) => (j === i ? { ...x, screenId } : x));
+                      const seatMapId = e.target.value;
+                      const selected = roomsQ.data?.find((room) => room.layoutId === seatMapId);
+                      const screenId = selected?.id ?? '';
+                      const updated = sessions.map((x, j) =>
+                        j === i ? { ...x, screenId, seatMapId } : x,
+                      );
                       setSessions(updated);
                       /*
                         Move any ticket types that were pointing at this session.
@@ -781,8 +819,9 @@ function NewEventWizard() {
                   >
                     <option value="">General admission — no seat map</option>
                     {(roomsQ.data ?? []).map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.venueName} · {r.name} ({r.sellableSeats} seats)
+                      <option key={r.layoutId} value={r.layoutId}>
+                        {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats}{' '}
+                        seats)
                       </option>
                     ))}
                   </Select>
@@ -801,13 +840,13 @@ function NewEventWizard() {
                   */}
                   <p className="mt-1.5 text-caption text-text-muted">
                     {roomsQ.isError ? (
-                      "We couldn't load your rooms, so only general admission is available here."
+                      "We couldn't load your spaces, so only general admission is available here."
                     ) : s.screenId ? (
-                      `Buyers pick a named seat. Ticket types are created from this room's seat categories and priced from them, so you won't need to add any on the next step.`
+                      `Buyers pick a named seat. Ticket types are created from this space's seat categories and priced from them, so you won't need to add any on the next step.`
                     ) : roomsQ.data?.length === 0 ? (
                       <>
                         Buyers choose how many tickets they want — this is the only option because
-                        none of your rooms has a published seat map yet. To sell numbered seats,
+                        none of your spaces has a published seat map yet. To sell numbered seats,
                         draw one under{' '}
                         {/*
                           Opened in a NEW TAB, deliberately.
@@ -824,12 +863,12 @@ function NewEventWizard() {
                           rel="noopener noreferrer"
                           className="font-medium text-action-primary underline underline-offset-2"
                         >
-                          Venues &amp; rooms
+                          Venues &amp; spaces
                         </a>{' '}
                         — it opens in a new tab, and what you have typed here is saved either way.
                       </>
                     ) : (
-                      'Buyers choose how many tickets they want. Pick a room to sell numbered seats instead.'
+                      'Buyers choose how many tickets they want. Pick a space to sell numbered seats instead.'
                     )}
                   </p>
                 </div>
@@ -847,7 +886,12 @@ function NewEventWizard() {
             ))}
             <Button
               variant="outline"
-              onClick={() => setSessions([...sessions, { startsAt: '', endsAt: '', screenId: '' }])}
+              onClick={() =>
+                setSessions([
+                  ...sessions,
+                  { startsAt: '', endsAt: '', screenId: '', seatMapId: '' },
+                ])
+              }
             >
               + Add session
             </Button>
@@ -863,7 +907,7 @@ function NewEventWizard() {
           <div className="rounded-md border border-border p-4 text-sm">
             <p className="font-medium">Ticket types come from the seat map</p>
             <p className="mt-1 text-text-muted">
-              {sessions.length === 1 ? 'This session is' : 'Every session is'} in a room with
+              {sessions.length === 1 ? 'This session is' : 'Every session is'} in a space with
               assigned seating, so a ticket type is created for each seat category and priced from
               it. You can adjust prices per session afterwards from the event&rsquo;s pricing page.
             </p>
@@ -896,7 +940,7 @@ function NewEventWizard() {
                     className="rounded-md border border-status-warning/40 bg-tint-warning px-3 py-2 text-caption text-status-warning"
                   >
                     Session {i + 1} has {forSession.toLocaleString()} tickets on sale but the venue
-                    holds {venueCapacity.toLocaleString()}. Capacity is what the room seats;
+                    holds {venueCapacity.toLocaleString()}. Capacity is what the space seats;
                     quantity is what you put on sale — change one of them if that is not deliberate.
                   </p>
                 );
@@ -905,7 +949,7 @@ function NewEventWizard() {
               // Otherwise the shorter list of sessions in the dropdown below reads as a bug.
               <p className="text-caption text-text-muted">
                 Sessions with assigned seating are not listed below — their ticket types come from
-                the room&rsquo;s seat categories.
+                the space&rsquo;s seat categories.
               </p>
             )}
             {tickets.map((t, i) => (
@@ -1035,36 +1079,7 @@ function NewEventWizard() {
           </div>
         )}
 
-        {step === 4 &&
-          (isFree ? (
-            /*
-              There are no fees to hand to anybody, so asking who pays them would be a
-              question with no true answer. The setting is still stored as it was — it simply
-              never applies while the event is free.
-            */
-            <div className="rounded-md border border-border p-4 text-sm">
-              <p className="font-medium">No fees on a free event</p>
-              <p className="mt-1 text-text-muted">
-                Attendees pay nothing, so there is no booking fee, no payment fee and no platform
-                share to divide.
-              </p>
-            </div>
-          ) : (
-            <Select
-              id="feeMode"
-              label="Fee handling"
-              value={feeMode}
-              onChange={(e) => setFeeMode(e.target.value)}
-            >
-              {FEE_MODES.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </Select>
-          ))}
-
-        {step === 5 && (
+        {step === 4 && (
           <div className="space-y-3 text-sm">
             <Row label="Title" value={basics.title} />
             <Row label="Category" value={basics.category} />
@@ -1101,10 +1116,30 @@ function NewEventWizard() {
               }
             />
             {!isFree && (
-              <Row
-                label="Fee handling"
-                value={FEE_MODES.find((f) => f.value === feeMode)?.label ?? feeMode}
-              />
+              /*
+                Answered, and changeable. This was a whole step of the wizard; it is now a
+                default an organizer can see and override without having been stopped by it.
+
+                Phrased as what HAPPENS rather than as a mode name: "Customer pays fees" is
+                our vocabulary, and the organizer wants to know what the buyer is charged.
+              */
+              <div className="rounded-md border border-border p-4">
+                <Select
+                  id="feeMode"
+                  label="Who pays the booking fee?"
+                  value={feeMode}
+                  onChange={(e) => setFeeMode(e.target.value)}
+                >
+                  {FEE_MODES.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-2 text-caption text-text-muted">
+                  Most organizers leave this as it is. The buyer sees every fee before they pay.
+                </p>
+              </div>
             )}
             <Row label="Sessions" value={`${sessions.length}`} />
             {/*
@@ -1117,7 +1152,7 @@ function NewEventWizard() {
               label="Seating"
               value={
                 allSeated && sessions.length === 1
-                  ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected room'}`
+                  ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected space'}`
                   : sessions.every((x) => !x.screenId)
                     ? 'General admission'
                     : sessions

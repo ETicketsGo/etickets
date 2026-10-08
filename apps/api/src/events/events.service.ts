@@ -23,12 +23,13 @@ import { AuditService } from '../audit/audit.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { redirectUrl } from '../common/console-urls';
-import { currencyForCountry } from '../common/country';
+import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
 import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
+import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
@@ -62,15 +63,6 @@ function assertPriceFitsEvent(isFree: boolean, priceMinor: number) {
     );
   }
 }
-
-/**
- * Where a currency lands when the venue's country is one we have no mapping for.
- *
- * INR because that is what every ticket type was created in before this, so an unmapped
- * market behaves exactly as it always has. Named rather than inlined so the next person
- * adding a market can see there IS a fallback and that it is a decision.
- */
-const DEFAULT_CURRENCY = 'INR';
 
 /**
  * The details a reviewer approves, taken from `createEventSchema`: every field an organizer
@@ -272,11 +264,21 @@ export class EventsService {
       rows. The copy looked seated, published, and then refused every booking, because a
       seated sale holds ShowSeat rows and there were none. Layouts are resolved before the
       transaction, as `addSession` does, so a multi-query read is not held inside it.
+
+      The copy keeps the original's CONFIGURATION: the version in effect from its pinned
+      layout's own lineage. Resolving by date across the whole space turned a copied Concert
+      into Basketball. A session with no pin follows `addSession`'s rule, which refuses a
+      multi-layout space rather than guessing.
     */
     const layouts = new Map<string, Awaited<ReturnType<ShowsService['resolveLayoutForShow']>>>();
     for (const s of sessions) {
       if (s.screenId) {
-        layouts.set(s.id, await this.shows.resolveLayoutForShow(s.screenId, s.startsAt));
+        layouts.set(
+          s.id,
+          s.seatMapId
+            ? await this.shows.resolveLayoutInConfiguration(s.screenId, s.startsAt, s.seatMapId)
+            : await this.shows.chooseLayoutForSession(s.screenId, s.startsAt),
+        );
       }
     }
 
@@ -346,11 +348,17 @@ export class EventsService {
             ),
           );
           for (const t of s.ticketTypes) {
-            if (!t.seatCategoryId) continue;
+            const derivedInventory = t.seatCategoryId
+              ? { seatCategoryId: t.seatCategoryId }
+              : t.seatZoneId
+                ? { seatZoneId: t.seatZoneId }
+                : null;
+            if (!derivedInventory) continue;
             await tx.ticketType.updateMany({
-              where: { eventSessionId: newSession.id, seatCategoryId: t.seatCategoryId },
+              where: { eventSessionId: newSession.id, ...derivedInventory },
               data: {
                 name: t.name,
+                priceMinor: t.priceMinor,
                 maxPerOrder: t.maxPerOrder,
                 salesStartAt: t.salesStartAt,
                 salesEndAt: t.salesEndAt,
@@ -361,11 +369,12 @@ export class EventsService {
         }
         for (const t of s.ticketTypes) {
           // Already created, with the right seat count, by `seatSession` above.
-          if (seatMap && t.seatCategoryId) continue;
+          if (seatMap && (t.seatCategoryId || t.seatZoneId)) continue;
           await tx.ticketType.create({
             data: {
               eventSessionId: newSession.id,
               seatCategoryId: t.seatCategoryId,
+              seatZoneId: t.seatZoneId,
               name: t.name,
               priceMinor: t.priceMinor,
               currency: t.currency,
@@ -561,7 +570,13 @@ export class EventsService {
             // So the schedule can say WHICH room a seated session is in. `screenId` alone
             // tells the organizer only that it is seated somewhere, which is the half of the
             // answer they already knew.
-            screen: { select: { name: true, cinema: { select: { name: true } } } },
+            screen: {
+              select: {
+                name: true,
+                venue: { select: { name: true } },
+                cinema: { select: { name: true } },
+              },
+            },
           },
         },
       },
@@ -709,12 +724,18 @@ export class EventsService {
 
     const screens = await this.prisma.screen.findMany({
       where: {
-        cinema: { organizationId },
+        /*
+          Owned through the VENUE or, for a row an older instance wrote, through the cinema.
+          Scoping only by `cinema` here would hide every space that is not a cinema screen -
+          which, after this migration, is every arena, auditorium and concert hall.
+        */
+        OR: [{ venue: { organizationId } }, { cinema: { organizationId } }],
         seatMaps: { some: { status: 'PUBLISHED' } },
       },
       select: {
         id: true,
         name: true,
+        venue: { select: { name: true } },
         cinema: { select: { name: true } },
         seatMaps: {
           where: { status: 'PUBLISHED' },
@@ -730,7 +751,6 @@ export class EventsService {
             is the room's current shape, which is what somebody choosing between rooms needs.
           */
           orderBy: { version: 'desc' },
-          take: 1,
           select: {
             id: true,
             name: true,
@@ -739,19 +759,26 @@ export class EventsService {
           },
         },
       },
-      orderBy: [{ cinema: { name: 'asc' } }, { name: 'asc' }],
+      orderBy: [{ name: 'asc' }],
     });
 
-    return screens
-      .filter((s) => s.seatMaps[0])
-      .map((s) => ({
+    return screens.flatMap((s) => {
+      // A name is a configuration and versions are its history. Offer only the current
+      // published version of each named configuration, not every historical revision.
+      const currentByName = new Map<string, (typeof s.seatMaps)[number]>();
+      for (const layout of s.seatMaps) {
+        if (!currentByName.has(layout.name)) currentByName.set(layout.name, layout);
+      }
+      return [...currentByName.values()].map((layout) => ({
         id: s.id,
         name: s.name,
-        venueName: s.cinema.name,
-        layoutName: s.seatMaps[0].name,
-        layoutKind: s.seatMaps[0].layoutKind,
-        sellableSeats: s.seatMaps[0]._count.seats,
+        venueName: spaceVenueName(s),
+        layoutId: layout.id,
+        layoutName: layout.name,
+        layoutKind: layout.layoutKind,
+        sellableSeats: layout._count.seats,
       }));
+    });
   }
 
   /**
@@ -794,7 +821,21 @@ export class EventsService {
       to be applied at both sites, and the second was found by accident.
     */
     const screenId = input.screenId;
-    const seatMap = await this.shows.resolveLayoutForShow(screenId, input.startsAt);
+    /*
+      The organizer's CHOICE of configuration, when they made one.
+
+      A space can hold several named layouts at once, so resolving "the space's layout" by
+      date alone would pick whichever happened to be newest - and quietly seat a basketball
+      event in the concert configuration. Resolution by date remains the answer when no
+      choice was made, which is every cinema screen and every space with one layout.
+    */
+    // Chosen, or resolved only where the space has a single configuration. See
+    // `chooseLayoutForSession`: a multi-layout space without a choice is refused, never guessed.
+    const seatMap = await this.shows.chooseLayoutForSession(
+      screenId,
+      input.startsAt,
+      input.seatMapId,
+    );
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.eventSession.create({
         data: {
@@ -839,7 +880,12 @@ export class EventsService {
    * configuration rather than a commitment — but the caller is told the count first, so
    * the organizer confirms the loss rather than discovering it.
    */
-  async updateSessionSeating(user: RequestUser, sessionId: string, screenId: string | null) {
+  async updateSessionSeating(
+    user: RequestUser,
+    sessionId: string,
+    screenId: string | null,
+    seatMapId?: string | null,
+  ) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
       include: { event: { select: { id: true, organizationId: true } } },
@@ -851,6 +897,14 @@ export class EventsService {
 
     await this.assertNothingCommitted(sessionId);
 
+    if (seatMapId && !screenId) {
+      // A layout names a space; general admission has neither.
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'A layout was chosen without a space. Choose the space it belongs to.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     if (screenId) {
       await this.assertRoomIsUsable(screenId, session.event.organizationId);
     }
@@ -866,8 +920,18 @@ export class EventsService {
       the layout has to be PUBLISHED. Running the room check first means an organizer is told
       what to actually do. It also keeps a multi-query read outside an open transaction.
     */
+    /*
+      The organizer's choice when they made one. Otherwise, staying in the SAME space keeps the
+      layout the session already pins - re-seating the arena must not quietly swap Basketball
+      for Concert - and a different space resolves only if it has a single configuration.
+    */
     const seatMap = screenId
-      ? await this.shows.resolveLayoutForShow(screenId, session.startsAt)
+      ? await this.shows.chooseLayoutForSession(
+          screenId,
+          session.startsAt,
+          seatMapId,
+          screenId === session.screenId ? session.seatMapId : null,
+        )
       : null;
 
     return this.prisma.$transaction(async (tx) => {
@@ -876,6 +940,7 @@ export class EventsService {
       await this.assertNothingCommitted(sessionId, tx);
 
       await tx.showSeat.deleteMany({ where: { eventSessionId: sessionId } });
+      await tx.showZone.deleteMany({ where: { eventSessionId: sessionId } });
       // Inventory first — it holds the foreign key.
       await tx.ticketInventory.deleteMany({ where: { ticketType: { eventSessionId: sessionId } } });
       await tx.ticketType.deleteMany({ where: { eventSessionId: sessionId } });
@@ -910,7 +975,7 @@ export class EventsService {
         ErrorCodes.CONFLICT,
         `Seating cannot be changed: this session already has ${bookings} booking${
           bookings === 1 ? '' : 's'
-        }. Changing the room would move seats people have already paid for.`,
+        }. Changing the space would move seats people have already paid for.`,
         HttpStatus.CONFLICT,
         { sessionId, bookings },
       );
@@ -939,21 +1004,22 @@ export class EventsService {
       where: { id: screenId },
       select: {
         id: true,
+        venue: { select: { organizationId: true } },
         cinema: { select: { organizationId: true } },
         seatMaps: { where: { status: 'PUBLISHED' }, select: { id: true }, take: 1 },
       },
     });
-    if (!screen || screen.cinema.organizationId !== organizationId) {
+    if (!screen || spaceOrganizationId(screen) !== organizationId) {
       throw new AppException(
         ErrorCodes.NOT_FOUND,
-        'Room not found for this organization.',
+        'Space not found for this organization.',
         HttpStatus.NOT_FOUND,
       );
     }
     if (screen.seatMaps.length === 0) {
       throw new AppException(
         ErrorCodes.CONFLICT,
-        'That room has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
+        'That space has no published seat map yet, so nobody could choose a seat. Publish a layout for it first.',
         HttpStatus.CONFLICT,
         { screenId },
       );
@@ -985,11 +1051,10 @@ export class EventsService {
           chosen by a default nobody had thought about since the platform sold in one
           country.
 
-          An explicit currency from the caller still wins; a country we have no currency
-          for falls back to INR, which is where this started and is a change to nobody.
+          An explicit currency from the caller still wins. Otherwise the venue must name a
+          supported country; unknown is not India and cannot safely choose financial rules.
         */
-        currency:
-          input.currency ?? currencyForCountry(session.event.venue?.country) ?? DEFAULT_CURRENCY,
+        currency: input.currency ?? requireCommerceCurrency(session.event.venue?.country),
         quantityTotal: input.quantityTotal,
         maxPerOrder: input.maxPerOrder,
         salesStartAt: input.salesStartAt,
@@ -1025,6 +1090,20 @@ export class EventsService {
     }
     const committed = (tt.inventory?.quantitySold ?? 0) + (tt.inventory?.quantityHeld ?? 0);
     const sold = tt.inventory?.quantitySold ?? 0;
+
+    // A zone's capacity belongs to ShowZone/SeatZone. TicketInventory is only a reporting
+    // mirror, so editing it here would disagree with the atomic zone hold guard.
+    if (
+      tt.seatZoneId &&
+      input.quantityTotal !== undefined &&
+      input.quantityTotal !== tt.quantityTotal
+    ) {
+      throw new AppException(
+        ErrorCodes.CONFLICT,
+        'Standing-zone capacity is controlled by the venue layout, not the ticket type.',
+        HttpStatus.CONFLICT,
+      );
+    }
 
     if (input.priceMinor !== undefined && input.priceMinor !== tt.priceMinor && sold > 0) {
       throw new AppException(

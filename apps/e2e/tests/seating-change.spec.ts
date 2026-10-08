@@ -42,21 +42,23 @@ async function fixture(request: APIRequestContext, accessToken: string) {
       data: { name: `Move Room ${stamp}`, screenType: '2D', capacity: 20 },
     })
   ).json();
-  await request.post(`${API}/screens/${screen.id}/seatmap`, {
-    headers: auth,
-    data: {
-      name: 'Move layout',
-      sections: [
-        {
-          name: 'Stalls',
-          categoryName: 'Stalls',
-          basePriceMinor: 25_000,
-          rowLabels: ['A', 'B'],
-          seatsPerRow: 4,
-        },
-      ],
-    },
-  });
+  const layout = await (
+    await request.post(`${API}/screens/${screen.id}/seatmap`, {
+      headers: auth,
+      data: {
+        name: 'Move layout',
+        sections: [
+          {
+            name: 'Stalls',
+            categoryName: 'Stalls',
+            basePriceMinor: 25_000,
+            rowLabels: ['A', 'B'],
+            seatsPerRow: 4,
+          },
+        ],
+      },
+    })
+  ).json();
 
   // A general-admission event with one session and one hand-typed ticket type — exactly the
   // state somebody is in when they realise they wanted assigned seating.
@@ -97,6 +99,9 @@ async function fixture(request: APIRequestContext, accessToken: string) {
     eventId: event.id,
     sessionId: session.id,
     screenId: screen.id,
+    // The seating options are LAYOUTS - a space with two configurations is two choices - so the
+    // dialog is driven by the layout id rather than the space's.
+    layoutId: layout.id as string,
     roomName: `Move Room ${stamp}`,
   };
 }
@@ -135,10 +140,10 @@ test.describe('changing seating on a session that exists', () => {
       ticket types, and one was typed by hand here — discovering that afterwards is how
       somebody stops trusting the console.
     */
-    await page.getByLabel('Seating').last().selectOption(fx.screenId);
+    await page.getByLabel('Seating').last().selectOption(fx.layoutId);
     await expect(page.getByText(/1 ticket type will be replaced/)).toBeVisible();
 
-    await page.getByRole('button', { name: 'Use this room' }).click();
+    await page.getByRole('button', { name: 'Use this space' }).click();
     await expect(page.getByRole('cell', { name: new RegExp(fx.roomName) })).toBeVisible({
       timeout: 30_000,
     });

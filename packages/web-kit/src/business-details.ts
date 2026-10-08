@@ -44,14 +44,19 @@ export interface BusinessDetails {
 }
 
 /**
- * NOTHING HERE IS PUBLISHED YET. Each `null` is a decision the business owner has to make.
+ * Published only where the business has actually made the commitment.
  *
  * Do not fill one in to make a page look finished, or to make a launch check pass. A wrong
  * value here is strictly worse than the empty one it replaced, because the empty one is honest.
+ *
+ * `legalName` is the entity behind the BRAND, which is what "Operated by DeepTrics LLC" means
+ * and what an unincorporated market resolves to. It is not the counterparty for every sale:
+ * an Indian transaction is with the Indian entity. Ask `legalEntityFor(country)` in
+ * `@eticketsgo/shared-types` when the market is known, and use this only for the brand line.
  */
 export const BUSINESS_DETAILS: BusinessDetails = {
-  legalName: null,
-  supportEmail: null,
+  legalName: 'DeepTrics LLC',
+  supportEmail: 'support@eticketsgo.com',
   organizerEmail: null,
   salesEmail: null,
   partnershipsEmail: null,

@@ -1,5 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { CheckInResult, NotificationType, Role, TicketStatus } from '@eticketsgo/shared-types';
+import {
+  CheckInResult,
+  NotificationType,
+  Role,
+  TicketStatus,
+  SessionStatus,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { QrService } from '../tickets/qr.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -265,6 +271,61 @@ export class CheckinsService {
    * query, not more scrolling. An empty query returns the first page so the door can see what
    * a quiet screening looks like without typing anything.
    */
+  /**
+   * The shows this person is on the door for today.
+   *
+   * ── WHY THE GATE NEEDS ITS OWN LIST ────────────────────────────────────────────────
+   * There was no org-wide list of what is running. Reaching the scanner meant opening the
+   * events list, finding the right event among however many an organizer runs, and opening a
+   * tab inside it - at a door, with a queue. The cinema schedule endpoint is cinema-scoped and
+   * does not cover ordinary events, so it could not stand in.
+   *
+   * A window rather than "today": a show at 00:30 is tonight's work, and a door opens before
+   * the start. Six hours back covers a running show somebody is relieving on; eighteen forward
+   * covers everything a shift could reach without listing next week.
+   *
+   * CHECKIN_STAFF may read it - that is the whole point - so it carries NO money and no
+   * counts. A gate list is not a sales report.
+   */
+  async gateSessions(user: RequestUser, organizationId: string) {
+    await this.access.assertMember(user, organizationId, STAFF_ROLES);
+    const now = new Date();
+    const from = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+    const to = new Date(now.getTime() + 18 * 60 * 60 * 1000);
+
+    const sessions = await this.prisma.eventSession.findMany({
+      where: {
+        event: { organizationId },
+        status: { not: SessionStatus.CANCELLED },
+        startsAt: { gte: from, lte: to },
+      },
+      select: {
+        id: true,
+        startsAt: true,
+        event: { select: { title: true, venue: { select: { name: true, timezone: true } } } },
+      },
+      orderBy: { startsAt: 'asc' },
+      take: 50,
+    });
+
+    return sessions.map((s) => ({
+      id: s.id,
+      eventTitle: s.event.title,
+      startsAt: s.startsAt.toISOString(),
+      venueName: s.event.venue?.name ?? null,
+      /*
+        Formatted HERE, in the VENUE's zone. A door worker reads the time on the wall, and a
+        browser in another zone would print a time that disagrees with the clock behind them.
+      */
+      startsAtLabel: new Intl.DateTimeFormat('en-GB', {
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: s.event.venue?.timezone ?? 'UTC',
+      }).format(s.startsAt),
+    }));
+  }
+
   async roster(staff: RequestUser, eventSessionId: string, q?: string) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: eventSessionId },

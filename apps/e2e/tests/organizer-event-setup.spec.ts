@@ -88,13 +88,17 @@ test.describe('creating an event', () => {
     await expect(price).toHaveValue('0');
     await expect(page.getByText('Free event — attendees pay nothing.')).toBeVisible();
 
-    // And fee handling is a question with no true answer on a free event, so it is not asked.
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await expect(page.getByText('No fees on a free event')).toBeVisible();
-    await expect(page.getByLabel('Fee handling')).toBeHidden();
+    /*
+      And a free event is never asked who pays the fees, because there are none to pay.
 
+      That used to be a step of its own saying so. The step is gone - it asked every paid
+      organizer to settle fee incidence before publishing - and the question now sits on
+      Review, where a free event simply does not show it. The assertion is the same one: the
+      question is never put to somebody for whom it has no true answer.
+    */
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(page.getByText('Free — no payment taken')).toBeVisible();
+    await expect(page.getByLabel('Who pays the booking fee?')).toBeHidden();
 
     /*
       And it is actually created that way.

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState, Skeleton, useToast } from '@/components/ui';
+import { SignInRequired, isAuthFailure, useSignedIn } from '@/components/sign-in-required';
 
 /**
  * Every receipt, invoice and credit note this account has been issued.
@@ -31,7 +32,8 @@ export default function ReceiptsPage() {
   const toast = useToast();
   const [opening, setOpening] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const signedIn = useSignedIn();
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['receipts', 'mine'],
     queryFn: () => api.myReceipts({ pageSize: 50 }),
   });
@@ -54,7 +56,14 @@ export default function ReceiptsPage() {
     }
   };
 
-  const rows = data?.data ?? [];
+  /*
+    `items`, not `data`. The client's type said `Paged` and the endpoint has always returned
+    `{ items, total, page, pageSize }` - so this read undefined and the page told every buyer
+    "No receipts yet", including the ones holding receipts. This page exists precisely so that
+    somebody who closed the confirmation screen has a route back to their receipt, and it was
+    the one route that could never work.
+  */
+  const rows = data?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -65,7 +74,13 @@ export default function ReceiptsPage() {
         </p>
       </div>
 
-      {isError ? (
+      {signedIn === false || isAuthFailure(error) ? (
+        /* Same correction as the notification settings: no session is not a broken page. */
+        <SignInRequired
+          title="Sign in to see your receipts"
+          description="Your receipts and invoices are part of your ETicketsGo account."
+        />
+      ) : isError ? (
         <ErrorState message="We couldn't load your receipts. Please try again." onRetry={refetch} />
       ) : isLoading ? (
         <div className="space-y-3">

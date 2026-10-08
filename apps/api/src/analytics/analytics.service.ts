@@ -93,7 +93,7 @@ export interface OrganizerMarket {
 interface MarketActivity {
   bookings: { currency: string; _count: { _all: number } }[];
   failures: { currency: string | null; count: bigint | number }[];
-  venues: { country: string }[];
+  venues: { country: string | null }[];
 }
 export interface AttendanceMetrics {
   issued: number;

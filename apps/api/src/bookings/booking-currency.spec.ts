@@ -82,10 +82,8 @@ describe('the currency a cart is priced in', () => {
     expect(cartCurrency([{ currency: '  ' }], 'USA')).toBe('USD');
   });
 
-  it('falls back to rupees when nothing can answer, exactly as before', () => {
-    // The pre-existing behaviour, kept deliberately: an unmapped market is unchanged by
-    // this fix rather than guessed at.
-    expect(cartCurrency([], 'Kenya')).toBe('INR');
-    expect(cartCurrency([], null)).toBe('INR');
+  it('refuses an empty cart when no authoritative currency can answer', () => {
+    expect(() => cartCurrency([], 'Kenya')).toThrow(/currency cannot be determined/i);
+    expect(() => cartCurrency([], null)).toThrow(/currency cannot be determined/i);
   });
 });

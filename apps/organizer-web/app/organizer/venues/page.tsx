@@ -19,12 +19,18 @@ import {
   locationFrom,
   useToast,
   errorMessage,
-  type Cinema,
+  type VenueSpace,
   type LocationValue,
   type Venue,
 } from '@eticketsgo/web-kit';
 import { useOrg } from '@/components/org-context';
-import { groupRoomsByVenue, screenCount } from './venue-rooms';
+import { venuePayload } from '@/components/venue-fields';
+import {
+  groupSpacesByVenue,
+  spaceCapabilityLabel,
+  spaceKindLabel,
+  spaceLayouts,
+} from '../venue-spaces';
 
 /**
  * Venues and the rooms inside them, on one screen.
@@ -46,27 +52,58 @@ import { groupRoomsByVenue, screenCount } from './venue-rooms';
  */
 const EMPTY = { name: '', city: '', address: '', capacity: '' };
 
-/** One room under its venue: what it is, how much of it is ready, and where to go next. */
-function RoomRow({ room }: { room: Cinema }) {
-  const screens = screenCount(room);
+/**
+ * One SPACE under its venue, and the layout inside it.
+ *
+ * The three levels the console exists to make legible - VENUE -> SPACE -> LAYOUT - are all on
+ * screen here. Before this, a venue listed its CINEMAS, so an arena or an auditorium had no
+ * way to appear at all.
+ */
+function SpaceRow({ space }: { space: VenueSpace }) {
+  const layouts = spaceLayouts(space);
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+    <li
+      data-testid="space-row"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2"
+    >
       <div className="min-w-0">
         <Link
-          href={`/organizer/cinemas/${room.id}`}
+          href={`/organizer/cinemas/${space.id}`}
           className="rounded font-medium text-text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          {room.name}
+          {space.name}
         </Link>
-        {room.brand && <p className="text-caption text-text-muted">{room.brand}</p>}
+        <p className="text-caption text-text-muted">{spaceKindLabel(space)}</p>
       </div>
       {/*
-        The count, because a room with no screens has no seat map and cannot sell a numbered
-        seat — and that is invisible from the name alone.
+        What it can SELL, not what it is. "No seating plan yet" tells an organizer why their
+        space cannot offer a numbered seat, which a status badge never did.
       */}
-      <span className="text-caption text-text-secondary">
-        {screens === 0 ? 'No screens yet' : `${screens} screen${screens === 1 ? '' : 's'}`}
-      </span>
+      <span className="text-caption text-text-secondary">{spaceCapabilityLabel(space)}</span>
+      {/*
+        THE LAYOUTS, LISTED.
+
+        One space, several configurations - a basketball bowl and an end-stage concert are the
+        same room set up two ways. Naming only one of them would describe half the building,
+        and this is the page where an operator checks what their venue can actually do.
+      */}
+      {layouts.length > 1 && (
+        <ul className="w-full space-y-1 pl-1">
+          {layouts.map((l) => (
+            <li
+              key={l.id}
+              data-testid="space-layout"
+              className="flex items-center gap-2 text-caption text-text-secondary"
+            >
+              <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-text-muted" />
+              <span className="font-medium text-text-primary">{l.name}</span>
+              <span className="text-text-muted">
+                {l.layoutKind === 'SECTIONED' ? 'blocks' : 'a grid'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
@@ -81,14 +118,19 @@ export default function VenuesPage() {
     queryKey: ['venues', activeOrg.id],
     queryFn: () => api.venues.list(activeOrg.id),
   });
+  /*
+    SPACES, not cinemas. A space is the bookable thing; being a cinema screen is one fact
+    about it. Asked for the whole organization in one request rather than per venue, so a
+    console with ten venues is not ten round trips deep before it can draw.
+  */
   const rooms = useQuery({
-    queryKey: ['cinemas', activeOrg.id],
-    queryFn: () => api.cinemas.list(activeOrg.id),
+    queryKey: ['venue-spaces', activeOrg.id],
+    queryFn: () => api.venues.allSpaces(activeOrg.id),
   });
 
   // The rule, and the reasons for it, live in `venue-rooms.ts` where a test can reach them.
   const grouped = useMemo(
-    () => groupRoomsByVenue(venues.data ?? [], rooms.data ?? []),
+    () => groupSpacesByVenue(venues.data ?? [], rooms.data ?? []),
     [venues.data, rooms.data],
   );
 
@@ -144,21 +186,19 @@ export default function VenuesPage() {
     not fill this in", and writing an empty string over an address somebody entered earlier
     would silently destroy it.
   */
-  const payload = () => ({
-    name: form.name.trim(),
-    city: form.city.trim(),
-    country: where.country.trim() || 'India',
-    /*
-      Sent as '' rather than undefined when cleared, so an organizer CAN unset a state they
-      picked by mistake. The address rule above is the opposite — there, blank means "not
-      filled in" — and the difference is that this field is a dropdown with an explicit
-      "Not specified" choice, which is somebody saying so rather than not answering.
-    */
-    region: where.region.trim(),
-    timezone: where.timezone || undefined,
-    address: form.address.trim() || undefined,
-    capacity: form.capacity ? Number(form.capacity) : undefined,
-  });
+  /*
+    THE one venue payload, shared with event creation and onboarding. Each of those used to
+    build its own and each omitted something different - address here, region and timezone
+    there - so the same action produced a different venue depending on the door.
+  */
+  const payload = () =>
+    venuePayload({
+      name: form.name,
+      city: form.city,
+      address: form.address,
+      capacity: form.capacity,
+      where,
+    });
 
   const save = useMutation({
     mutationFn: () =>
@@ -180,12 +220,12 @@ export default function VenuesPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Venues & rooms"
-        description="Where your events happen, and the rooms inside them. A seating plan belongs to a room."
+        title="Venues & spaces"
+        description="Where your events happen, and the spaces inside them. A seating plan belongs to a space."
         action={
           <div className="flex gap-2">
             <ButtonLink href="/organizer/cinemas/new" variant="outline">
-              New room
+              New space
             </ButtonLink>
             <Button onClick={openCreate}>New venue</Button>
           </div>
@@ -238,7 +278,7 @@ export default function VenuesPage() {
         <Card>
           <p className="text-sm text-text-secondary">
             No venues yet. Add the hall, theatre or ground where your events take place — you pick
-            one for every event you create. If you sell numbered seats, add a room inside it and
+            one for every event you create. If you sell numbered seats, add a space inside it and
             draw the seating plan there.
           </p>
         </Card>
@@ -246,7 +286,7 @@ export default function VenuesPage() {
 
       {!loading &&
         !failed &&
-        grouped.venues.map(({ venue, rooms: inside }) => {
+        grouped.venues.map(({ venue, spaces: inside, seatedCount }) => {
           return (
             <Card key={venue.id}>
               {/*
@@ -264,6 +304,19 @@ export default function VenuesPage() {
                     {[venue.city, venue.region, venue.country].filter(Boolean).join(', ')}
                     {venue.capacity != null && ` · seats about ${venue.capacity.toLocaleString()}`}
                   </p>
+                  {/*
+                    Said on the venue, because "3 spaces" and "3 spaces, 1 of which can sell a
+                    numbered seat" are different facts, and only the second one tells an
+                    organizer whether they are ready to sell reserved seating here.
+                  */}
+                  {inside.length > 0 && (
+                    <p className="text-caption text-text-muted">
+                      {inside.length} space{inside.length === 1 ? '' : 's'}
+                      {seatedCount > 0
+                        ? ` · ${seatedCount} with a seating plan`
+                        : ' · none with a seating plan yet'}
+                    </p>
+                  )}
                   {venue.address && <p className="text-caption text-text-muted">{venue.address}</p>}
                 </div>
                 <button
@@ -278,29 +331,29 @@ export default function VenuesPage() {
               <div className="mt-4">
                 {inside.length > 0 ? (
                   <ul className="space-y-2">
-                    {inside.map((room) => (
-                      <RoomRow key={room.id} room={room} />
+                    {inside.map((space) => (
+                      <SpaceRow key={space.id} space={space} />
                     ))}
                   </ul>
                 ) : (
                   /*
-                    Said here rather than left blank. "No rooms" is not a fault — a lawn or a
+                    Said here rather than left blank. "No spaces" is not a fault — a lawn or a
                     stadium terrace sells fine without one — so this states the consequence
                     and lets the organizer decide, instead of reading as something undone.
                   */
                   <p className="text-caption text-text-secondary">
-                    No rooms here. Add one if you want buyers to pick their own seat.
+                    No spaces here. Add one if you want buyers to pick their own seat.
                   </p>
                 )}
                 {/*
-                  Carries the venue, so the room joins this one instead of quietly creating a
+                  Carries the venue, so the space joins this one instead of quietly creating a
                   second venue with the same name.
                 */}
                 <Link
                   href={`/organizer/cinemas/new?venueId=${venue.id}`}
                   className="mt-3 inline-block rounded text-caption text-action-primary underline underline-offset-2 hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
-                  Add a room here
+                  Add a space here
                 </Link>
               </div>
             </Card>
@@ -308,14 +361,14 @@ export default function VenuesPage() {
         })}
 
       {!loading && !failed && grouped.orphans.length > 0 && (
-        <Card title="Rooms not linked to a venue">
+        <Card title="Spaces not linked to a venue">
           <p className="mb-3 text-caption text-text-secondary">
             These work, and their events still sell. Linking them to a venue keeps the public
             listing’s address and city right.
           </p>
           <ul className="space-y-2">
-            {grouped.orphans.map((room) => (
-              <RoomRow key={room.id} room={room} />
+            {grouped.orphans.map((space) => (
+              <SpaceRow key={space.id} space={space} />
             ))}
           </ul>
         </Card>
@@ -355,9 +408,19 @@ export default function VenuesPage() {
             onChange={setWhere}
             countryHint="Sets the currency you sell in and the tax rules that apply."
           />
+          {/*
+            "Street address", not "Address".
+
+            Labelled "Address", this box invites the whole address - and the city, state and
+            country are asked separately just above it, so a listing came out reading
+            "Worli, Mumbai, MH, Mumbai, India". The page that prints it now tolerates the
+            repeat, because venues already entered cannot be relabelled; this stops new ones
+            being typed that way.
+          */}
           <Input
             id="venueAddress"
-            label="Address (optional)"
+            label="Street address (optional)"
+            hint="Just the street and area. The city, state and country are set above."
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
           />

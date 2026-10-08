@@ -86,6 +86,35 @@ function readStoredCity(): string | null {
   }
 }
 
+/**
+ * The resolved market, mirrored into a cookie so the SERVER can read it.
+ *
+ * -- WHY A COOKIE WHEN THE CITY LIVES IN localStorage -----------------------------------
+ * The storefront is a client app and `localStorage` serves it perfectly. Legal documents are
+ * not: they are server-rendered, and a server cannot read `localStorage`. Without this, a
+ * server-rendered Terms page has no idea which market the customer is browsing and can only
+ * serve the global text - which is why the first attempt grew its own country picker, and a
+ * customer should not have to operate our policy resolver.
+ *
+ * So this mirrors the market the product ALREADY resolved. It is not a second source of
+ * truth and nothing chooses it separately: `scopeCountry` decides, here and everywhere else.
+ * `SameSite=Lax` because it is read on a top-level navigation; no `httpOnly` because the
+ * client writes it; it carries a two-letter country code and nothing else.
+ */
+const MARKET_COOKIE = 'etg_market';
+
+export function rememberMarketCountry(country: string | null): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = country
+      ? `${MARKET_COOKIE}=${encodeURIComponent(country)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
+      : `${MARKET_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  } catch {
+    /* a preference we cannot persist is still worth honouring for this session */
+  }
+}
+
 function writeStoredCity(city: string | null): void {
   try {
     if (city) globalThis.localStorage?.setItem(STORAGE_KEY, city);
@@ -223,6 +252,8 @@ export function useCityPreference(): CityPreference {
           unscoped, because there is nothing narrower to be.
         */
         setCountry(result.scopeCountry);
+        // Mirror it where a server-rendered page can see it - see `rememberMarketCountry`.
+        rememberMarketCountry(result.scopeCountry);
         if (readStoredCity() === ALL_CITIES) return;
         if (readStoredCity() !== null) return; // their choice stands
         if (result.confident && result.city) {

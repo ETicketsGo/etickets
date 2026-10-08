@@ -74,7 +74,18 @@ export type UpdateCinemaInput = z.infer<typeof updateCinemaSchema>;
 export const createScreenSchema = z.object({
   name: z.string().trim().min(1).max(120),
   screenType: z.string().trim().min(1).max(20).default('2D'),
-  capacity: z.number().int().min(1).max(2000),
+  /**
+   * How many people the space holds.
+   *
+   * The ceiling was 2000, which is a CINEMA's ceiling. A space is any bookable area inside a
+   * venue - an arena holds 18,000, a stadium several times that - so a cinema-shaped limit
+   * here refused every venue this platform is meant to sell for. Raised to a figure no real
+   * venue exceeds, kept finite because an unbounded integer is how a typo becomes a million
+   * seats.
+   *
+   * It is a stated figure, not inventory: what is actually sellable comes from the layout.
+   */
+  capacity: z.number().int().min(1).max(250_000),
 });
 export type CreateScreenInput = z.infer<typeof createScreenSchema>;
 

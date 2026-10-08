@@ -40,7 +40,12 @@ async function seedWorkspace(request: APIRequestContext, token: string) {
   const cinema = await (
     await request.post(`${API}/cinemas`, {
       headers: auth,
-      data: { organizationId, name: `A11y Multiplex ${suffix}`, city: 'Hyderabad' },
+      data: {
+        organizationId,
+        name: `A11y Multiplex ${suffix}`,
+        city: 'Hyderabad',
+        country: 'India',
+      },
     })
   ).json();
   const screen = await (

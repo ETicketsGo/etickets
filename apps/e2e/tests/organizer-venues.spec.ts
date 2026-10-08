@@ -47,7 +47,7 @@ test.describe('venues', () => {
       up a single site meant crossing between them — and a room created without a venue makes
       one named after itself, which put the same name in both lists as two unrelated things.
     */
-    await expect(page.getByRole('link', { name: 'Venues & rooms' })).toBeVisible({
+    await expect(page.getByRole('link', { name: 'Venues & spaces' })).toBeVisible({
       timeout: 30_000,
     });
   });

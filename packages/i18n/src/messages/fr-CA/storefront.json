@@ -843,7 +843,9 @@
     "requiredNote": "Les canaux obligatoires ne peuvent pas être désactivés. Ils transmettent vos billets et tout avis urgent sur une représentation que vous avez réservée.",
     "offersHeading": "Offres et recommandations",
     "offersLead": "Il s'agit uniquement d'offres et de recommandations. Les désactiver n'a aucun effet sur vos billets ni sur vos mises à jour de réservation.",
-    "marketingOn": "Offres par {channel}"
+    "marketingOn": "Offres par {channel}",
+    "signInTitle": "Connectez-vous pour gérer vos notifications",
+    "signInDescription": "Vos préférences de notification et de messages texte font partie de votre compte ETicketsGo."
   },
   "following": {
     "heading": "Organisateurs suivis",

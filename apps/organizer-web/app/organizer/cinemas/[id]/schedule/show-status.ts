@@ -228,7 +228,7 @@ export function explainMutationError(err: unknown): string {
     case 'SHOW_NOT_PAUSED':
       return 'Only a paused show can be reopened.';
     case 'OVERLAPS_EXISTING_SHOW':
-      return 'That time conflicts with another show on this screen. Screens also need time between shows for the audience to leave and the room to be cleaned.';
+      return 'That time conflicts with another show on this screen. Screens also need time between shows for the audience to leave and the space to be cleaned.';
     default:
       break;
   }

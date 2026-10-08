@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import type { OrgPermissions } from '@/lib/org-permissions';
 import { AppShell, RequireAuth, type NavItem } from '@eticketsgo/web-kit';
 import {
   CalendarDays,
@@ -15,6 +16,7 @@ import {
   Building2,
   Rocket,
   LifeBuoy,
+  ScanLine,
   TicketPercent,
   Bell,
   ReceiptText,
@@ -47,7 +49,30 @@ import { ColorSchemeSwitch, WorkspaceTheme, useWorkspace } from '@/components/wo
  * seat map for ANY event creates one. Seated events made `Cinema` mean "a seated venue". A
  * durable organization capability is the right long-term answer and is not invented here.
  */
-function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] {
+function navFor({
+  doesFilmBusiness,
+  can,
+}: {
+  doesFilmBusiness: boolean;
+  can: OrgPermissions;
+}): NavItem[] {
+  /*
+    Check-in staff get the gate and nothing else.
+
+    Their whole job is a scanner. The console offered them eighteen sections - Finance,
+    Payouts, Receipts, Refunds, Team, Settings among them - every one of which the API
+    refuses, and asked them to find Check-in inside an events list. A temporary worker on
+    their first shift, at a door with a queue forming, was navigating a finance console.
+
+    This is UX, not authorization: the API refuses those routes whether or not they are
+    listed, and a separate change tightened the one place it did not.
+  */
+  if (!can.financials && !can.ownerActions) {
+    return [
+      { label: 'Gate', href: '/organizer/gate', exact: true, icon: ScanLine },
+      { label: 'Help', href: '/organizer/help', icon: LifeBuoy },
+    ];
+  }
   return [
     { label: 'Dashboard', href: '/organizer', exact: true, icon: LayoutDashboard },
     { label: 'Get started', href: '/organizer/onboarding', icon: Rocket },
@@ -69,11 +94,14 @@ function navFor({ doesFilmBusiness }: { doesFilmBusiness: boolean }): NavItem[] 
     Worse, creating a room with no venue makes one, named after the room — so an organizer
     could see the same name in both lists as two unrelated things, with nothing to explain it.
 
-    One entry, then, and "rooms" kept in the label because that is the word that made seat
-    maps findable. The film-specific pages inside still say cinema and screen, where those
-    words are accurate.
+    One entry, then. The label said "rooms" for a while, because that was the word that made
+    seat maps findable once "Cinemas" had driven a concert promoter away. It now says SPACES,
+    which is the platform's word for a bookable area inside a venue - it keeps what that
+    rename was protecting (nothing film-specific in the sidebar) and matches what the pages
+    behind it, the API and the seating model all call the thing. The film-specific pages
+    inside still say cinema and screen, where those words are accurate.
   */
-    { label: 'Venues & rooms', href: '/organizer/venues', icon: Building2 },
+    { label: 'Venues & spaces', href: '/organizer/venues', icon: Building2 },
     /*
     The box office counter's way in. Distinct from an event's order list, which answers "who
     bought for THIS show" — a counter is holding a phone call about a booking whose show it
@@ -134,7 +162,7 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
     through the same small store the masthead uses. A nav that waited for a provider below it
     would blank on every navigation.
   */
-  const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness });
+  const nav = navFor({ doesFilmBusiness: workspace.doesFilmBusiness, can: workspace.can });
   return (
     <AppShell
       brand="Organizer"

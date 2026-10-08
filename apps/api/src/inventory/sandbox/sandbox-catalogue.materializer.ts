@@ -173,6 +173,9 @@ export class SandboxCatalogueMaterializer {
       const cinema = await this.cinemas.create(req.actor, req.organizationId, {
         name: external.name,
         city: external.city ?? 'Unknown',
+        // Preserve the provider's answer. Missing remains missing; Hyderabad is not itself
+        // sufficient authority to silently assert India for financial rules.
+        country: external.country,
         // The venue's own zone, never the server's. A showtime without one is not a time.
         timezone: external.timezone ?? 'Asia/Kolkata',
       } as never);

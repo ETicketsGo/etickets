@@ -29,12 +29,13 @@ import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { currencyForCountry } from '../common/country';
+import { resolveCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
 import { BookingShadowObserver } from './orchestration/booking-shadow-observer.service';
 import { PaymentsService } from '../payments/payments.service';
+import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
 import type {
   PolicyContext,
@@ -156,6 +157,17 @@ export class BookingsService {
       before this subsystem existed.
     */
     @Optional() private readonly policyService?: CinemaPricingPolicyService,
+
+    /*
+      ON THE END, for the reason stated immediately above.
+
+      The expiry guard (2026-10-06 incident). Absent, the sweep behaves exactly as it did
+      before - which is the behaviour that released a paid booking's inventory - so the
+      wiring is what makes the guard real. `bookings.module` imports `PaymentsModule`, which
+      exports this, so the running application always has it; the optionality is purely so
+      the hand-built test harnesses above keep compiling.
+    */
+    @Optional() private readonly recovery?: PendingPaymentRecoveryService,
   ) {}
 
   /**
@@ -326,9 +338,19 @@ export class BookingsService {
     */
     const isSeatBased = Boolean(session.screenId);
     if (isSeatBased) {
-      const allSeatIds = input.items.flatMap((i) => i.seatIds ?? []);
+      const reservedItems = input.items.filter((item) => !byId.get(item.ticketTypeId)?.seatZoneId);
+      const allSeatIds = reservedItems.flatMap((i) => i.seatIds ?? []);
       for (const item of input.items) {
-        if (!item.seatIds || item.seatIds.length !== item.quantity) {
+        const ticketType = byId.get(item.ticketTypeId)!;
+        if (ticketType.seatZoneId) {
+          if (item.seatIds?.length) {
+            throw new AppException(
+              ErrorCodes.VALIDATION_FAILED,
+              'Standing-area tickets do not use seat numbers.',
+              HttpStatus.BAD_REQUEST,
+            );
+          }
+        } else if (!item.seatIds || item.seatIds.length !== item.quantity) {
           throw new AppException(
             ErrorCodes.VALIDATION_FAILED,
             'Please select a seat for each ticket.',
@@ -348,7 +370,7 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
-      for (const item of input.items) {
+      for (const item of reservedItems) {
         const tt = byId.get(item.ticketTypeId)!;
         for (const seatId of item.seatIds!) {
           if (categoryBySeat.get(seatId) !== tt.seatCategoryId) {
@@ -945,7 +967,12 @@ export class BookingsService {
   private async resolveCinemaPolicy(
     session: {
       screen?: {
-        cinema: {
+        /*
+          Optional because a space is no longer required to be a cinema screen. Only a cinema
+          carries a regulatory classification, so a space without one resolves to no policy -
+          which is correct: the orders this engine applies govern cinemas.
+        */
+        cinema?: {
           country: string | null;
           region: string | null;
           district: string | null;
@@ -954,7 +981,7 @@ export class BookingsService {
           cinemaFormat: CinemaFormat | null;
           climateType: ClimateType | null;
           venue?: { country: string | null; region: string | null; city: string | null } | null;
-        };
+        } | null;
       } | null;
     },
     currency: string,
@@ -1131,28 +1158,15 @@ export class BookingsService {
     venueCountry: string | null | undefined,
   ): string {
     /*
-      A line with no currency contributes no opinion rather than crashing the booking.
-
-      `TicketType.currency` is NOT NULL with a default, so in real data this is always
-      present — a missing one means a `select` that did not ask for the column. Reading
-      through it would throw here, which turns a query oversight into a customer unable to
-      buy a ticket. Skipping it lets the venue answer instead, and the venue's answer is
-      the same one the ticket type would have been created with.
+      A line with no currency contributes no opinion rather than crashing the booking: a
+      missing one means a `select` that did not ask for the column, and the venue answers
+      instead. The rule itself is shared with add-ons and bundles, so the things sold beside
+      a ticket cannot be priced in a different currency from it.
     */
-    const distinct = [
-      ...new Set(priced.map((p) => p.currency?.trim().toUpperCase()).filter(Boolean)),
-    ] as string[];
-    if (distinct.length > 1) {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'These tickets are priced in different currencies and cannot be bought together.',
-        HttpStatus.BAD_REQUEST,
-        { currencies: distinct },
-      );
-    }
-    // An empty cart still needs a currency for the zero-total row it produces; the venue
-    // answers that, and INR remains the answer for a market with no mapping.
-    return distinct[0] ?? currencyForCountry(venueCountry) ?? 'INR';
+    return resolveCommerceCurrency(
+      priced.map((p) => p?.currency),
+      venueCountry,
+    );
   }
 
   async quote(input: QuoteBookingInput) {
@@ -1863,7 +1877,10 @@ export class BookingsService {
   }
 
   /** Expire stale holds for a session (lazy expiry path). */
-  async releaseExpiredHolds(eventSessionId?: string): Promise<number> {
+  async releaseExpiredHolds(
+    eventSessionId?: string,
+    options: { consultProvider?: boolean } = {},
+  ): Promise<number> {
     const now = new Date();
     // Bounded per sweep so a flash on-sale that abandons tens of thousands of holds
     // can't load them all at once; the remainder is released on the next tick.
@@ -1873,7 +1890,16 @@ export class BookingsService {
         holdExpiresAt: { lt: now },
         ...(eventSessionId ? { eventSessionId } : {}),
       },
-      include: { items: true },
+      /*
+        The payment is read for the expiry GUARD, not for the release. A lapsed booking whose
+        buyer opened the gateway may have been paid for without us being told - a rejected or
+        delayed webhook - and this query cannot tell that apart from an abandoned cart. So the
+        provider is asked before the stock goes back. See `PendingPaymentRecoveryService`.
+      */
+      include: {
+        items: true,
+        payment: { select: { provider: true, status: true, providerOrderId: true } },
+      },
       orderBy: { holdExpiresAt: 'asc' },
       take: 500,
     });
@@ -1889,6 +1915,34 @@ export class BookingsService {
     */
     let expired = 0;
     for (const booking of stale) {
+      /*
+        THE GUARD. Nothing below may release a booking the provider has taken money for.
+
+        Three outcomes, and only one of them releases anything. `recovered` means the
+        provider held a capture we never heard about and the booking has just been put
+        through the real confirmation path instead of being thrown away; `hold_back` means we
+        could not get an answer, so the stock stays held and the next sweep asks again. Both
+        deliberately leave the inventory alone: an undelivered release is a delay, whereas
+        releasing a seat whose buyer has paid is money taken for nothing.
+
+        Only bookings that reached the payment gateway are ever asked about, so an abandoned
+        cart still costs no network call - see `needsProviderCheck`.
+      */
+      if (this.recovery) {
+        if (options.consultProvider) {
+          const outcome = await this.recovery.guardExpiry(booking);
+          if (outcome !== 'release') continue;
+        } else if (this.recovery.needsProviderCheck(booking)) {
+          /*
+            A caller that must not make a network call - `create()`, on the booking hot path -
+            still must not release this booking blind. It is left for the worker sweep, which
+            runs every minute and does consult the provider. The cost is up to a minute of
+            delay before a gateway-abandoned seat returns to sale; the alternative is the
+            incident this guard exists for.
+          */
+          continue;
+        }
+      }
       const claimed = await this.prisma.$transaction((tx) =>
         expirePendingBooking(
           tx,

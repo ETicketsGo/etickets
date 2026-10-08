@@ -893,7 +893,7 @@ model Venue {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   city           String
-  country        String       @default("India")
+  country        String?
 
   /// State / province / union territory.
   ///
@@ -918,7 +918,7 @@ model Venue {
   /// Defaults to the pilot market's zone, matching Cinema, so nothing changes for existing
   /// venues. An organizer selling outside India has to set it, and cannot be guessed for:
   /// a country is not a timezone, and several of the launch markets span more than one.
-  timezone  String   @default("Asia/Kolkata")
+  timezone  String?
   address   String?
   capacity  Int?
   status    String   @default("ACTIVE")
@@ -928,6 +928,7 @@ model Venue {
   areas   VenueArea[]
   events  Event[]
   cinemas Cinema[]
+  screens Screen[]
 
   @@index([organizationId])
   @@index([city])
@@ -1041,9 +1042,30 @@ model Cinema {
 }
 
 model Screen {
-  id         String       @id @default(cuid())
-  cinemaId   String
-  cinema     Cinema       @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  /// The venue this space is in. AUTHORITATIVE for where it is.
+  ///
+  /// -- WHY THIS EXISTS ---------------------------------------------------------------
+  /// A bookable space used to reach its venue only through `Cinema`, and `cinemaId` was
+  /// REQUIRED. That single NOT NULL is why an arena, an auditorium, a concert hall and a
+  /// conference room all had to be created as a "cinema" before they could sell a numbered
+  /// seat: `Cinema` sat on the only path to a `Screen`.
+  ///
+  /// Nullable for one migration only. It is backfilled from `cinema.venueId`, and a space
+  /// whose cinema had no venue gets one created from the location it already carried. Once
+  /// every row has a venue this becomes required, in a later migration, so the column is
+  /// never required while a row could still be missing it during a rolling deploy.
+  venueId String?
+  venue   Venue?  @relation(fields: [venueId], references: [id])
+
+  /// The cinema this space belongs to, when it IS one.
+  ///
+  /// Now optional. A cinema screen keeps it and every cinema behaviour is unchanged; a
+  /// concert hall simply does not have one. What it no longer does is decide where the
+  /// space is, or whether the space may exist at all.
+  cinemaId   String?
+  cinema     Cinema?      @relation(fields: [cinemaId], references: [id], onDelete: Cascade)
   name       String
   screenType String       @default("2D") // 2D, 3D, IMAX, 4DX
   capacity   Int
@@ -1057,6 +1079,7 @@ model Screen {
   seatMaps SeatMap[]
 
   @@index([cinemaId])
+  @@index([venueId])
 }
 
 // ─────────────────── Seat maps & seat-level inventory (ADR-013) ───────────────────
@@ -1079,7 +1102,18 @@ model SeatMap {
   id       String  @id @default(cuid())
   screenId String
   screen   Screen  @relation(fields: [screenId], references: [id], onDelete: Cascade)
-  name     String?
+
+  /// What this layout IS, and therefore which of a space's configurations it belongs to.
+  ///
+  /// -- WHY THIS IS PART OF THE KEY --------------------------------------------------
+  /// A space used to be assumed to have one layout that evolved through versions, so the key
+  /// was `(screenId, version)`. A real arena has SEVERAL at once - a basketball bowl and an
+  /// end-stage concert are different rooms built from the same building, not two versions of
+  /// one - and that constraint made the second one impossible to store.
+  ///
+  /// The name is now the configuration, and `version` is that configuration's own history. A
+  /// cinema has exactly one name and behaves exactly as before.
+  name String @default("Default")
 
   /// Monotonic per screen, starting at 1. Human-facing: "Screen 3, layout v4".
   version Int              @default(1)
@@ -1123,10 +1157,12 @@ model SeatMap {
   categories SeatCategory[]
   sections   SeatSection[]
   seats      Seat[]
+  /// Standing areas in the same layout. A room may have both.
+  zones      SeatZone[]
   /// Shows pinned to this exact version.
   sessions   EventSession[]
 
-  @@unique([screenId, version])
+  @@unique([screenId, name, version])
   @@index([screenId, status])
 }
 
@@ -1154,6 +1190,7 @@ model SeatCategory {
   regulatoryClass SeatRegulatoryClass?
 
   seats       Seat[]
+  zones       SeatZone[]
   ticketTypes TicketType[]
 
   @@index([seatMapId])
@@ -1482,6 +1519,7 @@ model EventSession {
   tickets     Ticket[]
   checkIns    CheckIn[]
   showSeats   ShowSeat[]
+  showZones   ShowZone[]
 
   @@index([eventId])
   @@index([startsAt])
@@ -1495,6 +1533,10 @@ model TicketType {
   // For seat-based (movie) sessions: the seat category this price applies to.
   seatCategoryId String?
   seatCategory   SeatCategory? @relation(fields: [seatCategoryId], references: [id])
+  // For capacity-based areas inside a mapped venue (GA floor, VIP terrace).
+  // ShowZone is the per-session authority; this relation identifies which zone it prices.
+  seatZoneId String?
+  seatZone   SeatZone? @relation(fields: [seatZoneId], references: [id])
   name           String
   priceMinor     Int
   currency       String        @default("INR")
@@ -1513,6 +1555,7 @@ model TicketType {
 
   @@index([eventSessionId])
   @@index([seatCategoryId])
+  @@index([seatZoneId])
 }
 
 // One row per ticket type; the concurrency-safe source of truth for stock.
@@ -2021,19 +2064,19 @@ model PaymentAttempt {
 }
 
 model Refund {
-  id                String       @id @default(cuid())
-  bookingId         String
-  booking           Booking      @relation(fields: [bookingId], references: [id])
-  organizationId    String
-  organization      Organization @relation(fields: [organizationId], references: [id])
-  amountMinor       Int
+  id                       String       @id @default(cuid())
+  bookingId                String
+  booking                  Booking      @relation(fields: [bookingId], references: [id])
+  organizationId           String
+  organization             Organization @relation(fields: [organizationId], references: [id])
+  amountMinor              Int
   /// The portion of `amountMinor` that is tax being returned.
   ///
   /// Recorded rather than re-derived: the credit note has to state the tax component exactly,
   /// and apportioning it back out of a total afterwards reintroduces rounding error into a
   /// figure a tax authority may read. Zero on every refund taken before tax existed, and on
   /// every refund where no tax was charged — which is the default.
-  taxMinor          Int          @default(0)
+  taxMinor                 Int          @default(0)
   /// The part of `taxMinor` that was ADDED to the price rather than already inside it.
   ///
   /// Whose money a refund returns depends on this. Tax inside the ticket price was the
@@ -2041,16 +2084,34 @@ model Refund {
   /// retained by the platform, and charging it back to the organizer takes money they never
   /// received. Zero for every refund of an inclusive-tax market (India), which is why the
   /// ledger's old "deduct the whole refund" was right there and wrong everywhere else.
-  taxAddedMinor     Int          @default(0)
-  status            RefundStatus @default(REQUESTED)
-  reason            String
-  ticketIds         String[]     @default([])
-  requestedByUserId String?
-  processedByUserId String?
-  providerRef       String?
-  creditNote        Receipt?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  taxAddedMinor            Int          @default(0)
+  /// The part of `amountMinor` that is PLATFORM money rather than the organizer's.
+  ///
+  /// Settlement charges a refund to the organizer as `amountMinor - taxAddedMinor`, because a
+  /// normal refund returns the ticket and the tax on it, and the ticket face value is exactly
+  /// what the organizer's gross was. Fees were never in that gross - they are borne by the
+  /// customer on top of it and only reported in settlement.
+  ///
+  /// A cancellation returns the fees too. Without this field, raising `amountMinor` to the full
+  /// amount paid would claw back from the organizer money they never received. So the fee
+  /// portion is recorded here and excluded from their share.
+  ///
+  /// Stored rather than derived, for the same reason `taxAddedMinor` is: it is a fact about this
+  /// refund, decided when it is created. Deriving it later would have to re-decide it against
+  /// whatever partial refunds exist by then.
+  ///
+  /// Zero on every refund written before this existed and on every buyer-requested refund, so
+  /// the settlement arithmetic for those is exactly what it was.
+  platformFeeRefundedMinor Int          @default(0)
+  status                   RefundStatus @default(REQUESTED)
+  reason                   String
+  ticketIds                String[]     @default([])
+  requestedByUserId        String?
+  processedByUserId        String?
+  providerRef              String?
+  creditNote               Receipt?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
 
   @@index([bookingId])
   // Composite serves both status-only reads and the risk service's
@@ -4295,6 +4356,21 @@ model MarketingConsent {
   ipAddress String?
   userAgent String?
 
+  /// The market the consent was given in, ISO-3166 alpha-2. Which rules applied is a
+  /// property of WHERE, and a consent record that cannot say where is hard to defend.
+  country       String?
+  /// The disclosure the person actually read, as `TYPE/JURISDICTION/vN` — the same label
+  /// `policyVersionLabel()` produces. A string, not a foreign key: it has to stay legible in
+  /// an export and must survive the policy registry being reorganised around it.
+  policyVersion String?
+  /// The number the consent was given FOR, snapshotted at the moment of consent.
+  ///
+  /// Only ever set for the `sms` and `whatsapp` channels, and only from a number the account
+  /// has already verified — this is not a place to collect phone numbers. It is here because
+  /// the subject of an SMS consent is the number, and a person can change theirs afterwards:
+  /// without the snapshot the record says somebody agreed, but not what they agreed about.
+  phone         String?
+
   createdAt DateTime @default(now())
 
   /// Newest row per subject+channel is the current state, so the read is an index scan.
@@ -4825,4 +4901,83 @@ model PayoutAllocation {
   @@index([bookingId])
   /// Serves period-payout event membership, which `Payout.eventId` cannot express.
   @@index([eventId])
+}
+
+/// A standing area, sold by the HEAD rather than by the seat.
+///
+/// -- WHY THIS IS NOT A ROW OF FAKE SEATS --------------------------------------------
+/// A floor, a terrace or a VIP pen has capacity and no seat identity. Modelling it as 4,000
+/// numbered seats nobody sits in would put 4,000 meaningless rows into every session, hand
+/// buyers a seat number that means nothing at the door, and make "how many are left" a COUNT
+/// over rows instead of a number. It also breaks the one thing a numbered seat is for:
+/// telling two people apart.
+///
+/// So a zone sits beside `SeatSection` in the same layout. A layout may have both - reserved
+/// stalls and a standing floor are one room - which is what makes an arena concert
+/// expressible at all.
+///
+/// -- WHAT LIVES HERE AND WHAT DOES NOT ----------------------------------------------
+/// This is the PHYSICAL layout: the zone exists and holds this many people. What is sold,
+/// held or blocked for one event lives on `ShowZone`, exactly as seat inventory lives on
+/// `ShowSeat` rather than on `Seat`. A published layout is never edited to block inventory.
+model SeatZone {
+  id        String  @id @default(cuid())
+  seatMapId String
+  seatMap   SeatMap @relation(fields: [seatMapId], references: [id], onDelete: Cascade)
+  name      String
+
+  /// The price class, shared with seated sections so one layout prices the same way
+  /// throughout and a ticket type can be derived from either.
+  categoryId String?
+  category   SeatCategory? @relation(fields: [categoryId], references: [id])
+
+  /// How many people this zone holds. The physical figure; one event may offer fewer.
+  capacity Int
+
+  /// Drawn on the map like a section, so a floor appears in its real place rather than in a
+  /// list beneath the seats.
+  shape     Json?
+  labelX    Int?
+  labelY    Int?
+  sortOrder Int   @default(0)
+
+  showZones ShowZone[]
+  ticketTypes TicketType[]
+
+  @@index([seatMapId])
+  @@index([categoryId])
+}
+
+/// What is actually available in one zone, for ONE session.
+///
+/// The GA counterpart of `ShowSeat`, and deliberately the same shape: per-session, never
+/// touching the layout, and carrying its own `version` for optimistic concurrency.
+///
+/// -- WHY THREE NUMBERS AND NOT ONE --------------------------------------------------
+/// `sold` and `held` are separate because they expire differently: a hold is released by a
+/// timer or an abandoned checkout, a sale is not. Collapsing them into "taken" would make an
+/// expired hold indistinguishable from a refund. `capacity` is per-session rather than read
+/// from the zone because an event may offer less of a zone than it physically holds - a
+/// reduced floor, a blocked terrace - which is the event-level configuration a reusable
+/// layout must not be edited to express.
+///
+/// Remaining is `capacity - sold - held`, computed and never stored: a stored remainder is a
+/// fourth number that can disagree with the other three.
+model ShowZone {
+  id             String       @id @default(cuid())
+  eventSessionId String
+  eventSession   EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  zoneId         String
+  zone           SeatZone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  capacity Int
+  sold     Int @default(0)
+  held     Int @default(0)
+
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventSessionId, zoneId])
+  @@index([eventSessionId])
+  @@index([zoneId])
 }

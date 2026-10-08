@@ -953,6 +953,26 @@ export const api = {
         capacity: number;
       }>,
     ) => request<Venue>(`/venues/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+    /**
+     * The bookable spaces inside a venue - cinema screens included.
+     *
+     * This read could not be written before a space carried its own venue: "the spaces in
+     * this venue" meant "the screens of the cinemas in this venue", so a hall that was not a
+     * cinema could not exist to be listed.
+     */
+    spaces: (venueId: string) => request<VenueSpace[]>(`/venues/${venueId}/spaces`),
+
+    /** Every space in the organization, for the console's one-screen VENUE -> SPACE list. */
+    allSpaces: (organizationId: string) =>
+      request<VenueSpace[]>(`/venues/spaces${qs({ organizationId })}`),
+
+    /** Add a space to a venue. No cinema involved. */
+    addSpace: (venueId: string, body: { name: string; screenType?: string; capacity: number }) =>
+      request<VenueSpace>(`/venues/${venueId}/spaces`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
 
   movies: {
@@ -1233,17 +1253,21 @@ export const api = {
     addSession: (
       id: string,
       // `screenId` is the whole difference between reserved seating and general admission.
-      body: { startsAt: string; endsAt: string; screenId?: string },
+      body: { startsAt: string; endsAt: string; screenId?: string; seatMapId?: string },
     ) =>
       request<EventSession>(`/events/${id}/sessions`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
     /** Change, add (screenId) or remove (null) a session's room. Refused once anything sold. */
-    updateSessionSeating: (sessionId: string, screenId: string | null) =>
+    /**
+     * Change a session's space - and, when that space has several layouts, WHICH one. The
+     * server refuses a multi-layout space without a `seatMapId` rather than picking for you.
+     */
+    updateSessionSeating: (sessionId: string, screenId: string | null, seatMapId?: string | null) =>
       request<EventSession>(`/events/sessions/${sessionId}/seating`, {
         method: 'PATCH',
-        body: JSON.stringify({ screenId }),
+        body: JSON.stringify({ screenId, ...(screenId && seatMapId ? { seatMapId } : {}) }),
       }),
     addTicketType: (body: CreateTicketTypeBody) =>
       request<TicketType>('/events/ticket-types', { method: 'POST', body: JSON.stringify(body) }),
@@ -1300,6 +1324,17 @@ export const api = {
      * Search rather than a full list: a busy screening is several hundred seats, and
      * scrolling that at a door under time pressure is how the wrong seat gets admitted.
      */
+    /** Shows running now, for the gate screen to choose from. Carries no money. */
+    gateSessions: (organizationId: string) =>
+      request<
+        {
+          id: string;
+          eventTitle: string;
+          startsAt: string;
+          venueName: string | null;
+          startsAtLabel: string;
+        }[]
+      >(`/checkins/sessions${qs({ organizationId })}`),
     roster: (eventSessionId: string, q?: string) =>
       request<CheckInRosterRow[]>(`/checkins/roster${qs({ eventSessionId, q })}`),
     /**
@@ -1498,7 +1533,15 @@ export const api = {
      * no route back to it: documents were reachable by booking id or by organization, and a
      * customer has neither to hand.
      */
-    mine: (params: PageParams = {}) => request<Paged<MyReceiptRow>>(`/receipts/mine${qs(params)}`),
+    /*
+      `MyReceiptsPage`, not `Paged`.
+
+      This said `Paged<MyReceiptRow>`, which is `{ data, meta }`. The endpoint returns
+      `{ items, total, page, pageSize }`. `request<T>` casts the JSON and checks nothing, so
+      the type compiled, the page read `data.data`, got undefined, and showed "No receipts
+      yet" to everybody - for ever, including buyers holding receipts.
+    */
+    mine: (params: PageParams = {}) => request<MyReceiptsPage>(`/receipts/mine${qs(params)}`),
     get: (id: string) => request<ReceiptDocument>(`/receipts/${id}`),
     /**
      * Open the printable document in a new tab.
@@ -1917,6 +1960,12 @@ export const api = {
       }),
 
     // ─── Marketplace settlements (admin/finance) ───
+    /**
+     * Open chargebacks, soonest deadline first. Read-only: evidence is submitted in the
+     * provider's dashboard and the outcome returns through the webhook. Needs FINANCE_READ.
+     */
+    disputes: () => request<OpenDisputes>('/admin/disputes'),
+
     settlements: {
       list: (
         params?: PageParams & {
@@ -2187,6 +2236,31 @@ export type PageParams = {
   page?: number;
   pageSize?: number;
 };
+/**
+ * An open chargeback. The platform is merchant of record, so a dispute is money the platform
+ * has to answer for, with a deadline the provider sets and nobody here can extend.
+ */
+export interface DisputeRow {
+  id: string;
+  provider: string;
+  providerDisputeId: string;
+  status: string;
+  amountMinor: number;
+  currency: string;
+  reason: string | null;
+  /** When the provider stops accepting an answer. Null when it set no deadline. */
+  evidenceDueBy: string | null;
+  createdAt: string;
+  bookingId: string | null;
+  organization: { id: string; name: string } | null;
+}
+
+export interface OpenDisputes {
+  disputes: DisputeRow[];
+  /** Disputed money per currency. Never summed across them. */
+  atRisk: { currency: string; totalMinor: number }[];
+}
+
 export interface Paged<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; totalPages: number };
@@ -2197,6 +2271,16 @@ export interface AuthUser {
   email: string;
   fullName: string;
   roles: string[];
+  /**
+   * What this account may do in the back office, as the server computes it.
+   *
+   * Present so the console can offer an operator their OWN work instead of all twenty-four
+   * menu items and a landing page that refuses them. It is never authorization: every route
+   * still enforces its own guard against the grants in the database, so a client holding a
+   * stale list can ask and be refused, and nothing more. Empty for everybody who is not
+   * platform staff.
+   */
+  adminPermissions?: string[];
   /**
    * The state this customer last told us they were in, for the place-of-supply field.
    *
@@ -2367,6 +2451,8 @@ export interface PublicEvent extends EventDetails {
       currency: string;
       maxPerOrder: number;
       available: number;
+      /** Named seat on the map, or capacity from the mapped GA/VIP zone. */
+      inventoryKind?: 'SEAT' | 'ZONE';
     }[];
   }[];
 }
@@ -3022,6 +3108,34 @@ export interface NotificationInbox {
   items: NotificationItem[];
   unreadCount: number;
 }
+/**
+ * A bookable area inside a venue.
+ *
+ * `cinemaName` is null unless the space IS a cinema screen. That is the whole difference the
+ * model now expresses: an arena, an auditorium and a concert hall are spaces without being
+ * cinemas, and a screen is a space that happens to be one.
+ */
+export interface VenueSpace {
+  id: string;
+  /** Present on the organization-wide listing, so the console can group without a join. */
+  venueId?: string | null;
+  name: string;
+  capacity: number;
+  status: string;
+  screenType: string;
+  cinemaId: string | null;
+  cinemaName: string | null;
+  /**
+   * EVERY published configuration of this space, current version of each.
+   *
+   * A space has named layouts - an arena's basketball bowl and its end-stage concert are both
+   * live at once - so a single `layout` would show an operator half of what their room does.
+   */
+  layouts?: { id: string; name: string; layoutKind: string; version: number }[];
+  /** The first of them. Kept for callers that only ever wanted one. */
+  layout: { id: string; name: string | null; layoutKind: string; version: number } | null;
+}
+
 export interface Venue {
   id: string;
   name: string;
@@ -3267,6 +3381,8 @@ export interface VenueFocalPoint {
 
 interface SeatLayoutBase {
   sessionId: string;
+  /** The immutable layout version this session selected when it was scheduled. */
+  seatMapId: string;
   /** The VENUE's country, for anything that must behave differently by market. */
   country: string | null;
   /** `id` is the seat category id; `ticketTypeId` is the session's price tier for it. */
@@ -3284,6 +3400,8 @@ interface SeatLayoutBase {
 /** One block on the venue overview: an outline, what is left in it, and what it costs. */
 export interface VenueSectionSummary {
   id: string;
+  /** Standing zones are visible context on the plan but are bought by quantity. */
+  kind?: 'SECTION' | 'ZONE';
   name: string;
   shape: VenuePoint[] | null;
   labelX: number | null;
@@ -3605,7 +3723,7 @@ export interface PublicShowSummary {
     genres: string[];
     posterUrl: string | null;
   } | null;
-  venue: { name: string; city: string; country: string };
+  venue: { name: string; city: string; country: string | null };
   cinema: { id: string; name: string } | null;
   screen: { name: string; format: string | null } | null;
 }
@@ -3635,7 +3753,16 @@ export interface EventSession {
   status: string;
   /** Set when the session is in a room: buyers pick named seats rather than a quantity. */
   screenId?: string | null;
-  screen?: { name: string; cinema: { name: string } } | null;
+  seatMapId?: string | null;
+  /**
+   * Where a seated session is. `cinema` is null for a space that is not a cinema screen -
+   * an arena or an auditorium - so the place is named from `venue` first.
+   */
+  screen?: {
+    name: string;
+    venue?: { name: string } | null;
+    cinema?: { name: string } | null;
+  } | null;
   ticketTypes?: TicketType[];
 }
 /** A room an event can be seated in — one that has a published seat map. */
@@ -3643,6 +3770,7 @@ export interface SeatingRoom {
   id: string;
   name: string;
   venueName: string;
+  layoutId: string;
   layoutName: string | null;
   layoutKind: string;
   /** Seats that can be sold: aisles and gaps are not counted. */
@@ -4137,6 +4265,20 @@ export interface MyReceiptRow extends ReceiptSummary {
     event: { title: string };
     eventSession: { startsAt: string };
   };
+}
+
+/**
+ * What `/receipts/mine` actually returns.
+ *
+ * Deliberately the same shape as `ReceiptListPage` rather than `Paged<T>`: this mirrors the
+ * endpoint, and the endpoint has paged this way since it was written. The client's job is to
+ * describe the server, not to wish it were consistent.
+ */
+export interface MyReceiptsPage {
+  items: MyReceiptRow[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ReceiptListPage {

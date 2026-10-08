@@ -278,7 +278,7 @@ describe('integration-real-postgres: a seated event', () => {
           endsAt: new Date(Date.now() + 33 * 86_400_000 + 3 * 3_600_000),
           screenId: otherScreen.id,
         } as never),
-      ).rejects.toThrow(/Room not found for this organization/i);
+      ).rejects.toThrow(/Space not found for this organization/i);
 
       await db!.screen.deleteMany({ where: { cinemaId: otherCinema.id } });
       await db!.cinema.deleteMany({ where: { organizationId: otherOrg.id } });

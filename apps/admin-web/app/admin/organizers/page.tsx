@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -43,7 +44,18 @@ export default function OrganizersPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [group, setGroup] = useState<GroupSelection>({});
-  const [status, setStatus] = useState('');
+  /*
+    The status this page opens on can be named in the link.
+
+    The action centre on the landing page counts each queue and links straight to it. Those
+    links were landing on an UNFILTERED list, so "3 organizers waiting to be approved" took an operator to a
+    page where they had to find those rows again - which is the work the count existed to
+    save. The same failing as the search boxes that only ever searched the page you were on.
+
+    Seeded once, then editable: the filter is still a control, not a property of the URL.
+  */
+  const params = useSearchParams();
+  const [status, setStatus] = useState(params.get('status') ?? '');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
 

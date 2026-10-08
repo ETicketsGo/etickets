@@ -334,7 +334,7 @@ export default function CinemaDetailPage() {
       <PageHeader
         title={cinema.name}
         breadcrumbs={[
-          { label: 'Venues & rooms', href: '/organizer/venues' },
+          { label: 'Venues & spaces', href: '/organizer/venues' },
           { label: cinema.name },
         ]}
       />
@@ -397,7 +397,8 @@ export default function CinemaDetailPage() {
           </div>
           <Input
             id="address"
-            label="Address"
+            label="Street address"
+            hint="Just the street and area. The city is set above."
             value={form.address}
             onChange={(e) => setField('address', e.target.value)}
           />

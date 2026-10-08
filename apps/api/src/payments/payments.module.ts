@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
+import { PendingPaymentRecoveryService } from './recovery/pending-payment-recovery.service';
 import { MockPaymentProvider } from './provider/mock-payment.provider';
 import { PAYMENT_PROVIDER } from './provider/payment-provider.interface';
 import { selectPaymentProvider } from './provider/payment-provider.factory';
@@ -38,6 +39,7 @@ import { TransferReconciliationService } from './settlement/transfer-reconciliat
 import { TransferObservationWorker } from './settlement/transfer-observation.worker';
 import { TransferReaderRegistry } from './settlement/transfer-reader.registry';
 import { DisputeService } from './dispute/dispute.service';
+import { DisputeController } from './dispute/dispute.controller';
 import { PaymentProviderResolver } from './provider/payment-provider.resolver';
 import { RazorpayOrderService } from './razorpay/razorpay-order.service';
 import { RazorpayMethodsService } from './razorpay/razorpay-methods.service';
@@ -71,11 +73,13 @@ import { CommerceModule } from '../commerce/commerce.module';
     OrganizerConnectController,
     StripeWebhookController,
     SettlementController,
+    DisputeController,
     RazorpayPaymentController,
     RazorpayWebhookController,
     RazorpayConnectController,
   ],
   providers: [
+    PendingPaymentRecoveryService,
     PaymentsService,
     // Mock stays registered (default provider + PaymentsService's dev mock-pay path).
     MockPaymentProvider,
@@ -138,6 +142,8 @@ import { CommerceModule } from '../commerce/commerce.module';
   ],
   exports: [
     PaymentsService,
+    // Exported so the booking expiry sweep can ask the provider before releasing stock.
+    PendingPaymentRecoveryService,
     // The active provider (ADR-043 Phase 5) — the compensation void executor injects it.
     PAYMENT_PROVIDER,
     PaymentProviderFactory,

@@ -16,7 +16,14 @@ import {
   Images,
 } from 'lucide-react';
 import { ImageLightbox } from '@/components/image-lightbox';
-import { RatingStars, apiAssetUrl, useToast, errorMessage } from '@eticketsgo/web-kit';
+import {
+  RatingStars,
+  apiAssetUrl,
+  useToast,
+  errorMessage,
+  venueAddressLine,
+  venueMapQuery,
+} from '@eticketsgo/web-kit';
 import { api, tokenStore, ApiRequestError } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { pushRecent } from '@/lib/recent';
@@ -163,6 +170,12 @@ export default function EventDetailPage() {
   );
   // Whichever way a session came to be selected, one that has started is not for sale.
   const sessionStarted = session ? new Date(session.startsAt).getTime() <= Date.now() : false;
+  const zoneTicketTypes = (session?.ticketTypes ?? []).filter(
+    (ticketType) => ticketType.inventoryKind === 'ZONE',
+  );
+  const hasReservedTickets = (session?.ticketTypes ?? []).some(
+    (ticketType) => ticketType.inventoryKind !== 'ZONE',
+  );
 
   // Experience Commerce (v1.3): add-ons + bundles for this event.
   const [addOnQty, setAddOnQty] = useState<Record<string, number>>({});
@@ -252,7 +265,10 @@ export default function EventDetailPage() {
     enabled:
       Boolean(session) &&
       !sessionStarted &&
-      !session?.seatBased &&
+      (!session?.seatBased ||
+        quoteItems.every((item) =>
+          zoneTicketTypes.some((ticketType) => ticketType.id === item.ticketTypeId),
+        )) &&
       !event?.isFree &&
       quoteItems.length + quoteAddOns.length + quoteBundles.length > 0,
     // A stale price is worse than a brief spinner: this is the number they are agreeing to.
@@ -722,9 +738,14 @@ export default function EventDetailPage() {
           <div className="order-1 grid gap-6 sm:grid-cols-2 lg:order-none">
             <Card title={sf('event.venueHeading')}>
               <p className="font-medium text-text-primary">{event.venue.name}</p>
+              {/*
+                Composed, not concatenated. The city, state and country are their own columns
+                and `address` is one free-text box, so an organizer who types the whole address
+                into it - which is what the word invites - used to get it printed twice:
+                "Worli, Mumbai, MH, Mumbai, India". See `venueAddressLine`.
+              */}
               <p className="mt-1 text-[0.9375rem] text-text-muted">
-                {event.venue.address ? `${event.venue.address}, ` : ''}
-                {event.venue.city}, {event.venue.country}
+                {venueAddressLine(event.venue)}
               </p>
               {/*
                 A real link where an empty box used to be.
@@ -741,7 +762,7 @@ export default function EventDetailPage() {
               */}
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  `${event.venue.name}, ${event.venue.address ?? ''} ${event.venue.city} ${event.venue.country}`,
+                  venueMapQuery(event.venue),
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -893,7 +914,9 @@ export default function EventDetailPage() {
             <div className="mb-4 flex items-center gap-2">
               <Ticket className="h-5 w-5 text-action-primary" />
               <h2 className="text-title font-semibold text-text-primary">
-                {session?.seatBased ? sf('event.seatedHeading') : sf('event.selectTickets')}
+                {session?.seatBased && hasReservedTickets
+                  ? sf('event.seatedHeading')
+                  : sf('event.selectTickets')}
               </h2>
             </div>
 
@@ -912,10 +935,90 @@ export default function EventDetailPage() {
             {session?.seatBased ? (
               sessionStarted ? null : (
                 <div className="space-y-4">
-                  <p className="text-[0.9375rem] text-text-secondary">{sf('event.seatedLead')}</p>
-                  <ButtonLink href={`/shows/${session.id}`} className="w-full">
-                    {sf('event.chooseSeats')}
-                  </ButtonLink>
+                  {hasReservedTickets && (
+                    <p className="text-[0.9375rem] text-text-secondary">{sf('event.seatedLead')}</p>
+                  )}
+                  {hasReservedTickets && (
+                    <ButtonLink href={`/shows/${session.id}`} className="w-full">
+                      {sf('event.chooseSeats')}
+                    </ButtonLink>
+                  )}
+                  {zoneTicketTypes.map((ticketType) => {
+                    const soldOut = ticketType.available <= 0;
+                    return (
+                      <div
+                        key={ticketType.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-border p-3"
+                      >
+                        <div>
+                          <p className="font-medium text-text-primary">{ticketType.name}</p>
+                          <p className="text-caption text-text-muted">
+                            {money(
+                              ticketType.priceMinor,
+                              ticketType.currency,
+                              undefined,
+                              cardFractionDigits,
+                            )}{' '}
+                            -{' '}
+                            {soldOut ? (
+                              <span className="text-status-error">{tx('state.soldOut')}</span>
+                            ) : (
+                              sf('event.left', { count: ticketType.available })
+                            )}
+                          </p>
+                        </div>
+                        <select
+                          aria-label={tx('a11y.quantityOf', { name: ticketType.name })}
+                          disabled={soldOut}
+                          value={qty[ticketType.id] ?? 0}
+                          onChange={(event) =>
+                            setQty((previous) => ({
+                              ...previous,
+                              [ticketType.id]: Number(event.target.value),
+                            }))
+                          }
+                          className="w-16 cursor-pointer rounded-md border border-border bg-background-surface px-2 py-1.5 text-center text-[0.9375rem] text-text-primary focus:border-ring focus:outline-none focus:ring-4 focus:ring-ring/15 disabled:opacity-50"
+                        >
+                          {Array.from({
+                            length: Math.min(ticketType.maxPerOrder, ticketType.available) + 1,
+                          }).map((_, quantity) => (
+                            <option key={quantity} value={quantity}>
+                              {quantity}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                  {zoneTicketTypes.length > 0 && (
+                    <>
+                      <PriceBreakdown
+                        free={event.isFree}
+                        quote={quoteQ.data?.fees}
+                        loading={quoteQ.isFetching}
+                        fallbackTotalMinor={ticketSubtotal}
+                        fallbackCurrency={zoneTicketTypes[0]?.currency}
+                        fractionDigits={cardFractionDigits}
+                      />
+                      {guest.asGuest && <GuestBuyerFields state={guest} />}
+                      {error && (
+                        <p role="alert" className="text-caption text-status-error">
+                          {error}
+                        </p>
+                      )}
+                      <Button
+                        className="w-full"
+                        loading={book.isPending}
+                        disabled={
+                          zoneTicketTypes.every((ticketType) => (qty[ticketType.id] ?? 0) === 0) ||
+                          book.isPending
+                        }
+                        onClick={() => startBooking(false)}
+                      >
+                        {sf('event.continueToPayment')}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )
             ) : (

@@ -4,6 +4,11 @@ import { z } from 'zod';
 import { MarketingConsentService } from './marketing-consent.service';
 import { CurrentUser, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import {
+  getApplicablePolicy,
+  policyJurisdictionFor,
+  policyVersionLabel,
+} from '@eticketsgo/shared-types';
 
 /**
  * The consent scopes a person can decide about.
@@ -20,11 +25,38 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
  * Somebody who declines offers has not asked to stop receiving their tickets, and a screen
  * that bundles the two into one checkbox makes that mistake on their behalf.
  */
-const CONSENT_CHANNELS = ['email', 'push', 'sms', 'whatsapp', 'whatsapp:transactional'] as const;
+const CONSENT_CHANNELS = [
+  'email',
+  'push',
+  'sms',
+  'whatsapp',
+  'whatsapp:transactional',
+  /*
+    `sms:transactional` is the same distinction as `whatsapp:transactional` above, for the
+    channel the A2P campaign covers: "you may TEXT me about my own booking", which is not
+    "you may sell to me by text". Collected at signup.
+
+    It is deliberately NOT `sms`. Writing a granted `sms` row would make the person eligible
+    for promotional text messages they never agreed to, from a checkbox whose words promise
+    booking and account notifications - the precise bundling the separate scope exists to
+    prevent.
+  */
+  'sms:transactional',
+] as const;
 
 const updateSchema = z.object({
   channel: z.enum(CONSENT_CHANNELS),
   granted: z.boolean(),
+  /*
+    The market whose disclosure the person was actually shown.
+
+    The CLIENT is the authority on which text it rendered, so it may say - but it may only
+    say the country. The VERSION is resolved server-side from the registry below, so a caller
+    cannot claim to have shown a version that does not exist, or an older one than it did.
+    Anything unrecognised normalises to the global text rather than being rejected: a consent
+    that is real should not be lost to a bad country string.
+  */
+  country: z.string().trim().max(40).optional(),
 });
 
 @ApiTags('me')
@@ -55,6 +87,16 @@ export class MarketingConsentController {
     @Ip() ip: string,
     @Headers('user-agent') userAgent?: string,
   ) {
+    const jurisdiction = policyJurisdictionFor(body.country);
+    /*
+      Which disclosure this decision was made against. SMS consent is given against the SMS
+      programme page; the other channels are governed by the privacy policy. Resolved from
+      the registry so the stored label always names a version that really exists.
+    */
+    const policyVersion = policyVersionLabel(
+      getApplicablePolicy(body.channel === 'sms' ? 'SMS' : 'PRIVACY', jurisdiction),
+    );
+
     /*
       `source` records that the decision came from the account page, in the person's own
       session. That provenance is the point: "checkbox on the settings screen" and
@@ -75,6 +117,8 @@ export class MarketingConsentController {
         : `withdrawn-by-user:${body.channel}`,
       ipAddress: ip,
       userAgent,
+      country: jurisdiction,
+      policyVersion,
     });
     return this.consent.stateFor({ userId: user.id, email: user.email }, [...CONSENT_CHANNELS]);
   }

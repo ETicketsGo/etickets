@@ -118,9 +118,24 @@ function AccountConfirmation() {
       return status === undefined || status === AWAITING_PAYMENT ? 4000 : false;
     },
   });
+  /*
+    ── THE EVENT THEY JUST BOUGHT WAS BEING RECOMMENDED TO THEM ───────────────────────
+    This asked for the next three events on the platform and printed the first two under
+    "You might also like". Nothing excluded the booking - so somebody who had just paid for
+    Standup Night was shown Standup Night, as a suggestion, on the receipt for it. Observed
+    on a real purchase.
+
+    Two things were wrong and the filter only fixes one. `listEvents` is the catalogue in date
+    order: it was never a recommendation, just whatever is on next. The recommendations
+    endpoint the event page already uses ranks them, so this now asks the same question the
+    rest of the product asks.
+
+    Five are fetched to show two, because the filter can remove one and an empty row under a
+    heading reads as something that failed to load.
+  */
   const upcoming = useQuery({
-    queryKey: ['events', 'upcoming'],
-    queryFn: () => api.listEvents({ pageSize: '3' }),
+    queryKey: ['recommendations', 'confirmation'],
+    queryFn: () => api.recommendations({ limit: 5 }),
   });
   /*
     The tickets themselves, on the confirmation screen.
@@ -189,6 +204,17 @@ function AccountConfirmation() {
     description: c('icsDescription'),
     start: booking.eventSession.startsAt,
   });
+
+  /*
+    Anything but the event they just bought.
+
+    Matched on the slug because that is the identifier a booking carries - `BookingDetail.event`
+    has a title and a slug and no id. The slug is unique per event, so it answers the question
+    exactly; the title would not, since two organizers may run an event of the same name.
+  */
+  const suggestions = (upcoming.data ?? [])
+    .filter((ev) => ev.slug !== booking.event.slug)
+    .slice(0, 2);
 
   const share = async () => {
     // In the reader's language: a French buyer sharing with a French friend should send the
@@ -475,11 +501,11 @@ function AccountConfirmation() {
       )}
 
       {/* Recommendations */}
-      {upcoming.data && upcoming.data.data.length > 0 && (
+      {suggestions.length > 0 && (
         <section className="space-y-4">
           <h2 className="text-title font-semibold text-text-primary">{e('recommendations')}</h2>
           <div className="grid gap-4">
-            {upcoming.data.data.slice(0, 2).map((ev) => (
+            {suggestions.map((ev) => (
               <EventCard key={ev.id} event={ev} />
             ))}
           </div>
