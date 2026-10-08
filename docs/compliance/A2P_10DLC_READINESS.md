@@ -3,9 +3,12 @@
 Everything needed to complete Twilio's A2P 10DLC brand and campaign application without
 re-deriving it from the codebase. No secrets appear in this document.
 
-**Status: submission-ready for the parts the repository controls. Twilio approval, production
-Twilio credentials, and legal review are external and still outstanding — see
-[External dependencies](#external-dependencies).**
+**Status: the website requirements are LIVE AND VERIFIED IN PRODUCTION** (main `94a969d`,
+walkthrough 2026-10-06, 59 checks against `https://www.eticketsgo.com`). Twilio approval,
+production Twilio credentials, the brand's tax/address records, and legal review are external
+and still outstanding — see [External dependencies](#external-dependencies).
+
+A copy-paste section for the Twilio form is at the end: [Twilio submission content](#twilio-submission-content).
 
 ---
 
@@ -181,3 +184,107 @@ Outside the repository. None is an engineering defect.
 Until credentials exist, `SMS_PROVIDER` resolves to the `log` transport: messages are recorded
 and never sent. That is a safe default, not a silent failure — nothing is delivered and nothing
 pretends to be.
+
+---
+
+# Twilio submission content
+
+Copy-paste values for the A2P 10DLC forms. Every value below is determined from the
+repository or verified on production. Fields that must come from corporate records or the
+Twilio Console are marked **[FROM BUSINESS]** and are deliberately left blank.
+
+## Brand registration
+
+| Field                                               | Value                        |
+| --------------------------------------------------- | ---------------------------- |
+| Legal company name                                  | `DeepTrics LLC`              |
+| Brand / DBA                                         | `ETicketsGo`                 |
+| Entity type                                         | `Private Profit`             |
+| Country                                             | `United States`              |
+| Website                                             | `https://www.eticketsgo.com` |
+| Support email                                       | `support@eticketsgo.com`     |
+| Vertical                                            | `ENTERTAINMENT`              |
+| EIN / Tax ID                                        | **[FROM BUSINESS]**          |
+| Registered street address, city, state, postal code | **[FROM BUSINESS]**          |
+| Support phone (E.164)                               | **[FROM BUSINESS]**          |
+
+India operates through a separate entity, `Deeptrics Software Solution Pvt Ltd`. It is **not**
+part of this US registration and is named here only so the two are not confused.
+
+## Campaign
+
+**Use case:** `Mixed`
+
+**Campaign description** (paste as-is):
+
+> ETicketsGo is an online ticketing platform for films and live events. We send text messages
+> to people who have an account or a booking with us: one-time sign-in codes, booking
+> confirmations with ticket details, entry information and reminders for events they booked,
+> notices when an event is rescheduled or cancelled, refund updates, and replies to support
+> requests. Customers who separately opt in may also receive messages about other events.
+> Promotional consent is never taken from a purchase, an account, a phone number, an OTP or
+> acceptance of our terms.
+
+**How customers opt in** (paste as-is):
+
+> Transactional messages relate to a booking or sign-in the customer started themselves.
+> Promotional messages require a separate opt-in: a signed-in customer opens Account >
+> Notification settings and turns on text messages. The control is off by default, is separate
+> from accepting our Terms, and is separate from the email marketing control. Each decision is
+> stored as an append-only record with the account, the verified mobile number, the market, the
+> exact disclosure version shown, the source screen and the timestamp. The programme, including
+> the full disclosure, is published at https://www.eticketsgo.com/sms
+
+**Opt-in URL:** `https://www.eticketsgo.com/sms`
+
+**Consent disclosure** (the text shown with the opt-in; paste as-is):
+
+> ETicketsGo sends text messages about your account and the tickets you bought. Message
+> frequency depends on what you do. Message and data rates may apply. Reply STOP to any message
+> to stop receiving them, or HELP for help. Agreeing to text messages is not a condition of
+> buying a ticket. See our Terms at https://www.eticketsgo.com/terms and our Privacy Policy at
+> https://www.eticketsgo.com/privacy
+
+| Field             | Value                                       |
+| ----------------- | ------------------------------------------- |
+| Terms URL         | `https://www.eticketsgo.com/terms`          |
+| Privacy URL       | `https://www.eticketsgo.com/privacy`        |
+| SMS programme URL | `https://www.eticketsgo.com/sms`            |
+| Message frequency | `Message frequency depends on what you do.` |
+| Rates disclosure  | `Message and data rates may apply.`         |
+| Help / support    | `support@eticketsgo.com`                    |
+
+**Opt-out (STOP) response** — Twilio Advanced Opt-Out replies; our webhook records the
+suppression so application state cannot drift from the carrier's:
+
+> You are unsubscribed from ETicketsGo messages. No more messages will be sent. Reply START to
+> resume. Reply HELP for help.
+
+**HELP response:**
+
+> ETicketsGo ticket and account messages. Help: support@eticketsgo.com. Reply STOP to
+> unsubscribe. Message and data rates may apply.
+
+## Sample messages
+
+Each maps to a real notification type in the platform.
+
+1. `ETicketsGo: your sign-in code is 123456. It expires in 10 minutes. Do not share it.`
+2. `ETicketsGo: your tickets for Comedy Night are confirmed. Booking ETG-US-2026-00123. View your tickets: https://www.eticketsgo.com/booking/find`
+3. `ETicketsGo: the start time for Comedy Night has changed to 7:30 PM on Oct 19. Your ticket is still valid.`
+4. `ETicketsGo: Comedy Night on Oct 19 has been cancelled. A refund has been started. Reply HELP for help.`
+5. `ETicketsGo: your refund of $24.99 for booking ETG-US-2026-00123 has been sent.`
+6. `ETicketsGo: tickets for Comedy Night in Austin go on sale Friday at 10 AM. Reply STOP to stop these.`
+
+Sample 6 is the only promotional one and goes only to customers who opted in; it carries the
+opt-out reminder. The transactional samples do not, because they are not promotional.
+
+## Twilio Console configuration (not in this repository)
+
+| Setting                                  | Required value                                                                                                              |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Messaging Service status callback        | `https://api.eticketsgo.com/api/notifications/webhooks/twilio`                                                              |
+| Messaging Service inbound webhook (POST) | `https://api.eticketsgo.com/api/notifications/webhooks/twilio/inbound`                                                      |
+| Advanced Opt-Out                         | **Enabled** — without it Twilio blocks STOPped numbers but never reports `OptOutType`, so local opt-out state cannot follow |
+| Geographic permissions                   | US and Canada                                                                                                               |
+| `PUBLIC_API_URL` on the API service      | must equal `https://api.eticketsgo.com` byte-for-byte; Twilio signs the URL                                                 |
