@@ -30,6 +30,7 @@
  * that must not be inherited are removed.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { assertDeployedIsMain } from './lib/deployed-is-main.mjs';
 
 const API = 'https://backboard.railway.app/graphql/v2';
 const DRY = process.argv.includes('--dry-run');
@@ -143,6 +144,15 @@ const digest = (value) => createHash('sha256').update(String(value)).digest('hex
 async function main() {
   const target = await environmentOf(TOKEN);
   console.log(`\nRotating secrets in "${target.name}"${DRY ? '   [DRY RUN]' : ''}`);
+  /*
+    Removing a variable cannot skip deploys, so it redeploys main to that service. Refuse unless
+    every service here is already on main - otherwise this "rotation" is an unreviewed upgrade.
+  */
+  if (!DRY) {
+    await assertDeployedIsMain((q, v) => gql(TOKEN, q, v), target, {
+      allowDeploy: process.argv.includes('--allow-deploy'),
+    });
+  }
 
   const reference = REFERENCE ? await environmentOf(REFERENCE) : null;
   if (reference) {
@@ -186,6 +196,8 @@ async function main() {
           serviceId: service.serviceId,
           name,
           value: make(),
+          // A write is never a deploy; see scripts/deploy/lib/deployed-is-main.mjs.
+          skipDeploys: true,
         },
       });
       changes.push(`rotated ${name}`);

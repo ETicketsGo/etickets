@@ -93,14 +93,7 @@ const API_URL = `https://${API_HOST}/api`;
   first CORS origin" to be the website, and shared tickets went out as
   customer-web-qa.up.railway.app. That code is gone; this order means nothing can regress to it.
 */
-const CORS = [
-  CUSTOM_WEB_HOST,
-  CUSTOM_ORG_HOST,
-  CUSTOM_ADMIN_HOST,
-  WEB_HOST,
-  ORG_HOST,
-  ADMIN_HOST,
-]
+const CORS = [CUSTOM_WEB_HOST, CUSTOM_ORG_HOST, CUSTOM_ADMIN_HOST, WEB_HOST, ORG_HOST, ADMIN_HOST]
   .map((h) => `https://${h}`)
   .join(',');
 
@@ -254,7 +247,7 @@ async function main() {
       }
       if (!DRY) {
         await gql(`mutation($in:VariableUpsertInput!){ variableUpsert(input:$in) }`, {
-          in: { projectId, environmentId, serviceId: id, name: k, value },
+          in: { projectId, environmentId, serviceId: id, name: k, value, skipDeploys: true },
         });
       }
       wrote += 1;

@@ -98,7 +98,8 @@ console.log(`project ${project.name} · environment ${environment.name} · opera
 
 const setVar = (name, value) =>
   gql(`mutation($i:VariableUpsertInput!){ variableUpsert(input:$i) }`, {
-    i: { projectId, environmentId, serviceId, name, value },
+    // Never a deploy by itself: this script deploys db-seed explicitly once both are set.
+    i: { projectId, environmentId, serviceId, name, value, skipDeploys: true },
   });
 const deleteVar = (name) =>
   gql(`mutation($i:VariableDeleteInput!){ variableDelete(input:$i) }`, {

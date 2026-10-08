@@ -230,7 +230,11 @@ async function main() {
   // ── 8. Restart with jobs queued — nothing is lost ─────────────────────────────────
   console.log('\n5. Worker restart with pending jobs');
   const waitingBefore = await queue.getWaitingCount();
-  record('a job is waiting while the consumer is down', waitingBefore >= 1, `waiting=${waitingBefore}`);
+  record(
+    'a job is waiting while the consumer is down',
+    waitingBefore >= 1,
+    `waiting=${waitingBefore}`,
+  );
 
   await worker.close(); // simulate the worker being redeployed/restarted
   await sleep(500);
@@ -250,8 +254,16 @@ async function main() {
     { connection: conn, prefix: qaPrefix },
   );
   await worker2.waitUntilReady();
-  await waitFor(() => restarted.includes('qa-only-job'), 20000, 'restarted worker to drain backlog');
-  record('the restarted worker picks the job up — no loss', true, 'qa-only-job processed after restart');
+  await waitFor(
+    () => restarted.includes('qa-only-job'),
+    20000,
+    'restarted worker to drain backlog',
+  );
+  record(
+    'the restarted worker picks the job up — no loss',
+    true,
+    'qa-only-job processed after restart',
+  );
 
   // ── 9. Keyspace inspection: everything QA wrote is under the QA root ──────────────
   console.log('\n6. Keyspace inspection');

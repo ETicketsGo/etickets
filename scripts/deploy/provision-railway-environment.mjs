@@ -325,7 +325,7 @@ Project "${project.name}"  ·  environment "${envName}"${DRY ? '   [DRY RUN]' : 
       const vars = store.vars();
       for (const [name, value] of Object.entries(vars)) {
         await gql(`mutation($in:VariableUpsertInput!){ variableUpsert(input:$in) }`, {
-          in: { projectId, environmentId, serviceId: id, name, value },
+          in: { projectId, environmentId, serviceId: id, name, value, skipDeploys: true },
         });
       }
       act(`${store.name}: generated credentials (${Object.keys(vars).join(', ')})`);
