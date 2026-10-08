@@ -94,6 +94,22 @@ describe('ShowsService.getPublicShowSummary', () => {
     });
   });
 
+  it('gives no projection format for a space that is not a cinema screen', async () => {
+    /*
+      Every space has a screenType, defaulting to "2D". A basketball game in an arena was
+      badged "2D" on its seat page, as if it were a film. Format is a cinema screen's fact.
+    */
+    const { service } = makeService(
+      screening({
+        event: { ...screening().event, experienceType: 'EVENT', movie: null },
+        screen: { name: 'Main Arena', screenType: '2D', cinema: null },
+      }),
+    );
+    const summary = await service.getPublicShowSummary('sess1');
+    expect(summary.screen).toEqual({ name: 'Main Arena', format: null });
+    expect(summary.cinema).toBeNull();
+  });
+
   it('leaves the film out while the film itself is unpublished', async () => {
     const { service } = makeService(
       screening({ event: { ...screening().event, movie: { ...film, status: 'DRAFT' } } }),

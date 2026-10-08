@@ -2519,7 +2519,15 @@ export class ShowsService {
         ? { id: session.screen.cinema.id, name: session.screen.cinema.name }
         : null,
       screen: session.screen
-        ? { name: session.screen.name, format: session.screen.screenType }
+        ? {
+            name: session.screen.name,
+            /*
+              A projection format ("2D", "IMAX") describes a cinema screen. Every space carries
+              a `screenType` - it defaults to "2D" - so without this a basketball game and an
+              auditorium recital were badged "2D" on the seat page.
+            */
+            format: session.screen.cinema ? session.screen.screenType : null,
+          }
         : null,
     };
   }
