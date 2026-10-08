@@ -560,7 +560,13 @@ export class EventsService {
             // So the schedule can say WHICH room a seated session is in. `screenId` alone
             // tells the organizer only that it is seated somewhere, which is the half of the
             // answer they already knew.
-            screen: { select: { name: true, cinema: { select: { name: true } } } },
+            screen: {
+              select: {
+                name: true,
+                venue: { select: { name: true } },
+                cinema: { select: { name: true } },
+              },
+            },
           },
         },
       },
@@ -813,9 +819,13 @@ export class EventsService {
       event in the concert configuration. Resolution by date remains the answer when no
       choice was made, which is every cinema screen and every space with one layout.
     */
-    const seatMap = input.seatMapId
-      ? await this.shows.requireLayoutForSpace(screenId, input.seatMapId)
-      : await this.shows.resolveLayoutForShow(screenId, input.startsAt);
+    // Chosen, or resolved only where the space has a single configuration. See
+    // `chooseLayoutForSession`: a multi-layout space without a choice is refused, never guessed.
+    const seatMap = await this.shows.chooseLayoutForSession(
+      screenId,
+      input.startsAt,
+      input.seatMapId,
+    );
     return this.prisma.$transaction(async (tx) => {
       const session = await tx.eventSession.create({
         data: {
@@ -860,7 +870,12 @@ export class EventsService {
    * configuration rather than a commitment — but the caller is told the count first, so
    * the organizer confirms the loss rather than discovering it.
    */
-  async updateSessionSeating(user: RequestUser, sessionId: string, screenId: string | null) {
+  async updateSessionSeating(
+    user: RequestUser,
+    sessionId: string,
+    screenId: string | null,
+    seatMapId?: string | null,
+  ) {
     const session = await this.prisma.eventSession.findUnique({
       where: { id: sessionId },
       include: { event: { select: { id: true, organizationId: true } } },
@@ -872,6 +887,14 @@ export class EventsService {
 
     await this.assertNothingCommitted(sessionId);
 
+    if (seatMapId && !screenId) {
+      // A layout names a space; general admission has neither.
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        'A layout was chosen without a space. Choose the space it belongs to.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     if (screenId) {
       await this.assertRoomIsUsable(screenId, session.event.organizationId);
     }
@@ -887,8 +910,18 @@ export class EventsService {
       the layout has to be PUBLISHED. Running the room check first means an organizer is told
       what to actually do. It also keeps a multi-query read outside an open transaction.
     */
+    /*
+      The organizer's choice when they made one. Otherwise, staying in the SAME space keeps the
+      layout the session already pins - re-seating the arena must not quietly swap Basketball
+      for Concert - and a different space resolves only if it has a single configuration.
+    */
     const seatMap = screenId
-      ? await this.shows.resolveLayoutForShow(screenId, session.startsAt)
+      ? await this.shows.chooseLayoutForSession(
+          screenId,
+          session.startsAt,
+          seatMapId,
+          screenId === session.screenId ? session.seatMapId : null,
+        )
       : null;
 
     return this.prisma.$transaction(async (tx) => {

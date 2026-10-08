@@ -29,7 +29,7 @@ import { cancelPendingBooking, expirePendingBooking } from '../inventory/expire-
 import { AddOnInventoryService, type AddOnLine } from '../commerce/addon-inventory.service';
 import { onSale } from '../commerce/addons.service';
 import { AppException, ErrorCodes } from '../common/errors';
-import { requireCommerceCurrency } from '../common/commerce-currency';
+import { resolveCommerceCurrency } from '../common/commerce-currency';
 import type { RequestUser } from '../common/decorators';
 import { MetricsService } from '../metrics/metrics.service';
 import { InventoryLockShadowService } from '../inventory/locking/inventory-lock-shadow.service';
@@ -1158,28 +1158,15 @@ export class BookingsService {
     venueCountry: string | null | undefined,
   ): string {
     /*
-      A line with no currency contributes no opinion rather than crashing the booking.
-
-      `TicketType.currency` is NOT NULL with a default, so in real data this is always
-      present — a missing one means a `select` that did not ask for the column. Reading
-      through it would throw here, which turns a query oversight into a customer unable to
-      buy a ticket. Skipping it lets the venue answer instead, and the venue's answer is
-      the same one the ticket type would have been created with.
+      A line with no currency contributes no opinion rather than crashing the booking: a
+      missing one means a `select` that did not ask for the column, and the venue answers
+      instead. The rule itself is shared with add-ons and bundles, so the things sold beside
+      a ticket cannot be priced in a different currency from it.
     */
-    const distinct = [
-      ...new Set(priced.map((p) => p.currency?.trim().toUpperCase()).filter(Boolean)),
-    ] as string[];
-    if (distinct.length > 1) {
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'These tickets are priced in different currencies and cannot be bought together.',
-        HttpStatus.BAD_REQUEST,
-        { currencies: distinct },
-      );
-    }
-    // A priced line is authoritative. With no priced line, only a known supported venue
-    // country may establish financial currency; an empty cart is not evidence of India.
-    return distinct[0] ?? requireCommerceCurrency(venueCountry);
+    return resolveCommerceCurrency(
+      priced.map((p) => p?.currency),
+      venueCountry,
+    );
   }
 
   async quote(input: QuoteBookingInput) {
