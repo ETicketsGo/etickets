@@ -496,6 +496,7 @@ export default function EditMoviePage() {
         show={editing}
         onClose={() => setEditing(null)}
         onChanged={() => showsQ.refetch()}
+        timeZone={cinemasQ.data?.find((c) => c.id === editing?.cinemaId)?.timezone}
       />
 
       <Dialog

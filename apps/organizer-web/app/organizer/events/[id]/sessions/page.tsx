@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
+import { venueInputZone, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import {
   api,
   Button,
@@ -117,12 +118,18 @@ export default function SessionsTab() {
   };
 
   const [form, setForm] = useState({ startsAt: '', endsAt: '', layoutId: GENERAL_ADMISSION });
+  // Show times are typed and shown in the venue's zone, never the browser's. See lib/zoned-time.ts.
+  const inputZone = venueInputZone(event?.venue);
+  const venueTz = inputZone.known ? inputZone.zone : undefined;
+  const timeZoneNote = inputZone.known
+    ? `Venue time: ${zoneLabel(inputZone.zone)}`
+    : `Your time zone (${inputZone.zone}) - set the venue's time zone to be sure`;
 
   const add = useMutation({
     mutationFn: () =>
       api.events.addSession(id, {
-        startsAt: new Date(form.startsAt).toISOString(),
-        endsAt: new Date(form.endsAt).toISOString(),
+        startsAt: wallClockToInstant(form.startsAt, inputZone.zone).toISOString(),
+        endsAt: wallClockToInstant(form.endsAt, inputZone.zone).toISOString(),
         // Omitted entirely when general admission — sending an empty string would be a room
         // id that does not exist, and the request would be refused rather than understood.
         ...(seatingFor(form.layoutId) ?? {}),
@@ -175,8 +182,8 @@ export default function SessionsTab() {
   });
 
   const columns: Column<EventSession>[] = [
-    { key: 'start', header: 'Starts', render: (s) => dateTime(s.startsAt) },
-    { key: 'end', header: 'Ends', render: (s) => dateTime(s.endsAt) },
+    { key: 'start', header: 'Starts', render: (s) => dateTime(s.startsAt, undefined, venueTz) },
+    { key: 'end', header: 'Ends', render: (s) => dateTime(s.endsAt, undefined, venueTz) },
     {
       key: 'seating',
       header: 'Seating',
@@ -243,6 +250,7 @@ export default function SessionsTab() {
             label="Starts at"
             value={form.startsAt}
             onChange={(v) => setForm({ ...form, startsAt: v })}
+            timeZoneLabel={timeZoneNote}
           />
           <DateTimeField
             id="e"
@@ -252,6 +260,7 @@ export default function SessionsTab() {
             min={form.startsAt}
             onChange={(v) => setForm({ ...form, endsAt: v })}
             error={endBeforeStart ? 'End must be after start.' : undefined}
+            timeZoneLabel={timeZoneNote}
           />
 
           <div>
@@ -308,7 +317,7 @@ export default function SessionsTab() {
       >
         <div className="space-y-3">
           <p className="text-[0.9375rem] text-text-secondary">
-            {editing ? dateTime(editing.startsAt) : ''}
+            {editing ? dateTime(editing.startsAt, undefined, venueTz) : ''}
           </p>
 
           <Select

@@ -27,6 +27,7 @@ import {
 import { venuePayload } from '@/components/venue-fields';
 import { useOrg } from '@/components/org-context';
 import { WizardSteps } from '@/components/wizard-steps';
+import { venueInputZone, wallClockToInstant, zoneLabel } from '@/lib/zoned-time';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
 import {
@@ -104,7 +105,9 @@ const REFUND_CUTOFFS: { value: string; label: string }[] = [
 /** A session's start, as the organizer chose it - the thing that tells two sessions apart. */
 function sessionWhen(s: SessionDraft, index: number): string {
   return s.startsAt
-    ? new Date(s.startsAt).toLocaleString('en-IN', {
+    ? // Formatted as typed - a wall clock at the venue - so read in UTC, where it is unshifted.
+      new Date(`${s.startsAt}:00Z`).toLocaleString('en-IN', {
+        timeZone: 'UTC',
         day: 'numeric',
         month: 'short',
         hour: 'numeric',
@@ -222,8 +225,20 @@ function NewEventWizard() {
       .formatToParts(0)
       .find((p) => p.type === 'currency')?.value ?? eventCurrency;
   /* The clock the buyer reads the start time in: the venue's, never the visitor's. */
-  const eventTimezone =
-    venueMode === 'new' ? newVenueWhere.timezone : (chosenVenue?.timezone ?? undefined);
+  /*
+    The zone the organizer is typing show times in: the venue's, never the browser's. See
+    lib/zoned-time.ts - a 19:00 Hyderabad concert typed from Denver used to be stored as
+    19:00 Denver time.
+  */
+  const inputZone = venueInputZone(
+    venueMode === 'new'
+      ? { timezone: newVenueWhere.timezone, country: newVenueWhere.country }
+      : chosenVenue,
+  );
+  const eventTimezone = inputZone.known ? inputZone.zone : undefined;
+  const timeZoneNote = inputZone.known
+    ? `Venue time: ${zoneLabel(inputZone.zone)}`
+    : `Your time zone (${inputZone.zone}) - set the venue's time zone to be sure`;
   const [sessions, setSessions] = useState<SessionDraft[]>(initial.sessions);
   const [tickets, setTickets] = useState<TicketDraft[]>(initial.tickets);
 
@@ -546,8 +561,8 @@ function NewEventWizard() {
       // Only reserved seating sends a room; see `sessionsToSend`.
       for (const s of sessionsToSend({ admission, sessions })) {
         const created = await api.events.addSession(event.id, {
-          startsAt: new Date(s.startsAt).toISOString(),
-          endsAt: new Date(s.endsAt).toISOString(),
+          startsAt: wallClockToInstant(s.startsAt, inputZone.zone).toISOString(),
+          endsAt: wallClockToInstant(s.endsAt, inputZone.zone).toISOString(),
           // Omitted rather than sent empty: '' is a room id that does not exist, and the
           // request would be refused instead of understood as "no room".
           ...(s.screenId ? { screenId: s.screenId } : {}),
@@ -656,7 +671,7 @@ function NewEventWizard() {
   // Only complete times: a date picked before its time is not a moment yet, and
   // `toISOString` throws on it - mid-typing, on every render.
   const firstStartMs = sessions
-    .map((s) => (s.startsAt ? new Date(s.startsAt).getTime() : NaN))
+    .map((s) => (s.startsAt ? wallClockToInstant(s.startsAt, inputZone.zone).getTime() : NaN))
     .filter((ms) => Number.isFinite(ms))
     .sort((a, b) => a - b)[0];
   const firstStartIso = firstStartMs !== undefined ? new Date(firstStartMs).toISOString() : null;
@@ -963,6 +978,7 @@ function NewEventWizard() {
                       setSessions(sessions.map((x, j) => (j === i ? { ...x, startsAt: v } : x)))
                     }
                     error={fieldErrors[`s${i}Start`]}
+                    timeZoneLabel={timeZoneNote}
                   />
                   <DateTimeField
                     id={`se${i}`}
@@ -976,6 +992,7 @@ function NewEventWizard() {
                       setSessions(sessions.map((x, j) => (j === i ? { ...x, endsAt: v } : x)))
                     }
                     error={fieldErrors[`s${i}End`]}
+                    timeZoneLabel={timeZoneNote}
                   />
                   {/*
                     Seating is no longer chosen here. It is one of the three answers to "how do
