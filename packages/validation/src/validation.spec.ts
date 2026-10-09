@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { registerSchema, loginSchema, createBookingSchema, createTicketTypeSchema } from './index';
+import {
+  registerSchema,
+  loginSchema,
+  createBookingSchema,
+  createTicketTypeSchema,
+  createOrganizationSchema,
+} from './index';
 
 describe('auth schemas', () => {
   it('accepts a valid registration and lowercases the email', () => {
@@ -43,6 +49,36 @@ describe('booking schema', () => {
       buyerEmail: 'riya@example.com',
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe('phone-only placeholder addresses', () => {
+  /*
+    A phone sign-in account carries "phone+<digits>@users.eticketsgo.internal" internally. It is
+    not a mailbox: tickets, receipts or an organization's contact details sent there go nowhere.
+  */
+  const cuid = 'clzzzzzzzzzzzzzzzzzzzzzzzz';
+  const placeholder = 'phone+14695884580@users.eticketsgo.internal';
+
+  it('refuses a placeholder as the buyer email, so tickets cannot be sent nowhere', () => {
+    const r = createBookingSchema.safeParse({
+      eventSessionId: cuid,
+      items: [{ ticketTypeId: cuid, quantity: 1 }],
+      buyerName: 'Riya Rao',
+      buyerEmail: placeholder,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('refuses a placeholder as an organization contact email', () => {
+    const r = createOrganizationSchema.safeParse({
+      name: 'Riverside Live',
+      contactEmail: placeholder,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path.includes('contactEmail'))).toBe(true);
+    }
   });
 });
 

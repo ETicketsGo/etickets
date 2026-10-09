@@ -1,6 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { Role, UserStatus, countryAliases, marketFor } from '@eticketsgo/shared-types';
+import {
+  Role,
+  UserStatus,
+  countryAliases,
+  isReservedEmail,
+  marketFor,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 
@@ -26,15 +32,17 @@ export class UsersService {
     if (!user) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'User not found.', HttpStatus.NOT_FOUND);
     }
-    return user;
+    // A phone-only account's placeholder address is never shown: it is not an email address.
+    return { ...user, email: isReservedEmail(user.email) ? null : user.email };
   }
 
   async updateProfile(userId: string, fullName: string) {
-    return this.prisma.user.update({
+    const user = await this.prisma.user.update({
       where: { id: userId },
       data: { fullName },
       select: { id: true, email: true, fullName: true, roles: true },
     });
+    return { ...user, email: isReservedEmail(user.email) ? null : user.email };
   }
 
   /**

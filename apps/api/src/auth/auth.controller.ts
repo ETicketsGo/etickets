@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isReservedEmail } from '@eticketsgo/shared-types';
 import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -220,6 +221,17 @@ export class AuthController {
       */
       this.auth.myAdminPermissions(user.id, user.roles),
     ]);
-    return { ...user, lastBuyerRegion, ...details, ...permissions };
+    /*
+      A phone-only account's address is a placeholder, never contact information. It is not
+      sent to the browser at all, so no screen can show it, prefill a form with it, or put it on
+      a booking - `email: null` is the honest answer: this account has no email address yet.
+    */
+    return {
+      ...user,
+      email: isReservedEmail(user.email) ? null : user.email,
+      lastBuyerRegion,
+      ...details,
+      ...permissions,
+    };
   }
 }

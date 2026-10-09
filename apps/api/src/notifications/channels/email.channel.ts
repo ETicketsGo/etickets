@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isReservedEmail } from '@eticketsgo/shared-types';
 import { redirectUrl } from '../../common/console-urls';
 import { buildEmailView } from '../templates/email-view';
 import { renderEmailHtml } from '../templates/email-html';
@@ -41,6 +42,14 @@ export class EmailChannel implements NotificationChannel {
    * expect from a genuine sender.
    */
   async deliver(msg: RenderedNotification): Promise<DeliveryOutcome> {
+    /*
+      Never mail a placeholder. A phone-only account's address is an identifier in a domain we
+      keep for ourselves; sending to it bounces, and bounces count against the sender. It is a
+      message with nowhere to go - skipped, not failed, so nothing retries it.
+    */
+    if (isReservedEmail(msg.toEmail)) {
+      return { provider: 'none', skipped: true, reason: 'no_deliverable_email' };
+    }
     return this.transport.send({ ...msg, html: this.htmlFor(msg) });
   }
 

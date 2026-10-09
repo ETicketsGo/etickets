@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { Role } from '@eticketsgo/shared-types';
-import { emailSchema, passwordSchema, registrableEmailSchema } from './common';
+import {
+  deliverableEmailSchema,
+  emailSchema,
+  passwordSchema,
+  registrableEmailSchema,
+} from './common';
 
 /*
   ── WHY REGISTRATION ASKS WHO YOU ARE ──────────────────────────────────────────────
@@ -16,7 +21,7 @@ import { emailSchema, passwordSchema, registrableEmailSchema } from './common';
 */
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(160),
-  contactEmail: emailSchema.optional(),
+  contactEmail: emailSchema.pipe(deliverableEmailSchema).optional(),
   legalName: z.string().trim().max(200).optional(),
   legalEntityType: z.string().trim().max(80).optional(),
   registeredCountry: z.string().trim().max(80).optional(),
@@ -44,7 +49,7 @@ export const updateOrganizationProfileSchema = z.object({
   twitterUrl: optionalUrl,
   instagramUrl: optionalUrl,
   facebookUrl: optionalUrl,
-  contactEmail: z.union([emailSchema, z.literal('')]).optional(),
+  contactEmail: z.union([emailSchema.pipe(deliverableEmailSchema), z.literal('')]).optional(),
   contactPhone: z.string().trim().max(40).optional(),
   /**
    * The accent palette this organization's workspace is rendered in.

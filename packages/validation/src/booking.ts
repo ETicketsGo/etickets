@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deliverableEmailSchema } from './common';
 
 export const bookingItemSchema = z
   .object({
@@ -33,7 +34,7 @@ export const createBookingSchema = z
     bundles: z.array(bundleItemInputSchema).max(20).optional(),
     couponCode: z.string().trim().max(40).optional(),
     buyerName: z.string().trim().min(2).max(120),
-    buyerEmail: z.string().email(),
+    buyerEmail: deliverableEmailSchema,
     /**
      * How the buyer intends to pay.
      *

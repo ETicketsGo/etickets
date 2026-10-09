@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
-import { FeedbackKind, NotificationType, OrganizationStatus, Role } from '@eticketsgo/shared-types';
+import {
+  FeedbackKind,
+  NotificationType,
+  OrganizationStatus,
+  Role,
+  isReservedEmail,
+} from '@eticketsgo/shared-types';
 import type {
   CreateOrganizationInput,
   AcceptInvitationInput,
@@ -150,7 +156,8 @@ export class OrganizationsService {
       {
         organizationId: org.id,
         organizationName: org.name,
-        contactEmail: org.contactEmail ?? user.email,
+        // A phone-only account's placeholder is not a mailbox: no contact beats a dead one.
+        contactEmail: org.contactEmail ?? (isReservedEmail(user.email) ? null : user.email),
         registeredByUserId: user.id,
       },
       {
