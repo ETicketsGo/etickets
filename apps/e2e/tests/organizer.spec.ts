@@ -52,7 +52,16 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   ).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
-  // Step 3 — tickets and pricing (defaults are prefilled)
+  /*
+    Step 3 — tickets and pricing. How people get in is asked first, and a paid event's price is
+    typed by the organizer: the first row arrives named "General" with 100 on sale, but no
+    price is ever chosen for them in a currency they have not seen yet.
+  */
+  await page.getByRole('radio', { name: 'Paid - general admission' }).check();
+  await page
+    .getByRole('group', { name: 'Ticket type 1' })
+    .getByLabel(/^Price/)
+    .fill('499');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   // Step 4 — image and details
@@ -81,7 +90,12 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
     already selected, standing between an organizer and their first published event; the
     control now lives on Review, answered and changeable.
   */
-  await expect(page.getByText(title)).toBeVisible();
+  // The title as the buyer's card shows it, in the preview of that card.
+  await expect(
+    page.getByRole('group', { name: 'Preview of your event card' }).getByRole('heading', {
+      name: title,
+    }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Submit for approval' }).click();
 
   // Redirected to the event overview, now under review

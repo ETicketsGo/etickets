@@ -3887,6 +3887,8 @@ export interface SeatingRoom {
   id: string;
   name: string;
   venueName: string;
+  /** The venue the space is in. Null only for an old space never linked to one. */
+  venueId: string | null;
   layoutId: string;
   layoutName: string | null;
   layoutKind: string;

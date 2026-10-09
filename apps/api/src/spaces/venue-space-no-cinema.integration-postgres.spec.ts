@@ -225,6 +225,9 @@ describe('integration-real-postgres: a space in a venue, with no cinema', () => 
     // The VENUE is the place. Before the fix this returned the cinema's name, and here there
     // is no cinema to borrow one from.
     expect(mine.venueName).toBe(`Sai Nigamagamam ${suffix}`);
+    // And the venue by id: the wizard offers reserved seating only in the picked venue's
+    // spaces, and two venues can share a name.
+    expect(mine.venueId).toBe(venueId);
     expect(mine.sellableSeats).toBe(18);
   });
 
