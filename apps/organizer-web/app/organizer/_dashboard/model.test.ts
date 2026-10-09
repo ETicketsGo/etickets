@@ -3,8 +3,17 @@ import type {
   NotificationFeed,
   NotificationFeedGroup,
   OrganizerAnalytics,
+  OrganizerCalendarSession,
 } from '@eticketsgo/web-kit';
-import { moneyFor, pendingActions, performanceFor, pickCurrency, recentActivity } from './model';
+import {
+  comingUp,
+  comingUpWindow,
+  moneyFor,
+  pendingActions,
+  performanceFor,
+  pickCurrency,
+  recentActivity,
+} from './model';
 
 const analytics = {
   organizationId: 'o1',
@@ -155,5 +164,42 @@ describe('pending actions and recent activity', () => {
   it('copes with no feed at all', () => {
     expect(pendingActions(undefined)).toEqual([]);
     expect(recentActivity(undefined)).toEqual([]);
+  });
+});
+
+function show(id: string, startsAt: string, over: Partial<OrganizerCalendarSession> = {}) {
+  return {
+    id,
+    startsAt,
+    endsAt: startsAt,
+    status: 'SCHEDULED',
+    event: { id: 'e', title: id, category: 'MUSIC', status: 'PUBLISHED', experienceType: 'EVENT' },
+    venue: { id: 'v', name: 'V', city: 'C', country: 'IN', timezone: 'Asia/Kolkata' },
+    cinemaTimezone: null,
+    sold: 1,
+    capacity: 10,
+    ...over,
+  } as OrganizerCalendarSession;
+}
+
+describe('coming up', () => {
+  const now = new Date('2026-10-09T12:00:00Z');
+  it('looks a week ahead from now', () => {
+    expect(comingUpWindow(now)).toEqual({
+      from: '2026-10-09T12:00:00.000Z',
+      to: '2026-10-16T12:00:00.000Z',
+    });
+  });
+  it('lists the soonest live shows, and nothing that has started or will not happen', () => {
+    const rows = [
+      show('later', '2026-10-12T10:00:00Z'),
+      show('started', '2026-10-09T11:00:00Z'),
+      show('soon', '2026-10-10T10:00:00Z'),
+      show('cancelled-show', '2026-10-10T11:00:00Z', { status: 'CANCELLED' }),
+      show('cancelled-event', '2026-10-10T12:00:00Z', {
+        event: { id: 'x', title: 'x', category: 'M', status: 'CANCELLED', experienceType: 'EVENT' },
+      }),
+    ];
+    expect(comingUp(rows, now).map((s) => s.id)).toEqual(['soon', 'later']);
   });
 });

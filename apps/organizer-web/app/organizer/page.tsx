@@ -44,6 +44,7 @@ import { useOrg } from '@/components/org-context';
 import { WelcomeCard } from '@/components/onboarding-checklist';
 import { isForbidden } from '@/lib/org-permissions';
 import { relativeTime } from '@/lib/notification-feed-view';
+import { formatClock, formatDayLong, localPlace, sessionZone, zoneAbbrev } from '@/lib/calendar';
 import { NeedsAttention } from './needs-attention';
 import {
   moneyFor,
@@ -51,6 +52,9 @@ import {
   performanceFor,
   pickCurrency,
   recentActivity,
+  comingUp,
+  comingUpWindow,
+  COMING_UP_DAYS,
   type MarketChoice,
   type MarketMoney,
 } from './_dashboard/model';
@@ -131,13 +135,14 @@ export default function OrganizerDashboard() {
     queryFn: () => api.analytics.organizer(activeOrg.id),
   });
   /*
-    What is on next. The gate's own list - shows that started in the last six hours or start in
-    the next eighteen - because it is the one dated list the API offers for a whole
-    organization, and "what is on today and tonight" is the question it answers.
+    What is on next: the calendar's own endpoint, one request for every show of the
+    organization in the coming week, with sold and capacity per show. The window is fixed at
+    mount so the query key does not change on every render.
   */
+  const [window7] = useState(() => comingUpWindow());
   const upcomingQ = useQuery({
-    queryKey: ['checkins', 'sessions', activeOrg.id],
-    queryFn: () => api.checkins.gateSessions(activeOrg.id),
+    queryKey: ['organizer-calendar', activeOrg.id, window7.from, window7.to],
+    queryFn: () => api.events.calendar(activeOrg.id, window7.from, window7.to),
   });
   const feedQ = useQuery({
     queryKey: FEED_KEY,
@@ -177,6 +182,7 @@ export default function OrganizerDashboard() {
   const attendance = analytics?.attendance;
   const repeat = analytics?.repeatVisitors;
   const performance = performanceFor(analytics, activeCurrency);
+  const upcoming = comingUp(upcomingQ.data?.sessions);
   const pending = pendingActions(feedQ.data).slice(0, 4);
   const activity = recentActivity(feedQ.data, 5);
   const latestPayout = payoutsQ.data?.[0];
@@ -521,10 +527,10 @@ export default function OrganizerDashboard() {
           <div className="min-w-0 space-y-6">
             <SectionCard
               title="Coming up"
-              description="Shows from six hours ago to eighteen hours ahead."
+              description="Your next shows in the coming week, at each venue's local time."
               action={
-                <SectionLink href="/organizer/gate" srLabel="tickets">
-                  Check in
+                <SectionLink href="/organizer/calendar" srLabel="shows">
+                  Calendar
                 </SectionLink>
               }
             >
@@ -532,28 +538,61 @@ export default function OrganizerDashboard() {
                 <Skeleton className="h-20 w-full" />
               ) : upcomingQ.isError ? (
                 <RetryLine what="your shows" onRetry={() => upcomingQ.refetch()} />
-              ) : (upcomingQ.data ?? []).length === 0 ? (
-                <p className="text-[0.9375rem] text-text-muted">No shows in this window.</p>
+              ) : upcoming.length === 0 ? (
+                <p className="text-[0.9375rem] text-text-muted">
+                  No shows in the next {COMING_UP_DAYS} days.
+                </p>
               ) : (
-                <ul className="space-y-3">
-                  {(upcomingQ.data ?? []).slice(0, 5).map((s) => (
-                    <li key={s.id} className="flex items-start gap-3">
-                      <span
-                        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-tint-primary text-action-primary"
-                        aria-hidden
-                      >
-                        <CalendarClock className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-text-primary">{s.eventTitle}</p>
-                        <p className="truncate text-caption text-text-muted">
-                          {/* Formatted by the API in the venue's own zone. */}
-                          {s.startsAtLabel}
-                          {s.venueName ? ` · ${s.venueName}` : ''}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
+                <ul className="space-y-4">
+                  {upcoming.map((s) => {
+                    /*
+                      In the zone the show was typed in - the calendar's own rule - so the time
+                      here is the time on the wall at the venue, whatever this browser's zone.
+                    */
+                    const { zone } = sessionZone(s);
+                    const day = formatDayLong(localPlace(s.startsAt, zone).day);
+                    return (
+                      <li key={s.id} className="flex items-start gap-3">
+                        <span
+                          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-tint-primary text-action-primary"
+                          aria-hidden
+                        >
+                          <CalendarClock className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            href={`/organizer/events/${s.event.id}`}
+                            className={`block truncate font-medium text-text-primary hover:text-action-primary ${LINK_FOCUS}`}
+                          >
+                            {s.event.title}
+                          </Link>
+                          <p className="truncate text-caption text-text-muted">
+                            {day}, {formatClock(s.startsAt, zone)} {zoneAbbrev(zone, s.startsAt)} ·{' '}
+                            {s.venue.name}
+                          </p>
+                          {s.event.status !== 'PUBLISHED' && (
+                            <div className="mt-1">
+                              <StatusBadge status={s.event.status} />
+                            </div>
+                          )}
+                          {s.sold != null && s.capacity ? (
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <div className="flex-1">
+                                <Meter
+                                  label={`${s.event.title}, tickets sold`}
+                                  value={s.sold}
+                                  max={s.capacity}
+                                />
+                              </div>
+                              <span className="shrink-0 text-caption tabular-nums text-text-muted">
+                                {s.sold} of {s.capacity} sold
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </SectionCard>

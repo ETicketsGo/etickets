@@ -2,6 +2,7 @@ import type {
   NotificationFeed,
   NotificationFeedGroup,
   OrganizerAnalytics,
+  OrganizerCalendarSession,
 } from '@eticketsgo/web-kit';
 
 /**
@@ -123,5 +124,38 @@ export function recentActivity(
     .filter((s) => s.category !== 'ACTION_REQUIRED')
     .flatMap((s) => s.groups)
     .sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt))
+    .slice(0, limit);
+}
+
+/** How far ahead "Coming up" looks. A week is what an organizer plans staff and stock around. */
+export const COMING_UP_DAYS = 7;
+
+/** The calendar window for "Coming up": from now, `COMING_UP_DAYS` ahead, as ISO instants. */
+export function comingUpWindow(now: Date = new Date()): { from: string; to: string } {
+  const to = new Date(now.getTime() + COMING_UP_DAYS * 24 * 60 * 60 * 1000);
+  return { from: now.toISOString(), to: to.toISOString() };
+}
+
+/**
+ * The next shows, soonest first: not cancelled, not already started, from a live event.
+ *
+ * A cancelled show or one from an archived event is on the calendar for the record, but it is
+ * not "coming up" - listing it here would tell an organizer to prepare for something that is
+ * not going to happen.
+ */
+export function comingUp(
+  sessions: OrganizerCalendarSession[] | undefined,
+  now: Date = new Date(),
+  limit = 5,
+): OrganizerCalendarSession[] {
+  const t = now.getTime();
+  return (sessions ?? [])
+    .filter(
+      (s) =>
+        s.status !== 'CANCELLED' &&
+        !['CANCELLED', 'ARCHIVED'].includes(s.event.status) &&
+        Date.parse(s.startsAt) >= t,
+    )
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
     .slice(0, limit);
 }
