@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEFAULT_CINEMA_TIMEZONE, ianaTimeZoneSchema } from './common';
-import { MovieStatus } from '@eticketsgo/shared-types';
+import { MovieStatus, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
 
 export const createMovieSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -368,7 +368,8 @@ export type UpdateSeatLayoutInput = z.infer<typeof updateSeatLayoutSchema>;
  * hundred-seat rows per block is larger than any real stand.
  */
 export const applyVenueTemplateSchema = z.object({
-  template: z.enum(['CINEMA', 'PROSCENIUM', 'AMPHITHEATRE', 'ARENA', 'STADIUM', 'IN_THE_ROUND']),
+  // From the shared catalogue, so a template the generator can build is never refused here.
+  template: z.enum(VENUE_TEMPLATE_KEYS),
   rows: z.number().int().min(1).max(60).optional(),
   seatsPerRow: z.number().int().min(1).max(100).optional(),
   /**
@@ -378,6 +379,21 @@ export const applyVenueTemplateSchema = z.object({
   basePriceMinor: z.number().int().min(0),
 });
 export type ApplyVenueTemplateInput = z.infer<typeof applyVenueTemplateSchema>;
+
+/**
+ * Start a NEW draft layout for a space from a template.
+ *
+ * The apply route above only fills a draft that already exists, and the only way to get a
+ * draft was to clone a published layout - so a space with no layout at all (a new arena, a
+ * hall) could never start from a shape. This creates the draft and fills it in one step.
+ *
+ * `name` is the configuration the layout belongs to ("Basketball", "Concert"). Left out, the
+ * template's own label is used.
+ */
+export const createLayoutFromTemplateSchema = applyVenueTemplateSchema.extend({
+  name: z.string().trim().min(1).max(80).optional(),
+});
+export type CreateLayoutFromTemplateInput = z.infer<typeof createLayoutFromTemplateSchema>;
 
 /** Publish a draft, optionally dated to take effect in the future. */
 export const publishSeatLayoutSchema = z.object({

@@ -18,6 +18,7 @@ import type {
   RevocationDelta,
   EventImageVariantName,
   FocalPoint,
+  VenueTemplateKey as SharedVenueTemplateKey,
 } from '@eticketsgo/shared-types';
 
 /*
@@ -1238,6 +1239,40 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    /**
+     * Start a NEW draft for a space from a template. Works for a space with no layout at all,
+     * which applying a template to an existing draft cannot.
+     */
+    createLayoutFromTemplate: (
+      screenId: string,
+      body: {
+        template: VenueTemplateKey;
+        basePriceMinor: number;
+        name?: string;
+        rows?: number;
+        seatsPerRow?: number;
+      },
+    ) =>
+      request<{
+        id: string;
+        name: string;
+        version: number;
+        status: 'DRAFT';
+        layoutKind: 'GRID' | 'SECTIONED';
+        sections: number;
+        seats: number;
+      }>(`/screens/${screenId}/seat-layouts`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    /** Every template as outlines (no seats), for the layout gallery's pictures and counts. */
+    layoutTemplates: () => request<LayoutTemplateOutline[]>('/seat-layout-templates'),
+    /**
+     * A layout as a buyer would see it - the same shape as the public seat read, so the same
+     * buyer components draw it. Nothing in it can be booked.
+     */
+    previewLayout: (layoutId: string, sectionId?: string) =>
+      request<SeatLayoutPreview>(`/seat-layouts/${layoutId}/preview${qs({ section: sectionId })}`),
     publishLayout: (layoutId: string, effectiveFrom?: string) =>
       request<SeatLayoutSummary>(`/seat-layouts/${layoutId}/publish`, {
         method: 'POST',
@@ -3481,9 +3516,13 @@ export interface SeatLayoutSeat {
   status: SeatStatus;
 }
 
-/** The venue shapes an organizer can start a layout from. */
-export type VenueTemplateKey =
-  'CINEMA' | 'PROSCENIUM' | 'AMPHITHEATRE' | 'ARENA' | 'STADIUM' | 'IN_THE_ROUND';
+/**
+ * The venue shapes an organizer can start a layout from.
+ *
+ * The shared catalogue's own type, not a copy: a second list here fell behind the first the
+ * moment a template was added, and the console then could not name one the API could build.
+ */
+export type VenueTemplateKey = SharedVenueTemplateKey;
 
 /** A point in the venue map's abstract 0–1000 square, y increasing downward. */
 export type VenuePoint = [number, number];
@@ -3569,6 +3608,9 @@ export interface SeatMap {
   id: string;
   screenId: string;
   name: string | null;
+  /** Which version of the space's layout this is. The API has always sent it. */
+  version?: number;
+  status?: SeatLayoutStatus;
   categories: { id: string; name: string; colorHex: string | null; basePriceMinor: number }[];
   sections: {
     id: string;
@@ -3576,7 +3618,17 @@ export interface SeatMap {
     rows: {
       id: string;
       label: string;
-      seats: { id: string; label: string; colIndex: number; seatCategoryId: string }[];
+      seats: {
+        id: string;
+        label: string;
+        colIndex: number;
+        seatCategoryId: string;
+        /**
+         * SEAT | GAP | WHEELCHAIR | COMPANION. Always sent; typed now because a console that
+         * ignored it drew every aisle as a seat with a number on it.
+         */
+        kind?: string;
+      }[];
     }[];
   }[];
 }
@@ -3590,6 +3642,8 @@ export interface GenerateSeatMapBody {
     basePriceMinor: number;
     rowLabels: string[];
     seatsPerRow: number;
+    /** Positions that are not ordinary seats: aisles and accessible places. */
+    seatKinds?: { rowLabel: string; seats: number[]; kind: 'WHEELCHAIR' | 'COMPANION' | 'GAP' }[];
   }[];
 }
 
@@ -6416,10 +6470,48 @@ export interface SeatLayoutSummary {
   clonedFromId: string | null;
   seatCount: number;
   capacity: number;
+  /** Positions by seat kind, for the shared reconciliation (`reconcileSeats`). */
+  kindCounts?: { kind: string; count: number }[];
   futureShows: number;
   historicalShows: number;
   createdAt: string;
 }
+
+/** One template, described without its seats: what the layout gallery draws and counts. */
+export interface LayoutTemplateOutline {
+  key: VenueTemplateKey;
+  label: string;
+  description: string;
+  layoutKind: 'GRID' | 'SECTIONED';
+  focal: { kind: VenueFocalPoint['kind']; label: string; shape: VenuePoint[] };
+  categories: { name: string; colorHex: string; priceWeight: number }[];
+  sections: {
+    name: string;
+    categoryName: string;
+    tier: string;
+    shape: VenuePoint[];
+    rowLabels: string[];
+    /** The widest row, in positions (aisles included). */
+    positions: number;
+    /** 1-based positions that are not ordinary seats, in the generator's own shape. */
+    seatKinds: { rowLabel: string; seats: number[]; kind: 'WHEELCHAIR' | 'COMPANION' | 'GAP' }[];
+  }[];
+  kindCounts: { kind: string; count: number }[];
+}
+
+/** What a layout preview adds to the buyer's shape: which layout it is, and its kind counts. */
+export interface SeatLayoutPreviewMeta {
+  preview: {
+    name: string | null;
+    version: number;
+    status: SeatLayoutStatus;
+    kindCounts: { kind: string; count: number }[];
+  };
+}
+
+/** The buyer's seat read for a layout with no session behind it. `sessionId` is "preview". */
+export type SeatLayoutPreview =
+  (VenueOverview & SeatLayoutPreviewMeta) | (SeatLayout & SeatLayoutPreviewMeta);
 
 export interface UpdateSeatLayoutBody {
   name?: string;

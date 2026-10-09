@@ -1,9 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Accessibility, Eye, Trash2 } from 'lucide-react';
 import {
   api,
   Button,
@@ -17,7 +17,10 @@ import {
   money,
   type GenerateSeatMapBody,
   currencyForCountry,
+  ButtonLink,
+  type LayoutTemplateOutline,
 } from '@eticketsgo/web-kit';
+import { countSeatKinds, reconcileSeats, type LayoutGalleryOption } from '@eticketsgo/shared-types';
 import {
   capacitySummary,
   expandRowLabels,
@@ -29,6 +32,10 @@ import {
 } from '@/lib/seat-layout';
 import { RoomShapePicker } from '@/components/room-shape-picker';
 import { ROOM_SHAPES, planRoom } from '@/lib/room-plan';
+import { draftsFromOutline } from '@/lib/layout-gallery';
+import { LayoutTemplateGallery } from '@/components/layout-template-gallery';
+import { SeatCountSummary } from '@/components/seat-count-summary';
+import { SeatingExplainer } from '@/components/seating-explainer';
 
 /**
  * A section starts as a STANDARD SCREEN of its typical size, already planned.
@@ -39,6 +46,7 @@ import { ROOM_SHAPES, planRoom } from '@/lib/room-plan';
  */
 const DEFAULT_SHAPE = ROOM_SHAPES[1];
 const DEFAULT_PLAN = planRoom(DEFAULT_SHAPE.typicalSeats, DEFAULT_SHAPE);
+const DEFAULT_AISLE = DEFAULT_PLAN.aisle === null ? '' : String(DEFAULT_PLAN.aisle);
 
 const emptySection: SectionDraft = {
   name: '',
@@ -49,7 +57,9 @@ const emptySection: SectionDraft = {
   seatsPerRow: String(DEFAULT_PLAN.seatsPerRow),
   wheelchairSeats: '',
   companionSeats: '',
-  gapSeats: '',
+  // The planned aisle, as the planner suggested it. Left blank, the opening room counted its
+  // aisle column as seats: "153 seats to sell" above "162 bookable" below, before any edit.
+  gapSeats: DEFAULT_AISLE,
 };
 
 /** Colour per seat kind in the preview. Kind is also written out, never colour alone. */
@@ -64,6 +74,7 @@ export default function ScreenSeatMapPage() {
   const { id, screenId } = useParams<{ id: string; screenId: string }>();
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
 
   const seatMapQ = useQuery({
     queryKey: ['seatmap', screenId],
@@ -107,7 +118,7 @@ export default function ScreenSeatMapPage() {
     {
       shapeKey: DEFAULT_SHAPE.key,
       capacity: String(DEFAULT_SHAPE.typicalSeats),
-      suggestedAisle: '',
+      suggestedAisle: DEFAULT_AISLE,
     },
   ]);
   /**
@@ -118,6 +129,57 @@ export default function ScreenSeatMapPage() {
   /** Which sections have the exact row/seat fields open. Closed by default. */
   const [exact, setExact] = useState<Set<number>>(new Set());
   const [errors, setErrors] = useState<string | null>(null);
+  /** The gallery card chosen, and for a block venue the price it will be built with. */
+  const [chosen, setChosen] = useState<{
+    option: LayoutGalleryOption;
+    outline: LayoutTemplateOutline | null;
+  } | null>(null);
+  const [venueBasePrice, setVenueBasePrice] = useState('');
+
+  /**
+   * A gallery card was chosen.
+   *
+   * A grid template FILLS the generator below - rows, aisle, wheelchair bay, categories - so
+   * every number is still in front of the organizer before anything is written. A block venue
+   * cannot be described by this form at all, so it is built as a draft by the template
+   * builder and opened in the buyer preview. General admission needs no seat map.
+   */
+  const chooseTemplate = (option: LayoutGalleryOption, outline: LayoutTemplateOutline | null) => {
+    setChosen({ option, outline });
+    setErrors(null);
+    if (option.style !== 'GRID' || !outline) return;
+    const drafts = draftsFromOutline(outline, '');
+    setName(option.label);
+    setSections(drafts);
+    setPlans(
+      drafts.map((d) => ({
+        shapeKey: DEFAULT_SHAPE.key,
+        // What this section sells, so the "you asked for" check agrees with the template.
+        capacity: String(previewSection(d).sellable),
+        suggestedAisle: d.gapSeats,
+      })),
+    );
+    setConfirmedBookable(null);
+  };
+
+  const buildVenue = useMutation({
+    mutationFn: () => {
+      const template = chosen?.option.template;
+      if (!template) throw new Error('Choose a template first.');
+      return api.theaterOps.createLayoutFromTemplate(screenId, {
+        template,
+        name: chosen.option.label,
+        basePriceMinor: Math.round(Number(venueBasePrice) * 100),
+      });
+    },
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ['seatmap', screenId] });
+      qc.invalidateQueries({ queryKey: ['screen', screenId, 'layouts'] });
+      toast.push('Draft layout built. Check it as a buyer, then publish it.', 'success');
+      router.push(`/organizer/cinemas/${id}/screens/${screenId}/layouts/${created.id}/preview`);
+    },
+    onError: (e) => toast.push(errorMessage(e), 'error'),
+  });
 
   const setSection = (idx: number, patch: Partial<SectionDraft>) => {
     /*
@@ -139,7 +201,7 @@ export default function ScreenSeatMapPage() {
       {
         shapeKey: DEFAULT_SHAPE.key,
         capacity: String(DEFAULT_SHAPE.typicalSeats),
-        suggestedAisle: '',
+        suggestedAisle: DEFAULT_AISLE,
       },
     ]);
   };
@@ -257,9 +319,11 @@ export default function ScreenSeatMapPage() {
         breadcrumbs={[
           { label: 'Venues & spaces', href: '/organizer/venues' },
           { label: 'Cinema', href: `/organizer/cinemas/${id}` },
-          { label: 'Seat map' },
+          { label: 'Layout' },
         ]}
       />
+
+      <SeatingExplainer current="layout" />
 
       {seatMapQ.isError ? (
         <ErrorState
@@ -269,7 +333,45 @@ export default function ScreenSeatMapPage() {
       ) : seatMapQ.isLoading ? (
         <Skeleton className="h-64 w-full" />
       ) : seatMap ? (
-        <Card title={seatMap.name ?? 'Seat map'}>
+        <Card
+          title={seatMap.name ?? 'Seat map'}
+          action={
+            <span className="flex flex-wrap gap-2">
+              <ButtonLink
+                size="sm"
+                variant="secondary"
+                href={`/organizer/cinemas/${id}/screens/${screenId}/layouts/${seatMap.id}/preview`}
+              >
+                <Eye className="mr-1.5 h-4 w-4" aria-hidden />
+                Preview as buyer
+              </ButtonLink>
+              <ButtonLink
+                size="sm"
+                variant="outline"
+                href={`/organizer/cinemas/${id}/screens/${screenId}/layouts`}
+              >
+                Layout versions
+              </ButtonLink>
+            </span>
+          }
+        >
+          {/*
+            The same five numbers the layout list and the buyer preview show, counted from these
+            very seats by the shared rule.
+          */}
+          <div className="mb-4">
+            <SeatCountSummary
+              counts={reconcileSeats(
+                countSeatKinds(
+                  seatMap.sections.flatMap((sec) =>
+                    sec.rows.flatMap((row) =>
+                      row.seats.map((seat) => ({ kind: seat.kind ?? 'SEAT' })),
+                    ),
+                  ),
+                ),
+              )}
+            />
+          </div>
           <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-caption text-text-secondary">
             {seatMap.categories.map((c) => (
               <span key={c.id} className="flex items-center gap-1.5">
@@ -304,14 +406,41 @@ export default function ScreenSeatMapPage() {
                               (c) => c.id === seat.seatCategoryId,
                             );
                             const color = cat?.colorHex ?? undefined;
+                            /*
+                              An aisle is drawn as a space, not as a numbered seat. This view
+                              used to ignore `kind`, so every aisle showed up as a bookable-looking
+                              seat with a number on it - the opposite of what buyers are sold.
+                            */
+                            if (seat.kind === 'GAP') {
+                              return (
+                                <span
+                                  key={seat.id}
+                                  aria-hidden
+                                  title={`${seat.label}: aisle, not sold`}
+                                  className="h-7 w-7"
+                                />
+                              );
+                            }
+                            const accessible =
+                              seat.kind === 'WHEELCHAIR' || seat.kind === 'COMPANION';
                             return (
                               <span
                                 key={seat.id}
-                                title={`${seat.label}${cat ? ` · ${cat.name}` : ''}`}
+                                title={`${row.label}${seat.label}${cat ? ` - ${cat.name}` : ''}${
+                                  seat.kind === 'WHEELCHAIR'
+                                    ? ' - wheelchair space'
+                                    : seat.kind === 'COMPANION'
+                                      ? ' - companion seat'
+                                      : ''
+                                }`}
                                 style={color ? { borderColor: color, color } : undefined}
                                 className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background-surface text-[0.625rem] font-medium text-text-secondary"
                               >
-                                {seat.label.replace(/^[A-Za-z]+/, '')}
+                                {accessible ? (
+                                  <Accessibility aria-hidden className="h-3.5 w-3.5" />
+                                ) : (
+                                  seat.label.replace(/^[A-Za-z]+/, '')
+                                )}
                               </span>
                             );
                           })}
@@ -327,9 +456,69 @@ export default function ScreenSeatMapPage() {
       ) : (
         <Card title="Generate seat map">
           <p className="mb-4 text-[0.9375rem] text-text-muted">
-            This screen has no seat map yet. Define one or more sections — each becomes a seat
-            category with its own price and rows.
+            This screen has no seat map yet. Start from a template, or describe the room yourself
+            below. Each section gets a ticket category with its own price.
           </p>
+          <div className="mb-6 space-y-3">
+            <p className="text-sm font-medium text-text-primary">Start from a template</p>
+            <LayoutTemplateGallery
+              selectedId={chosen?.option.id ?? null}
+              onChoose={chooseTemplate}
+            />
+            {chosen?.option.style === 'GRID' ? (
+              <p
+                role="status"
+                className="rounded-md bg-tint-primary px-3 py-2 text-caption text-text-primary"
+              >
+                {chosen.option.label} is filled in below. Set a base price for each section, change
+                anything you need, then generate it.
+              </p>
+            ) : chosen?.option.style === 'GA' ? (
+              <div role="status" className="rounded-md border border-border p-3 text-sm">
+                <p className="font-medium text-text-primary">General admission needs no seat map</p>
+                <p className="mt-1 text-text-muted">
+                  Buyers do not choose a seat. When you create the event, give its ticket a number
+                  of places, and that number is what you sell.
+                </p>
+                <ButtonLink
+                  className="mt-3"
+                  size="sm"
+                  variant="secondary"
+                  href="/organizer/events/new"
+                >
+                  Create an event
+                </ButtonLink>
+              </div>
+            ) : chosen && chosen.option.template ? (
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <p className="text-sm text-text-primary">
+                  {chosen.option.label} is built as a draft layout of blocks around the{' '}
+                  {chosen.outline?.focal.label.toLowerCase() ?? 'stage'}. You check it as a buyer
+                  before you publish it.
+                </p>
+                <Input
+                  id="venue-base-price"
+                  label={`Cheapest seat (${currencySymbol})`}
+                  type="number"
+                  min={0}
+                  hint="The other ticket categories are priced up from this. Change any of them later."
+                  value={venueBasePrice}
+                  onChange={(e) => setVenueBasePrice(e.target.value)}
+                />
+                <Button
+                  loading={buildVenue.isPending}
+                  disabled={
+                    venueBasePrice.trim() === '' ||
+                    !Number.isFinite(Number(venueBasePrice)) ||
+                    Number(venueBasePrice) < 0
+                  }
+                  onClick={() => buildVenue.mutate()}
+                >
+                  Build draft and preview
+                </Button>
+              </div>
+            ) : null}
+          </div>
           <div className="space-y-4">
             <Input
               id="mapName"
@@ -383,7 +572,7 @@ export default function ScreenSeatMapPage() {
                     />
                     <Input
                       id={`sec-${i}-cat`}
-                      label="Price category"
+                      label="Ticket category"
                       placeholder="e.g. Premium"
                       hint="What these seats cost. Becomes a ticket type. Often the same idea as the section."
                       value={s.categoryName}

@@ -1,15 +1,13 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Accessibility } from 'lucide-react';
+import { BuyerSeatLegend } from '@eticketsgo/web-kit';
 
 /**
- * What the tiles mean — drawn exactly as the seats are, so the legend is a key and not a second
- * vocabulary. Each state differs by shape (outline, fill, dashed edge, a number or none), so
- * none depends on colour alone.
+ * The seat legend, in the buyer's language.
  *
- * Prices are on the block headings above the map rather than here: comparing prices is done
- * while looking at the seats.
+ * The drawing lives in web-kit (`BuyerSeatLegend`) so the organizer's "preview as buyer" shows
+ * the same key the buyer reads. This wrapper only supplies the translated words.
  */
 export function SeatLegend({
   hasSold,
@@ -21,46 +19,18 @@ export function SeatLegend({
   hasAccessible: boolean;
 }) {
   const s = useTranslations('storefront.seats');
-  const tile = 'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[0.25rem] border';
-
   return (
-    <ul className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-border pt-3 text-caption text-text-secondary">
-      <li className="flex items-center gap-1.5">
-        <span aria-hidden className={`${tile} border-border-input bg-background-surface`} />
-        {s('available')}
-      </li>
-      <li className="flex items-center gap-1.5">
-        <span aria-hidden className={`${tile} border-action-primary bg-action-primary`} />
-        {s('selected')}
-      </li>
-      {hasSold ? (
-        <li className="flex items-center gap-1.5">
-          <span aria-hidden className={`${tile} border-transparent bg-background-subtle`} />
-          {s('sold')}
-        </li>
-      ) : null}
-      {/*
-        Held and blocked seats share a mark: to a buyer both are "not now", and a legend entry
-        for a state nobody can act on differently would only add reading.
-      */}
-      {hasHeld ? (
-        <li className="flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className={`${tile} border-dashed border-border-strong bg-background-canvas`}
-          />
-          {s('held')}
-        </li>
-      ) : null}
-      {/* Only when the room has one: a key for a mark nobody will find teaches them to look for it. */}
-      {hasAccessible ? (
-        <li className="flex items-center gap-1.5">
-          <span aria-hidden className={`${tile} border-border-input bg-background-surface`}>
-            <Accessibility className="h-3 w-3" />
-          </span>
-          {s('accessibleLegend')}
-        </li>
-      ) : null}
-    </ul>
+    <BuyerSeatLegend
+      hasSold={hasSold}
+      hasHeld={hasHeld}
+      hasAccessible={hasAccessible}
+      labels={{
+        available: s('available'),
+        selected: s('selected'),
+        sold: s('sold'),
+        held: s('held'),
+        accessibleLegend: s('accessibleLegend'),
+      }}
+    />
   );
 }
