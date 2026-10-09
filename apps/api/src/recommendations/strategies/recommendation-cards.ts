@@ -1,4 +1,4 @@
-import { EventStatus, ExperienceType } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType, venueZone } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -113,7 +113,7 @@ export async function fetchEventCards(
           name: e.venue.name,
           city: e.venue.city,
           country: e.venue.country,
-          timezone: e.venue.timezone,
+          timezone: venueZone(e.venue.timezone, e.venue.country),
         },
         organizer: e.organization.name,
         imagePath: coverImagePath(e.id, e.images),

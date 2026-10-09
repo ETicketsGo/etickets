@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BookingStatus, NotificationType, SessionStatus } from '@eticketsgo/shared-types';
+import {
+  BookingStatus,
+  NotificationType,
+  SessionStatus,
+  venueZone,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification.service';
 
@@ -107,7 +112,7 @@ export class ShowReminderService {
         id: true,
         startsAt: true,
         screen: { select: { cinema: { select: { timezone: true } } } },
-        event: { select: { title: true, venue: { select: { timezone: true } } } },
+        event: { select: { title: true, venue: { select: { timezone: true, country: true } } } },
       },
     });
 
@@ -127,7 +132,10 @@ export class ShowReminderService {
       id: string;
       startsAt: Date;
       screen: { cinema: { timezone: string | null } | null } | null;
-      event: { title: string | null; venue: { timezone: string | null } | null } | null;
+      event: {
+        title: string | null;
+        venue: { timezone: string | null; country?: string | null } | null;
+      } | null;
     },
     batchSize: number,
   ): Promise<number> {
@@ -157,7 +165,10 @@ export class ShowReminderService {
       select: { id: true, userId: true, buyerEmail: true, reference: true, status: true },
     });
 
-    const timeZone = session.screen?.cinema?.timezone ?? session.event?.venue?.timezone ?? '';
+    const timeZone =
+      session.screen?.cinema?.timezone ??
+      venueZone(session.event?.venue?.timezone, session.event?.venue?.country) ??
+      '';
     let sent = 0;
 
     for (const booking of bookings) {

@@ -24,7 +24,11 @@ function serviceWith(booking: unknown) {
 
 const USER = { id: 'u-1', email: 'a@t.test', fullName: 'A', roles: [] } as never;
 
-const booking = (over: { cinemaTz?: string | null; venueTz?: string | null }) => ({
+const booking = (over: {
+  cinemaTz?: string | null;
+  venueTz?: string | null;
+  country?: string | null;
+}) => ({
   id: 'bk-1',
   userId: 'u-1',
   tickets: [],
@@ -35,7 +39,13 @@ const booking = (over: { cinemaTz?: string | null; venueTz?: string | null }) =>
     slug: 's',
     refundsEnabled: true,
     refundCutoffHours: 48,
-    venue: over.venueTz === null ? null : { timezone: over.venueTz ?? 'Asia/Kolkata' },
+    venue:
+      over.venueTz === null && over.country === undefined
+        ? null
+        : {
+            timezone: over.venueTz === undefined ? 'Asia/Kolkata' : over.venueTz,
+            country: over.country ?? null,
+          },
   },
   eventSession: {
     startsAt: new Date('2026-08-26T03:28:00Z'),
@@ -53,6 +63,17 @@ describe('booking timezone resolution', () => {
     // The case the first fix missed, and the majority of events on the platform.
     const svc = serviceWith(booking({ venueTz: 'America/New_York' }));
     expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('America/New_York');
+  });
+
+  it('uses the only zone the venue country has when the venue was given none', async () => {
+    // QA, 2026-10-09: a 19:00 Hyderabad concert read "7:30 am" to a buyer in the United States.
+    const svc = serviceWith(booking({ venueTz: null, country: 'IN' }));
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBe('Asia/Kolkata');
+  });
+
+  it('still never guesses for a country with several zones', async () => {
+    const svc = serviceWith(booking({ venueTz: null, country: 'US' }));
+    expect((await svc.getForUser(USER, 'bk-1')).timeZone).toBeNull();
   });
 
   it('returns null rather than a guess when neither is known', async () => {
@@ -103,7 +124,8 @@ describe('booking list timezone resolution', () => {
     const { svc, findMany } = listServiceWith([]);
     await svc.listForUser(USER, 1, 10);
     const include = findMany.mock.calls[0][0].include;
-    expect(include.event.select.venue).toEqual({ select: { timezone: true } });
+    // The country too: it is what supplies the zone when the venue was never given one.
+    expect(include.event.select.venue).toEqual({ select: { timezone: true, country: true } });
     expect(include.eventSession.select.screen).toEqual({
       select: { cinema: { select: { timezone: true } } },
     });

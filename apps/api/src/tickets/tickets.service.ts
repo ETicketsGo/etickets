@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
-import { Role, TicketInviteKind, TicketInviteStatus } from '@eticketsgo/shared-types';
+import { Role, TicketInviteKind, TicketInviteStatus, venueZone } from '@eticketsgo/shared-types';
 import * as QRCode from 'qrcode';
 import { BookingStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -33,7 +33,7 @@ const TICKET_INCLUDE = {
           slug: true,
           experienceType: true,
           // The venue's zone is the fallback for every event that is not in a cinema.
-          venue: { select: { name: true, city: true, timezone: true } },
+          venue: { select: { name: true, city: true, timezone: true, country: true } },
         },
       },
     },
@@ -219,7 +219,12 @@ export class TicketsService {
           title: string;
           slug: string;
           experienceType: string;
-          venue: { name: string; city: string; timezone?: string | null } | null;
+          venue: {
+            name: string;
+            city: string;
+            timezone?: string | null;
+            country?: string | null;
+          } | null;
         };
       };
     },
@@ -326,7 +331,7 @@ export class TicketsService {
         carried its own zone since then; it is the fallback, in the same order the booking
         confirmation already uses, so a ticket and its confirmation cannot disagree.
       */
-      timezone: screen?.cinema?.timezone ?? event.venue?.timezone ?? null,
+      timezone: screen?.cinema?.timezone ?? venueZone(event.venue?.timezone, event.venue?.country),
       // Attendee identity (ADR-031): assignment lifecycle + whether the viewer is
       // the ticket's owner (vs an attendee this ticket was assigned to).
       assignmentStatus: ticket.assignmentStatus,

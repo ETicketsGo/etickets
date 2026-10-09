@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role } from '@eticketsgo/shared-types';
+import { Role, unambiguousZoneFor } from '@eticketsgo/shared-types';
 import type { CreateScreenInput, CreateVenueInput, UpdateVenueInput } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
@@ -32,9 +32,13 @@ export class VenuesService {
           left it null and every sale from one looked intra-state.
         */
         region: input.region,
-        // Omitted leaves the schema default. A country is not a timezone — several launch
-        // markets span more than one — so this is never inferred from `country`.
-        timezone: input.timezone,
+        /*
+          A country is not a timezone in general - several launch markets span more than one -
+          so it is inferred only where the country has exactly ONE (India, the UK, the UAE,
+          Singapore). There it is not a guess, and leaving it empty rendered every show time in
+          the buyer's browser zone instead of the venue's.
+        */
+        timezone: input.timezone ?? unambiguousZoneFor(input.country) ?? undefined,
         address: input.address,
         capacity: input.capacity,
       },
