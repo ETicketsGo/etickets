@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable, Optional } from '@nestjs/common';
-import { Role, SessionStatus } from '@eticketsgo/shared-types';
+import { Role, SessionStatus, marketFor, venueZone } from '@eticketsgo/shared-types';
+import { DEFAULT_CINEMA_TIMEZONE } from '@eticketsgo/validation';
 import type {
   CreateCinemaInput,
   CreateScreenInput,
@@ -53,8 +54,10 @@ export class CinemasService {
 
   async create(user: RequestUser, organizationId: string, input: CreateCinemaInput) {
     await this.access.assertMember(user, organizationId, ORGANIZER_ROLES);
+    let parentVenue: { timezone: string | null; country: string | null } | null = null;
     if (input.venueId) {
       const venue = await this.prisma.venue.findUnique({ where: { id: input.venueId } });
+      parentVenue = venue;
       if (!venue || venue.organizationId !== organizationId) {
         throw new AppException(
           ErrorCodes.NOT_FOUND,
@@ -83,6 +86,28 @@ export class CinemasService {
 
       Cinemas created before this, and callers passing an explicit `venueId`, are untouched.
     */
+    /*
+      THE SPACE'S CLOCK COMES FROM WHERE IT IS - never a silent India default.
+
+      The schema used to default every space to Asia/Kolkata when no zone was sent, so a Boise
+      or Sydney space created without one ran on Indian time (and the organizer console never
+      sent one). Now: the zone given; else the venue's own zone, or its country's only zone;
+      else, for a country with several zones, a clear refusal - guessing between Eastern and
+      Pacific is how a 19:00 show sells as 16:00. A space with no country at all keeps the old
+      default; it cannot be priced anyway (currency fails closed until a country is set).
+    */
+    const where = parentVenue ?? { timezone: null, country: input.country ?? null };
+    const timezone = input.timezone ?? venueZone(where.timezone, where.country);
+    if (!timezone && marketFor(where.country)) {
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        `${marketFor(where.country)!.name} has more than one time zone. Choose the venue's time zone.`,
+        HttpStatus.BAD_REQUEST,
+        { reason: 'TIMEZONE_REQUIRED' },
+      );
+    }
+    const resolvedTimezone = timezone ?? DEFAULT_CINEMA_TIMEZONE;
+
     const venueId =
       input.venueId ??
       (
@@ -98,7 +123,7 @@ export class CinemasService {
             */
             country: input.country,
             region: input.region,
-            timezone: input.timezone,
+            timezone: resolvedTimezone,
             address: input.address,
           },
           select: { id: true },
@@ -124,7 +149,7 @@ export class CinemasService {
           filled in for the value the caller actually supplied. It was invisible to every
           India fixture, where the default and the intended value are the same string.
         */
-        timezone: input.timezone,
+        timezone: resolvedTimezone,
         // Regulatory classification. Optional everywhere, required in practice wherever a rate
         // order prices by it — and an unclassified cinema in such a place fails closed rather
         // than selling at a price nobody checked.

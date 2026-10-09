@@ -1360,11 +1360,6 @@ export class ShowsService {
       } | null;
     },
   ) {
-    const existing = await tx.event.findFirst({
-      where: { movieId: movie.id, experienceType: ExperienceType.MOVIE },
-    });
-    if (existing) return existing;
-
     /*
       A cinema with no venue gets one made from itself, rather than borrowing.
 
@@ -1416,6 +1411,30 @@ export class ShowsService {
       ).id;
       await tx.cinema.update({ where: { id: cinema.id }, data: { venueId } });
     }
+
+    /*
+      ONE EVENT PER FILM PER VENUE - not one per film.
+
+      This found the film's event by `movieId` alone. The first cinema to show a film fixed
+      that event's venue, and every later show of the film - in any city - was filed under it.
+      Found on QA, 2026-10-09: a ₹250 seat at a Hyderabad screen was sold as $250.00 and the
+      buyer's page said "Boise", because the film had first been shown in Boise. Currency,
+      tax, the city filter and the address on the ticket all follow the event's venue, so a
+      showing has to live on an event AT its own venue.
+
+      Existing events are reused for their own venue, so nothing already sold moves.
+    */
+    /*
+      Serialised per (film, venue). Two operators scheduling the same film at the same venue at
+      the same moment would otherwise both miss in `findFirst` and both create an event - two
+      events for one place, splitting its showings. The lock is transaction-scoped, so it is
+      released by the commit or rollback of the schedule that took it.
+    */
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`movie-event:${movie.id}:${venueId}`}))`;
+    const existing = await tx.event.findFirst({
+      where: { movieId: movie.id, experienceType: ExperienceType.MOVIE, venueId },
+    });
+    if (existing) return existing;
 
     return tx.event.create({
       data: {

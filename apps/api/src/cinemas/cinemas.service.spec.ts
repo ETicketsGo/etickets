@@ -101,6 +101,75 @@ describe('CinemasService.create — its generated Venue preserves authoritative 
   });
 });
 
+describe('CinemasService.create - the space clock comes from where it is', () => {
+  /*
+    The schema defaulted every space to Asia/Kolkata when no zone was sent, so a Boise space
+    created without one ran on Indian time. The zone now comes from the request, the venue,
+    or the venue country - and a multi-zone country with none is refused, never guessed.
+  */
+  const make = (venue: { timezone: string | null; country: string | null } | null) => {
+    const cinemaCreate = jest.fn(async ({ data }: { data: Record<string, unknown> }) => data);
+    const venueCreate = jest.fn().mockResolvedValue({ id: 'venue-new' });
+    const prisma = {
+      venue: {
+        create: venueCreate,
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(venue ? { organizationId: 'org-a', ...venue } : null),
+      },
+      cinema: { create: cinemaCreate },
+    };
+    const svc = new CinemasService(
+      prisma as never,
+      { assertMember: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    return { svc, cinemaCreate, venueCreate };
+  };
+
+  it('takes the existing venue zone', async () => {
+    const { svc, cinemaCreate } = make({ timezone: 'America/Boise', country: 'US' });
+    await svc.create(OPERATOR, 'org-a', { venueId: 'v1', name: 'Screen', city: 'Boise' } as never);
+    expect(cinemaCreate.mock.calls[0][0].data.timezone).toBe('America/Boise');
+  });
+
+  it("takes the venue country's only zone when the venue has none", async () => {
+    const { svc, cinemaCreate } = make({ timezone: null, country: 'India' });
+    await svc.create(OPERATOR, 'org-a', {
+      venueId: 'v1',
+      name: 'Screen',
+      city: 'Hyderabad',
+    } as never);
+    expect(cinemaCreate.mock.calls[0][0].data.timezone).toBe('Asia/Kolkata');
+  });
+
+  it('refuses a multi-zone country with no zone instead of guessing India', async () => {
+    const { svc, cinemaCreate } = make({ timezone: null, country: 'US' });
+    await expect(
+      svc.create(OPERATOR, 'org-a', { venueId: 'v1', name: 'Screen', city: 'Boise' } as never),
+    ).rejects.toMatchObject({ response: { details: { reason: 'TIMEZONE_REQUIRED' } } });
+    expect(cinemaCreate).not.toHaveBeenCalled();
+  });
+
+  it('gives a new US venue the zone it was told, and refuses one without', async () => {
+    const told = make(null);
+    await told.svc.create(OPERATOR, 'org-a', {
+      name: 'Screen',
+      city: 'Boise',
+      country: 'US',
+      timezone: 'America/Boise',
+    } as never);
+    expect(told.venueCreate.mock.calls[0][0].data.timezone).toBe('America/Boise');
+    const untold = make(null);
+    await expect(
+      untold.svc.create(OPERATOR, 'org-a', {
+        name: 'Screen',
+        city: 'Boise',
+        country: 'US',
+      } as never),
+    ).rejects.toMatchObject({ response: { details: { reason: 'TIMEZONE_REQUIRED' } } });
+  });
+});
+
 function setup(venue: { organizationId: string } | null) {
   const prisma = {
     cinema: {

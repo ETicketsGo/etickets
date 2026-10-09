@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEFAULT_CINEMA_TIMEZONE, ianaTimeZoneSchema } from './common';
+import { ianaTimeZoneSchema } from './common';
 import { MovieStatus, VENUE_TEMPLATE_KEYS } from '@eticketsgo/shared-types';
 
 export const createMovieSchema = z.object({
@@ -40,7 +40,7 @@ export const createCinemaSchema = z.object({
    * to pick from six hundred names. Once stored it is AUTHORITATIVE — nothing downstream may
    * substitute a literal, a deployment region or the browser's zone.
    */
-  timezone: ianaTimeZoneSchema.default(DEFAULT_CINEMA_TIMEZONE),
+  timezone: ianaTimeZoneSchema.optional(),
 
   /*
     ── REGULATORY CLASSIFICATION ─────────────────────────────────────────────────────
