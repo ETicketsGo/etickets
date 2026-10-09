@@ -95,11 +95,32 @@ export function readEventDraft<T>(organizationId: string): { data: T; savedAt: n
   }
 }
 
-export function clearEventDraft(): void {
+/**
+ * Throw the draft away. With an organization, only that organization's draft: the wizard drops
+ * a blank draft on every render, and opening it for one organization must not wipe somebody's
+ * half-written event in another.
+ */
+export function clearEventDraft(organizationId?: string): void {
   try {
-    if (typeof window !== 'undefined') window.localStorage.removeItem(KEY);
+    if (typeof window === 'undefined') return;
+    if (organizationId !== undefined) {
+      const raw = window.localStorage.getItem(KEY);
+      if (!raw) return;
+      const envelope = safeEnvelope(raw);
+      if (envelope && envelope.organizationId !== organizationId) return;
+    }
+    window.localStorage.removeItem(KEY);
   } catch {
     /* nothing to do */
+  }
+}
+
+function safeEnvelope(raw: string): { organizationId?: unknown } | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
   }
 }
 

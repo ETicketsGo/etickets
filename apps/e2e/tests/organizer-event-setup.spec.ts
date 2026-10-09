@@ -56,6 +56,28 @@ test.describe('creating an event', () => {
     await expect(page.getByLabel('Your category')).toBeVisible();
   });
 
+  test('1b: opening the wizard and leaving it does not offer a draft back', async ({ page }) => {
+    /*
+      Reported: "Picked up where you left off" over an empty form. Opening the page saved a
+      draft of the blank form, and the next visit announced it. Only a draft with something
+      the organizer entered is offered back.
+    */
+    await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
+    await expect(page.getByLabel('Event title')).toBeVisible({ timeout: 30_000 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(page.getByLabel('Event title')).toHaveValue('');
+    await expect(page.getByText(/Picked up where you left off/)).toHaveCount(0);
+
+    // Something typed IS offered back, and "Start over" throws it away.
+    await page.getByLabel('Event title').fill('Half-written event');
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(page.getByText(/Picked up where you left off/)).toBeVisible();
+    await expect(page.getByLabel('Event title')).toHaveValue('Half-written event');
+    await page.getByRole('button', { name: 'Start over' }).click();
+    await expect(page.getByLabel('Event title')).toHaveValue('', { timeout: 30_000 });
+    await expect(page.getByText(/Picked up where you left off/)).toHaveCount(0);
+  });
+
   test('2: marking it free removes every price from the rest of the wizard', async ({
     page,
     request,
@@ -75,20 +97,27 @@ test.describe('creating an event', () => {
     await page.locator('#se0-time').selectOption('20:00');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
 
-    // Declared on the tickets step, where the question of what to charge is asked.
-    const free = page.getByLabel('This is a free event');
-    await expect(free).toBeVisible();
-    await free.check();
+    /*
+      Declared on the tickets step, as the first answer to "How do people get in?". Nothing
+      is chosen for the organizer: the step will not move on until it is answered.
+    */
+    const kinds = page.getByRole('group', { name: 'How do people get in?' });
+    await expect(kinds).toBeVisible();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(
+      page.getByText('Choose how people get in: free, paid or reserved seating.').first(),
+    ).toBeVisible();
+    await kinds.getByRole('radio', { name: 'Free event' }).check();
     await expect(page.getByText('no booking fee and no platform share')).toBeVisible();
 
     /*
-      The price is disabled and pinned at zero, rather than hidden. Removing the field would
-      leave "where did the price go?" unanswered in the place it is asked.
+      No price field at all. A free event's price is not a zero the organizer must leave
+      alone; it is a question that does not apply, so only name and quantity are asked.
     */
-    const price = page.locator('#tp0');
-    await expect(price).toBeDisabled();
-    await expect(price).toHaveValue('0');
-    await expect(page.getByText('Free event — attendees pay nothing.')).toBeVisible();
+    const first = page.getByRole('group', { name: 'Ticket type 1' });
+    await expect(first.getByLabel('Name')).toHaveValue('General');
+    await expect(first.getByLabel('Quantity on sale')).toHaveValue('100');
+    await expect(first.getByLabel(/^Price/)).toHaveCount(0);
 
     /*
       And a free event is never asked who pays the fees, because there are none to pay.
@@ -100,8 +129,11 @@ test.describe('creating an event', () => {
     */
     await page.getByRole('button', { name: 'Next', exact: true }).click(); // image and details - nothing required
     await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
-    await expect(page.getByText('Free — no payment taken')).toBeVisible();
+    await expect(page.getByText('Free - no payment taken')).toBeVisible();
     await expect(page.getByLabel('Who pays the booking fee?')).toBeHidden();
+    // The buyer's view says so too, in the card's price and the fee line.
+    await expect(page.getByRole('heading', { name: 'What buyers will see' })).toBeVisible();
+    await expect(page.getByText('Free to book. No checkout and no fees.')).toBeVisible();
 
     /*
       And it is actually created that way.
