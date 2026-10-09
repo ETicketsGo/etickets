@@ -13,6 +13,8 @@ import { EventSellabilityService } from './event-sellability.service';
 import { EventSellabilitySweepService } from './event-sellability-sweep.service';
 import { PublicEventsService } from './public-events.service';
 import { EventImageService } from './event-image.service';
+import { OrganizerCalendarController } from './organizer-calendar.controller';
+import { OrganizerCalendarService } from './organizer-calendar.service';
 
 @Module({
   imports: [PricingModule, ShowsModule],
@@ -22,6 +24,7 @@ import { EventImageService } from './event-image.service';
     PublicCategoriesController,
     PublicOrganizersController,
     AdminEventsController,
+    OrganizerCalendarController,
   ],
   providers: [
     EventsService,
@@ -29,6 +32,7 @@ import { EventImageService } from './event-image.service';
     EventImageService,
     EventSellabilityService,
     EventSellabilitySweepService,
+    OrganizerCalendarService,
   ],
   exports: [
     EventsService,
