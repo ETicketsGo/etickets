@@ -165,10 +165,11 @@ test.describe('QA: the location picker is a search, not a list of everywhere we 
     await expect(dialog.getByRole('option', { name: /^Bengaluru/ })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(dialog.getByRole('option')).toHaveCount(1);
+    // The sellable city leads; real places with nothing on sale may follow it.
+    await expect(dialog.getByRole('option').first()).toHaveAccessibleName(/^Bengaluru/);
   });
 
-  test('a city we do not sell in says so instead of returning silence', async ({
+  test('a city we do not sell in can still be chosen, and says it has nothing yet', async ({
     page,
     context,
   }) => {
@@ -177,8 +178,10 @@ test.describe('QA: the location picker is a search, not a list of everywhere we 
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Search for a city').fill('reykjavik');
 
-    // Names the reason. "No results" would leave the customer retyping it.
-    await expect(dialog.getByText(/have events on sale/)).toBeVisible({ timeout: 15_000 });
+    // Found, and honest about it: the customer's own city is never missing from the list.
+    const option = dialog.getByRole('option', { name: /^Reykjav/ });
+    await expect(option).toBeVisible({ timeout: 15_000 });
+    await expect(option).toContainText('No events yet');
   });
 });
 

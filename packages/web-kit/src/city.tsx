@@ -446,8 +446,16 @@ export function useCityPreference(): CityPreference {
    * between places rather than a guess.
    */
   const searchCities = useCallback(
-    async (q: string) => api.location.cities({ q, limit: 8 }).catch(() => []),
-    [],
+    /*
+      `anywhere`: a city we sell nothing in is still found, after every city that has events.
+      Choosing it is honest - the page then says "No events available in <city> yet" - where
+      leaving it out made the customer's own city look like it did not exist.
+    */
+    async (q: string) =>
+      api.location
+        .cities({ q, limit: 8, anywhere: true, prefer: country ?? undefined })
+        .catch(() => []),
+    [country],
   );
 
   return {
@@ -961,7 +969,9 @@ export function CityPicker({
                     >
                       <button
                         type="button"
-                        onClick={() => choose(c.city, { region: null, country: c.country })}
+                        onClick={() =>
+                          choose(c.city, { region: c.region ?? null, country: c.country })
+                        }
                         onMouseEnter={() => setActive(i)}
                         className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[0.9375rem] text-text-primary transition-colors ${
                           i === active ? 'bg-background-subtle' : ''
@@ -970,11 +980,13 @@ export function CityPicker({
                         <span className="min-w-0 flex-1 truncate">
                           {c.city}
                           {/* The country disambiguates: more than one place is called Springfield. */}
-                          <span className="ml-1.5 text-caption text-text-muted">{c.country}</span>
+                          <span className="ml-1.5 text-caption text-text-muted">
+                            {c.region ? `${c.region}, ${c.country}` : c.country}
+                          </span>
                         </span>
                         {/* The count is the honest reason to pick one city over another. */}
                         <span className="shrink-0 text-caption text-text-muted">
-                          {c.eventCount}
+                          {c.eventCount > 0 ? c.eventCount : 'No events yet'}
                         </span>
                         {city === c.city ? (
                           <Check className="h-4 w-4 shrink-0 text-action-primary" />
@@ -990,7 +1002,8 @@ export function CityPicker({
                     hiding — it is a city with nothing on sale, and saying so stops the
                     customer retyping it.
                   */}
-                      No cities matching &ldquo;{q.trim()}&rdquo; have events on sale.
+                      No city matching &ldquo;{q.trim()}&rdquo; was found. Check the spelling, or
+                      try the nearest larger city.
                     </li>
                   ) : null}
 

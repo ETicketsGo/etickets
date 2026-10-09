@@ -327,8 +327,24 @@ export const api = {
      * six hundred. Called with no arguments it still returns everything, which is only
      * appropriate for a caller that genuinely needs the lot.
      */
-    cities: (params?: { q?: string; country?: string; limit?: number }) =>
-      request<SellableCity[]>(`/public/location/cities${qs({ ...params })}`, { auth: false }),
+    cities: (params?: {
+      q?: string;
+      country?: string;
+      limit?: number;
+      anywhere?: boolean;
+      prefer?: string;
+    }) =>
+      request<SellableCity[]>(
+        `/public/location/cities${qs({
+          q: params?.q,
+          country: params?.country,
+          limit: params?.limit,
+          // Real places with nothing on sale yet, after the sellable ones. Search only.
+          anywhere: params?.anywhere ? '1' : undefined,
+          prefer: params?.prefer,
+        })}`,
+        { auth: false },
+      ),
     resolve: (hint?: { latitude?: number; longitude?: number; region?: string }) =>
       request<ResolvedLocation>(
         `/public/location/resolve${qs({
@@ -4508,7 +4524,10 @@ export interface AdminStaffMember {
 export interface SellableCity {
   city: string;
   country: string;
+  /** 0 for a real place found by name that has nothing on sale yet. */
   eventCount: number;
+  /** State or province, on a place found by name, where same-named places are common. */
+  region?: string | null;
 }
 
 /** How a location guess was arrived at. See the API's LocationService for what each means. */
