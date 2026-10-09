@@ -16,6 +16,8 @@ import type {
   QueuedCheckIn,
   ReconcileOutcome,
   RevocationDelta,
+  EventImageVariantName,
+  FocalPoint,
 } from '@eticketsgo/shared-types';
 
 /*
@@ -1247,6 +1249,12 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ imageIds }),
       }),
+    /** Where crops of this image are centred (0..1 across and down); its copies are cut again. */
+    setImageFocalPoint: (id: string, imageId: string, point: FocalPoint) =>
+      request<EventGallery>(`/events/${id}/images/${imageId}/focal-point`, {
+        method: 'PUT',
+        body: JSON.stringify(point),
+      }),
     /** Rooms with a published seat map that an event could be seated in. */
     seatingRooms: (organizationId: string) =>
       request<SeatingRoom[]>(`/events/seating-rooms${qs({ organizationId })}`),
@@ -2344,7 +2352,12 @@ export type UserDirectoryFilters = {
 /** One of an event's images, as a path for `apiAssetUrl`. */
 export interface EventImageView {
   id: string;
+  /** The original upload. Prefer `variants` through `eventImageSource`. */
   path: string;
+  /** Copies cut to each place an image is shown. Absent on an older API. */
+  variants?: Partial<Record<EventImageVariantName, string>>;
+  /** Where the crops are centred, as fractions of the width and height. */
+  focalPoint?: FocalPoint;
 }
 export interface OrgEventImage extends EventImageView {
   contentType: string;
@@ -2353,6 +2366,7 @@ export interface OrgEventImage extends EventImageView {
 /** An event's images in order — the first is the cover, also given as `imagePath`. */
 export interface EventGallery {
   imagePath: string | null;
+  imageVariants?: Partial<Record<EventImageVariantName, string>> | null;
   images: OrgEventImage[];
 }
 
@@ -2377,6 +2391,8 @@ export interface PublicEventCard {
   currency: string;
   /** The organizer's image, as a path for `apiAssetUrl`. Absent on saved cards from before. */
   imagePath?: string | null;
+  /** The cover's copies; see `eventImageSource`. Absent on saved cards from before. */
+  imageVariants?: Partial<Record<EventImageVariantName, string>> | null;
 }
 /** A performer or presenter on an event. Name is required; the rest is optional. */
 export interface EventArtist {
@@ -2401,6 +2417,8 @@ export interface PublicEvent extends EventDetails {
   category: string;
   /** The cover image, as a path for `apiAssetUrl`. Null when none was uploaded. */
   imagePath?: string | null;
+  /** The cover's copies; see `eventImageSource`. */
+  imageVariants?: Partial<Record<EventImageVariantName, string>> | null;
   /** Every image, cover first. Absent on an older API. */
   images?: EventImageView[];
   description: string | null;
@@ -3806,6 +3824,8 @@ export interface OrgEventDetail extends EventDetails {
   sessions: EventSession[];
   /** The cover image, as a path for `apiAssetUrl`. Null when none was uploaded. */
   imagePath?: string | null;
+  /** The cover's copies; see `eventImageSource`. */
+  imageVariants?: Partial<Record<EventImageVariantName, string>> | null;
   /** Every image, cover first. */
   images?: OrgEventImage[];
   /** Bookings of any status. An event with none can be deleted. */

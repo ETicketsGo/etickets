@@ -1423,11 +1423,11 @@ model Event {
 /// So an event row never drags an image's bytes into a listing query. Cards select the hash,
 /// never the bytes; only the image endpoint reads them.
 model EventImage {
-  id               String   @id @default(cuid())
+  id               String              @id @default(cuid())
   eventId          String
-  event            Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event            Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
   /// The organizer's order; the lowest is the cover. Ties fall back to upload order.
-  position         Int      @default(0)
+  position         Int                 @default(0)
   /// Detected from the file's own bytes, never taken from the upload's claim.
   contentType      String
   bytes            Bytes?
@@ -1441,13 +1441,51 @@ model EventImage {
   storageKey       String?
   /// Of the bytes; its prefix versions the public URL so a replaced image is fetched afresh.
   sha256           String
+  /// The part of the picture every crop keeps in view, as fractions of its width and height
+  /// (0..1, from the top left). Null means the middle, which is what every image uploaded
+  /// before the organizer could choose is cut around. Part of each copy's URL version, so
+  /// moving the point is a new URL rather than a stale cache.
+  focalX           Float?
+  focalY           Float?
   uploadedByUserId String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  variants         EventImageVariant[]
 
   @@index([eventId, position])
   /// Finding what the object-storage backfill has not moved yet, without reading any bytes.
   @@index([storageKey])
+}
+
+/// A web-ready copy of an event image: a card, a banner, a thumbnail or the whole picture.
+///
+/// ── WHY COPIES AND NOT THE ORIGINAL ───────────────────────────────────────────────
+/// Organizers upload any shape at any size. A browse card that shows the original either
+/// stretches it, crops it wherever CSS happens to, or letterboxes it with grey bars, and it
+/// downloads a 1600px picture to draw a 360px card. Each copy is cut once, at upload, to the
+/// shape and size of the place it is shown, around the organizer's focal point, upright and
+/// without the camera's metadata (which can carry where the photo was taken).
+///
+/// The original stays on `EventImage`, untouched: it is what every copy is cut from again
+/// when the focal point moves, and what is served when a copy cannot be made.
+///
+/// Bytes or a storage key, exactly one, for the same reason as `EventImage`.
+model EventImageVariant {
+  id          String     @id @default(cuid())
+  imageId     String
+  image       EventImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  /// One of `EVENT_IMAGE_VARIANTS` in `@eticketsgo/shared-types`.
+  name        String
+  contentType String
+  width       Int
+  height      Int
+  bytes       Bytes?
+  storageKey  String?
+  sizeBytes   Int
+  sha256      String
+  createdAt   DateTime   @default(now())
+
+  @@unique([imageId, name])
 }
 
 /// One binary object, when the active object-store driver is the database.
@@ -1535,8 +1573,8 @@ model TicketType {
   seatCategory   SeatCategory? @relation(fields: [seatCategoryId], references: [id])
   // For capacity-based areas inside a mapped venue (GA floor, VIP terrace).
   // ShowZone is the per-session authority; this relation identifies which zone it prices.
-  seatZoneId String?
-  seatZone   SeatZone? @relation(fields: [seatZoneId], references: [id])
+  seatZoneId     String?
+  seatZone       SeatZone?     @relation(fields: [seatZoneId], references: [id])
   name           String
   priceMinor     Int
   currency       String        @default("INR")
@@ -4941,7 +4979,7 @@ model SeatZone {
   labelY    Int?
   sortOrder Int   @default(0)
 
-  showZones ShowZone[]
+  showZones   ShowZone[]
   ticketTypes TicketType[]
 
   @@index([seatMapId])

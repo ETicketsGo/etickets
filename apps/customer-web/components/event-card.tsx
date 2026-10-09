@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarDays, Heart, MapPin } from 'lucide-react';
-import { apiAssetUrl, gradientFor, useToast } from '@eticketsgo/web-kit';
+import { eventImageSource, gradientFor, useToast } from '@eticketsgo/web-kit';
 import type { PaginatedEvents } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { isSaved, toggleSaved } from '@/lib/saved';
@@ -19,8 +19,10 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
   /*
     The organizer's image when there is one, the lettered gradient when there is not — or when
     the image fails to load, so a missing file is never a broken-image icon on the front page.
+    The card copy, cut by the API to this box's 4:3 around the organizer's focal point; the
+    original only for a card saved before the copies existed.
   */
-  const imageUrl = apiAssetUrl(event.imagePath);
+  const image = eventImageSource({ variants: event.imageVariants, path: event.imagePath }, 'card');
   const [imageBroken, setImageBroken] = useState(false);
   const toggle = () => {
     const nowSaved = toggleSaved(event);
@@ -33,32 +35,31 @@ export function EventCard({ event }: { event: PaginatedEvents['data'][number] })
       href={`/events/${event.slug}`}
       className="group block overflow-hidden rounded-lg border border-border bg-background-surface shadow-sm transition-all duration-300 ease-premium hover:-translate-y-1 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-canvas"
     >
+      {/*
+        ── ONE SHAPE FOR EVERY CARD ───────────────────────────────────────────────────
+        A fixed 4:3 box, filled. The picture used to be shown whole over a blurred copy of
+        itself, because cropping it with CSS cut a logo's or a portrait poster's edges off
+        wherever the browser happened to. The crop is now the API's, made once around the point
+        the organizer chose and previewed for them in the console, so filling the box shows
+        exactly what they saw there: no stretching, no bars, and every card in a row the same
+        height whatever was uploaded.
+      */}
       <div
-        className={`relative flex h-40 items-center justify-center bg-gradient-to-br ${gradientFor(event.id)}`}
+        className={`relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-gradient-to-br ${gradientFor(event.id)}`}
       >
-        {imageUrl && !imageBroken ? (
-          /*
-            Whole, over a blurred copy of itself — the same treatment as the event page. Cropped
-            to fill the card, a logo or a portrait poster lost its edges on the front page.
-          */
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              aria-hidden
-              src={imageUrl}
-              alt=""
-              loading="lazy"
-              className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt=""
-              loading="lazy"
-              onError={() => setImageBroken(true)}
-              className="relative h-full w-full object-contain transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
-            />
-          </>
+        {image && !imageBroken ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image.src}
+            srcSet={image.srcSet}
+            // Up to three across (four on browse, where this slightly over-asks), two, then one.
+            sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setImageBroken(true)}
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-premium group-hover:scale-[1.03]"
+          />
         ) : (
           <span className="select-none text-5xl font-bold text-text-primary/25">
             {event.title.charAt(0)}

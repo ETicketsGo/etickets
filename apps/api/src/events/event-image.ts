@@ -1,3 +1,11 @@
+import { createHash } from 'node:crypto';
+import {
+  EVENT_IMAGE_VARIANT_NAMES,
+  normaliseFocalPoint,
+  type EventImageVariantName,
+  type FocalPoint,
+} from '@eticketsgo/shared-types';
+
 /**
  * The pure half of event images: what a file IS, where each public copy lives, and which one is
  * the cover.
@@ -65,14 +73,72 @@ export function eventImageOrder() {
   return [{ position: 'asc' as const }, { createdAt: 'asc' as const }, { id: 'asc' as const }];
 }
 
+/**
+ * Which cut of the copies a URL names.
+ *
+ * Bumped when the copies themselves change - a new size, a different quality - so every URL
+ * changes with them and no browser keeps the old cut under an address it was told to keep
+ * forever.
+ */
+export const EVENT_IMAGE_VARIANTS_REVISION = '1';
+
+/**
+ * The version in a copy's URL: the original's bytes, the focal point and the cut.
+ *
+ * The focal point is in it because moving the point changes every cropped copy while the
+ * original stays the same. Versioned by the original's hash alone, a moved point would be
+ * served from a cache that was told the old crop would never change.
+ */
+export function eventImageVariantsVersion(sha256: string, focal: FocalPoint): string {
+  return createHash('sha256')
+    .update(`${sha256}:${focal.x}:${focal.y}:${EVENT_IMAGE_VARIANTS_REVISION}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/** What every reader selects to name an image's URLs. Never the bytes. */
+export const EVENT_IMAGE_URL_SELECT = {
+  id: true,
+  sha256: true,
+  focalX: true,
+  focalY: true,
+} as const;
+
 export interface EventImageRow {
   id: string;
   sha256: string;
+  /** Absent on a row from a query written before focal points: it is then the middle. */
+  focalX?: number | null;
+  focalY?: number | null;
+}
+
+export type EventImageVariantPaths = Record<EventImageVariantName, string>;
+
+/** Every web-ready copy of one image, by name, as paths for `apiAssetUrl`. */
+export function eventImageVariantPaths(
+  eventId: string,
+  row: EventImageRow,
+): EventImageVariantPaths {
+  const version = eventImageVariantsVersion(row.sha256, focalPointOf(row));
+  return Object.fromEntries(
+    EVENT_IMAGE_VARIANT_NAMES.map((name) => [
+      name,
+      `/public/events/${eventId}/images/${row.id}/${name}?v=${version}`,
+    ]),
+  ) as EventImageVariantPaths;
+}
+
+export function focalPointOf(row: Pick<EventImageRow, 'focalX' | 'focalY'>): FocalPoint {
+  return normaliseFocalPoint(row.focalX, row.focalY);
 }
 
 export interface EventImageView {
   id: string;
+  /** The original upload. Kept for links made before the copies existed. */
   path: string;
+  /** The copies to show: card, banner, thumbnail and the whole picture. */
+  variants: EventImageVariantPaths;
+  focalPoint: FocalPoint;
 }
 
 /*
@@ -86,6 +152,8 @@ export function eventImagesView(eventId: string, rows?: EventImageRow[] | null):
   return (rows ?? []).map((row) => ({
     id: row.id,
     path: eventImagePath(eventId, row.id, row.sha256),
+    variants: eventImageVariantPaths(eventId, row),
+    focalPoint: focalPointOf(row),
   }));
 }
 
@@ -93,4 +161,13 @@ export function eventImagesView(eventId: string, rows?: EventImageRow[] | null):
 export function coverImagePath(eventId: string, rows?: EventImageRow[] | null): string | null {
   const cover = rows?.[0];
   return cover ? eventImagePath(eventId, cover.id, cover.sha256) : null;
+}
+
+/** The cover's copies, for a card beside `imagePath`, or null when there is no image. */
+export function coverImageVariants(
+  eventId: string,
+  rows?: EventImageRow[] | null,
+): EventImageVariantPaths | null {
+  const cover = rows?.[0];
+  return cover ? eventImageVariantPaths(eventId, cover) : null;
 }

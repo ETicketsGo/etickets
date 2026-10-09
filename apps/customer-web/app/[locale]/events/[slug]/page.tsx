@@ -19,6 +19,7 @@ import { ImageLightbox } from '@/components/image-lightbox';
 import {
   RatingStars,
   apiAssetUrl,
+  eventImageSource,
   useToast,
   errorMessage,
   venueAddressLine,
@@ -334,6 +335,7 @@ export default function EventDetailPage() {
       fromPriceMinor: event.sessions[0]?.ticketTypes[0]?.priceMinor ?? null,
       currency: event.sessions[0]?.ticketTypes[0]?.currency ?? 'INR',
       imagePath: event.imagePath ?? null,
+      imageVariants: event.imageVariants ?? null,
     });
     try {
       const saved = JSON.parse(localStorage.getItem(`etg_sel_${slug}`) ?? 'null') as {
@@ -479,48 +481,105 @@ export default function EventDetailPage() {
   /*
     Every image the organizer gave, cover first — or just the cover from an API that predates
     galleries. The hero shows the chosen one; the strip below it chooses.
+
+    Each in the copy cut for where it is shown: the banner in the hero, a small banner in the
+    strip, the whole picture in the full-screen viewer. An API from before the copies gives
+    the original for all three, which still works, only heavier.
   */
   const gallery = (
     event.images?.length
-      ? event.images.map((image) => image.path)
+      ? event.images
       : event.imagePath
-        ? [event.imagePath]
+        ? [{ path: event.imagePath, variants: event.imageVariants ?? undefined }]
         : []
-  )
-    .map((path) => apiAssetUrl(path))
-    .filter((url): url is string => Boolean(url));
+  ).flatMap((image) => {
+    const banner = eventImageSource(image, 'banner');
+    const full = eventImageSource(image, 'full');
+    if (!banner || !full) return [];
+    const focal = 'focalPoint' in image ? image.focalPoint : undefined;
+    return [
+      {
+        banner,
+        full: full.src,
+        // The strip's buttons are 16:9 too, so the small banner fills them.
+        strip: apiAssetUrl(image.variants?.['banner-sm']) ?? banner.src,
+        // Where the hero centres a further crop on a wide screen; see the hero below.
+        position: focal ? `${focal.x * 100}% ${focal.y * 100}%` : '50% 50%',
+      },
+    ];
+  });
   const shownImage = Math.min(activeImage, Math.max(gallery.length - 1, 0));
   const heroImage = gallery[shownImage] ?? null;
+  /*
+    Over the banner from a small tablet up; under it on a phone (see the hero). Without an
+    image it sits on the plain gradient as it always has.
+  */
+  const heroTitle = (
+    <div
+      className={`pointer-events-none relative z-10 ${
+        heroImage ? 'p-5 sm:absolute sm:inset-x-0 sm:bottom-0 sm:p-6' : ''
+      }`}
+    >
+      <Badge tone="info">{event.category}</Badge>
+      <h1
+        className={`mt-3 text-h2 font-bold tracking-tight sm:text-h1 ${
+          heroImage ? 'text-text-primary sm:text-white' : 'text-text-primary'
+        }`}
+      >
+        {event.title}
+      </h1>
+      <p
+        className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.9375rem] ${
+          heroImage ? 'text-text-secondary sm:text-white/90' : 'text-text-secondary'
+        }`}
+      >
+        <span className="flex items-center gap-1.5">
+          <MapPin className="h-4 w-4" />
+          {event.venue.name}, {event.venue.city}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Building2 className="h-4 w-4" />
+          {event.organizer.name}
+        </span>
+      </p>
+    </div>
+  );
 
   return (
     <div className="space-y-8">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-lg border border-border shadow-sm">
+      <div
+        className={`relative overflow-hidden rounded-lg border border-border shadow-sm ${
+          heroImage ? 'bg-background-surface' : ''
+        }`}
+      >
         <div
-          className={`relative flex items-end p-6 ${
+          className={
             heroImage
-              ? 'h-64 bg-black sm:h-96'
-              : 'h-52 bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle sm:h-64'
-          }`}
+              ? 'relative aspect-video bg-black sm:aspect-[2/1]'
+              : 'relative flex h-52 items-end bg-gradient-to-br from-action-primary/25 via-action-primary/10 to-background-subtle p-6 sm:h-64'
+          }
         >
           {/*
-            ── THE WHOLE IMAGE, NOT A CROP OF IT ─────────────────────────────────────────
-            The image was stretched across the strip with `object-cover`, which cut the edges
-            off anything that was not already a wide landscape — the organizer's logo lost its
-            ends on QA. It is now shown whole (`object-contain`) over a blurred copy of itself,
-            so a portrait poster, a square logo and a wide photo all read properly and the
-            strip never shows empty bars. The picture opens full screen; the title below it is
-            what says what the event is, so the images carry no alt text of their own here.
+            ── THE BANNER, AND THE WHOLE PICTURE ONE TAP AWAY ────────────────────────────
+            The picture was stretched across a fixed-height strip with `object-cover`, which cut
+            the edges off anything that was not already a wide landscape - the organizer's logo
+            lost its ends on QA - and was then shown whole over a blurred copy of itself, which
+            left a small poster floating in a large blur.
+
+            It is now the banner copy: cut by the API to 16:9 around the point the organizer
+            chose, and previewed for them in the console before buyers see it. The box is that
+            shape on a phone; on a wider screen it is a little wider still, and the further crop
+            is centred on the same point so it is never cut off. The whole picture, uncropped, is
+            in the full-screen viewer behind the button. The title below is what says what the
+            event is, so the images carry no alt text of their own here.
+
+            On a phone the title sits UNDER the banner rather than over it. A 16:9 box on a
+            390px screen is 200px tall, and the title, the place and the organizer laid over it
+            covered most of the picture and ran into the buttons at its top.
           */}
           {heroImage && (
             <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                aria-hidden
-                src={heroImage}
-                alt=""
-                className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-2xl"
-              />
               <button
                 type="button"
                 onClick={() => setLightbox(shownImage)}
@@ -533,16 +592,34 @@ export default function EventDetailPage() {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  key={heroImage}
-                  src={heroImage}
+                  key={heroImage.banner.src}
+                  src={heroImage.banner.src}
+                  srcSet={heroImage.banner.srcSet}
+                  // The page is at most about 1200px wide; on a phone the hero is the screen.
+                  sizes="(min-width: 1280px) 1200px, 100vw"
                   alt=""
-                  className="h-full w-full animate-fade-in object-contain"
+                  style={{ objectPosition: heroImage.position }}
+                  className="h-full w-full animate-fade-in object-cover"
                 />
               </button>
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent"
+                className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent sm:block"
               />
+              {/*
+                Always offered, not only for a gallery: on a banner a portrait poster shows its
+                middle, and a buyer who wants the date printed at the bottom needs the rest.
+              */}
+              <button
+                type="button"
+                onClick={() => setLightbox(shownImage)}
+                className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-caption font-medium text-white backdrop-blur transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <Images className="h-3.5 w-3.5" aria-hidden />
+                {gallery.length > 1
+                  ? sf('event.galleryOpen', { total: gallery.length })
+                  : sf('event.galleryOpenOne')}
+              </button>
               {gallery.length > 1 && (
                 <>
                   <button
@@ -563,50 +640,20 @@ export default function EventDetailPage() {
                   >
                     <ChevronRight className="h-5 w-5" aria-hidden />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setLightbox(shownImage)}
-                    className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1.5 text-caption font-medium text-white backdrop-blur transition-colors hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                  >
-                    <Images className="h-3.5 w-3.5" aria-hidden />
-                    {sf('event.galleryOpen', { total: gallery.length })}
-                  </button>
                 </>
               )}
             </>
           )}
-          <div className="pointer-events-none relative z-10">
-            <Badge tone="info">{event.category}</Badge>
-            <h1
-              className={`mt-3 text-h2 font-bold tracking-tight sm:text-h1 ${
-                heroImage ? 'text-white' : 'text-text-primary'
-              }`}
-            >
-              {event.title}
-            </h1>
-            <p
-              className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.9375rem] ${
-                heroImage ? 'text-white/90' : 'text-text-secondary'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" />
-                {event.venue.name}, {event.venue.city}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Building2 className="h-4 w-4" />
-                {event.organizer.name}
-              </span>
-            </p>
-          </div>
-          <button
-            onClick={share}
-            className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            {shared ? sf('common.copied') : tx('action.share')}
-          </button>
+          {!heroImage && heroTitle}
         </div>
+        {heroImage && heroTitle}
+        <button
+          onClick={share}
+          className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-full bg-background-surface/90 px-3 py-1.5 text-caption font-medium text-text-secondary shadow-sm backdrop-blur transition-colors hover:text-text-primary"
+        >
+          <Share2 className="h-3.5 w-3.5" />
+          {shared ? sf('common.copied') : tx('action.share')}
+        </button>
       </div>
 
       {/*
@@ -616,8 +663,8 @@ export default function EventDetailPage() {
       */}
       {gallery.length > 1 && (
         <ul className="-mt-4 flex gap-2 overflow-x-auto pb-1" aria-label={sf('event.galleryLabel')}>
-          {gallery.map((url, index) => (
-            <li key={url} className="shrink-0">
+          {gallery.map((image, index) => (
+            <li key={image.full} className="shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveImage(index)}
@@ -630,14 +677,19 @@ export default function EventDetailPage() {
                 }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" loading="lazy" className="h-16 w-28 object-cover" />
+                <img
+                  src={image.strip}
+                  alt=""
+                  loading="lazy"
+                  className="aspect-video h-16 object-cover"
+                />
               </button>
             </li>
           ))}
         </ul>
       )}
       <ImageLightbox
-        images={gallery}
+        images={gallery.map((image) => image.full)}
         index={lightbox}
         title={event.title}
         onIndexChange={(index) => {

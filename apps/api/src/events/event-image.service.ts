@@ -1,6 +1,12 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { EventStatus, Role } from '@eticketsgo/shared-types';
+import {
+  EventStatus,
+  Role,
+  normaliseFocalPoint,
+  type EventImageVariantName,
+  type FocalPoint,
+} from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -11,11 +17,20 @@ import type { RequestUser } from '../common/decorators';
 import {
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_MAX_COUNT,
+  EVENT_IMAGE_URL_SELECT,
   coverImagePath,
+  coverImageVariants,
   eventImageOrder,
-  eventImagePath,
+  eventImageVariantsVersion,
+  eventImagesView,
+  focalPointOf,
   sniffImageType,
 } from './event-image';
+import {
+  EventImageRejected,
+  renderEventImage,
+  type RenderedEventImageVariant,
+} from './event-image-processing';
 
 /** The part of a multer file this service reads. Declared here so the API needs no multer types. */
 export interface UploadedImageFile {
@@ -40,8 +55,28 @@ export interface UploadedImageFile {
 const LOCKED: EventStatus[] = [EventStatus.CANCELLED, EventStatus.COMPLETED, EventStatus.ARCHIVED];
 const ORGANIZER_ROLES = [Role.ORGANIZER_OWNER, Role.ORGANIZER_MANAGER];
 
+/** An image as the public routes hand it to `sendEventImage`. */
+export interface ServedEventImage {
+  bytes?: Uint8Array;
+  redirectTo?: string;
+  contentType: string;
+  sha256: string;
+  /** The URL version this answer is good for; the original's hash prefix when absent. */
+  version?: string;
+}
+
 @Injectable()
 export class EventImageService {
+  private readonly logger = new Logger(EventImageService.name);
+  /**
+   * Copies being cut right now for images uploaded before copies existed, by image id.
+   *
+   * A browse page asks for every card at once, and a popular event's card is asked for by many
+   * browsers at once. Without this each request would decode the same original and cut the same
+   * six copies; with it they all wait for the one that is already doing it.
+   */
+  private readonly backfilling = new Map<string, Promise<void>>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
@@ -75,7 +110,14 @@ export class EventImageService {
         HttpStatus.UNSUPPORTED_MEDIA_TYPE,
       );
     }
+    /*
+      Decoded and cut BEFORE anything is stored. The signature check above only says what the
+      file claims to be; this is what proves it is a picture, and a file that cannot be cut into
+      a card is a file that would have been a broken card.
+    */
+    const rendered = await this.render(file.buffer, normaliseFocalPoint(null, null));
     const sha256 = createHash('sha256').update(file.buffer).digest('hex');
+    const variantRows = await this.storeVariants(eventId, rendered);
 
     /*
       The object goes to the store BEFORE the row is written, and deliberately outside the
@@ -123,6 +165,9 @@ export class EventImageService {
           sizeBytes: file.buffer.length,
           sha256,
           uploadedByUserId: user.id,
+          // In the same statement as the image, so there is never an image whose copies are
+          // half written: it has all of them or, if this fails, it does not exist.
+          variants: { create: variantRows },
         },
         select: { id: true },
       });
@@ -202,25 +247,86 @@ export class EventImageService {
     return this.gallery(eventId);
   }
 
+  /**
+   * Chooses the part of an image every crop keeps in view, and cuts its copies again.
+   *
+   * The copies are cut from the ORIGINAL every time, never from a previous copy, so moving the
+   * point back and forth loses nothing. The point and the copies are written in one
+   * transaction, and the image row is written first so it is locked for the rest of it: two
+   * organizers clicking at once end with the point and the copies of whichever saved last,
+   * never the point of one and the copies of the other.
+   */
+  async setFocalPoint(user: RequestUser, eventId: string, imageId: string, point: FocalPoint) {
+    const event = await this.changeableEvent(user, eventId);
+    const row = await this.prisma.eventImage.findFirst({
+      where: { id: imageId, eventId },
+      select: { id: true, bytes: true, storageKey: true, contentType: true },
+    });
+    if (!row) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That image is not on this event.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const original = await this.objects.read(row);
+    if (!original) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'That image could not be found. Remove it and upload it again.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const focal = normaliseFocalPoint(point.x, point.y);
+    const rendered = await this.render(original.body, focal);
+    const variantRows = await this.storeVariants(eventId, rendered);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.eventImage.update({
+        where: { id: imageId },
+        data: { focalX: focal.x, focalY: focal.y },
+      });
+      await tx.eventImageVariant.deleteMany({ where: { imageId } });
+      await tx.eventImageVariant.createMany({
+        data: variantRows.map((variant) => ({ ...variant, imageId })),
+      });
+    });
+    await this.audit.record({
+      actorUserId: user.id,
+      organizationId: event.organizationId,
+      action: 'EVENT_IMAGE_FOCAL_POINT_SET',
+      entityType: 'Event',
+      entityId: eventId,
+      metadata: { imageId, focalX: focal.x, focalY: focal.y },
+    });
+    return this.gallery(eventId);
+  }
+
   /** The event's images in order, as the organizer console shows them. Never the bytes. */
   async gallery(eventId: string) {
     const rows = await this.prisma.eventImage.findMany({
       where: { eventId },
       orderBy: eventImageOrder(),
-      select: { id: true, sha256: true, contentType: true, sizeBytes: true },
+      select: { ...EVENT_IMAGE_URL_SELECT, contentType: true, sizeBytes: true },
     });
     return {
       imagePath: coverImagePath(eventId, rows),
-      images: rows.map((row) => ({
-        id: row.id,
-        path: eventImagePath(eventId, row.id, row.sha256),
-        contentType: row.contentType,
-        sizeBytes: row.sizeBytes,
+      imageVariants: coverImageVariants(eventId, rows),
+      images: eventImagesView(eventId, rows).map((view, i) => ({
+        ...view,
+        contentType: rows[i].contentType,
+        sizeBytes: rows[i].sizeBytes,
       })),
     };
   }
 
-  /** One image, for the public image route. Scoped to its event. */
+  /**
+   * One image, for the public image route. Scoped to its event.
+   *
+   * The link names the ORIGINAL, but what it serves is the whole picture made upright and
+   * stripped of the camera's metadata - the `full` copy - when there is one. A phone photo can
+   * carry the place it was taken, and this URL is on every public page that predates the
+   * copies. Same picture, same version: `full` is made from these exact bytes and nothing else.
+   */
   read(eventId: string, imageId: string) {
     return this.resolve({ id: imageId, eventId });
   }
@@ -228,6 +334,130 @@ export class EventImageService {
   /** The cover — for links issued before an event could hold more than one image. */
   readCover(eventId: string) {
     return this.resolve({ eventId }, eventImageOrder());
+  }
+
+  /**
+   * One web-ready copy of an image.
+   *
+   * An image uploaded before copies existed has none yet. Its copies are cut the first time one
+   * is asked for and kept, so the old catalogue becomes fast without anyone re-uploading
+   * anything. If they cannot be cut, the original is served instead under a short cache: a
+   * card showing the picture uncropped is better than a card showing nothing.
+   */
+  async readVariant(
+    eventId: string,
+    imageId: string,
+    name: EventImageVariantName,
+  ): Promise<ServedEventImage | null> {
+    const image = await this.prisma.eventImage.findFirst({
+      where: { id: imageId, eventId },
+      select: { id: true, sha256: true, focalX: true, focalY: true },
+    });
+    if (!image) return null;
+    let variant = await this.variantRow(imageId, name);
+    if (!variant) {
+      await this.backfill(eventId, imageId);
+      variant = await this.variantRow(imageId, name);
+    }
+    const served = variant ? await this.serve(variant, image.sha256) : null;
+    if (!served) return this.read(eventId, imageId);
+    return { ...served, version: eventImageVariantsVersion(image.sha256, focalPointOf(image)) };
+  }
+
+  private variantRow(imageId: string, name: string) {
+    return this.prisma.eventImageVariant.findUnique({
+      where: { imageId_name: { imageId, name } },
+      select: { bytes: true, storageKey: true, contentType: true },
+    });
+  }
+
+  /** Cuts and keeps the copies of an image that has none. Never throws: the caller falls back. */
+  private backfill(eventId: string, imageId: string): Promise<void> {
+    const running = this.backfilling.get(imageId);
+    if (running) return running;
+    const work = (async () => {
+      try {
+        const row = await this.prisma.eventImage.findFirst({
+          where: { id: imageId, eventId },
+          select: { bytes: true, storageKey: true, contentType: true, focalX: true, focalY: true },
+        });
+        if (!row) return;
+        const original = await this.objects.read(row);
+        if (!original) return;
+        const rendered = await renderEventImage(original.body, focalPointOf(row));
+        const variantRows = await this.storeVariants(eventId, rendered);
+        /*
+          `skipDuplicates`: another instance may have cut the same copies a moment ago, or the
+          organizer may have moved the focal point while this ran. Either way the copies already
+          there are at least as right as these, so these are dropped rather than written over.
+        */
+        await this.prisma.eventImageVariant.createMany({
+          data: variantRows.map((variant) => ({ ...variant, imageId })),
+          skipDuplicates: true,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Could not make copies of event image ${imageId}; serving the original. ${String(err)}`,
+        );
+      } finally {
+        this.backfilling.delete(imageId);
+      }
+    })();
+    this.backfilling.set(imageId, work);
+    return work;
+  }
+
+  /** The copies, or the organizer's reason why not. */
+  private async render(buffer: Buffer, focal: FocalPoint) {
+    try {
+      return await renderEventImage(buffer, focal);
+    } catch (err) {
+      if (!(err instanceof EventImageRejected)) throw err;
+      const tooBig = err.reason === 'too-many-pixels';
+      throw new AppException(
+        ErrorCodes.VALIDATION_FAILED,
+        tooBig
+          ? 'That image has too many pixels. Use one under 25 megapixels, such as 6000 x 4000.'
+          : 'That file could not be read as an image. Upload a JPG, PNG or WebP image.',
+        tooBig ? HttpStatus.PAYLOAD_TOO_LARGE : HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+      );
+    }
+  }
+
+  /**
+   * Each copy as the row that records it: its bytes in the row while the store is the
+   * database, or written to the store first and named by key, exactly as the original is.
+   */
+  private async storeVariants(
+    eventId: string,
+    rendered: { variants: RenderedEventImageVariant[] },
+  ) {
+    return Promise.all(
+      rendered.variants.map(async (variant) => {
+        const stored =
+          this.objects.driver === 'postgres'
+            ? null
+            : await this.objects.write({
+                key: eventImageKey({
+                  eventId,
+                  sha256: variant.sha256,
+                  contentType: variant.contentType,
+                }),
+                body: variant.bytes,
+                contentType: variant.contentType,
+              });
+        return {
+          name: variant.name,
+          contentType: variant.contentType,
+          width: variant.width,
+          height: variant.height,
+          bytes: stored ? null : variant.bytes,
+          storageKey: stored,
+          sizeBytes: variant.bytes.length,
+          sha256: variant.sha256,
+        };
+      }),
+    );
   }
 
   /**
@@ -246,27 +476,44 @@ export class EventImageService {
   private async resolve(
     where: { id?: string; eventId: string },
     orderBy?: ReturnType<typeof eventImageOrder>,
-  ): Promise<{
-    bytes?: Uint8Array;
-    redirectTo?: string;
-    contentType: string;
-    sha256: string;
-  } | null> {
+  ): Promise<ServedEventImage | null> {
     const row = await this.prisma.eventImage.findFirst({
       where,
       ...(orderBy ? { orderBy } : {}),
-      select: { bytes: true, storageKey: true, contentType: true, sha256: true },
+      select: {
+        bytes: true,
+        storageKey: true,
+        contentType: true,
+        sha256: true,
+        variants: {
+          where: { name: 'full' },
+          select: { bytes: true, storageKey: true, contentType: true },
+        },
+      },
     });
     if (!row) return null;
+    // Versioned by the ORIGINAL's hash either way: `full` is a function of those bytes alone.
+    const full = row.variants?.[0];
+    if (full) {
+      const served = await this.serve(full, row.sha256);
+      if (served) return served;
+    }
+    return this.serve(row, row.sha256);
+  }
 
+  /** One stored object as a public answer: a redirect to the bucket, or its bytes. */
+  private async serve(
+    row: { bytes: Uint8Array | null; storageKey: string | null; contentType: string },
+    sha256: string,
+  ): Promise<ServedEventImage | null> {
     const redirectTo = this.objects.publicUrl(row);
-    if (redirectTo) return { redirectTo, contentType: row.contentType, sha256: row.sha256 };
+    if (redirectTo) return { redirectTo, contentType: row.contentType, sha256 };
 
     const object = await this.objects.read(row);
     // A row pointing at an object the store does not have is data loss, and the caller turns
     // it into a 404. A placeholder here would hide that behind a grey rectangle.
     if (!object) return null;
-    return { bytes: object.body, contentType: row.contentType, sha256: row.sha256 };
+    return { bytes: object.body, contentType: row.contentType, sha256 };
   }
 
   private async changeableEvent(user: RequestUser, eventId: string) {

@@ -3,7 +3,12 @@ import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AdvertisedPriceService } from '../../pricing/advertised-price.service';
-import { coverImagePath, eventImageOrder } from '../../events/event-image';
+import {
+  EVENT_IMAGE_URL_SELECT,
+  coverImagePath,
+  coverImageVariants,
+  eventImageOrder,
+} from '../../events/event-image';
 import type {
   PublicEventCardLike,
   RecommendationContext,
@@ -75,7 +80,7 @@ export async function fetchEventCards(
       // `region` is carried for the fee bands the advertised price is built from, not shown.
       venue: { select: { name: true, city: true, country: true, region: true, timezone: true } },
       organization: { select: { name: true } },
-      images: { select: { id: true, sha256: true }, orderBy: eventImageOrder(), take: 1 },
+      images: { select: EVENT_IMAGE_URL_SELECT, orderBy: eventImageOrder(), take: 1 },
       /*
         The same "still on" rule as the browse listing and the event page: the next session that
         has not started and is not cancelled, priced from a ticket type that is on sale. This
@@ -112,6 +117,7 @@ export async function fetchEventCards(
         },
         organizer: e.organization.name,
         imagePath: coverImagePath(e.id, e.images),
+        imageVariants: coverImageVariants(e.id, e.images),
         nextSessionAt: e.sessions[0]?.startsAt ?? null,
         fromPriceMinor: advertised
           ? await advertised.forTicket(base, e.feeMode as FeeMode, currency, {

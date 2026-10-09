@@ -27,7 +27,13 @@ import { requireCommerceCurrency } from '../common/commerce-currency';
 import { EventSellabilityService } from './event-sellability.service';
 import { ShowsService } from '../shows/shows.service';
 import type { RequestUser } from '../common/decorators';
-import { coverImagePath, eventImageOrder, eventImagePath } from './event-image';
+import {
+  EVENT_IMAGE_URL_SELECT,
+  coverImagePath,
+  coverImageVariants,
+  eventImageOrder,
+  eventImagesView,
+} from './event-image';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
 import { spaceOrganizationId, spaceVenueName } from '../spaces/space-owner';
 
@@ -560,7 +566,7 @@ export class EventsService {
         _count: { select: { bookings: true } },
         // Ids and hashes, to name each image's URL. The bytes are only ever read by the image route.
         images: {
-          select: { id: true, sha256: true, contentType: true, sizeBytes: true },
+          select: { ...EVENT_IMAGE_URL_SELECT, contentType: true, sizeBytes: true },
           orderBy: eventImageOrder(),
         },
         sessions: {
@@ -589,11 +595,11 @@ export class EventsService {
       // A stale marker on an event that has since completed says nothing about resuming.
       pausedByAdmin: row.status === EventStatus.PAUSED && row.pausedByAdminAt !== null,
       imagePath: coverImagePath(row.id, images),
-      images: images.map((image) => ({
-        id: image.id,
-        path: eventImagePath(row.id, image.id, image.sha256),
-        contentType: image.contentType,
-        sizeBytes: image.sizeBytes,
+      imageVariants: coverImageVariants(row.id, images),
+      images: eventImagesView(row.id, images).map((view, i) => ({
+        ...view,
+        contentType: images[i].contentType,
+        sizeBytes: images[i].sizeBytes,
       })),
     };
   }
