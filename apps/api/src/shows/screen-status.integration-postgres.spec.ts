@@ -147,14 +147,16 @@ describe('integration-real-postgres: screen operational status', () => {
       await clear();
       await db.event.deleteMany({ where: { movieId } });
       await db.movie.deleteMany({ where: { id: movieId } });
-      await db.seat.deleteMany({ where: { seatMap: { screen: { cinemaId } } } });
-      await db.seatRow.deleteMany({ where: { section: { seatMap: { screen: { cinemaId } } } } });
-      await db.seatSection.deleteMany({ where: { seatMap: { screen: { cinemaId } } } });
-      await db.seatCategory.deleteMany({ where: { seatMap: { screen: { cinemaId } } } });
-      await db.seatMap.deleteMany({ where: { screen: { cinemaId } } });
-      await db.screen.deleteMany({ where: { cinemaId } });
-      await db.cinema.deleteMany({ where: { id: cinemaId } });
-      await db.venue.deleteMany({ where: { id: venueId } });
+      // Everything in the test organization: some tests add a second cinema and venue.
+      const inOrg = { cinema: { organizationId: orgId } };
+      await db.seat.deleteMany({ where: { seatMap: { screen: inOrg } } });
+      await db.seatRow.deleteMany({ where: { section: { seatMap: { screen: inOrg } } } });
+      await db.seatSection.deleteMany({ where: { seatMap: { screen: inOrg } } });
+      await db.seatCategory.deleteMany({ where: { seatMap: { screen: inOrg } } });
+      await db.seatMap.deleteMany({ where: { screen: inOrg } });
+      await db.screen.deleteMany({ where: inOrg });
+      await db.cinema.deleteMany({ where: { organizationId: orgId } });
+      await db.venue.deleteMany({ where: { organizationId: orgId } });
       await db.organization.deleteMany({ where: { id: orgId } });
     }
     await db?.$disconnect();
@@ -237,6 +239,106 @@ describe('integration-real-postgres: screen operational status', () => {
       });
       expect(byId.get(draftOnly.id)).toMatchObject({ hasSeatMap: false, bookableSeats: null });
       expect(byId.get(screenId)).toMatchObject({ hasSeatMap: true, bookableSeats: 2 });
+    },
+  );
+
+  maybe(
+    'files each show of a film under its own screen venue, priced in that venue currency',
+    async () => {
+      /*
+      QA, 2026-10-09: the film had first been shown in Boise, so its one Event's venue was
+      Boise, and a later show at a Hyderabad screen was sold as "$250.00" with "Boise" on the
+      buyer's page. One event per film per venue.
+    */
+      const d = db as Client;
+      const usVenue = await d.venue.create({
+        data: {
+          organizationId: orgId,
+          name: `US ${suffix}`,
+          city: 'Boise',
+          country: 'US',
+          timezone: 'America/Boise',
+        },
+      });
+      const usCinema = await d.cinema.create({
+        data: {
+          organizationId: orgId,
+          venueId: usVenue.id,
+          name: `US C ${suffix}`,
+          city: 'Boise',
+          timezone: 'America/Boise',
+        },
+      });
+      const usScreen = await d.screen.create({
+        data: { cinemaId: usCinema.id, name: 'US 1', screenType: '2D', capacity: 1 },
+      });
+      const usMap = await d.seatMap.create({ data: { screenId: usScreen.id, name: 'U' } });
+      const usCat = await d.seatCategory.create({
+        data: { seatMapId: usMap.id, name: 'Normal', basePriceMinor: 2000, sortOrder: 0 },
+      });
+      const usSec = await d.seatSection.create({
+        data: { seatMapId: usMap.id, name: 'M', sortOrder: 0 },
+      });
+      const usRow = await d.seatRow.create({
+        data: { sectionId: usSec.id, label: 'A', sortOrder: 0 },
+      });
+      await d.seat.create({
+        data: {
+          seatMapId: usMap.id,
+          rowId: usRow.id,
+          seatCategoryId: usCat.id,
+          label: '1',
+          colIndex: 1,
+          kind: 'SEAT',
+        },
+      });
+
+      const at = (days: number, h: number) => {
+        const t = new Date();
+        t.setUTCDate(t.getUTCDate() + days);
+        t.setUTCHours(h, 0, 0, 0);
+        return t;
+      };
+      // Boise first, so the old code would have filed India under it.
+      const us = await shows.scheduleShow(ORGANIZER, movieId, {
+        screenId: usScreen.id,
+        startsAt: at(120, 1),
+        endsAt: at(120, 3),
+      } as never);
+      const india = await shows.scheduleShow(ORGANIZER, movieId, {
+        screenId,
+        startsAt: at(121, 13),
+        endsAt: at(121, 15),
+      } as never);
+
+      expect(india.eventId).not.toBe(us.eventId);
+      const events = await d.event.findMany({
+        where: { id: { in: [us.eventId, india.eventId] } },
+        select: { id: true, venueId: true },
+      });
+      const venueOf = Object.fromEntries(
+        events.map((e: { id: string; venueId: string }) => [e.id, e.venueId]),
+      );
+      expect(venueOf[us.eventId]).toBe(usVenue.id);
+      expect(venueOf[india.eventId]).toBe(venueId);
+
+      const currencyOf = async (sessionId: string) =>
+        (
+          await d.ticketType.findFirst({
+            where: { eventSessionId: sessionId },
+            select: { currency: true },
+          })
+        )?.currency;
+      expect(await currencyOf(us.sessionId)).toBe('USD');
+      expect(await currencyOf(india.sessionId)).toBe('INR');
+
+      // A second Hyderabad show reuses the Hyderabad event rather than making a third.
+      const again = await shows.scheduleShow(ORGANIZER, movieId, {
+        screenId,
+        startsAt: at(122, 13),
+        endsAt: at(122, 15),
+      } as never);
+      expect(again.eventId).toBe(india.eventId);
     },
   );
 
