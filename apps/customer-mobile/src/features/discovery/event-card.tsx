@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/theme';
 import { Badge, Text, haptics } from '@/ui';
 import { formatDateTime, formatMoney } from '@/services/locale';
+import { EventPicture } from '@/features/events/event-picture';
 import type { EventSummary, MovieSummary } from './schema';
 
 /**
@@ -44,11 +45,16 @@ export function EventCard({ event, width = 260 }: { event: EventSummary; width?:
       style={{ width }}
       className="gap-2 active:opacity-70"
     >
-      <View className="h-32 items-center justify-center rounded-md border border-border bg-background-subtle">
-        {/* The events API returns no artwork, so the category glyph stands in rather
-            than a broken-image box. Swap for <Image> when the API carries one. */}
-        <Ionicons name={categoryIcon(event.category)} size={30} color={colors.textMuted} />
-      </View>
+      {/* The organizer's picture, cut to the card's shape. Without one, the category glyph
+          stands in rather than a broken-image box. */}
+      <EventPicture
+        event={event}
+        use="card"
+        className="rounded-md border border-border"
+        fallback={
+          <Ionicons name={categoryIcon(event.category)} size={30} color={colors.textMuted} />
+        }
+      />
 
       <View className="gap-0.5">
         <Text variant="headline" numberOfLines={2}>
@@ -101,8 +107,15 @@ export function EventRow({ event }: { event: EventSummary }) {
       }}
       className="flex-row items-center gap-3 px-5 py-3 active:bg-background-subtle"
     >
-      <View className="h-14 w-14 items-center justify-center rounded-sm bg-background-subtle">
-        <Ionicons name={categoryIcon(event.category)} size={22} color={colors.textMuted} />
+      <View className="w-14">
+        <EventPicture
+          event={event}
+          use="thumb"
+          className="rounded-sm"
+          fallback={
+            <Ionicons name={categoryIcon(event.category)} size={22} color={colors.textMuted} />
+          }
+        />
       </View>
       <View className="flex-1 gap-0.5">
         <Text variant="callout" className="font-semibold" numberOfLines={1}>
