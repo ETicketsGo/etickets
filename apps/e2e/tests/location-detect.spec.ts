@@ -91,7 +91,8 @@ test('moving countries leaves no stale city behind', async ({ page }) => {
   await chip(page).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Search for a city').fill('hyderabad');
-  await dialog.getByRole('option', { name: /^Hyderabad/ }).click();
+  // Hyderabad, Pakistan is a real place too and may be offered; this is the one in India.
+  await dialog.getByRole('option', { name: /^Hyderabad.*India/ }).click();
   await expect(chip(page)).toHaveAccessibleName(/Location: Hyderabad/);
   await expect(page.getByText(/No events available in Dallas yet/)).toHaveCount(0);
   await page.reload({ waitUntil: 'networkidle' });
