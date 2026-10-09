@@ -49,12 +49,16 @@ export function EventArtwork({
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : (
+        /*
+          Drawn by CSS from an attribute rather than written as text: the letter is a picture.
+          As text it was the first line of the table's first cell, so anything reading the
+          row's text - a copy, a test, a "find on page" - met a stray "U" before the title.
+        */
         <span
           aria-hidden="true"
-          className="select-none text-[2em] font-bold uppercase text-text-primary/30"
-        >
-          {title.trim().charAt(0) || '?'}
-        </span>
+          data-initial={title.trim().charAt(0) || '?'}
+          className="select-none text-[2em] font-bold uppercase text-text-primary/30 before:content-[attr(data-initial)]"
+        />
       )}
     </div>
   );
