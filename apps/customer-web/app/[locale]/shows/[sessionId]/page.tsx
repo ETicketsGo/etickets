@@ -1,9 +1,9 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Armchair, ChevronLeft, Info } from 'lucide-react';
 import {
   api as webKit,
@@ -18,7 +18,7 @@ import {
   BuyerRegionField,
   type SelectableSeat,
 } from '@eticketsgo/web-kit';
-import { api, ApiRequestError, type SeatLayout } from '@/lib/api';
+import { api, ApiRequestError, type SeatLayout, type SeatLayoutResponse } from '@/lib/api';
 import { useFormat } from '@/lib/format';
 import { Button, Card, EmptyState, ErrorState } from '@/components/ui';
 import { nextStepAfterBooking } from '@/lib/after-booking';
@@ -118,7 +118,45 @@ export default function SeatSelectionPage() {
   } = useQuery({
     queryKey: ['seats', sessionId, sectionId],
     queryFn: () => api.showSeats(sessionId, sectionId ?? undefined),
+    /*
+      Keep what is on screen while the next block loads. Without it every change of block blanked
+      the whole page to a skeleton - the map, the basket, the header - for a few hundred ms.
+    */
+    placeholderData: keepPreviousData,
   });
+
+  /*
+    The venue overview, kept next to the seats once a block is open.
+
+    The same request (and cache entry) as the first screen, so it costs nothing extra. It lets the
+    customer see where the block they are in sits, and move to another block, without going
+    "back" anywhere: the seats and the venue are on one screen.
+  */
+  const overviewQ = useQuery({
+    queryKey: ['seats', sessionId, null],
+    queryFn: () => api.showSeats(sessionId, undefined),
+    staleTime: 30_000,
+  });
+  const overview = overviewQ.data;
+  const venue: Extract<SeatLayoutResponse, { view: 'overview' }> | null =
+    overview?.view === 'overview' ? overview : null;
+
+  // Set when the customer picks a block, so the seats are brought into view once they arrive.
+  const scrollToSeats = useRef(false);
+  const seatsRef = useRef<HTMLDivElement>(null);
+  const chooseSection = (id: string) => {
+    scrollToSeats.current = true;
+    setSectionId(id);
+  };
+  const seatsShown = layout?.view !== 'overview' && sectionId !== null && !isFetching;
+  useEffect(() => {
+    if (!seatsShown || !scrollToSeats.current) return;
+    scrollToSeats.current = false;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    seatsRef.current?.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  }, [seatsShown, sectionId]);
 
   /*
     Which show this is. Failing to load it costs the header, never the seats: the map and the
@@ -490,7 +528,7 @@ export default function SeatSelectionPage() {
               <VenueMap
                 focal={layout.focal}
                 sections={layout.sections}
-                onSelect={(id) => setSectionId(id)}
+                onSelect={chooseSection}
                 formatPrice={(minor) => money(minor, currency)}
                 pendingSectionId={isFetching ? sectionId : null}
               />
@@ -540,7 +578,7 @@ export default function SeatSelectionPage() {
       */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         {/* Seat map */}
-        <div className="min-w-0">
+        <div ref={seatsRef} className="min-w-0 scroll-mt-24">
           <Card>
             <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -571,6 +609,41 @@ export default function SeatSelectionPage() {
                   </button>
                 ) : null}
               </div>
+
+              {/*
+                Other blocks, one tap away. On a phone the venue map would push the seats off the
+                screen, so the blocks are a wrapping row of buttons instead; on a wide screen the
+                map itself sits beside the seats and this row is not needed.
+              */}
+              {cameFromMap && venue ? (
+                <details className="lg:hidden" open={venue.sections.length <= 8}>
+                  <summary className="mb-1.5 cursor-pointer rounded-md text-caption font-medium text-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                    {s('changeArea', { count: venue.sections.length })}
+                  </summary>
+                  <div role="group" aria-label={s('otherAreas')} className="flex flex-wrap gap-2">
+                    {venue.sections.map((section) => {
+                      const active = section.id === sectionId;
+                      const unavailable = section.availableCount === 0 || section.kind === 'ZONE';
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          aria-pressed={active}
+                          disabled={unavailable && !active}
+                          onClick={() => chooseSection(section.id)}
+                          className={`rounded-full border px-3 py-1.5 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 ${
+                            active
+                              ? 'border-action-primary bg-tint-primary text-text-primary'
+                              : 'border-border text-text-secondary hover:bg-background-subtle'
+                          }`}
+                        >
+                          {section.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              ) : null}
 
               {hasSeats ? <TicketCount value={quantity} onChange={chooseQuantity} /> : null}
 
@@ -609,179 +682,200 @@ export default function SeatSelectionPage() {
           </Card>
         </div>
 
-        {/* Summary */}
-        <div id={SUMMARY_ID} className="scroll-mt-24 lg:sticky lg:top-24 lg:h-fit">
-          <Card>
-            <div className="mb-4 flex items-center gap-2">
-              <Armchair className="h-5 w-5 text-action-primary" aria-hidden />
-              <h2 className="text-title font-semibold text-text-primary">{s('yourSeats')}</h2>
+        {/* Venue (wide screens) + summary */}
+        <div className="space-y-6">
+          {cameFromMap && venue ? (
+            <div className="hidden lg:block">
+              <Card>
+                <h2 className="text-title font-semibold text-text-primary">{s('venueMapTitle')}</h2>
+                <p className="mb-3 mt-1 text-caption text-text-muted">{s('venueMapLead')}</p>
+                <VenueMap
+                  focal={venue.focal}
+                  sections={venue.sections}
+                  onSelect={chooseSection}
+                  formatPrice={(minor) => money(minor, currency)}
+                  activeSectionId={sectionId}
+                  pendingSectionId={isFetching ? sectionId : null}
+                  listWhenNarrow={false}
+                />
+              </Card>
             </div>
-
-            {selected.length === 0 ? (
-              <p className="text-[0.9375rem] text-text-muted">{s('noneSelected')}</p>
-            ) : (
-              <div className="space-y-3">
-                {Array.from(grouped.entries()).map(([catId, entry]) => {
-                  const cat = categoriesById.get(catId);
-                  return (
-                    <div key={catId} className="flex items-start justify-between gap-3">
-                      <div>
-                        {(() => {
-                          const name = seatGroupName(
-                            entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
-                            cat?.name,
-                          );
-                          return (
-                            <p className="font-medium text-text-primary">
-                              {name.title || s('seatsFallback')}
-                              {name.category ? (
-                                <span className="font-normal text-text-muted">
-                                  {' '}
-                                  - {name.category}
-                                </span>
-                              ) : null}
-                            </p>
-                          );
-                        })()}
-                        <p className="text-caption text-text-muted">
-                          {[...entry.labels]
-                            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-                            .join(', ')}
-                        </p>
-                      </div>
-                      <span className="whitespace-nowrap text-[0.9375rem] tabular-nums text-text-secondary">
-                        {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
-                      </span>
-                    </div>
-                  );
-                })}
+          ) : null}
+          <div id={SUMMARY_ID} className="scroll-mt-24 lg:sticky lg:top-24 lg:h-fit">
+            <Card>
+              <div className="mb-4 flex items-center gap-2">
+                <Armchair className="h-5 w-5 text-action-primary" aria-hidden />
+                <h2 className="text-title font-semibold text-text-primary">{s('yourSeats')}</h2>
               </div>
-            )}
 
-            {/*
+              {selected.length === 0 ? (
+                <p className="text-[0.9375rem] text-text-muted">{s('noneSelected')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {Array.from(grouped.entries()).map(([catId, entry]) => {
+                    const cat = categoriesById.get(catId);
+                    return (
+                      <div key={catId} className="flex items-start justify-between gap-3">
+                        <div>
+                          {(() => {
+                            const name = seatGroupName(
+                              entry.seatIds.map((id) => known.get(id)?.sectionName ?? ''),
+                              cat?.name,
+                            );
+                            return (
+                              <p className="font-medium text-text-primary">
+                                {name.title || s('seatsFallback')}
+                                {name.category ? (
+                                  <span className="font-normal text-text-muted">
+                                    {' '}
+                                    - {name.category}
+                                  </span>
+                                ) : null}
+                              </p>
+                            );
+                          })()}
+                          <p className="text-caption text-text-muted">
+                            {[...entry.labels]
+                              .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                              .join(', ')}
+                          </p>
+                        </div>
+                        <span className="whitespace-nowrap text-[0.9375rem] tabular-nums text-text-secondary">
+                          {money((cat?.priceMinor ?? 0) * entry.seatIds.length, currency)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/*
               A discount code, and the offers worth advertising. The dropdown lists only codes the
               organizer PUBLISHED; private codes are still typed into the box beside it.
             */}
-            {selected.length > 0 && (
-              <div className="mt-4 border-t border-border pt-4">
-                {appliedCode && !codeRejected ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[0.9375rem] text-text-secondary">
-                      {s.rich('codeApplied', {
-                        code: appliedCode,
-                        strong: (chunks) => <strong className="text-text-primary">{chunks}</strong>,
-                      })}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAppliedCode(null);
-                        setCode('');
-                      }}
-                      className="text-caption text-text-muted underline hover:text-text-primary"
-                    >
-                      {k('remove')}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {(offersQ.data?.length ?? 0) > 0 && (
-                      <select
-                        aria-label={k('availableOffers')}
-                        value=""
-                        onChange={(e) => {
-                          if (!e.target.value) return;
-                          setCode(e.target.value);
-                          setAppliedCode(e.target.value);
-                        }}
-                        className="w-full rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      >
-                        <option value="">{k('availableOffers')}</option>
-                        {offersQ.data!.map((o) => (
-                          <option key={o.code} value={o.code}>
-                            {o.code} - {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <div className="flex items-start gap-2">
-                      <input
-                        aria-label={k('discountCode')}
-                        placeholder={s('haveCode')}
-                        value={code}
-                        onChange={(e) => setCode(e.target.value.toUpperCase())}
-                        className="min-w-0 flex-1 rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                      />
+              {selected.length > 0 && (
+                <div className="mt-4 border-t border-border pt-4">
+                  {appliedCode && !codeRejected ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[0.9375rem] text-text-secondary">
+                        {s.rich('codeApplied', {
+                          code: appliedCode,
+                          strong: (chunks) => (
+                            <strong className="text-text-primary">{chunks}</strong>
+                          ),
+                        })}
+                      </span>
                       <button
                         type="button"
-                        disabled={!code.trim()}
-                        onClick={() => setAppliedCode(code.trim())}
-                        className="shrink-0 rounded-md border border-border-input px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                        onClick={() => {
+                          setAppliedCode(null);
+                          setCode('');
+                        }}
+                        className="text-caption text-text-muted underline hover:text-text-primary"
                       >
-                        {k('apply')}
+                        {k('remove')}
                       </button>
                     </div>
-                    {codeRejected && (
-                      <p role="alert" className="text-caption text-status-error">
-                        {k('couponRejected')}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  ) : (
+                    <div className="space-y-2">
+                      {(offersQ.data?.length ?? 0) > 0 && (
+                        <select
+                          aria-label={k('availableOffers')}
+                          value=""
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            setCode(e.target.value);
+                            setAppliedCode(e.target.value);
+                          }}
+                          className="w-full rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          <option value="">{k('availableOffers')}</option>
+                          {offersQ.data!.map((o) => (
+                            <option key={o.code} value={o.code}>
+                              {o.code} - {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <div className="flex items-start gap-2">
+                        <input
+                          aria-label={k('discountCode')}
+                          placeholder={s('haveCode')}
+                          value={code}
+                          onChange={(e) => setCode(e.target.value.toUpperCase())}
+                          className="min-w-0 flex-1 rounded-md border border-border-input bg-background-surface px-3 py-2 text-[0.9375rem] uppercase text-text-primary placeholder:normal-case placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={!code.trim()}
+                          onClick={() => setAppliedCode(code.trim())}
+                          className="shrink-0 rounded-md border border-border-input px-3 py-2 text-[0.9375rem] font-medium text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-40"
+                        >
+                          {k('apply')}
+                        </button>
+                      </div>
+                      {codeRejected && (
+                        <p role="alert" className="text-caption text-status-error">
+                          {k('couponRejected')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Above the breakdown, because it can change what the breakdown says. */}
+              <div className="mt-4">
+                <BuyerRegionField
+                  value={buyerRegion}
+                  onChange={(region) => {
+                    setRegionTouched(true);
+                    setBuyerRegion(region);
+                  }}
+                  country={layout?.country}
+                  // Translated: the field's English defaults showed on French Indian pages (QA).
+                  label={k('buyerRegionLabel')}
+                  hint={k('buyerRegionHint')}
+                  noneLabel={k('buyerRegionNone')}
+                  prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
+                  prefilledNote={k('buyerRegionPrefilled')}
+                />
               </div>
-            )}
 
-            {/* Above the breakdown, because it can change what the breakdown says. */}
-            <div className="mt-4">
-              <BuyerRegionField
-                value={buyerRegion}
-                onChange={(region) => {
-                  setRegionTouched(true);
-                  setBuyerRegion(region);
-                }}
-                country={layout?.country}
-                // Translated: the field's English defaults showed on French Indian pages (QA).
-                label={k('buyerRegionLabel')}
-                hint={k('buyerRegionHint')}
-                noneLabel={k('buyerRegionNone')}
-                prefilled={Boolean(user?.lastBuyerRegion) && !regionTouched}
-                prefilledNote={k('buyerRegionPrefilled')}
-              />
-            </div>
-
-            {/*
+              {/*
               The full breakdown, here rather than one screen later — shared with the event page
               so the platform never quotes two prices for the same purchase.
             */}
-            <div className="mt-4">
-              <PriceBreakdown
-                quote={quote}
-                loading={quoteQ.isFetching}
-                fallbackTotalMinor={total}
-                fallbackCurrency={currency}
-                totalLabel={sf('event.totalSeats', { count: selected.length })}
-                emptyNote={sf('event.priceAddSeat')}
-              />
-            </div>
+              <div className="mt-4">
+                <PriceBreakdown
+                  quote={quote}
+                  loading={quoteQ.isFetching}
+                  fallbackTotalMinor={total}
+                  fallbackCurrency={currency}
+                  totalLabel={sf('event.totalSeats', { count: selected.length })}
+                  emptyNote={sf('event.priceAddSeat')}
+                />
+              </div>
 
-            {/*
+              {/*
               Name and email, for somebody with no account. Only once there is something to
               buy: an empty map does not need to ask who the buyer is.
             */}
-            {guest.asGuest && selected.length > 0 && <GuestBuyerFields state={guest} />}
+              {guest.asGuest && selected.length > 0 && <GuestBuyerFields state={guest} />}
 
-            {/* On phones the pay button lives in the bar at the bottom of the screen. */}
-            <div className="mt-4 hidden lg:block">
-              <Button
-                className="w-full"
-                loading={book.isPending}
-                disabled={payDisabled}
-                onClick={startBooking}
-              >
-                {book.isPending ? s('holdingSeats') : s('proceedToPay')}
-              </Button>
-            </div>
-          </Card>
+              {/* On phones the pay button lives in the bar at the bottom of the screen. */}
+              <div className="mt-4 hidden lg:block">
+                <Button
+                  className="w-full"
+                  loading={book.isPending}
+                  disabled={payDisabled}
+                  onClick={startBooking}
+                >
+                  {book.isPending ? s('holdingSeats') : s('proceedToPay')}
+                </Button>
+              </div>
+            </Card>
+          </div>
         </div>
       </div>
 

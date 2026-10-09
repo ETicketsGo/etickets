@@ -295,6 +295,40 @@ test.describe('a venue too big to list', () => {
     await expect(page.getByText(/A1/).first()).toBeVisible();
   });
 
+  test('4b: another block opens beside the seats, on the same page', async ({ page }) => {
+    /*
+      The venue stays on screen next to the seats, so changing block is one tap rather than a
+      trip back to the overview - and the basket is untouched by the move.
+    */
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${CUSTOMER}/shows/${sessionId}`);
+    await page.getByRole('button', { name: /Floor A/ }).click();
+    await expect(page.getByRole('heading', { name: 'Floor A' })).toBeVisible();
+    const url = page.url();
+
+    await page
+      .getByRole('button', { name: /^Seat A1\b/ })
+      .first()
+      .click();
+
+    const mapBeside = page.getByRole('heading', { name: 'Venue map' });
+    await expect(mapBeside).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Floor A, / })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await page.getByRole('button', { name: /^Floor B, / }).click();
+    await expect(page.getByRole('heading', { name: 'Floor B' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Floor B, / })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(page.url()).toBe(url);
+    // The seat from Floor A is still in the basket.
+    await expect(page.getByText(/A1/).first()).toBeVisible();
+  });
+
   test('5: a cinema is untouched — no map, no extra step', async ({ page, request }) => {
     /*
       The other half of the promise.
