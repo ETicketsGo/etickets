@@ -63,21 +63,22 @@ test.describe('creating an event', () => {
 
     await page.getByLabel('Event title').fill('Community Open Day');
     await page.getByLabel('Category').selectOption('Community');
-    const free = page.getByLabel('This is a free event');
-    await expect(free).toBeVisible();
-    await free.check();
-    await expect(page.getByText('no booking fee and no platform share')).toBeVisible();
 
     // `exact` because the Next.js dev-tools button in the corner also matches "Next".
-    // Straight through venue and sessions to the money.
+    // Straight through venue and sessions - one "Where and when" step - to the money.
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByLabel('Venue').selectOption({ index: 1 });
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.locator('#ss0').fill(dayAfter(300));
     await page.locator('#ss0-time').selectOption('18:00');
     await page.locator('#se0').fill(dayAfter(300));
     await page.locator('#se0-time').selectOption('20:00');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+    // Declared on the tickets step, where the question of what to charge is asked.
+    const free = page.getByLabel('This is a free event');
+    await expect(free).toBeVisible();
+    await free.check();
+    await expect(page.getByText('no booking fee and no platform share')).toBeVisible();
 
     /*
       The price is disabled and pinned at zero, rather than hidden. Removing the field would
@@ -96,7 +97,8 @@ test.describe('creating an event', () => {
       Review, where a free event simply does not show it. The assertion is the same one: the
       question is never put to somebody for whom it has no true answer.
     */
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click(); // image and details - nothing required
+    await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
     await expect(page.getByText('Free — no payment taken')).toBeVisible();
     await expect(page.getByLabel('Who pays the booking fee?')).toBeHidden();
 
