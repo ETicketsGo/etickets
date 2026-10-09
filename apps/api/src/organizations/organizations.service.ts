@@ -32,6 +32,7 @@ import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
 import { groupScopeWhere, type GroupScope } from '../admin/group-scope';
+import { countryWhere } from '../admin/country-filter';
 
 /**
  * How long an invitation stays valid: seven days.
@@ -959,7 +960,9 @@ export class OrganizationsService {
     pageSize: number,
     query?: string,
     scope: GroupScope = {},
+    country?: string,
   ) {
+    const inCountry = countryWhere('organizers', country);
     const where: Prisma.OrganizationWhereInput = {
       /*
       Spread before the search so the scope cannot be overwritten by it. A list that quietly
@@ -976,6 +979,8 @@ export class OrganizationsService {
             ],
           }
         : {}),
+      // In `AND`, not spread: the group scope names `registeredCountry` too.
+      ...(inCountry ? { AND: [inCountry] } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.organization.count({ where }),
@@ -1139,7 +1144,11 @@ export class OrganizationsService {
             userId: owner.id,
             // The domain, not the address. A reviewer is judging "is this a business or a
             // throwaway", and the local part is the reviewer knowing more than they need.
-            emailDomain: owner.email.includes('@') ? owner.email.split('@')[1] : null,
+            // A phone-only owner has no email at all; its placeholder's domain is ours, not theirs.
+            emailDomain:
+              owner.email.includes('@') && !isReservedEmail(owner.email)
+                ? owner.email.split('@')[1]
+                : null,
             accountCreatedAt: owner.createdAt.toISOString(),
             accountAgeDays: Math.floor(
               (Date.now() - owner.createdAt.getTime()) / (24 * 60 * 60 * 1000),

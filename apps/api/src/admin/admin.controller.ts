@@ -6,6 +6,7 @@ import { paginationSchema } from '@eticketsgo/validation';
 import { AdminService } from './admin.service';
 import { AdminGroupingService } from './admin-grouping.service';
 import { groupScopeFields, type GroupScope } from './group-scope';
+import { countryFilterField } from './country-filter';
 import { TaxRulesService } from './tax-rules.service';
 import { CinemaPricingPoliciesService, type PolicyInput } from './cinema-pricing-policies.service';
 import { MoviesService } from '../movies/movies.service';
@@ -138,6 +139,9 @@ const groupQuerySchema = z.object({
   */
   status: z.string().trim().optional(),
   q: z.string().trim().optional(),
+  // The list's country filter too, for the same reason. Only bookings, events and organizers
+  // offer one; on the other queues their lists ignore it, and so does their summary.
+  country: countryFilterField,
 });
 type GroupQuery = z.infer<typeof groupQuerySchema>;
 
@@ -166,6 +170,8 @@ export class AdminController {
           q: z.string().optional(),
           // Scope to one row of the grouped summary. See `group-scope.ts`.
           ...groupScopeFields,
+          // Every spelling of one market, by ISO code. See `country-filter.ts`.
+          country: countryFilterField,
         }),
       ),
     )
@@ -174,6 +180,7 @@ export class AdminController {
       pageSize: number;
       status?: string;
       q?: string;
+      country?: string;
     } & GroupScope,
   ) {
     return this.admin.bookings(q);

@@ -65,6 +65,7 @@ export function GroupedSummary({
   onChange,
   status,
   q,
+  country,
 }: {
   /** Which admin queue this sits above. Decides the endpoint and the authorisation. */
   resource: GroupableAdminResource;
@@ -81,17 +82,19 @@ export function GroupedSummary({
   */
   status?: string;
   q?: string;
+  /** The list's country filter (ISO alpha-2), for the same reason. */
+  country?: string;
 }) {
   const { groupBy } = value;
   const { data, isLoading, isError } = useQuery({
     // `status` and `q` are IN the key: they change the answer, so a cached count taken under a
     // different filter is a wrong number, not a stale one.
-    queryKey: ['admin', 'grouped', resource, groupBy, status, q],
+    queryKey: ['admin', 'grouped', resource, groupBy, status, q, country],
     // Not fetched at all until a grouping is chosen: the default view is the plain list, and a
     // summary nobody asked for is an aggregate query on every admin page load.
     enabled: Boolean(groupBy),
     queryFn: () =>
-      CALLS[resource]({ groupBy: groupBy as AdminGroupBy, status, q }) as Promise<{
+      CALLS[resource]({ groupBy: groupBy as AdminGroupBy, status, q, country }) as Promise<{
         groups: AdminGroupRow[];
         truncated: boolean;
       }>,

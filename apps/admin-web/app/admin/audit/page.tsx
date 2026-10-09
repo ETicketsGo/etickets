@@ -18,6 +18,7 @@ import {
   type AuditFilters,
   type AuditRow,
 } from '@eticketsgo/web-kit';
+import { accountContactText } from '../../../components/account-contact';
 
 /**
  * The audit log, with a way in.
@@ -100,7 +101,8 @@ function Entry({ row }: { row: AuditRow }) {
         <span className="text-text-secondary">· {row.organizationName}</span>
       )}
       <span className="text-caption text-text-muted">
-        · {row.actor?.email ?? 'the platform itself'}
+        ·{' '}
+        {row.actor ? (accountContactText(row.actor.email) ?? 'an account') : 'the platform itself'}
       </span>
       {row.correlationId && (
         <span className="font-mono text-caption text-text-muted" title="Correlation id">

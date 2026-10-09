@@ -1789,8 +1789,9 @@ export const api = {
     auditSummary: (params?: AuditFilters) =>
       request<AuditSummary>(`/admin/audit/summary${qs(params ?? {})}`),
     /* Every one of these searches in the DATABASE. They used to filter the fetched page. */
-    organizers: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
+    organizers: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<Organization>>(`/admin/organizers${qs(params)}`),
     reviewOrganizer: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<Organization>(`/admin/organizers/${id}/review`, {
         method: 'POST',
@@ -1853,8 +1854,9 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }),
-    events: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
+    events: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<AdminEventRow>>(`/admin/events${qs(params)}`),
     reviewEvent: (id: string, decision: 'APPROVE' | 'REJECT', note?: string) =>
       request<OrgEventDetail>(`/admin/events/${id}/review`, {
         method: 'POST',
@@ -1865,8 +1867,9 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ status }),
       }),
-    bookings: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
+    bookings: (
+      params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
+    ) => request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
     payments: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
       request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
     refunds: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
@@ -2347,7 +2350,10 @@ export interface UserProfile extends AuthUser {
 }
 export interface AdminUser {
   id: string;
+  /** For a phone-only account this is a placeholder; show it through `adminContact`. */
   email: string;
+  /** E.164, or null for an account that has never added one. */
+  phone?: string | null;
   fullName: string;
   roles: string[];
   status: string;
@@ -5387,7 +5393,8 @@ export interface AdminEventRow {
   createdAt: string;
   updatedAt: string;
   organization: { name: string };
-  venue: { name: string; city: string };
+  /** `country` is as stored - any spelling; name it with `countryDisplay`. */
+  venue: { name: string; city: string; country?: string | null };
   /**
    * When the event actually happens, as opposed to when its row was last edited.
    *
@@ -5448,6 +5455,8 @@ export type AdminGroupQuery = {
   groupBy: AdminGroupBy;
   status?: string;
   q?: string;
+  /** ISO alpha-2. The list's country filter, so the summary counts the same rows. */
+  country?: string;
 };
 
 export type AdminGroupFilter = {
@@ -5473,12 +5482,15 @@ export interface AdminBookingRow {
   id: string;
   reference: string | null;
   status: string;
+  /** May be a phone-only placeholder on older bookings; show it through `adminContact`. */
   buyerEmail: string;
   totalMinor: number;
   /** Money carries its own currency: `money()` without one formats as rupees. */
   currency: string;
   createdAt: string;
   event: { title: string };
+  /** The venue's country, as stored. Name it with `countryDisplay`. */
+  country?: string | null;
   paymentStatus: string | null;
 }
 export interface AdminPaymentRow {

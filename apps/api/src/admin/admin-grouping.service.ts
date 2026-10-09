@@ -1,4 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { countryAliases } from '@eticketsgo/shared-types';
+import { COUNTRY_COLUMNS, type CountryFilterable } from './country-filter';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 
@@ -52,6 +54,8 @@ export interface GroupRow {
 export interface GroupFilters {
   status?: string;
   q?: string;
+  /** ISO alpha-2, already validated. Matched in every stored spelling, like the list. */
+  country?: string;
 }
 
 /*
@@ -261,10 +265,13 @@ const FILTERS: Record<string, { status: string; search: string[] }> = {
  * Postgres enums and the value arrives as a string - comparing an enum to an untyped parameter is
  * an "operator does not exist" error, which is the raw-SQL trap this codebase has hit before.
  */
-function filterClause(resource: string, filters: GroupFilters): { sql: string; params: string[] } {
+function filterClause(
+  resource: string,
+  filters: GroupFilters,
+): { sql: string; params: (string | string[])[] } {
   const spec = FILTERS[resource];
   const conditions: string[] = [];
-  const params: string[] = [];
+  const params: (string | string[])[] = [];
   if (!spec) return { sql: '', params };
 
   if (filters.status) {
@@ -280,6 +287,16 @@ function filterClause(resource: string, filters: GroupFilters): { sql: string; p
       group whenever somebody searched in the wrong case, which is most of the time.
     */
     conditions.push(`(${spec.search.map((c) => `${c} ILIKE $${at}`).join(' OR ')})`);
+  }
+  /*
+    The country filter, on the same column the list filters (`country-filter.ts`), compared
+    lower-cased against every spelling - the SQL form of the list's `in` + `mode: 'insensitive'`.
+    A queue whose list takes no country has no column here, and ignores it the way its list does.
+  */
+  const countryColumn = COUNTRY_COLUMNS[resource as CountryFilterable];
+  if (filters.country && countryColumn) {
+    params.push(countryAliases(filters.country));
+    conditions.push(`LOWER(${countryColumn}) = ANY($${params.length}::text[])`);
   }
 
   return { sql: conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '', params };

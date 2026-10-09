@@ -1,3 +1,5 @@
+import { isReservedEmail } from '@eticketsgo/shared-types';
+
 /**
  * How an account is named on screen.
  *
@@ -58,4 +60,49 @@ export function accountInitials(user: AccountLike | null | undefined): string | 
   if (parts.length === 0) return null;
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/*
+  ── THE ADMIN CONSOLE'S SIDE OF THIS ───────────────────────────────────────────────
+  The customer apps never receive the placeholder: the API sends `email: null` for it. The admin
+  console is different - its lists read stored rows (an account, a booking's buyer address made
+  before checkout refused the placeholder, an audit actor), and changing what they return would
+  mean changing every admin endpoint, some of them in finance code. So the console recognises the
+  placeholder where it shows it, and the number comes from the placeholder itself, which is made
+  from it: `phone+14695884580@...` is the account whose number is +14695884580.
+*/
+
+/** The E.164 number a phone-only placeholder address was made from, or null for a real one. */
+export function phoneFromPlaceholderEmail(email: string | null | undefined): string | null {
+  if (!isReservedEmail(email)) return null;
+  const digits = /^phone\+(\d{4,15})@/i.exec((email ?? '').trim())?.[1];
+  return digits ? `+${digits}` : null;
+}
+
+/** What an admin screen prints where an email address would go. */
+export interface AdminContact {
+  /** An email address, or a formatted phone number. Never a placeholder. */
+  text: string;
+  /** True when `text` is a phone number because the account signs in by phone. */
+  phoneSignIn: boolean;
+}
+
+/**
+ * The contact line for an admin screen: the email address, or - for a placeholder - the phone
+ * number with a flag saying so, so the screen can label it "Phone sign-in" rather than let a
+ * number pass for an address. Null when there is nothing honest to show.
+ *
+ * `phone` is the account's stored number where the response has it; it wins over the one in the
+ * placeholder only because it is the column, not because they can differ.
+ */
+export function adminContact(
+  email: string | null | undefined,
+  phone?: string | null,
+): AdminContact | null {
+  const address = (email ?? '').trim();
+  if (address && !isReservedEmail(address)) return { text: address, phoneSignIn: false };
+  const number =
+    formatPhoneForDisplay(phone) ?? formatPhoneForDisplay(phoneFromPlaceholderEmail(address));
+  if (number) return { text: number, phoneSignIn: true };
+  return null;
 }

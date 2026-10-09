@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { AdminGroupingService, GROUPABLE } from './admin-grouping.service';
 import { GROUP_KEY_NONE, groupScopeWhere } from './group-scope';
+import { countryWhere, type CountryFilterable } from './country-filter';
 
 /**
  * Every grouped summary runs, and the number it reports is the number of rows the list shows.
@@ -338,4 +339,33 @@ describe('every grouped summary the console can ask for', () => {
       /cannot be grouped by event/,
     );
   });
+});
+
+/*
+  The country filter, on a real database.
+
+  The summary binds a JS array as a `text[]` parameter (`= ANY($n::text[])`) and the list uses
+  Prisma's `in` + `mode: 'insensitive'`. Two different spellings of "every spelling of India", and
+  only Postgres can say they select the same rows - or that the array binds at all. Read-only:
+  it counts whatever the shared database holds, so it creates nothing and cleans nothing up.
+*/
+describe('the country filter selects the same rows in the summary and the list', () => {
+  const cases: [CountryFilterable, string][] = [
+    ['bookings', 'organizer'],
+    ['events', 'organizer'],
+    ['organizers', 'country'],
+  ];
+
+  for (const [resource, groupBy] of cases) {
+    it(`${resource}: the groups add up to the filtered list`, async () => {
+      await agrees(
+        async () => {
+          const summary = await service.grouped(resource, groupBy, { country: 'IN' });
+          // Not truncated in practice; if it were, the sum would be short and this would say so.
+          return summary.groups.reduce((n, g) => n + g.count, 0);
+        },
+        () => COUNTS[resource]({ AND: [countryWhere(resource, 'IN')] }),
+      );
+    });
+  }
 });

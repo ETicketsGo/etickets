@@ -19,6 +19,8 @@ import {
   type Column,
   type AdminBookingRow,
 } from '@eticketsgo/web-kit';
+import { AccountContact } from '../../../components/account-contact';
+import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 
 const STATUSES = [
   'PENDING_PAYMENT',
@@ -37,9 +39,14 @@ export default function AdminBookings() {
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
+  const [country, setCountryParam] = useCountryParam();
+  const setCountry = (code: string | undefined) => {
+    setCountryParam(code);
+    setPage(1);
+  };
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'bookings', page, status, applied, group.groupBy, group.groupKey],
+    queryKey: ['admin', 'bookings', page, status, applied, country, group.groupBy, group.groupKey],
     queryFn: () =>
       api.admin.bookings({
         page,
@@ -47,6 +54,7 @@ export default function AdminBookings() {
         ...group,
         status: status || undefined,
         q: applied || undefined,
+        country,
       }),
   });
 
@@ -63,10 +71,17 @@ export default function AdminBookings() {
       render: (b) => (
         <div className="min-w-0 space-y-1">
           <p className="font-medium text-text-primary">{b.event.title}</p>
-          <p className="text-caption text-text-secondary">{b.buyerEmail}</p>
+          <p>
+            <AccountContact email={b.buyerEmail} />
+          </p>
           <p className="font-mono text-caption text-text-muted">{b.reference ?? 'no reference'}</p>
         </div>
       ),
+    },
+    {
+      key: 'country',
+      header: 'Country',
+      render: (b) => <CountryLabel stored={b.country} />,
     },
     {
       key: 'total',
@@ -103,7 +118,7 @@ export default function AdminBookings() {
   return (
     <div className="space-y-4">
       <PageHeader title="Bookings" description="Search and inspect all bookings." />
-      <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+      <div className="grid gap-3 sm:grid-cols-[1fr_200px_200px]">
         <SearchInput
           value={q}
           onChange={setQ}
@@ -128,6 +143,7 @@ export default function AdminBookings() {
             </option>
           ))}
         </Select>
+        <CountryFilter value={country} onChange={setCountry} />
       </div>
 
       <GroupedSummary
@@ -136,6 +152,7 @@ export default function AdminBookings() {
         value={group}
         status={status || undefined}
         q={applied || undefined}
+        country={country}
         onChange={(next) => {
           // Page 1: the page number belonged to the previous scope, and page 4 of a group with
           // two rows is an empty table that looks like "no results".

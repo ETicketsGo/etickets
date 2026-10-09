@@ -21,6 +21,7 @@ import {
   type Column,
   type AdminEventRow,
 } from '@eticketsgo/web-kit';
+import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 
 /**
  * The event moderation queue.
@@ -85,9 +86,14 @@ export default function AdminEventsPage() {
   const [status, setStatus] = useState(params.get('status') ?? 'UNDER_REVIEW');
   const [q, setQ] = useState('');
   const [applied, setApplied] = useState('');
+  const [country, setCountryParam] = useCountryParam();
+  const setCountry = (code: string | undefined) => {
+    setCountryParam(code);
+    setPage(1);
+  };
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'events', page, status, applied, group.groupBy, group.groupKey],
+    queryKey: ['admin', 'events', page, status, applied, country, group.groupBy, group.groupKey],
     queryFn: () =>
       api.admin.events({
         page,
@@ -95,6 +101,7 @@ export default function AdminEventsPage() {
         ...group,
         status: status || undefined,
         q: applied || undefined,
+        country,
       }),
   });
 
@@ -111,6 +118,11 @@ export default function AdminEventsPage() {
           <p className="text-caption text-text-muted">{e.category}</p>
         </div>
       ),
+    },
+    {
+      key: 'country',
+      header: 'Country',
+      render: (e) => <CountryLabel stored={e.venue.country} />,
     },
     {
       key: 'when',
@@ -165,7 +177,7 @@ export default function AdminEventsPage() {
       />
 
       <Card>
-        <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_200px_200px]">
           <SearchInput
             value={q}
             onChange={setQ}
@@ -190,6 +202,7 @@ export default function AdminEventsPage() {
               </option>
             ))}
           </Select>
+          <CountryFilter value={country} onChange={setCountry} />
         </div>
       </Card>
 
@@ -203,6 +216,7 @@ export default function AdminEventsPage() {
           value={group}
           status={status || undefined}
           q={applied || undefined}
+          country={country}
           onChange={(next) => {
             // Page 1: the page number belonged to the previous scope, and page 4 of a group with
             // two rows is an empty table that looks like "no results".
