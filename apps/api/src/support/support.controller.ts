@@ -13,6 +13,8 @@ import { SupportService } from './support.service';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { RequiresAdmin, CurrentUser, Public, Roles, type RequestUser } from '../common/decorators';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { countryFilterField } from '../admin/country-filter';
+import { dayField, idField, refineDateOrder, type ListFilters } from '../admin/list-filters';
 
 @ApiTags('support')
 @Controller('support')
@@ -43,7 +45,22 @@ export class AdminSupportController {
 
   @Get()
   @ApiOperation({ summary: 'List/search support submissions (admin).' })
-  list(@Query(new ZodValidationPipe(listFeedbackSchema)) q: ListFeedbackInput) {
+  list(
+    @Query(
+      new ZodValidationPipe(
+        listFeedbackSchema
+          .extend({
+            // Market (the organizer's registered country), event and a UTC day window.
+            country: countryFilterField,
+            eventId: idField,
+            from: dayField,
+            to: dayField,
+          })
+          .superRefine(refineDateOrder),
+      ),
+    )
+    q: ListFeedbackInput & Omit<ListFilters, 'organizationId'>,
+  ) {
     return this.support.list(q);
   }
 

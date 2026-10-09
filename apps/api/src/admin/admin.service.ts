@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import { groupScopeWhere, type GroupScope } from './group-scope';
 import { countryWhere } from './country-filter';
+import { allOf, dayRangeWhere, type ListFilters } from './list-filters';
 
 function paginate(page: number, pageSize: number, total: number) {
   return { page, pageSize, total, totalPages: Math.ceil(total / pageSize) };
@@ -91,20 +92,35 @@ export class AdminService {
    * an opaque id; what somebody actually needs is which sale it was.
    */
   async payments(
-    params: { page: number; pageSize: number; status?: string; q?: string } & GroupScope,
+    params: { page: number; pageSize: number; status?: string; q?: string } & GroupScope &
+      ListFilters,
   ) {
+    const created = dayRangeWhere(params.from, params.to);
+    /*
+      Every condition in one `AND`, never spread side by side. The group scope, the organizer,
+      the event and the country all reach through `booking`, and two spreads naming the same
+      top-level key let the later one silently erase the earlier - a list that drops a filter
+      shows more rows than its heading claims.
+    */
     const where = {
-      ...groupScopeWhere('payments', params),
-      ...(params.status ? { status: params.status as never } : {}),
-      ...(params.q
-        ? {
-            OR: [
-              { providerRef: { contains: params.q, mode: 'insensitive' as const } },
-              { booking: { buyerEmail: { contains: params.q, mode: 'insensitive' as const } } },
-              { booking: { reference: { contains: params.q, mode: 'insensitive' as const } } },
-            ],
-          }
-        : {}),
+      AND: allOf(
+        groupScopeWhere('payments', params),
+        params.status ? { status: params.status as never } : null,
+        params.q
+          ? {
+              OR: [
+                { providerRef: { contains: params.q, mode: 'insensitive' as const } },
+                { booking: { buyerEmail: { contains: params.q, mode: 'insensitive' as const } } },
+                { booking: { reference: { contains: params.q, mode: 'insensitive' as const } } },
+              ],
+            }
+          : null,
+        countryWhere('payments', params.country),
+        // The booking's organizer, the same column the grouped summary groups by.
+        params.organizationId ? { booking: { organizationId: params.organizationId } } : null,
+        params.eventId ? { booking: { eventId: params.eventId } } : null,
+        created ? { createdAt: created } : null,
+      ),
     };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.payment.count({ where }),

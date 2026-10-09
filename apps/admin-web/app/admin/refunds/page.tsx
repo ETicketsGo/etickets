@@ -1,16 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   api,
   Badge,
+  Button,
   Card,
   DataTable,
   StatusBadge,
-  Select,
   SearchInput,
   Pagination,
   PageHeader,
@@ -23,8 +22,16 @@ import {
   type RefundRow,
 } from '@eticketsgo/web-kit';
 import { AccountContact } from '../../../components/account-contact';
+import {
+  CurrencyTotals,
+  FilterBar,
+  apiFilters,
+  useFilterDescription,
+  useUrlFilters,
+} from '../../../components/list-filters';
 
 const STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED', 'PROCESSING', 'COMPLETED', 'FAILED'];
+const FILTER_KEYS = ['country', 'organizationId', 'eventId', 'status', 'from', 'to', 'q'] as const;
 
 export default function AdminRefunds() {
   const router = useRouter();
@@ -38,20 +45,30 @@ export default function AdminRefunds() {
     page where they had to find those rows again - which is the work the count existed to
     save. The same failing as the search boxes that only ever searched the page you were on.
 
-    Seeded once, then editable: the filter is still a control, not a property of the URL.
+    Every filter now lives in the URL, so that link is simply the status filter. The queue still
+    opens on REQUESTED when the link names none; "Every status" is written as `status=`.
   */
-  const params = useSearchParams();
-  const [status, setStatus] = useState(params.get('status') ?? 'REQUESTED');
-  const [q, setQ] = useState('');
-  const [applied, setApplied] = useState('');
+  const filters = useUrlFilters(FILTER_KEYS, { status: 'REQUESTED' });
+  const { status, q: applied } = filters.values;
+  const [q, setQ] = useState(applied);
+  const scope = apiFilters(filters.values);
+  const described = useFilterDescription(filters.values, undefined, applied);
+  const clearAll = () => {
+    setQ('');
+    filters.clear();
+  };
+
+  useEffect(() => setPage(1), [filters.signature]);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'refunds', page, status, applied, group.groupBy, group.groupKey],
+    queryKey: ['admin', 'refunds', page, filters.signature, group.groupBy, group.groupKey],
+    enabled: !filters.invalidWindow,
     queryFn: () =>
       api.admin.refunds({
         page,
         pageSize: 15,
         ...group,
+        ...scope,
         status: status || undefined,
         q: applied || undefined,
       }),
@@ -116,43 +133,40 @@ export default function AdminRefunds() {
         description="Money customers have asked for back, and what was decided."
       />
       <Card>
-        <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+        <div className="space-y-4">
           <SearchInput
             value={q}
             onChange={setQ}
-            onSubmit={() => {
-              setApplied(q.trim());
-              setPage(1);
-            }}
+            onSubmit={() => filters.set({ q: q.trim() })}
             placeholder="Search buyer email or booking reference"
           />
-          <Select
-            aria-label="Status filter"
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="">Every status</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s.charAt(0) + s.slice(1).toLowerCase()}
-              </option>
-            ))}
-          </Select>
+          <FilterBar
+            filters={{ ...filters, clear: clearAll }}
+            statuses={STATUSES}
+            countryHint="Where the event took place."
+          />
         </div>
       </Card>
       <Card
         title={status === 'REQUESTED' ? 'Waiting for a decision' : 'Refunds'}
         action={data ? <Badge tone="neutral">{data.meta.total} matching</Badge> : undefined}
       >
+        <div className="mb-3">
+          <CurrencyTotals
+            resource="refunds"
+            status={status || undefined}
+            q={applied || undefined}
+            filters={scope}
+            enabled={!filters.invalidWindow}
+          />
+        </div>
         <GroupedSummary
           resource="refunds"
-          options={['country', 'organizer', 'event']}
+          options={['country', 'organizer', 'event', 'currency']}
           value={group}
           status={status || undefined}
           q={applied || undefined}
+          filters={scope}
           onChange={(next) => {
             // Page 1: the page number belonged to the previous scope, and page 4 of a group with
             // two rows is an empty table that looks like "no results".
@@ -169,9 +183,20 @@ export default function AdminRefunds() {
           empty={
             <EmptyState
               title={
-                status === 'REQUESTED' ? 'Nothing waiting for a decision' : 'No refund matches'
+                status === 'REQUESTED' && described === 'status Requested'
+                  ? 'Nothing waiting for a decision'
+                  : 'No refund matches'
               }
-              hint="A booking reference works here too."
+              hint={
+                described ? `Nothing matches ${described}.` : 'A booking reference works here too.'
+              }
+              action={
+                filters.active ? (
+                  <Button variant="outline" onClick={clearAll}>
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
             />
           }
           rowKey={(r) => r.id}

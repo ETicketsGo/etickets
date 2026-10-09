@@ -26,6 +26,8 @@ import type { RequestUser } from '../../common/decorators';
 import type { PaymentProvider } from '../provider/payment-provider.interface';
 import { PaymentProviderResolver } from '../provider/payment-provider.resolver';
 import { groupScopeWhere, type GroupScope } from '../../admin/group-scope';
+import { countryWhere } from '../../admin/country-filter';
+import { allOf, dayRangeWhere } from '../../admin/list-filters';
 
 const DEFAULT_CURRENCY = 'usd';
 
@@ -189,10 +191,14 @@ export class SettlementService {
       eventId?: string;
       page?: number;
       pageSize?: number;
+      country?: string;
+      from?: string;
+      to?: string;
     } & GroupScope,
   ) {
     const page = filter.page ?? 1;
     const pageSize = Math.min(filter.pageSize ?? 25, 100);
+    const created = dayRangeWhere(filter.from, filter.to);
     const where = {
       /*
         Spread first so an explicit `organizationId`/`eventId` filter, which this queue already
@@ -203,6 +209,15 @@ export class SettlementService {
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.organizationId ? { organizationId: filter.organizationId } : {}),
       ...(filter.eventId ? { eventId: filter.eventId } : {}),
+      /*
+        The console's market and day window, in `AND` because the group scope can also name
+        `event` and a spread would erase it. A read filter only: it decides which rows are listed,
+        never anything about a settlement's money or state.
+      */
+      AND: allOf(
+        countryWhere('settlements', filter.country),
+        created ? { createdAt: created } : null,
+      ),
     };
     const [rows, total] = await Promise.all([
       this.prisma.settlement.findMany({
@@ -214,7 +229,11 @@ export class SettlementService {
       }),
       this.prisma.settlement.count({ where }),
     ]);
-    return { data: rows, meta: { total, page, pageSize } };
+    // `totalPages` too: the console pages with it, and without it the pager had nothing to show.
+    return {
+      data: rows,
+      meta: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
+    };
   }
 
   async get(id: string) {

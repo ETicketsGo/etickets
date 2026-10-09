@@ -68,6 +68,7 @@ const SCOPES: Record<string, Record<string, ScopeBuilder>> = {
     country: (k) => ({ booking: { event: { venue: { country: k } } } }),
     organizer: (k) => ({ booking: { organizationId: k } }),
     event: (k) => ({ booking: { eventId: k } }),
+    currency: (k) => ({ currency: k }),
   },
   refunds: {
     // A refund's own `organizationId` is authoritative; its country and event come through the
@@ -75,6 +76,8 @@ const SCOPES: Record<string, Record<string, ScopeBuilder>> = {
     country: (k) => ({ booking: { event: { venue: { country: k } } } }),
     organizer: (k) => ({ organizationId: k }),
     event: (k) => ({ booking: { eventId: k } }),
+    // A refund has no currency column; it is paid back in its booking's.
+    currency: (k) => ({ booking: { currency: k } }),
   },
   events: {
     country: (k) => ({ venue: { country: k } }),

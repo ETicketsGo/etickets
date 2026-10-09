@@ -29,19 +29,24 @@ export const countryFilterField = z
   .optional();
 
 /** The lists that accept it, and the stored column that says where each row is. */
-export type CountryFilterable = 'bookings' | 'events' | 'organizers';
+export type CountryFilterable =
+  'bookings' | 'events' | 'organizers' | 'payments' | 'refunds' | 'settlements';
 
 /**
  * Where each list keeps its country.
  *
- * Bookings and events are where the VENUE is, the same column the grouped summary counts by; an
- * organizer is where it is registered. Kept beside the SQL column below so the list and its
+ * Bookings, events and the money queues (payments, refunds, settlements) are where the VENUE is,
+ * the same column the grouped summary counts by; an organizer is where it is registered. Kept beside the SQL column below so the list and its
  * summary cannot come to mean different countries.
  */
 const PATHS: Record<CountryFilterable, (match: unknown) => Record<string, unknown>> = {
   bookings: (match) => ({ event: { venue: { country: match } } }),
   events: (match) => ({ venue: { country: match } }),
   organizers: (match) => ({ registeredCountry: match }),
+  // Money is where the sale happened, the same venue column the grouped summary counts by.
+  payments: (match) => ({ booking: { event: { venue: { country: match } } } }),
+  refunds: (match) => ({ booking: { event: { venue: { country: match } } } }),
+  settlements: (match) => ({ event: { venue: { country: match } } }),
 };
 
 /** The same columns, for the grouped summary's raw SQL. */
@@ -49,6 +54,9 @@ export const COUNTRY_COLUMNS: Record<CountryFilterable, string> = {
   bookings: 'v.country',
   events: 'v.country',
   organizers: 'o."registeredCountry"',
+  payments: 'v.country',
+  refunds: 'v.country',
+  settlements: 'v.country',
 };
 
 /**
@@ -64,4 +72,32 @@ export function countryWhere(
 ): Record<string, unknown> | null {
   if (!code) return null;
   return PATHS[resource]({ in: countryAliases(code), mode: 'insensitive' });
+}
+
+/**
+ * The organizations registered in one market, as ids.
+ *
+ * For the lists whose rows hold an `organizationId` with no relation to follow - a support
+ * submission and an audit entry both keep it as a bare column on purpose, so the record outlives
+ * the organization. Prisma cannot filter through a relation that does not exist, so the market
+ * is resolved to its organizers first and the list filters on the ids.
+ *
+ * The country is where the organizer is REGISTERED, the same one the audit summary already
+ * groups by. Neither row is a sale, so neither has a venue country to use instead.
+ */
+export async function organizationIdsInCountry(
+  prisma: {
+    organization: {
+      findMany(args: {
+        where: Record<string, unknown>;
+        select: { id: true };
+      }): Promise<{ id: string }[]>;
+    };
+  },
+  code: string | undefined,
+): Promise<string[] | null> {
+  const where = countryWhere('organizers', code);
+  if (!where) return null;
+  const rows = await prisma.organization.findMany({ where, select: { id: true } });
+  return rows.map((r) => r.id);
 }

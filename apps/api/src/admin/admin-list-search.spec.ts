@@ -165,11 +165,16 @@ describe('payment ledger', () => {
 
     await service.payments({ page: 1, pageSize: 15, q: 'pay_abc' });
 
+    // Inside `AND` now, beside the market/organizer/event/date filters that share `booking`.
     const where = whereOf(count);
-    expect(where.OR).toEqual([
-      { providerRef: { contains: 'pay_abc', mode: 'insensitive' } },
-      { booking: { buyerEmail: { contains: 'pay_abc', mode: 'insensitive' } } },
-      { booking: { reference: { contains: 'pay_abc', mode: 'insensitive' } } },
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { providerRef: { contains: 'pay_abc', mode: 'insensitive' } },
+          { booking: { buyerEmail: { contains: 'pay_abc', mode: 'insensitive' } } },
+          { booking: { reference: { contains: 'pay_abc', mode: 'insensitive' } } },
+        ],
+      },
     ]);
   });
 
@@ -221,9 +226,13 @@ describe('refund queue', () => {
     await service.adminList(undefined, 1, 15, 'ada@example.test');
 
     const where = whereOf(count);
-    expect(where.OR).toEqual([
-      { booking: { buyerEmail: { contains: 'ada@example.test', mode: 'insensitive' } } },
-      { booking: { reference: { contains: 'ada@example.test', mode: 'insensitive' } } },
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { booking: { buyerEmail: { contains: 'ada@example.test', mode: 'insensitive' } } },
+          { booking: { reference: { contains: 'ada@example.test', mode: 'insensitive' } } },
+        ],
+      },
     ]);
   });
 });

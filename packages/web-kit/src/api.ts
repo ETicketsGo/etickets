@@ -1878,10 +1878,12 @@ export const api = {
     bookings: (
       params: PageParams & { status?: string; q?: string; country?: string } & AdminGroupFilter,
     ) => request<Paged<AdminBookingRow>>(`/admin/bookings${qs(params)}`),
-    payments: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
-    refunds: (params: PageParams & { status?: string; q?: string } & AdminGroupFilter) =>
-      request<Paged<RefundRow>>(`/admin/refunds${qs(params)}`),
+    payments: (
+      params: PageParams & { status?: string; q?: string } & AdminGroupFilter & AdminListFilters,
+    ) => request<Paged<AdminPaymentRow>>(`/admin/payments${qs(params)}`),
+    refunds: (
+      params: PageParams & { status?: string; q?: string } & AdminGroupFilter & AdminListFilters,
+    ) => request<Paged<RefundRow>>(`/admin/refunds${qs(params)}`),
     /**
      * One row per group for an admin queue.
      *
@@ -2016,9 +2018,8 @@ export const api = {
       list: (
         params?: PageParams & {
           status?: string;
-          organizationId?: string;
-          eventId?: string;
-        } & AdminGroupFilter,
+        } & AdminGroupFilter &
+          AdminListFilters,
       ) => request<Paged<SettlementRow>>(`/admin/settlements${qs(params ?? {})}`),
       get: (id: string) => request<SettlementDetail>(`/admin/settlements/${id}`),
       approve: (id: string) =>
@@ -2193,8 +2194,7 @@ export const api = {
         kind?: string;
         status?: string;
         q?: string;
-        organizationId?: string;
-      },
+      } & AdminListFilters,
     ) => request<Paged<FeedbackRow>>(`/admin/support${qs(params ?? {})}`),
     /** Open and total complaints against one organizer, for the decision to keep selling. */
     complaintCounts: (organizationId: string) =>
@@ -5480,8 +5480,21 @@ export type AdminGroupQuery = {
   groupBy: AdminGroupBy;
   status?: string;
   q?: string;
-  /** ISO alpha-2. The list's country filter, so the summary counts the same rows. */
+} & AdminListFilters;
+
+/**
+ * The filters the finance and operations queues share, as the API reads them.
+ *
+ * `country` is an ISO alpha-2 code. `from` and `to` are calendar days, `YYYY-MM-DD`, in UTC and
+ * inclusive at both ends - the server refuses any other shape with a 400 rather than guessing.
+ * A type alias, not an interface, for the same `qs()` reason as `AdminGroupFilter` below.
+ */
+export type AdminListFilters = {
   country?: string;
+  organizationId?: string;
+  eventId?: string;
+  from?: string;
+  to?: string;
 };
 
 export type AdminGroupFilter = {
@@ -5552,6 +5565,11 @@ export type AuditFilters = {
   action?: string;
   organizationId?: string;
   entityType?: string;
+  /** The market the acting organizer is registered in, ISO alpha-2. */
+  country?: string;
+  /** Entries about one event: the event itself, or an action that names it. */
+  eventId?: string;
+  /** `YYYY-MM-DD`, UTC, inclusive. */
   from?: string;
   to?: string;
 };

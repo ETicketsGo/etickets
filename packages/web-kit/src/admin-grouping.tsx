@@ -7,6 +7,7 @@ import {
   ADMIN_GROUP_KEY_NONE,
   type AdminGroupBy,
   type AdminGroupQuery,
+  type AdminListFilters,
   type AdminGroupRow,
 } from './api';
 import { Select, Spinner } from './components';
@@ -66,6 +67,7 @@ export function GroupedSummary({
   status,
   q,
   country,
+  filters,
 }: {
   /** Which admin queue this sits above. Decides the endpoint and the authorisation. */
   resource: GroupableAdminResource;
@@ -84,17 +86,20 @@ export function GroupedSummary({
   q?: string;
   /** The list's country filter (ISO alpha-2), for the same reason. */
   country?: string;
+  /** The rest of the list's filters - organizer, event, day window - for the same reason. */
+  filters?: AdminListFilters;
 }) {
   const { groupBy } = value;
+  const scope: AdminListFilters = { ...filters, ...(country ? { country } : {}) };
   const { data, isLoading, isError } = useQuery({
-    // `status` and `q` are IN the key: they change the answer, so a cached count taken under a
+    // Every filter is IN the key: each changes the answer, so a cached count taken under a
     // different filter is a wrong number, not a stale one.
-    queryKey: ['admin', 'grouped', resource, groupBy, status, q, country],
+    queryKey: ['admin', 'grouped', resource, groupBy, status, q, scope],
     // Not fetched at all until a grouping is chosen: the default view is the plain list, and a
     // summary nobody asked for is an aggregate query on every admin page load.
     enabled: Boolean(groupBy),
     queryFn: () =>
-      CALLS[resource]({ groupBy: groupBy as AdminGroupBy, status, q, country }) as Promise<{
+      CALLS[resource]({ groupBy: groupBy as AdminGroupBy, status, q, ...scope }) as Promise<{
         groups: AdminGroupRow[];
         truncated: boolean;
       }>,

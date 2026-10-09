@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { countryAliases } from '@eticketsgo/shared-types';
 import { COUNTRY_COLUMNS, type CountryFilterable } from './country-filter';
+import { dayRangeSql } from './list-filters';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppException, ErrorCodes } from '../common/errors';
 
@@ -31,8 +32,8 @@ import { AppException, ErrorCodes } from '../common/errors';
 /** What can be listed, and what each one can be grouped by. */
 export const GROUPABLE = {
   bookings: ['country', 'organizer', 'event'],
-  payments: ['country', 'organizer', 'event'],
-  refunds: ['country', 'organizer', 'event'],
+  payments: ['country', 'organizer', 'event', 'currency'],
+  refunds: ['country', 'organizer', 'event', 'currency'],
   events: ['country', 'organizer'],
   organizers: ['country'],
   settlements: ['country', 'organizer', 'event', 'currency'],
@@ -56,6 +57,11 @@ export interface GroupFilters {
   q?: string;
   /** ISO alpha-2, already validated. Matched in every stored spelling, like the list. */
   country?: string;
+  /** The money queues' organizer, event and UTC day window. See `list-filters.ts`. */
+  organizationId?: string;
+  eventId?: string;
+  from?: string;
+  to?: string;
 }
 
 /*
@@ -162,6 +168,17 @@ const SHAPES: Record<
     label: 'e.title',
     money: { amount: 'p."amountMinor"', currency: 'p.currency' },
   },
+  /*
+    By currency, so the console can say what a filtered ledger adds up to without adding rupees
+    to dollars. One group per currency is exactly the "total per currency" the page shows above
+    the list; the key is the stored value, which is what the list scopes by.
+  */
+  'payments:currency': {
+    from: PAYMENT_FROM,
+    key: 'p.currency',
+    label: 'UPPER(p.currency)',
+    money: { amount: 'p."amountMinor"', currency: 'p.currency' },
+  },
   'refunds:country': {
     from: REFUND_FROM,
     key: 'v.country',
@@ -178,6 +195,13 @@ const SHAPES: Record<
     from: REFUND_FROM,
     key: 'e.id',
     label: 'e.title',
+    money: { amount: 'r."amountMinor"', currency: 'b.currency' },
+  },
+  // A refund is paid back in its booking's currency; it has no currency column of its own.
+  'refunds:currency': {
+    from: REFUND_FROM,
+    key: 'b.currency',
+    label: 'UPPER(b.currency)',
     money: { amount: 'r."amountMinor"', currency: 'b.currency' },
   },
   'events:country': { from: EVENT_FROM, key: 'v.country', label: 'v.country' },
@@ -248,14 +272,40 @@ const SHAPES: Record<
  *
  * `search` mirrors the columns each list already searches - see each service's `adminList`.
  */
-const FILTERS: Record<string, { status: string; search: string[] }> = {
+/*
+  `organizer`, `event` and `created` exist only on the queues whose LIST takes the same filter, and
+  each names the column that list filters on: the payment ledger's organizer is its booking's, a
+  refund's is its own. A summary filtering a column its list does not would disagree with it.
+*/
+const FILTERS: Record<
+  string,
+  { status: string; search: string[]; organizer?: string; event?: string; created?: string }
+> = {
   bookings: { status: 'b.status', search: ['b."buyerEmail"', 'b.reference'] },
-  payments: { status: 'p.status', search: ['p."providerRef"', 'b."buyerEmail"', 'b.reference'] },
-  refunds: { status: 'r.status', search: ['b."buyerEmail"', 'b.reference'] },
+  payments: {
+    status: 'p.status',
+    search: ['p."providerRef"', 'b."buyerEmail"', 'b.reference'],
+    organizer: 'b."organizationId"',
+    event: 'b."eventId"',
+    created: 'p."createdAt"',
+  },
+  refunds: {
+    status: 'r.status',
+    search: ['b."buyerEmail"', 'b.reference'],
+    organizer: 'r."organizationId"',
+    event: 'b."eventId"',
+    created: 'r."createdAt"',
+  },
   events: { status: 'e.status', search: ['e.title', 'o.name', 'v.city'] },
   organizers: { status: 'o.status', search: ['o.name', 'o.slug', 'o."legalName"'] },
-  // The settlement queue has no search box; it filters by status, organization and event.
-  settlements: { status: 's.status', search: [] },
+  // The settlement queue has no search box; it filters by status, organization, event and date.
+  settlements: {
+    status: 's.status',
+    search: [],
+    organizer: 's."organizationId"',
+    event: 's."eventId"',
+    created: 's."createdAt"',
+  },
 };
 
 /**
@@ -265,13 +315,10 @@ const FILTERS: Record<string, { status: string; search: string[] }> = {
  * Postgres enums and the value arrives as a string - comparing an enum to an untyped parameter is
  * an "operator does not exist" error, which is the raw-SQL trap this codebase has hit before.
  */
-function filterClause(
-  resource: string,
-  filters: GroupFilters,
-): { sql: string; params: (string | string[])[] } {
+function filterClause(resource: string, filters: GroupFilters): { sql: string; params: unknown[] } {
   const spec = FILTERS[resource];
   const conditions: string[] = [];
-  const params: (string | string[])[] = [];
+  const params: unknown[] = [];
   if (!spec) return { sql: '', params };
 
   if (filters.status) {
@@ -297,6 +344,17 @@ function filterClause(
   if (filters.country && countryColumn) {
     params.push(countryAliases(filters.country));
     conditions.push(`LOWER(${countryColumn}) = ANY($${params.length}::text[])`);
+  }
+  if (filters.organizationId && spec.organizer) {
+    params.push(filters.organizationId);
+    conditions.push(`${spec.organizer} = $${params.length}`);
+  }
+  if (filters.eventId && spec.event) {
+    params.push(filters.eventId);
+    conditions.push(`${spec.event} = $${params.length}`);
+  }
+  if (spec.created) {
+    conditions.push(...dayRangeSql(spec.created, filters.from, filters.to, params));
   }
 
   return { sql: conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '', params };

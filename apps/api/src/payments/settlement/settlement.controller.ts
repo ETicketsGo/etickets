@@ -13,6 +13,8 @@ import { SettlementService } from './settlement.service';
 import { RequiresAdmin, CurrentUser, Roles, type RequestUser } from '../../common/decorators';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { groupScopeFields, type GroupScope } from '../../admin/group-scope';
+import { countryFilterField } from '../../admin/country-filter';
+import { dayField, refineDateOrder, type ListFilters } from '../../admin/list-filters';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -23,14 +25,27 @@ export class SettlementController {
   constructor(private readonly settlements: SettlementService) {}
 
   /*
-    Extended here rather than in `@eticketsgo/validation` because the two grouping parameters are
-    an admin-console concern, not part of the settlement contract other callers share.
+    Extended here rather than in `@eticketsgo/validation` because the grouping parameters and the
+    console's filters are an admin-console concern, not part of the settlement contract other
+    callers share. Read-only: these narrow which rows are listed and change nothing about them.
   */
   @Get()
   @ApiOperation({ summary: 'List organizer settlements (admin/finance).' })
   list(
-    @Query(new ZodValidationPipe(settlementListSchema.extend({ ...groupScopeFields })))
-    q: SettlementListInput & GroupScope,
+    @Query(
+      new ZodValidationPipe(
+        settlementListSchema
+          .extend({
+            ...groupScopeFields,
+            // Market and a UTC day window; organizer and event are already in the contract.
+            country: countryFilterField,
+            from: dayField,
+            to: dayField,
+          })
+          .superRefine(refineDateOrder),
+      ),
+    )
+    q: SettlementListInput & GroupScope & Pick<ListFilters, 'country' | 'from' | 'to'>,
   ) {
     return this.settlements.list(q);
   }
