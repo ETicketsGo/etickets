@@ -48,6 +48,53 @@ export interface PolicyInput {
   notes?: string | null;
 }
 
+/**
+ * The fields an admin may set on a policy by create or edit. Everything else - status,
+ * version, activation stamps, supersession links - moves only through activate/supersede,
+ * where the checks live. The PATCH body was written to the row as-is, so `{ status: 'ACTIVE' }`
+ * activated a policy without a single activation check (including the production block on an
+ * order nobody has read).
+ */
+const EDITABLE_POLICY_FIELDS = [
+  'country',
+  'region',
+  'district',
+  'city',
+  'currency',
+  'localBodyType',
+  'cinemaFormat',
+  'climateType',
+  'seatCategory',
+  'maintenanceChargeMinor',
+  'maintenanceTreatment',
+  'maintenanceTaxCategory',
+  'onlineFeePolicy',
+  'onlineFeeCapMinor',
+  'ticketPriceMinMinor',
+  'ticketPriceMaxMinor',
+  'ticketPriceRule',
+  'effectiveFrom',
+  'effectiveTo',
+  'regulatoryReference',
+  'regulatoryDocumentUrl',
+  'notes',
+] as const satisfies readonly (keyof PolicyInput)[];
+
+/** The editable fields of `input`; any other field is refused, never silently written. */
+export function editablePolicyFields<T extends object>(input: T): Partial<PolicyInput> {
+  const allowed = new Set<string>(EDITABLE_POLICY_FIELDS);
+  const refused = Object.keys(input).filter((k) => !allowed.has(k));
+  if (refused.length > 0) {
+    throw new AppException(
+      ErrorCodes.VALIDATION_FAILED,
+      `These fields cannot be set here: ${refused.join(', ')}. A policy's status changes only through activate or supersede.`,
+      HttpStatus.BAD_REQUEST,
+      { reason: 'POLICY_FIELD_NOT_EDITABLE', fields: refused },
+    );
+  }
+  return input as Partial<PolicyInput>;
+}
+
 @Injectable()
 export class CinemaPricingPoliciesService {
   constructor(
@@ -65,7 +112,7 @@ export class CinemaPricingPoliciesService {
   /** Always DRAFT. A policy that arrives ACTIVE prices orders nobody decided to price. */
   async create(actorUserId: string, input: PolicyInput) {
     const row = await this.prisma.cinemaPricingPolicy.create({
-      data: { ...input, status: 'DRAFT', version: 1 },
+      data: { ...(editablePolicyFields(input) as PolicyInput), status: 'DRAFT', version: 1 },
     });
     await this.audit.record({
       actorUserId,
@@ -79,6 +126,7 @@ export class CinemaPricingPoliciesService {
 
   /** Drafts only. See the note at the top of this file. */
   async updateDraft(actorUserId: string, id: string, patch: Partial<PolicyInput>) {
+    const fields = editablePolicyFields(patch);
     const existing = await this.mustFind(id);
     if (existing.status !== 'DRAFT') {
       throw new AppException(
@@ -87,7 +135,7 @@ export class CinemaPricingPoliciesService {
         HttpStatus.CONFLICT,
       );
     }
-    const row = await this.prisma.cinemaPricingPolicy.update({ where: { id }, data: patch });
+    const row = await this.prisma.cinemaPricingPolicy.update({ where: { id }, data: fields });
     await this.audit.record({
       actorUserId,
       action: 'CINEMA_PRICING_POLICY_DRAFT_UPDATED',
