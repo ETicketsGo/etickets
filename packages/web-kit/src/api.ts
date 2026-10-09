@@ -2268,7 +2268,12 @@ export interface Paged<T> {
 
 export interface AuthUser {
   id: string;
-  email: string;
+  /**
+   * Null for an account that signed up by phone and has not given an email address. Such an
+   * account carries a placeholder internally; the API never sends it, and nothing may treat
+   * it as contact information.
+   */
+  email: string | null;
   fullName: string;
   roles: string[];
   /**

@@ -101,7 +101,7 @@ export default function EventDetailPage() {
     `asGuest` is false for a signed-in customer, so nothing below changes for them. For
     everybody else it is what replaces the old silent redirect to /login.
   */
-  const guest = useGuestBuyer();
+  const guest = useGuestBuyer(user);
   const [error, setError] = useState<string | null>(null);
   /*
     Which button was pressed, read by the mutation. Kept out of the request body until
@@ -402,6 +402,18 @@ export default function EventDetailPage() {
         });
       }
       const me = await api.me();
+      /*
+        A signed-in account with no email address (a phone sign-in) buys with the name and
+        email it just gave. The name is saved to the profile, as the profile page would; the
+        email is used for these tickets and this receipt only - it is not written to the account
+        as if it had been verified. The server refuses a placeholder address either way.
+      */
+      if (guest.needsContact || !me.email || !me.fullName?.trim()) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        if (!me.fullName?.trim()) await api.updateProfile(buyer.name).catch(() => undefined);
+        return api.createBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
+      }
       return api.createBooking({ ...order, buyerName: me.fullName, buyerEmail: me.email });
     },
     onSuccess: (booking) => router.push(nextStepAfterBooking(booking)),
@@ -422,7 +434,7 @@ export default function EventDetailPage() {
   const startBooking = (cash: boolean) => {
     setError(null);
     setPayWithCash(cash);
-    if (guest.asGuest && !guest.validate()) return;
+    if ((guest.asGuest || guest.needsContact) && !guest.validate()) return;
     book.mutate();
   };
 
@@ -1000,7 +1012,12 @@ export default function EventDetailPage() {
                         fallbackCurrency={zoneTicketTypes[0]?.currency}
                         fractionDigits={cardFractionDigits}
                       />
-                      {guest.asGuest && <GuestBuyerFields state={guest} />}
+                      {(guest.asGuest || guest.needsContact) && (
+                        <GuestBuyerFields
+                          state={guest}
+                          variant={guest.asGuest ? 'guest' : 'account'}
+                        />
+                      )}
                       {error && (
                         <p role="alert" className="text-caption text-status-error">
                           {error}
@@ -1228,7 +1245,9 @@ export default function EventDetailPage() {
                   button, which is the order the buyer reads: what it costs, who it is for,
                   then pay.
                 */}
-                {guest.asGuest && <GuestBuyerFields state={guest} />}
+                {(guest.asGuest || guest.needsContact) && (
+                  <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
+                )}
 
                 {error && (
                   <p role="alert" className="mt-3 text-caption text-status-error">

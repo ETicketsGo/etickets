@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { useTranslations } from 'next-intl';
 import { Input } from '@/components/ui';
 import { Link, usePathname } from '@/i18n/navigation';
@@ -26,6 +26,11 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export interface GuestBuyerState {
   /** True only when the browser is in charge AND nobody is signed in. */
   asGuest: boolean;
+  /**
+   * Signed in, but the account has no name or no email address - a phone sign-in. The same
+   * fields are asked for, because tickets and the receipt have to go to a real address.
+   */
+  needsContact: boolean;
   buyer: GuestBuyer;
   setBuyer: Dispatch<SetStateAction<GuestBuyer>>;
   errors: { name?: string; email?: string };
@@ -63,9 +68,21 @@ function focusField(id: string): void {
  * disagree. So the first client render matches the server -- neither form -- and the choice
  * appears a tick later.
  */
-export function useGuestBuyer(): GuestBuyerState {
+export function useGuestBuyer(
+  account?: { fullName?: string | null; email?: string | null } | null,
+): GuestBuyerState {
   const mounted = useMounted();
   const [buyer, setBuyer] = useState<GuestBuyer>({ name: '', email: '' });
+  /*
+    What the account already has is filled in, so a phone-only account with a name is asked
+    only for the email. Never overwrites what was typed.
+  */
+  const accountName = account?.fullName?.trim() ?? '';
+  const accountEmail = account?.email ?? '';
+  useEffect(() => {
+    if (!accountName && !accountEmail) return;
+    setBuyer((p) => ({ name: p.name || accountName, email: p.email || accountEmail }));
+  }, [accountName, accountEmail]);
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
   const g = useTranslations('storefront.guest');
 
@@ -91,6 +108,11 @@ export function useGuestBuyer(): GuestBuyerState {
 
   return {
     asGuest: mounted && !tokenStore.access,
+    needsContact:
+      mounted &&
+      Boolean(tokenStore.access) &&
+      Boolean(account) &&
+      (!accountEmail || accountName.length < 2),
     buyer,
     setBuyer,
     errors,
@@ -111,15 +133,27 @@ export function useGuestBuyer(): GuestBuyerState {
  * comes back to this page with `next`, and both screens that use this keep the selection in
  * the browser, so the tickets are still chosen on return.
  */
-export function GuestBuyerFields({ state }: { state: GuestBuyerState }) {
+export function GuestBuyerFields({
+  state,
+  variant = 'guest',
+}: {
+  state: GuestBuyerState;
+  /** `account`: signed in already, so no sign-in invitation - just the missing details. */
+  variant?: 'guest' | 'account';
+}) {
   const g = useTranslations('storefront.guest');
   const pathname = usePathname();
+  const forAccount = variant === 'account';
 
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-border bg-background-subtle/50 p-4">
       <div>
-        <h3 className="text-[0.9375rem] font-semibold text-text-primary">{g('title')}</h3>
-        <p className="mt-1 text-caption text-text-muted">{g('lead')}</p>
+        <h3 className="text-[0.9375rem] font-semibold text-text-primary">
+          {g(forAccount ? 'accountTitle' : 'title')}
+        </h3>
+        <p className="mt-1 text-caption text-text-muted">
+          {g(forAccount ? 'accountLead' : 'lead')}
+        </p>
       </div>
       <Input
         id={NAME_ID}
@@ -145,16 +179,20 @@ export function GuestBuyerFields({ state }: { state: GuestBuyerState }) {
         Sign in We keep your selection on this page." -- because the link ends a sentence and
         the reassurance starts another, with only a space between them.
       */}
-      <p className="text-caption text-text-muted">
-        {g('haveAccount')}{' '}
-        <Link
-          href={`/login?next=${encodeURIComponent(pathname)}`}
-          className="text-action-primary underline"
-        >
-          {g('signInInstead')}
-        </Link>
-      </p>
-      <p className="text-caption text-text-muted">{g('selectionKept')}</p>
+      {forAccount ? null : (
+        <>
+          <p className="text-caption text-text-muted">
+            {g('haveAccount')}{' '}
+            <Link
+              href={`/login?next=${encodeURIComponent(pathname)}`}
+              className="text-action-primary underline"
+            >
+              {g('signInInstead')}
+            </Link>
+          </p>
+          <p className="text-caption text-text-muted">{g('selectionKept')}</p>
+        </>
+      )}
     </div>
   );
 }

@@ -890,6 +890,8 @@
     "haveAccount": "Already have an account?",
     "signInInstead": "Sign in",
     "selectionKept": "We keep your selection on this page.",
+    "accountTitle": "Where should we send your tickets?",
+    "accountLead": "Your account does not have a name and email address yet. We send your tickets and receipt to this email.",
     "signIn": "Sign in",
     "payingAsGuest": "You are paying as a guest. We email your tickets as soon as the payment is confirmed.",
     "bookedBy": "Booked by {name} ({email}).",

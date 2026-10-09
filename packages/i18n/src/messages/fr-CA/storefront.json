@@ -890,6 +890,8 @@
     "haveAccount": "Vous avez déjà un compte?",
     "signInInstead": "Se connecter",
     "selectionKept": "Nous gardons votre sélection sur cette page.",
+    "accountTitle": "Ou devons-nous envoyer vos billets?",
+    "accountLead": "Votre compte n'a pas encore de nom ni d'adresse courriel. Nous envoyons vos billets et votre recu a ce courriel.",
     "signIn": "Se connecter",
     "payingAsGuest": "Vous payez comme invité. Nous envoyons vos billets par courriel dès que le paiement est confirmé.",
     "bookedBy": "Réservé par {name} ({email}).",
