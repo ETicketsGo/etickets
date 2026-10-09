@@ -1,9 +1,10 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { resolvePaymentEnv } from '../payments/configuration/payment-environment';
 import type { PaymentReadinessFacts } from './payment-readiness';
 import { Role } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { SaleEligibilityService } from '../pricing/cinema-policy/sale-eligibility.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AppException, ErrorCodes } from '../common/errors';
 import type { RequestUser } from '../common/decorators';
@@ -42,6 +43,14 @@ export class PilotReadinessService {
     private readonly prisma: PrismaService,
     private readonly access: OrgAccessService,
     private readonly config: ConfigService,
+    /*
+      Whether checkout would actually take a buyer's money for these shows.
+
+      Optional and LAST, so the hand-built harnesses that construct this positionally keep
+      compiling. The application always has it: CinemasModule imports PricingModule, which
+      exports it. Absent, the SALES section is simply not reported, never reported green.
+    */
+    @Optional() private readonly sales?: SaleEligibilityService,
   ) {}
 
   /*
@@ -165,6 +174,13 @@ export class PilotReadinessService {
         },
       })) > 0;
 
+    /*
+      Asked of the function checkout refuses a sale with, for every upcoming show here. The
+      verdict this page gives cannot disagree with the one a buyer meets, because it is the
+      same verdict.
+    */
+    const onlineSales = this.sales ? await this.sales.forCinema(cinemaId, now) : null;
+
     const facts: ReadinessFacts = {
       cinemaId,
       organization: {
@@ -192,6 +208,19 @@ export class PilotReadinessService {
       payments: this.paymentFacts(),
       futurePublishedShows: futureShows,
       publicCatalogueReachable,
+      ...(onlineSales
+        ? {
+            onlineSales: {
+              sessionsChecked: onlineSales.sessionsChecked,
+              blockers: onlineSales.blockers.map((b) => ({
+                code: b.code,
+                organizerMessage: b.organizerMessage,
+                fixPath: b.fixPath,
+                affectedSessions: b.affectedSessions,
+              })),
+            },
+          }
+        : {}),
     };
 
     const checks = evaluatePilotReadiness(facts);

@@ -137,8 +137,12 @@ export default function LaunchReadinessPage() {
               </div>
 
               <ul className="space-y-3">
-                {section.checks.map((check) => (
-                  <CheckRow key={check.code} check={check} />
+                {/*
+                  Keyed with the position too: online-sales blockers share a code when two
+                  ticket types are each priced over their ceiling.
+                */}
+                {section.checks.map((check, i) => (
+                  <CheckRow key={`${check.code}-${i}`} check={check} />
                 ))}
               </ul>
             </Card>

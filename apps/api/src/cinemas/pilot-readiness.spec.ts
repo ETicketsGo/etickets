@@ -38,6 +38,7 @@ const facts = (over: Partial<ReadinessFacts> = {}): ReadinessFacts => ({
   },
   futurePublishedShows: 12,
   publicCatalogueReachable: true,
+  onlineSales: { sessionsChecked: 12, blockers: [] },
   ...over,
 });
 
@@ -354,5 +355,63 @@ describe('codes are stable identifiers', () => {
       .map((c) => c.code)
       .filter((code) => !/^[A-Z0-9_]+$/.test(code));
     expect(bad).toEqual([]);
+  });
+});
+
+describe('online sales - what checkout would refuse', () => {
+  /*
+    QA, 2026-10-09: "Ready to open, Blocking 0" while checkout refused every show at the
+    cinema. The blockers arrive from the function checkout refuses with; these tests are about
+    how readiness reports them.
+  */
+  const telangana = {
+    code: 'NO_PRICING_POLICY',
+    organizerMessage:
+      'Ticket sales are paused for cinemas in Telangana: no state price rules are configured yet. Contact support.',
+    fixPath: null,
+    affectedSessions: 12,
+  };
+
+  it('blocks the cinema, in the organizer words, with no link for a platform problem', () => {
+    const f = facts({ onlineSales: { sessionsChecked: 12, blockers: [telangana] } });
+    expect(overallReadiness(evaluatePilotReadiness(f))).toBe('BLOCKED');
+    const check = find(f, 'SALE_NO_PRICING_POLICY');
+    expect(check).toMatchObject({ section: 'SALES', level: 'BLOCKED', fixPath: null });
+    expect(check?.message).toBe(`${telangana.organizerMessage} (12 of 12 upcoming shows)`);
+  });
+
+  it('reports each blocker separately, keeping the fix path it came with', () => {
+    const f = facts({
+      onlineSales: {
+        sessionsChecked: 3,
+        blockers: [
+          telangana,
+          {
+            code: 'SEAT_CLASS_UNMAPPED',
+            organizerMessage: 'Seat category Standard needs a regulatory seat class.',
+            fixPath: '/organizer/cinemas/cin1/readiness#seat-classes',
+            affectedSessions: 1,
+          },
+        ],
+      },
+    });
+    const sales = evaluatePilotReadiness(f).filter((c) => c.section === 'SALES');
+    expect(sales.map((c) => [c.code, c.level, c.fixPath])).toEqual([
+      ['SALE_NO_PRICING_POLICY', 'BLOCKED', null],
+      ['SALE_SEAT_CLASS_UNMAPPED', 'BLOCKED', '/organizer/cinemas/cin1/readiness#seat-classes'],
+    ]);
+  });
+
+  it('says every show can be bought when nothing is refused', () => {
+    expect(find(facts(), 'SALES_OPEN')).toMatchObject({
+      level: 'READY',
+      message: 'All 12 upcoming shows can be bought online.',
+    });
+  });
+
+  it('says nothing either way when it was not asked, rather than a false green', () => {
+    expect(codes(facts({ onlineSales: undefined })).filter((c) => c.startsWith('SALE'))).toEqual(
+      [],
+    );
   });
 });

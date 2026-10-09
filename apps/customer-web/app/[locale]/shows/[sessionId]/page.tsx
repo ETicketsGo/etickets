@@ -30,6 +30,11 @@ import { TicketCount } from '@/components/seat-selection/ticket-count';
 import { SeatMap } from '@/components/seat-selection/seat-map';
 import { SeatLegend } from '@/components/seat-selection/seat-legend';
 import { BookingBar } from '@/components/seat-selection/booking-bar';
+import {
+  bookingFailure,
+  closeSeatsNotForSale,
+  isSaleNotOpen,
+} from '@/components/seat-selection/online-booking';
 import { useTranslations } from 'next-intl';
 
 /**
@@ -170,6 +175,31 @@ export default function SeatSelectionPage() {
   });
   const summary = summaryQ.data;
 
+  /*
+    ── WHEN NOTHING HERE CAN BE BOUGHT ───────────────────────────────────────────────
+    Found on QA: a show whose every checkout the server refused (its state has no ticket
+    price rules yet) let the buyer choose seats and press "Proceed to pay", then said why in
+    a toast that was gone in three seconds. "Proceed to pay" seemed to do nothing.
+
+    The server now says so up front, decided by the same rules checkout refuses a sale with.
+    A closed show keeps its map - the buyer can still see the room - but no seat can be
+    picked and nothing can be paid for, and one plain sentence says so for as long as they
+    are on the page. A show that is open can still have ticket types that are not: those
+    seats are drawn unavailable, and the rest of the room sells.
+
+    Absent (an older API, or the summary failed to load), nothing is closed here and the
+    inline error below catches a refusal instead.
+  */
+  const onlineBooking = summary?.onlineBooking;
+  const [refusedHere, setRefusedHere] = useState(false);
+  const salesClosed = onlineBooking?.open === false || refusedHere;
+  const closedTypes = useMemo(
+    () => new Set(onlineBooking?.closedTicketTypeIds ?? []),
+    [onlineBooking],
+  );
+  /** Why the last press of "Proceed to pay" failed. Stays until the buyer changes something. */
+  const [bookError, setBookError] = useState<string | null>(null);
+
   // Selected seat ids, and the ticket count the buyer chose (null = pick one by one).
   const [selected, setSelected] = useState<string[]>([]);
   const [quantity, setQuantity] = useState<number | null>(null);
@@ -280,7 +310,34 @@ export default function SeatSelectionPage() {
     return map;
   }, [layout]);
 
+  /*
+    The map as it may be bought from: a seat nobody can buy online is drawn as unavailable -
+    a disabled button whose name says so - rather than as a seat that does nothing when
+    pressed. Only what is drawn changes; the layout read from the server is left alone.
+  */
+  const shownLayout = useMemo(
+    () => closeSeatsNotForSale(layout, salesClosed, closedTypes),
+    [layout, salesClosed, closedTypes],
+  );
+
+  /* A seat that cannot be bought cannot stay in the basket, restored or not. */
+  useEffect(() => {
+    if (!salesClosed && closedTypes.size === 0) return;
+    setSelected((prev) => {
+      const kept = salesClosed
+        ? []
+        : prev.filter((id) => {
+            const categoryId = known.get(id)?.categoryId;
+            return !closedTypes.has(categoriesById.get(categoryId ?? '')?.ticketTypeId ?? '');
+          });
+      return kept.length === prev.length ? prev : kept;
+    });
+  }, [salesClosed, closedTypes, categoriesById, known]);
+
   const tap = (seatId: string, row: readonly SelectableSeat[]) => {
+    if (salesClosed) return;
+    // Choosing again is trying again, so the last failure no longer describes the basket.
+    setBookError(null);
     const result = applySeatTap({ selected, row, seatId, quantity });
     if (result.limitReached) {
       toast.push(s('maxSeats', { max: MAX_SEATS_PER_BOOKING }), 'warning');
@@ -290,6 +347,7 @@ export default function SeatSelectionPage() {
   };
 
   const chooseQuantity = (count: number | null) => {
+    setBookError(null);
     setQuantity(count);
     // Fewer tickets than seats already chosen: keep the first ones, in the order they were chosen.
     if (count !== null) setSelected((prev) => prev.slice(0, count));
@@ -476,6 +534,23 @@ export default function SeatSelectionPage() {
       // 'details' is the guest form talking to itself: the fields already say what is missing.
       if ((e as Error).message === 'details') return;
       /*
+        The show cannot be sold online. Said in the buyer's language, in the same words the
+        page would have used had it known sooner - and now it does know, so the map closes.
+      */
+      if (isSaleNotOpen(e)) {
+        setRefusedHere(true);
+        setBookError(s('salesClosedBody'));
+        toast.push(s('salesClosedBody'), 'error');
+        return;
+      }
+      /*
+        Kept on the page as well as toasted. A toast is gone in seconds and the buyer is left
+        looking at a button that "did nothing"; this stays beside the button until they change
+        something.
+      */
+      const failure = bookingFailure(e);
+      setBookError('key' in failure ? s(failure.key) : failure.message);
+      /*
         Only a seat that is genuinely gone justifies emptying the cart. A conflict means pick
         again; anything identifiably about the show means read this and try again, with the
         seats still selected. Anything not identifiably about the show keeps the old behaviour
@@ -490,7 +565,7 @@ export default function SeatSelectionPage() {
     },
   });
 
-  const payDisabled = selected.length === 0 || book.isPending || isFetching;
+  const payDisabled = selected.length === 0 || book.isPending || isFetching || salesClosed;
   const payableMinor = quote?.totalMinor ?? total;
 
   /**
@@ -501,7 +576,9 @@ export default function SeatSelectionPage() {
    * screen and the form it is complaining about may be well above it.
    */
   const startBooking = () => {
+    if (salesClosed) return;
     if ((guest.asGuest || guest.needsContact) && !guest.validate()) return;
+    setBookError(null);
     book.mutate();
   };
 
@@ -518,6 +595,24 @@ export default function SeatSelectionPage() {
   const header = summary ? <ShowHeader summary={summary} /> : null;
 
   /*
+    Persistent, not a toast, and above the map so it is the first thing read. role=status:
+    it describes the page as it is, and is announced when it appears after a refusal.
+  */
+  const closedNotice = salesClosed ? (
+    <div
+      role="status"
+      data-testid="sales-closed"
+      className="flex items-start gap-3 rounded-lg border border-status-warning/30 bg-tint-warning px-4 py-3"
+    >
+      <Info className="mt-0.5 h-5 w-5 shrink-0 text-status-warning" aria-hidden />
+      <div>
+        <p className="font-semibold text-text-primary">{s('salesClosedTitle')}</p>
+        <p className="mt-0.5 text-[0.9375rem] text-text-secondary">{s('salesClosedBody')}</p>
+      </div>
+    </div>
+  ) : null;
+
+  /*
     The venue overview: blocks around a stage, with no seats in them.
 
     Rendered instead of the seat grid, never alongside it. A page that showed both would be
@@ -528,6 +623,7 @@ export default function SeatSelectionPage() {
     return (
       <div className="space-y-6">
         {header}
+        {closedNotice}
         <div>
           <MapHeading className="text-h3 font-bold tracking-tight text-text-primary">
             {s('chooseArea')}
@@ -576,6 +672,7 @@ export default function SeatSelectionPage() {
   return (
     <div className={`space-y-6 ${selected.length > 0 ? 'pb-24 lg:pb-0' : ''}`}>
       {header}
+      {closedNotice}
 
       {/* Announced, not shown: the map itself shows what is chosen. */}
       <p className="sr-only" aria-live="polite">
@@ -657,7 +754,9 @@ export default function SeatSelectionPage() {
                 </details>
               ) : null}
 
-              {hasSeats ? <TicketCount value={quantity} onChange={chooseQuantity} /> : null}
+              {hasSeats && !salesClosed ? (
+                <TicketCount value={quantity} onChange={chooseQuantity} />
+              ) : null}
 
               {strandedLabels.length > 0 ? (
                 <p
@@ -679,7 +778,7 @@ export default function SeatSelectionPage() {
               ) : (
                 <>
                   <SeatMap
-                    layout={layout}
+                    layout={shownLayout?.view === 'seats' ? shownLayout : layout}
                     selected={selectedSet}
                     stranded={stranded}
                     onTap={tap}
@@ -687,7 +786,12 @@ export default function SeatSelectionPage() {
                     seatStatusLabel={seatStatusLabel}
                     kindLabel={(kind) => (SEAT_KIND_KEY[kind] ? s(SEAT_KIND_KEY[kind]) : null)}
                   />
-                  <SeatLegend hasSold={hasSold} hasHeld={hasHeld} hasAccessible={hasAccessible} />
+                  <SeatLegend
+                    hasSold={hasSold}
+                    // Seats closed to online sale are drawn unavailable; the key says what that looks like.
+                    hasHeld={hasHeld || salesClosed || closedTypes.size > 0}
+                    hasAccessible={hasAccessible}
+                  />
                 </>
               )}
             </div>
@@ -877,6 +981,20 @@ export default function SeatSelectionPage() {
                 <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
               )}
 
+              {/*
+                Why paying failed, on the page and beside the button. Announced once, here; the
+                phone's pay bar repeats it visually.
+              */}
+              {bookError ? (
+                <p
+                  role="alert"
+                  data-testid="booking-error"
+                  className="mt-4 rounded-md bg-tint-error px-3 py-2 text-[0.9375rem] text-status-error"
+                >
+                  {bookError}
+                </p>
+              ) : null}
+
               {/* On phones the pay button lives in the bar at the bottom of the screen. */}
               <div className="mt-4 hidden lg:block">
                 <Button
@@ -902,6 +1020,7 @@ export default function SeatSelectionPage() {
           disabled={payDisabled}
           onPay={startBooking}
           detailsHref={`#${SUMMARY_ID}`}
+          error={bookError}
         />
       ) : null}
     </div>

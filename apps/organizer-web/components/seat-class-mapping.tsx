@@ -61,50 +61,60 @@ export function SeatClassMapping({ cinemaId }: { cinemaId: string }) {
   const unmapped = q.data.filter((c) => !c.mapped).length;
 
   return (
-    <Card title="Seat classes">
-      <p className="mb-4 text-[0.9375rem] text-text-secondary">
-        Rate orders set a maximum price per class of seat. Tell us which class each of your seat
-        categories belongs to — we don’t guess it from the name, because a “Lounger” and a
-        “Recliner” are the same seat to a regulator and different strings to a computer.
-      </p>
-
-      {unmapped > 0 && (
-        <p
-          role="status"
-          className="mb-4 rounded-md bg-status-warning/10 px-3 py-2 text-[0.9375rem] text-status-warning"
-        >
-          {unmapped === 1
-            ? '1 seat category is not mapped yet. It cannot be sold in a regulated area until it is.'
-            : `${unmapped} seat categories are not mapped yet. They cannot be sold in a regulated area until they are.`}
+    // `id` so a readiness blocker can link straight here ("Set it under Seat classes").
+    <div id="seat-classes" className="scroll-mt-24">
+      <Card title="Seat classes">
+        <p className="mb-4 text-[0.9375rem] text-text-secondary">
+          Rate orders set a maximum price per class of seat. Tell us which class each of your seat
+          categories belongs to — we don’t guess it from the name, because a “Lounger” and a
+          “Recliner” are the same seat to a regulator and different strings to a computer.
         </p>
-      )}
 
-      <ul className="space-y-3">
-        {q.data.map((c) => (
-          <li key={c.id} className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="font-medium text-text-primary">{c.name}</div>
-              <div className="text-caption text-text-muted">
-                from {money(c.basePriceMinor, 'INR')}
+        {unmapped > 0 && (
+          <p
+            role="status"
+            className="mb-4 rounded-md bg-status-warning/10 px-3 py-2 text-[0.9375rem] text-status-warning"
+          >
+            {unmapped === 1
+              ? '1 seat category is not mapped yet. It cannot be sold in a regulated area until it is.'
+              : `${unmapped} seat categories are not mapped yet. They cannot be sold in a regulated area until they are.`}
+          </p>
+        )}
+
+        <ul className="space-y-3">
+          {q.data.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-medium text-text-primary">{c.name}</div>
+                {/*
+                In the cinema's own currency - currency follows the venue. This printed rupees
+                for every cinema, a US one included. No currency means a country we do not
+                sell in, and no price is better than a price in the wrong money.
+              */}
+                {c.currency ? (
+                  <div className="text-caption text-text-muted">
+                    from {money(c.basePriceMinor, c.currency)}
+                  </div>
+                ) : null}
               </div>
-            </div>
-            <Select
-              // No visible label: the seat category's name is right beside it. `aria-label`
-              // rather than nothing, so the control still announces which seat it changes.
-              aria-label={`Regulatory class for ${c.name}`}
-              value={c.regulatoryClass ?? ''}
-              disabled={save.isPending}
-              onChange={(e) => save.mutate({ seatCategoryId: c.id, value: e.target.value })}
-            >
-              {CLASSES.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </li>
-        ))}
-      </ul>
-    </Card>
+              <Select
+                // No visible label: the seat category's name is right beside it. `aria-label`
+                // rather than nothing, so the control still announces which seat it changes.
+                aria-label={`Regulatory class for ${c.name}`}
+                value={c.regulatoryClass ?? ''}
+                disabled={save.isPending}
+                onChange={(e) => save.mutate({ seatCategoryId: c.id, value: e.target.value })}
+              >
+                {CLASSES.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
   );
 }

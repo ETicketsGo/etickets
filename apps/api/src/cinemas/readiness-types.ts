@@ -20,6 +20,7 @@ export type ReadinessSection =
   | 'LAYOUTS'
   | 'STAFF'
   | 'PRICING'
+  | 'SALES'
   | 'FEES'
   | 'POLICIES'
   | 'PAYMENTS'

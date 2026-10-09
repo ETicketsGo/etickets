@@ -2684,6 +2684,8 @@ export interface BookingDetail {
    * browser — rendering it locally is how a ticket and its confirmation disagreed.
    */
   timeZone?: string | null;
+  /** Where the show is: the cinema, else the event's venue. Optional for older APIs. */
+  place?: { name: string; city: string | null } | null;
   /**
    * Seats bought, for a reserved-seating show. Held seats before payment, ticketed seats
    * after — so the label list reads the same either side of the transaction. Empty for
@@ -2956,6 +2958,11 @@ export interface SeatClassMapping {
   name: string;
   regulatoryClass: 'REGULAR' | 'RECLINER' | 'PREMIUM' | 'NON_PREMIUM' | null;
   basePriceMinor: number;
+  /**
+   * What `basePriceMinor` is in: the cinema's venue currency. Null when the cinema's country
+   * is not one the platform sells in, and then no price should be shown at all.
+   */
+  currency?: string | null;
   mapped: boolean;
 }
 
@@ -3906,6 +3913,18 @@ export interface PublicShowSummary {
   venue: { name: string; city: string; country: string | null };
   cinema: { id: string; name: string } | null;
   screen: { name: string; format: string | null } | null;
+  /**
+   * Whether a buyer can complete a purchase for this show, decided by the same rules checkout
+   * refuses one by. Optional: an older API sends nothing, and then nothing changes.
+   */
+  onlineBooking?: {
+    /** False when nothing on this show can be bought online. Disable seat picking and pay. */
+    open: boolean;
+    /** An English sentence for clients with no translation. Never the reason. */
+    message: string | null;
+    /** Ticket types that cannot be bought even while the show is open. */
+    closedTicketTypeIds: string[];
+  };
 }
 
 export interface OrgEventRow {

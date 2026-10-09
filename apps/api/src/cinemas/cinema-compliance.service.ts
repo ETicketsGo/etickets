@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Role, type PricingComplianceStatus } from '@eticketsgo/shared-types';
+import { Role, currencyForCountry, type PricingComplianceStatus } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { AuditService } from '../audit/audit.service';
@@ -212,7 +212,7 @@ export class CinemaComplianceService {
   async seatClassesFor(user: { id: string }, cinemaId: string) {
     const cinema = await this.prisma.cinema.findUnique({
       where: { id: cinemaId },
-      select: { organizationId: true },
+      select: { organizationId: true, country: true, venue: { select: { country: true } } },
     });
     if (!cinema) {
       throw new AppException(ErrorCodes.NOT_FOUND, 'Cinema not found.', HttpStatus.NOT_FOUND);
@@ -224,7 +224,14 @@ export class CinemaComplianceService {
       select: { id: true, name: true, regulatoryClass: true, basePriceMinor: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    return categories.map((c) => ({ ...c, mapped: c.regulatoryClass != null }));
+    /*
+      The currency these prices are in. A seat category stores an amount and no currency, and
+      the screen printed every one in rupees - including a cinema in Boise. Currency follows
+      the venue, by the same rule a ticket priced from this category will use. Null when the
+      country is not one we sell in, and the screen then shows no price rather than a wrong one.
+    */
+    const currency = currencyForCountry(cinema.country ?? cinema.venue?.country);
+    return categories.map((c) => ({ ...c, currency, mapped: c.regulatoryClass != null }));
   }
 
   /**
