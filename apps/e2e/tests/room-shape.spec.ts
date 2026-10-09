@@ -67,9 +67,11 @@ test.describe('describing a room', () => {
     */
     await open(page);
     await page.getByLabel('About how many seats?').fill('100');
-    await page.getByRole('button', { name: /Standard screen/ }).click();
+    // Scoped to the shape question: the layout gallery above also has a "Flat hall" card.
+    const shapes = page.getByRole('group', { name: 'What kind of space is this?' });
+    await shapes.getByRole('button', { name: /Standard screen/ }).click();
     const screen = await page.getByText(/\d+ rows of \d+ —/).innerText();
-    await page.getByRole('button', { name: /Flat hall/ }).click();
+    await shapes.getByRole('button', { name: /Flat hall/ }).click();
     const hall = await page.getByText(/\d+ rows of \d+ —/).innerText();
     expect(hall).not.toBe(screen);
   });

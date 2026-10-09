@@ -65,6 +65,7 @@ export function LayoutTemplateGallery({
   const featured = LAYOUT_GALLERY.filter((g) => includeGeneralAdmission || g.style !== 'GA');
 
   const card = (option: LayoutGalleryOption) => {
+    // Grey words on the primary tint are 4.3:1, under AA, so a chosen card uses the primary text colour.
     const outline = outlineFor(option);
     const on = selectedId === option.id;
     const capacity =
@@ -96,11 +97,21 @@ export function LayoutTemplateGallery({
         <span className="flex flex-wrap items-baseline justify-between gap-x-2">
           <span className="text-sm font-semibold text-text-primary">{option.label}</span>
           {capacity ? (
-            <span className="text-caption tabular-nums text-text-secondary">{capacity}</span>
+            <span
+              className={`text-caption tabular-nums ${on ? 'text-text-primary' : 'text-text-secondary'}`}
+            >
+              {capacity}
+            </span>
           ) : null}
         </span>
-        <span className="text-caption leading-snug text-text-muted">{option.sentence}</span>
-        <span className="mt-auto text-caption font-medium text-text-secondary">
+        <span
+          className={`text-caption leading-snug ${on ? 'text-text-primary' : 'text-text-muted'}`}
+        >
+          {option.sentence}
+        </span>
+        <span
+          className={`mt-auto text-caption font-medium ${on ? 'text-text-primary' : 'text-text-secondary'}`}
+        >
           {STYLE_TAG[option.style]}
         </span>
       </button>
@@ -115,6 +126,8 @@ export function LayoutTemplateGallery({
         </p>
       ) : null}
       <div
+        role="group"
+        aria-label="Layout templates"
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
         data-testid="layout-gallery"
       >

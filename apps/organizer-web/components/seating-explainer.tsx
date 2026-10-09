@@ -58,9 +58,18 @@ export function SeatingExplainer({ current }: { current?: SeatingStep }) {
                 }`}
               >
                 <p className="text-caption font-semibold text-text-primary">
-                  <span className="tabular-nums text-text-muted">{i + 1}.</span> {step.name}
+                  <span
+                    className={`tabular-nums ${here ? 'text-text-primary' : 'text-text-muted'}`}
+                  >
+                    {i + 1}.
+                  </span>{' '}
+                  {step.name}
                 </p>
-                <p className="mt-0.5 text-caption leading-snug text-text-muted">{step.line}</p>
+                <p
+                  className={`mt-0.5 text-caption leading-snug ${here ? 'text-text-primary' : 'text-text-muted'}`}
+                >
+                  {step.line}
+                </p>
               </div>
               {i < STEPS.length - 1 ? (
                 <ChevronRight

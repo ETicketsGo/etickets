@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { Info } from 'lucide-react';
 import { Input } from '@eticketsgo/web-kit';
 import {
@@ -37,6 +37,7 @@ export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePicke
     () => ROOM_SHAPES.find((s) => s.key === shapeKey) ?? ROOM_SHAPES[1],
     [shapeKey],
   );
+  const headingId = useId();
   const wanted = Number(capacity);
   const valid = Number.isFinite(wanted) && wanted >= 1;
   const plan = useMemo(() => (valid ? planRoom(wanted, shape) : null), [valid, wanted, shape]);
@@ -55,8 +56,18 @@ export function RoomShapePicker({ shapeKey, capacity, onChange }: RoomShapePicke
   return (
     <div className="space-y-4">
       <div>
-        <p className="mb-2 text-sm font-medium">What kind of space is this?</p>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <p id={headingId} className="mb-2 text-sm font-medium">
+          What kind of space is this?
+        </p>
+        {/*
+          A named group, because the layout gallery above offers cards with some of the same
+          words ("Flat hall", "Auditorium"). The group name says which question a button answers.
+        */}
+        <div
+          role="group"
+          aria-labelledby={headingId}
+          className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {ROOM_SHAPES.map((s) => {
             const on = s.key === shape.key;
             return (
