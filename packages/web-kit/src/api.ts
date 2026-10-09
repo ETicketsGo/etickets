@@ -3408,6 +3408,9 @@ export interface CinemaBody {
    * the launch market — but always present on a cinema that has been read back.
    */
   timezone?: string;
+  /** Where a NEW venue created with the space is: decides its currency, tax rules and clock. */
+  country?: string;
+  region?: string;
 }
 
 /*
