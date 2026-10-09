@@ -18,6 +18,7 @@ import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { PricingModule } from './pricing/pricing.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { NotificationFeedModule } from './notifications/feed/notification-feed.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { VenuesModule } from './venues/venues.module';
 import { EventsModule } from './events/events.module';
@@ -127,6 +128,7 @@ import { HttpObservationMiddleware } from './common/http-observation.middleware'
     OrganizationsModule,
     VenuesModule,
     EventsModule,
+    NotificationFeedModule,
     CouponsModule,
     CommerceModule,
     MoviesModule,

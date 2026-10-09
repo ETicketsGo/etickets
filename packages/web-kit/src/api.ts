@@ -891,6 +891,18 @@ export const api = {
       request<{ unreadCount: number }>(`/notifications/unread-count${qs({ audience })}`),
     markRead: (id: string) =>
       request<{ updated: boolean }>(`/notifications/${id}/read`, { method: 'POST' }),
+    /**
+     * The notification centre grouped by what to do, with repeats of one cause folded into
+     * one card. The flat `inbox` above is unchanged; the bell and the customer site read it.
+     */
+    feed: (audience: NotificationAudience) =>
+      request<NotificationFeed>(`/notifications/feed${qs({ audience })}`),
+    /** Mark every notification folded into one card read. Only the caller's own are touched. */
+    markManyRead: (ids: string[]) =>
+      request<{ updated: number }>(`/notifications/read-many`, {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
     /** Scoped: clearing the customer inbox must not silence an organizer's payout notices. */
     markAllRead: (audience: NotificationAudience) =>
       request<{ updated: number }>(`/notifications/read-all${qs({ audience })}`, {
@@ -3119,6 +3131,54 @@ export type NotificationAudience = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
 export interface NotificationInbox {
   items: NotificationItem[];
   unreadCount: number;
+}
+
+/** The sections of the notification centre, in page order. */
+export type NotificationFeedCategory =
+  | 'ACTION_REQUIRED'
+  | 'BOOKINGS_AND_SALES'
+  | 'EVENT_APPROVALS'
+  | 'PAYMENTS_AND_PAYOUTS'
+  | 'CUSTOMER_ACTIVITY'
+  | 'SYSTEM_UPDATES';
+
+export type NotificationFeedSeverity = 'CRITICAL' | 'WARNING' | 'SUCCESS' | 'INFO';
+
+/** One card: every stored notification about one cause, folded together. */
+export interface NotificationFeedGroup {
+  key: string;
+  category: NotificationFeedCategory;
+  severity: NotificationFeedSeverity;
+  type: string;
+  title: string;
+  summary: string;
+  detail: string | null;
+  /** Said instead of an action when only the platform can fix it. */
+  ownerNote: string | null;
+  action: { label: string; href: string } | null;
+  eventId: string | null;
+  notificationIds: string[];
+  unreadIds: string[];
+  read: boolean;
+  firstAt: string;
+  lastAt: string;
+  /** Affected shows, earliest first, each with the zone it should be read in. */
+  sessions: { id: string; startsAt: string; timeZone: string | null }[];
+  affectedSessions: number;
+  /** Checked live. Null means not checked, which is to be read as still a problem. */
+  resolved: boolean | null;
+  dismissible: boolean;
+}
+
+export interface NotificationFeed {
+  sections: {
+    category: NotificationFeedCategory;
+    label: string;
+    groups: NotificationFeedGroup[];
+  }[];
+  unreadCount: number;
+  scanned: number;
+  truncated: boolean;
 }
 /**
  * A bookable area inside a venue.
