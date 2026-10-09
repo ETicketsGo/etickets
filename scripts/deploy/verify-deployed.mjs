@@ -168,9 +168,11 @@ async function main() {
 
   const rows = [];
   const domains = {};
+  const serviceIds = {};
   for (const edge of project.services.edges) {
     const { id, name } = edge.node;
     if (!CODE_SERVICES.includes(name)) continue;
+    serviceIds[name] = id;
 
     const dep = await gql(
       `query($p:String!,$e:String!,$s:String!){deployments(first:1,input:{projectId:$p,environmentId:$e,serviceId:$s}){edges{node{status meta}}}}`,
@@ -213,6 +215,39 @@ async function main() {
       detail = err.message;
     }
     probes.push({ service: probe.service, what: probe.what, ok, detail });
+  }
+
+  /*
+    The worker must be able to ask every payment provider the api takes money through.
+
+    Found on QA, 2026-10-09: the api had the Razorpay keys and the worker did not. The worker
+    runs the expiry sweep, and before releasing a hold whose buyer reached the gateway it asks
+    the provider whether the order was paid. Without keys every answer was "unavailable", so
+    the sweep (correctly) refused to release, and every abandoned checkout held its tickets
+    forever. Compared by NAME only: no value is read into this report or printed.
+  */
+  if (serviceIds.api && serviceIds.worker) {
+    const names = async (s) =>
+      Object.keys(
+        (
+          await gql(
+            `query($p:String!,$e:String!,$s:String!){variables(projectId:$p,environmentId:$e,serviceId:$s)}`,
+            { p: projectId, e: environmentId, s },
+          )
+        ).variables,
+      );
+    const [apiVars, workerVars] = await Promise.all([
+      names(serviceIds.api),
+      names(serviceIds.worker),
+    ]);
+    const PROVIDER = /^(RAZORPAY|STRIPE|PAYU|CASHFREE)_(KEY|SECRET|WEBHOOK|API|ACCOUNT)/;
+    const missing = apiVars.filter((n) => PROVIDER.test(n) && !workerVars.includes(n));
+    probes.push({
+      service: 'worker',
+      what: 'can reach every payment provider the api uses',
+      ok: missing.length === 0,
+      detail: missing.length ? `worker lacks ${missing.join(', ')}` : '',
+    });
   }
 
   const behind = rows.filter((r) => !r.current);
