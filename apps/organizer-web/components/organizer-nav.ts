@@ -95,10 +95,7 @@ export function navFor({
         { label: 'Notifications', href: '/organizer/notifications', icon: Bell },
       ],
     },
-    /*
-      The calendar page is built by its own workstream; this is only the way in. Until that
-      page ships the route has no page, which is why it is listed here and not invented.
-    */
+    // Every show across every event, by day and week (#279). Schedules live inside events.
     { label: 'Calendar', href: '/organizer/calendar', icon: CalendarDays },
     {
       label: 'Events',
