@@ -45,16 +45,24 @@ export function LayoutThumbnail({
   outline,
   label,
   generalAdmission = false,
+  decorative = false,
 }: {
   outline?: LayoutTemplateOutline | null;
   label: string;
   generalAdmission?: boolean;
+  /**
+   * Inside a control that already names the layout (a gallery card), the picture adds nothing
+   * a screen reader should say: as an image it made every card announce "Picture of the
+   * Cinema layout Cinema 180 seats...", the name twice.
+   */
+  decorative?: boolean;
 }) {
   return (
     <svg
       viewBox="0 0 1000 1000"
-      role="img"
-      aria-label={`Picture of the ${label} layout`}
+      {...(decorative
+        ? { 'aria-hidden': true, focusable: false }
+        : { role: 'img', 'aria-label': `Picture of the ${label} layout` })}
       className="h-28 w-full rounded-md border border-border bg-background-subtle"
     >
       {generalAdmission ? (
