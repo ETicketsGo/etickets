@@ -51,6 +51,7 @@ export const SECTION_LABEL: Record<string, string> = {
   LAYOUTS: 'Seat layouts',
   STAFF: 'Staff',
   PRICING: 'Pricing',
+  SALES: 'Online sales',
   FEES: 'Fees',
   POLICIES: 'Policies',
   PAYMENTS: 'Payments',

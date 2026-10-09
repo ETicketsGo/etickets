@@ -9,6 +9,7 @@ import {
 } from './pricing-strategies';
 import { PricingStrategiesService } from './pricing-strategies.service';
 import { CinemaPricingPolicyService } from './cinema-policy/cinema-pricing-policy.service';
+import { SaleEligibilityService } from './cinema-policy/sale-eligibility.service';
 
 @Module({
   imports: [TaxModule],
@@ -20,12 +21,14 @@ import { CinemaPricingPolicyService } from './cinema-policy/cinema-pricing-polic
     SeatPricingStrategy,
     PricingStrategiesService, // line pricing (ADR-019)
     CinemaPricingPolicyService, // regulated cinema rates (ADR-043)
+    SaleEligibilityService, // can this show be sold online: checkout, readiness and storefront
   ],
   exports: [
     PricingService,
     PricingStrategiesService,
     AdvertisedPriceService,
     CinemaPricingPolicyService,
+    SaleEligibilityService,
   ],
 })
 export class PricingModule {}

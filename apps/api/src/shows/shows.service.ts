@@ -19,6 +19,8 @@ import type {
   UpdateShowPricingInput,
 } from '@eticketsgo/validation';
 import { PrismaService } from '../prisma/prisma.service';
+import { SaleEligibilityService } from '../pricing/cinema-policy/sale-eligibility.service';
+import { BUYER_SALE_NOT_OPEN } from '../pricing/cinema-policy/sale-eligibility';
 import { OrgAccessService } from '../tenancy/org-access.service';
 import { NotificationService } from '../notifications/notification.service';
 import { TransactionalEventPublisher } from '../common/domain-events/transactional-event-publisher';
@@ -393,6 +395,12 @@ export class ShowsService {
     */
     @Optional() private readonly inventory?: InventoryService,
     @Optional() private readonly addOnInventory?: AddOnInventoryService,
+    /*
+      Whether a buyer can complete a purchase for a show, asked of the rules checkout refuses
+      one by. Optional and last, for the positional harnesses; absent, the public summary says
+      nothing about it and the storefront behaves as it did before.
+    */
+    @Optional() private readonly saleEligibility?: SaleEligibilityService,
   ) {}
 
   /** Minimum gap between two shows on one screen. See SHOW_TURNAROUND_MINUTES. */
@@ -2507,6 +2515,31 @@ export class ShowsService {
       localDate = session.startsAt.toISOString().slice(0, 10);
     }
     const movie = session.event.movie;
+
+    /*
+      ── CAN A BUYER ACTUALLY BUY THIS ────────────────────────────────────────────────
+      Found on QA: a show whose every checkout was refused (no state price rules for
+      Telangana) let the buyer pick seats, press "Proceed to pay", and read a toast that was
+      gone in three seconds. The storefront could not have known sooner - nothing told it.
+
+      Asked here of the same function checkout refuses a sale with, so the answer cannot
+      differ from the one the buyer would meet. Only the fact that the show is closed, and
+      which ticket types, leaves the server: the reason is about our configuration and a
+      state's rate order, and it is the organizer's to read, not the buyer's.
+
+      Closed means NOTHING on the show can be bought. One unmapped seat category does not
+      close a room whose other seats sell - checkout would take those - so those ticket types
+      are listed instead.
+    */
+    const eligibility = this.saleEligibility
+      ? await this.saleEligibility.forSession(session.id)
+      : null;
+    const closedTicketTypeIds = eligibility
+      ? [...new Set(eligibility.blockers.flatMap((b) => b.ticketTypeIds))]
+      : [];
+    const open =
+      !eligibility || eligibility.sellable || eligibility.sellableTicketTypeIds.length > 0;
+
     return {
       sessionId: session.id,
       startsAt: session.startsAt.toISOString(),
@@ -2552,6 +2585,12 @@ export class ShowsService {
             format: session.screen.cinema ? session.screen.screenType : null,
           }
         : null,
+      onlineBooking: {
+        open,
+        /** One sentence for clients with no translations of their own. Never the reason. */
+        message: open ? null : BUYER_SALE_NOT_OPEN,
+        closedTicketTypeIds,
+      },
     };
   }
 

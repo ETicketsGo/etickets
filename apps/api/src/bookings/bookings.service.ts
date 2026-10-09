@@ -11,10 +11,6 @@ import {
   Role,
   SessionStatus,
   priceBundle,
-  blocksBooking,
-  type CinemaFormat,
-  type ClimateType,
-  type LocalBodyType,
   OrganizationStatus,
   venueZone,
 } from '@eticketsgo/shared-types';
@@ -38,25 +34,16 @@ import { BookingShadowObserver } from './orchestration/booking-shadow-observer.s
 import { PaymentsService } from '../payments/payments.service';
 import { PendingPaymentRecoveryService } from '../payments/recovery/pending-payment-recovery.service';
 import { CinemaPricingPolicyService } from '../pricing/cinema-policy/cinema-pricing-policy.service';
-import type {
-  PolicyContext,
-  PolicyResolution,
-} from '../pricing/cinema-policy/cinema-pricing-policy.resolver';
+import type { PolicyEffect } from '../pricing/cinema-policy/apply-policy';
 import {
-  applyPolicy,
-  checkTicketPrice,
-  type PolicyEffect,
-} from '../pricing/cinema-policy/apply-policy';
-
-/**
- * Is this market regulated at all?
- *
- * Everything except NOT_REGULATED means an order claims this jurisdiction — including the
- * failure statuses, which say a rule SHOULD apply and could not be resolved. Ceilings are
- * therefore checked for all of them, and skipped only where no order exists.
- */
-const isRegulatedStatus = (status: PolicyResolution['status']): boolean =>
-  status !== 'NOT_REGULATED';
+  BUYER_SALE_NOT_OPEN,
+  SALE_NOT_OPEN_REASON,
+  resolveCinemaPolicy,
+  saleBlockersFromPolicy,
+  type AdmissionLine,
+  type CinemaPolicyOutcome,
+  type PolicyCinema,
+} from '../pricing/cinema-policy/sale-eligibility';
 
 /** A resolved BookingItem row plus the holds it needs, produced by commerce expansion. */
 interface CommerceResolution {
@@ -461,40 +448,32 @@ export class BookingsService {
     const policy = await this.resolveCinemaPolicy(session, currency, admissionLines, now);
 
     /*
+      ── CAN THIS CART BE SOLD ONLINE ─────────────────────────────────────────────────
       Fail closed. A market declared regulated whose rule cannot be resolved must not fall
-      through to the platform's ordinary fee schedule — that is the silent non-compliance
+      through to the platform's ordinary fee schedule - that is the silent non-compliance
       this whole subsystem exists to prevent, and it would look exactly like a normal sale.
+      And a ticket priced above the maximum its seat class permits is refused: the SALE, not
+      the configuration, so nobody takes money for it.
 
-      REQUIRES_APPROVAL is deliberately NOT here: it is a resolved policy whose fee position
-      is unconfirmed, so the fee is suppressed to zero and the ticket still sells. Refusing to
-      sell in a whole state over an unconfirmed fee schedule would be the larger harm.
+      REQUIRES_APPROVAL is deliberately NOT a refusal: it is a resolved policy whose fee
+      position is unconfirmed, so the fee is suppressed to zero and the ticket still sells.
+
+      ── WHY THE DECISION IS NOT WRITTEN OUT HERE ANY MORE ─────────────────────────────
+      It was two `if`s in this method, and nothing else in the platform could ask them. The
+      cinema readiness page therefore said "Ready to open" for a cinema whose every sale this
+      method refused, and the storefront let buyers pick seats for a show nobody could buy.
+      `saleBlockersFromPolicy` is those same two refusals, in the same order, and it is what
+      readiness and the public show endpoint ask too - so the three cannot disagree.
+
+      The buyer is told the show is not open for online booking. Not why: the reason is about
+      our configuration and a state's rate order, and they can do nothing with it. The full
+      explanation goes to the audit, where the person who can act on it will read it.
     */
-    if (blocksBooking(policy.resolution.status)) {
-      await this.audit.record({
-        organizationId: session.event.organizationId,
-        action: 'CINEMA_PRICING_POLICY_BLOCKED_BOOKING',
-        entityType: 'EventSession',
-        entityId: session.id,
-        metadata: this.policyService?.auditFor(policy.resolution, policy.context) ?? {},
-      });
-      throw new AppException(
-        ErrorCodes.VALIDATION_FAILED,
-        'This showing cannot be sold online yet: its regulatory pricing is not configured. ' +
-          policy.resolution.explanation,
-        HttpStatus.CONFLICT,
-      );
-    }
-
-    /*
-      A ticket priced above the maximum its seat class permits.
-
-      This is the check the ceilings existed for and never had. It refuses the SALE, not the
-      configuration: an organizer who has priced a regular seat at ₹151 in a ₹150 jurisdiction
-      must not be able to take money for it, and the customer must not discover this at the
-      payment step with a generic error. The message names the seat category, the price and
-      the order, because all three are needed to fix it.
-    */
-    if (policy.overCeiling.length > 0) {
+    const blockers = saleBlockersFromPolicy(policy, {
+      cinemaId: session.screen?.cinema?.id ?? null,
+      ticketTypeIds: input.items.map((i) => i.ticketTypeId),
+    });
+    if (blockers.length > 0) {
       await this.audit.record({
         organizationId: session.event.organizationId,
         action: 'CINEMA_PRICING_POLICY_BLOCKED_BOOKING',
@@ -502,15 +481,18 @@ export class BookingsService {
         entityId: session.id,
         metadata: {
           ...(this.policyService?.auditFor(policy.resolution, policy.context) ?? {}),
-          overCeiling: policy.overCeiling,
+          ...(policy.overCeiling.length > 0 ? { overCeiling: policy.overCeiling } : {}),
+          blockers: blockers.map((b) => b.code),
         },
       });
-      const first = policy.overCeiling[0];
       throw new AppException(
         ErrorCodes.VALIDATION_FAILED,
-        `This showing cannot be sold at its current prices. ${first.seatCategoryName ?? 'A seat category'} ` +
-          `is priced at ₹${(first.priceMinor / 100).toFixed(2)}. ${first.reason}`,
+        BUYER_SALE_NOT_OPEN,
         HttpStatus.CONFLICT,
+        {
+          reason: SALE_NOT_OPEN_REASON,
+          blockers: blockers.map((b) => b.code),
+        },
       );
     }
 
@@ -973,137 +955,28 @@ export class BookingsService {
           carries a regulatory classification, so a space without one resolves to no policy -
           which is correct: the orders this engine applies govern cinemas.
         */
-        cinema?: {
-          country: string | null;
-          region: string | null;
-          district: string | null;
-          city: string | null;
-          localBodyType: LocalBodyType | null;
-          cinemaFormat: CinemaFormat | null;
-          climateType: ClimateType | null;
-          venue?: { country: string | null; region: string | null; city: string | null } | null;
-        } | null;
+        cinema?: PolicyCinema | null;
       } | null;
     },
     currency: string,
-    admissionLines: {
-      unitPriceMinor: number;
-      quantity: number;
-      category?: string | null;
-      seatCategoryName?: string | null;
-      ticketTypeId?: string;
-    }[],
+    admissionLines: AdmissionLine[],
     at: Date,
-  ): Promise<{
-    resolution: PolicyResolution;
-    effect: PolicyEffect;
-    context: PolicyContext;
-    /** Lines whose price exceeds the ceiling for THEIR OWN seat class. Empty when compliant. */
-    overCeiling: { seatCategoryName: string | null; priceMinor: number; reason: string }[];
-  }> {
-    const cinema = session.screen?.cinema ?? null;
-    // Seat classes in the cart, so a rule written for one class can match. De-duplicated
-    // because the rule asks "is this class present", not "how many".
-    const seatCategories = [
-      ...new Set(admissionLines.map((l) => l.category).filter((c): c is string => Boolean(c))),
-    ];
+  ): Promise<CinemaPolicyOutcome> {
     /*
-      Seat categories in this cart that the operator has NOT mapped to a regulatory class.
-
-      Reported separately rather than just being absent from `seatCategories`, because absent
-      is indistinguishable from "this cart has no seat classes" — which matches the
-      class-agnostic fallback row and sells the seat with no ceiling at all. Only admission
-      lines that actually have a seat category count: a ticket type with none attached is not
-      an unmapped seat, it is a ticket that is not seated.
+      The lookup itself lives in `sale-eligibility.ts` now, unchanged, so that the organizer's
+      readiness page and the storefront ask the question this booking asks rather than a copy
+      of it. Logging stays here: it is the record of a SALE meeting the engine, and a readiness
+      check is not one.
     */
-    const unmappedSeatCategories = [
-      ...new Set(
-        admissionLines
-          .filter((l) => !l.category && l.seatCategoryName)
-          .map((l) => l.seatCategoryName as string),
-      ),
-    ];
-    /*
-      ── WHY A MULTI-CLASS CART RESOLVES WITHOUT A SEAT CLASS ──────────────────────────
-      A cart holding one regular seat and one recliner matches the regular row AND the
-      recliner row, and they are equally specific — so the resolver correctly reported
-      "2 equally specific policies match this order" and the booking was refused. Buying two
-      different kinds of seat in one transaction is an ordinary thing to do, and refusing it
-      is the fail-closed rule firing on a sale that is entirely legal.
-
-      The ambiguity is not real: those two rows do not disagree about anything: they answer
-      for different seats. What the CART needs from a policy is the jurisdiction-level
-      position — the maintenance charge, the booking-fee posture, and which order to record on
-      the booking. The per-seat ceilings are resolved separately below, one class at a time,
-      which is the only way a regular seat and a recliner can each be judged by their own
-      maximum anyway.
-
-      So: one class in the cart resolves to that class's own row, exactly as before. Several
-      classes resolve at jurisdiction level, and the class-specific ceilings still apply per
-      line. Nothing is loosened — the ceiling checks below are what enforce the rates.
-    */
-    const cartClasses = seatCategories.length === 1 ? seatCategories : [];
-
-    const context: PolicyContext = {
-      country: cinema?.country ?? cinema?.venue?.country ?? null,
-      region: cinema?.region ?? cinema?.venue?.region ?? null,
-      district: cinema?.district ?? null,
-      city: cinema?.city ?? cinema?.venue?.city ?? null,
+    const outcome = await resolveCinemaPolicy(
+      this.policyService ? (ctx) => this.policyService!.resolve(ctx) : null,
+      session.screen?.cinema ?? null,
       currency,
-      localBodyType: cinema?.localBodyType ?? null,
-      cinemaFormat: cinema?.cinemaFormat ?? null,
-      climateType: cinema?.climateType ?? null,
-      seatCategories: cartClasses,
-      unmappedSeatCategories,
+      admissionLines,
       at,
-    };
-    /*
-      No policy service wired — a unit harness. Report NOT_REGULATED explicitly rather than
-      pretending a lookup happened: the caller then takes exactly the same path as any
-      unregulated market, and nothing silently claims compliance it never checked.
-    */
-    const resolution: PolicyResolution = this.policyService
-      ? await this.policyService.resolve(context)
-      : {
-          status: 'NOT_REGULATED',
-          policy: null,
-          explanation: 'Cinema pricing policy resolution is not configured in this context.',
-          specificity: -1,
-        };
-    this.policyService?.logResolution(resolution, context);
-    // Tickets, not lines: a maintenance charge is per head. Add-ons and bundles are not
-    // admissions and carry no charge, which is why only admission lines are counted.
-    const ticketCount = admissionLines.reduce((n, l) => n + Math.max(0, l.quantity), 0);
-
-    /*
-      Each line is checked against the ceiling for ITS OWN seat class, which needs a
-      resolution per class rather than the one cart-wide resolution above.
-
-      Reusing a single resolution would lend a recliner's ₹250 ceiling to a regular seat and
-      condemn a ₹250 recliner under a regular seat's ₹150 — the two failure directions being
-      "sells above the permitted rate" and "cannot sell a legal ticket". A cart holds a
-      handful of distinct classes, so this is a handful of resolutions, not one per ticket.
-    */
-    const overCeiling: { seatCategoryName: string | null; priceMinor: number; reason: string }[] =
-      [];
-    if (this.policyService && isRegulatedStatus(resolution.status)) {
-      const classes = [...new Set(seatCategories)];
-      for (const cls of classes) {
-        const perClass = await this.policyService.resolve({ ...context, seatCategories: [cls] });
-        for (const line of admissionLines.filter((l) => l.category === cls)) {
-          const verdict = checkTicketPrice(perClass, line.unitPriceMinor);
-          if (!verdict.ok) {
-            overCeiling.push({
-              seatCategoryName: line.seatCategoryName ?? cls,
-              priceMinor: line.unitPriceMinor,
-              reason: verdict.reason ?? 'Above the permitted rate for this seat class.',
-            });
-          }
-        }
-      }
-    }
-
-    return { resolution, effect: applyPolicy(resolution, ticketCount), context, overCeiling };
+    );
+    this.policyService?.logResolution(outcome.resolution, outcome.context);
+    return outcome;
   }
 
   /**
@@ -1127,6 +1000,7 @@ export class BookingsService {
     byId: Map<
       string,
       {
+        name?: string;
         priceMinor: number;
         seatCategory?: { name: string; regulatoryClass: string | null } | null;
       }
@@ -1135,6 +1009,8 @@ export class BookingsService {
     unitPriceMinor: number;
     quantity: number;
     ticketTypeId: string;
+    /** What the ticket is called, so a price refusal can name the thing to re-price. */
+    ticketTypeName: string | null;
     /** The mapped regulatory class, or null when the operator has not mapped this category. */
     category: string | null;
     /** What the operator calls it — for the refusal message, never for matching. */
@@ -1147,6 +1023,7 @@ export class BookingsService {
           unitPriceMinor: tt?.priceMinor ?? 0,
           quantity: i.quantity,
           ticketTypeId: i.ticketTypeId,
+          ticketTypeName: tt?.name ?? null,
           category: tt?.seatCategory?.regulatoryClass ?? null,
           seatCategoryName: tt?.seatCategory?.name ?? null,
         };
@@ -2222,7 +2099,8 @@ export class BookingsService {
             refundCutoffHours: true,
             // The venue's clock, for events that are not cinema showings — which is most
             // of them, and which the first pass at this missed entirely.
-            venue: { select: { timezone: true, country: true } },
+            // Name and city too: the confirmation said "Seat A4 - Screen 1" and never where.
+            venue: { select: { timezone: true, country: true, name: true, city: true } },
           },
         },
         eventSession: {
@@ -2235,7 +2113,7 @@ export class BookingsService {
             // A showtime means the time AT THE CINEMA. Without this the page renders it in
             // the reader's own zone, which is how a ticket and its confirmation email came
             // to disagree by eleven and a half hours.
-            screen: { select: { cinema: { select: { timezone: true } } } },
+            screen: { select: { cinema: { select: { timezone: true, name: true, city: true } } } },
           },
         },
       },
@@ -2287,6 +2165,12 @@ export class BookingsService {
       seatLabels,
       // Cinema first (a screen's own zone is the most specific fact), then the venue.
       timeZone: bookingTimeZone(booking),
+      /*
+        Where the show is, by the same precedence as the zone: the cinema a buyer walks into,
+        else the event's venue. A ticket that names a seat and a screen but not the building
+        sends somebody with two bookings in one city to the wrong one.
+      */
+      place: bookingPlace(booking),
       tickets: booking.tickets.map((t) => ({
         ...t,
         seatLabel: t.seatLabel ?? (t.seat ? `${t.seat.row.label}${t.seat.label}` : null),
@@ -2339,6 +2223,19 @@ export class BookingsService {
  * Null rather than a guess when neither is known — the caller can fall back visibly, but it
  * cannot tell that a confidently returned zone was invented.
  */
+function bookingPlace(booking: {
+  event?: { venue?: { name?: string | null; city?: string | null } | null } | null;
+  eventSession?: {
+    screen?: { cinema?: { name?: string | null; city?: string | null } | null } | null;
+  } | null;
+}): { name: string; city: string | null } | null {
+  const cinema = booking.eventSession?.screen?.cinema;
+  const venue = booking.event?.venue;
+  const name = cinema?.name ?? venue?.name ?? null;
+  if (!name) return null;
+  return { name, city: cinema?.city ?? venue?.city ?? null };
+}
+
 function bookingTimeZone(booking: {
   event?: { venue?: { timezone: string | null; country: string | null } | null } | null;
   eventSession?: { screen?: { cinema?: { timezone: string | null } | null } | null } | null;

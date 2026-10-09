@@ -20,6 +20,7 @@ export function BookingBar({
   disabled,
   onPay,
   detailsHref,
+  error,
 }: {
   count: number;
   seats: string;
@@ -28,11 +29,27 @@ export function BookingBar({
   disabled: boolean;
   onPay: () => void;
   detailsHref: string;
+  /**
+   * Why the last attempt to pay failed, kept beside the button that was pressed.
+   *
+   * Visual only (`aria-hidden`): the same sentence is announced once, by the alert in the
+   * summary card, which is on the page at every width. Two live regions would read it twice.
+   */
+  error?: string | null;
 }) {
   const s = useTranslations('storefront.seats');
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background-surface/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-lg backdrop-blur-md lg:hidden print:hidden">
+      {error ? (
+        <p
+          aria-hidden
+          data-testid="booking-bar-error"
+          className="mx-auto mb-2 max-w-shell rounded-md bg-tint-error px-3 py-2 text-caption text-status-error"
+        >
+          {error}
+        </p>
+      ) : null}
       <div className="mx-auto flex max-w-shell items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-caption text-text-secondary">

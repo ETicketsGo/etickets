@@ -97,7 +97,7 @@ function AccountConfirmation() {
   // The badge in the reader's language: French showed "PENDING PAYMENT" here on QA.
   const statusLabel = useStatusLabel();
   const locale = useLocale() as Locale;
-  const { money, dateTime, moneyFractionDigits } = useFormat();
+  const { money, dateTime, moneyFractionDigits, zoneAbbrev } = useFormat();
   const { id } = useParams<{ id: string }>();
   const toast = useToast();
 
@@ -199,6 +199,23 @@ function AccountConfirmation() {
     [...items.map((item) => item.unitPriceMinor * item.quantity), booking.totalMinor],
     booking.currency,
   );
+  /*
+    When and where, as the venue reads them.
+
+    The time is the venue's clock with the zone written next to it ("IST", "MDT"): a buyer
+    reading this in another zone, or forwarding it, must not have to guess whose 7:30 it is.
+    The place is the building - the confirmation named a seat and a screen and never which
+    cinema, which is the one thing somebody with two bookings in one city needs.
+  */
+  const zone = booking.timeZone ?? undefined;
+  const abbreviation = zoneAbbrev(booking.eventSession.startsAt, zone);
+  const when = `${dateTime(booking.eventSession.startsAt, undefined, zone)}${
+    abbreviation ? ` ${abbreviation}` : ''
+  }`;
+  const where = booking.place
+    ? [booking.place.name, booking.place.city].filter(Boolean).join(', ')
+    : null;
+
   const ics = buildIcsDataUrl({
     title: booking.event.title,
     description: c('icsDescription'),
@@ -294,9 +311,14 @@ function AccountConfirmation() {
             <p className="font-semibold text-text-primary">{booking.event.title}</p>
             <StatusBadge status={booking.status} label={statusLabel('booking', booking.status)} />
           </div>
-          <p className="text-[0.9375rem] text-text-muted">
-            {dateTime(booking.eventSession.startsAt, undefined, booking.timeZone ?? undefined)}
+          <p className="text-[0.9375rem] text-text-muted" data-testid="confirmation-when">
+            {when}
           </p>
+          {where ? (
+            <p className="text-[0.9375rem] text-text-muted" data-testid="confirmation-where">
+              {where}
+            </p>
+          ) : null}
         </div>
 
         {booking.reference && (
@@ -433,19 +455,14 @@ function AccountConfirmation() {
                   )}
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="font-semibold text-text-primary">{booking.event.title}</p>
-                    <p className="text-[0.9375rem] text-text-muted">
-                      {dateTime(
-                        booking.eventSession.startsAt,
-                        undefined,
-                        booking.timeZone ?? undefined,
-                      )}
-                    </p>
+                    <p className="text-[0.9375rem] text-text-muted">{when}</p>
                     {t.seatLabel ? (
                       <p className="text-[0.9375rem] text-text-primary">
                         {c('seat')} <strong>{t.seatLabel}</strong>
                         {t.screenName ? ` - ${t.screenName}` : ''}
                       </p>
                     ) : null}
+                    {where ? <p className="text-[0.9375rem] text-text-muted">{where}</p> : null}
                     <p className="font-mono text-caption text-text-muted">{t.serial}</p>
                     <Link
                       href={`/account/tickets/${t.id}`}

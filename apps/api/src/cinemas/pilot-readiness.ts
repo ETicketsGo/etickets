@@ -75,6 +75,22 @@ export interface ReadinessFacts {
   futurePublishedShows: number;
   /** Whether the public catalogue can serve this cinema's films. */
   publicCatalogueReachable: boolean;
+  /**
+   * What checkout would refuse for this cinema's upcoming shows, from the same function that
+   * refuses it (`sale-eligibility.ts`).
+   *
+   * Optional only so a fact-builder in a test can leave it out; the service always sets it.
+   * Absent means "not asked", and nothing is reported either way rather than a false green.
+   */
+  onlineSales?: {
+    sessionsChecked: number;
+    blockers: {
+      code: string;
+      organizerMessage: string;
+      fixPath: string | null;
+      affectedSessions: number;
+    }[];
+  };
 }
 
 const ok = (section: ReadinessSection, code: string, message: string): ReadinessCheck => ({
@@ -296,6 +312,44 @@ export function evaluatePilotReadiness(f: ReadinessFacts): ReadinessCheck[] {
     );
   }
 
+  /*
+    ── Online sales ──────────────────────────────────────────────────────────────
+
+    Would a buyer's checkout actually go through? Found on QA: this page said "Ready to
+    open, Blocking 0" while every purchase at the cinema was refused, because nothing here
+    asked the question checkout asks. Now it asks it, through the same function, so a
+    refusal a buyer would meet is a blocker an organizer sees first.
+
+    Every one of these is BLOCKED. Checkout refuses the sale; there is nothing to review.
+  */
+  if (f.onlineSales) {
+    if (f.onlineSales.blockers.length > 0) {
+      for (const b of f.onlineSales.blockers) {
+        const shows =
+          f.onlineSales.sessionsChecked > 1
+            ? ` (${b.affectedSessions} of ${f.onlineSales.sessionsChecked} upcoming shows)`
+            : '';
+        c.push({
+          section: 'SALES',
+          code: `SALE_${b.code}`,
+          level: 'BLOCKED',
+          message: `${b.organizerMessage}${shows}`,
+          fixPath: b.fixPath,
+        });
+      }
+    } else if (f.onlineSales.sessionsChecked > 0) {
+      c.push(
+        ok(
+          'SALES',
+          'SALES_OPEN',
+          `All ${f.onlineSales.sessionsChecked} upcoming show${
+            f.onlineSales.sessionsChecked === 1 ? '' : 's'
+          } can be bought online.`,
+        ),
+      );
+    }
+  }
+
   // ── Fees ──────────────────────────────────────────────────────────────────────
   if (f.activeFeeRules === 0) {
     // Deliberately a warning: selling with no convenience fee is a valid commercial choice,
@@ -414,6 +468,7 @@ export const READINESS_SECTIONS: ReadinessSection[] = [
   'LAYOUTS',
   'STAFF',
   'PRICING',
+  'SALES',
   'FEES',
   'POLICIES',
   'PAYMENTS',
