@@ -7,6 +7,7 @@ import {
   type GuestBookingClaim,
   type GuestBookingView,
   type GuestReceiptsView,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import { resolveLocale } from '@eticketsgo/i18n';
 import { feeTaxSummary } from '../pricing/fee-tax';
@@ -137,7 +138,7 @@ const VIEW_SELECT = {
       title: true,
       slug: true,
       // The venue's zone is the fallback for every event that is not in a cinema.
-      venue: { select: { name: true, timezone: true } },
+      venue: { select: { name: true, timezone: true, country: true } },
     },
   },
   eventSession: {
@@ -205,7 +206,11 @@ type BookingForView = {
     addOn: { name: string } | null;
     bundle: { name: string } | null;
   }[];
-  event: { title: string; slug: string; venue: { name: string; timezone: string | null } | null };
+  event: {
+    title: string;
+    slug: string;
+    venue: { name: string; timezone: string | null; country?: string | null } | null;
+  };
   eventSession: {
     startsAt: Date;
     screen: { name: string; cinema: { name: string; timezone: string | null } | null } | null;
@@ -833,7 +838,9 @@ export class GuestBookingService {
         // Cinema first — a screen's own zone is the most specific fact about where it plays —
         // then the venue, by the same rule the confirmation email and the ticket face use, so
         // the three cannot disagree about when the show starts.
-        timeZone: screen?.cinema?.timezone ?? booking.event.venue?.timezone ?? null,
+        timeZone:
+          screen?.cinema?.timezone ??
+          venueZone(booking.event.venue?.timezone, booking.event.venue?.country),
         venueName: booking.event.venue?.name ?? null,
         cinemaName: screen?.cinema?.name ?? null,
         screenName: screen?.name ?? null,

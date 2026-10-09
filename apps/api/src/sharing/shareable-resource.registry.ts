@@ -53,7 +53,7 @@ export class ShareableResourceRegistry {
               select: {
                 title: true,
                 experienceType: true,
-                venue: { select: { name: true, timezone: true } },
+                venue: { select: { name: true, timezone: true, country: true } },
               },
             },
           },
