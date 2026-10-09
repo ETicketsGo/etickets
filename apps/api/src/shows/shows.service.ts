@@ -8,6 +8,7 @@ import {
   NotificationType,
   Role,
   SessionStatus,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import type {
   BulkScheduleShowsInput,
@@ -2163,7 +2164,7 @@ export class ShowsService {
       where: { id: sessionId },
       select: {
         screen: { select: { cinema: { select: { timezone: true } } } },
-        event: { select: { title: true, venue: { select: { timezone: true } } } },
+        event: { select: { title: true, venue: { select: { timezone: true, country: true } } } },
       },
     });
 
@@ -2179,7 +2180,10 @@ export class ShowsService {
           // Part of the dedupe subject as well as the message: a show rescheduled twice is
           // two pieces of news, and only the second one is still true.
           startsAt: startsAt.toISOString(),
-          timeZone: zone?.screen?.cinema?.timezone ?? zone?.event?.venue?.timezone ?? '',
+          timeZone:
+            zone?.screen?.cinema?.timezone ??
+            venueZone(zone?.event?.venue?.timezone, zone?.event?.venue?.country) ??
+            '',
         },
       })),
     });

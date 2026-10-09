@@ -3,7 +3,7 @@ import { NotificationType } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminAudienceService } from '../notifications/admin-audience.service';
 import { EventSellabilityService } from './event-sellability.service';
-import { causeIdentity, MAX_LISTED_SESSIONS } from './sellability-cause';
+import { causeIdentity, legacyCoverage, MAX_LISTED_SESSIONS } from './sellability-cause';
 
 export interface SellabilitySweepSummary {
   checked: number;
@@ -91,6 +91,12 @@ export class EventSellabilitySweepService {
         makes that true, so it must stay in step with `regulatoryIssue()`.
       */
       const platformBlockers = report.blockers.filter((b) => b.owner === 'PLATFORM');
+      /*
+        This copy is still one message per event, keyed on the sorted set of PLATFORM codes,
+        exactly as the earlier version wrote it - so its first run after the per-cause change
+        produces the same keys and adds nothing. Change its key shape and that stops being
+        true: it would need the same reading of older rows the organizer copy has below.
+      */
       if (platformBlockers.length > 0) {
         await this.audience.notifyAdmins(NotificationType.EVENT_NOT_SELLABLE, {
           eventId: event.id,
@@ -115,7 +121,14 @@ export class EventSellabilitySweepService {
         Each folded blocker is one cause, with its affected shows and its fix path in the
         payload. The dedupe key is the event plus `causeIdentity()`, so a cause that persists
         is discarded by the database on every later run, and a NEW cause is told once.
+
+        ── WHAT THE EARLIER SHAPE ALREADY SAID ─────────────────────────────────────────
+        Rows from before this shape carry the code SET as their key, which no cause key can
+        equal, so on its first run this would announce every standing fault again. A cause
+        whose code an earlier message to the same owner already named is treated as told
+        (`legacyAnnouncedCodes()`), and that owner is skipped for it. Read, never rewritten.
       */
+      const legacy = await this.legacyCoverage(event.id);
       for (const blocker of report.blockers) {
         summary.notified += await this.audience.notifyOrganizationOwners(
           event.organizationId,
@@ -143,9 +156,28 @@ export class EventSellabilitySweepService {
             affectedSessions: blocker.affectedSessions,
             sessions: blocker.sessions.slice(0, MAX_LISTED_SESSIONS),
           },
+          { skip: (userId) => legacy.get(userId)?.has(blocker.code) ?? false },
         );
       }
     }
     return summary;
+  }
+
+  /**
+   * Who was already told which codes about this event, by a message of the earlier shape.
+   *
+   * A cancelled row was never delivered, so it told nobody anything. Rows of the current
+   * shape and the platform's own copies are read too, and ignored by `legacyCoverage()`.
+   */
+  private async legacyCoverage(eventId: string) {
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        type: NotificationType.EVENT_NOT_SELLABLE,
+        status: { not: 'CANCELLED' },
+        payload: { path: ['eventId'], equals: eventId },
+      },
+      select: { userId: true, payload: true },
+    });
+    return legacyCoverage(rows);
   }
 }

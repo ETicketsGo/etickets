@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { EventStatus, ExperienceType, SessionStatus } from '@eticketsgo/shared-types';
+import { EventStatus, ExperienceType, SessionStatus, venueZone } from '@eticketsgo/shared-types';
 import { Prisma } from '@prisma/client';
 import type { FeeMode } from '@eticketsgo/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -97,7 +97,7 @@ function cardVenue(venue: {
     name: venue.name,
     city: venue.city,
     country: venue.country,
-    timezone: venue.timezone,
+    timezone: venueZone(venue.timezone, venue.country),
   };
 }
 

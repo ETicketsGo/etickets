@@ -163,13 +163,18 @@ export function DateTimeField({
         <input
           id={exactId}
           type="time"
-          aria-label="Exact time"
+          aria-label="Or enter hour and minute"
           value={time}
           disabled={disabled}
           onChange={(e) => onChange(join(date, e.target.value))}
           className={`${inputClass} w-[7rem]`}
           // The escape hatch for 7:15 doors. Kept beside the list rather than behind a
           // toggle: an organizer who needs it should not have to discover a mode.
+          //
+          // Not "Exact time": a search for the control called "Time" - by a screen reader's
+          // find, or a test asking by label - matched both, and the half-hour list is the one
+          // people mean. Found by a usability script that could only reach the list by
+          // adding `exact: true`.
         />
       </div>
 

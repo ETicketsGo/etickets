@@ -687,8 +687,9 @@ export class EventsService {
       select: {
         id: true,
         name: true,
+        venueId: true,
         venue: { select: { name: true } },
-        cinema: { select: { name: true } },
+        cinema: { select: { name: true, venueId: true } },
         seatMaps: {
           where: { status: 'PUBLISHED' },
           /*
@@ -725,6 +726,13 @@ export class EventsService {
         id: s.id,
         name: s.name,
         venueName: spaceVenueName(s),
+        /*
+          Which venue the space is in, so the create wizard can offer reserved seating only in
+          spaces of the venue the organizer picked. Matching on `venueName` would confuse two
+          venues with the same name. A row an older instance wrote reaches its venue through
+          the cinema, the same fallback `spaceVenueName` uses for the name.
+        */
+        venueId: s.venueId ?? s.cinema?.venueId ?? null,
         layoutId: layout.id,
         layoutName: layout.name,
         layoutKind: layout.layoutKind,

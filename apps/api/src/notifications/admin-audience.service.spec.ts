@@ -130,6 +130,25 @@ describe('notifying an organization', () => {
     expect(send.mock.calls[0][0].payload.reason).toBe('Registration document unreadable');
   });
 
+  it('leaves out an owner the caller says was already told, and does not count them', async () => {
+    const { service, send } = makeService({
+      members: [
+        { user: { id: 'u1', email: 'one@x.test' } },
+        { user: { id: 'u2', email: 'two@x.test' } },
+      ],
+    });
+    const sent = await service.notifyOrganizationOwners(
+      'org1',
+      NotificationType.EVENT_NOT_SELLABLE,
+      {},
+      { skip: (userId) => userId === 'u1' },
+    );
+    expect(sent).toBe(1);
+    expect(send.mock.calls.map((c: unknown[]) => (c[0] as { userId: string }).userId)).toEqual([
+      'u2',
+    ]);
+  });
+
   it('does not throw when an organization somehow has no owner', async () => {
     const { service } = makeService({ members: [] });
     await expect(

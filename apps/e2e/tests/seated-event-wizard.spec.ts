@@ -116,20 +116,19 @@ test.describe('creating an event with assigned seating', () => {
     await page.locator('#se0').fill(dayAfter(120));
     await page.locator('#se0-time').selectOption('20:00');
 
-    /*
-      The control the complaint was about. Its default has to be general admission: every
-      event created before this existed was general admission, and a wizard that quietly
-      started seating them would change what thousands of drafts mean.
-    */
-    const seating = page.locator('#sr0');
-    await expect(seating).toBeVisible();
-    await expect(seating).toHaveValue('');
-    await expect(page.getByText('Pick a space to sell numbered seats')).toBeVisible();
-
-    await seating.selectOption(room.layoutId);
-    await expect(page.getByText('Buyers pick a named seat')).toBeVisible();
-
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+    /*
+      The control the complaint was about, now one of the three answers to "How do people get
+      in?". Nothing is chosen by default: every event created before this existed was general
+      admission, and a wizard that quietly started seating them would change what drafts mean.
+      It is offered because THIS venue has a space with a published seat map.
+    */
+    const seated = page.getByRole('radio', { name: 'Reserved seating' });
+    await expect(seated).toBeEnabled();
+    await expect(seated).not.toBeChecked();
+    await seated.check();
+    await page.getByLabel('Seat map').selectOption(room.layoutId);
 
     /*
       No ticket-type form. A seated session gets one per seat category the moment it is
@@ -186,6 +185,9 @@ test.describe('creating an event with assigned seating', () => {
     await page.locator('#se0-time').selectOption('20:00');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
 
+    // Nothing about tickets is asked until the organizer says how people get in.
+    await expect(page.locator('#tn0')).toHaveCount(0);
+    await page.getByRole('radio', { name: 'Paid - general admission' }).check();
     await expect(page.locator('#tn0')).toBeVisible();
     await expect(page.getByText('Ticket types come from the seat map')).toHaveCount(0);
   });

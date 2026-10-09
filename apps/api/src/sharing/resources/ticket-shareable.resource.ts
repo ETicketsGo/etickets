@@ -1,4 +1,4 @@
-import { ResourceType, SharePermission, TicketStatus } from '@eticketsgo/shared-types';
+import { ResourceType, SharePermission, TicketStatus, venueZone } from '@eticketsgo/shared-types';
 import type { QrService } from '../../tickets/qr.service';
 import { currentHolderUserId } from '../../tickets/ticket-holder';
 import type { ShareableResource, ShareView } from '../shareable-resource';
@@ -25,7 +25,7 @@ export interface ShareableTicketRow {
     event: {
       title: string;
       experienceType: string;
-      venue: { name: string; timezone?: string | null } | null;
+      venue: { name: string; timezone?: string | null; country?: string | null } | null;
     };
   };
 }
@@ -112,7 +112,7 @@ export class TicketShareableResource implements ShareableResource {
       endsAt: this.row.eventSession.endsAt.toISOString(),
       // The cinema's clock, else the venue's — the same fallback the ticket itself uses. The
       // share page printed the viewer's device time, found by the review.
-      timeZone: screen?.cinema?.timezone ?? event.venue?.timezone ?? null,
+      timeZone: screen?.cinema?.timezone ?? venueZone(event.venue?.timezone, event.venue?.country),
     };
   }
 }

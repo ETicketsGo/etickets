@@ -20,6 +20,8 @@ import {
   LocationFields,
   defaultLocation,
   termsList,
+  dateTime,
+  zoneAbbrev,
   type LocationValue,
 } from '@eticketsgo/web-kit';
 import { venuePayload } from '@/components/venue-fields';
@@ -28,22 +30,33 @@ import { WizardSteps } from '@/components/wizard-steps';
 import { getTemplate, EVENT_CATEGORIES, isListedCategory } from '@/lib/templates';
 import { clearEventDraft, draftAge, readEventDraft, saveEventDraft } from '@/lib/event-draft';
 import {
+  ADMISSION_CHOICES,
   EMPTY_SESSION,
   REVIEW_STEP,
   WIZARD_STEPS,
-  allSessionsSeated,
+  buyerFeeNote,
   canVisitStep,
+  capacityBySession,
+  describeProblems,
   firstInvalidFieldId,
+  fromPriceMinor,
+  initialWizardDraft,
+  isFreeAdmission,
+  isMeaningfulDraft,
+  newTicketRow,
   restoreWizardDraft,
+  sessionsToSend,
   stepStatus,
   ticketsToSend,
   validateAll,
   whatHappensNext,
+  type Admission,
   type FieldErrors,
   type SessionDraft,
   type TicketDraft,
   type WizardDraft,
 } from '@/lib/event-wizard';
+import { EventPreviewCard } from '@/components/event-preview-card';
 import {
   EMPTY_EVENT_DETAILS,
   EventDetailsFields,
@@ -137,42 +150,45 @@ function NewEventWizard() {
     queryFn: () => api.events.seatingRooms(activeOrg.id),
   });
 
-  const [basics, setBasics] = useState({
-    title: template?.suggestedTitle ?? '',
-    category: template?.category ?? '',
-    description: template?.description ?? '',
-    refundPolicy: '',
-    /* The platform's existing behaviour, now stated rather than assumed. */
-    refundsEnabled: true,
-    refundCutoffHours: '48',
-  });
-  const [details, setDetails] = useState<EventDetailsValue>(EMPTY_EVENT_DETAILS);
   /*
-    Whether the category is being picked or typed.
+    The form as it opens, from one definition in `lib/event-wizard` - the same one that decides
+    whether a saved draft has anything in it. Worked out once: the template is read from the URL
+    on arrival and is not a reason to reset the form later.
 
-    A template can seed a category that is not on the list, so this is derived from the seed
-    rather than defaulting to the dropdown — otherwise the wizard would open showing a select
-    whose value it cannot display, silently losing what the template chose.
+    A template can seed a category that is not on the list, so the category mode is derived from
+    the seed rather than defaulting to the tiles - otherwise the wizard would open with no tile
+    selected, silently losing what the template chose.
   */
-  const [categoryMode, setCategoryMode] = useState<'list' | 'other'>(
-    template && !isListedCategory(template.category) ? 'other' : 'list',
+  const [initial] = useState(() =>
+    initialWizardDraft({
+      title: template?.suggestedTitle,
+      category: template?.category,
+      description: template?.description,
+      categoryMode: template && !isListedCategory(template.category) ? 'other' : 'list',
+    }),
   );
+  const [basics, setBasics] = useState(initial.basics);
+  const [details, setDetails] = useState<EventDetailsValue>(EMPTY_EVENT_DETAILS);
+  /* Whether the category is being picked or typed. */
+  const [categoryMode, setCategoryMode] = useState<'list' | 'other'>(initial.categoryMode);
   /*
-    Free events, declared rather than inferred from the prices.
+    How people get in: free, paid general admission or reserved seating.
 
-    Deriving it would make the event flip between free and paid as somebody edited a number,
-    and free is not a price — it changes what the platform DOES. No payment provider is
-    called, no booking fee and no platform share are taken, and the buyer never sees a
-    checkout. Everything after the money is unchanged: tickets, QR codes, cancellation.
+    Free is declared rather than inferred from the prices. Deriving it would make the event
+    flip between free and paid as somebody edited a number, and free is not a price — it
+    changes what the platform DOES. No payment provider is called, no booking fee and no
+    platform share are taken, and the buyer never sees a checkout. Everything after the money
+    is unchanged: tickets, QR codes, cancellation.
   */
-  const [isFree, setIsFree] = useState(false);
-  const [venueMode, setVenueMode] = useState<'existing' | 'new'>('existing');
-  const [venueId, setVenueId] = useState('');
-  const [newVenue, setNewVenue] = useState({ name: '', city: '', address: '', capacity: '' });
+  const [admission, setAdmission] = useState<Admission>(initial.admission);
+  const isFree = isFreeAdmission(admission);
+  const [venueMode, setVenueMode] = useState<'existing' | 'new'>(initial.venueMode);
+  const [venueId, setVenueId] = useState(initial.venueId);
+  const [newVenue, setNewVenue] = useState(initial.newVenue);
   // Same three interdependent answers as the venues page, from the same component — a venue
   // created mid-wizard is a venue, and it was previously created without a state or a clock.
   const [newVenueWhere, setNewVenueWhere] = useState<LocationValue>(defaultLocation);
-  const [feeMode, setFeeMode] = useState('CUSTOMER_PAYS');
+  const [feeMode, setFeeMode] = useState(initial.feeMode);
 
   /*
     The currency this event will sell in, and the symbol on the price field.
@@ -205,16 +221,11 @@ function NewEventWizard() {
     new Intl.NumberFormat(undefined, { style: 'currency', currency: eventCurrency })
       .formatToParts(0)
       .find((p) => p.type === 'currency')?.value ?? eventCurrency;
-  const [sessions, setSessions] = useState<SessionDraft[]>([{ ...EMPTY_SESSION }]);
-  const [tickets, setTickets] = useState<TicketDraft[]>([
-    {
-      sessionIndex: 0,
-      name: 'General',
-      priceMajor: '499',
-      quantityTotal: '100',
-      maxPerOrder: '6',
-    },
-  ]);
+  /* The clock the buyer reads the start time in: the venue's, never the visitor's. */
+  const eventTimezone =
+    venueMode === 'new' ? newVenueWhere.timezone : (chosenVenue?.timezone ?? undefined);
+  const [sessions, setSessions] = useState<SessionDraft[]>(initial.sessions);
+  const [tickets, setTickets] = useState<TicketDraft[]>(initial.tickets);
 
   /*
     ── THE DRAFT SURVIVES LEAVING THIS PAGE ──────────────────────────────────────────
@@ -232,7 +243,7 @@ function NewEventWizard() {
     basics,
     details,
     categoryMode,
-    isFree,
+    admission,
     venueMode,
     venueId,
     newVenue,
@@ -310,12 +321,21 @@ function NewEventWizard() {
     // wrong shape is refused whole rather than half-restored.
     const d = restoreWizardDraft(found.data);
     if (!d) return;
+    /*
+      A draft with nothing the organizer entered is thrown away without a word. Restoring it
+      would change nothing on screen and still say "Picked up where you left off" - about work
+      that never happened.
+    */
+    if (!isMeaningfulDraft(d, initial)) {
+      clearEventDraft(activeOrg.id);
+      return;
+    }
     setStep(d.step);
     setFurthest(d.furthest);
     setBasics(d.basics);
     setDetails(d.details);
     setCategoryMode(d.categoryMode);
-    setIsFree(d.isFree);
+    setAdmission(d.admission);
     setVenueMode(d.venueMode);
     setVenueId(d.venueId);
     setNewVenue(d.newVenue);
@@ -333,23 +353,44 @@ function NewEventWizard() {
     // Never before the restore has had its turn, or an empty form overwrites a real draft.
     // Never after the event exists, or a finished event is offered back as a draft.
     if (!hydrated || committed.current) return;
-    saveEventDraft(activeOrg.id, draftState);
+    /*
+      A form with nothing entered is not saved. Saving it is what produced the false "Picked up
+      where you left off": merely opening this page wrote a draft of the blank form, and the
+      next visit announced it. Clearing rather than skipping also covers somebody who typed and
+      then emptied every field - their draft is now blank too.
+    */
+    if (isMeaningfulDraft(draftState, initial)) saveEventDraft(activeOrg.id, draftState);
+    else clearEventDraft(activeOrg.id);
   });
 
   /*
-    Sessions that still need ticket types typed by hand.
+    The seat maps that can be used at THIS venue.
 
-    A seated session gets one ticket type per seat category the moment it is created, priced
-    from the category, because a seat's price is a fact about where it is in the room. Asking
-    the organizer to invent ticket types for it as well would produce a second, conflicting
-    set of prices — and the room's would win at the point of sale, silently.
+    The list from the server is every space in the organization with a published layout. The
+    sessions used to offer all of them, so a concert at one venue could be seated in a hall of
+    another - and the event page would then name one building while the tickets named another.
+    A venue being created here has no spaces yet, so it has none.
   */
-  const gaSessions = sessions.map((s, i) => ({ s, i })).filter(({ s }) => !s.screenId);
-  const allSeated = allSessionsSeated(sessions);
-  const roomById = (screenId: string) => roomsQ.data?.find((r) => r.id === screenId);
+  const venueRooms =
+    venueMode === 'existing' && venueId
+      ? (roomsQ.data ?? []).filter((r) => r.venueId === venueId)
+      : [];
+  /* Null while the list is loading or failed: nothing can be judged against an unknown list. */
+  const venueSeatMaps = roomsQ.data ? venueRooms.map((r) => r.layoutId) : null;
+  const seatingAvailable = venueRooms.length > 0;
+  const roomByLayout = (seatMapId: string) => roomsQ.data?.find((r) => r.layoutId === seatMapId);
 
   /* Every step's problems, from the answers as they are now. Cheap, so worked out per render. */
-  const answers = { basics, isFree, venueMode, venueId, newVenue, sessions, tickets };
+  const answers = {
+    basics,
+    admission,
+    venueMode,
+    venueId,
+    newVenue,
+    sessions,
+    tickets,
+    venueSeatMaps,
+  };
   const errorsByStep = validateAll(answers);
   const statuses = WIZARD_STEPS.map((_, i) => stepStatus(i, step, furthest, errorsByStep));
   /*
@@ -423,6 +464,27 @@ function NewEventWizard() {
     if (errs.form) setError(errs.form);
   };
 
+  /*
+    Answer "how do people get in".
+
+    Choosing reserved seating fills in the seat map wherever there is only one to choose, and
+    keeps a session's earlier choice when it is still at this venue. Choosing free or paid
+    leaves the seat choices where they are: nothing is sent with them (`sessionsToSend`), and
+    changing your mind back to seating should not mean choosing them all again.
+  */
+  const chooseAdmission = (next: Admission) => {
+    setAdmission(next);
+    if (next !== 'seated') return;
+    const only = venueRooms.length === 1 ? venueRooms[0] : null;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.seatMapId && venueSeatMaps?.includes(s.seatMapId)
+          ? s
+          : { ...s, screenId: only?.id ?? '', seatMapId: only?.layoutId ?? '' },
+      ),
+    );
+  };
+
   const commit = async (submitForReview: boolean) => {
     /*
       Checked again, all of it. The indicator lets an organizer go back and change an earlier
@@ -481,7 +543,8 @@ function NewEventWizard() {
       });
       createdId = event.id;
       const sessionIds: string[] = [];
-      for (const s of sessions) {
+      // Only reserved seating sends a room; see `sessionsToSend`.
+      for (const s of sessionsToSend({ admission, sessions })) {
         const created = await api.events.addSession(event.id, {
           startsAt: new Date(s.startsAt).toISOString(),
           endsAt: new Date(s.endsAt).toISOString(),
@@ -497,13 +560,13 @@ function NewEventWizard() {
         room's seat categories — and adding more here would put two competing prices on the
         same night.
       */
-      for (const t of ticketsToSend({ sessions, tickets })) {
+      for (const t of ticketsToSend({ admission, sessions, tickets })) {
         await api.events.addTicketType({
           eventSessionId: sessionIds[t.sessionIndex] ?? sessionIds[0],
           name: t.name,
           // Zero regardless of what the price box happens to hold: a free event's ticket
           // types must all be zero and the API refuses anything else, so sending the stale
-          // contents of a disabled field would fail the whole creation with a confusing error.
+          // contents of a hidden field would fail the whole creation with a confusing error.
           priceMinor: isFree ? 0 : Math.round(Number(t.priceMajor) * 100),
           quantityTotal: Number(t.quantityTotal),
           maxPerOrder: Number(t.maxPerOrder) || 10,
@@ -579,7 +642,46 @@ function NewEventWizard() {
 
   const happens = whatHappensNext(Boolean(activeOrg.autoApproveEvents));
   const current = WIZARD_STEPS[step];
-  const sentTickets = ticketsToSend({ sessions, tickets });
+  const sentTickets = ticketsToSend({ admission, sessions, tickets });
+  const currentProblems = describeProblems(liveErrors);
+  /* Every step that still needs something, for Review. Create is disabled until it is empty. */
+  const outstanding = WIZARD_STEPS.map((s, index) => ({
+    index,
+    title: s.title,
+    problems: describeProblems(errorsByStep[s.id]),
+  })).filter((s) => s.problems.length > 0);
+  const totals = capacityBySession({ admission, sessions, tickets });
+
+  /* The preview on Review: the facts a buyer decides on, as the storefront will show them. */
+  // Only complete times: a date picked before its time is not a moment yet, and
+  // `toISOString` throws on it - mid-typing, on every render.
+  const firstStartMs = sessions
+    .map((s) => (s.startsAt ? new Date(s.startsAt).getTime() : NaN))
+    .filter((ms) => Number.isFinite(ms))
+    .sort((a, b) => a - b)[0];
+  const firstStartIso = firstStartMs !== undefined ? new Date(firstStartMs).toISOString() : null;
+  const previewWhen = firstStartIso
+    ? `${dateTime(firstStartIso, undefined, eventTimezone)}${
+        eventTimezone ? ` (${zoneAbbrev(firstStartIso, eventTimezone)})` : ''
+      }`
+    : 'No date yet';
+  const previewWhere =
+    venueMode === 'existing'
+      ? chosenVenue
+        ? `${chosenVenue.name}, ${chosenVenue.city}`
+        : 'No venue yet'
+      : newVenue.name
+        ? `${newVenue.name}, ${newVenue.city}`
+        : 'No venue yet';
+  const previewFromMinor = fromPriceMinor({ admission, sessions, tickets });
+  const previewPrice =
+    previewFromMinor === 0
+      ? 'Free'
+      : previewFromMinor !== null
+        ? money(previewFromMinor, eventCurrency)
+        : admission === 'seated'
+          ? 'Priced from the seat map'
+          : 'No price yet';
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -606,13 +708,15 @@ function NewEventWizard() {
       {restoredAt !== null && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background-subtle px-4 py-3">
           <p className="text-caption text-text-secondary">
-            Picked up where you left off — saved {draftAge(restoredAt)}.
+            Picked up where you left off. Saved {draftAge(restoredAt)}.
           </p>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
-              clearEventDraft();
+              // Stop saving first, or a render before the reload writes the draft back.
+              committed.current = true;
+              clearEventDraft(activeOrg.id);
               window.location.reload();
             }}
           >
@@ -631,7 +735,26 @@ function NewEventWizard() {
             {current.title}
           </h2>
           <p className="mt-1 text-caption text-text-muted">{current.intro}</p>
-          <p className="mt-1 text-caption font-medium text-text-secondary">{current.required}</p>
+          {/*
+            What is still missing on this step, in words, from the answers as they are now.
+
+            The fixed "Required: ..." line said what a step needs in general; it could not say
+            what THIS organizer has not done yet, so the first they heard of a missing end time
+            was a refused Next. The list shrinks as they fill the form in, and when it is empty
+            the general line comes back. Review lists every step instead (below).
+          */}
+          {current.id !== 'review' && currentProblems.length > 0 ? (
+            <div className="mt-2 text-caption text-text-secondary">
+              <p className="font-medium">Still needed on this step:</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {currentProblems.map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="mt-1 text-caption font-medium text-text-secondary">{current.required}</p>
+          )}
         </div>
 
         {current.id === 'basics' && (
@@ -655,7 +778,7 @@ function NewEventWizard() {
                   return (
                     <label
                       key={c}
-                      className={`relative flex cursor-pointer items-center justify-center rounded-md border px-3 py-2.5 text-center text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-ring/50 ${
+                      className={`relative flex min-h-11 cursor-pointer items-center justify-center rounded-md border px-3 py-2.5 text-center text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-ring/50 ${
                         checked
                           ? 'border-action-primary bg-tint-primary text-text-primary'
                           : 'border-border text-text-secondary hover:bg-background-subtle'
@@ -855,114 +978,60 @@ function NewEventWizard() {
                     error={fieldErrors[`s${i}End`]}
                   />
                   {/*
-                    Where this session sits, and it is the only thing that decides whether the
-                    event sells named seats. Spanning both columns because the room's name and
-                    its seat count are long, and the explanation underneath is the part that
-                    answers "which should I pick?".
+                    Seating is no longer chosen here. It is one of the three answers to "how do
+                    people get in" on the next step, where it sits beside free and paid and is
+                    offered only when this venue has a seat map.
                   */}
-                  <div className="sm:col-span-2">
-                    <Select
-                      id={`sr${i}`}
-                      label="Seating"
-                      value={s.seatMapId}
-                      disabled={roomsQ.isLoading}
-                      onChange={(e) => {
-                        const seatMapId = e.target.value;
-                        const selected = roomsQ.data?.find((room) => room.layoutId === seatMapId);
-                        const screenId = selected?.id ?? '';
-                        const updated = sessions.map((x, j) =>
-                          j === i ? { ...x, screenId, seatMapId } : x,
-                        );
-                        setSessions(updated);
-                        /*
-                          Move any ticket types that were pointing at this session.
-
-                          Without this they keep an index whose session is no longer offered in
-                          the dropdown on the next step: the control renders blank, the row
-                          looks broken, and the draft is silently dropped on submit. Sending
-                          them to the first session that still needs ticket types is visible
-                          and reversible; leaving them dangling is neither.
-                        */
-                        if (!screenId) return;
-                        const fallback = updated.findIndex((x) => !x.screenId);
-                        if (fallback === -1) return;
-                        setTickets((prev) =>
-                          prev.map((t) =>
-                            t.sessionIndex === i ? { ...t, sessionIndex: fallback } : t,
-                          ),
-                        );
-                      }}
-                    >
-                      <option value="">General admission — no seat map</option>
-                      {(roomsQ.data ?? []).map((r) => (
-                        <option key={r.layoutId} value={r.layoutId}>
-                          {r.venueName} · {r.name} · {r.layoutName ?? 'Layout'} ({r.sellableSeats}{' '}
-                          seats)
-                        </option>
-                      ))}
-                    </Select>
-                    {/*
-                      ── WHY THIS DROPDOWN OFTEN HAS ONE OPTION ──────────────────────────
-                      It lists rooms that have a PUBLISHED seat map, and a new organization has
-                      none — so it shows "General admission" alone and reads as broken rather
-                      than as empty.
-
-                      The hint explaining that used to end "— Venues → Rooms", which is not
-                      where rooms are. Sending somebody to a menu path that does not exist is
-                      worse than saying nothing, and this product has already lost the seat-map
-                      feature once to exactly that kind of misdirection. It is now a link, so it
-                      is one click rather than a hunt — pointing at "Venues & rooms", which is
-                      where both live since they stopped being two sections.
-                    */}
-                    <p className="mt-1.5 text-caption text-text-muted">
-                      {roomsQ.isError ? (
-                        "We couldn't load your spaces, so only general admission is available here."
-                      ) : s.screenId ? (
-                        `Buyers pick a named seat. Ticket types are created from this space's seat categories and priced from them, so you won't need to add any on the next step.`
-                      ) : roomsQ.data?.length === 0 ? (
-                        <>
-                          Buyers choose how many tickets they want — this is the only option because
-                          none of your spaces has a published seat map yet. To sell numbered seats,
-                          draw one under{' '}
-                          {/*
-                            Opened in a NEW TAB, deliberately.
-
-                            Drawing a seat map is a prerequisite living on another screen, and
-                            sending somebody there mid-wizard is what lost their work in the first
-                            place. The draft survives either way now, but not leaving at all beats
-                            leaving and being restored: the half-filled form stays on screen behind
-                            them, exactly where they left it.
-                          */}
-                          <a
-                            href="/organizer/venues"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-action-primary underline underline-offset-2"
-                          >
-                            Venues &amp; spaces
-                          </a>{' '}
-                          — it opens in a new tab, and what you have typed here is saved either way.
-                        </>
-                      ) : (
-                        'Buyers choose how many tickets they want. Pick a space to sell numbered seats instead.'
-                      )}
-                    </p>
-                  </div>
                   {sessions.length > 1 && (
                     <Button
                       variant="ghost"
                       size="sm"
                       className="justify-self-start text-status-error"
-                      onClick={() => setSessions(sessions.filter((_, j) => j !== i))}
+                      onClick={() => {
+                        setSessions(sessions.filter((_, j) => j !== i));
+                        /*
+                          Ticket rows point at sessions by position, so removing one shifts every
+                          later session down by one. Without this, a row for the third night would
+                          quietly become a row for the fourth - or for no night at all. Rows of
+                          the removed session move to the first session, where they stay visible.
+                        */
+                        setTickets((prev) =>
+                          prev.map((t) => ({
+                            ...t,
+                            sessionIndex:
+                              t.sessionIndex === i
+                                ? 0
+                                : t.sessionIndex > i
+                                  ? t.sessionIndex - 1
+                                  : t.sessionIndex,
+                          })),
+                        );
+                      }}
                     >
-                      Remove session
+                      Remove session {i + 1}
                     </Button>
                   )}
                 </div>
               ))}
               <Button
                 variant="outline"
-                onClick={() => setSessions([...sessions, { ...EMPTY_SESSION }])}
+                onClick={() =>
+                  setSessions([
+                    ...sessions,
+                    /*
+                      A new night of a seated run is seated where the last one was. Starting it
+                      blank would leave a session the next step refuses, for an answer the
+                      organizer has already given once.
+                    */
+                    admission === 'seated'
+                      ? {
+                          ...EMPTY_SESSION,
+                          screenId: sessions[sessions.length - 1]?.screenId ?? '',
+                          seatMapId: sessions[sessions.length - 1]?.seatMapId ?? '',
+                        }
+                      : { ...EMPTY_SESSION },
+                  ])
+                }
               >
                 + Add session
               </Button>
@@ -971,42 +1040,167 @@ function NewEventWizard() {
         )}
 
         {current.id === 'tickets' && (
-          <div className="space-y-4">
-            <label className="flex items-start gap-3 rounded-md border border-border p-3">
-              <input
-                id="is-free"
-                type="checkbox"
-                className="mt-1 h-4 w-4"
-                checked={isFree}
-                onChange={(e) => setIsFree(e.target.checked)}
-              />
-              <span className="text-sm">
-                <span className="font-medium">This is a free event</span>
-                <span className="mt-1 block text-text-muted">
-                  Nobody is charged, so there is no checkout, no booking fee and no platform share.
-                  Attendees still book, get tickets and QR codes, and can cancel.
-                </span>
-              </span>
-            </label>
+          <div className="space-y-5">
+            {/*
+              ── HOW PEOPLE GET IN, ASKED FIRST ──────────────────────────────────────────
+              Three answers, as tiles like "What are you organizing?", because each one changes
+              what the rest of the step asks: free needs no prices, paid needs ticket types with
+              prices, and reserved seating needs a seat map per session and no ticket types at
+              all. Asked as one question, only the questions that matter are shown after it.
 
-            {allSeated ? (
-              /*
-                Nothing to ask for. Every session is in a room, so the ticket types already
-                exist — one per seat category, priced from the category. Showing an empty form
-                the organizer must fill in and that would then be discarded is worse than
-                saying so.
-              */
-              <div className="rounded-md border border-border p-4 text-sm">
-                <p className="font-medium">Ticket types come from the seat map</p>
-                <p className="mt-1 text-text-muted">
-                  {sessions.length === 1 ? 'This session is' : 'Every session is'} in a space with
-                  assigned seating, so a ticket type is created for each seat category and priced
-                  from it. You can adjust prices per session afterwards from the event&rsquo;s
-                  pricing page.
-                </p>
+              Radios underneath, so it is one tab stop with arrow keys. Each tile is at least
+              44px tall, the smallest target a thumb hits reliably.
+            */}
+            <fieldset>
+              <legend className="mb-2 text-[0.9375rem] font-medium text-text-primary">
+                How do people get in?
+              </legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {ADMISSION_CHOICES.map((choice, i) => {
+                  const checked = admission === choice.value;
+                  const unavailable = choice.value === 'seated' && !seatingAvailable;
+                  const description =
+                    choice.value === 'free'
+                      ? 'Nobody pays. No checkout and no fees.'
+                      : choice.value === 'paid'
+                        ? 'Buyers choose how many tickets they want.'
+                        : unavailable
+                          ? roomsQ.isLoading
+                            ? 'Checking this venue for a seat map...'
+                            : 'Needs a seat map at this venue.'
+                          : 'Buyers pick a named seat from the seat map.';
+                  return (
+                    <label
+                      key={choice.value}
+                      className={`relative flex min-h-11 flex-col justify-center rounded-md border px-3 py-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring/50 ${
+                        unavailable
+                          ? 'cursor-not-allowed border-border text-text-muted'
+                          : checked
+                            ? 'cursor-pointer border-action-primary bg-tint-primary text-text-primary'
+                            : 'cursor-pointer border-border text-text-secondary hover:bg-background-subtle'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="admission"
+                        // The first option carries the id, so "fix this field" focuses the group.
+                        id={i === 0 ? 'admission' : undefined}
+                        className="absolute inset-0 m-0 cursor-pointer appearance-none rounded-md opacity-0 disabled:cursor-not-allowed"
+                        value={choice.value}
+                        checked={checked}
+                        disabled={unavailable && !checked}
+                        aria-labelledby={`admission-${choice.value}`}
+                        aria-describedby={`admission-${choice.value}-hint`}
+                        onChange={() => chooseAdmission(choice.value)}
+                      />
+                      <span id={`admission-${choice.value}`} className="font-medium">
+                        {choice.label}
+                      </span>
+                      <span
+                        id={`admission-${choice.value}-hint`}
+                        // Muted text fails contrast on the selected tile's tint, so it darkens there.
+                        className={`mt-0.5 text-caption ${checked ? 'text-text-secondary' : 'text-text-muted'}`}
+                      >
+                        {description}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
-            ) : (
-              <>
+              {fieldErrors.admission ? (
+                <p role="alert" className="mt-1.5 text-caption text-status-error">
+                  {fieldErrors.admission}
+                </p>
+              ) : null}
+              {/*
+                ── WHY RESERVED SEATING IS SOMETIMES NOT ON OFFER ──────────────────────────
+                It needs a PUBLISHED seat map in a space of this venue, and a new organization
+                has none. A greyed-out tile with no way forward reads as broken, so the way to
+                get one is said here, as a link.
+
+                Opened in a NEW TAB, deliberately. Drawing a seat map lives on another screen,
+                and sending somebody there mid-wizard is what once lost their work. The draft
+                survives either way now, but not leaving at all beats leaving and being
+                restored: the half-filled form stays on screen behind them.
+              */}
+              {!seatingAvailable && !roomsQ.isLoading && (
+                <p className="mt-2 text-caption text-text-muted">
+                  {roomsQ.isError
+                    ? 'We could not check this venue for seat maps, so reserved seating is not on offer right now. '
+                    : venueMode === 'new'
+                      ? 'A new venue has no seat map yet, so reserved seating is not on offer. '
+                      : "Reserved seating needs a published seat map in one of this venue's spaces, and it has none yet. "}
+                  To sell numbered seats, draw one in{' '}
+                  <a
+                    href="/organizer/venues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-action-primary underline underline-offset-2"
+                  >
+                    Venues and spaces (opens in a new tab)
+                  </a>
+                  . What you have typed here is saved either way.
+                </p>
+              )}
+            </fieldset>
+
+            {admission === 'seated' && (
+              <div className="space-y-4">
+                {/*
+                  Nothing to price. Each session in a seated space gets one ticket type per
+                  seat category, priced from the category, because a seat's price is a fact
+                  about where it is in the room. Asking for ticket types as well would produce a
+                  second, conflicting set of prices - and the room's would win at the point of
+                  sale, silently.
+                */}
+                <div className="rounded-md border border-border p-4 text-sm">
+                  <p className="font-medium">Ticket types come from the seat map</p>
+                  <p className="mt-1 text-text-muted">
+                    A ticket type is created for each seat category and priced from it. You can
+                    change prices per session afterwards from the event&apos;s pricing page.
+                  </p>
+                </div>
+                {sessions.map((s, i) => (
+                  <Select
+                    key={i}
+                    id={`sr${i}`}
+                    label={
+                      sessions.length === 1
+                        ? 'Seat map'
+                        : `Seat map for session ${i + 1} (${sessionWhen(s, i)})`
+                    }
+                    required
+                    value={s.seatMapId}
+                    error={fieldErrors[`s${i}Seat`]}
+                    onChange={(e) => {
+                      const seatMapId = e.target.value;
+                      const room = venueRooms.find((r) => r.layoutId === seatMapId);
+                      setSessions(
+                        sessions.map((x, j) =>
+                          j === i ? { ...x, seatMapId, screenId: room?.id ?? '' } : x,
+                        ),
+                      );
+                    }}
+                  >
+                    <option value="">Choose a seat map...</option>
+                    {venueRooms.map((r) => (
+                      <option key={r.layoutId} value={r.layoutId}>
+                        {r.name} - {r.layoutName ?? 'Layout'} ({r.sellableSeats} seats)
+                      </option>
+                    ))}
+                  </Select>
+                ))}
+              </div>
+            )}
+
+            {(admission === 'free' || admission === 'paid') && (
+              <div className="space-y-4">
+                {isFree && (
+                  <p className="rounded-md border border-border bg-background-subtle p-3 text-sm text-text-secondary">
+                    Nobody is charged, so there is no checkout, no booking fee and no platform
+                    share. Attendees still book, get tickets and QR codes, and can cancel.
+                  </p>
+                )}
                 {/*
                   ── MORE TICKETS THAN THE ROOM HOLDS ──────────────────────────────────────
                   A warning, not a block. Overselling a stated capacity is usually a mistake
@@ -1020,10 +1214,7 @@ function NewEventWizard() {
                   capacity would cry wolf on the most ordinary setup there is.
                 */}
                 {venueCapacity !== null &&
-                  gaSessions.map(({ i }) => {
-                    const forSession = tickets
-                      .filter((t) => t.sessionIndex === i)
-                      .reduce((n, t) => n + (Number(t.quantityTotal) || 0), 0);
+                  totals.map((forSession, i) => {
                     if (forSession <= venueCapacity) return null;
                     return (
                       <p
@@ -1033,27 +1224,29 @@ function NewEventWizard() {
                       >
                         Session {i + 1} has {forSession.toLocaleString()} tickets on sale but the
                         venue holds {venueCapacity.toLocaleString()}. Capacity is what the space
-                        seats; quantity is what you put on sale — change one of them if that is not
+                        seats; quantity is what you put on sale. Change one of them if that is not
                         deliberate.
                       </p>
                     );
                   })}
-                {sessions.some((x) => x.screenId) && (
-                  // Otherwise the shorter list of sessions in the dropdown below reads as a bug.
-                  <p className="text-caption text-text-muted">
-                    Sessions with assigned seating are not listed below — their ticket types come
-                    from the space&rsquo;s seat categories.
-                  </p>
-                )}
                 {tickets.map((t, i) => (
-                  <div
+                  /*
+                    One group per ticket type, named "Ticket type 2" and so on. Every row has a
+                    field called "Name" and one called "Price", and the group is what tells
+                    them apart - to a screen reader, and to anybody scanning a long list.
+                  */
+                  <fieldset
                     key={i}
                     className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2"
                   >
+                    <legend className="px-1 text-caption font-medium text-text-secondary">
+                      Ticket type {i + 1}
+                    </legend>
                     <Input
                       id={`tn${i}`}
                       label="Name"
                       required
+                      placeholder={i === 0 ? undefined : 'e.g. VIP'}
                       value={t.name}
                       onChange={(e) =>
                         setTickets(
@@ -1062,61 +1255,68 @@ function NewEventWizard() {
                       }
                       error={fieldErrors[`t${i}Name`]}
                     />
-                    <Select
-                      id={`tsi${i}`}
-                      label="Session"
-                      value={t.sessionIndex}
-                      onChange={(e) =>
-                        setTickets(
-                          tickets.map((x, j) =>
-                            j === i ? { ...x, sessionIndex: Number(e.target.value) } : x,
-                          ),
-                        )
-                      }
-                    >
-                      {/*
-                        Named by when it starts, not by its index.
-
-                        "Session 1" identifies nothing — with three showings on one day an
-                        organizer cannot tell which is which, and it reads as though only one
-                        session exists. The date is the thing they actually chose.
-                      */}
-                      {gaSessions.map(({ s: sess, i: si }) => (
-                        <option key={si} value={si}>
-                          {sessionWhen(sess, si)}
-                        </option>
-                      ))}
-                    </Select>
+                    {sessions.length > 1 && (
+                      <Select
+                        id={`tsi${i}`}
+                        label="Session"
+                        value={t.sessionIndex}
+                        onChange={(e) =>
+                          setTickets(
+                            tickets.map((x, j) =>
+                              j === i ? { ...x, sessionIndex: Number(e.target.value) } : x,
+                            ),
+                          )
+                        }
+                      >
+                        {/*
+                          Named by when it starts, not by its index. "Session 1" identifies
+                          nothing — with three showings on one day an organizer cannot tell
+                          which is which. The date is the thing they actually chose.
+                        */}
+                        {sessions.map((sess, si) => (
+                          <option key={si} value={si}>
+                            {sessionWhen(sess, si)}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
                     {/*
-                      On a free event the price is not editable, and says why.
-
-                      Disabling it rather than hiding it keeps the row's shape and answers the
-                      obvious question — "where did the price go?" — in the place it was asked.
+                      No price on a free event. It is not a price of zero the organizer has to
+                      leave alone; it is a question that does not apply, so it is not asked.
                     */}
-                    <Input
-                      id={`tp${i}`}
-                      label={`Price (${currencySymbol})`}
-                      type="number"
-                      required={!isFree}
-                      value={isFree ? '0' : t.priceMajor}
-                      disabled={isFree}
-                      hint={isFree ? 'Free event — attendees pay nothing.' : undefined}
-                      error={fieldErrors[`t${i}Price`]}
-                      onChange={(e) =>
-                        setTickets(
-                          tickets.map((x, j) =>
-                            j === i ? { ...x, priceMajor: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
+                    {!isFree && (
+                      <Input
+                        id={`tp${i}`}
+                        label={`Price (${currencySymbol})`}
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        required
+                        value={t.priceMajor}
+                        hint={
+                          i === 0
+                            ? `In ${eventCurrency}, the currency of the venue's country.`
+                            : undefined
+                        }
+                        error={fieldErrors[`t${i}Price`]}
+                        onChange={(e) =>
+                          setTickets(
+                            tickets.map((x, j) =>
+                              j === i ? { ...x, priceMajor: e.target.value } : x,
+                            ),
+                          )
+                        }
+                      />
+                    )}
                     <Input
                       id={`tq${i}`}
                       label="Quantity on sale"
                       type="number"
+                      inputMode="numeric"
+                      min={1}
                       required
                       value={t.quantityTotal}
-                      hint="How many of THIS ticket type are for sale. Not the venue's capacity."
+                      hint="How many of this ticket type are for sale. Not the venue's capacity."
                       onChange={(e) =>
                         setTickets(
                           tickets.map((x, j) =>
@@ -1130,7 +1330,11 @@ function NewEventWizard() {
                       id={`tm${i}`}
                       label="Max per order"
                       type="number"
+                      inputMode="numeric"
+                      min={1}
                       value={t.maxPerOrder}
+                      hint="The most one buyer can take in one order."
+                      error={fieldErrors[`t${i}Max`]}
                       onChange={(e) =>
                         setTickets(
                           tickets.map((x, j) =>
@@ -1146,30 +1350,32 @@ function NewEventWizard() {
                         className="justify-self-start self-end text-status-error"
                         onClick={() => setTickets(tickets.filter((_, j) => j !== i))}
                       >
-                        Remove
+                        Remove ticket type {i + 1}
                       </Button>
                     )}
-                  </div>
+                  </fieldset>
                 ))}
+                {/*
+                  The running total, per session. Several ticket types make "how many people
+                  am I letting in" a sum the organizer would otherwise do in their head.
+                */}
+                <p role="status" className="text-sm font-medium text-text-primary">
+                  {sessions.length === 1
+                    ? `Total on sale: ${totals[0].toLocaleString()} ticket${totals[0] === 1 ? '' : 's'}`
+                    : `Total on sale: ${totals
+                        .map((n, i) => `session ${i + 1}, ${n.toLocaleString()}`)
+                        .join('; ')}`}
+                  {venueCapacity !== null
+                    ? ` (the venue holds ${venueCapacity.toLocaleString()})`
+                    : ''}
+                </p>
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    setTickets([
-                      ...tickets,
-                      {
-                        // Not 0: session 0 may be seated, and a row bound to it is discarded.
-                        sessionIndex: gaSessions[0]?.i ?? 0,
-                        name: '',
-                        priceMajor: '',
-                        quantityTotal: '',
-                        maxPerOrder: '6',
-                      },
-                    ])
-                  }
+                  onClick={() => setTickets([...tickets, newTicketRow(tickets)])}
                 >
                   + Add ticket type
                 </Button>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -1261,6 +1467,88 @@ function NewEventWizard() {
 
         {current.id === 'review' && (
           <div className="space-y-5 text-sm">
+            {/*
+              ── EVERYTHING STILL MISSING, IN ONE PLACE ───────────────────────────────────
+              The indicator lets an organizer jump around, so they can arrive here with an
+              earlier step broken by a later change - a venue swapped after its seats were
+              chosen. Rather than letting them press Create to find out, the list says what is
+              missing, on which step, with a way straight there; Create stays off until it is
+              empty.
+            */}
+            {outstanding.length > 0 && (
+              <section
+                aria-labelledby="review-missing"
+                className="rounded-md border border-status-error/40 bg-tint-error p-4"
+              >
+                <h3 id="review-missing" className="font-semibold text-status-error">
+                  Still needed before the event can be created
+                </h3>
+                <ul className="mt-2 space-y-3">
+                  {outstanding.map((s) => (
+                    <li key={s.index}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-text-primary">{s.title}</span>
+                        <Button variant="outline" size="sm" onClick={() => goTo(s.index)}>
+                          Go to {s.title}
+                        </Button>
+                      </div>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-text-secondary">
+                        {s.problems.map((problem) => (
+                          <li key={problem}>{problem}</li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/*
+              ── WHAT THE BUYER SEES ──────────────────────────────────────────────────────
+              The card as it will sit on the storefront, and the facts a buyer decides on:
+              when (in the venue's clock, with its zone, because that is what the storefront
+              shows), where, the lowest price, and what happens about fees. The organizer
+              checks their event the way it will be read, not as a list of their own answers.
+            */}
+            <section aria-labelledby="review-preview" className="space-y-3">
+              <h3 id="review-preview" className="font-semibold text-text-primary">
+                What buyers will see
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <EventPreviewCard
+                  seed={basics.title || 'new event'}
+                  title={basics.title || 'Your event title'}
+                  category={basics.category}
+                  imageUrl={images[0]?.url ?? null}
+                  when={previewWhen}
+                  where={previewWhere}
+                  price={previewPrice}
+                  showFrom={previewFromMinor !== null && previewFromMinor > 0}
+                />
+                <dl className="space-y-2 rounded-md border border-border p-4">
+                  <PreviewFact label="Event" value={basics.title || 'No title yet'} />
+                  <PreviewFact
+                    label={sessions.length > 1 ? 'First date' : 'Date and time'}
+                    value={
+                      sessions.length > 1
+                        ? `${previewWhen}, and ${sessions.length - 1} more date${sessions.length === 2 ? '' : 's'}`
+                        : previewWhen
+                    }
+                  />
+                  <PreviewFact label="Venue" value={previewWhere} />
+                  <PreviewFact
+                    label="Price"
+                    value={
+                      previewFromMinor !== null && previewFromMinor > 0
+                        ? `From ${previewPrice}`
+                        : previewPrice
+                    }
+                  />
+                  <PreviewFact label="Fees" value={buyerFeeNote(admission, feeMode)} />
+                </dl>
+              </div>
+            </section>
+
             <ReviewSection title="Basics" onEdit={() => goTo(0)}>
               <Row label="Title" value={basics.title} />
               <Row label="Category" value={basics.category} />
@@ -1272,7 +1560,7 @@ function NewEventWizard() {
                 label="Venue"
                 value={
                   venueMode === 'existing'
-                    ? (chosenVenue?.name ?? '—')
+                    ? (chosenVenue?.name ?? '-')
                     : `${newVenue.name}, ${newVenue.city} (new)`
                 }
               />
@@ -1280,40 +1568,51 @@ function NewEventWizard() {
                 label={sessions.length === 1 ? 'Session' : `Sessions (${sessions.length})`}
                 value={sessions.map((s, i) => sessionWhen(s, i)).join(', ')}
               />
+            </ReviewSection>
+
+            <ReviewSection title="Tickets and pricing" onEdit={() => goTo(2)}>
+              <Row
+                label="Admission"
+                value={
+                  admission === 'free'
+                    ? 'Free - no payment taken'
+                    : admission === 'paid'
+                      ? 'Paid - general admission'
+                      : admission === 'seated'
+                        ? 'Reserved seating'
+                        : 'Not chosen yet'
+                }
+              />
               {/*
                 Seating is named here rather than counted. "2 seated" would not tell the
                 organizer WHICH room, and booking a run of shows into the wrong auditorium is
                 the mistake this page exists to catch — after the event is created the seats
                 are already written and the session has to be removed to change it.
               */}
-              <Row
-                label="Seating"
-                value={
-                  allSeated && sessions.length === 1
-                    ? `Assigned seats — ${roomById(sessions[0].screenId)?.name ?? 'selected space'}`
-                    : sessions.every((x) => !x.screenId)
-                      ? 'General admission'
+              {admission === 'seated' && (
+                <Row
+                  label="Seating"
+                  value={
+                    sessions.length === 1
+                      ? `Assigned seats — ${roomByLayout(sessions[0].seatMapId)?.name ?? 'no seat map chosen'}`
                       : sessions
                           .map((x, i) => {
-                            const room = roomById(x.screenId);
-                            return `${i + 1}: ${room ? `${room.venueName} · ${room.name}` : 'general admission'}`;
+                            const room = roomByLayout(x.seatMapId);
+                            return `${i + 1}: ${room ? room.name : 'no seat map chosen'}`;
                           })
                           .join(', ')
-                }
-              />
-            </ReviewSection>
-
-            <ReviewSection title="Tickets and pricing" onEdit={() => goTo(2)}>
-              <Row label="Admission" value={isFree ? 'Free — no payment taken' : 'Paid'} />
+                  }
+                />
+              )}
               <Row
                 label="Ticket types"
                 value={
-                  allSeated
-                    ? 'From the seat map — one per seat category'
+                  admission === 'seated'
+                    ? 'From the seat map - one per seat category'
                     : sentTickets
                         .map(
                           (t) =>
-                            `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceMajor) * 100), eventCurrency)} × ${t.quantityTotal})`,
+                            `${t.name} (${isFree ? 'Free' : money(Math.round(Number(t.priceMajor) * 100), eventCurrency)} x ${t.quantityTotal})`,
                         )
                         .join(', ')
                 }
@@ -1419,10 +1718,15 @@ function NewEventWizard() {
             <Button onClick={() => goTo(step + 1)}>Next</Button>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" loading={busy} onClick={() => commit(false)}>
+              <Button
+                variant="outline"
+                loading={busy}
+                disabled={outstanding.length > 0}
+                onClick={() => commit(false)}
+              >
                 Save draft
               </Button>
-              <Button loading={busy} onClick={() => commit(true)}>
+              <Button loading={busy} disabled={outstanding.length > 0} onClick={() => commit(true)}>
                 Submit for approval
               </Button>
             </div>
@@ -1453,6 +1757,16 @@ function ReviewSection({
       </div>
       <div className="space-y-2">{children}</div>
     </section>
+  );
+}
+
+/** One fact in the "what buyers will see" panel. */
+function PreviewFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-caption text-text-muted">{label}</dt>
+      <dd className="font-medium text-text-primary">{value}</dd>
+    </div>
   );
 }
 

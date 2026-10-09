@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { eventImageFields } from './event-image';
 
 /**
  * Runtime contract for GET /public/events/:slug.
@@ -57,6 +58,8 @@ export const eventDetailSchema = z.object({
   }),
   organizer: z.object({ id: z.string(), name: z.string() }),
   sessions: z.array(sessionSchema),
+  /** The event's picture, when it has one. See event-image.ts for why both are optional. */
+  ...eventImageFields,
 });
 
 export type TicketType = z.infer<typeof ticketTypeSchema>;

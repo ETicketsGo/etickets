@@ -16,6 +16,7 @@ import {
   type ClimateType,
   type LocalBodyType,
   OrganizationStatus,
+  venueZone,
 } from '@eticketsgo/shared-types';
 import type { InventoryLine } from '../inventory/inventory-strategy.interface';
 import type { CreateBookingInput, QuoteBookingInput } from '@eticketsgo/validation';
@@ -2221,7 +2222,7 @@ export class BookingsService {
             refundCutoffHours: true,
             // The venue's clock, for events that are not cinema showings — which is most
             // of them, and which the first pass at this missed entirely.
-            venue: { select: { timezone: true } },
+            venue: { select: { timezone: true, country: true } },
           },
         },
         eventSession: {
@@ -2305,7 +2306,13 @@ export class BookingsService {
         orderBy: { createdAt: 'desc' },
         include: {
           // Both zones, so each row can be given the same clock as the booking detail.
-          event: { select: { title: true, slug: true, venue: { select: { timezone: true } } } },
+          event: {
+            select: {
+              title: true,
+              slug: true,
+              venue: { select: { timezone: true, country: true } },
+            },
+          },
           eventSession: {
             select: {
               startsAt: true,
@@ -2333,8 +2340,11 @@ export class BookingsService {
  * cannot tell that a confidently returned zone was invented.
  */
 function bookingTimeZone(booking: {
-  event?: { venue?: { timezone: string | null } | null } | null;
+  event?: { venue?: { timezone: string | null; country: string | null } | null } | null;
   eventSession?: { screen?: { cinema?: { timezone: string | null } | null } | null } | null;
 }): string | null {
-  return booking.eventSession?.screen?.cinema?.timezone ?? booking.event?.venue?.timezone ?? null;
+  return (
+    booking.eventSession?.screen?.cinema?.timezone ??
+    venueZone(booking.event?.venue?.timezone, booking.event?.venue?.country)
+  );
 }

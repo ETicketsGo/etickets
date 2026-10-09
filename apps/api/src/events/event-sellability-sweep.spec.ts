@@ -62,13 +62,18 @@ function report(blockers: SellabilityIssue[]): SellabilityReport {
   };
 }
 
-function setup(reports: SellabilityReport[]) {
+function setup(
+  reports: SellabilityReport[],
+  stored: { userId: string | null; payload: unknown }[] = [],
+) {
   const prisma = {
     event: {
       findMany: jest
         .fn()
         .mockResolvedValue([{ id: 'e1', title: 'Telugu Movie', organizationId: 'org1' }]),
     },
+    // What is already stored about the event, as the earlier sweep may have written it.
+    notification: { findMany: jest.fn().mockResolvedValue(stored) },
   };
   const check = jest.fn();
   for (const r of reports) check.mockResolvedValueOnce(r);
@@ -82,7 +87,14 @@ function setup(reports: SellabilityReport[]) {
   /** The payloads the owners were sent, in order. */
   const payloads = () =>
     notifyOrganizationOwners.mock.calls.map((c) => c[2] as Record<string, unknown>);
-  return { sweep, notifyOrganizationOwners, notifyAdmins, payloads };
+  /** Whether the owner would be skipped for the n-th cause the sweep sent. */
+  const skips = (n: number, userId: string) => {
+    const options = notifyOrganizationOwners.mock.calls[n][3] as {
+      skip: (u: string) => boolean;
+    };
+    return options.skip(userId);
+  };
+  return { sweep, notifyOrganizationOwners, notifyAdmins, payloads, skips, prisma };
 }
 
 /** The key the database would store for an in-app copy to one owner. */
@@ -167,5 +179,52 @@ describe('one message per root cause', () => {
     const { sweep, notifyAdmins } = setup([report([NO_POLICY, BALCONY])]);
     await sweep.sweep();
     expect(notifyAdmins).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the first run after messages became per cause', () => {
+  /*
+    The earlier sweep wrote one row per event per owner, keyed on the "+"-joined code set. No
+    cause key can equal that, so without reading those rows the first run of this version
+    would announce every standing fault again, once per cause.
+  */
+  const OLD = {
+    eventId: 'e1',
+    eventTitle: 'Telugu Movie',
+    reason: 'Balcony is not mapped. Recliner is priced above its ceiling.',
+    blockerCodes: 'PRICE_OVER_CEILING+SEAT_CLASS_UNMAPPED',
+  };
+
+  it('skips an owner for every cause the old message named, and not for a new one', async () => {
+    const { sweep, payloads, skips } = setup(
+      [report([BALCONY, RECLINER, NO_POLICY])],
+      [{ userId: 'owner-1', payload: OLD }],
+    );
+    await sweep.sweep();
+
+    expect(payloads().map((p) => p.blockerCode)).toEqual([
+      'SEAT_CLASS_UNMAPPED',
+      'PRICE_OVER_CEILING',
+      'NO_PRICING_POLICY',
+    ]);
+    expect(skips(0, 'owner-1')).toBe(true);
+    expect(skips(1, 'owner-1')).toBe(true);
+    // Never named before: this is news.
+    expect(skips(2, 'owner-1')).toBe(false);
+  });
+
+  it('still tells an owner who never received the old message', async () => {
+    const { sweep, skips } = setup([report([BALCONY])], [{ userId: 'owner-1', payload: OLD }]);
+    await sweep.sweep();
+    expect(skips(0, 'owner-2')).toBe(false);
+  });
+
+  it('reads only this event, and leaves out messages that were never delivered', async () => {
+    const { sweep, prisma } = setup([report([BALCONY])]);
+    await sweep.sweep();
+    const where = prisma.notification.findMany.mock.calls[0][0].where;
+    expect(where.payload).toEqual({ path: ['eventId'], equals: 'e1' });
+    expect(where.status).toEqual({ not: 'CANCELLED' });
+    expect(where.type).toBe(NotificationType.EVENT_NOT_SELLABLE);
   });
 });
