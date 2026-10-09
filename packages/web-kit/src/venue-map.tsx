@@ -48,6 +48,16 @@ export interface VenueMapProps {
   formatPrice: (minor: number) => string;
   /** Highlighted while the seats for it are loading, so a tap feels like it did something. */
   pendingSectionId?: string | null;
+  /**
+   * The block whose seats are on screen next to the map, outlined so the customer can see where
+   * they are while they choose seats - and choose another block without leaving the page.
+   */
+  activeSectionId?: string | null;
+  /**
+   * Whether a narrow map also lists its blocks as buttons. On by default, because a block too small
+   * to tap must still be reachable; off where the same blocks are already a list elsewhere.
+   */
+  listWhenNarrow?: boolean;
 }
 
 /** Where a block stands on the "any left?" scale. Three states, because three is readable. */
@@ -72,6 +82,8 @@ export function VenueMap({
   onSelect,
   formatPrice,
   pendingSectionId,
+  activeSectionId,
+  listWhenNarrow = true,
 }: VenueMapProps) {
   /*
     Sections with no outline still have to be reachable.
@@ -140,10 +152,17 @@ export function VenueMap({
             <g key={section.id}>
               <polygon
                 points={toPoints(section.shape as VenuePoint[])}
-                strokeWidth={pendingSectionId === section.id ? 6 : 2}
+                strokeWidth={
+                  pendingSectionId === section.id || activeSectionId === section.id ? 6 : 2
+                }
                 className={`${FILL_CLASS[fill]} transition-all ${
                   soldOut ? 'cursor-not-allowed' : 'cursor-pointer'
-                }`}
+                } ${activeSectionId === section.id ? 'stroke-text-primary' : ''}`}
+                aria-pressed={
+                  soldOut || standingZone || activeSectionId === undefined
+                    ? undefined
+                    : activeSectionId === section.id
+                }
                 onClick={soldOut || standingZone ? undefined : () => onSelect(section.id)}
                 /*
                   Keyboard reachability on an SVG shape needs all of this: a role, a
@@ -204,7 +223,7 @@ export function VenueMap({
         <LegendSwatch className="bg-text-muted/20" label="Sold out" />
       </div>
 
-      {narrow && drawable.length > 0 ? (
+      {listWhenNarrow && narrow && drawable.length > 0 ? (
         <div data-testid="venue-map-list" className="space-y-2">
           <p className="text-caption text-text-muted">Or choose a block from the list:</p>
           <ul className="grid gap-2">
@@ -217,7 +236,14 @@ export function VenueMap({
                     type="button"
                     disabled={soldOut || standingZone}
                     onClick={() => onSelect(section.id)}
-                    className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-left text-sm text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-50"
+                    aria-pressed={
+                      activeSectionId === undefined ? undefined : activeSectionId === section.id
+                    }
+                    className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left text-sm text-text-primary transition-colors hover:bg-background-subtle disabled:opacity-50 ${
+                      activeSectionId === section.id
+                        ? 'border-action-primary bg-tint-primary'
+                        : 'border-border'
+                    }`}
                   >
                     <span className="font-medium">{section.name}</span>
                     <span className="text-text-secondary">
