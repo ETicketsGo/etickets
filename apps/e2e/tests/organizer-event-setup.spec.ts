@@ -41,9 +41,10 @@ test.describe('creating an event', () => {
   }) => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
-    const category = page.getByLabel('Category');
-    await expect(category).toBeVisible({ timeout: 30_000 });
-    await category.selectOption('Comedy');
+    // Asked first, as visible choices rather than a closed dropdown.
+    const kinds = page.getByRole('group', { name: 'What are you organizing?' });
+    await expect(kinds).toBeVisible({ timeout: 30_000 });
+    await kinds.getByRole('radio', { name: 'Comedy' }).check();
 
     /*
       "Something else…" stays, and reveals a text box. A list that cannot express what
@@ -51,7 +52,7 @@ test.describe('creating an event', () => {
       for browse than a new value typed on purpose.
     */
     await expect(page.getByLabel('Your category')).toBeHidden();
-    await category.selectOption('__other');
+    await kinds.getByRole('radio', { name: 'Something else' }).check();
     await expect(page.getByLabel('Your category')).toBeVisible();
   });
 
@@ -62,7 +63,7 @@ test.describe('creating an event', () => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Event title').fill('Community Open Day');
-    await page.getByLabel('Category').selectOption('Community');
+    await page.getByRole('radio', { name: 'Community' }).check();
 
     // `exact` because the Next.js dev-tools button in the corner also matches "Next".
     // Straight through venue and sessions - one "Where and when" step - to the money.
