@@ -3313,6 +3313,11 @@ export interface Screen extends ScreenBody {
   futureShowsRequiringAttention?: number;
   /** False until a seat layout is published. A screen without one cannot host a show. */
   hasSeatMap?: boolean;
+  /**
+   * Seats the published layout sells (aisles excluded); null without one. This - not
+   * `capacity`, the number typed when the screen was added - is the room's real size.
+   */
+  bookableSeats?: number | null;
 }
 
 export interface CinemaBody {
