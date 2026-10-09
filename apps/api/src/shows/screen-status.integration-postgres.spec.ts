@@ -188,6 +188,58 @@ describe('integration-real-postgres: screen operational status', () => {
       t,
     );
 
+  maybe(
+    'reports the seats the published layout sells, not the capacity typed at creation',
+    async () => {
+      /*
+      The "Capacity 50" screen: added as 50, given a bigger map, and still listed as 50.
+      Here a screen typed as 50 gets a published map of 3 seats and 1 aisle position; another
+      has only a DRAFT map, which sells nothing yet.
+    */
+      const d = db as Client;
+      const typed = await d.screen.create({
+        data: { cinemaId, name: 'Typed 50', screenType: '2D', capacity: 50 },
+      });
+      const map = await d.seatMap.create({ data: { screenId: typed.id, name: 'Real' } });
+      const cat = await d.seatCategory.create({
+        data: { seatMapId: map.id, name: 'Normal', basePriceMinor: 10000, sortOrder: 0 },
+      });
+      const sec = await d.seatSection.create({
+        data: { seatMapId: map.id, name: 'M', sortOrder: 0 },
+      });
+      const row = await d.seatRow.create({ data: { sectionId: sec.id, label: 'A', sortOrder: 0 } });
+      await d.seat.createMany({
+        data: ['SEAT', 'SEAT', 'GAP', 'WHEELCHAIR'].map((kind, i) => ({
+          seatMapId: map.id,
+          rowId: row.id,
+          seatCategoryId: cat.id,
+          label: String(i + 1),
+          colIndex: i + 1,
+          kind,
+        })),
+      });
+      const draftOnly = await d.screen.create({
+        data: { cinemaId, name: 'Draft only', screenType: '2D', capacity: 80 },
+      });
+      await d.seatMap.create({ data: { screenId: draftOnly.id, name: 'D', status: 'DRAFT' } });
+
+      const listed = (await cinemas.listScreens(ORGANIZER, cinemaId)) as {
+        id: string;
+        capacity: number;
+        hasSeatMap: boolean;
+        bookableSeats: number | null;
+      }[];
+      const byId = new Map(listed.map((s) => [s.id, s]));
+      expect(byId.get(typed.id)).toMatchObject({
+        capacity: 50,
+        hasSeatMap: true,
+        bookableSeats: 3,
+      });
+      expect(byId.get(draftOnly.id)).toMatchObject({ hasSeatMap: false, bookableSeats: null });
+      expect(byId.get(screenId)).toMatchObject({ hasSeatMap: true, bookableSeats: 2 });
+    },
+  );
+
   maybe('defaults to ACTIVE, so existing screens are unaffected by the migration', async () => {
     const screen = await (db as Client).screen.findUnique({ where: { id: screenId } });
     expect(screen.status).toBe('ACTIVE');

@@ -251,7 +251,7 @@ export class CinemasService {
       where: { cinemaId },
       orderBy: { createdAt: 'asc' },
     });
-    if (screens.length === 0) return screens;
+    if (screens.length === 0) return [];
 
     const counts = await this.prisma.eventSession.groupBy({
       by: ['screenId'],
@@ -275,17 +275,33 @@ export class CinemasService {
       One grouped query for the cinema, like the show counts above, rather than one per
       screen.
     */
-    const mapped = await this.prisma.seatMap.groupBy({
-      by: ['screenId'],
+    /*
+      And how many seats that layout actually sells.
+
+      `Screen.capacity` is the number typed when the screen was added. Generating a seat map
+      never changed it, so a screen added as "50" and given a 153-seat map still said
+      "Capacity 50" - two numbers for one room, and the wrong one in the list. The bookable
+      count comes from the published layout itself (aisle positions excluded, as everywhere
+      else), newest first if a screen somehow has more than one.
+    */
+    const published = await this.prisma.seatMap.findMany({
       where: { screenId: { in: screens.map((s) => s.id) }, status: 'PUBLISHED' },
-      _count: { _all: true },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        screenId: true,
+        _count: { select: { seats: { where: { kind: { not: 'GAP' } } } } },
+      },
     });
-    const hasMap = new Set(mapped.map((m) => m.screenId));
+    const bookable = new Map<string, number>();
+    for (const m of published) {
+      if (m.screenId && !bookable.has(m.screenId)) bookable.set(m.screenId, m._count.seats);
+    }
 
     return screens.map((s) => ({
       ...s,
       futureShowsRequiringAttention: byScreen.get(s.id) ?? 0,
-      hasSeatMap: hasMap.has(s.id),
+      hasSeatMap: bookable.has(s.id),
+      bookableSeats: bookable.get(s.id) ?? null,
     }));
   }
 
