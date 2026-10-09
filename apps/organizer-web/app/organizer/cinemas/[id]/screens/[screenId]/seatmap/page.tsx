@@ -637,8 +637,7 @@ export default function ScreenSeatMapPage() {
                     />
                     <span>
                       You asked for {capacity.requested} but this layout sells {capacity.bookable}.
-                      Adjust the rows or seats per row, or confirm that {capacity.bookable} seats is
-                      right.
+                      Change the room size, or confirm that {capacity.bookable} seats is right.
                     </span>
                   </label>
                 ) : null}
