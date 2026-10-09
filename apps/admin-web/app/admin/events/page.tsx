@@ -7,6 +7,7 @@ import { useState } from 'react';
 import {
   api,
   Badge,
+  ButtonLink,
   Card,
   DataTable,
   StatusBadge,
@@ -21,6 +22,7 @@ import {
   type Column,
   type AdminEventRow,
 } from '@eticketsgo/web-kit';
+import { CalendarRange } from 'lucide-react';
 import { CountryFilter, CountryLabel, useCountryParam } from '../../../components/country-filter';
 
 /**
@@ -45,6 +47,18 @@ const STATUSES = [
   'CANCELLED',
   'COMPLETED',
   'ARCHIVED',
+];
+
+/**
+ * The statuses a moderator moves between most, one press away. The full list stays in the
+ * dropdown; these are the three questions asked every day - what is waiting, what is live, what
+ * is half-built - plus the way back to everything.
+ */
+const QUICK: { value: string; label: string }[] = [
+  { value: 'UNDER_REVIEW', label: 'Waiting for review' },
+  { value: 'PUBLISHED', label: 'Published' },
+  { value: 'DRAFT', label: 'Drafts' },
+  { value: '', label: 'Every status' },
 ];
 
 /**
@@ -174,7 +188,34 @@ export default function AdminEventsPage() {
       <PageHeader
         title="Events"
         description="Everything on sale across the platform, and everything waiting on a decision."
+        action={
+          <ButtonLink href="/admin/calendar" variant="outline" size="sm">
+            <CalendarRange className="h-4 w-4" aria-hidden /> Calendar
+          </ButtonLink>
+        }
       />
+
+      <div role="radiogroup" aria-label="Quick status" className="flex flex-wrap gap-2">
+        {QUICK.map((qk) => (
+          <button
+            key={qk.label}
+            type="button"
+            role="radio"
+            aria-checked={status === qk.value}
+            onClick={() => {
+              setStatus(qk.value);
+              setPage(1);
+            }}
+            className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+              status === qk.value
+                ? 'border-action-primary bg-tint-primary text-action-primary'
+                : 'border-border text-text-secondary hover:bg-background-subtle'
+            }`}
+          >
+            {qk.label}
+          </button>
+        ))}
+      </div>
 
       <Card>
         <div className="grid gap-3 sm:grid-cols-[1fr_200px_200px]">

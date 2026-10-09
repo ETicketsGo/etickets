@@ -116,6 +116,10 @@ const ADMIN_ROUTES = [
     eight unrelated pages does not belong in the change that noticed them.
   */
   '/admin/disputes',
+  // The admin calendar (new), in each of its three views.
+  '/admin/calendar',
+  '/admin/calendar?view=week',
+  '/admin/calendar?view=agenda',
 ];
 
 /**
