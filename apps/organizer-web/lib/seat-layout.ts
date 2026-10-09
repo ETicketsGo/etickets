@@ -170,3 +170,78 @@ export function seatKindsFor(
   }
   return out;
 }
+
+/**
+ * The aisle box after a re-plan.
+ *
+ * ── THE BUG THIS FIXES ─────────────────────────────────────────────────────────────
+ * The suggested aisle was written only into an EMPTY box. Re-planning a section left the
+ * previous suggestion in place even when the new grid wanted its aisle elsewhere - or wanted
+ * none - so the preview counted the aisle column as seats: a request for 150 showed "153 seats
+ * to sell" in the planner and "162 bookable seats" under it. The organizer could not tell which
+ * number the room would actually sell.
+ *
+ * The rule now: a box still holding OUR last suggestion follows the new suggestion; a box the
+ * organizer typed into is theirs and is never overwritten.
+ */
+export function nextGapSeats(
+  current: string,
+  previousSuggestion: string,
+  newSuggestion: number | null,
+): string {
+  const typed = current.trim();
+  const ours = typed === '' || typed === previousSuggestion.trim();
+  if (!ours) return current;
+  return newSuggestion === null ? '' : String(newSuggestion);
+}
+
+export interface CapacitySummary {
+  /** What the organizer asked for in the planner, summed. Null when nothing was planned. */
+  requested: number | null;
+  /** Every position on the grid, seats and aisles alike. */
+  positions: number;
+  /** Aisle positions: drawn, never sold. */
+  aisles: number;
+  /** Wheelchair and companion places. Bookable, so also counted in `bookable`. */
+  accessible: number;
+  /** Seats a customer can actually buy. The number the room will sell. */
+  bookable: number;
+  /** True when what will be created is not what was asked for, so it must be confirmed. */
+  differsFromRequest: boolean;
+}
+
+/**
+ * One set of numbers for the whole room.
+ *
+ * Every figure the generator shows comes from here, derived from the draft that will actually
+ * be sent - never from the planner's own arithmetic - so the screen cannot say three different
+ * things about one room again.
+ */
+export function capacitySummary(
+  sections: SectionDraft[],
+  requestedPerSection: (number | null)[],
+): CapacitySummary {
+  let positions = 0;
+  let aisles = 0;
+  let accessible = 0;
+  let bookable = 0;
+  for (const section of sections) {
+    const p = previewSection(section);
+    positions += p.total;
+    aisles += p.gaps;
+    accessible += p.wheelchair + p.companion;
+    bookable += p.sellable;
+  }
+  const asked = requestedPerSection.filter(
+    (n): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0,
+  );
+  const requested = asked.length > 0 ? asked.reduce((a, b) => a + b, 0) : null;
+  return {
+    requested,
+    positions,
+    aisles,
+    accessible,
+    bookable,
+    differsFromRequest: requested !== null && requested !== bookable,
+  };
+}

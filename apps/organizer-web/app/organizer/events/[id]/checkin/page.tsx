@@ -396,17 +396,23 @@ function AttendeeLookup({ eventId, onReversed }: { eventId: string; onReversed: 
           {data.data.map((a) => (
             <li key={a.id} className="flex items-center justify-between py-2">
               <div>
-                <p className="text-text-primary">{a.holderName ?? a.serial}</p>
-                <p className="text-xs text-text-muted">{a.ticketType}</p>
+                <p className="text-text-primary">
+                  {a.attendeeName ?? a.buyerName ?? a.serial ?? a.reference}
+                </p>
+                <p className="text-xs text-text-muted">
+                  {a.ticketType}
+                  {a.seatLabel ? ` - seat ${a.seatLabel}` : ''}
+                </p>
               </div>
               <div className="flex items-center gap-2">
-                <StatusBadge status={a.status} />
-                {a.status === 'CHECKED_IN' && (
+                {/* The ticket's own status: what the door needs is "already in", not the order. */}
+                <StatusBadge status={a.ticketStatus ?? a.bookingStatus} />
+                {a.checkedIn && a.ticketId && (
                   <Button
                     variant="ghost"
-                    loading={reverse.isPending && reverse.variables === a.id}
+                    loading={reverse.isPending && reverse.variables === a.ticketId}
                     disabled={reverse.isPending}
-                    onClick={() => reverse.mutate(a.id)}
+                    onClick={() => reverse.mutate(a.ticketId!)}
                   >
                     Reverse
                   </Button>

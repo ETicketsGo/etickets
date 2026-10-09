@@ -90,9 +90,21 @@ test.describe('describing a room', () => {
     expect(promised).toBeGreaterThanOrEqual(100);
 
     // The live preview and the page footer must agree with it.
-    await expect(page.getByText(`${promised} bookable seats`).first()).toBeVisible();
-    // Two places say it, so both must be the same number — that is the whole assertion.
-    await expect(page.getByText(`${promised} bookable seats`)).toHaveCount(2);
+    await expect(page.getByText(`${promised} bookable seats`)).toHaveCount(1);
+    await expect(page.getByTestId('bookable-count')).toHaveText(String(promised));
+
+    /*
+      And never more seats than the organizer agreed to. A whole number of rows rarely lands
+      on exactly 100, so the real number has to be confirmed before the room is created.
+    */
+    const generate = page.getByRole('button', { name: 'Generate seat map' });
+    if (promised !== 100) {
+      await expect(generate).toBeDisabled();
+      await page
+        .getByRole('checkbox', { name: new RegExp(`confirm that ${promised} seats`) })
+        .check();
+    }
+    await expect(generate).toBeEnabled();
   });
 
   test('4: the exact fields are still there for anyone who wants them', async ({ page }) => {
@@ -102,7 +114,7 @@ test.describe('describing a room', () => {
     await page.getByLabel('About how many seats?').fill('100');
     // `<details>` opens on its summary; clicking the text inside it is not always the summary.
     await page.locator('summary', { hasText: 'Set it exactly' }).click();
-    await expect(page.getByLabel('Rows')).toBeVisible();
+    await expect(page.getByLabel('Rows', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Seats per row')).toBeVisible();
     await expect(page.getByLabel('Seats per row')).not.toHaveValue('');
   });

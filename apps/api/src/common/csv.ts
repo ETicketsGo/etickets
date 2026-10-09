@@ -20,3 +20,15 @@ export function toCsv(headers: string[], rows: CsvValue[][]): string {
   for (const row of rows) lines.push(row.map(csvCell).join(','));
   return lines.join('\r\n');
 }
+
+/**
+ * The UTF-8 byte-order mark. Excel opens a CSV without one in the machine's legacy code page,
+ * so an accented name, or one typed in Devanagari, arrives as mojibake. Written once,
+ * at the very start of a download, never per chunk.
+ */
+export const CSV_BOM = String.fromCharCode(0xfeff);
+
+/** One CRLF-terminated CSV line, for writers that stream a document a chunk at a time. */
+export function csvLine(row: CsvValue[]): string {
+  return `${row.map(csvCell).join(',')}\r\n`;
+}

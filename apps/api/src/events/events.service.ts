@@ -652,61 +652,6 @@ export class EventsService {
     };
   }
 
-  /** Organizer view of attendees (issued tickets) for an event. */
-  async attendees(
-    user: RequestUser,
-    eventId: string,
-    params: { page: number; pageSize: number; status?: string; q?: string; sessionId?: string },
-  ) {
-    await this.loadOwnedEvent(user, eventId);
-    const where = {
-      eventSession: { eventId },
-      ...(params.sessionId ? { eventSessionId: params.sessionId } : {}),
-      ...(params.status ? { status: params.status as never } : {}),
-      ...(params.q
-        ? {
-            OR: [
-              { holderName: { contains: params.q, mode: 'insensitive' as const } },
-              { holderEmail: { contains: params.q, mode: 'insensitive' as const } },
-              { serial: { contains: params.q, mode: 'insensitive' as const } },
-            ],
-          }
-        : {}),
-    };
-    const [total, tickets] = await this.prisma.$transaction([
-      this.prisma.ticket.count({ where }),
-      this.prisma.ticket.findMany({
-        where,
-        skip: (params.page - 1) * params.pageSize,
-        take: params.pageSize,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          ticketType: { select: { name: true } },
-          eventSession: { select: { startsAt: true } },
-          checkIns: {
-            where: { result: 'SUCCESS', reversed: false },
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: { createdAt: true },
-          },
-        },
-      }),
-    ]);
-    return {
-      data: tickets.map((t) => ({
-        id: t.id,
-        serial: t.serial,
-        status: t.status,
-        holderName: t.holderName,
-        holderEmail: t.holderEmail,
-        ticketType: t.ticketType.name,
-        sessionStartsAt: t.eventSession.startsAt,
-        checkedInAt: t.checkIns[0]?.createdAt ?? null,
-      })),
-      meta: paginate(params.page, params.pageSize, total),
-    };
-  }
-
   /**
    * The rooms an event could be seated in.
    *

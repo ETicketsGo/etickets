@@ -114,7 +114,8 @@ export default function OrganizerEvents() {
       header: 'Created',
       sortable: true,
       sortValue: (e) => e.createdAt,
-      render: (e) => dateOnly(e.createdAt),
+      // One line: "9 Oct" over "2026" read as two values in a column of dates.
+      render: (e) => <span className="whitespace-nowrap">{dateOnly(e.createdAt)}</span>,
     },
     {
       key: 'actions',

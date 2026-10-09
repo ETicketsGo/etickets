@@ -108,8 +108,8 @@ test.describe('creating an event with assigned seating', () => {
     await page.getByLabel('Category').selectOption('Music');
     // `exact` because the Next.js dev-tools button in the corner also matches "Next".
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+    // Venue and sessions are one "Where and when" step.
     await page.getByLabel('Venue').selectOption(room.venueId);
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
 
     await page.locator('#ss0').fill(dayAfter(120));
     await page.locator('#ss0-time').selectOption('18:00');
@@ -139,6 +139,7 @@ test.describe('creating an event with assigned seating', () => {
     await expect(page.getByText('Ticket types come from the seat map')).toBeVisible();
     await expect(page.locator('#tn0')).toHaveCount(0);
 
+    await page.getByRole('button', { name: 'Next', exact: true }).click(); // image and details - nothing required
     await page.getByRole('button', { name: 'Next', exact: true }).click(); // review
 
     // Named, not counted: booking a run into the wrong auditorium is what this page catches.
@@ -177,8 +178,8 @@ test.describe('creating an event with assigned seating', () => {
     await page.getByLabel('Event title').fill(`Wizard Standing ${Date.now()}`);
     await page.getByLabel('Category').selectOption('Music');
     await page.getByRole('button', { name: 'Next', exact: true }).click();
+    // Venue and sessions are one "Where and when" step.
     await page.getByLabel('Venue').selectOption(room.venueId);
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.locator('#ss0').fill(dayAfter(121));
     await page.locator('#ss0-time').selectOption('18:00');
     await page.locator('#se0').fill(dayAfter(121));

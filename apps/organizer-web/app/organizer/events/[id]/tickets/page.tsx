@@ -173,7 +173,7 @@ export default function TicketsTab() {
                         <span className="font-medium text-text-primary">{t.name}</span>
                         {t.status !== 'ACTIVE' && <StatusBadge status={t.status} />}
                       </span>
-                      <span className="flex items-center gap-3">
+                      <span className="flex flex-wrap items-center gap-3">
                         <span className="text-text-secondary">
                           {/* The ticket's OWN currency, not the event's: an older ticket
                               type may predate a venue change and is still priced in what it
@@ -182,7 +182,7 @@ export default function TicketsTab() {
                           {t.inventory?.quantitySold ?? 0} · held {t.inventory?.quantityHeld ?? 0} /{' '}
                           {t.quantityTotal}
                         </span>
-                        <span className="flex gap-1.5">
+                        <span className="flex flex-wrap gap-1.5">
                           <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
                             Edit
                           </Button>

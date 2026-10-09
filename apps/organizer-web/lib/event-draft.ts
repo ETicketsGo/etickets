@@ -51,8 +51,12 @@ export interface EventDraftEnvelope<T> {
  * `committed` in the wizard), so browsers that created an event are holding a draft of an
  * event that already exists. Raising the version discards those once, rather than offering
  * each organizer a finished event back at the Review step.
+ *
+ * 3: the wizard's steps were regrouped (venue and sessions became one "Where and when" step,
+ * images and details moved to their own). A saved step NUMBER from version 2 now points at a
+ * different step, so those drafts would reopen on the wrong page of questions.
  */
-export const EVENT_DRAFT_VERSION = 2;
+export const EVENT_DRAFT_VERSION = 3;
 
 export function saveEventDraft<T>(organizationId: string, data: T): void {
   try {

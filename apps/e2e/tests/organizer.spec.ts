@@ -14,30 +14,13 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   // A dropdown now, not a text box: browse builds its category list with `distinct`
   // over this column, so every typo an organizer typed became its own row on the front page.
   await page.getByLabel('Category').selectOption('Music');
-  /*
-    Images, as an organizer adds them — two at once. The picker resizes each in the browser
-    before it is ever sent, so a one-pixel PNG goes up as a JPEG, which is what the API is
-    asserted to store. The first is the cover.
-  */
-  const pixel = (name: string) => ({
-    name,
-    mimeType: 'image/png',
-    buffer: Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-      'base64',
-    ),
-  });
-  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('venue.png')]);
-  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
-  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
-  // Step 2 — venue (pick the first existing venue)
+  // Step 2 — where and when: the venue (the first existing one) and the sessions, together
   await page.getByLabel('Venue').selectOption({ index: 1 });
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   /*
-    Step 3 — sessions.
+    The sessions, on the same step.
 
     Date and time are now two controls under one "Starts at" legend, not a single
     datetime-local. Driven by id rather than by label because both fieldsets contain a
@@ -69,11 +52,30 @@ test('organizer logs in and creates + submits an event via the wizard', async ({
   ).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
-  // Step 4 — ticket types (defaults are prefilled)
+  // Step 3 — tickets and pricing (defaults are prefilled)
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+  // Step 4 — image and details
+  /*
+    Images, as an organizer adds them — two at once. The picker resizes each in the browser
+    before it is ever sent, so a one-pixel PNG goes up as a JPEG, which is what the API is
+    asserted to store. The first is the cover.
+  */
+  const pixel = (name: string) => ({
+    name,
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  });
+  await page.getByLabel('Event images').setInputFiles([pixel('poster.png'), pixel('venue.png')]);
+  await expect(page.getByRole('img', { name: /^Event image \d of 2/ })).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Event image 1 of 2, the cover' })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
 
   /*
-    Step 5 — review & submit.
+    Step 5 — review and create.
 
     There is no longer a "Fee handling" step. It was one dropdown with the right default
     already selected, standing between an organizer and their first published event; the

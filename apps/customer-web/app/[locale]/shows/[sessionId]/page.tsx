@@ -138,7 +138,7 @@ export default function SeatSelectionPage() {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   /* Buying without an account. False for a signed-in customer, so their screen is unchanged. */
-  const guest = useGuestBuyer();
+  const guest = useGuestBuyer(user);
 
   /*
     ── SEATS THAT SURVIVE A TRIP TO THE SIGN-IN PAGE ─────────────────────────────────
@@ -408,6 +408,18 @@ export default function SeatSelectionPage() {
         return startGuestBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
       }
       const me = await api.me();
+      /*
+        A signed-in account with no email address (a phone sign-in) buys with the name and
+        email it just gave. The name is saved to the profile, as the profile page would; the
+        email is used for these tickets and this receipt only - it is not written to the account
+        as if it had been verified. The server refuses a placeholder address either way.
+      */
+      if (guest.needsContact || !me.email || !me.fullName?.trim()) {
+        const buyer = guest.validate();
+        if (!buyer) throw new Error('details');
+        if (!me.fullName?.trim()) await api.updateProfile(buyer.name).catch(() => undefined);
+        return api.createBooking({ ...order, buyerName: buyer.name, buyerEmail: buyer.email });
+      }
       return api.createBooking({ ...order, buyerName: me.fullName, buyerEmail: me.email });
     },
     onSuccess: (booking) => {
@@ -451,7 +463,7 @@ export default function SeatSelectionPage() {
    * screen and the form it is complaining about may be well above it.
    */
   const startBooking = () => {
-    if (guest.asGuest && !guest.validate()) return;
+    if ((guest.asGuest || guest.needsContact) && !guest.validate()) return;
     book.mutate();
   };
 
@@ -768,7 +780,9 @@ export default function SeatSelectionPage() {
               Name and email, for somebody with no account. Only once there is something to
               buy: an empty map does not need to ask who the buyer is.
             */}
-            {guest.asGuest && selected.length > 0 && <GuestBuyerFields state={guest} />}
+            {(guest.asGuest || guest.needsContact) && selected.length > 0 && (
+              <GuestBuyerFields state={guest} variant={guest.asGuest ? 'guest' : 'account'} />
+            )}
 
             {/* On phones the pay button lives in the bar at the bottom of the screen. */}
             <div className="mt-4 hidden lg:block">

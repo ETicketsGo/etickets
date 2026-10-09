@@ -66,6 +66,7 @@ export function AppShell({
   nav,
   workspace,
   headerAccessory,
+  width = 'contained',
   children,
 }: {
   brand: string;
@@ -74,6 +75,19 @@ export function AppShell({
   workspace?: { name: string; logoUrl?: string | null };
   /** Rendered beside the user menu — a theme switch, an org switcher. */
   headerAccessory?: ReactNode;
+  /**
+   * How the frame uses a wide screen.
+   *
+   * 'contained' (the default, and what admin keeps) centres sidebar and content together in
+   * a 1280px column. 'fluid' pins the sidebar to the left edge and lets the content take the
+   * rest, up to 1536px: an organizer's tables and seat maps were wrapping event names onto
+   * three lines at 1440 while 160px of empty canvas sat either side of the frame.
+   *
+   * It is a ceiling, not a target. Each page still decides its own measure - a form or a
+   * page of prose keeps a readable width inside it - so this only stops the FRAME from
+   * being the thing that squeezes a table.
+   */
+  width?: 'contained' | 'fluid';
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -277,7 +291,9 @@ export function AppShell({
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 lg:px-6">
+      <div
+        className={`flex gap-8 px-4 py-8 lg:px-6 ${width === 'fluid' ? '' : 'mx-auto max-w-7xl'}`}
+      >
         <aside className="hidden w-56 shrink-0 lg:block">
           <div className="sticky top-24">
             <NavLinks />
@@ -307,7 +323,9 @@ export function AppShell({
           )}
         </AnimatePresence>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className={`min-w-0 flex-1 ${width === 'fluid' ? 'max-w-screen-2xl' : ''}`}>
+          {children}
+        </main>
       </div>
     </div>
   );

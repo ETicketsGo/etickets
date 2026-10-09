@@ -169,6 +169,9 @@ function OrganizerChrome({ children }: { children: React.ReactNode }) {
       nav={nav}
       workspace={{ name: workspace.name, logoUrl: workspace.logoUrl }}
       headerAccessory={<ColorSchemeSwitch />}
+      // Organizer pages are tables, schedules and seat maps; the frame should not be what
+      // squeezes them. Forms and prose keep their own measure inside it - see AppShell.
+      width="fluid"
     >
       <WorkspaceTheme />
       <OrgProvider>
