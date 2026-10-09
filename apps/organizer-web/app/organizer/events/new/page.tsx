@@ -636,39 +636,64 @@ function NewEventWizard() {
 
         {current.id === 'basics' && (
           <div className="space-y-4">
-            <Input
-              id="title"
-              label="Event title"
-              autoFocus
-              required
-              value={basics.title}
-              onChange={(e) => setBasics({ ...basics, title: e.target.value })}
-              error={fieldErrors.title}
-            />
-            <Select
-              id="category"
-              label="Category"
-              required
-              value={categoryMode === 'other' ? '__other' : basics.category}
-              error={categoryMode === 'list' ? fieldErrors.category : undefined}
-              onChange={(e) => {
-                if (e.target.value === '__other') {
-                  setCategoryMode('other');
-                  setBasics((b) => ({ ...b, category: '' }));
-                } else {
-                  setCategoryMode('list');
-                  setBasics((b) => ({ ...b, category: e.target.value }));
-                }
-              }}
-            >
-              <option value="">Select a category…</option>
-              {EVENT_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-              <option value="__other">Something else…</option>
-            </Select>
+            {/*
+              The first question is what kind of event this is, asked as a set of choices
+              rather than a dropdown: a first-time organizer recognises their event in a list
+              they can see, where a closed select hides the options until it is opened.
+              Radios underneath, so it is one tab stop with arrow keys, like any radio group.
+            */}
+            <fieldset>
+              <legend className="mb-2 text-[0.9375rem] font-medium text-text-primary">
+                What are you organizing?
+              </legend>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {[...EVENT_CATEGORIES, '__other'].map((c, i) => {
+                  const checked =
+                    c === '__other'
+                      ? categoryMode === 'other'
+                      : categoryMode === 'list' && basics.category === c;
+                  return (
+                    <label
+                      key={c}
+                      className={`relative flex cursor-pointer items-center justify-center rounded-md border px-3 py-2.5 text-center text-sm font-medium transition-colors focus-within:ring-2 focus-within:ring-ring/50 ${
+                        checked
+                          ? 'border-action-primary bg-tint-primary text-text-primary'
+                          : 'border-border text-text-secondary hover:bg-background-subtle'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="category"
+                        // The first option carries the id, so "fix this field" focuses the group.
+                        id={i === 0 ? 'category' : undefined}
+                        className="absolute inset-0 m-0 cursor-pointer appearance-none rounded-md opacity-0"
+                        value={c}
+                        checked={checked}
+                        aria-invalid={
+                          categoryMode === 'list' && fieldErrors.category ? true : undefined
+                        }
+                        onChange={() => {
+                          if (c === '__other') {
+                            setCategoryMode('other');
+                            setBasics((b) => ({ ...b, category: '' }));
+                          } else {
+                            setCategoryMode('list');
+                            setBasics((b) => ({ ...b, category: c }));
+                          }
+                        }}
+                      />
+                      {c === '__other' ? 'Something else' : c}
+                    </label>
+                  );
+                })}
+              </div>
+              {categoryMode === 'list' && fieldErrors.category ? (
+                <p role="alert" className="mt-1.5 text-caption text-status-error">
+                  {fieldErrors.category}
+                </p>
+              ) : null}
+            </fieldset>
+
             {categoryMode === 'other' && (
               <Input
                 id="category-other"
@@ -681,6 +706,14 @@ function NewEventWizard() {
                 error={fieldErrors.category}
               />
             )}
+            <Input
+              id="title"
+              label="Event title"
+              required
+              value={basics.title}
+              onChange={(e) => setBasics({ ...basics, title: e.target.value })}
+              error={fieldErrors.title}
+            />
             <Textarea
               id="desc"
               label="Description"

@@ -169,7 +169,7 @@ test.describe('QA: picking a date and a time', () => {
     await page.getByLabel('Event title').fill(title);
     // A dropdown now, not a text box: browse builds its category list with `distinct`
     // over this column, so every typo an organizer typed became its own row on the front page.
-    await page.getByLabel('Category').selectOption('Music');
+    await page.getByRole('radio', { name: 'Music' }).check();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     // Venue and sessions are one "Where and when" step: the session fields are already here.
     await page.getByLabel('Venue').selectOption({ index: 1 });

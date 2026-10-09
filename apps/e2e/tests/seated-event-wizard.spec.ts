@@ -105,7 +105,7 @@ test.describe('creating an event with assigned seating', () => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Event title').fill(`Wizard Seated ${Date.now()}`);
-    await page.getByLabel('Category').selectOption('Music');
+    await page.getByRole('radio', { name: 'Music' }).check();
     // `exact` because the Next.js dev-tools button in the corner also matches "Next".
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     // Venue and sessions are one "Where and when" step.
@@ -176,7 +176,7 @@ test.describe('creating an event with assigned seating', () => {
     await page.goto(`${ORGANIZER}/organizer/events/new`, { waitUntil: 'networkidle' });
 
     await page.getByLabel('Event title').fill(`Wizard Standing ${Date.now()}`);
-    await page.getByLabel('Category').selectOption('Music');
+    await page.getByRole('radio', { name: 'Music' }).check();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     // Venue and sessions are one "Where and when" step.
     await page.getByLabel('Venue').selectOption(room.venueId);
