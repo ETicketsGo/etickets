@@ -76,7 +76,7 @@ test.describe('a space takes its location from its venue', () => {
     */
     for (const path of ['/organizer/venues', '/organizer/cinemas', '/organizer/cinemas/new']) {
       await page.goto(`${ORGANIZER}${path}`);
-      await expect(page.getByRole('link', { name: 'Venues & spaces' }).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Venues & seating' }).first()).toBeVisible();
       const body = await page.locator('body').innerText();
       expect(body, `${path} still says "room" to the organizer`).not.toMatch(/\brooms?\b/i);
     }

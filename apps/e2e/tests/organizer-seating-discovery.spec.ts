@@ -66,7 +66,7 @@ test.describe('finding reserved seating from a standing start', () => {
       them. They are now one entry, labelled with the platform's word for the thing, because that is the
       word that made seat maps findable at all.
     */
-    const rooms = page.getByRole('link', { name: 'Venues & spaces' });
+    const rooms = page.getByRole('link', { name: 'Venues & seating' });
     await expect(rooms).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('link', { name: 'Cinemas', exact: true })).toHaveCount(0);
     // The split itself is what regressed last time; assert there is exactly one way in.

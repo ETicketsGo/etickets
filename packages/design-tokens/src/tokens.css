@@ -192,3 +192,43 @@
   --shadow-md: 0 6px 16px -6px rgb(0 0 0 / 0.5);
   --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.6);
 }
+
+/*
+  ── THE CONSOLE ACCENT ─────────────────────────────────────────────────────────────
+  The organizer and admin consoles are tools somebody works in all day; the storefront is a
+  shop window. They were one blue, which made the console read as the storefront's back
+  room rather than as a product of its own. The consoles now carry a restrained teal, and the
+  storefront keeps its blue untouched.
+
+  ── HOW IT IS SCOPED ───────────────────────────────────────────────────────────────
+  By an attribute the consoles put on <html> in their root layout (`data-console`). The
+  customer app never sets it, so this block matches nothing there and the storefront renders
+  exactly as it did - that is the whole guarantee, and it does not depend on import order.
+
+  `:not([data-accent])` because an organization that has chosen its own palette in Settings
+  (themes.css) has made a decision, and the console default must not override it. Without it
+  this selector, being more specific than `[data-accent='violet']`, would quietly win.
+
+  `:root.dark[...]` for dark mode, more specific again than the light block so it is not
+  overridden by it. The same family as an accent theme - primary, hover, label, tint, ring -
+  and nothing else: surfaces, text and the status semantics are shared with the storefront.
+  `--status-info` deliberately stays blue, so "info" still reads as a different thing from
+  "this is the thing you can press".
+
+  `token-contrast.test.ts` reads both blocks and holds them to the same pairs as a theme.
+*/
+:root[data-console]:not([data-accent]) {
+  --action-primary: 172 72% 26%; /* #137265 - 5.80:1 under white */
+  --action-primary-hover: 172 72% 21%;
+  --action-primary-foreground: 0 0% 100%;
+  --tint-primary: 172 45% 95%; /* #EDF8F6 */
+  --ring: 172 72% 26%;
+}
+
+:root.dark[data-console]:not([data-accent]) {
+  --action-primary: 172 62% 44%; /* #2BB6A3 - not neon: 62% saturation on the dark canvas */
+  --action-primary-hover: 172 62% 50%;
+  --action-primary-foreground: 224 32% 7%;
+  --tint-primary: 172 30% 16%; /* #1D3532 */
+  --ring: 172 62% 44%;
+}

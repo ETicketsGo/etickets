@@ -130,8 +130,10 @@ export const fontFamily = {
  * Accent palettes an organizer can choose for their workspace.
  *
  * The key is written to `[data-accent]` on the document element and matched by `themes.css`.
- * `null` is the platform blue defined in `tokens.css` — an organization that has chosen
- * nothing carries no attribute, so nothing about its rendering changes.
+ * `null` is the console teal defined in `tokens.css` (the `data-console` block) - an
+ * organization that has chosen nothing carries no attribute and gets the console default.
+ * 'default' is labelled teal because that is what it renders in the console, which is the
+ * only place this picker exists. The storefront keeps its blue whatever is chosen here.
  *
  * A theme changes the ACCENT FAMILY only: the primary action colour, its hover, the tint
  * behind pills, the focus ring and the informational pair. Surfaces, body text and the
@@ -140,7 +142,7 @@ export const fontFamily = {
  * `token-contrast.test.ts`.
  */
 export const ACCENT_THEMES = [
-  { key: 'default', label: 'ETicketsGo blue', swatch: '#1A5CEA' },
+  { key: 'default', label: 'ETicketsGo teal', swatch: '#137265' },
   { key: 'violet', label: 'Violet', swatch: '#7A4EE0' },
   { key: 'emerald', label: 'Emerald', swatch: '#127A5C' },
   { key: 'amber', label: 'Amber', swatch: '#A35B0A' },
