@@ -12,7 +12,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    // `data-console` gives the operator consoles their teal accent; see tokens.css. The
+    // storefront never sets it, which is what keeps its blue unchanged.
+    <html lang="en" className={inter.variable} data-console="" suppressHydrationWarning>
       <head>
         {/*
           The same blocking script the organizer console runs, so a dark-mode choice is applied

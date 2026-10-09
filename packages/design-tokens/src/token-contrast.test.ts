@@ -29,6 +29,10 @@ import { describe, expect, it } from 'vitest';
  */
 const CSS = readFileSync(resolve(__dirname, 'tokens.css'), 'utf8');
 
+/** The console scope's selectors, exactly as tokens.css writes them. See the console block. */
+const CONSOLE_LIGHT = ':root[data-console]:not([data-accent]) {';
+const CONSOLE_DARK = ':root.dark[data-console]:not([data-accent]) {';
+
 /** WCAG 2.1 AA for normal-size text. Large text is 3:1; nothing here relies on that. */
 const AA_NORMAL = 4.5;
 /** WCAG 2.1 SC 1.4.11 — a control has to be distinguishable from what surrounds it. */
@@ -92,7 +96,12 @@ function contrast(a: Rgb, b: Rgb): number {
 function themeBlocks(): { light: string; dark: string } {
   const i = CSS.indexOf('.dark {');
   expect(i, 'tokens.css has no .dark block').toBeGreaterThan(0);
-  return { light: CSS.slice(0, i), dark: CSS.slice(i) };
+  /*
+    The dark block ends where the console scope begins. Those blocks redefine the accent
+    family too, and a dark slice that ran to the end of the file would contain both.
+  */
+  const end = CSS.indexOf(CONSOLE_LIGHT);
+  return { light: CSS.slice(0, i), dark: CSS.slice(i, end > i ? end : undefined) };
 }
 
 /** Every pair a component is allowed to render, as foreground-on-background. */
@@ -293,4 +302,66 @@ describe('the tint tokens exist in both themes', () => {
       expect(dark, `--${name} missing from .dark`).toContain(`--${name}:`);
     },
   );
+});
+
+/**
+ * The console accent - organizer and admin only - held to the same pairs as a theme.
+ *
+ * It is the colour every organizer who has not picked a palette works in all day, so it is
+ * the accent most worth checking. Its surfaces are the shared ones in `tokens.css`, because
+ * the console scope changes the accent family and nothing else.
+ */
+function consoleBlock(mode: 'light' | 'dark'): string {
+  const selector = mode === 'dark' ? CONSOLE_DARK : CONSOLE_LIGHT;
+  const at = CSS.indexOf(selector);
+  expect(at, `tokens.css has no ${mode} console block`).toBeGreaterThan(0);
+  const from = at + selector.length;
+  return CSS.slice(from, CSS.indexOf('}', from));
+}
+
+/** `--status-info` is not part of the console scope; it stays the shared blue on purpose. */
+const CONSOLE_PAIRS = ACCENT_PAIRS.filter((p) => p.fg !== 'status-info');
+
+describe.each(['light', 'dark'] as const)('console accent, %s mode, clears WCAG AA', (mode) => {
+  const block = consoleBlock(mode);
+  const surfaces = themeBlocks()[mode];
+
+  it.each(CONSOLE_PAIRS)('$what - $fg on $bg', ({ fg, bg }) => {
+    const ratio = contrast(readToken(block, fg), readToken(block, bg));
+    expect(
+      Number(ratio.toFixed(2)),
+      `console ${mode}: --${fg} on --${bg} is ${ratio.toFixed(2)}:1, below ${AA_NORMAL}:1`,
+    ).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+
+  /*
+    The accent is also TEXT straight on a surface - a link, the active nav label, a number in
+    a stat card - so it has to clear 4.5:1 there, not just the 3:1 a control boundary needs.
+  */
+  it.each(['background-canvas', 'background-surface', 'background-subtle'])(
+    'accent text on %s',
+    (behind) => {
+      const ratio = contrast(readToken(block, 'action-primary'), readToken(surfaces, behind));
+      expect(
+        Number(ratio.toFixed(2)),
+        `console ${mode}: --action-primary on --${behind} is ${ratio.toFixed(2)}:1, below ${AA_NORMAL}:1`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    },
+  );
+
+  it.each(['background-canvas', 'background-surface'])('the focus ring on %s', (behind) => {
+    const ratio = contrast(readToken(block, 'ring'), readToken(surfaces, behind));
+    expect(
+      Number(ratio.toFixed(2)),
+      `console ${mode}: --ring against --${behind} is ${ratio.toFixed(2)}:1, below ${AA_NON_TEXT}:1`,
+    ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it('changes the accent family only, never a token the storefront shares', () => {
+    for (const shared of ['background-', 'text-', 'border-', 'status-', 'action-danger']) {
+      expect(block, `console block redefines a shared --${shared}* token`).not.toContain(
+        `--${shared}`,
+      );
+    }
+  });
 });
